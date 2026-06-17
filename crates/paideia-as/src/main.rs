@@ -33,9 +33,9 @@ fn main() {
     match cli.command {
         Cmd::Build { .. } => eprintln!("paideia-as build: stub (phase 1)"),
         Cmd::Check { .. } => eprintln!("paideia-as check: stub (phase 1)"),
-        Cmd::Lint  { .. } => eprintln!("paideia-as lint: stub (phase 1)"),
-        Cmd::Emit  { .. } => eprintln!("paideia-as emit: stub (phase 1)"),
+        Cmd::Lint { .. } => eprintln!("paideia-as lint: stub (phase 1)"),
+        Cmd::Emit { .. } => eprintln!("paideia-as emit: stub (phase 1)"),
         Cmd::Audit { .. } => eprintln!("paideia-as audit: stub (phase 1)"),
-        Cmd::Doc   { .. } => eprintln!("paideia-as doc: stub (phase 1)"),
+        Cmd::Doc { .. } => eprintln!("paideia-as doc: stub (phase 1)"),
     }
 }
