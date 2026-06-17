@@ -960,6 +960,10 @@ dependencies = [
 [[package]]
 name = "paideia-as-ast"
 version = "0.0.1"
+dependencies = [
+ "paideia-as-diagnostics",
+ "static_assertions",
+]
 
 [[package]]
 name = "paideia-as-diagnostics"
