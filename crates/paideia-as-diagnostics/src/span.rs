@@ -1,10 +1,11 @@
 use core::num::NonZeroU32;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// A stable file identifier assigned by the source map.
 ///
 /// Uniquely identifies a source file within a diagnostic context.
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd, Debug, Serialize, Deserialize)]
 pub struct FileId(NonZeroU32);
 
 impl FileId {
@@ -31,7 +32,7 @@ impl fmt::Display for FileId {
 ///
 /// Spans record the file identifier and the byte position (start and length).
 /// All byte offsets are 0-based; byte_len is the count of bytes.
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Serialize, Deserialize)]
 #[repr(C)]
 pub struct Span {
     file: FileId,
