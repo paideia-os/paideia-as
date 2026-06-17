@@ -10,6 +10,7 @@ mod builder;
 mod catalog;
 mod code;
 mod diagnostic;
+mod render_human;
 mod source_map;
 mod span;
 
@@ -17,5 +18,6 @@ pub use builder::DiagnosticBuilder;
 pub use catalog::{Catalog, CatalogEntry, CatalogError};
 pub use code::{Category, CodeParseError, DiagnosticCode, Severity};
 pub use diagnostic::{Diagnostic, SecondarySpan, SuggestedFix};
+pub use render_human::HumanRenderer;
 pub use source_map::{LineCol, SourceMap};
 pub use span::{FileId, Span};

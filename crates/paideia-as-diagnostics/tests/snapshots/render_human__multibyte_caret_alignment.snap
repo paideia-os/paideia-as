@@ -1,0 +1,11 @@
+---
+source: crates/paideia-as-diagnostics/tests/render_human.rs
+assertion_line: 66
+expression: rendered
+---
+error[E0001]: bad input
+
+  --> test.pdx:1:5
+   |
+ 1 | a家b cde
+   |     ^^^

@@ -1,0 +1,6 @@
+---
+source: crates/paideia-as-diagnostics/tests/render_human.rs
+assertion_line: 110
+expression: rendered
+---
+error[E0001]: missing primary
