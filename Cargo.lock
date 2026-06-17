@@ -1008,6 +1008,7 @@ name = "paideia-as-lexer"
 version = "0.0.1"
 dependencies = [
  "paideia-as-diagnostics",
+ "static_assertions",
 ]
 
 [[package]]
