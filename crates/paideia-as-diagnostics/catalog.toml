@@ -1,0 +1,165 @@
+[catalog]
+version = "0.1.0"
+last_updated = "2026-06-17"
+
+[diagnostic.E0001]
+severity = "error"
+category = "lexer"
+title = "Source file is not valid UTF-8"
+brief = "encoding error (not UTF-8)"
+description = "PaideiaOS source files must be UTF-8 encoded. The file's bytes do not form valid UTF-8 at the position indicated."
+since = "0.1.0"
+deprecated = false
+
+[diagnostic.E0002]
+severity = "error"
+category = "lexer"
+title = "Line ending error: lone CR found"
+brief = "line-ending error (lone CR)"
+description = "Source files must use LF (Unix) or CRLF (Windows) line endings. Lone CR characters are not permitted."
+since = "0.1.0"
+deprecated = false
+
+[diagnostic.E0003]
+severity = "error"
+category = "lexer"
+title = "Invisible character forbidden"
+brief = "invisible character forbidden (ZWSP, etc.)"
+description = "Zero-width spaces and other invisible Unicode characters are not permitted in source code as they can introduce subtle bugs."
+since = "0.1.0"
+deprecated = false
+
+[diagnostic.E0004]
+severity = "error"
+category = "lexer"
+title = "Unterminated string literal"
+brief = "unterminated string literal"
+description = "A string literal was opened but not closed before end of line or end of file."
+since = "0.1.0"
+deprecated = false
+
+[diagnostic.E0005]
+severity = "error"
+category = "lexer"
+title = "Unterminated block comment"
+brief = "unterminated block comment"
+description = "A block comment (/* ... */) was opened but never closed."
+since = "0.1.0"
+deprecated = false
+
+[diagnostic.E0006]
+severity = "error"
+category = "lexer"
+title = "Invalid number literal"
+brief = "invalid number literal (bad digits, out of range)"
+description = "A numeric literal contains invalid digits for its radix, or the resulting value exceeds the target type's range."
+since = "0.1.0"
+deprecated = false
+
+[diagnostic.E0007]
+severity = "error"
+category = "lexer"
+title = "Invalid character literal"
+brief = "invalid character literal (more than one codepoint, bad escape)"
+description = "A character literal must contain exactly one Unicode codepoint and use valid escape sequences."
+since = "0.1.0"
+deprecated = false
+
+[diagnostic.E0008]
+severity = "error"
+category = "lexer"
+title = "Invalid escape in string literal"
+brief = "invalid escape in string literal"
+description = "A string literal contains an invalid or malformed escape sequence."
+since = "0.1.0"
+deprecated = false
+
+[diagnostic.E0009]
+severity = "error"
+category = "lexer"
+title = "Invalid raw-string delimiter"
+brief = "invalid raw-string delimiter"
+description = "Raw string delimiters must follow the correct syntax (e.g., r#\"...\"# with matching hash counts)."
+since = "0.1.0"
+deprecated = false
+
+[diagnostic.E0010]
+severity = "error"
+category = "lexer"
+title = "Unicode operator used in ASCII-only mode"
+brief = "unicode operator used in ASCII-only mode"
+description = "Unicode operators are not permitted when the file or context is restricted to ASCII-only identifiers and operators."
+since = "0.1.0"
+deprecated = false
+
+[diagnostic.E0011]
+severity = "error"
+category = "lexer"
+title = "Reserved word used as identifier"
+brief = "reserved-word used as identifier"
+description = "A language keyword or reserved word cannot be used as an identifier without quoting."
+since = "0.1.0"
+deprecated = false
+
+[diagnostic.E0012]
+severity = "error"
+category = "lexer"
+title = "Identifier starts with invalid character"
+brief = "identifier starts with a digit or other invalid character"
+description = "Identifiers must start with a letter or underscore, not a digit or other symbol."
+since = "0.1.0"
+deprecated = false
+
+[diagnostic.E0013]
+severity = "error"
+category = "lexer"
+title = "Maximum file size exceeded"
+brief = "maximum file size exceeded"
+description = "The source file exceeds the maximum permitted size (typically to prevent resource exhaustion)."
+since = "0.1.0"
+deprecated = false
+
+[diagnostic.E0014]
+severity = "error"
+category = "lexer"
+title = "Maximum nesting depth exceeded"
+brief = "maximum nesting depth exceeded"
+description = "Parentheses, brackets, braces, or comment nesting reaches the maximum permitted depth."
+since = "0.1.0"
+deprecated = false
+
+[diagnostic.E0015]
+severity = "error"
+category = "lexer"
+title = "Invalid byte literal"
+brief = "invalid byte literal (out of 0..255)"
+description = "A byte literal must represent a value in the range 0 to 255."
+since = "0.1.0"
+deprecated = false
+
+[diagnostic.E0016]
+severity = "error"
+category = "lexer"
+title = "Invalid Unicode escape"
+brief = "invalid Unicode escape (out of 0..0x10FFFF)"
+description = "A Unicode escape sequence specifies a codepoint outside the valid Unicode range (0 to 0x10FFFF)."
+since = "0.1.0"
+deprecated = false
+
+[diagnostic.E0017]
+severity = "error"
+category = "lexer"
+title = "Surrogate codepoint in Unicode escape"
+brief = "surrogate codepoint in Unicode escape"
+description = "Unicode surrogate codepoints (U+D800 to U+DFFF) cannot appear in escape sequences or identifiers."
+since = "0.1.0"
+deprecated = false
+
+[diagnostic.E0018]
+severity = "error"
+category = "lexer"
+title = "Source file is empty or whitespace-only"
+brief = "source file empty or whitespace-only"
+description = "A source file must contain at least one meaningful token (not just whitespace or comments)."
+since = "0.1.0"
+deprecated = false

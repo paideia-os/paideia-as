@@ -8,7 +8,7 @@ use thiserror::Error;
 ///
 /// Each category corresponds to a letter and has a reserved numeric range.
 /// See the category table in `design/toolchain/diagnostics.md`.
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Ord, PartialOrd, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Category {
     /// Encoding, lexer (range 0001–0099).
@@ -117,7 +117,7 @@ impl Category {
 /// Severity level for a diagnostic code.
 ///
 /// Severity is represented by a single ASCII digit (0–4) in the canonical string form.
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Ord, PartialOrd, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Severity {
     /// Error severity (digit 0).
@@ -169,7 +169,7 @@ pub enum CodeParseError {
 ///
 /// All fields are private; construct via [`DiagnosticCode::new`] or
 /// [`DiagnosticCode::from_str`].
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Ord, PartialOrd)]
 pub struct DiagnosticCode {
     category: Category,
     severity: Severity,

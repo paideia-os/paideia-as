@@ -7,12 +7,14 @@
 //! `design/toolchain/diagnostics.md` for the catalog rules.
 
 mod builder;
+mod catalog;
 mod code;
 mod diagnostic;
 mod source_map;
 mod span;
 
 pub use builder::DiagnosticBuilder;
+pub use catalog::{Catalog, CatalogEntry, CatalogError};
 pub use code::{Category, CodeParseError, DiagnosticCode, Severity};
 pub use diagnostic::{Diagnostic, SecondarySpan, SuggestedFix};
 pub use source_map::{LineCol, SourceMap};
