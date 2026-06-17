@@ -48,6 +48,7 @@ toml = "0.8"
 # Parser tooling
 chumsky = "0.10"
 logos = "0.15"
+unicode-ident = "1"
 
 # LSP
 tower-lsp = "0.20"
