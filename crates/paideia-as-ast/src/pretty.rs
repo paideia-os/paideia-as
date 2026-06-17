@@ -1,10 +1,11 @@
-//! Pretty-printing for item trees.
+//! Pretty-printing for AST trees.
 //!
-//! [`print_item`] produces a structured indented dump of an item node,
-//! showing the variant name and child NodeIds. This is useful for snapshot
-//! testing in the parser.
+//! Functions in this module produce structured indented dumps of AST nodes,
+//! showing the variant name and child NodeIds. Useful for snapshot testing
+//! in the parser. Functions include [`print_item`], [`print_expr`], [`print_stmt`],
+//! [`print_type`], and [`print_pattern`].
 
-use crate::{AstArena, ItemData, NodeId};
+use crate::{AstArena, ExprData, ItemData, NodeId, PatternData, StmtData, TypeData};
 
 /// Pretty-print an item node as a structured indented dump.
 ///
@@ -221,6 +222,338 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
     }
 }
 
+/// Pretty-print an expression node as a structured indented dump.
+pub fn print_expr(arena: &AstArena, id: NodeId) -> String {
+    let mut output = String::new();
+    print_expr_internal(arena, id, 0, &mut output);
+    output
+}
+
+fn print_expr_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut String) {
+    let indent = "  ".repeat(depth);
+
+    let Some(expr) = arena.expr_data(id) else {
+        use std::fmt::Write;
+        let _ = writeln!(output, "{}(non-expr: {})", indent, id);
+        return;
+    };
+
+    let line = match expr {
+        ExprData::Lambda {
+            params,
+            body,
+            pipe_form,
+        } => {
+            let params_str = params
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "Lambda {{ params: [{}], body: {}, pipe_form: {} }}",
+                params_str, body, pipe_form
+            )
+        }
+        ExprData::ActionBlock {
+            effects,
+            capabilities,
+            body,
+        } => {
+            let body_str = body
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "ActionBlock {{ effects: {:?}, capabilities: {:?}, body: [{}] }}",
+                effects, capabilities, body_str
+            )
+        }
+        ExprData::WithHandler {
+            handler,
+            bind,
+            block,
+        } => {
+            format!(
+                "WithHandler {{ handler: {}, bind: {}, block: {} }}",
+                handler, bind, block
+            )
+        }
+        ExprData::Unsafe {
+            effects,
+            capabilities,
+            justification,
+            block,
+        } => {
+            let eff_str = effects
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let cap_str = capabilities
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let block_str = block
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "Unsafe {{ effects: [{}], capabilities: [{}], justification: {}, block: [{}] }}",
+                eff_str, cap_str, justification, block_str
+            )
+        }
+        ExprData::Infix { lhs, op, rhs } => {
+            format!("Infix {{ lhs: {}, op: {}, rhs: {} }}", lhs, op, rhs)
+        }
+        ExprData::Prefix { op, expr: e } => {
+            format!("Prefix {{ op: {}, expr: {} }}", op, e)
+        }
+        ExprData::Postfix { expr: e, op } => {
+            format!("Postfix {{ expr: {}, op: {} }}", e, op)
+        }
+        ExprData::Literal { lit } => {
+            format!("Literal {{ lit: {} }}", lit)
+        }
+        ExprData::Path { segments } => {
+            let seg_str = segments
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("Path {{ segments: [{}] }}", seg_str)
+        }
+        ExprData::Call { callee, args } => {
+            let args_str = args
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("Call {{ callee: {}, args: [{}] }}", callee, args_str)
+        }
+        ExprData::Block { stmts, tail } => {
+            let stmts_str = stmts
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("Block {{ stmts: [{}], tail: {:?} }}", stmts_str, tail)
+        }
+        ExprData::Match { scrutinee, arms } => {
+            let arms_str = arms
+                .iter()
+                .map(|arm| format!("({}, {:?}, {})", arm.pattern, arm.guard, arm.body))
+                .collect::<Vec<_>>()
+                .join("; ");
+            format!("Match {{ scrutinee: {}, arms: [{}] }}", scrutinee, arms_str)
+        }
+        ExprData::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
+            format!(
+                "If {{ cond: {}, then_block: {}, else_block: {:?} }}",
+                cond, then_block, else_block
+            )
+        }
+        ExprData::Loop { kind, header, body } => {
+            format!(
+                "Loop {{ kind: {:?}, header: {:?}, body: {} }}",
+                kind, header, body
+            )
+        }
+        ExprData::OperandRegister { reg } => {
+            format!("OperandRegister {{ reg: {} }}", reg)
+        }
+        ExprData::OperandImmediate { expr: e } => {
+            format!("OperandImmediate {{ expr: {} }}", e)
+        }
+        ExprData::OperandMemoryRef { addr } => {
+            format!("OperandMemoryRef {{ addr: {} }}", addr)
+        }
+    };
+
+    use std::fmt::Write;
+    let _ = writeln!(output, "{}{}", indent, line);
+}
+
+/// Pretty-print a statement node as a structured indented dump.
+pub fn print_stmt(arena: &AstArena, id: NodeId) -> String {
+    let mut output = String::new();
+    print_stmt_internal(arena, id, 0, &mut output);
+    output
+}
+
+fn print_stmt_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut String) {
+    let indent = "  ".repeat(depth);
+
+    let Some(stmt) = arena.stmt_data(id) else {
+        use std::fmt::Write;
+        let _ = writeln!(output, "{}(non-stmt: {})", indent, id);
+        return;
+    };
+
+    let line = match stmt {
+        StmtData::Let { name, ty, value } => {
+            format!("Let {{ name: {}, ty: {:?}, value: {} }}", name, ty, value)
+        }
+        StmtData::Expr { expr } => {
+            format!("Expr {{ expr: {} }}", expr)
+        }
+        StmtData::Return { value } => {
+            format!("Return {{ value: {:?} }}", value)
+        }
+        StmtData::Instruction { mnemonic, operands } => {
+            let ops_str = operands
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "Instruction {{ mnemonic: {}, operands: [{}] }}",
+                mnemonic, ops_str
+            )
+        }
+    };
+
+    use std::fmt::Write;
+    let _ = writeln!(output, "{}{}", indent, line);
+}
+
+/// Pretty-print a type node as a structured indented dump.
+pub fn print_type(arena: &AstArena, id: NodeId) -> String {
+    let mut output = String::new();
+    print_type_internal(arena, id, 0, &mut output);
+    output
+}
+
+fn print_type_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut String) {
+    let indent = "  ".repeat(depth);
+
+    let Some(ty) = arena.type_data(id) else {
+        use std::fmt::Write;
+        let _ = writeln!(output, "{}(non-type: {})", indent, id);
+        return;
+    };
+
+    let line = match ty {
+        TypeData::Name { name, args } => {
+            let args_str = args
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("Name {{ name: {}, args: [{}] }}", name, args_str)
+        }
+        TypeData::Arrow {
+            params,
+            ret,
+            effects,
+            capabilities,
+        } => {
+            let params_str = params
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "Arrow {{ params: [{}], ret: {}, effects: {:?}, capabilities: {:?} }}",
+                params_str, ret, effects, capabilities
+            )
+        }
+        TypeData::Tuple { elements } => {
+            let elem_str = elements
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("Tuple {{ elements: [{}] }}", elem_str)
+        }
+        TypeData::LinearClass { class, inner } => {
+            format!("LinearClass {{ class: {:?}, inner: {} }}", class, inner)
+        }
+        TypeData::EffectRow { items, rest } => {
+            let items_str = items
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("EffectRow {{ items: [{}], rest: {:?} }}", items_str, rest)
+        }
+    };
+
+    use std::fmt::Write;
+    let _ = writeln!(output, "{}{}", indent, line);
+}
+
+/// Pretty-print a pattern node as a structured indented dump.
+pub fn print_pattern(arena: &AstArena, id: NodeId) -> String {
+    let mut output = String::new();
+    print_pattern_internal(arena, id, 0, &mut output);
+    output
+}
+
+fn print_pattern_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut String) {
+    let indent = "  ".repeat(depth);
+
+    let Some(pat) = arena.pattern_data(id) else {
+        use std::fmt::Write;
+        let _ = writeln!(output, "{}(non-pattern: {})", indent, id);
+        return;
+    };
+
+    let line = match pat {
+        PatternData::Wildcard => "Wildcard".to_string(),
+        PatternData::Ident { name, mutable } => {
+            format!("Ident {{ name: {}, mutable: {} }}", name, mutable)
+        }
+        PatternData::Literal { lit } => {
+            format!("Literal {{ lit: {} }}", lit)
+        }
+        PatternData::Tuple { elements } => {
+            let elem_str = elements
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("Tuple {{ elements: [{}] }}", elem_str)
+        }
+        PatternData::Struct { path, fields } => {
+            let fields_str = fields
+                .iter()
+                .map(|f| format!("({}, {})", f.name, f.pattern))
+                .collect::<Vec<_>>()
+                .join("; ");
+            format!("Struct {{ path: {}, fields: [{}] }}", path, fields_str)
+        }
+        PatternData::EnumVariant { path, args } => {
+            let args_str = args
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("EnumVariant {{ path: {}, args: [{}] }}", path, args_str)
+        }
+        PatternData::Or { alternatives } => {
+            let alt_str = alternatives
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("Or {{ alternatives: [{}] }}", alt_str)
+        }
+        PatternData::Binding { name, inner } => {
+            format!("Binding {{ name: {}, inner: {} }}", name, inner)
+        }
+    };
+
+    use std::fmt::Write;
+    let _ = writeln!(output, "{}{}", indent, line);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -291,5 +624,61 @@ mod tests {
         let stray_id = NodeId::new(999).unwrap();
         let output = print_item(&arena, stray_id);
         assert!(output.contains("non-item"));
+    }
+
+    #[test]
+    fn print_expr_path() {
+        use crate::{ExprData, NodeKind};
+        let mut arena = AstArena::new();
+        let path_id = arena.alloc(NodeKind::Ident, span());
+        let expr_id = arena.alloc_expr(
+            NodeKind::ExprPath,
+            span(),
+            ExprData::Path {
+                segments: vec![path_id],
+            },
+        );
+        let output = print_expr(&arena, expr_id);
+        assert!(output.contains("Path"));
+    }
+
+    #[test]
+    fn print_stmt_expr() {
+        use crate::{NodeKind, StmtData};
+        let mut arena = AstArena::new();
+        let inner_expr = arena.alloc(NodeKind::Placeholder, span());
+        let stmt_id = arena.alloc_stmt(
+            NodeKind::StmtExpr,
+            span(),
+            StmtData::Expr { expr: inner_expr },
+        );
+        let output = print_stmt(&arena, stmt_id);
+        assert!(output.contains("Expr"));
+    }
+
+    #[test]
+    fn print_type_name() {
+        use crate::{NodeKind, TypeData};
+        let mut arena = AstArena::new();
+        let name_id = arena.alloc(NodeKind::Ident, span());
+        let type_id = arena.alloc_type(
+            NodeKind::TypeName,
+            span(),
+            TypeData::Name {
+                name: name_id,
+                args: vec![],
+            },
+        );
+        let output = print_type(&arena, type_id);
+        assert!(output.contains("Name"));
+    }
+
+    #[test]
+    fn print_pattern_wildcard() {
+        use crate::{NodeKind, PatternData};
+        let mut arena = AstArena::new();
+        let pat_id = arena.alloc_pattern(NodeKind::PatWildcard, span(), PatternData::Wildcard);
+        let output = print_pattern(&arena, pat_id);
+        assert!(output.contains("Wildcard"));
     }
 }
