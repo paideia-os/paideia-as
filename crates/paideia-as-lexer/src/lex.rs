@@ -82,7 +82,7 @@ impl<'a> Lexer<'a> {
 
     /// Returns the next token, emitting any diagnostics to `sink`.
     ///
-    /// If the sink returns [`DiagnosticOverflow`], the lexer stops emitting
+    /// If the sink returns `DiagnosticOverflow`, the lexer stops emitting
     /// additional diagnostics and returns [`TokenKind::Eof`] on all subsequent
     /// calls.
     ///
