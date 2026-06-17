@@ -1,6 +1,12 @@
 //! paideia-as-lexer
 //!
-//! Phase-1 skeleton crate; see PaideiaOS design corpus for spec:
-//! https://github.com/paideia-os/paideia-os/tree/main/design/toolchain
+//! UTF-8 + BOM-aware source-text validation and (in later PRs) the
+//! token-stream lexer for paideia-as source files. See
+//! `design/toolchain/syntax-reference.md` for the spec.
 
-#![allow(dead_code)]
+#![warn(missing_docs)]
+#![forbid(unsafe_code)]
+
+mod source;
+
+pub use source::SourceText;
