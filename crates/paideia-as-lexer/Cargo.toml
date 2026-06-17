@@ -12,3 +12,4 @@ name = "paideia_as_lexer"
 
 [dependencies]
 paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
+static_assertions = { workspace = true }
