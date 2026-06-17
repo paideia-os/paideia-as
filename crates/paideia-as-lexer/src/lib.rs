@@ -7,10 +7,13 @@
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+pub mod reserved;
+mod scan_ident;
 mod source;
 mod token;
 mod trivia;
 
+pub use scan_ident::{IdentScan, scan_identifier};
 pub use source::SourceText;
 pub use token::{RESERVED_WORDS, Token, TokenKind, keyword_kind};
 pub use trivia::{Trivia, TriviaKind};
