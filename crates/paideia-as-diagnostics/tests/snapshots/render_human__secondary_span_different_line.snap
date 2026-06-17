@@ -1,0 +1,16 @@
+---
+source: crates/paideia-as-diagnostics/tests/render_human.rs
+assertion_line: 97
+expression: rendered
+---
+error[E0001]: redefinition error
+
+  --> test.pdx:2:1
+   |
+ 2 | beta
+   | ^^^^
+
+  ::: test.pdx:1:1
+   |
+ 1 | alpha
+   | ^^^^^ defined here
