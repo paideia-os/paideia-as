@@ -1,0 +1,13 @@
+[package]
+name = "paideia-as-ast"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+name = "paideia_as_ast"
+
+[dependencies]

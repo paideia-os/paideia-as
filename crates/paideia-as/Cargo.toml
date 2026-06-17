@@ -1,0 +1,26 @@
+[package]
+name = "paideia-as"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "paideia-as"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+miette = { workspace = true }
+thiserror = { workspace = true }
+
+paideia-as-lexer = { path = "../paideia-as-lexer" }
+paideia-as-parser = { path = "../paideia-as-parser" }
+paideia-as-ast = { path = "../paideia-as-ast" }
+paideia-as-elaborator = { path = "../paideia-as-elaborator" }
+paideia-as-emitter-elf = { path = "../paideia-as-emitter-elf" }
+paideia-as-emitter-pax = { path = "../paideia-as-emitter-pax" }
+paideia-as-emitter-pe = { path = "../paideia-as-emitter-pe" }
+paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }

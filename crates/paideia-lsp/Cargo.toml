@@ -1,0 +1,17 @@
+[package]
+name = "paideia-lsp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+name = "paideia_lsp"
+
+[dependencies]
+tower-lsp = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

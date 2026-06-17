@@ -1,0 +1,24 @@
+# Build artifacts
+/target/
+**/*.rs.bk
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+
+# Direnv
+.envrc
+.direnv/
+
+# Nix
+result
+result-*
+
+# Logs
+*.log
