@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 
 pub mod glyph_table;
+pub mod lex;
 pub mod reserved;
 mod scan_char;
 mod scan_comment;
@@ -20,6 +21,7 @@ mod source;
 mod token;
 mod trivia;
 
+pub use lex::Lexer;
 pub use scan_char::{CharScan, scan_char};
 pub use scan_comment::{CommentScan, scan_comment};
 pub use scan_ident::{IdentScan, scan_identifier};
