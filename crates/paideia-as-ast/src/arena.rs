@@ -16,16 +16,41 @@ use crate::node_id::NodeId;
 
 /// Discriminant for an AST node's variant.
 ///
-/// Phase-1 ships with a single placeholder variant; PR-16 and later
-/// expand this enum with the actual surface-AST kinds (items,
-/// expressions, patterns, types). Storage is `#[repr(u32)]` so the
-/// per-node size budget is predictable.
+/// Phase-1 ships with item-level variants (PR-16); expressions,
+/// patterns, and types land in later PRs. Storage is `#[repr(u32)]`
+/// so the per-node size budget is predictable.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 #[repr(u32)]
 #[non_exhaustive]
 pub enum NodeKind {
-    /// Placeholder kind, replaced when concrete variants land.
+    /// Placeholder kind for non-item nodes (expressions, types, patterns, etc.).
     Placeholder,
+    /// Identifier node.
+    Ident,
+    /// Module declaration.
+    Module,
+    /// Signature declaration.
+    Signature,
+    /// Structure (module body).
+    Structure,
+    /// Functor (parameterized module body).
+    Functor,
+    /// Functor parameter.
+    FunctorParam,
+    /// Effect declaration.
+    Effect,
+    /// Operation signature within an effect.
+    OpSig,
+    /// Capability declaration.
+    Capability,
+    /// Let binding.
+    Let,
+    /// Struct type declaration.
+    Struct,
+    /// Enum type declaration.
+    Enum,
+    /// Unsafe block.
+    UnsafeBlock,
 }
 
 /// Per-node arena entry: variant discriminant and source position.
@@ -56,9 +81,16 @@ impl NodeData {
 /// [`NodeId`] for the arena's lifetime. The arena is single-pass write,
 /// many-pass read: parsers and lowering passes mint new ids in order,
 /// then later passes index into the arena read-only.
+///
+/// The `items` parallel vector stores optional item-specific data for
+/// nodes that have it (see [`ItemData`]). For non-item nodes, the
+/// corresponding slot is `None`.
+///
+/// [`ItemData`]: crate::ItemData
 #[derive(Debug, Default)]
 pub struct AstArena {
     nodes: Vec<NodeData>,
+    items: Vec<Option<Box<crate::ItemData>>>,
 }
 
 impl AstArena {
@@ -73,16 +105,22 @@ impl AstArena {
     pub fn with_capacity(n: usize) -> Self {
         Self {
             nodes: Vec::with_capacity(n),
+            items: Vec::with_capacity(n),
         }
     }
 
     /// Allocate a new node with the given kind and span, returning its
     /// stable [`NodeId`]. IDs are monotonically increasing.
     ///
+    /// For non-item nodes, the corresponding slot in `items` is set to
+    /// `None`. Use [`alloc_item`] for item nodes.
+    ///
     /// # Panics
     ///
     /// Panics if the arena would exceed `u32::MAX` nodes — a 4 G AST
     /// is not a realistic target.
+    ///
+    /// [`alloc_item`]: Self::alloc_item
     pub fn alloc(&mut self, kind: NodeKind, span: Span) -> NodeId {
         let next = self
             .nodes
@@ -92,6 +130,7 @@ impl AstArena {
         let id = NodeId::new(u32::try_from(next).expect("more than u32::MAX nodes"))
             .expect("node count + 1 is non-zero");
         self.nodes.push(NodeData::new(kind, span));
+        self.items.push(None);
         id
     }
 
@@ -118,6 +157,30 @@ impl AstArena {
     #[must_use]
     pub fn get(&self, id: NodeId) -> Option<&NodeData> {
         self.nodes.get(id.index())
+    }
+
+    /// Allocate an item node with its structured payload, returning its
+    /// stable [`NodeId`].
+    ///
+    /// The `data` is stored in the parallel `items` vector.
+    pub fn alloc_item(&mut self, kind: NodeKind, span: Span, data: crate::ItemData) -> NodeId {
+        let next = self
+            .nodes
+            .len()
+            .checked_add(1)
+            .expect("AST node count overflow");
+        let id = NodeId::new(u32::try_from(next).expect("more than u32::MAX nodes"))
+            .expect("node count + 1 is non-zero");
+        self.nodes.push(NodeData::new(kind, span));
+        self.items.push(Some(Box::new(data)));
+        id
+    }
+
+    /// Look up the item-data for a node, returning `None` for non-item
+    /// nodes or out-of-range ids.
+    #[must_use]
+    pub fn item_data(&self, id: NodeId) -> Option<&crate::ItemData> {
+        self.items.get(id.index())?.as_ref().map(|b| b.as_ref())
     }
 }
 
@@ -200,5 +263,47 @@ mod tests {
         // §AC: size_of::<NodeData>() <= 32 bytes. const_assert above is
         // the binding gate; runtime check mirrors it for visibility.
         assert!(size_of::<NodeData>() <= 32);
+    }
+
+    #[test]
+    fn alloc_for_non_item_does_not_populate_item_data() {
+        let mut a = AstArena::new();
+        let id = a.alloc(NodeKind::Placeholder, span());
+        assert!(a.item_data(id).is_none());
+    }
+
+    #[test]
+    fn alloc_item_populates_item_data() {
+        use crate::ItemData;
+        let mut a = AstArena::new();
+        // Allocate a Module with a non-existent name and body as a test.
+        // In real parsing, these would point to actual Ident and Structure nodes.
+        let name_id = NodeId::new(1).unwrap(); // Pretend this is an Ident node
+        let body_id = NodeId::new(2).unwrap(); // Pretend this is a Structure node
+        let module_id = a.alloc_item(
+            NodeKind::Module,
+            span(),
+            ItemData::Module {
+                name: name_id,
+                sig: None,
+                body: body_id,
+                doc: None,
+            },
+        );
+        let item = a.item_data(module_id).expect("item data should exist");
+        match item {
+            ItemData::Module {
+                name,
+                sig,
+                body,
+                doc,
+            } => {
+                assert_eq!(*name, name_id);
+                assert!(sig.is_none());
+                assert_eq!(*body, body_id);
+                assert!(doc.is_none());
+            }
+            _ => panic!("expected Module variant"),
+        }
     }
 }

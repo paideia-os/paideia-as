@@ -9,7 +9,12 @@
 #![forbid(unsafe_code)]
 
 mod arena;
+mod items;
 mod node_id;
+pub mod pretty;
+mod visit;
 
 pub use arena::{AstArena, NodeData, NodeKind};
+pub use items::ItemData;
 pub use node_id::NodeId;
+pub use visit::{ItemVisitor, walk_item};
