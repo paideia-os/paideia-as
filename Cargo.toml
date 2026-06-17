@@ -35,6 +35,7 @@ miette = "7"
 thiserror = "2"
 ariadne = "0.5"
 static_assertions = "1"
+jsonschema = "0.18"
 
 # CLI
 clap = { version = "4", features = ["derive"] }

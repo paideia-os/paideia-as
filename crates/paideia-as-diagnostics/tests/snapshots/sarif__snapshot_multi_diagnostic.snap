@@ -1,0 +1,404 @@
+---
+source: crates/paideia-as-diagnostics/tests/sarif.rs
+assertion_line: 359
+expression: "serde_json::to_string_pretty(&sarif).unwrap()"
+---
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "runs": [
+    {
+      "artifacts": [
+        {
+          "encoding": "UTF-8",
+          "length": 23,
+          "location": {
+            "uri": "module.pdx"
+          }
+        },
+        {
+          "encoding": "UTF-8",
+          "length": 23,
+          "location": {
+            "uri": "lib.pdx"
+          }
+        }
+      ],
+      "results": [
+        {
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "module.pdx"
+                },
+                "region": {
+                  "endColumn": 6,
+                  "endLine": 2,
+                  "startColumn": 4,
+                  "startLine": 2
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "invalid UTF-8 sequence"
+          },
+          "relatedLocations": [
+            {
+              "message": {
+                "text": "bad bytes here"
+              },
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "module.pdx"
+                },
+                "region": {
+                  "endColumn": 6,
+                  "endLine": 2,
+                  "startColumn": 4,
+                  "startLine": 2
+                }
+              }
+            }
+          ],
+          "ruleId": "E0001"
+        },
+        {
+          "fixes": [
+            {
+              "artifactChanges": [
+                {
+                  "artifactLocation": {
+                    "uri": "lib.pdx"
+                  },
+                  "replacements": [
+                    {
+                      "deletedRegion": {
+                        "endColumn": 10,
+                        "endLine": 1,
+                        "startColumn": 6,
+                        "startLine": 1
+                      },
+                      "insertedContent": {
+                        "text": ""
+                      }
+                    }
+                  ]
+                }
+              ],
+              "description": {
+                "text": "remove unused variable"
+              }
+            }
+          ],
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "lib.pdx"
+                },
+                "region": {
+                  "endColumn": 10,
+                  "endLine": 1,
+                  "startColumn": 6,
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "unused variable"
+          },
+          "ruleId": "E0002"
+        },
+        {
+          "level": "note",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "module.pdx"
+                },
+                "region": {
+                  "endColumn": 12,
+                  "endLine": 1,
+                  "startColumn": 1,
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "informational note"
+          },
+          "ruleId": "E0003"
+        }
+      ],
+      "tool": {
+        "driver": {
+          "informationUri": "https://paideia-os.org/",
+          "name": "paideia-as",
+          "rules": [
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "PaideiaOS source files must be UTF-8 encoded. The file's bytes do not form valid UTF-8 at the position indicated."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/E0001",
+              "id": "E0001",
+              "name": "Source file is not valid UTF-8",
+              "shortDescription": {
+                "text": "encoding error (not UTF-8)"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Source files must use LF (Unix) or CRLF (Windows) line endings. Lone CR characters are not permitted."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/E0002",
+              "id": "E0002",
+              "name": "Line ending error: lone CR found",
+              "shortDescription": {
+                "text": "line-ending error (lone CR)"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Zero-width spaces and other invisible Unicode characters are not permitted in source code as they can introduce subtle bugs."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/E0003",
+              "id": "E0003",
+              "name": "Invisible character forbidden",
+              "shortDescription": {
+                "text": "invisible character forbidden (ZWSP, etc.)"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "A string literal was opened but not closed before end of line or end of file."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/E0004",
+              "id": "E0004",
+              "name": "Unterminated string literal",
+              "shortDescription": {
+                "text": "unterminated string literal"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "A block comment (/* ... */) was opened but never closed."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/E0005",
+              "id": "E0005",
+              "name": "Unterminated block comment",
+              "shortDescription": {
+                "text": "unterminated block comment"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "A numeric literal contains invalid digits for its radix, or the resulting value exceeds the target type's range."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/E0006",
+              "id": "E0006",
+              "name": "Invalid number literal",
+              "shortDescription": {
+                "text": "invalid number literal (bad digits, out of range)"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "A character literal must contain exactly one Unicode codepoint and use valid escape sequences."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/E0007",
+              "id": "E0007",
+              "name": "Invalid character literal",
+              "shortDescription": {
+                "text": "invalid character literal (more than one codepoint, bad escape)"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "A string literal contains an invalid or malformed escape sequence."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/E0008",
+              "id": "E0008",
+              "name": "Invalid escape in string literal",
+              "shortDescription": {
+                "text": "invalid escape in string literal"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Raw string delimiters must follow the correct syntax (e.g., r#\"...\"# with matching hash counts)."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/E0009",
+              "id": "E0009",
+              "name": "Invalid raw-string delimiter",
+              "shortDescription": {
+                "text": "invalid raw-string delimiter"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Unicode operators are not permitted when the file or context is restricted to ASCII-only identifiers and operators."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/E0010",
+              "id": "E0010",
+              "name": "Unicode operator used in ASCII-only mode",
+              "shortDescription": {
+                "text": "unicode operator used in ASCII-only mode"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "A language keyword or reserved word cannot be used as an identifier without quoting."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/E0011",
+              "id": "E0011",
+              "name": "Reserved word used as identifier",
+              "shortDescription": {
+                "text": "reserved-word used as identifier"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Identifiers must start with a letter or underscore, not a digit or other symbol."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/E0012",
+              "id": "E0012",
+              "name": "Identifier starts with invalid character",
+              "shortDescription": {
+                "text": "identifier starts with a digit or other invalid character"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "The source file exceeds the maximum permitted size (typically to prevent resource exhaustion)."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/E0013",
+              "id": "E0013",
+              "name": "Maximum file size exceeded",
+              "shortDescription": {
+                "text": "maximum file size exceeded"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Parentheses, brackets, braces, or comment nesting reaches the maximum permitted depth."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/E0014",
+              "id": "E0014",
+              "name": "Maximum nesting depth exceeded",
+              "shortDescription": {
+                "text": "maximum nesting depth exceeded"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "A byte literal must represent a value in the range 0 to 255."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/E0015",
+              "id": "E0015",
+              "name": "Invalid byte literal",
+              "shortDescription": {
+                "text": "invalid byte literal (out of 0..255)"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "A Unicode escape sequence specifies a codepoint outside the valid Unicode range (0 to 0x10FFFF)."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/E0016",
+              "id": "E0016",
+              "name": "Invalid Unicode escape",
+              "shortDescription": {
+                "text": "invalid Unicode escape (out of 0..0x10FFFF)"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Unicode surrogate codepoints (U+D800 to U+DFFF) cannot appear in escape sequences or identifiers."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/E0017",
+              "id": "E0017",
+              "name": "Surrogate codepoint in Unicode escape",
+              "shortDescription": {
+                "text": "surrogate codepoint in Unicode escape"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "A source file must contain at least one meaningful token (not just whitespace or comments)."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/E0018",
+              "id": "E0018",
+              "name": "Source file is empty or whitespace-only",
+              "shortDescription": {
+                "text": "source file empty or whitespace-only"
+              }
+            }
+          ],
+          "semanticVersion": "0.0.1",
+          "version": "0.0.1"
+        }
+      }
+    }
+  ],
+  "version": "2.1.0"
+}

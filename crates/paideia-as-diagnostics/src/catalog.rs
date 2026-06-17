@@ -1,4 +1,4 @@
-use crate::code::{CodeParseError, DiagnosticCode};
+use crate::code::{CodeParseError, DiagnosticCode, Severity as CodeSeverity};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -19,6 +19,19 @@ pub enum Severity {
     Hint,
     /// Lint severity.
     Lint,
+}
+
+impl From<Severity> for CodeSeverity {
+    /// Converts a catalog severity level to a code severity level.
+    fn from(sev: Severity) -> Self {
+        match sev {
+            Severity::Error => CodeSeverity::Error,
+            Severity::Warning => CodeSeverity::Warning,
+            Severity::Note => CodeSeverity::Note,
+            Severity::Hint => CodeSeverity::Hint,
+            Severity::Lint => CodeSeverity::Lint,
+        }
+    }
 }
 
 /// A single diagnostic entry in the catalog.
