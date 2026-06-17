@@ -9,12 +9,23 @@
 #![forbid(unsafe_code)]
 
 mod arena;
+mod exprs;
 mod items;
 mod node_id;
+mod patterns;
 pub mod pretty;
+mod stmts;
+mod types;
 mod visit;
 
 pub use arena::{AstArena, NodeData, NodeKind};
+pub use exprs::{ExprData, LoopKind, MatchArm};
 pub use items::ItemData;
 pub use node_id::NodeId;
-pub use visit::{ItemVisitor, walk_item};
+pub use patterns::{PatField, PatternData};
+pub use stmts::StmtData;
+pub use types::{LinClass, TypeData};
+pub use visit::{
+    ExprVisitor, ItemVisitor, PatternVisitor, StmtVisitor, TypeVisitor, walk_expr, walk_item,
+    walk_pattern, walk_stmt, walk_type,
+};
