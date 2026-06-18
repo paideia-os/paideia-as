@@ -74,7 +74,7 @@ module UnsafeBlock = structure {
       }
 
   // ---------------------------------------------------------------------------
-  // CAPABILITY-GATED RAW LOAD
+  // RAW LOAD WITH INSTRUCTION-STREAM BODY
   //
   // This block declares it performs an `mmio_read` effect AND consumes the
   // `mmio_read_cap` right (named in the bare-identifier form per the
@@ -87,20 +87,30 @@ module UnsafeBlock = structure {
   // convention — RDI at function entry (calling-convention.md §1.3). Inside
   // the raw block we read `[rdi]` and let the RAX-as-return convention
   // carry the value out.
-  // ---------------------------------------------------------------------------
-  // The phase-1 `unsafe.block` body grammar is the expression grammar — a
-  // sequence of statement-shaped expressions — not yet the assembly-
-  // instruction grammar of `action !{...} @{...} { ... }`. The
-  // instruction-stream form is the documented intent (custom-assembler.md
-  // §9.1 example: `block: { mov rax, [bar.base + off] }`) and is on the
-  // phase-2 list. Until then, the block body in an `unsafe` is best
-  // confined to one or more zero-operand mnemonics such as `sfence`,
-  // `lfence`, `mfence`, `cli`, `sti`, or `pause`.
   //
-  // The example below uses `mfence` to illustrate a two-effect-no-capability
-  // shape that parses cleanly today; once the phase-2 instruction grammar
-  // arrives in the `unsafe.block` body, the more interesting capability-
-  // gated load form will replace it.
+  // The `block:` body uses the instruction-stream grammar (§9.1-§9.2),
+  // identical to `action { ... }`. This allows raw Intel instructions with
+  // operands: registers (e.g., `mov rax, rbx`), memory references
+  // (e.g., `mov rax, [rdi]`), immediates (e.g., `add rax, 42`), and
+  // zero-operand mnemonics (e.g., `sfence`).
+  let mmio_read_raw : (unit) -> u64 !{mmio_read} @{Mmio.read_cap} =
+    fn (_ : unit) ->
+      unsafe {
+        effects: { mmio_read }
+        capabilities: { Mmio.read_cap }
+        justification: "raw load from MMIO-mapped address via capability-gated register; calling convention: addr in RDI, result in RAX"
+        block: {
+          mov rax, [rdi]
+          ret rax
+        }
+      }
+
+  // ---------------------------------------------------------------------------
+  // FULL MEMORY BARRIER
+  //
+  // This example uses `mfence` to illustrate a memory fence with no operands
+  // and no capabilities. The block body accepts both zero-operand mnemonics
+  // and full instruction-stream syntax.
   let mmio_full_barrier : (unit) -> unit !{mmio_fence} @{} =
     fn (_ : unit) ->
       unsafe {
@@ -113,22 +123,19 @@ module UnsafeBlock = structure {
       }
 
   // ---------------------------------------------------------------------------
-  // DOTTED CAPABILITY PATH EXAMPLE
+  // REGISTER-ONLY OPERANDS
   //
-  // This example demonstrates the dotted-path form for capabilities inside
-  // the unsafe block. Dotted paths (e.g., `Mmio.read_cap`) align the unsafe
-  // block's capability declarations with the signature-side form.
-  //
-  // The linker-side capability-name resolution mechanism maps these paths
-  // to their fully-qualified canonical form at link time.
-  let mmio_with_dotted_cap : (unit) -> unit !{mmio_fence} @{Mmio.read_cap} =
+  // This example demonstrates instruction statements with register-only operands.
+  // Both the source and destination use register operands (e.g., `mov rax, rbx`).
+  // No capabilities or special effects are declared — this is a pure register copy.
+  let copy_registers : (unit) -> unit !{} @{} =
     fn (_ : unit) ->
       unsafe {
-        effects: { mmio_fence }
-        capabilities: { Mmio.read_cap }
-        justification: "illustrative example demonstrating dotted capability path form; issue #160"
+        effects: {}
+        capabilities: {}
+        justification: "register copy as a demonstration of register operand syntax in unsafe blocks"
         block: {
-          mfence
+          mov rax, rbx
         }
       }
 

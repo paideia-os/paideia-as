@@ -170,3 +170,21 @@ fn test_functor_module() {
         "should parse functor module without errors"
     );
 }
+
+#[test]
+fn test_example_11_unsafe_block() {
+    // Integration test: parse the complete examples/11_unsafe_block.pdx file.
+    // Verifies that unsafe blocks with instruction-stream bodies parse cleanly
+    // per issue #159: the `block:` field accepts the action-block instruction
+    // grammar (zero-operand mnemonics, register operands, memory references, immediates).
+    let source = include_str!("../../../examples/11_unsafe_block.pdx");
+    let (_arena, _err, diags) = parse_source(source);
+    let errors: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code().severity() == Severity::Error)
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "example_11_unsafe_block.pdx should parse cleanly with no error diagnostics"
+    );
+}

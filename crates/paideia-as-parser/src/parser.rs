@@ -298,6 +298,33 @@ fn debug_kind(kind: TokenKind) -> &'static str {
     }
 }
 
+/// Test helper for parsing action blocks.
+/// Used by parse_unsafe tests to verify parity with unsafe block instruction parsing.
+#[cfg(test)]
+pub(crate) fn parse_action_block_for_test(
+    tokens: Vec<Token>,
+) -> (
+    AstArena,
+    Result<paideia_as_ast::NodeId, ParseError>,
+    Vec<paideia_as_diagnostics::Diagnostic>,
+) {
+    use paideia_as_diagnostics::VecSink;
+    let mut arena = AstArena::new();
+    let mut sink = VecSink::new();
+    let dummy_source = "mov rax rbx sfence ret add lfence mfence pause ret bar base off rdi rax rbx rcx rdx rsi rdi r8 r9 r10 r11 r12 r13 r14 r15";
+    let result = {
+        let mut p = Parser::new(
+            &tokens,
+            dummy_source,
+            paideia_as_diagnostics::FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        );
+        p.parse_action()
+    };
+    (arena, result, sink.diagnostics().to_vec())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
