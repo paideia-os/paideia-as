@@ -40,7 +40,7 @@ mod tests {
     #[test]
     fn vendor_section_names_match_emitter_elf() {
         // Expected names based on design/toolchain/debug-info.md
-        let expected = vec![".paideia.caps", ".paideia.effects", ".paideia.sig"];
+        let expected = [".paideia.caps", ".paideia.effects", ".paideia.sig"];
         for (i, name) in expected.iter().enumerate() {
             assert_eq!(VENDOR_SECTIONS[i], *name);
         }
