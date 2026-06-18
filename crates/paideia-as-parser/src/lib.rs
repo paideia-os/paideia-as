@@ -9,6 +9,7 @@
 #![forbid(unsafe_code)]
 
 mod cursor;
+mod parse_primary;
 mod parser;
 
 pub use cursor::TokenCursor;

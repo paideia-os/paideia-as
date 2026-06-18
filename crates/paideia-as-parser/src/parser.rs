@@ -152,6 +152,11 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             self.cursor.bump();
         }
     }
+
+    /// Emit a diagnostic through the sink. Used by parsers to report errors.
+    pub(crate) fn emit_diagnostic(&mut self, diag: Diagnostic) {
+        let _ = self.sink.emit(diag);
+    }
 }
 
 /// Construct a P-category diagnostic code at the given number, returning
