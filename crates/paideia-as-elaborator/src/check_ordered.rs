@@ -59,10 +59,7 @@ impl OrderedLog {
     #[must_use]
     pub fn record_use(&mut self, symbol: Symbol, use_span: Span) -> Vec<Diagnostic> {
         let mut diags = Vec::new();
-        let first_unconsumed = self
-            .entries
-            .iter()
-            .position(|e| !e.consumed);
+        let first_unconsumed = self.entries.iter().position(|e| !e.consumed);
         let target_index = self
             .entries
             .iter()
