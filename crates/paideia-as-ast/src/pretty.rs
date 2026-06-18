@@ -285,10 +285,11 @@ fn print_expr_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
             handler,
             bind,
             block,
+            finally,
         } => {
             format!(
-                "WithHandler {{ handler: {}, bind: {}, block: {} }}",
-                handler, bind, block
+                "WithHandler {{ handler: {}, bind: {}, block: {}, finally: {:?} }}",
+                handler, bind, block, finally
             )
         }
         ExprData::Unsafe {
@@ -385,6 +386,17 @@ fn print_expr_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
         }
         ExprData::OperandMemoryRef { addr } => {
             format!("OperandMemoryRef {{ addr: {} }}", addr)
+        }
+        ExprData::Perform { op_path, args } => {
+            let args_str = args
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("Perform {{ op_path: {}, args: [{}] }}", op_path, args_str)
+        }
+        ExprData::Resume { value } => {
+            format!("Resume {{ value: {} }}", value)
         }
     };
 

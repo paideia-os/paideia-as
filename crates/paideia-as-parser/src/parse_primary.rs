@@ -136,6 +136,10 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                         ))
                     }
 
+                    // Effect operations
+                    TokenKind::KwPerform => self.parse_perform(),
+                    TokenKind::KwResume => self.parse_resume(),
+
                     // Identifiers and paths
                     TokenKind::Ident => self.parse_path_or_ident(),
 
@@ -253,6 +257,106 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         }
         self.bump(); // consume `)`
         Ok(first_expr)
+    }
+
+    /// Parse a perform expression: `perform Effect::op(args)`.
+    ///
+    /// Algorithm:
+    /// 1. Expect `KwPerform`.
+    /// 2. Parse a path (Ident (:: Ident)*).
+    /// 3. Expect `LParen`.
+    /// 4. Parse comma-separated argument expressions until `RParen`.
+    /// 5. Allocate ExprData::Perform { op_path, args }.
+    fn parse_perform(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
+        let perform_tok = self.expect(TokenKind::KwPerform)?;
+        let span_start = perform_tok.span;
+
+        // Parse the effect operation path (e.g., `Io::port_read`)
+        let op_path = self.parse_path_or_ident()?;
+
+        // Expect `(`
+        if !self.at(TokenKind::LParen) {
+            let span = if let Some(tok) = self.peek() {
+                tok.span
+            } else {
+                Span::new(self.file(), 0, 0)
+            };
+            let diag = Diagnostic::error(p_code(161))
+                .message("expected `(` after effect-operation path".to_string())
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+        let lparen_span = self.expect(TokenKind::LParen)?.span;
+
+        // Parse arguments: comma-separated expressions
+        let mut args = vec![];
+        if !self.at(TokenKind::RParen) {
+            loop {
+                args.push(self.parse_expr()?);
+                if !self.at(TokenKind::Comma) {
+                    break;
+                }
+                self.bump(); // consume comma
+
+                // Check for trailing comma
+                if self.at(TokenKind::RParen) {
+                    break;
+                }
+            }
+        }
+
+        // Expect `)`
+        if !self.at(TokenKind::RParen) {
+            return self.error_mismatched_delimiter(lparen_span);
+        }
+        let rparen_tok = self.expect(TokenKind::RParen)?;
+        let rparen_span = rparen_tok.span;
+
+        // Compute span from `perform` keyword through closing `)`
+        let span = Span::new(
+            span_start.file(),
+            span_start.byte_start(),
+            rparen_span.byte_start() + rparen_span.byte_len() - span_start.byte_start(),
+        );
+
+        Ok(self.arena_mut().alloc_expr(
+            NodeKind::ExprPerform,
+            span,
+            ExprData::Perform { op_path, args },
+        ))
+    }
+
+    /// Parse a resume expression: `resume value`.
+    ///
+    /// Algorithm:
+    /// 1. Expect `KwResume`.
+    /// 2. Parse a full expression.
+    /// 3. Allocate ExprData::Resume { value }.
+    fn parse_resume(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
+        let resume_tok = self.expect(TokenKind::KwResume)?;
+        let span_start = resume_tok.span;
+
+        // Parse the value expression with full infix/prefix/postfix support
+        let value = self.parse_expr()?;
+
+        let value_span = self
+            .arena()
+            .get(value)
+            .map(|nd| nd.span)
+            .unwrap_or(span_start);
+
+        // Compute span from `resume` keyword through the value
+        let span = Span::new(
+            span_start.file(),
+            span_start.byte_start(),
+            value_span.byte_start() + value_span.byte_len() - span_start.byte_start(),
+        );
+
+        Ok(self
+            .arena_mut()
+            .alloc_expr(NodeKind::ExprResume, span, ExprData::Resume { value }))
     }
 
     /// Emit a P0100 ("expected expression") diagnostic and return `Err(ParseError)`.
@@ -536,5 +640,185 @@ mod tests {
             diags.iter().any(|d| d.code().number() == 157),
             "expected P0157 diagnostic (empty block)"
         );
+    }
+
+    #[test]
+    fn parses_perform_basic() {
+        // perform Io::port_read(0x60)
+        let tokens = vec![
+            tok(TokenKind::KwPerform, 0, 7),
+            tok(TokenKind::Ident, 8, 2),
+            tok(TokenKind::ColonColon, 10, 2),
+            tok(TokenKind::Ident, 12, 9),
+            tok(TokenKind::LParen, 21, 1),
+            tok(TokenKind::IntLit, 22, 3),
+            tok(TokenKind::RParen, 25, 1),
+            tok(TokenKind::Eof, 26, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+
+        let result = parser.parse_primary();
+        assert!(result.is_ok());
+        let expr_id = result.unwrap();
+        let node = arena.get(expr_id).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprPerform);
+    }
+
+    #[test]
+    fn parses_perform_zero_args() {
+        // perform Io::flush()
+        let tokens = vec![
+            tok(TokenKind::KwPerform, 0, 7),
+            tok(TokenKind::Ident, 8, 2),
+            tok(TokenKind::ColonColon, 10, 2),
+            tok(TokenKind::Ident, 12, 5),
+            tok(TokenKind::LParen, 17, 1),
+            tok(TokenKind::RParen, 18, 1),
+            tok(TokenKind::Eof, 19, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+
+        let result = parser.parse_primary();
+        assert!(result.is_ok());
+        let expr_id = result.unwrap();
+        let node = arena.get(expr_id).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprPerform);
+        if let Some(ExprData::Perform { args, .. }) = arena.expr_data(expr_id) {
+            assert_eq!(args.len(), 0);
+        } else {
+            panic!("expected Perform variant");
+        }
+    }
+
+    #[test]
+    fn parses_perform_multi_args() {
+        // perform Io::port_write(0x64, 0xED)
+        let tokens = vec![
+            tok(TokenKind::KwPerform, 0, 7),
+            tok(TokenKind::Ident, 8, 2),
+            tok(TokenKind::ColonColon, 10, 2),
+            tok(TokenKind::Ident, 12, 10),
+            tok(TokenKind::LParen, 22, 1),
+            tok(TokenKind::IntLit, 23, 3),
+            tok(TokenKind::Comma, 26, 1),
+            tok(TokenKind::IntLit, 28, 3),
+            tok(TokenKind::RParen, 31, 1),
+            tok(TokenKind::Eof, 32, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+
+        let result = parser.parse_primary();
+        assert!(result.is_ok());
+        let expr_id = result.unwrap();
+        if let Some(ExprData::Perform { args, .. }) = arena.expr_data(expr_id) {
+            assert_eq!(args.len(), 2);
+        } else {
+            panic!("expected Perform variant");
+        }
+    }
+
+    #[test]
+    fn parses_perform_path_three_segments() {
+        // perform Mod::Io::read(addr)
+        let tokens = vec![
+            tok(TokenKind::KwPerform, 0, 7),
+            tok(TokenKind::Ident, 8, 3),
+            tok(TokenKind::ColonColon, 11, 2),
+            tok(TokenKind::Ident, 13, 2),
+            tok(TokenKind::ColonColon, 15, 2),
+            tok(TokenKind::Ident, 17, 4),
+            tok(TokenKind::LParen, 21, 1),
+            tok(TokenKind::Ident, 22, 4),
+            tok(TokenKind::RParen, 26, 1),
+            tok(TokenKind::Eof, 27, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+
+        let result = parser.parse_primary();
+        assert!(result.is_ok());
+        let expr_id = result.unwrap();
+        if let Some(ExprData::Perform { op_path, .. }) = arena.expr_data(expr_id) {
+            if let Some(ExprData::Path { segments }) = arena.expr_data(*op_path) {
+                assert_eq!(segments.len(), 3);
+            } else {
+                panic!("expected Path for op_path");
+            }
+        } else {
+            panic!("expected Perform variant");
+        }
+    }
+
+    #[test]
+    fn perform_missing_paren_emits_p0161() {
+        // perform Io::flush ... missing (
+        let tokens = vec![
+            tok(TokenKind::KwPerform, 0, 7),
+            tok(TokenKind::Ident, 8, 2),
+            tok(TokenKind::ColonColon, 10, 2),
+            tok(TokenKind::Ident, 12, 5),
+            tok(TokenKind::Eof, 17, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+
+        let result = parser.parse_primary();
+        assert!(result.is_err());
+        assert_eq!(sink.diagnostics().len(), 1);
+        let diag = &sink.diagnostics()[0];
+        assert_eq!(diag.code().number(), 161);
+    }
+
+    #[test]
+    fn parses_resume_value() {
+        // resume v
+        let tokens = vec![
+            tok(TokenKind::KwResume, 0, 6),
+            tok(TokenKind::Ident, 7, 1),
+            tok(TokenKind::Eof, 8, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+
+        let result = parser.parse_primary();
+        assert!(result.is_ok());
+        let expr_id = result.unwrap();
+        let node = arena.get(expr_id).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprResume);
+        if let Some(ExprData::Resume { value }) = arena.expr_data(expr_id) {
+            let value_node = arena.get(*value).unwrap();
+            assert_eq!(value_node.kind, NodeKind::ExprPath);
+        } else {
+            panic!("expected Resume variant");
+        }
+    }
+
+    #[test]
+    fn parses_resume_unit() {
+        // resume ()
+        let tokens = vec![
+            tok(TokenKind::KwResume, 0, 6),
+            tok(TokenKind::LParen, 7, 1),
+            tok(TokenKind::RParen, 8, 1),
+            tok(TokenKind::Eof, 9, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+
+        let result = parser.parse_primary();
+        assert!(result.is_ok());
+        let expr_id = result.unwrap();
+        let node = arena.get(expr_id).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprResume);
     }
 }
