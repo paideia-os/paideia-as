@@ -118,17 +118,74 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// - `(T)` not followed by `->` → parenthesized type (return inner)
     /// - `(T1, T2, ...)` → tuple
     /// - `(T1, T2, ...) ->` → function arrow
+    /// - `(name: T, ...) ->` → function arrow with named parameters (names discarded in phase-1)
     fn parse_type_paren(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
         let lparen_tok = self.expect(TokenKind::LParen)?;
         let span_start = lparen_tok.span;
 
-        // Check for empty tuple `()`
+        // Check for empty tuple `()` or empty parameter list for function type
         if self.at(TokenKind::RParen) {
             let rparen_tok = self.expect(TokenKind::RParen)?;
+            let span_end = rparen_tok.span;
+
+            // Check for arrow (function type with zero parameters)
+            if self.at(TokenKind::Arrow) {
+                self.bump(); // consume `->`
+
+                // Parse return type
+                let ret = self.parse_type()?;
+                let mut ret_span_end = self.arena().get(ret).map(|nd| nd.span).unwrap_or(span_end);
+
+                // Parse optional effect set
+                let effects = if self.at(TokenKind::EffectOpen) {
+                    Some(self.parse_effect_row()?)
+                } else {
+                    None
+                };
+                if let Some(eff_id) = effects {
+                    ret_span_end = self
+                        .arena()
+                        .get(eff_id)
+                        .map(|nd| nd.span)
+                        .unwrap_or(ret_span_end);
+                }
+
+                // Parse optional capability set
+                let capabilities = if self.at(TokenKind::CapOpen) {
+                    Some(self.parse_cap_set()?)
+                } else {
+                    None
+                };
+                if let Some(cap_id) = capabilities {
+                    ret_span_end = self
+                        .arena()
+                        .get(cap_id)
+                        .map(|nd| nd.span)
+                        .unwrap_or(ret_span_end);
+                }
+
+                let span = Span::new(
+                    span_start.file(),
+                    span_start.byte_start(),
+                    ret_span_end.byte_start() + ret_span_end.byte_len() - span_start.byte_start(),
+                );
+                return Ok(self.arena_mut().alloc_type(
+                    NodeKind::TypeArrow,
+                    span,
+                    TypeData::Arrow {
+                        params: vec![],
+                        ret,
+                        effects,
+                        capabilities,
+                    },
+                ));
+            }
+
+            // No arrow, just an empty tuple
             let span = Span::new(
                 span_start.file(),
                 span_start.byte_start(),
-                rparen_tok.span.byte_start() + rparen_tok.span.byte_len() - span_start.byte_start(),
+                span_end.byte_start() + span_end.byte_len() - span_start.byte_start(),
             );
             return Ok(self.arena_mut().alloc_type(
                 NodeKind::TypeTuple,
@@ -137,8 +194,8 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             ));
         }
 
-        // Parse first type
-        let first_type = self.parse_type()?;
+        // Parse first parameter, checking for named-parameter form (name: Type)
+        let first_type = self.parse_type_or_named_param()?;
         let mut elements = vec![first_type];
 
         // Check for comma (tuple) or closing paren
@@ -159,7 +216,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                     break;
                 }
 
-                let elem_type = self.parse_type()?;
+                let elem_type = self.parse_type_or_named_param()?;
                 span_end = self
                     .arena()
                     .get(elem_type)
@@ -356,6 +413,33 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 args,
             },
         ))
+    }
+
+    /// Parse a type parameter in function-type position, handling named parameters.
+    ///
+    /// This is used when parsing function-type parameter lists. It handles:
+    /// - `name: Type` → parses `name:` and then the type; returns just the type (name discarded in phase-1).
+    /// - `Type` → parses as a regular type.
+    ///
+    /// This allows function types like `(bar: MmioRegion, off: u32) -> u32` to parse
+    /// correctly, with parameter names being syntactically accepted but not stored in
+    /// the AST (since they carry no semantic information in phase-1).
+    fn parse_type_or_named_param(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
+        // Peek ahead to check for named-parameter form: `Ident Colon Type`
+        // If the current token is Ident and the next token is Colon, this is a named parameter.
+        if self.at(TokenKind::Ident)
+            && let Some(next_tok) = self.peek_at(1)
+            && next_tok.kind == TokenKind::Colon
+        {
+            // This is a named parameter: consume the `Ident` and `:`, then parse the type
+            self.bump(); // consume `Ident`
+            self.bump(); // consume `:`
+            // The type is parsed; the name is implicitly discarded in phase-1
+            return self.parse_type();
+        }
+
+        // Default: parse as a regular type
+        self.parse_type()
     }
 
     /// Parse an effect row: `!{ eff1, eff2 | rest }`.
@@ -904,6 +988,205 @@ mod tests {
             assert!(rest.is_none());
         } else {
             panic!("expected TypeEffectRow empty cap");
+        }
+    }
+
+    // Tests for named-parameter function types (issue #154)
+
+    #[test]
+    fn parses_function_type_with_named_param() {
+        // `(bar: MmioRegion) -> u32`
+        // LParen Ident Colon Ident RParen Arrow Ident Eof
+        let tokens = vec![
+            tok(TokenKind::LParen, 0),
+            tok(TokenKind::Ident, 1), // bar
+            tok(TokenKind::Colon, 4), // :
+            tok(TokenKind::Ident, 5), // MmioRegion
+            tok(TokenKind::RParen, 16),
+            tok(TokenKind::Arrow, 18),
+            tok(TokenKind::Ident, 21), // u32
+            tok(TokenKind::Eof, 24),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(
+            diags.len(),
+            0,
+            "no diagnostics expected for named-param type"
+        );
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(
+            ty_node.kind,
+            NodeKind::TypeArrow,
+            "expected arrow type for named-param function"
+        );
+        if let Some(TypeData::Arrow { params, .. }) = arena.type_data(ty_id) {
+            assert_eq!(params.len(), 1, "expected 1 parameter");
+        } else {
+            panic!("expected TypeArrow");
+        }
+    }
+
+    #[test]
+    fn parses_function_type_with_two_named_params() {
+        // `(a: u32, b: u64) -> u32`
+        // LParen Ident Colon Ident Comma Ident Colon Ident RParen Arrow Ident Eof
+        let tokens = vec![
+            tok(TokenKind::LParen, 0),
+            tok(TokenKind::Ident, 1), // a
+            tok(TokenKind::Colon, 2), // :
+            tok(TokenKind::Ident, 3), // u32
+            tok(TokenKind::Comma, 6),
+            tok(TokenKind::Ident, 8),  // b
+            tok(TokenKind::Colon, 9),  // :
+            tok(TokenKind::Ident, 10), // u64
+            tok(TokenKind::RParen, 14),
+            tok(TokenKind::Arrow, 16),
+            tok(TokenKind::Ident, 19), // u32
+            tok(TokenKind::Eof, 22),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected");
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypeArrow);
+        if let Some(TypeData::Arrow { params, .. }) = arena.type_data(ty_id) {
+            assert_eq!(params.len(), 2, "expected 2 parameters");
+        } else {
+            panic!("expected TypeArrow with two params");
+        }
+    }
+
+    #[test]
+    fn parses_function_type_positional_regression() {
+        // `(u32, u64) -> u32` (positional, no names) — should still work
+        // LParen Ident Comma Ident RParen Arrow Ident Eof
+        let tokens = vec![
+            tok(TokenKind::LParen, 0),
+            tok(TokenKind::Ident, 1), // u32
+            tok(TokenKind::Comma, 4),
+            tok(TokenKind::Ident, 6), // u64
+            tok(TokenKind::RParen, 9),
+            tok(TokenKind::Arrow, 11),
+            tok(TokenKind::Ident, 14), // u32
+            tok(TokenKind::Eof, 17),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(
+            diags.len(),
+            0,
+            "no diagnostics expected for positional form"
+        );
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypeArrow);
+        if let Some(TypeData::Arrow { params, .. }) = arena.type_data(ty_id) {
+            assert_eq!(params.len(), 2, "expected 2 positional parameters");
+        } else {
+            panic!("expected TypeArrow positional");
+        }
+    }
+
+    #[test]
+    fn parses_function_type_mixed_named_and_positional() {
+        // `(name: T, U) -> V` (mixed form: named then positional)
+        // LParen Ident Colon Ident Comma Ident RParen Arrow Ident Eof
+        let tokens = vec![
+            tok(TokenKind::LParen, 0),
+            tok(TokenKind::Ident, 1), // name
+            tok(TokenKind::Colon, 5), // :
+            tok(TokenKind::Ident, 6), // T
+            tok(TokenKind::Comma, 7),
+            tok(TokenKind::Ident, 9), // U
+            tok(TokenKind::RParen, 10),
+            tok(TokenKind::Arrow, 12),
+            tok(TokenKind::Ident, 15), // V
+            tok(TokenKind::Eof, 16),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0, "mixed form should parse cleanly");
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypeArrow);
+        if let Some(TypeData::Arrow { params, .. }) = arena.type_data(ty_id) {
+            assert_eq!(params.len(), 2, "expected 2 parameters (mixed)");
+        } else {
+            panic!("expected TypeArrow mixed");
+        }
+    }
+
+    #[test]
+    fn parses_function_type_zero_args_with_paren() {
+        // `() -> u32` (empty params) — should still work
+        // LParen RParen Arrow Ident Eof
+        let tokens = vec![
+            tok(TokenKind::LParen, 0),
+            tok(TokenKind::RParen, 1),
+            tok(TokenKind::Arrow, 2),
+            tok(TokenKind::Ident, 4), // u32
+            tok(TokenKind::Eof, 7),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected for empty params");
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypeArrow);
+        if let Some(TypeData::Arrow { params, .. }) = arena.type_data(ty_id) {
+            assert_eq!(params.len(), 0, "expected 0 parameters");
+        } else {
+            panic!("expected TypeArrow empty");
+        }
+    }
+
+    #[test]
+    fn parses_function_type_nested_named_param_types() {
+        // `(f: (n: u32) -> u32) -> u32`
+        // LParen Ident Colon LParen Ident Colon Ident RParen Arrow Ident RParen Arrow Ident Eof
+        let tokens = vec![
+            tok(TokenKind::LParen, 0),
+            tok(TokenKind::Ident, 1),   // f
+            tok(TokenKind::Colon, 2),   // :
+            tok(TokenKind::LParen, 3),  // (
+            tok(TokenKind::Ident, 4),   // n
+            tok(TokenKind::Colon, 5),   // :
+            tok(TokenKind::Ident, 6),   // u32
+            tok(TokenKind::RParen, 9),  // )
+            tok(TokenKind::Arrow, 11),  // ->
+            tok(TokenKind::Ident, 14),  // u32
+            tok(TokenKind::RParen, 17), // )
+            tok(TokenKind::Arrow, 19),  // ->
+            tok(TokenKind::Ident, 22),  // u32
+            tok(TokenKind::Eof, 25),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(
+            diags.len(),
+            0,
+            "no diagnostics for nested named-param types"
+        );
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypeArrow);
+        if let Some(TypeData::Arrow { params, .. }) = arena.type_data(ty_id) {
+            assert_eq!(params.len(), 1, "expected 1 parameter (a function type)");
+            // Check that the param itself is an arrow
+            let param_type = params[0];
+            let param_node = arena.get(param_type).unwrap();
+            assert_eq!(param_node.kind, NodeKind::TypeArrow);
+        } else {
+            panic!("expected outer TypeArrow");
         }
     }
 }
