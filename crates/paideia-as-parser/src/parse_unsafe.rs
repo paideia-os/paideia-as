@@ -238,7 +238,8 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                             break;
                         }
 
-                        let stmt = self.parse_stmt()?;
+                        // Unsafe block statements: pass in_action_context=false
+                        let stmt = self.parse_stmt(false)?;
                         block_body.push(stmt);
                     }
 

@@ -322,7 +322,7 @@ mod tests {
         let tokens = vec![tok(TokenKind::IntLit, 0, 2), tok(TokenKind::Eof, 2, 0)];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
-        let mut parser = Parser::new(&tokens, FileId::new(1).unwrap(), &mut arena, &mut sink);
+        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
 
         let result = parser.parse_primary();
         assert!(result.is_ok());
@@ -338,7 +338,7 @@ mod tests {
         let tokens = vec![tok(TokenKind::StringLit, 0, 5), tok(TokenKind::Eof, 5, 0)];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
-        let mut parser = Parser::new(&tokens, FileId::new(1).unwrap(), &mut arena, &mut sink);
+        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
 
         let result = parser.parse_primary();
         assert!(result.is_ok());
@@ -353,7 +353,7 @@ mod tests {
         let tokens = vec![tok(TokenKind::CharLit, 0, 3), tok(TokenKind::Eof, 3, 0)];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
-        let mut parser = Parser::new(&tokens, FileId::new(1).unwrap(), &mut arena, &mut sink);
+        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
 
         let result = parser.parse_primary();
         assert!(result.is_ok());
@@ -368,7 +368,7 @@ mod tests {
         let tokens = vec![tok(TokenKind::KwTrue, 0, 4), tok(TokenKind::Eof, 4, 0)];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
-        let mut parser = Parser::new(&tokens, FileId::new(1).unwrap(), &mut arena, &mut sink);
+        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
 
         let result = parser.parse_primary();
         assert!(result.is_ok());
@@ -383,7 +383,7 @@ mod tests {
         let tokens = vec![tok(TokenKind::KwFalse, 0, 5), tok(TokenKind::Eof, 5, 0)];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
-        let mut parser = Parser::new(&tokens, FileId::new(1).unwrap(), &mut arena, &mut sink);
+        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
 
         let result = parser.parse_primary();
         assert!(result.is_ok());
@@ -398,7 +398,7 @@ mod tests {
         let tokens = vec![tok(TokenKind::Ident, 0, 4), tok(TokenKind::Eof, 4, 0)];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
-        let mut parser = Parser::new(&tokens, FileId::new(1).unwrap(), &mut arena, &mut sink);
+        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
 
         let result = parser.parse_primary();
         assert!(result.is_ok());
@@ -420,7 +420,7 @@ mod tests {
         ];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
-        let mut parser = Parser::new(&tokens, FileId::new(1).unwrap(), &mut arena, &mut sink);
+        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
 
         let result = parser.parse_primary();
         assert!(result.is_ok());
@@ -440,7 +440,7 @@ mod tests {
         ];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
-        let mut parser = Parser::new(&tokens, FileId::new(1).unwrap(), &mut arena, &mut sink);
+        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
 
         let result = parser.parse_primary();
         assert!(result.is_ok());
@@ -459,7 +459,7 @@ mod tests {
         ];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
-        let mut parser = Parser::new(&tokens, FileId::new(1).unwrap(), &mut arena, &mut sink);
+        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
 
         let result = parser.parse_primary();
         assert!(result.is_ok());
@@ -483,7 +483,7 @@ mod tests {
         ];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
-        let mut parser = Parser::new(&tokens, FileId::new(1).unwrap(), &mut arena, &mut sink);
+        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
 
         let result = parser.parse_primary();
         assert!(result.is_ok());
@@ -505,7 +505,7 @@ mod tests {
         ];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
-        let mut parser = Parser::new(&tokens, FileId::new(1).unwrap(), &mut arena, &mut sink);
+        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
 
         let result = parser.parse_primary();
         assert!(result.is_err());
@@ -523,7 +523,7 @@ mod tests {
         ];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
-        let mut parser = Parser::new(&tokens, FileId::new(1).unwrap(), &mut arena, &mut sink);
+        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
 
         // Note: blocks are now parsed in parse_expr_bp Step 0, not in parse_primary
         let result = parser.parse_expr();
