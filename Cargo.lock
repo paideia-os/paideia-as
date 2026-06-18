@@ -1138,6 +1138,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "paideia-as-e2e"
+version = "0.0.1"
+dependencies = [
+ "object",
+]
+
+[[package]]
 name = "paideia-as-effects"
 version = "0.0.1"
 dependencies = [
