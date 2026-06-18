@@ -1,6 +1,15 @@
 //! paideia-as-dwarf
 //!
-//! Phase-1 skeleton crate; see PaideiaOS design corpus for spec:
-//! https://github.com/paideia-os/paideia-os/tree/main/design/toolchain
+//! DWARF 5 emitter for paideia-as object files per
+//! `design/toolchain/debug-info.md`.
 
-#![allow(dead_code)]
+#![warn(missing_docs)]
+#![forbid(unsafe_code)]
+
+pub mod info;
+pub mod line;
+pub mod vendor;
+
+pub use info::{CompilationUnit, FunctionDie, build_cu};
+pub use line::LineEntry;
+pub use vendor::{VENDOR_SECTIONS, empty_vendor_payloads};
