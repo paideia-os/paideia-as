@@ -25,6 +25,11 @@ tests/linearity-regression/
 cargo test -p paideia-linearity-regression
 ```
 
+The `reject_corpus_emits_expected_s_codes` test is currently `#[ignore]`'d
+because the substructural checker isn't wired through the
+lex→parse→lower pipeline yet. Run with `--include-ignored` to see
+which fixtures *would* pass once the wiring lands.
+
 ## Adding a fixture
 
 For an **accept** case: drop a valid `.pdx` file into `accept/`. The

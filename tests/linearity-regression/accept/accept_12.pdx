@@ -1,0 +1,4 @@
+module M12 = structure {
+  let x = 12
+  let y = 13
+}

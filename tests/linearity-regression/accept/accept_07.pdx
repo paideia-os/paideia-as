@@ -1,0 +1,4 @@
+module M07 = structure {
+  let x = 7
+  let y = 8
+}

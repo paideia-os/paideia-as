@@ -1,0 +1,4 @@
+module M06 = structure {
+  let x = 6
+  let y = 7
+}

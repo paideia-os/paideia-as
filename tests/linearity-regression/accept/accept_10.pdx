@@ -1,0 +1,4 @@
+module M10 = structure {
+  let x = 10
+  let y = 11
+}

@@ -1,0 +1,4 @@
+module M04 = structure {
+  let x = 4
+  let y = 5
+}

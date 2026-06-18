@@ -1,0 +1,4 @@
+module M20 = structure {
+  let x = 20
+  let y = 21
+}

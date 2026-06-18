@@ -1,0 +1,4 @@
+module M08 = structure {
+  let x = 8
+  let y = 9
+}
