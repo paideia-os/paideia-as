@@ -4,13 +4,15 @@
 //!
 //! The unsafe block must contain four mandatory fields in any order:
 //! - `effects: { Ident, Ident, ... }`
-//! - `capabilities: { Ident, Ident, ... }`
+//! - `capabilities: { Ident (. Ident)*, Ident (. Ident)*, ... }`
 //! - `justification: "string literal"`
 //! - `block: { Stmt+ }`
 //!
 //! Phase-1 implementation: Fields must appear in the order declared in §8.
 //! If any field is missing when the closing `}` is encountered, emit exactly
 //! one U1600 diagnostic listing all missing fields, spanning the closing brace.
+//!
+//! Capabilities support dotted paths (e.g., `Mmio.read_cap`) in phase-1 and later.
 
 use paideia_as_ast::{ExprData, NodeId, NodeKind};
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
@@ -19,6 +21,39 @@ use paideia_as_lexer::TokenKind;
 use crate::parser::{ParseError, Parser};
 
 impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
+    /// Parse a single capability path, which can be:
+    /// - bare identifier: `raw_cap`
+    /// - dotted path: `Mmio.read_cap` (accumulated as sequential Ident nodes)
+    ///
+    /// Returns a Vec of NodeIds representing the path segments.
+    /// For phase-1, we accumulate the segments just like `parse_cap_set()` does.
+    fn parse_capability_path(&mut self) -> Result<Vec<NodeId>, ParseError> {
+        let mut items = Vec::new();
+
+        if self.at(TokenKind::Ident) {
+            let ident_tok = self.bump().unwrap();
+            items.push(self.arena_mut().alloc(NodeKind::Ident, ident_tok.span));
+
+            // Check for dot-separated path continuation
+            while self.at(TokenKind::Dot) {
+                self.bump(); // consume `.`
+
+                if let Some(next_tok) = self.peek() {
+                    if next_tok.kind == TokenKind::Ident {
+                        let next_ident_tok = self.bump().unwrap();
+                        items.push(self.arena_mut().alloc(NodeKind::Ident, next_ident_tok.span));
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
+
+        Ok(items)
+    }
+
     /// Parse an unsafe block: `unsafe { effects: {...}, capabilities: {...}, justification: "...", block: {...} }`.
     ///
     /// **Algorithm:**
@@ -157,7 +192,8 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                     fields_seen[0] = true;
                 }
                 1 => {
-                    // Parse capabilities: { Ident, Ident, ... }
+                    // Parse capabilities: { CapPath, CapPath, ... }
+                    // where CapPath is either a bare identifier or a dotted path (Mmio.read_cap)
                     if !self.at(TokenKind::CapOpen) && !self.at(TokenKind::LBrace) {
                         let code = DiagnosticCode::new(Category::P, Severity::Error, 154)
                             .expect("valid P code");
@@ -176,19 +212,14 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                         self.expect(TokenKind::LBrace)?;
                         let mut items = Vec::new();
                         while !self.at(TokenKind::RBrace) {
-                            if self.at(TokenKind::Ident) {
-                                let ident_tok = self.bump().unwrap();
-                                let ident_id =
-                                    self.arena_mut().alloc(NodeKind::Ident, ident_tok.span);
-                                items.push(ident_id);
+                            // Parse capability paths (dotted or bare identifiers)
+                            let cap_path = self.parse_capability_path()?;
+                            items.extend(cap_path);
 
-                                if !self.at(TokenKind::Comma) {
-                                    break;
-                                }
-                                self.bump();
-                            } else {
+                            if !self.at(TokenKind::Comma) {
                                 break;
                             }
+                            self.bump();
                         }
                         let rbrace_tok = self.expect(TokenKind::RBrace)?;
                         let span = Span::new(
@@ -335,4 +366,198 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     }
 }
 
-// Tests will be in integration tests; parse_unsafe is internal to the parser module.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use paideia_as_ast::AstArena;
+    use paideia_as_diagnostics::{FileId, VecSink};
+    use paideia_as_lexer::{Token, TokenKind};
+
+    fn tok(kind: TokenKind, byte_start: u32) -> Token {
+        Token::new(kind, Span::new(FileId::new(1).unwrap(), byte_start, 1))
+    }
+
+    fn parse_unsafe_block(
+        tokens: Vec<Token>,
+    ) -> (
+        AstArena,
+        Result<NodeId, ParseError>,
+        Vec<paideia_as_diagnostics::Diagnostic>,
+    ) {
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let result = {
+            let mut p = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+            p.parse_unsafe()
+        };
+        (arena, result, sink.diagnostics().to_vec())
+    }
+
+    #[test]
+    fn unsafe_capabilities_accepts_bare_ident() {
+        // unsafe { effects: {}, capabilities: {raw_cap}, justification: "...", block: { sfence } }
+        let tokens = vec![
+            tok(TokenKind::KwUnsafe, 0),
+            tok(TokenKind::LBrace, 7),
+            tok(TokenKind::Ident, 9), // effects
+            tok(TokenKind::Colon, 16),
+            tok(TokenKind::LBrace, 18),
+            tok(TokenKind::RBrace, 19),
+            tok(TokenKind::Comma, 20),
+            tok(TokenKind::Ident, 22), // capabilities
+            tok(TokenKind::Colon, 34),
+            tok(TokenKind::LBrace, 36),
+            tok(TokenKind::Ident, 37), // raw_cap
+            tok(TokenKind::RBrace, 45),
+            tok(TokenKind::Comma, 46),
+            tok(TokenKind::Ident, 48), // justification
+            tok(TokenKind::Colon, 61),
+            tok(TokenKind::StringLit, 63),
+            tok(TokenKind::Comma, 85),
+            tok(TokenKind::Ident, 87), // block
+            tok(TokenKind::Colon, 92),
+            tok(TokenKind::LBrace, 94),
+            tok(TokenKind::Ident, 96), // sfence
+            tok(TokenKind::RBrace, 102),
+            tok(TokenKind::RBrace, 104),
+            tok(TokenKind::Eof, 105),
+        ];
+        let (arena, result, diags) = parse_unsafe_block(tokens);
+
+        assert_eq!(diags.len(), 0, "Expected no diagnostics");
+        assert!(result.is_ok(), "Expected parse success");
+
+        let expr_id = result.unwrap();
+        let expr_node = arena.get(expr_id).unwrap();
+        assert_eq!(expr_node.kind, NodeKind::ExprUnsafe);
+    }
+
+    #[test]
+    fn unsafe_capabilities_accepts_dotted_path() {
+        // unsafe { effects: {}, capabilities: {Mmio.read_cap}, justification: "...", block: { sfence } }
+        let tokens = vec![
+            tok(TokenKind::KwUnsafe, 0),
+            tok(TokenKind::LBrace, 7),
+            tok(TokenKind::Ident, 9), // effects
+            tok(TokenKind::Colon, 16),
+            tok(TokenKind::LBrace, 18),
+            tok(TokenKind::RBrace, 19),
+            tok(TokenKind::Comma, 20),
+            tok(TokenKind::Ident, 22), // capabilities
+            tok(TokenKind::Colon, 34),
+            tok(TokenKind::LBrace, 36),
+            tok(TokenKind::Ident, 37), // Mmio
+            tok(TokenKind::Dot, 41),
+            tok(TokenKind::Ident, 42), // read_cap
+            tok(TokenKind::RBrace, 50),
+            tok(TokenKind::Comma, 51),
+            tok(TokenKind::Ident, 53), // justification
+            tok(TokenKind::Colon, 66),
+            tok(TokenKind::StringLit, 68),
+            tok(TokenKind::Comma, 90),
+            tok(TokenKind::Ident, 92), // block
+            tok(TokenKind::Colon, 97),
+            tok(TokenKind::LBrace, 99),
+            tok(TokenKind::Ident, 101), // sfence
+            tok(TokenKind::RBrace, 107),
+            tok(TokenKind::RBrace, 109),
+            tok(TokenKind::Eof, 110),
+        ];
+        let (arena, result, diags) = parse_unsafe_block(tokens);
+
+        assert_eq!(diags.len(), 0, "Expected no diagnostics");
+        assert!(result.is_ok(), "Expected parse success");
+
+        let expr_id = result.unwrap();
+        let expr_node = arena.get(expr_id).unwrap();
+        assert_eq!(expr_node.kind, NodeKind::ExprUnsafe);
+    }
+
+    #[test]
+    fn unsafe_capabilities_accepts_multiple_dotted() {
+        // unsafe { effects: {}, capabilities: {Mmio.read_cap, Pci.config_read_cap}, justification: "...", block: { sfence } }
+        let tokens = vec![
+            tok(TokenKind::KwUnsafe, 0),
+            tok(TokenKind::LBrace, 7),
+            tok(TokenKind::Ident, 9), // effects
+            tok(TokenKind::Colon, 16),
+            tok(TokenKind::LBrace, 18),
+            tok(TokenKind::RBrace, 19),
+            tok(TokenKind::Comma, 20),
+            tok(TokenKind::Ident, 22), // capabilities
+            tok(TokenKind::Colon, 34),
+            tok(TokenKind::LBrace, 36),
+            tok(TokenKind::Ident, 37), // Mmio
+            tok(TokenKind::Dot, 41),
+            tok(TokenKind::Ident, 42), // read_cap
+            tok(TokenKind::Comma, 50),
+            tok(TokenKind::Ident, 52), // Pci
+            tok(TokenKind::Dot, 55),
+            tok(TokenKind::Ident, 56), // config_read_cap
+            tok(TokenKind::RBrace, 70),
+            tok(TokenKind::Comma, 71),
+            tok(TokenKind::Ident, 73), // justification
+            tok(TokenKind::Colon, 86),
+            tok(TokenKind::StringLit, 88),
+            tok(TokenKind::Comma, 110),
+            tok(TokenKind::Ident, 112), // block
+            tok(TokenKind::Colon, 117),
+            tok(TokenKind::LBrace, 119),
+            tok(TokenKind::Ident, 121), // sfence
+            tok(TokenKind::RBrace, 127),
+            tok(TokenKind::RBrace, 129),
+            tok(TokenKind::Eof, 130),
+        ];
+        let (arena, result, diags) = parse_unsafe_block(tokens);
+
+        assert_eq!(diags.len(), 0, "Expected no diagnostics");
+        assert!(result.is_ok(), "Expected parse success");
+
+        let expr_id = result.unwrap();
+        let expr_node = arena.get(expr_id).unwrap();
+        assert_eq!(expr_node.kind, NodeKind::ExprUnsafe);
+    }
+
+    #[test]
+    fn unsafe_capabilities_mixed_bare_and_dotted() {
+        // unsafe { effects: {}, capabilities: {raw_cap, Mmio.read_cap}, justification: "...", block: { sfence } }
+        let tokens = vec![
+            tok(TokenKind::KwUnsafe, 0),
+            tok(TokenKind::LBrace, 7),
+            tok(TokenKind::Ident, 9), // effects
+            tok(TokenKind::Colon, 16),
+            tok(TokenKind::LBrace, 18),
+            tok(TokenKind::RBrace, 19),
+            tok(TokenKind::Comma, 20),
+            tok(TokenKind::Ident, 22), // capabilities
+            tok(TokenKind::Colon, 34),
+            tok(TokenKind::LBrace, 36),
+            tok(TokenKind::Ident, 37), // raw_cap
+            tok(TokenKind::Comma, 45),
+            tok(TokenKind::Ident, 47), // Mmio
+            tok(TokenKind::Dot, 51),
+            tok(TokenKind::Ident, 52), // read_cap
+            tok(TokenKind::RBrace, 60),
+            tok(TokenKind::Comma, 61),
+            tok(TokenKind::Ident, 63), // justification
+            tok(TokenKind::Colon, 76),
+            tok(TokenKind::StringLit, 78),
+            tok(TokenKind::Comma, 100),
+            tok(TokenKind::Ident, 102), // block
+            tok(TokenKind::Colon, 107),
+            tok(TokenKind::LBrace, 109),
+            tok(TokenKind::Ident, 111), // sfence
+            tok(TokenKind::RBrace, 117),
+            tok(TokenKind::RBrace, 119),
+            tok(TokenKind::Eof, 120),
+        ];
+        let (arena, result, diags) = parse_unsafe_block(tokens);
+
+        assert_eq!(diags.len(), 0, "Expected no diagnostics");
+        assert!(result.is_ok(), "Expected parse success");
+
+        let expr_id = result.unwrap();
+        let expr_node = arena.get(expr_id).unwrap();
+        assert_eq!(expr_node.kind, NodeKind::ExprUnsafe);
+    }
+}
