@@ -54,7 +54,7 @@ pub use effect_unify::{
 };
 pub use effect_walker::EffectRowWalker;
 pub use env::{Symbol, TypeEnv};
-pub use hygiene::{HygienicName, MacroId};
+pub use hygiene::{HygieneCache, HygienicName, MacroId};
 pub use linearity_ctx::{Binding, LinearityCtx};
 pub use lower::{LoweringResult, lower_ast_to_ir};
 pub use macro_expand::{
@@ -67,4 +67,4 @@ pub use macro_match::{
 pub use placeholder_emit::placeholder_for;
 pub use reflect_api::{TypeCache, children, kind, span, type_of};
 pub use resolve::{HygienicEnv, ResolveValue};
-pub use splice::{splice, splice_with_type_check};
+pub use splice::{splice, splice_with_hygiene, splice_with_type_check};

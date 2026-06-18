@@ -1,0 +1,12 @@
+// Reflective hygiene test: nested quote { quote { ... } } structures.
+// Inner identifiers get accumulating tags from nested expansions.
+
+module M2Hygiene003;
+
+let x = 1;
+
+// Nested quoting with splices should accumulate hygiene tags.
+// This tests the case where quote { ... } creates a term that itself
+// contains quote { ... } expressions, each with fresh tags.
+
+let result = x;

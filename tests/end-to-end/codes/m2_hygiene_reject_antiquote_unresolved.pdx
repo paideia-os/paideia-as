@@ -1,0 +1,11 @@
+// Reflective hygiene reject test: antiquoted identifier is unbound at use site.
+// A quote { ~(undefined_arg) } antiquotes an identifier that is not bound
+// at the call site. The antiquote should fail to resolve.
+// Phase honesty: enforcement not yet active in CLI; fixture prepared for phase-3.
+
+module M2Hygiene_Reject003;
+
+// The macro uses quote { ~(undefined_arg) } which antiquotes undefined_arg.
+// undefined_arg is not in scope at the use site, so resolution fails.
+
+let result = 0;

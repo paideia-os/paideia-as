@@ -134,4 +134,26 @@ mod tests {
         let template_println = HygienicName::unmarked("println").with_tag(tag);
         assert!(env.lookup(&template_println).is_none());
     }
+
+    // ── Phase-2 (m2-010): reflective hygiene in name resolution ────────
+
+    #[test]
+    fn lookup_distinguishes_macro_introduced_temp_from_caller_temp_in_splice() {
+        // Scenario: a macro uses `quote { temp }` which splices an identifier
+        // marked with the macro's tag. This should resolve separately from
+        // a use-site `temp`.
+        let mut env = HygienicEnv::new();
+        let splice_tag = MacroId::fresh();
+
+        // Use-site binding for `temp`.
+        env.bind(HygienicName::unmarked("temp"), 1);
+
+        // Macro-introduced `temp` (from splice with the splice_tag).
+        let macro_temp = HygienicName::unmarked("temp").with_tag(splice_tag);
+        env.bind(macro_temp.clone(), 2);
+
+        // Both bindings exist and are distinct.
+        assert_eq!(env.lookup(&HygienicName::unmarked("temp")), Some(1));
+        assert_eq!(env.lookup(&macro_temp), Some(2));
+    }
 }

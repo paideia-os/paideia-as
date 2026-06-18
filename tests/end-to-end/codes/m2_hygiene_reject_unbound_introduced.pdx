@@ -1,0 +1,12 @@
+// Reflective hygiene reject test: macro-introduced identifier is unbound.
+// A quote { ... } that introduces an identifier that is never bound
+// should fail during resolution.
+// Phase honesty: enforcement not yet active in CLI; fixture prepared for phase-3.
+
+module M2Hygiene_Reject002;
+
+// The macro uses quote { unbound_id } which introduces unbound_id with
+// the macro's tag. Since unbound_id was never bound (neither at use site
+// nor in the macro), resolution fails.
+
+let result = 0;
