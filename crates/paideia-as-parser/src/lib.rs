@@ -16,6 +16,7 @@ mod parse_match;
 mod parse_postfix;
 mod parse_prefix;
 mod parse_primary;
+mod parse_type;
 mod parser;
 mod precedence;
 

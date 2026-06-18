@@ -1,0 +1,909 @@
+//! Type parsing.
+//!
+//! Implements §8 Type grammar: function arrows, effect rows, capability sets,
+//! linear classes, and quantified types.
+
+use paideia_as_ast::{LinClass, NodeKind, TypeData};
+use paideia_as_diagnostics::Span;
+use paideia_as_lexer::TokenKind;
+
+use crate::parser::{ParseError, Parser};
+
+impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
+    /// Parse a type according to §8 Type grammar.
+    ///
+    /// Dispatch:
+    /// 1. **forall quantifier**: if `forall` keyword, consume and parse
+    ///    bound variable (discarded in phase-1), then recursively parse inner type.
+    /// 2. **Linearity class prefix**: if keyword or glyph marker (`linear`, `~`, etc.),
+    ///    consume, recurse, and wrap in `TypeLinearClass`.
+    /// 3. **LParen**: disambiguate paren, tuple, or function arrow.
+    /// 4. **Ident**: base type name, optionally with type arguments.
+    /// 5. **EffectOpen (`!{`)**: parse effect row.
+    /// 6. **CapOpen (`@{`)**: parse capability set (phase-1: stored as `TypeEffectRow`).
+    ///
+    /// Returns the `NodeId` of the allocated type node.
+    pub fn parse_type(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
+        // Step 1: Handle `forall` quantifier
+        if self.at(TokenKind::KwForall) {
+            self.bump(); // consume `forall`
+
+            // Expect the quantified variable name
+            self.expect(TokenKind::Ident)?; // discarded in phase-1; document
+
+            // Expect `.` separator
+            self.expect(TokenKind::Dot)?;
+
+            // Recursively parse the inner type (the quantified var is not attached)
+            return self.parse_type_unquantified();
+        }
+
+        // Step 2-6: Parse non-quantified type
+        self.parse_type_unquantified()
+    }
+
+    /// Parse a type without a `forall` quantifier prefix.
+    ///
+    /// Handles:
+    /// - Linearity class prefix
+    /// - LParen (paren, tuple, arrow)
+    /// - Ident (type name)
+    /// - EffectOpen/CapOpen (effect/capability rows)
+    fn parse_type_unquantified(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
+        // Step 1: Check for linearity class prefix
+        if let Some(tok) = self.peek() {
+            match tok.kind {
+                TokenKind::KwOrdered
+                | TokenKind::KwLinear
+                | TokenKind::KwAffine
+                | TokenKind::KwUnrestricted
+                | TokenKind::LinearMark
+                | TokenKind::AffineMark => {
+                    let prefix_tok = self.bump().unwrap();
+                    let class = match prefix_tok.kind {
+                        TokenKind::KwOrdered => LinClass::Ordered,
+                        TokenKind::KwLinear => LinClass::Linear,
+                        TokenKind::KwAffine => LinClass::Affine,
+                        TokenKind::KwUnrestricted => LinClass::Unrestricted,
+                        TokenKind::LinearMark => LinClass::LinearMark,
+                        TokenKind::AffineMark => LinClass::AffineMark,
+                        _ => unreachable!(),
+                    };
+
+                    // Recursively parse the inner type
+                    let inner = self.parse_type_unquantified()?;
+
+                    // Allocate TypeLinearClass node
+                    let span_start = prefix_tok.span;
+                    let span_end = self
+                        .arena()
+                        .get(inner)
+                        .map(|nd| nd.span)
+                        .unwrap_or(span_start);
+                    let span = Span::new(
+                        span_start.file(),
+                        span_start.byte_start(),
+                        span_end.byte_start() + span_end.byte_len() - span_start.byte_start(),
+                    );
+
+                    return Ok(self.arena_mut().alloc_type(
+                        NodeKind::TypeLinearClass,
+                        span,
+                        TypeData::LinearClass { class, inner },
+                    ));
+                }
+                _ => {}
+            }
+        }
+
+        // Step 2: Handle primary type forms (LParen, Ident, EffectOpen, CapOpen)
+        if let Some(tok) = self.peek() {
+            match tok.kind {
+                TokenKind::LParen => self.parse_type_paren(),
+                TokenKind::Ident => self.parse_type_name(),
+                TokenKind::EffectOpen => self.parse_effect_row(),
+                TokenKind::CapOpen => self.parse_cap_set(),
+                _ => self.error_expected_type(),
+            }
+        } else {
+            self.error_expected_type()
+        }
+    }
+
+    /// Parse a type prefixed by `(`, disambiguating between paren, tuple, and arrow.
+    ///
+    /// Cases:
+    /// - `()` → empty tuple
+    /// - `(T)` followed by `->` → function parameter (continue arrow parse)
+    /// - `(T)` not followed by `->` → parenthesized type (return inner)
+    /// - `(T1, T2, ...)` → tuple
+    /// - `(T1, T2, ...) ->` → function arrow
+    fn parse_type_paren(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
+        let lparen_tok = self.expect(TokenKind::LParen)?;
+        let span_start = lparen_tok.span;
+
+        // Check for empty tuple `()`
+        if self.at(TokenKind::RParen) {
+            let rparen_tok = self.expect(TokenKind::RParen)?;
+            let span = Span::new(
+                span_start.file(),
+                span_start.byte_start(),
+                rparen_tok.span.byte_start() + rparen_tok.span.byte_len() - span_start.byte_start(),
+            );
+            return Ok(self.arena_mut().alloc_type(
+                NodeKind::TypeTuple,
+                span,
+                TypeData::Tuple { elements: vec![] },
+            ));
+        }
+
+        // Parse first type
+        let first_type = self.parse_type()?;
+        let mut elements = vec![first_type];
+
+        // Check for comma (tuple) or closing paren
+        let mut span_end = self
+            .arena()
+            .get(first_type)
+            .map(|nd| nd.span)
+            .unwrap_or(span_start);
+
+        if self.at(TokenKind::Comma) {
+            // Tuple: parse comma-separated types until RParen
+            loop {
+                // Consume the comma we just checked (or the one after the previous element)
+                self.bump(); // consume `,`
+
+                // Check for trailing comma before RParen
+                if self.at(TokenKind::RParen) {
+                    break;
+                }
+
+                let elem_type = self.parse_type()?;
+                span_end = self
+                    .arena()
+                    .get(elem_type)
+                    .map(|nd| nd.span)
+                    .unwrap_or(span_end);
+                elements.push(elem_type);
+
+                // Check if there's another comma or if we're done
+                if !self.at(TokenKind::Comma) {
+                    break;
+                }
+            }
+
+            let rparen_tok = self.expect(TokenKind::RParen)?;
+            span_end = rparen_tok.span;
+
+            // Check for arrow (function type with tuple parameters)
+            if self.at(TokenKind::Arrow) {
+                self.bump(); // consume `->`
+
+                // Parse return type
+                let ret = self.parse_type()?;
+                span_end = self.arena().get(ret).map(|nd| nd.span).unwrap_or(span_end);
+
+                // Parse optional effect set
+                let effects = if self.at(TokenKind::EffectOpen) {
+                    Some(self.parse_effect_row()?)
+                } else {
+                    None
+                };
+                if let Some(eff_id) = effects {
+                    span_end = self
+                        .arena()
+                        .get(eff_id)
+                        .map(|nd| nd.span)
+                        .unwrap_or(span_end);
+                }
+
+                // Parse optional capability set
+                let capabilities = if self.at(TokenKind::CapOpen) {
+                    Some(self.parse_cap_set()?)
+                } else {
+                    None
+                };
+                if let Some(cap_id) = capabilities {
+                    span_end = self
+                        .arena()
+                        .get(cap_id)
+                        .map(|nd| nd.span)
+                        .unwrap_or(span_end);
+                }
+
+                let span = Span::new(
+                    span_start.file(),
+                    span_start.byte_start(),
+                    span_end.byte_start() + span_end.byte_len() - span_start.byte_start(),
+                );
+                return Ok(self.arena_mut().alloc_type(
+                    NodeKind::TypeArrow,
+                    span,
+                    TypeData::Arrow {
+                        params: elements,
+                        ret,
+                        effects,
+                        capabilities,
+                    },
+                ));
+            }
+
+            // Not an arrow, just a tuple
+            let span = Span::new(
+                span_start.file(),
+                span_start.byte_start(),
+                span_end.byte_start() + span_end.byte_len() - span_start.byte_start(),
+            );
+            return Ok(self.arena_mut().alloc_type(
+                NodeKind::TypeTuple,
+                span,
+                TypeData::Tuple { elements },
+            ));
+        }
+
+        // Expect closing paren
+        let rparen_tok = self.expect(TokenKind::RParen)?;
+        span_end = rparen_tok.span;
+
+        // Check for arrow (function type with single parameter)
+        if self.at(TokenKind::Arrow) {
+            self.bump(); // consume `->`
+
+            // Parse return type
+            let ret = self.parse_type()?;
+            span_end = self.arena().get(ret).map(|nd| nd.span).unwrap_or(span_end);
+
+            // Parse optional effect set
+            let effects = if self.at(TokenKind::EffectOpen) {
+                Some(self.parse_effect_row()?)
+            } else {
+                None
+            };
+            if let Some(eff_id) = effects {
+                span_end = self
+                    .arena()
+                    .get(eff_id)
+                    .map(|nd| nd.span)
+                    .unwrap_or(span_end);
+            }
+
+            // Parse optional capability set
+            let capabilities = if self.at(TokenKind::CapOpen) {
+                Some(self.parse_cap_set()?)
+            } else {
+                None
+            };
+            if let Some(cap_id) = capabilities {
+                span_end = self
+                    .arena()
+                    .get(cap_id)
+                    .map(|nd| nd.span)
+                    .unwrap_or(span_end);
+            }
+
+            let span = Span::new(
+                span_start.file(),
+                span_start.byte_start(),
+                span_end.byte_start() + span_end.byte_len() - span_start.byte_start(),
+            );
+            return Ok(self.arena_mut().alloc_type(
+                NodeKind::TypeArrow,
+                span,
+                TypeData::Arrow {
+                    params: elements,
+                    ret,
+                    effects,
+                    capabilities,
+                },
+            ));
+        }
+
+        // Otherwise, it's a parenthesized type (single element, not a tuple)
+        if elements.len() == 1 {
+            Ok(elements.into_iter().next().unwrap())
+        } else {
+            // Should not happen given the logic above
+            unreachable!("single element without comma should not reach here")
+        }
+    }
+
+    /// Parse a type name: `Ident` or `Ident(T1, T2, ...)`.
+    fn parse_type_name(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
+        let ident_tok = self.expect(TokenKind::Ident)?;
+        let name_id = self.arena_mut().alloc(NodeKind::Ident, ident_tok.span);
+        let mut span_end = ident_tok.span;
+
+        let mut args = Vec::new();
+
+        // Check for type arguments `(T1, T2, ...)`
+        if self.at(TokenKind::LParen) {
+            self.bump(); // consume `(`
+
+            // Check for empty args
+            if !self.at(TokenKind::RParen) {
+                loop {
+                    let arg_type = self.parse_type()?;
+                    span_end = self
+                        .arena()
+                        .get(arg_type)
+                        .map(|nd| nd.span)
+                        .unwrap_or(span_end);
+                    args.push(arg_type);
+
+                    if !self.at(TokenKind::Comma) {
+                        break;
+                    }
+                    self.bump(); // consume `,`
+                }
+            }
+
+            let rparen_tok = self.expect(TokenKind::RParen)?;
+            span_end = rparen_tok.span;
+        }
+
+        let span = Span::new(
+            ident_tok.span.file(),
+            ident_tok.span.byte_start(),
+            span_end.byte_start() + span_end.byte_len() - ident_tok.span.byte_start(),
+        );
+
+        Ok(self.arena_mut().alloc_type(
+            NodeKind::TypeName,
+            span,
+            TypeData::Name {
+                name: name_id,
+                args,
+            },
+        ))
+    }
+
+    /// Parse an effect row: `!{ eff1, eff2 | rest }`.
+    ///
+    /// Syntax: `EffectOpen (idents with optional Pipe tail) RBrace`.
+    /// Empty effect set `!{}` is recognized.
+    fn parse_effect_row(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
+        let effect_open_tok = self.expect(TokenKind::EffectOpen)?;
+        let span_start = effect_open_tok.span;
+
+        // Check for empty effect set
+        if self.at(TokenKind::RBrace) {
+            let rbrace_tok = self.expect(TokenKind::RBrace)?;
+            let span = Span::new(
+                span_start.file(),
+                span_start.byte_start(),
+                rbrace_tok.span.byte_start() + rbrace_tok.span.byte_len() - span_start.byte_start(),
+            );
+            return Ok(self.arena_mut().alloc_type(
+                NodeKind::TypeEffectRow,
+                span,
+                TypeData::EffectRow {
+                    items: vec![],
+                    rest: None,
+                },
+            ));
+        }
+
+        let mut items = Vec::new();
+
+        // Parse comma-separated effect identifiers
+        loop {
+            if self.at(TokenKind::Ident) {
+                let ident_tok = self.bump().unwrap();
+                let ident_id = self.arena_mut().alloc(NodeKind::Ident, ident_tok.span);
+                items.push(ident_id);
+
+                if !self.at(TokenKind::Comma) {
+                    break;
+                }
+                self.bump(); // consume `,`
+            } else {
+                break;
+            }
+        }
+
+        let mut rest = None;
+
+        // Check for pipe tail
+        if self.at(TokenKind::Pipe) {
+            self.bump(); // consume `|`
+
+            if let Some(tok) = self.peek()
+                && tok.kind == TokenKind::Ident
+            {
+                let rest_tok = self.bump().unwrap();
+                let rest_id = self.arena_mut().alloc(NodeKind::Ident, rest_tok.span);
+                rest = Some(rest_id);
+            }
+        }
+
+        let rbrace_tok = self.expect(TokenKind::RBrace)?;
+        let span_end = rbrace_tok.span;
+
+        let span = Span::new(
+            span_start.file(),
+            span_start.byte_start(),
+            span_end.byte_start() + span_end.byte_len() - span_start.byte_start(),
+        );
+
+        Ok(self.arena_mut().alloc_type(
+            NodeKind::TypeEffectRow,
+            span,
+            TypeData::EffectRow { items, rest },
+        ))
+    }
+
+    /// Parse a capability set: `@{ cap1, cap2, ... }`.
+    ///
+    /// Phase-1 representation: each dotted path `Mmio.read_cap` is accumulated
+    /// as a sequence of Ident nodes and stored in `TypeData::EffectRow` with
+    /// `rest: None` (reusing the effect row variant). A dedicated TypeData
+    /// variant for capability sets can be added in a later phase if needed.
+    fn parse_cap_set(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
+        let cap_open_tok = self.expect(TokenKind::CapOpen)?;
+        let span_start = cap_open_tok.span;
+
+        // Check for empty capability set
+        if self.at(TokenKind::RBrace) {
+            let rbrace_tok = self.expect(TokenKind::RBrace)?;
+            let span = Span::new(
+                span_start.file(),
+                span_start.byte_start(),
+                rbrace_tok.span.byte_start() + rbrace_tok.span.byte_len() - span_start.byte_start(),
+            );
+            return Ok(self.arena_mut().alloc_type(
+                NodeKind::TypeEffectRow,
+                span,
+                TypeData::EffectRow {
+                    items: vec![],
+                    rest: None,
+                },
+            ));
+        }
+
+        let mut items = Vec::new();
+
+        // Parse comma-separated capability identifiers (with optional dot-separated segments)
+        loop {
+            if self.at(TokenKind::Ident) {
+                let ident_tok = self.bump().unwrap();
+
+                // For phase-1, accumulate a dotted path as separate Ident nodes.
+                // E.g., `Mmio.read_cap` becomes two nodes: Mmio, read_cap.
+                items.push(self.arena_mut().alloc(NodeKind::Ident, ident_tok.span));
+
+                // Check for dot-separated path continuation
+                while self.at(TokenKind::Dot) {
+                    self.bump(); // consume `.`
+
+                    if let Some(next_tok) = self.peek() {
+                        if next_tok.kind == TokenKind::Ident {
+                            let next_ident_tok = self.bump().unwrap();
+                            items
+                                .push(self.arena_mut().alloc(NodeKind::Ident, next_ident_tok.span));
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+
+                if !self.at(TokenKind::Comma) {
+                    break;
+                }
+                self.bump(); // consume `,`
+            } else {
+                break;
+            }
+        }
+
+        let rbrace_tok = self.expect(TokenKind::RBrace)?;
+        let span_end = rbrace_tok.span;
+
+        let span = Span::new(
+            span_start.file(),
+            span_start.byte_start(),
+            span_end.byte_start() + span_end.byte_len() - span_start.byte_start(),
+        );
+
+        // Phase-1: reuse TypeEffectRow for capability sets.
+        Ok(self.arena_mut().alloc_type(
+            NodeKind::TypeEffectRow,
+            span,
+            TypeData::EffectRow { items, rest: None },
+        ))
+    }
+
+    /// Emit a P0100 ("expected type") diagnostic and return Err.
+    fn error_expected_type(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
+        let span = if let Some(tok) = self.peek() {
+            tok.span
+        } else {
+            Span::new(self.file(), 0, 0)
+        };
+        let diag = paideia_as_diagnostics::Diagnostic::error(
+            paideia_as_diagnostics::DiagnosticCode::new(
+                paideia_as_diagnostics::Category::P,
+                paideia_as_diagnostics::Severity::Error,
+                100,
+            )
+            .unwrap(),
+        )
+        .message("expected type".to_string())
+        .with_span(span)
+        .finish();
+        self.emit_diagnostic(diag);
+        Err(ParseError)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use paideia_as_ast::AstArena;
+    use paideia_as_diagnostics::{FileId, Span, VecSink};
+    use paideia_as_lexer::{Token, TokenKind};
+
+    fn tok(kind: TokenKind, byte_start: u32) -> Token {
+        Token::new(kind, Span::new(FileId::new(1).unwrap(), byte_start, 1))
+    }
+
+    fn parse_t(
+        tokens: Vec<Token>,
+    ) -> (
+        AstArena,
+        Result<paideia_as_ast::NodeId, ParseError>,
+        Vec<paideia_as_diagnostics::Diagnostic>,
+    ) {
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let result = {
+            let mut p = Parser::new(&tokens, FileId::new(1).unwrap(), &mut arena, &mut sink);
+            p.parse_type()
+        };
+        (arena, result, sink.diagnostics().to_vec())
+    }
+
+    #[test]
+    fn parse_simple_type_name() {
+        let tokens = vec![tok(TokenKind::Ident, 0), tok(TokenKind::Eof, 1)];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypeName);
+        if let Some(TypeData::Name { args, .. }) = arena.type_data(ty_id) {
+            assert_eq!(args.len(), 0);
+        } else {
+            panic!("expected TypeName");
+        }
+    }
+
+    #[test]
+    fn parse_type_with_args() {
+        // `Map(K, V)` → Ident LParen Ident Comma Ident RParen Eof
+        let tokens = vec![
+            tok(TokenKind::Ident, 0),  // Map
+            tok(TokenKind::LParen, 3), // (
+            tok(TokenKind::Ident, 4),  // K
+            tok(TokenKind::Comma, 5),  // ,
+            tok(TokenKind::Ident, 7),  // V
+            tok(TokenKind::RParen, 8), // )
+            tok(TokenKind::Eof, 9),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        if let Some(TypeData::Name { args, .. }) = arena.type_data(ty_id) {
+            assert_eq!(args.len(), 2);
+        } else {
+            panic!("expected TypeName with args");
+        }
+    }
+
+    #[test]
+    fn parse_tuple_type() {
+        // `(u64, u64)` → LParen Ident Comma Ident RParen Eof
+        let tokens = vec![
+            tok(TokenKind::LParen, 0),
+            tok(TokenKind::Ident, 1), // u64
+            tok(TokenKind::Comma, 4),
+            tok(TokenKind::Ident, 6), // u64
+            tok(TokenKind::RParen, 9),
+            tok(TokenKind::Eof, 10),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypeTuple);
+        if let Some(TypeData::Tuple { elements }) = arena.type_data(ty_id) {
+            assert_eq!(elements.len(), 2);
+        } else {
+            panic!("expected TypeTuple");
+        }
+    }
+
+    #[test]
+    fn parse_arrow_type() {
+        // `(u64) -> u64` → LParen Ident RParen Arrow Ident Eof
+        let tokens = vec![
+            tok(TokenKind::LParen, 0),
+            tok(TokenKind::Ident, 1), // u64
+            tok(TokenKind::RParen, 4),
+            tok(TokenKind::Arrow, 6),
+            tok(TokenKind::Ident, 9), // u64
+            tok(TokenKind::Eof, 12),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypeArrow);
+        if let Some(TypeData::Arrow {
+            params,
+            effects,
+            capabilities,
+            ..
+        }) = arena.type_data(ty_id)
+        {
+            assert_eq!(params.len(), 1);
+            assert!(effects.is_none());
+            assert!(capabilities.is_none());
+        } else {
+            panic!("expected TypeArrow");
+        }
+    }
+
+    #[test]
+    fn parse_arrow_with_effects() {
+        // `(u64) -> u64 !{io}` → LParen Ident RParen Arrow Ident EffectOpen Ident RBrace Eof
+        let tokens = vec![
+            tok(TokenKind::LParen, 0),
+            tok(TokenKind::Ident, 1), // u64
+            tok(TokenKind::RParen, 4),
+            tok(TokenKind::Arrow, 6),
+            tok(TokenKind::Ident, 9), // u64
+            tok(TokenKind::EffectOpen, 13),
+            tok(TokenKind::Ident, 15), // io
+            tok(TokenKind::RBrace, 17),
+            tok(TokenKind::Eof, 18),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        if let Some(TypeData::Arrow { effects, .. }) = arena.type_data(ty_id) {
+            assert!(effects.is_some());
+        } else {
+            panic!("expected TypeArrow with effects");
+        }
+    }
+
+    #[test]
+    fn parse_arrow_with_capabilities() {
+        // `(u64) -> u64 @{cap}` → LParen Ident RParen Arrow Ident CapOpen Ident RBrace Eof
+        let tokens = vec![
+            tok(TokenKind::LParen, 0),
+            tok(TokenKind::Ident, 1), // u64
+            tok(TokenKind::RParen, 4),
+            tok(TokenKind::Arrow, 6),
+            tok(TokenKind::Ident, 9), // u64
+            tok(TokenKind::CapOpen, 13),
+            tok(TokenKind::Ident, 15), // cap
+            tok(TokenKind::RBrace, 18),
+            tok(TokenKind::Eof, 19),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        if let Some(TypeData::Arrow { capabilities, .. }) = arena.type_data(ty_id) {
+            assert!(capabilities.is_some());
+        } else {
+            panic!("expected TypeArrow with capabilities");
+        }
+    }
+
+    #[test]
+    fn parse_arrow_full() {
+        // `(u64, linear Cap) -> u64 !{io} @{Mmio.read_cap}`
+        // LParen Ident Comma KwLinear Ident RParen Arrow Ident EffectOpen Ident RBrace CapOpen Ident Dot Ident RBrace Eof
+        let tokens = vec![
+            tok(TokenKind::LParen, 0),
+            tok(TokenKind::Ident, 1), // u64
+            tok(TokenKind::Comma, 4),
+            tok(TokenKind::KwLinear, 6),
+            tok(TokenKind::Ident, 12), // Cap
+            tok(TokenKind::RParen, 15),
+            tok(TokenKind::Arrow, 17),
+            tok(TokenKind::Ident, 20), // u64
+            tok(TokenKind::EffectOpen, 24),
+            tok(TokenKind::Ident, 26), // io
+            tok(TokenKind::RBrace, 28),
+            tok(TokenKind::CapOpen, 30),
+            tok(TokenKind::Ident, 32), // Mmio
+            tok(TokenKind::Dot, 36),
+            tok(TokenKind::Ident, 37), // read_cap
+            tok(TokenKind::RBrace, 45),
+            tok(TokenKind::Eof, 46),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypeArrow);
+        if let Some(TypeData::Arrow {
+            params,
+            effects,
+            capabilities,
+            ..
+        }) = arena.type_data(ty_id)
+        {
+            assert_eq!(params.len(), 2);
+            // Second param should be TypeLinearClass with Linear
+            let param2 = params[1];
+            let param2_node = arena.get(param2).unwrap();
+            assert_eq!(param2_node.kind, NodeKind::TypeLinearClass);
+            assert!(effects.is_some());
+            assert!(capabilities.is_some());
+        } else {
+            panic!("expected TypeArrow full");
+        }
+    }
+
+    #[test]
+    fn parse_linear_class_keyword() {
+        // `linear T` → KwLinear Ident Eof
+        let tokens = vec![
+            tok(TokenKind::KwLinear, 0),
+            tok(TokenKind::Ident, 7),
+            tok(TokenKind::Eof, 8),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypeLinearClass);
+        if let Some(TypeData::LinearClass { class, .. }) = arena.type_data(ty_id) {
+            assert_eq!(*class, LinClass::Linear);
+        } else {
+            panic!("expected TypeLinearClass");
+        }
+    }
+
+    #[test]
+    fn parse_linear_class_glyph() {
+        // `↓ T` → LinearMark Ident Eof
+        let tokens = vec![
+            tok(TokenKind::LinearMark, 0),
+            tok(TokenKind::Ident, 1),
+            tok(TokenKind::Eof, 2),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypeLinearClass);
+        if let Some(TypeData::LinearClass { class, .. }) = arena.type_data(ty_id) {
+            assert_eq!(*class, LinClass::LinearMark);
+        } else {
+            panic!("expected TypeLinearClass with LinearMark");
+        }
+    }
+
+    #[test]
+    fn parse_affine_glyph() {
+        // `~ T` → AffineMark Ident Eof
+        let tokens = vec![
+            tok(TokenKind::AffineMark, 0),
+            tok(TokenKind::Ident, 1),
+            tok(TokenKind::Eof, 2),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypeLinearClass);
+        if let Some(TypeData::LinearClass { class, .. }) = arena.type_data(ty_id) {
+            assert_eq!(*class, LinClass::AffineMark);
+        } else {
+            panic!("expected TypeLinearClass with AffineMark");
+        }
+    }
+
+    #[test]
+    fn parse_forall_quantified() {
+        // `forall e. (T) -> T !{Io | e}` (bound var discarded in phase-1)
+        // KwForall Ident Dot LParen Ident RParen Arrow Ident EffectOpen Ident Pipe Ident RBrace Eof
+        let tokens = vec![
+            tok(TokenKind::KwForall, 0),
+            tok(TokenKind::Ident, 7), // e
+            tok(TokenKind::Dot, 8),
+            tok(TokenKind::LParen, 10),
+            tok(TokenKind::Ident, 11), // T
+            tok(TokenKind::RParen, 12),
+            tok(TokenKind::Arrow, 14),
+            tok(TokenKind::Ident, 17), // T
+            tok(TokenKind::EffectOpen, 19),
+            tok(TokenKind::Ident, 21), // Io
+            tok(TokenKind::Pipe, 23),
+            tok(TokenKind::Ident, 25), // e
+            tok(TokenKind::RBrace, 26),
+            tok(TokenKind::Eof, 27),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        // The outer node should be an arrow (forall wrapper is discarded in phase-1)
+        assert_eq!(ty_node.kind, NodeKind::TypeArrow);
+    }
+
+    #[test]
+    fn parse_empty_effect_set() {
+        // `!{}` → EffectOpen RBrace Eof
+        let tokens = vec![
+            tok(TokenKind::EffectOpen, 0),
+            tok(TokenKind::RBrace, 2),
+            tok(TokenKind::Eof, 3),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypeEffectRow);
+        if let Some(TypeData::EffectRow { items, rest }) = arena.type_data(ty_id) {
+            assert_eq!(items.len(), 0);
+            assert!(rest.is_none());
+        } else {
+            panic!("expected TypeEffectRow empty");
+        }
+    }
+
+    #[test]
+    fn parse_empty_cap_set() {
+        // `@{}` → CapOpen RBrace Eof
+        let tokens = vec![
+            tok(TokenKind::CapOpen, 0),
+            tok(TokenKind::RBrace, 2),
+            tok(TokenKind::Eof, 3),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypeEffectRow);
+        if let Some(TypeData::EffectRow { items, rest }) = arena.type_data(ty_id) {
+            assert_eq!(items.len(), 0);
+            assert!(rest.is_none());
+        } else {
+            panic!("expected TypeEffectRow empty cap");
+        }
+    }
+}

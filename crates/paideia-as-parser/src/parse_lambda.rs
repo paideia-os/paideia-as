@@ -18,7 +18,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     ///
     /// For phase-1:
     /// - Patterns inside `(... : T)` are treated as Ident patterns.
-    /// - Types after `:` are parsed as Placeholder nodes (full type parser in PR-24+).
+    /// - Types after `:` are parsed using the full type parser (PR-24).
     pub(crate) fn parse_lambda_fn(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
         let fn_tok = self.expect(TokenKind::KwFn)?;
         let fn_span = fn_tok.span;
@@ -35,8 +35,8 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
             self.expect(TokenKind::Colon)?;
 
-            // Parse type as placeholder (full type parser in PR-24+)
-            let _ty_placeholder = self.parse_type_placeholder()?;
+            // Parse type using the full type parser
+            let _ty = self.parse_type()?;
             // In a complete parser, we'd wrap the pattern and type together.
             // For phase-1, we store just the pattern; the type is parsed but
             // not currently attached to the pattern node. Document this.
@@ -159,55 +159,6 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             }
         } else {
             self.error_expected_lambda_pattern()
-        }
-    }
-
-    /// Parse a type placeholder (for phase-1; full type parser in PR-24+).
-    ///
-    /// For now, accepts a single Ident and wraps it in a Placeholder node.
-    /// This is a temporary measure — the full type parser will arrive in a later PR.
-    fn parse_type_placeholder(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
-        if let Some(tok) = self.peek() {
-            match tok.kind {
-                TokenKind::Ident => {
-                    let ident_tok = self.bump().unwrap();
-                    // Allocate a Placeholder node for the type (full type AST in PR-24+).
-                    Ok(self
-                        .arena_mut()
-                        .alloc(NodeKind::Placeholder, ident_tok.span))
-                }
-                _ => {
-                    let span = tok.span;
-                    let diag = paideia_as_diagnostics::Diagnostic::error(
-                        paideia_as_diagnostics::DiagnosticCode::new(
-                            paideia_as_diagnostics::Category::P,
-                            paideia_as_diagnostics::Severity::Error,
-                            100,
-                        )
-                        .unwrap(),
-                    )
-                    .message("expected type name".to_string())
-                    .with_span(span)
-                    .finish();
-                    self.emit_diagnostic(diag);
-                    Err(ParseError)
-                }
-            }
-        } else {
-            let span = Span::new(self.file(), 0, 0);
-            let diag = paideia_as_diagnostics::Diagnostic::error(
-                paideia_as_diagnostics::DiagnosticCode::new(
-                    paideia_as_diagnostics::Category::P,
-                    paideia_as_diagnostics::Severity::Error,
-                    100,
-                )
-                .unwrap(),
-            )
-            .message("expected type name".to_string())
-            .with_span(span)
-            .finish();
-            self.emit_diagnostic(diag);
-            Err(ParseError)
         }
     }
 
