@@ -6,6 +6,7 @@
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+pub mod branch_merge;
 pub mod check_expr;
 pub mod check_linearity;
 pub mod env;
@@ -13,6 +14,7 @@ pub mod linearity_ctx;
 mod lower;
 mod placeholder_emit;
 
+pub use branch_merge::{S_BRANCH_MISMATCH, merge_branches};
 pub use check_expr::{InferOutcome, check_annotation, infer_node};
 pub use check_linearity::{S_NEVER_USED, S_OVERUSED, validate_scope};
 pub use env::{Symbol, TypeEnv};
