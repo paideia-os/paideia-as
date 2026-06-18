@@ -18,11 +18,13 @@ pub mod check_pure;
 pub mod effect_infer;
 pub mod effect_unify;
 pub mod env;
+pub mod hygiene;
 pub mod linearity_ctx;
 mod lower;
 pub mod macro_expand;
 pub mod macro_match;
 mod placeholder_emit;
+pub mod resolve;
 
 pub use branch_merge::{S_BRANCH_MISMATCH, merge_branches};
 pub use cap_infer::{C_MISSING_CAP, check_capabilities, compose_caps};
@@ -42,6 +44,7 @@ pub use effect_unify::{
     unify_call_row,
 };
 pub use env::{Symbol, TypeEnv};
+pub use hygiene::{HygienicName, MacroId};
 pub use linearity_ctx::{Binding, LinearityCtx};
 pub use lower::{LoweringResult, lower_ast_to_ir};
 pub use macro_expand::{
@@ -52,3 +55,4 @@ pub use macro_match::{
     InvocationMatch, M_NO_MATCH, MatchBinding, RuleMatch, match_invocation, match_rule,
 };
 pub use placeholder_emit::placeholder_for;
+pub use resolve::{HygienicEnv, ResolveValue};
