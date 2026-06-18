@@ -23,8 +23,10 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// - **KwSelfType / KwSelfValue**: treat as a single-segment path.
     /// - **LParen**: disambiguate between `()` (unit), `(expr)` (parenthesized),
     ///   and `(a, b, c)` (tuple; currently stubbed as Placeholder).
-    /// - **LBrace**: stub block expression (full parsing deferred to PR-21).
     /// - **Otherwise**: emit P0100 "expected expression" and return Err.
+    ///
+    /// Note: Block expressions, lambdas, and control-flow constructs are
+    /// dispatched in `parse_expr_bp` Step 0, before primary parsing.
     ///
     /// On parse failure, returns `Err(ParseError)` after emitting a diagnostic.
     /// The caller is responsible for calling [`Parser::recover_to_one_of`] to
@@ -152,10 +154,8 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                     // Parenthesized expressions and tuples
                     TokenKind::LParen => self.parse_paren_expr(),
 
-                    // Block expressions (stubbed for phase-1)
-                    TokenKind::LBrace => self.parse_block_expr_stub(),
-
                     // Anything else is an error
+                    // (Block expressions are handled in parse_expr_bp Step 0)
                     _ => self.error_expected_expression(),
                 }
             }
@@ -253,40 +253,6 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         }
         self.bump(); // consume `)`
         Ok(first_expr)
-    }
-
-    /// Stub block expression parser for phase-1.
-    ///
-    /// Full block parsing (statements, tail expressions) is deferred to PR-21.
-    /// This function skips tokens until `}` and allocates an empty Block.
-    fn parse_block_expr_stub(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
-        let lbrace_span = self.expect(TokenKind::LBrace)?.span;
-
-        // Skip everything until RBrace or EOF
-        self.recover_to_one_of(&[TokenKind::RBrace]);
-
-        // Consume the RBrace if present
-        if self.at(TokenKind::RBrace) {
-            let rbrace_tok = self.bump().expect("at RBrace implies peek is Some");
-            let block_span = Span::new(
-                lbrace_span.file(),
-                lbrace_span.byte_start(),
-                rbrace_tok.span.byte_start() + rbrace_tok.span.byte_len()
-                    - lbrace_span.byte_start(),
-            );
-
-            Ok(self.arena_mut().alloc_expr(
-                NodeKind::ExprBlock,
-                block_span,
-                ExprData::Block {
-                    stmts: vec![],
-                    tail: None,
-                },
-            ))
-        } else {
-            // EOF without matching RBrace — error already logged by recovery
-            Err(ParseError)
-        }
     }
 
     /// Emit a P0100 ("expected expression") diagnostic and return `Err(ParseError)`.
@@ -559,7 +525,8 @@ mod tests {
         let mut sink = VecSink::new();
         let mut parser = Parser::new(&tokens, FileId::new(1).unwrap(), &mut arena, &mut sink);
 
-        let result = parser.parse_primary();
+        // Note: blocks are now parsed in parse_expr_bp Step 0, not in parse_primary
+        let result = parser.parse_expr();
         assert!(result.is_ok());
         let expr_id = result.unwrap();
 

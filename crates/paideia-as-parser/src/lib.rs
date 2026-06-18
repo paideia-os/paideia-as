@@ -9,7 +9,10 @@
 #![forbid(unsafe_code)]
 
 mod cursor;
+mod parse_control;
 mod parse_expr;
+mod parse_lambda;
+mod parse_match;
 mod parse_postfix;
 mod parse_prefix;
 mod parse_primary;
