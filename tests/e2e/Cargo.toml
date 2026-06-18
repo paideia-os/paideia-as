@@ -1,0 +1,20 @@
+[package]
+name = "paideia-as-e2e"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+# Workspace integration tests for paideia-as. Houses the end-to-end
+# smoke (paideia-as build → ELF object) and future cross-crate
+# scenarios that don't fit inside any single crate's tests/ dir.
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+
+[dev-dependencies]
+object = { workspace = true }
