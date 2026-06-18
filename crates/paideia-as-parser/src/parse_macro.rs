@@ -2,6 +2,7 @@
 //!
 //! Implements parsing of macro declarations in the form:
 //! - Single-rule: `macro Name(pattern) => template`
+//! - Multi-rule: `macro Name { (pattern) => template ; (pattern) => template }`
 //!
 //! Pattern and template token streams are stored as `Placeholder` nodes whose
 //! spans cover the byte ranges of the tokens. The actual pattern matching and
@@ -16,17 +17,18 @@ use paideia_as_lexer::TokenKind;
 use crate::parser::{ParseError, Parser};
 
 impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
-    /// Parse a macro declaration: `macro Name(pattern) => template`.
+    /// Parse a macro declaration: `macro Name(pattern) => template` or
+    /// `macro Name { (pattern) => template ; (pattern) => template }`.
     ///
     /// **Algorithm:**
     /// 1. Verify we're at the contextual "macro" keyword (Ident with source text "macro").
     /// 2. Consume the `macro` Ident.
     /// 3. Expect and consume the macro name Ident.
-    /// 4. Expect `(` for the pattern.
-    /// 5. Scan to `)` to capture pattern tokens, then extract MacroFragments.
-    /// 6. Expect `=>` (FatArrow).
-    /// 7. Scan template tokens until end of statement.
-    /// 8. Allocate MacroDecl item.
+    /// 4. Check if next is `(` or `{`:
+    ///    - If `(`: single-rule form
+    ///    - If `{`: multi-rule form
+    /// 5. For each rule: scan pattern, expect `=>`, scan template, consume `;` or `}`.
+    /// 6. Allocate MacroDecl item with rules vector.
     ///
     /// Emits `P0110` for unknown fragment kinds.
     pub(crate) fn parse_macro_decl(&mut self) -> Result<NodeId, ParseError> {
@@ -58,9 +60,79 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         let name_tok = self.expect(TokenKind::Ident)?;
         let name_id = self.arena_mut().alloc(NodeKind::Ident, name_tok.span);
 
-        // Expect `(` for pattern
+        // Determine which form: single-rule `(` or multi-rule `{`
+        let is_multi_rule = self.at(TokenKind::LBrace);
+
+        let mut rules = Vec::new();
+
+        if is_multi_rule {
+            // Multi-rule form: `macro Name { (pattern) => template ; ... }`
+            self.expect(TokenKind::LBrace)?;
+
+            while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
+                // Parse one rule: (pattern) => template
+                let rule = self.parse_macro_rule()?;
+                rules.push(rule);
+
+                // After template, expect `;` if not at `}`
+                if self.at(TokenKind::RBrace) {
+                    break;
+                } else {
+                    self.eat(TokenKind::Semicolon);
+                }
+            }
+
+            self.expect(TokenKind::RBrace)?;
+        } else {
+            // Single-rule form: `macro Name (pattern) => template`
+            self.expect(TokenKind::LParen)?;
+            let rule = self.parse_macro_rule_inner()?;
+            rules.push(rule);
+
+            // Consume trailing `;` if present
+            self.eat(TokenKind::Semicolon);
+        }
+
+        // Compute full span for the macro declaration
+        let end_span = self
+            .peek()
+            .map(|t| t.span)
+            .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+        let full_span = Span::new(
+            span_start.file(),
+            span_start.byte_start(),
+            end_span.byte_start() + end_span.byte_len() - span_start.byte_start(),
+        );
+
+        let decl_data = MacroDeclData {
+            name: name_id,
+            rules,
+            doc: None,
+        };
+
+        let item = self.arena_mut().alloc_item(
+            NodeKind::MacroDecl,
+            full_span,
+            ItemData::MacroDecl(decl_data),
+        );
+        Ok(item)
+    }
+
+    /// Parse a single macro rule within a multi-rule form.
+    /// Expects current position to be at `(` and will consume through `=>`
+    /// and template.
+    fn parse_macro_rule(&mut self) -> Result<MacroRule, ParseError> {
         self.expect(TokenKind::LParen)?;
-        let pattern_start_span = name_tok.span;
+        self.parse_macro_rule_inner()
+    }
+
+    /// Parse the pattern and template of a macro rule, assuming we just
+    /// consumed `(` and are at the pattern content.
+    fn parse_macro_rule_inner(&mut self) -> Result<MacroRule, ParseError> {
+        let pattern_start_span = self
+            .peek()
+            .map(|t| t.span)
+            .unwrap_or_else(|| Span::new(self.file(), 0, 0));
 
         // Scan to matching `)`
         let pattern_end_span = self.skip_to_closing_paren()?;
@@ -93,39 +165,11 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         // Allocate template placeholder
         let template_id = self.arena_mut().alloc(NodeKind::Placeholder, template_span);
 
-        // Consume trailing `;` if present
-        self.eat(TokenKind::Semicolon);
-
-        // Compute full span for the macro declaration
-        let end_span = self
-            .peek()
-            .map(|t| t.span)
-            .unwrap_or_else(|| Span::new(self.file(), 0, 0));
-        let full_span = Span::new(
-            span_start.file(),
-            span_start.byte_start(),
-            end_span.byte_start() + end_span.byte_len() - span_start.byte_start(),
-        );
-
-        // Allocate MacroDecl item with one rule
-        let rule = MacroRule {
+        Ok(MacroRule {
             pattern: pattern_id,
             template: template_id,
             fragments,
-        };
-
-        let decl_data = MacroDeclData {
-            name: name_id,
-            rules: vec![rule],
-            doc: None,
-        };
-
-        let item = self.arena_mut().alloc_item(
-            NodeKind::MacroDecl,
-            full_span,
-            ItemData::MacroDecl(decl_data),
-        );
-        Ok(item)
+        })
     }
 
     /// Skip from current position to the matching closing paren `)`.
@@ -167,17 +211,37 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
     /// Skip from current position to the end of the template.
     ///
-    /// The template ends at `;` or at the start of the next item/EOF.
+    /// The template ends at `;`, `}`, or at the start of the next item/EOF.
+    /// Tracks brace/paren depth to avoid stopping inside nested structures.
     fn skip_to_template_end(&mut self) -> Result<Span, ParseError> {
         let mut last_span = self
             .peek()
             .map(|t| t.span)
             .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+        let mut depth = 0;
 
         while !self.at(TokenKind::Eof) && self.peek().is_some() {
             match self.peek().map(|t| t.kind) {
-                Some(TokenKind::Semicolon)
-                | Some(TokenKind::KwModule)
+                Some(TokenKind::LBrace) => {
+                    depth += 1;
+                    last_span = self.peek().map(|t| t.span).unwrap_or(last_span);
+                    self.bump();
+                }
+                Some(TokenKind::RBrace) => {
+                    if depth == 0 {
+                        // Top-level `}` ends the template (in multi-rule form)
+                        break;
+                    } else {
+                        depth -= 1;
+                        last_span = self.peek().map(|t| t.span).unwrap_or(last_span);
+                        self.bump();
+                    }
+                }
+                Some(TokenKind::Semicolon) if depth == 0 => {
+                    // Top-level `;` ends the template
+                    break;
+                }
+                Some(TokenKind::KwModule)
                 | Some(TokenKind::KwSignature)
                 | Some(TokenKind::KwLet)
                 | Some(TokenKind::KwEffect)
@@ -185,7 +249,12 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 | Some(TokenKind::KwStruct)
                 | Some(TokenKind::KwEnum)
                 | Some(TokenKind::KwUnsafe)
-                | Some(TokenKind::Eof) => break,
+                    if depth == 0 =>
+                {
+                    // Top-level keyword ends the template (single-rule form)
+                    break;
+                }
+                Some(TokenKind::Eof) => break,
                 _ => {
                     last_span = self.peek().map(|t| t.span).unwrap_or(last_span);
                     self.bump();
@@ -376,5 +445,131 @@ mod tests {
             .filter(|d| d.code().severity() == Severity::Error)
             .collect();
         assert!(errors.is_empty(), "should have no parse errors");
+    }
+
+    #[test]
+    fn multi_rule_macro_two_rules_parses() {
+        let (arena, result, diags) = parse_source_str(
+            "macro twice { ($x:expr) => { x + x } ; ($x:expr, $y:expr) => { x + y } }",
+        );
+        assert!(result.is_ok(), "should parse successfully");
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "should have no parse errors");
+
+        // Extract the macro from the root structure
+        if let Ok(root_id) = result {
+            if let Some(ItemData::Structure { items, .. }) = arena.item_data(root_id) {
+                assert!(!items.is_empty(), "should have at least one item");
+                if let Some(ItemData::MacroDecl(decl)) = arena.item_data(items[0]) {
+                    assert_eq!(
+                        decl.rules.len(),
+                        2,
+                        "should have exactly two rules in the macro"
+                    );
+                } else {
+                    panic!("expected MacroDecl item");
+                }
+            } else {
+                panic!("expected Structure root");
+            }
+        }
+    }
+
+    #[test]
+    fn multi_rule_macro_three_rules_parses() {
+        let (arena, result, diags) = parse_source_str(
+            "macro choose { ($x:expr) => x ; ($x:expr, $y:expr) => { x + y } ; ($x:expr, $y:expr, $z:expr) => { x + y + z } }",
+        );
+        assert!(result.is_ok(), "should parse successfully");
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "should have no parse errors");
+
+        if let Ok(root_id) = result {
+            if let Some(ItemData::Structure { items, .. }) = arena.item_data(root_id) {
+                assert!(!items.is_empty(), "should have at least one item");
+                if let Some(ItemData::MacroDecl(decl)) = arena.item_data(items[0]) {
+                    assert_eq!(
+                        decl.rules.len(),
+                        3,
+                        "should have exactly three rules in the macro"
+                    );
+                } else {
+                    panic!("expected MacroDecl item");
+                }
+            } else {
+                panic!("expected Structure root");
+            }
+        }
+    }
+
+    #[test]
+    fn single_rule_form_still_parses() {
+        let (arena, result, diags) = parse_source_str("macro foo($x:expr) => x + 1");
+        assert!(result.is_ok(), "should parse successfully");
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "should have no parse errors");
+
+        // Verify single rule
+        if let Ok(root_id) = result {
+            if let Some(ItemData::Structure { items, .. }) = arena.item_data(root_id) {
+                assert!(!items.is_empty(), "should have at least one item");
+                if let Some(ItemData::MacroDecl(decl)) = arena.item_data(items[0]) {
+                    assert_eq!(
+                        decl.rules.len(),
+                        1,
+                        "single-rule form should have exactly one rule"
+                    );
+                } else {
+                    panic!("expected MacroDecl item");
+                }
+            } else {
+                panic!("expected Structure root");
+            }
+        }
+    }
+
+    #[test]
+    fn multi_rule_trailing_semi_ok() {
+        let (_arena, result, diags) = parse_source_str("macro foo { ($x:expr) => { x } ; }");
+        assert!(result.is_ok(), "should parse successfully");
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "should have no parse errors");
+    }
+
+    #[test]
+    fn multi_rule_with_nested_braces_ok() {
+        let (arena, result, diags) =
+            parse_source_str("macro nested { ($x:expr) => { { inner } } ; ($y:expr) => { y } }");
+        assert!(result.is_ok(), "should parse successfully");
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "should have no parse errors");
+
+        if let Ok(root_id) = result {
+            if let Some(ItemData::Structure { items, .. }) = arena.item_data(root_id) {
+                assert!(!items.is_empty(), "should have at least one item");
+                if let Some(ItemData::MacroDecl(decl)) = arena.item_data(items[0]) {
+                    assert_eq!(decl.rules.len(), 2, "should have two rules");
+                } else {
+                    panic!("expected MacroDecl item");
+                }
+            } else {
+                panic!("expected Structure root");
+            }
+        }
     }
 }

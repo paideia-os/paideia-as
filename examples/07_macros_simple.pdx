@@ -1,7 +1,7 @@
 // =============================================================================
 // 07_macros_simple.pdx — pattern-based macros (phase-1 restricted form)
 // -----------------------------------------------------------------------------
-// status: parses cleanly (single-rule); language-intent for multi-rule
+// status: parses cleanly (single-rule and multi-rule)
 // design-doc:
 //   design/toolchain/macros-phase1.md §1 (syntax / pattern types),
 //   design/toolchain/macros-phase1.md §1.4 (example macros),
@@ -9,7 +9,7 @@
 //     phase-1 is the restricted, pattern-only subset per §14.5).
 // feature:
 //   - `macro Name(pattern) => template` single-rule form
-//   - multi-rule form with several arrow-separated alternatives (documented)
+//   - `macro Name { (pattern) => template ; ... }` multi-rule form with several rule arms
 //   - fragment types: $x:expr, $x:ident, $x:type, $x:literal, $x:block, $x:tt
 // =============================================================================
 //
@@ -95,30 +95,21 @@ macro const_byte($v:literal) => ($v)
 macro emit_block($body:block) => $body
 
 // ---------------------------------------------------------------------------
-// MULTI-RULE MACRO (documented form — see macros-phase1.md §1.1)
+// MULTI-RULE MACRO (see macros-phase1.md §1.1)
 //
 // A macro may declare multiple rules. The expander tries them in order;
 // the first match wins. If no rule matches, diagnostic M0308 ("macro
 // pattern does not match any rule") fires.
 //
-// Phase-1 parser status: `parse_macro_decl` currently extracts one rule
-// per `macro` declaration. The multi-rule form below is the documented
-// surface; full parsing for multiple `=>` alternatives is part of the
-// phase-2 macro polish. Until then, additional rules are best written as
-// separate `macro` declarations.
+// The syntax `macro Name { (pattern) => template ; (pattern) => template }`
+// groups multiple rules under one macro name. Each rule is a
+// `(pattern) => template` pair separated by semicolons. The final rule
+// may be followed by a trailing semicolon before the closing brace.
+//
+// When `choose_op` is invoked with one argument, rule 0 matches.
+// With two arguments, rule 1 matches.
 // ---------------------------------------------------------------------------
-//
-// Documented form (intent):
-//
-//     macro choose_op
-//         ($x:expr) => simple_form($x)
-//         ($x:expr, $y:expr) => complex_form($x, $y)
-//
-// Phase-1 fallback (this parses cleanly today):
-//
-//     macro choose_op_1($x:expr) => simple_form($x)
-//     macro choose_op_2($x:expr, $y:expr) => complex_form($x, $y)
-//
-// ---------------------------------------------------------------------------
-macro choose_op_1($x:expr) => simple_form($x)
-macro choose_op_2($x:expr, $y:expr) => complex_form($x, $y)
+macro choose_op {
+    ($x:expr) => simple_form($x) ;
+    ($x:expr, $y:expr) => complex_form($x, $y)
+}
