@@ -6,6 +6,7 @@
 //! - Let bindings: `let x = e1 in e2`.
 //! - Pattern-match on `TermHead`: `match t with | TermHead::Lambda => e1 | _ => e2`.
 //! - Calls to the reflect_api functions: `kind(t)`, `children(t)`, `span(t)`.
+//! - Splice operation: `splice(t)` (phase-2-m6+).
 //! - Conditionals (`if cond then e1 else e2`).
 //! - Arithmetic on integers (`+`, `-`, `*`).
 //! - Identifier lookup from the environment.
@@ -447,7 +448,7 @@ pub fn eval<'a>(arena: &'a AstArena, expr_id: NodeId, env: &mut Env<'a>) -> Eval
         }
 
         NodeKind::ExprCall => {
-            // Call: expect a builtin function (kind, children, span).
+            // Call: expect a builtin function (kind, children, span, splice).
             if let Some(ExprData::Call { callee, args }) = arena.expr_data(expr_id) {
                 // Determine the callee name.
                 let callee_data = arena.get(*callee).ok_or_else(|| {
@@ -464,6 +465,7 @@ pub fn eval<'a>(arena: &'a AstArena, expr_id: NodeId, env: &mut Env<'a>) -> Eval
                 // - 0: kind
                 // - 1: children
                 // - 2: span
+                // - 3: splice
                 let builtin_code = callee_data.span.byte_start();
 
                 match builtin_code {
@@ -535,6 +537,27 @@ pub fn eval<'a>(arena: &'a AstArena, expr_id: NodeId, env: &mut Env<'a>) -> Eval
                         }
                     }
 
+                    3 => {
+                        // splice(t) builtin (phase-2-m6+)
+                        if args.len() != 1 {
+                            return Err(Diagnostic::error(
+                                DiagnosticCode::new(Category::T, Severity::Error, 522)
+                                    .expect("valid T code"),
+                            )
+                            .message("splice() expects exactly 1 argument")
+                            .with_span(span)
+                            .finish());
+                        }
+                        let arg_val = eval(arena, args[0], env)?;
+                        // Use the splice module to handle splicing.
+                        // For m2-006, this is a pass-through: return the Term's NodeId
+                        // wrapped in a Value::Term, with the call site span for diagnostics.
+                        crate::splice::splice(arg_val, span).map(|node_id| {
+                            // Wrap the spliced node ID back into a Value::Term.
+                            Value::Term(Term::new(arena, node_id))
+                        })
+                    }
+
                     _ => Err(Diagnostic::error(
                         DiagnosticCode::new(Category::T, Severity::Error, 519)
                             .expect("valid T code"),
@@ -548,6 +571,19 @@ pub fn eval<'a>(arena: &'a AstArena, expr_id: NodeId, env: &mut Env<'a>) -> Eval
                     DiagnosticCode::new(Category::T, Severity::Error, 520).expect("valid T code"),
                 )
                 .message("expected Call expression data")
+                .finish())
+            }
+        }
+
+        NodeKind::ExprQuote => {
+            // Quote: return the body as a Term value.
+            if let Some(ExprData::Quote { body }) = arena.expr_data(expr_id) {
+                Ok(Value::Term(Term::new(arena, *body)))
+            } else {
+                Err(Diagnostic::error(
+                    DiagnosticCode::new(Category::T, Severity::Error, 523).expect("valid T code"),
+                )
+                .message("expected Quote expression data")
                 .finish())
             }
         }
@@ -1177,5 +1213,53 @@ mod tests {
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Value::Bool(true));
+    }
+
+    #[test]
+    fn evals_splice_call() {
+        let mut arena = AstArena::new();
+
+        // Build a quoted literal: quote { 42 }
+        let lit_placeholder = arena.alloc(NodeKind::Placeholder, test_span(42, 0));
+        let lit_id = arena.alloc_expr(
+            NodeKind::ExprLiteral,
+            test_span(42, 0),
+            ExprData::Literal {
+                lit: lit_placeholder,
+            },
+        );
+
+        let quote_id = arena.alloc_expr(
+            NodeKind::ExprQuote,
+            test_span(40, 10),
+            ExprData::Quote { body: lit_id },
+        );
+
+        // Build a splice call: splice(quote { 42 })
+        // The callee's span.byte_start = 3 indicates the splice builtin.
+        let callee_id = arena.alloc(NodeKind::Placeholder, test_span(3, 6)); // "splice"
+
+        let splice_call_id = arena.alloc_expr(
+            NodeKind::ExprCall,
+            test_span(0, 20),
+            ExprData::Call {
+                callee: callee_id,
+                args: vec![quote_id],
+            },
+        );
+
+        let mut env = Env::new();
+        let result = eval(&arena, splice_call_id, &mut env);
+
+        // Should succeed, returning a Value::Term wrapping the spliced node.
+        assert!(result.is_ok());
+        let value = result.unwrap();
+        match value {
+            Value::Term(t) => {
+                // The spliced term should be the quoted body (the literal), not the quote itself.
+                assert_eq!(t.id(), lit_id);
+            }
+            _ => panic!("Expected Value::Term from splice call"),
+        }
     }
 }
