@@ -63,7 +63,7 @@ impl OrderedLog {
         let target_index = self
             .entries
             .iter()
-            .rposition(|e| e.symbol == symbol && !e.consumed);
+            .position(|e| e.symbol == symbol && !e.consumed);
 
         match (first_unconsumed, target_index) {
             (Some(expected), Some(actual)) if expected != actual => {
