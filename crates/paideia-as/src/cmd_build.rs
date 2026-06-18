@@ -16,8 +16,11 @@ use paideia_as_ast::AstArena;
 use paideia_as_diagnostics::{
     Catalog, DiagnosticSink, HumanRenderer, HumanSink, Severity, SourceMap, VecSink,
 };
-use paideia_as_elaborator::{lower_ast_to_ir, placeholder_for};
+use paideia_as_elaborator::{
+    CapWalker, EffectRowWalker, LinearityWalker, lower_ast_to_ir, placeholder_for,
+};
 use paideia_as_emitter_elf::{Arch, ElfWriter, Kind, SymbolEntry, lower_add_one};
+use paideia_as_ir::{IrNodeId, walk};
 use paideia_as_lexer::{Lexer, SourceText};
 use paideia_as_parser::Parser;
 
@@ -102,6 +105,47 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str) -> ExitCode {
 
     // If there are any errors so far, do not emit anything downstream.
     let lowering = lower_ast_to_ir(&arena);
+
+    // Run walkers over the IR to surface S/F/C diagnostics.
+    // Phase-2-m1: walkers run with empty injection tables (from CLI), so only
+    // diagnostics that depend on kind-only IR will fire (S0900/S0901/S0903).
+    // Real effect (F1100, F1101, F1105, F1106) and capability (C1300) diagnostics
+    // require per-node payloads that arrive in m3/m5.
+    if !lowering.ir.is_empty() {
+        // Create a walker sink to accumulate diagnostics from all walkers.
+        let mut walker_sink = VecSink::new();
+
+        // Determine the root node ID for walking. In phase-1 lowering, the parser
+        // creates a Module as the first node (NodeId 1 → IrNodeId 1), so we walk
+        // from IrNodeId::new(1). If the IR is somehow empty, skip walking.
+        if let Some(root_id) = IrNodeId::new(1) {
+            // Run each walker with a fresh WalkerCtx to avoid borrow conflicts.
+            // Each walker emits diagnostics into walker_sink.
+
+            {
+                let mut ctx = paideia_as_ir::WalkerCtx::new(&source_map, &mut walker_sink);
+                let mut linearity_walker = LinearityWalker::new();
+                walk(&mut linearity_walker, &lowering.ir, root_id, &mut ctx);
+            }
+
+            {
+                let mut ctx = paideia_as_ir::WalkerCtx::new(&source_map, &mut walker_sink);
+                let mut effect_walker = EffectRowWalker::new();
+                walk(&mut effect_walker, &lowering.ir, root_id, &mut ctx);
+            }
+
+            {
+                let mut ctx = paideia_as_ir::WalkerCtx::new(&source_map, &mut walker_sink);
+                let mut cap_walker = CapWalker::new();
+                walk(&mut cap_walker, &lowering.ir, root_id, &mut ctx);
+            }
+        }
+
+        // Drain walker diagnostics into the main sink for rendering.
+        for d in walker_sink.into_diagnostics() {
+            let _ = sink.emit(d);
+        }
+    }
 
     let preview = sink
         .diagnostics()
