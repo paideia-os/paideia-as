@@ -10,9 +10,14 @@
 
 pub mod anf;
 mod arena;
+pub mod effect_rewrite;
 mod node;
 pub mod pretty;
 
 pub use anf::{AnfRewrite, is_atomic, normalise_operands};
 pub use arena::IrArena;
+pub use effect_rewrite::{
+    HandlerTable, PerformRewrite, WithRewrite, rewrite_perform, rewrite_unsafe_passthrough,
+    rewrite_with_save_restore,
+};
 pub use node::{EffectRowId, IrKind, IrNodeData, IrNodeId, LinClass};
