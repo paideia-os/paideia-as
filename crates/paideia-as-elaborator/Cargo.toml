@@ -14,3 +14,4 @@ name = "paideia_as_elaborator"
 paideia-as-ast = { path = "../paideia-as-ast" }
 paideia-as-ir = { path = "../paideia-as-ir" }
 paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
+blake3 = { workspace = true }

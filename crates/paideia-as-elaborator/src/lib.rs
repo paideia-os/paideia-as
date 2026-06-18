@@ -7,5 +7,7 @@
 #![forbid(unsafe_code)]
 
 mod lower;
+mod placeholder_emit;
 
 pub use lower::{LoweringResult, lower_ast_to_ir};
+pub use placeholder_emit::placeholder_for;

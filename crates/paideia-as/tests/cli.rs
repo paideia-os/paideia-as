@@ -85,3 +85,50 @@ fn check_dump_ir_prints_arena_header() {
     sarif.set_file_name("example.pdx.sarif.json");
     let _ = std::fs::remove_file(&sarif);
 }
+
+#[test]
+fn build_clean_example_writes_placeholder() {
+    let input = data("example.pdx");
+    let out = cargo_run(&["build", input.to_str().unwrap()]);
+
+    assert!(
+        out.status.success(),
+        "expected exit 0, got {:?}\nstderr: {}",
+        out.status,
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let mut placeholder = input.clone();
+    placeholder.set_file_name("example.placeholder");
+    assert!(
+        placeholder.exists(),
+        "expected placeholder at {placeholder:?}"
+    );
+
+    let first = std::fs::read_to_string(&placeholder).unwrap();
+    assert!(first.starts_with("paideia-as placeholder v0"));
+    assert!(first.contains("blake3 "));
+
+    // Run again: deterministic output.
+    let _ = std::fs::remove_file(&placeholder);
+    let _ = cargo_run(&["build", input.to_str().unwrap()]);
+    let second = std::fs::read_to_string(&placeholder).unwrap();
+    assert_eq!(first, second);
+
+    let _ = std::fs::remove_file(&placeholder);
+}
+
+#[test]
+fn build_lex_error_skips_placeholder_and_exits_one() {
+    let input = data("lex_error.pdx");
+    let out = cargo_run(&["build", input.to_str().unwrap()]);
+
+    assert_eq!(out.status.code(), Some(1));
+
+    let mut placeholder = input.clone();
+    placeholder.set_file_name("lex_error.placeholder");
+    assert!(
+        !placeholder.exists(),
+        "placeholder should not be written when errors present"
+    );
+}

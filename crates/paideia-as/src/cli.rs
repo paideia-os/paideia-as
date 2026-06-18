@@ -18,8 +18,13 @@ pub struct Cli {
 /// Subcommand selection.
 #[derive(Subcommand)]
 pub enum Cmd {
-    /// Compile `.pdx` files to object files (ELF / PE-COFF / PAX-fragment).
-    Build { inputs: Vec<String> },
+    /// Compile `.pdx` files. Phase-1 form: writes a `<stem>.placeholder`
+    /// next to the input; the real ELF/PAX/PE emitters arrive at
+    /// deliverable 8.
+    Build {
+        /// Path to the input `.pdx` file.
+        input: PathBuf,
+    },
     /// Type-check without emitting object files. Phase-1: lex + parse +
     /// lower; the type checker is a stub. Writes a SARIF sidecar
     /// alongside the input.
