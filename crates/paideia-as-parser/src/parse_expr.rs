@@ -63,6 +63,18 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                     // Pipe-form lambda: |x, y| body
                     return self.parse_lambda_pipe();
                 }
+                paideia_as_lexer::TokenKind::KwAction => {
+                    // Action block: action !{...}? @{...}? { stmts }
+                    return self.parse_action();
+                }
+                paideia_as_lexer::TokenKind::KwUnsafe => {
+                    // Unsafe escape: unsafe { fields... }
+                    return self.parse_unsafe();
+                }
+                paideia_as_lexer::TokenKind::KwWith => {
+                    // With-handler: with expr handle name block
+                    return self.parse_with_handler();
+                }
                 _ => {}
             }
         }

@@ -109,6 +109,10 @@ pub enum TokenKind {
     /// `yield`
     KwYield,
 
+    // ── Reserved words: effect system (action blocks) ───────────────────
+    /// `action`
+    KwAction,
+
     // ── Reserved words: type system ─────────────────────────────────────
     /// `type`
     KwType,
@@ -386,6 +390,8 @@ pub fn keyword_kind(text: &str) -> Option<TokenKind> {
         "continue" => TokenKind::KwContinue,
         "return" => TokenKind::KwReturn,
         "yield" => TokenKind::KwYield,
+        // Effect system (action blocks)
+        "action" => TokenKind::KwAction,
         // Type system
         "type" => TokenKind::KwType,
         "enum" => TokenKind::KwEnum,
@@ -473,6 +479,8 @@ pub const RESERVED_WORDS: &[&str] = &[
     "continue",
     "return",
     "yield",
+    // Effect system (action blocks) (1)
+    "action",
     // Type system (10)
     "type",
     "enum",
@@ -549,8 +557,9 @@ mod tests {
 
     #[test]
     fn reserved_words_list_length() {
-        // 12 + 13 + 10 + 4 + 6 + 5 + 4 + 3 + 11 = 68
-        assert_eq!(RESERVED_WORDS.len(), 68);
+        // 12 + 13 + 1 + 10 + 4 + 6 + 5 + 4 + 3 + 11 = 69
+        // (action moved to effect system section after control flow)
+        assert_eq!(RESERVED_WORDS.len(), 69);
     }
 
     #[test]

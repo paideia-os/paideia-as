@@ -197,6 +197,7 @@ fn debug_kind(kind: TokenKind) -> &'static str {
         KwContinue => "`continue`",
         KwReturn => "`return`",
         KwYield => "`yield`",
+        KwAction => "`action`",
         KwType => "`type`",
         KwEnum => "`enum`",
         KwStruct => "`struct`",
