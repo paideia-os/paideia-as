@@ -8,9 +8,11 @@
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+pub mod anf;
 mod arena;
 mod node;
 pub mod pretty;
 
+pub use anf::{AnfRewrite, is_atomic, normalise_operands};
 pub use arena::IrArena;
 pub use node::{EffectRowId, IrKind, IrNodeData, IrNodeId, LinClass};
