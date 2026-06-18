@@ -50,17 +50,20 @@ fn accept_corpus_emits_no_s_codes() {
     );
 }
 
-// Reject corpus runs once the substructural checker is wired through
-// the lex → parse → lower pipeline (per the milestone-8 closure plan).
-// Today the elaborator's S-diagnostic emitters live behind the
-// per-pass APIs (PR-37+); the IR walker that calls them lands when
-// the IR carries node-level children. Until then, every reject file
-// would yield an empty S-code set and the test would fail spuriously.
+// Reject corpus is documentation-by-example until the IR carries
+// structured symbol/binding payloads (m2/m5).
 //
-// The corpus *files* (20 .pdx + 20 .expect sidecars) exist now so
-// the test can light up the moment the wiring lands.
+// The harness now invokes `paideia-as build` via subprocess (m1-010),
+// so the CLI wiring is complete. However, the LinearityWalker (and other
+// walkers) runs end-to-end against kind-only IR. Linearity classes and
+// effect/capability payloads are empty, so the walkers cannot fire
+// S0901/S0903 (overused/wrong-effect) diagnostics on real source yet.
+//
+// Once m2/m5 inject structured payloads at lowering time, this test
+// will light up and catch regressions where the accept corpus stops
+// being clean.
 #[test]
-#[ignore = "reject corpus is documentation-by-example until the substructural checker wires into the lex→parse→lower pipeline"]
+#[ignore = "reject corpus awaits m2/m5 structured IR payloads (linearity, effect, capability classes)"]
 fn reject_corpus_emits_expected_s_codes() {
     let dir = corpus_root().join("reject");
     let files = collect_pdx_files(&dir);

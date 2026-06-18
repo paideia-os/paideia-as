@@ -4,6 +4,10 @@ A self-contained workspace member whose only job is to walk a corpus
 of `.pdx` files and assert paideia-as's front end emits the right set
 of `S`-category (substructural) diagnostics on each one.
 
+The harness invokes `paideia-as build` via subprocess rather than calling
+the elaborator pipeline directly. This ensures the test validates the
+actual CLI output that end users see, not a synthetic in-process codepath.
+
 ## Layout
 
 ```
@@ -25,10 +29,17 @@ tests/linearity-regression/
 cargo test -p paideia-linearity-regression
 ```
 
+The accept corpus runs ~0.5-2s per file (40 files total). Total wall-clock
+is typically 20-40s on a modern machine. Performance is dominated by subprocess
+spawn and binary startup; once the binary is warm, each `paideia-as build`
+invocation is fast.
+
 The `reject_corpus_emits_expected_s_codes` test is currently `#[ignore]`'d
-because the substructural checker isn't wired through the
-lex→parse→lower pipeline yet. Run with `--include-ignored` to see
-which fixtures *would* pass once the wiring lands.
+because the IR carries only `IrKind` (no structured payloads). The LineraityWalker
+(and other walkers) run end-to-end but cannot fire diagnostics on real source
+until m2/m5 inject binding-level linearity classes and effect/capability metadata.
+Run with `--include-ignored` to see the fixtures that will activate once
+structured payloads land.
 
 ## Adding a fixture
 
