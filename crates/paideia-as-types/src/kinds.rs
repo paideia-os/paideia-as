@@ -33,6 +33,7 @@ pub type Kind = LinClass;
 pub fn type_kind(_type_id: TypeId, ty: &Type) -> Kind {
     match ty {
         Type::Named { name: 1, .. } => Kind::Linear,
+        Type::Var(_) => Kind::Unrestricted,
         _ => Kind::Unrestricted,
     }
 }
@@ -148,6 +149,16 @@ mod tests {
         assert_eq!(
             type_kind(TypeId::new(1).unwrap(), &cap_with_arg),
             Kind::Linear
+        );
+    }
+
+    #[test]
+    fn type_var_is_unrestricted() {
+        let ty_var = Type::Var(crate::types::TyVar::new(1).unwrap());
+
+        assert_eq!(
+            type_kind(TypeId::new(1).unwrap(), &ty_var),
+            Kind::Unrestricted
         );
     }
 }

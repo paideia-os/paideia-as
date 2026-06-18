@@ -7,6 +7,29 @@
 use core::num::NonZeroU32;
 use paideia_as_ir::EffectRowId;
 
+/// Type variable for unification. Used during HM type inference.
+/// `Option<TyVar>` is 4 bytes via niche optimization.
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd, Debug)]
+pub struct TyVar(NonZeroU32);
+
+impl TyVar {
+    /// Construct a `TyVar` from a positive integer.
+    pub fn new(n: u32) -> Option<Self> {
+        NonZeroU32::new(n).map(Self)
+    }
+
+    /// The raw integer value of this variable.
+    pub fn get(self) -> u32 {
+        self.0.get()
+    }
+}
+
+impl core::fmt::Display for TyVar {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "α{}", self.0.get())
+    }
+}
+
 /// Stable identifier for an interned [`Type`]. Niche-optimized so
 /// `Option<TypeId>` fits in 4 bytes.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd, Debug)]
@@ -103,6 +126,8 @@ pub enum Type {
         /// Type arguments.
         args: Vec<TypeId>,
     },
+    /// Type variable awaiting unification.
+    Var(TyVar),
 }
 
 /// Sentinel value for "size word" (`usize`/`isize`): stored as the

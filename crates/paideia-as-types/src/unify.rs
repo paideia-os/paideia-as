@@ -1,0 +1,404 @@
+//! Hindley-Milner style unification algorithm.
+//!
+//! Unifies two interned types by solving a constraint over the
+//! substitution. Phase-1 unification:
+//! - Ignores effect rows and capability sets (elaborator checks separately).
+//! - Does not support row polymorphism or higher-rank types.
+//! - Uses the occurs check to prevent infinite types.
+
+use paideia_as_diagnostics::{Category, DiagnosticCode, Severity};
+use thiserror::Error;
+
+use crate::intern::TypeInterner;
+use crate::subst::Subst;
+use crate::types::{TyVar, Type, TypeId};
+
+/// Error type for unification failures.
+///
+/// Each variant maps to a stable diagnostic code per `design/toolchain/diagnostics.md` §2.
+#[derive(Debug, Clone, Error)]
+pub enum UnifyError {
+    /// Kind mismatch: attempt to unify structurally different types (e.g., Fn vs Tuple).
+    /// Diagnostic code T0504 / T0500 family.
+    #[error("kind mismatch: cannot unify {a:?} with {b:?}")]
+    KindMismatch {
+        /// First type (for display).
+        a: String,
+        /// Second type (for display).
+        b: String,
+    },
+
+    /// Occurs check failure: type variable appears in its own binding target.
+    /// Diagnostic code T0503.
+    #[error("occurs check failed: {var} appears in {ty:?}")]
+    OccursCheck {
+        /// The type variable.
+        var: TyVar,
+        /// The type it would bind to.
+        ty: String,
+    },
+
+    /// Arity mismatch: function or tuple has different component counts.
+    /// Diagnostic code T0500.
+    #[error("arity mismatch")]
+    ArityMismatch,
+}
+
+impl UnifyError {
+    /// Return the stable diagnostic code for this error.
+    pub fn code(&self) -> DiagnosticCode {
+        let n = match self {
+            Self::KindMismatch { .. } => 504,
+            Self::OccursCheck { .. } => 503,
+            Self::ArityMismatch => 500,
+        };
+        DiagnosticCode::new(Category::T, Severity::Error, n).expect("valid T diagnostic code")
+    }
+}
+
+/// Unify two interned types under a substitution.
+///
+/// Implements the standard Hindley-Milner algorithm:
+/// 1. If either type is a variable, attempt to bind it (with occurs check).
+/// 2. If both are structurally identical (same constructor, same args), succeed.
+/// 3. Otherwise, fail with a kind mismatch.
+///
+/// On success, mutates `subst` in place with new bindings. On failure,
+/// leaves `subst` unchanged.
+///
+/// Phase-1 ignores effect rows and capability sets in function types;
+/// the elaborator checks those separately.
+pub fn unify(
+    interner: &mut TypeInterner,
+    subst: &mut Subst,
+    a: TypeId,
+    b: TypeId,
+) -> Result<(), UnifyError> {
+    let a_ty = interner.get(a).clone();
+    let b_ty = interner.get(b).clone();
+    match (a_ty, b_ty) {
+        // Variable cases: bind the variable.
+        (Type::Var(v), other) => bind(interner, subst, v, b, &other),
+        (other, Type::Var(v)) => bind(interner, subst, v, a, &other),
+        // Primitive types: succeed if identical.
+        (Type::Unit, Type::Unit)
+        | (Type::Bool, Type::Bool)
+        | (Type::Char, Type::Char)
+        | (Type::Top, Type::Top)
+        | (Type::Bot, Type::Bot) => Ok(()),
+        (Type::UInt(b1), Type::UInt(b2)) if b1 == b2 => Ok(()),
+        (Type::SInt(b1), Type::SInt(b2)) if b1 == b2 => Ok(()),
+        (Type::Float(b1), Type::Float(b2)) if b1 == b2 => Ok(()),
+        // Tuples: unify component-wise.
+        (Type::Tuple(xs), Type::Tuple(ys)) => {
+            if xs.len() != ys.len() {
+                return Err(UnifyError::ArityMismatch);
+            }
+            for (x, y) in xs.iter().zip(ys.iter()) {
+                unify(interner, subst, *x, *y)?;
+            }
+            Ok(())
+        }
+        // Functions: unify params and return type.
+        // Phase-1: effects and caps are ignored; elaborator checks them.
+        (
+            Type::Fn {
+                params: p1,
+                ret: r1,
+                ..
+            },
+            Type::Fn {
+                params: p2,
+                ret: r2,
+                ..
+            },
+        ) => {
+            if p1.len() != p2.len() {
+                return Err(UnifyError::ArityMismatch);
+            }
+            for (x, y) in p1.iter().zip(p2.iter()) {
+                unify(interner, subst, *x, *y)?;
+            }
+            unify(interner, subst, r1, r2)?;
+            Ok(())
+        }
+        // Named types: unify if names match and args agree.
+        (Type::Named { name: n1, args: a1 }, Type::Named { name: n2, args: a2 })
+            if n1 == n2 && a1.len() == a2.len() =>
+        {
+            for (x, y) in a1.iter().zip(a2.iter()) {
+                unify(interner, subst, *x, *y)?;
+            }
+            Ok(())
+        }
+        // Default: kind mismatch.
+        (ta, tb) => Err(UnifyError::KindMismatch {
+            a: format!("{ta:?}"),
+            b: format!("{tb:?}"),
+        }),
+    }
+}
+
+/// Attempt to bind a type variable.
+///
+/// If the variable is already bound to itself, this is a no-op (α ~ α).
+/// Otherwise, performs an occurs check and inserts the binding.
+fn bind(
+    interner: &mut TypeInterner,
+    subst: &mut Subst,
+    v: TyVar,
+    t_id: TypeId,
+    t_view: &Type,
+) -> Result<(), UnifyError> {
+    // α ~ α: no-op.
+    if let Type::Var(other_v) = t_view
+        && *other_v == v
+    {
+        return Ok(());
+    }
+    // Occurs check.
+    if subst.occurs_in(v, t_id, interner) {
+        return Err(UnifyError::OccursCheck {
+            var: v,
+            ty: format!("{t_view:?}"),
+        });
+    }
+    subst.insert(v, t_id);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::CapSetId;
+    use paideia_as_ir::EffectRowId;
+
+    #[test]
+    fn unify_var_with_concrete_extends_subst() {
+        let mut interner = TypeInterner::new();
+        let mut subst = Subst::new();
+        let alpha = TyVar::new(1).unwrap();
+        let u64_id = interner.uint(64);
+
+        let alpha_id = interner.intern(Type::Var(alpha));
+        let result = unify(&mut interner, &mut subst, alpha_id, u64_id);
+
+        assert!(result.is_ok());
+        assert_eq!(subst.get(alpha), Some(u64_id));
+    }
+
+    #[test]
+    fn unify_var_with_self_is_noop() {
+        let mut interner = TypeInterner::new();
+        let mut subst = Subst::new();
+        let alpha = TyVar::new(1).unwrap();
+
+        let alpha_id = interner.intern(Type::Var(alpha));
+        let result = unify(&mut interner, &mut subst, alpha_id, alpha_id);
+
+        assert!(result.is_ok());
+        assert!(subst.is_empty());
+    }
+
+    #[test]
+    fn unify_concrete_eq() {
+        let mut interner = TypeInterner::new();
+        let mut subst = Subst::new();
+        let u64_id = interner.uint(64);
+
+        let result = unify(&mut interner, &mut subst, u64_id, u64_id);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn unify_kind_mismatch_fn_vs_tuple() {
+        let mut interner = TypeInterner::new();
+        let mut subst = Subst::new();
+        let u64_id = interner.uint(64);
+
+        let fn_type = interner.intern(Type::Fn {
+            params: vec![u64_id],
+            ret: u64_id,
+            effects: EffectRowId::EMPTY,
+            caps: CapSetId::EMPTY,
+        });
+
+        let tuple_type = interner.intern(Type::Tuple(vec![u64_id, u64_id]));
+
+        let result = unify(&mut interner, &mut subst, fn_type, tuple_type);
+        assert!(result.is_err());
+
+        if let Err(UnifyError::KindMismatch { .. }) = result {
+            // Check diagnostic code
+            assert_eq!(result.unwrap_err().code().to_string(), "T0504");
+        } else {
+            panic!("Expected KindMismatch");
+        }
+    }
+
+    #[test]
+    fn unify_occurs_check_alpha_in_tuple() {
+        let mut interner = TypeInterner::new();
+        let mut subst = Subst::new();
+        let alpha = TyVar::new(1).unwrap();
+        let u64_id = interner.uint(64);
+
+        let alpha_id = interner.intern(Type::Var(alpha));
+        let tuple_type = interner.intern(Type::Tuple(vec![alpha_id, u64_id]));
+
+        let result = unify(&mut interner, &mut subst, alpha_id, tuple_type);
+        assert!(result.is_err());
+
+        if let Err(UnifyError::OccursCheck { var, .. }) = result {
+            assert_eq!(var, alpha);
+            let code = UnifyError::OccursCheck {
+                var,
+                ty: String::new(),
+            }
+            .code();
+            assert_eq!(code.to_string(), "T0503");
+        } else {
+            panic!("Expected OccursCheck");
+        }
+    }
+
+    #[test]
+    fn unify_arity_mismatch() {
+        let mut interner = TypeInterner::new();
+        let mut subst = Subst::new();
+        let u64_id = interner.uint(64);
+
+        let fn1 = interner.intern(Type::Fn {
+            params: vec![u64_id],
+            ret: u64_id,
+            effects: EffectRowId::EMPTY,
+            caps: CapSetId::EMPTY,
+        });
+
+        let fn2 = interner.intern(Type::Fn {
+            params: vec![u64_id, u64_id],
+            ret: u64_id,
+            effects: EffectRowId::EMPTY,
+            caps: CapSetId::EMPTY,
+        });
+
+        let result = unify(&mut interner, &mut subst, fn1, fn2);
+        assert!(result.is_err());
+
+        if let Err(UnifyError::ArityMismatch) = result {
+            let code = UnifyError::ArityMismatch.code();
+            assert_eq!(code.to_string(), "T0500");
+        } else {
+            panic!("Expected ArityMismatch");
+        }
+    }
+
+    #[test]
+    fn unify_tuple_componentwise() {
+        let mut interner = TypeInterner::new();
+        let mut subst = Subst::new();
+        let u64_id = interner.uint(64);
+        let bool_id = interner.bool_ty();
+
+        let alpha = TyVar::new(1).unwrap();
+        let beta = TyVar::new(2).unwrap();
+
+        let alpha_id = interner.intern(Type::Var(alpha));
+        let beta_id = interner.intern(Type::Var(beta));
+
+        let tuple1 = interner.intern(Type::Tuple(vec![alpha_id, u64_id]));
+        let tuple2 = interner.intern(Type::Tuple(vec![bool_id, beta_id]));
+
+        let result = unify(&mut interner, &mut subst, tuple1, tuple2);
+        assert!(result.is_ok());
+
+        assert_eq!(subst.get(alpha), Some(bool_id));
+        assert_eq!(subst.get(beta), Some(u64_id));
+    }
+
+    #[test]
+    fn unify_propagates_through_fn() {
+        let mut interner = TypeInterner::new();
+        let mut subst = Subst::new();
+        let u64_id = interner.uint(64);
+        let bool_id = interner.bool_ty();
+
+        let alpha = TyVar::new(1).unwrap();
+        let alpha_id = interner.intern(Type::Var(alpha));
+
+        let fn1 = interner.intern(Type::Fn {
+            params: vec![alpha_id],
+            ret: bool_id,
+            effects: EffectRowId::EMPTY,
+            caps: CapSetId::EMPTY,
+        });
+
+        let fn2 = interner.intern(Type::Fn {
+            params: vec![u64_id],
+            ret: bool_id,
+            effects: EffectRowId::EMPTY,
+            caps: CapSetId::EMPTY,
+        });
+
+        let result = unify(&mut interner, &mut subst, fn1, fn2);
+        assert!(result.is_ok());
+        assert_eq!(subst.get(alpha), Some(u64_id));
+    }
+
+    #[test]
+    fn occurs_check_through_substitution() {
+        let mut interner = TypeInterner::new();
+        let mut subst = Subst::new();
+        let alpha = TyVar::new(1).unwrap();
+        let beta = TyVar::new(2).unwrap();
+        let u64_id = interner.uint(64);
+
+        let alpha_id = interner.intern(Type::Var(alpha));
+        let _beta_id = interner.intern(Type::Var(beta));
+
+        // Bind beta to Tuple[alpha, u64]
+        let tuple_id = interner.intern(Type::Tuple(vec![alpha_id, u64_id]));
+        subst.insert(beta, tuple_id);
+
+        // Now check that alpha indeed appears in beta's transitive binding
+        assert!(subst.occurs_in(alpha, tuple_id, &interner));
+    }
+
+    #[test]
+    fn unify_named_types_match_by_name() {
+        let mut interner = TypeInterner::new();
+        let mut subst = Subst::new();
+
+        let named1 = interner.intern(Type::Named {
+            name: 42,
+            args: vec![],
+        });
+
+        let named2 = interner.intern(Type::Named {
+            name: 42,
+            args: vec![],
+        });
+
+        let result = unify(&mut interner, &mut subst, named1, named2);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn unify_named_types_differ_by_name() {
+        let mut interner = TypeInterner::new();
+        let mut subst = Subst::new();
+
+        let named1 = interner.intern(Type::Named {
+            name: 42,
+            args: vec![],
+        });
+
+        let named2 = interner.intern(Type::Named {
+            name: 43,
+            args: vec![],
+        });
+
+        let result = unify(&mut interner, &mut subst, named1, named2);
+        assert!(result.is_err());
+    }
+}

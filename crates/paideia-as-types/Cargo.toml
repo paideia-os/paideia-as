@@ -12,4 +12,9 @@ name = "paideia_as_types"
 
 [dependencies]
 paideia-as-ir = { path = "../paideia-as-ir" }
+paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
 static_assertions = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
