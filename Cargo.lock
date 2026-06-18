@@ -1045,6 +1045,7 @@ version = "0.0.1"
 name = "paideia-as-effects"
 version = "0.0.1"
 dependencies = [
+ "paideia-as-diagnostics",
  "paideia-as-ir",
  "proptest",
 ]
