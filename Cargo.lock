@@ -952,6 +952,7 @@ dependencies = [
  "paideia-as-emitter-elf",
  "paideia-as-emitter-pax",
  "paideia-as-emitter-pe",
+ "paideia-as-ir",
  "paideia-as-lexer",
  "paideia-as-parser",
  "thiserror",

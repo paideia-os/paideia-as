@@ -164,8 +164,10 @@ impl<'a> HumanRenderer<'a> {
         // Render source line.
         output.push_str(&format!(" {} | {}\n", line_col.line, line_content));
 
-        // Render caret line.
-        let byte_end = (byte_start + byte_len) as usize;
+        // Render caret line. Clip byte_end to content length so we never
+        // panic on a malformed span that runs past EOF — emitters can
+        // (and have, e.g. early lexer literals) produce such spans.
+        let byte_end = ((byte_start + byte_len) as usize).min(content.len());
 
         // Check if span extends past this line.
         if byte_end <= line_end_byte {

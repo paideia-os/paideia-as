@@ -20,8 +20,16 @@ pub struct Cli {
 pub enum Cmd {
     /// Compile `.pdx` files to object files (ELF / PE-COFF / PAX-fragment).
     Build { inputs: Vec<String> },
-    /// Type-check without emitting object files.
-    Check { inputs: Vec<String> },
+    /// Type-check without emitting object files. Phase-1: lex + parse +
+    /// lower; the type checker is a stub. Writes a SARIF sidecar
+    /// alongside the input.
+    Check {
+        /// Path to the input `.pdx` file.
+        input: PathBuf,
+        /// Print the IR pretty-printed dump to stdout after lowering.
+        #[arg(long)]
+        dump_ir: bool,
+    },
     /// Run linearity / effect / opt-pass linters.
     Lint { inputs: Vec<String> },
     /// Emit a specific format.
