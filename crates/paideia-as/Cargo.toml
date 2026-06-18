@@ -20,6 +20,7 @@ paideia-as-lexer = { path = "../paideia-as-lexer" }
 paideia-as-parser = { path = "../paideia-as-parser" }
 paideia-as-ast = { path = "../paideia-as-ast" }
 paideia-as-elaborator = { path = "../paideia-as-elaborator" }
+paideia-as-ir = { path = "../paideia-as-ir" }
 paideia-as-emitter-elf = { path = "../paideia-as-emitter-elf" }
 paideia-as-emitter-pax = { path = "../paideia-as-emitter-pax" }
 paideia-as-emitter-pe = { path = "../paideia-as-emitter-pe" }

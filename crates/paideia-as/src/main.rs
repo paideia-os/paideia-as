@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 
 mod cli;
+mod cmd_check;
 mod cmd_dump_ast;
 
 use std::process::ExitCode;
@@ -23,10 +24,7 @@ fn main() -> ExitCode {
             eprintln!("paideia-as build: stub (phase 1)");
             ExitCode::SUCCESS
         }
-        Cmd::Check { .. } => {
-            eprintln!("paideia-as check: stub (phase 1)");
-            ExitCode::SUCCESS
-        }
+        Cmd::Check { input, dump_ir } => cmd_check::run(&input, dump_ir),
         Cmd::Lint { .. } => {
             eprintln!("paideia-as lint: stub (phase 1)");
             ExitCode::SUCCESS
