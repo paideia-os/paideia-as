@@ -28,6 +28,7 @@ use crate::cursor::TokenCursor;
 /// is the AST arena, `'snk` is the sink.
 pub struct Parser<'tok, 'ast, 'snk> {
     cursor: TokenCursor<'tok>,
+    source: &'tok str,
     arena: &'ast mut AstArena,
     sink: &'snk mut dyn DiagnosticSink,
     file: FileId,
@@ -36,14 +37,19 @@ pub struct Parser<'tok, 'ast, 'snk> {
 impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// Construct a parser over `tokens` writing AST into `arena` and
     /// diagnostics into `sink`.
+    ///
+    /// The `source` string is used to extract text slices for interning
+    /// mnemonics in assembly instruction statements.
     pub fn new(
         tokens: &'tok [Token],
+        source: &'tok str,
         file: FileId,
         arena: &'ast mut AstArena,
         sink: &'snk mut dyn DiagnosticSink,
     ) -> Self {
         Self {
             cursor: TokenCursor::new(tokens, file),
+            source,
             arena,
             sink,
             file,
@@ -67,10 +73,23 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         self.file
     }
 
+    /// Borrow the source text.
+    #[must_use]
+    pub fn source(&self) -> &str {
+        self.source
+    }
+
     /// Peek the current token (None past EOF).
     #[must_use]
     pub fn peek(&self) -> Option<&'tok Token> {
         self.cursor.peek()
+    }
+
+    /// Peek at the token `n` positions ahead (0 = current, 1 = next, etc.).
+    /// Returns None if out of bounds.
+    #[must_use]
+    pub(crate) fn peek_at(&self, n: usize) -> Option<&'tok Token> {
+        self.cursor.peek_at(n)
     }
 
     /// `true` if the current token is `kind`.
@@ -297,7 +316,7 @@ mod tests {
         let toks = vec![tok(TokenKind::KwLet, 0, 3)];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
-        let mut p = Parser::new(&toks, FileId::new(1).unwrap(), &mut arena, &mut sink);
+        let mut p = Parser::new(&toks, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
         let tok_consumed = p.expect(TokenKind::KwLet).unwrap();
         assert_eq!(tok_consumed.kind, TokenKind::KwLet);
         assert_eq!(sink.diagnostics().len(), 0);
@@ -309,7 +328,7 @@ mod tests {
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
         {
-            let mut p = Parser::new(&toks, FileId::new(1).unwrap(), &mut arena, &mut sink);
+            let mut p = Parser::new(&toks, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
             let result = p.expect(TokenKind::KwLet);
             assert!(result.is_err());
             // Cursor not advanced: re-peek should still see `fn`.
@@ -328,7 +347,7 @@ mod tests {
         let toks = vec![tok(TokenKind::KwLet, 0, 3)];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
-        let p = Parser::new(&toks, FileId::new(1).unwrap(), &mut arena, &mut sink);
+        let p = Parser::new(&toks, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
         assert!(p.at(TokenKind::KwLet));
         assert!(!p.at(TokenKind::KwFn));
         assert_eq!(p.cursor_position_for_test(), 0);
@@ -339,7 +358,7 @@ mod tests {
         let toks = vec![tok(TokenKind::Semicolon, 0, 1), tok(TokenKind::KwLet, 1, 3)];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
-        let mut p = Parser::new(&toks, FileId::new(1).unwrap(), &mut arena, &mut sink);
+        let mut p = Parser::new(&toks, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
         assert!(p.eat(TokenKind::Semicolon));
         assert_eq!(p.cursor_position_for_test(), 1);
         assert!(!p.eat(TokenKind::Semicolon));
@@ -357,7 +376,7 @@ mod tests {
         ];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
-        let mut p = Parser::new(&toks, FileId::new(1).unwrap(), &mut arena, &mut sink);
+        let mut p = Parser::new(&toks, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
         p.recover_to_one_of(&[TokenKind::Semicolon, TokenKind::RBrace]);
         // Stopped at the semicolon (not consumed).
         assert_eq!(p.cursor_current_kind_for_test(), TokenKind::Semicolon);
@@ -368,7 +387,7 @@ mod tests {
         let toks = vec![tok(TokenKind::KwLet, 0, 3), tok(TokenKind::Ident, 4, 1)];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
-        let mut p = Parser::new(&toks, FileId::new(1).unwrap(), &mut arena, &mut sink);
+        let mut p = Parser::new(&toks, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
         // No matching kind in the stream — must terminate at end-of-input.
         p.recover_to_one_of(&[TokenKind::Semicolon, TokenKind::RBrace]);
         assert!(p.cursor_is_at_end_for_test());
@@ -384,7 +403,7 @@ mod tests {
         ];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
-        let mut p = Parser::new(&toks, FileId::new(1).unwrap(), &mut arena, &mut sink);
+        let mut p = Parser::new(&toks, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
         p.recover_to_one_of(&[TokenKind::Semicolon, TokenKind::RBrace]);
         assert_eq!(p.cursor_current_kind_for_test(), TokenKind::RBrace);
     }
@@ -400,7 +419,7 @@ mod tests {
         ];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
-        let mut p = Parser::new(&toks, FileId::new(1).unwrap(), &mut arena, &mut sink);
+        let mut p = Parser::new(&toks, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
         let result = p.expect(TokenKind::KwLet);
         assert!(result.is_err());
         p.recover_to_one_of(&[TokenKind::Semicolon]);

@@ -295,7 +295,7 @@ mod tests {
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
         let root = {
-            let mut p = Parser::new(&tokens, FileId::new(1).unwrap(), &mut arena, &mut sink);
+            let mut p = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
             p.parse_expr().expect("parse failed")
         };
         let diags = sink.diagnostics().to_vec();

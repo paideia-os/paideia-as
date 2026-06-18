@@ -45,13 +45,14 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
         let mut body = Vec::new();
 
-        // Parse statements until closing brace
+        // Parse statements until closing brace.
+        // Pass `in_action_context = true` to enable instruction statement parsing.
         loop {
             if self.at(TokenKind::RBrace) {
                 break;
             }
 
-            let stmt = self.parse_stmt()?;
+            let stmt = self.parse_stmt(true)?;
             body.push(stmt);
         }
 
