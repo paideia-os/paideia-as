@@ -9,8 +9,10 @@
 #![forbid(unsafe_code)]
 
 mod cursor;
+mod parse_expr;
 mod parse_primary;
 mod parser;
+mod precedence;
 
 pub use cursor::TokenCursor;
 pub use parser::{ParseError, Parser};
