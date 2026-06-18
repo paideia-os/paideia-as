@@ -141,7 +141,14 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                     TokenKind::KwResume => self.parse_resume(),
                     TokenKind::KwHandle => self.parse_handler_value(),
 
-                    // Identifiers and paths
+                    // Antiquotation (only if followed by `(`)
+                    TokenKind::AffineMark
+                        if self.peek_at(1).is_some_and(|t| t.kind == TokenKind::LParen) =>
+                    {
+                        self.parse_antiquote_expr()
+                    }
+
+                    // Identifiers and paths (including contextual keyword "quote")
                     TokenKind::Ident => self.parse_path_or_ident(),
 
                     TokenKind::KwSelfType | TokenKind::KwSelfValue => {
@@ -170,10 +177,28 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// Parse a path or single identifier.
     ///
     /// Path syntax: `Ident (:: Ident)*`.
-    /// Returns an ExprPath node with segments.
+    /// Also dispatches to `parse_quote_expr` if the identifier is the
+    /// contextual keyword "quote" followed by `{`.
+    /// Returns an ExprPath node with segments, or an ExprQuote on quote syntax.
     pub(crate) fn parse_path_or_ident(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
         let first_tok = self.expect(TokenKind::Ident)?;
         let span_start = first_tok.span;
+
+        // Check if this is the contextual keyword "quote" followed by `{`
+        let source = self.source();
+        let start = first_tok.span.byte_start() as usize;
+        let end = (first_tok.span.byte_start() + first_tok.span.byte_len()) as usize;
+        let ident_lexeme = if start <= source.len() && end <= source.len() {
+            &source[start..end]
+        } else {
+            ""
+        };
+
+        if ident_lexeme == "quote" && self.peek_at(1).is_some_and(|t| t.kind == TokenKind::LBrace) {
+            return self.parse_quote_expr();
+        }
+
+        // Otherwise, parse as a normal path
         let mut segments = vec![self.arena_mut().alloc(NodeKind::Ident, span_start)];
         let mut span_end = span_start;
 

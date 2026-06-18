@@ -12,4 +12,9 @@ name = "paideia_as_ast"
 
 [dependencies]
 paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
+smallvec = { workspace = true }
 static_assertions = { workspace = true }
+
+[dev-dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }

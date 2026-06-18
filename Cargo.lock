@@ -1112,6 +1112,9 @@ name = "paideia-as-ast"
 version = "0.0.1"
 dependencies = [
  "paideia-as-diagnostics",
+ "serde",
+ "serde_json",
+ "smallvec",
  "static_assertions",
 ]
 

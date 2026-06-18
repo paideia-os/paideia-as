@@ -89,6 +89,10 @@ pub enum NodeKind {
     ExprResume,
     /// `handle Effect { arms }` — handler-value construction.
     ExprHandlerValue,
+    /// `quote { ... }` (code quotation).
+    ExprQuote,
+    /// `~(...)` (antiquotation / unquote).
+    ExprAntiquote,
 
     // Statements (§8 Stmt: LetStmt | ExprStmt | InstructionStmt | ReturnStmt)
     /// `let name: ty? = expr;`.

@@ -117,6 +117,10 @@ pub trait ExprVisitor {
     fn visit_expr_resume(&mut self, _arena: &AstArena, _id: NodeId) {}
     /// Visit a HandlerValue expression.
     fn visit_expr_handler_value(&mut self, _arena: &AstArena, _id: NodeId) {}
+    /// Visit a Quote expression.
+    fn visit_expr_quote(&mut self, _arena: &AstArena, _id: NodeId) {}
+    /// Visit an Antiquote expression.
+    fn visit_expr_antiquote(&mut self, _arena: &AstArena, _id: NodeId) {}
 }
 
 /// Dispatch visitor call by node kind for expressions.
@@ -144,6 +148,8 @@ pub fn walk_expr<V: ExprVisitor>(visitor: &mut V, arena: &AstArena, id: NodeId) 
         NodeKind::ExprPerform => visitor.visit_expr_perform(arena, id),
         NodeKind::ExprResume => visitor.visit_expr_resume(arena, id),
         NodeKind::ExprHandlerValue => visitor.visit_expr_handler_value(arena, id),
+        NodeKind::ExprQuote => visitor.visit_expr_quote(arena, id),
+        NodeKind::ExprAntiquote => visitor.visit_expr_antiquote(arena, id),
         _ => {}
     }
 }
