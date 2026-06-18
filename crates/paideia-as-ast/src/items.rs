@@ -139,6 +139,9 @@ pub enum ItemData {
         block: Vec<NodeId>,
     },
 
+    /// Macro declaration: `macro Name(pattern) => template` or `macro Name { rule; ... }`.
+    MacroDecl(crate::macros::MacroDeclData),
+
     /// Placeholder for non-item nodes (expressions, types, patterns, statements).
     /// Used by later PRs.
     NonItem,

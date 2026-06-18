@@ -51,6 +51,8 @@ pub enum NodeKind {
     Enum,
     /// Unsafe block.
     UnsafeBlock,
+    /// Macro declaration.
+    MacroDecl,
 
     // Expressions (§8 Expr: LambdaExpr | ActionBlock | WithHandlerExpr | UnsafeExpr | InfixExpr | ...)
     /// `fn/λ params -> body` or `|x, y| body`.

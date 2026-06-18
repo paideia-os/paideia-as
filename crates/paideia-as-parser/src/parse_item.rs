@@ -1,11 +1,12 @@
-//! Top-level item parsing: modules, signatures, effects, capabilities, structs, enums, and unsafe blocks.
+//! Top-level item parsing: modules, signatures, effects, capabilities, structs, enums, macros, and unsafe blocks.
 //!
 //! Implements §8 ItemDecl grammar: Module, Signature, Let, Effect, Capability, Struct, Enum,
-//! and UnsafeBlock declarations. Each parser function returns a `NodeId` pointing to the
+//! MacroDecl, and UnsafeBlock declarations. Each parser function returns a `NodeId` pointing to the
 //! allocated item node.
 //!
 //! **Phase-1 constraints:**
 //! - `op` keyword in effect declarations is not validated by the lexer; parsed as Ident contextually.
+//! - `macro` keyword in macro declarations is not validated by the lexer; parsed as Ident contextually.
 //! - Capability, Struct, and Enum body parsing is skeleton-level.
 //! - Module body must be either `structure { items }` or `functor (params) -> structure { items }`.
 //! - Only one module per file (M0306 diagnostic emitted for the second module).
@@ -28,6 +29,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// - `KwStruct` → `parse_struct_decl`
     /// - `KwEnum` → `parse_enum_decl`
     /// - `KwUnsafe` → `parse_unsafe` (existing parser, wrapped as an expression)
+    /// - `Ident` with lexeme "macro" → `parse_macro_decl` (contextual keyword)
     /// - Anything else → emit P0100 and return Err
     ///
     /// Returns the `NodeId` of the allocated item on success.
@@ -47,6 +49,28 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 // then extract the fields and re-allocate as an item.
                 self.parse_unsafe_item()
             }
+            Some(TokenKind::Ident) => {
+                // Check for contextual keyword "macro"
+                if let Some(tok) = self.peek() {
+                    let lexeme = self.source_text_for_span(tok.span);
+                    if lexeme == "macro" {
+                        return self.parse_macro_decl();
+                    }
+                }
+                // Not a macro; fall through to error
+                let span = self
+                    .peek()
+                    .map(|t| t.span)
+                    .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+                let code = DiagnosticCode::new(Category::P, Severity::Error, 100)
+                    .expect("valid P0100 code");
+                let diag = Diagnostic::error(code)
+                    .message("expected item (module, signature, let, effect, capability, struct, enum, macro, or unsafe)")
+                    .with_span(span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                Err(ParseError)
+            }
             _ => {
                 let span = self
                     .peek()
@@ -55,7 +79,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 let code = DiagnosticCode::new(Category::P, Severity::Error, 100)
                     .expect("valid P0100 code");
                 let diag = Diagnostic::error(code)
-                    .message("expected item (module, signature, let, effect, capability, struct, enum, or unsafe)")
+                    .message("expected item (module, signature, let, effect, capability, struct, enum, macro, or unsafe)")
                     .with_span(span)
                     .finish();
                 self.emit_diagnostic(diag);
@@ -110,6 +134,8 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 }
                 Err(_) => {
                     // Recover to the next item start point
+                    // Note: cannot include Ident here as we'd need to check lexeme for "macro",
+                    // so recovery stops at keywords only.
                     self.recover_to_one_of(&[
                         TokenKind::KwModule,
                         TokenKind::KwSignature,
@@ -139,6 +165,18 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     #[must_use]
     fn at_eof(&self) -> bool {
         self.peek().is_none() || self.at(TokenKind::Eof)
+    }
+
+    /// Get the source text for a given span.
+    fn source_text_for_span(&self, span: Span) -> &str {
+        let source = self.source();
+        let start = span.byte_start() as usize;
+        let end = (span.byte_start() + span.byte_len()) as usize;
+        if start <= source.len() && end <= source.len() {
+            &source[start..end]
+        } else {
+            ""
+        }
     }
 
     /// Parse a module declaration: `module <Ident> (: <SignatureRef>)? = <ModuleBody>`
@@ -242,6 +280,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                         TokenKind::KwEnum,
                         TokenKind::KwUnsafe,
                         TokenKind::RBrace,
+                        TokenKind::Eof,
                     ]);
                 }
             }

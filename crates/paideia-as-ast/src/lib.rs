@@ -11,6 +11,7 @@
 mod arena;
 mod exprs;
 mod items;
+mod macros;
 mod node_id;
 mod patterns;
 pub mod pretty;
@@ -21,6 +22,7 @@ mod visit;
 pub use arena::{AstArena, NodeData, NodeKind};
 pub use exprs::{ExprData, LoopKind, MatchArm};
 pub use items::ItemData;
+pub use macros::{MacroDeclData, MacroFragment, MacroFragmentKind, MacroRule};
 pub use node_id::NodeId;
 pub use patterns::{PatField, PatternData};
 pub use stmts::StmtData;

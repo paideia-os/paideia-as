@@ -163,6 +163,18 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 effects_str, caps_str, justification, block_str
             )
         }
+        ItemData::MacroDecl(macro_data) => {
+            let rules_str = macro_data
+                .rules
+                .iter()
+                .map(|rule| format!("rule(pat: {}, tmpl: {})", rule.pattern, rule.template))
+                .collect::<Vec<_>>()
+                .join("; ");
+            format!(
+                "MacroDecl {{ name: {}, rules: [{}], doc: {:?} }}",
+                macro_data.name, rules_str, macro_data.doc
+            )
+        }
         ItemData::NonItem => "NonItem".to_string(),
     };
 
