@@ -1023,6 +1023,11 @@ version = "0.0.1"
 [[package]]
 name = "paideia-as-parser"
 version = "0.0.1"
+dependencies = [
+ "paideia-as-ast",
+ "paideia-as-diagnostics",
+ "paideia-as-lexer",
+]
 
 [[package]]
 name = "paideia-as-types"
