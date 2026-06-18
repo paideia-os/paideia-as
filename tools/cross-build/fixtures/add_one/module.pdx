@@ -1,0 +1,8 @@
+// Minimal paideia-as source for cross-build fixture
+// Phase-1: emitted binary is currently hardcoded to add_one regardless of input
+// This file exists to exercise the build pipeline; the actual semantics
+// will be loaded once the IR walker dispatches on node payloads (m2/m5).
+
+module AddOne = structure {
+    let one = 1
+}
