@@ -3,14 +3,24 @@
 //! [`paideia_as_ast::AstArena`]: paideia_as_ast::AstArena
 
 use paideia_as_diagnostics::Span;
+use smallvec::SmallVec;
 use std::ops::Index;
 
 use crate::node::{IrKind, IrNodeData, IrNodeId};
 
 /// Slab-allocated IR storage for one source file.
+///
+/// Uses a side-table approach for child pointers: `IrNodeData` remains at
+/// 48 bytes (preserving the budget), while children are stored separately
+/// in `children_table`. This design keeps small nodes (≤4 children) inline
+/// via SmallVec while avoiding the 16-byte budget constraint of adding
+/// SmallVec directly to IrNodeData.
 #[derive(Debug, Default)]
 pub struct IrArena {
     nodes: Vec<IrNodeData>,
+    /// Side-table: children_table[node.index()] = SmallVec of child IrNodeIds.
+    /// The common case (≤4 children) is inline; spill to heap for larger nodes.
+    children_table: Vec<SmallVec<[IrNodeId; 4]>>,
 }
 
 impl IrArena {
@@ -25,13 +35,14 @@ impl IrArena {
     pub fn with_capacity(n: usize) -> Self {
         Self {
             nodes: Vec::with_capacity(n),
+            children_table: Vec::with_capacity(n),
         }
     }
 
     /// Allocate a new node with the supplied kind and span. The new node
     /// inherits the default `lin_class = Unrestricted` and
     /// `effect_row = EMPTY`. The elaborator may mutate those fields in
-    /// later passes.
+    /// later passes. No children are initially set.
     ///
     /// Returns the freshly-allocated [`IrNodeId`].
     pub fn alloc(&mut self, kind: IrKind, span: Span) -> IrNodeId {
@@ -39,6 +50,25 @@ impl IrArena {
         let id = IrNodeId::new(u32::try_from(next).expect("more than u32::MAX nodes"))
             .expect("non-zero next index");
         self.nodes.push(IrNodeData::new(kind, span));
+        self.children_table.push(SmallVec::new());
+        id
+    }
+
+    /// Allocate a new node with the supplied kind, span, and immediate children.
+    /// The new node inherits the default `lin_class = Unrestricted` and
+    /// `effect_row = EMPTY`. The elaborator may mutate those fields in
+    /// later passes.
+    ///
+    /// Returns the freshly-allocated [`IrNodeId`].
+    pub fn alloc_with_children<I>(&mut self, kind: IrKind, span: Span, children: I) -> IrNodeId
+    where
+        I: IntoIterator<Item = IrNodeId>,
+    {
+        let next = self.nodes.len() + 1;
+        let id = IrNodeId::new(u32::try_from(next).expect("more than u32::MAX nodes"))
+            .expect("non-zero next index");
+        self.nodes.push(IrNodeData::new(kind, span));
+        self.children_table.push(children.into_iter().collect());
         id
     }
 
@@ -70,6 +100,22 @@ impl IrArena {
     /// and `effect_row` through this.
     pub fn get_mut(&mut self, id: IrNodeId) -> Option<&mut IrNodeData> {
         self.nodes.get_mut(id.index())
+    }
+
+    /// Return the immediate children of a node in source order.
+    /// Returns an empty slice if the node does not exist or has no children.
+    #[must_use]
+    pub fn children(&self, id: IrNodeId) -> &[IrNodeId] {
+        self.children_table
+            .get(id.index())
+            .map(|sv| sv.as_slice())
+            .unwrap_or(&[])
+    }
+
+    /// Return mutable access to the immediate children of a node.
+    /// Allows builders to populate children after node creation.
+    pub fn children_mut(&mut self, id: IrNodeId) -> Option<&mut SmallVec<[IrNodeId; 4]>> {
+        self.children_table.get_mut(id.index())
     }
 }
 
@@ -124,5 +170,85 @@ mod tests {
         assert!(a.is_empty());
         a.alloc(IrKind::Placeholder, span());
         assert_eq!(a.len(), 1);
+    }
+
+    #[test]
+    fn var_and_literal_have_no_children() {
+        let mut a = IrArena::new();
+        let var_id = a.alloc(IrKind::Var, span());
+        let lit_id = a.alloc(IrKind::Literal, span());
+        assert!(a.children(var_id).is_empty());
+        assert!(a.children(lit_id).is_empty());
+    }
+
+    #[test]
+    fn let_has_one_child() {
+        let mut a = IrArena::new();
+        let value_id = a.alloc(IrKind::Var, span());
+        let let_id = a.alloc_with_children(IrKind::Let, span(), [value_id]);
+        assert_eq!(a.children(let_id).len(), 1);
+        assert_eq!(a.children(let_id)[0], value_id);
+    }
+
+    #[test]
+    fn app_has_callee_plus_args() {
+        let mut a = IrArena::new();
+        let callee_id = a.alloc(IrKind::Var, span());
+        let arg1_id = a.alloc(IrKind::Literal, span());
+        let arg2_id = a.alloc(IrKind::Literal, span());
+        let app_id = a.alloc_with_children(IrKind::App, span(), [callee_id, arg1_id, arg2_id]);
+        let children = a.children(app_id);
+        assert_eq!(children.len(), 3);
+        assert_eq!(children[0], callee_id);
+        assert_eq!(children[1], arg1_id);
+        assert_eq!(children[2], arg2_id);
+    }
+
+    #[test]
+    fn empty_module_has_no_items_children() {
+        let mut a = IrArena::new();
+        let mod_id = a.alloc(IrKind::Module, span());
+        assert!(a.children(mod_id).is_empty());
+    }
+
+    #[test]
+    fn module_with_items_has_item_children() {
+        let mut a = IrArena::new();
+        let item1 = a.alloc(IrKind::Var, span());
+        let item2 = a.alloc(IrKind::Literal, span());
+        let item3 = a.alloc(IrKind::Var, span());
+        let mod_id = a.alloc_with_children(IrKind::Module, span(), [item1, item2, item3]);
+        let children = a.children(mod_id);
+        assert_eq!(children.len(), 3);
+        assert_eq!(children[0], item1);
+        assert_eq!(children[1], item2);
+        assert_eq!(children[2], item3);
+    }
+
+    #[test]
+    fn children_mut_allows_building_children_after_alloc() {
+        let mut a = IrArena::new();
+        let child1 = a.alloc(IrKind::Var, span());
+        let child2 = a.alloc(IrKind::Literal, span());
+        let parent_id = a.alloc(IrKind::Let, span());
+
+        // Add children after allocation
+        {
+            let children = a.children_mut(parent_id).unwrap();
+            children.push(child1);
+            children.push(child2);
+        }
+
+        let result_children = a.children(parent_id);
+        assert_eq!(result_children.len(), 2);
+        assert_eq!(result_children[0], child1);
+        assert_eq!(result_children[1], child2);
+    }
+
+    #[test]
+    fn size_budget_assertion() {
+        // IrNodeData is 20 bytes (u8 + u8 + u32 + 12-byte Span with alignment).
+        // Phase-1 AC budget: ≤ 48 bytes. Side-table keeps IrNodeData clean.
+        assert!(std::mem::size_of::<IrNodeData>() <= 48);
     }
 }

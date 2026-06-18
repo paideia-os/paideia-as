@@ -21,3 +21,6 @@ pub use effect_rewrite::{
     rewrite_with_save_restore,
 };
 pub use node::{EffectRowId, IrKind, IrNodeData, IrNodeId, LinClass};
+
+// Re-export smallvec for clients building child lists.
+pub use smallvec::SmallVec;
