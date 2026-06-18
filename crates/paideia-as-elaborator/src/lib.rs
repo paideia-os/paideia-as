@@ -20,6 +20,7 @@ pub mod effect_unify;
 pub mod env;
 pub mod linearity_ctx;
 mod lower;
+pub mod macro_match;
 mod placeholder_emit;
 
 pub use branch_merge::{S_BRANCH_MISMATCH, merge_branches};
@@ -42,4 +43,7 @@ pub use effect_unify::{
 pub use env::{Symbol, TypeEnv};
 pub use linearity_ctx::{Binding, LinearityCtx};
 pub use lower::{LoweringResult, lower_ast_to_ir};
+pub use macro_match::{
+    InvocationMatch, M_NO_MATCH, MatchBinding, RuleMatch, match_invocation, match_rule,
+};
 pub use placeholder_emit::placeholder_for;
