@@ -19,6 +19,7 @@ members = [
     "crates/paideia-fmt",
     "crates/paideia-pq-sign",
     "tests/e2e",
+    "tests/end-to-end",
     "tests/linearity-regression",
 ]
 

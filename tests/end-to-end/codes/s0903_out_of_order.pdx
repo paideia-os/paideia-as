@@ -1,0 +1,3 @@
+module M = structure {
+  let f = fn x -> let y = x; let z = y; x
+}

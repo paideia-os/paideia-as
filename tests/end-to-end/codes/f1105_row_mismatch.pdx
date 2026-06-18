@@ -1,0 +1,11 @@
+effect Io = {
+  op port_read(addr: u16) -> u8
+}
+
+effect Mem = {
+  op read(addr: u32) -> u32
+}
+
+module M = structure {
+  let f = fn _ -> with handler { op port_read(x) -> resume x } { perform Io::port_read(0x60); perform Mem::read(0) }
+}
