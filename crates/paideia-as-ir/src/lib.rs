@@ -1,6 +1,16 @@
 //! paideia-as-ir
 //!
-//! Phase-1 skeleton crate; see PaideiaOS design corpus for spec:
-//! https://github.com/paideia-os/paideia-os/tree/main/design/toolchain
+//! Typed-core IR for paideia-as. Parallels the AST arena pattern with a
+//! single `IrArena` slab over `IrNodeData`. Every node carries a
+//! substructural lattice class and an interned effect-row reference per
+//! `design/toolchain/custom-assembler.md` §6.1.
 
-#![allow(dead_code)]
+#![warn(missing_docs)]
+#![forbid(unsafe_code)]
+
+mod arena;
+mod node;
+pub mod pretty;
+
+pub use arena::IrArena;
+pub use node::{EffectRowId, IrKind, IrNodeData, IrNodeId, LinClass};
