@@ -183,7 +183,7 @@ pub fn mov_reg64_reg64(buf: &mut CodeBuffer, dst: Reg64, src: Reg64) {
 /// - If disp is 0: still use disp8=0 (RBP with mod=00 is special; we use mod=01 with disp8=0)
 /// - Otherwise: mod=10, disp32 (4 bytes for disp)
 ///
-/// Instruction: REX.W 89 /r [ModR/M] [disp]
+/// Instruction: `REX.W 89 /r [ModR/M] [disp]`
 pub fn mov_mem_rbp_disp_reg64(buf: &mut CodeBuffer, disp: i32, src: Reg64) {
     let src_id = src as u8;
     let rbp_rm = 5u8; // RBP is register id 5
@@ -207,7 +207,7 @@ pub fn mov_mem_rbp_disp_reg64(buf: &mut CodeBuffer, disp: i32, src: Reg64) {
 ///
 /// Uses the smallest form possible (same logic as `mov_mem_rbp_disp_reg64`).
 ///
-/// Instruction: REX.W 8B /r [ModR/M] [disp]
+/// Instruction: `REX.W 8B /r [ModR/M] [disp]`
 pub fn mov_reg64_mem_rbp_disp(buf: &mut CodeBuffer, dst: Reg64, disp: i32) {
     let dst_id = dst as u8;
     let rbp_rm = 5u8;
