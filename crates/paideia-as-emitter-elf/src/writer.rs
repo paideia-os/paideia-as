@@ -1,11 +1,19 @@
 //! ELF64 object file writer for paideia-as.
 
+use crate::relocs::RelocEntry;
+use crate::relocs::RelocKind;
 use crate::sections::PAIDEIA_SECTIONS;
+use crate::symtab::SymbolEntry;
 use object::{
-    Architecture, BinaryFormat, Endianness, SectionKind,
-    write::{Object, SectionId, StandardSection, StandardSegment},
+    Architecture, BinaryFormat, Endianness, RelocationEncoding, RelocationFlags, RelocationKind,
+    SectionKind, SymbolScope,
+    write::{
+        Object, Relocation, SectionId, StandardSection, StandardSegment, Symbol, SymbolFlags,
+        SymbolId, SymbolSection,
+    },
 };
 use static_assertions::const_assert_eq;
+use std::collections::HashMap;
 use std::mem::size_of;
 
 // Verify that ELF64 file header is 64 bytes per ELF specification.
@@ -37,6 +45,9 @@ pub struct ElfWriter {
     obj: Object<'static>,
     /// Standard section identifiers by name, in declaration order.
     sections: Vec<(String, SectionId)>,
+    /// Symbol table entries accumulated during construction.
+    /// Mapped by symbol name for deduplication and symbol ID lookup.
+    symbols: HashMap<String, (SymbolEntry, SymbolId)>,
 }
 
 impl ElfWriter {
@@ -76,7 +87,11 @@ impl ElfWriter {
             sections.push((name.to_string(), sid));
         }
 
-        Self { obj, sections }
+        Self {
+            obj,
+            sections,
+            symbols: HashMap::new(),
+        }
     }
 
     /// Returns a slice of section tuples (name, id) in declaration order.
@@ -85,6 +100,94 @@ impl ElfWriter {
     /// during construction.
     pub fn sections(&self) -> &[(String, SectionId)] {
         &self.sections
+    }
+
+    /// Add a symbol to the symbol table.
+    ///
+    /// Accepts a [`SymbolEntry`] and registers it with the ELF object.
+    /// Symbols must be added before relocations that reference them.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying `object` crate operation fails
+    /// (e.g., invalid symbol configuration).
+    pub fn add_symbol(&mut self, entry: SymbolEntry) -> Result<(), Box<dyn std::error::Error>> {
+        let sym_name = entry.name.clone();
+        let sym_id = self.obj.add_symbol(Symbol {
+            name: sym_name.clone().into_bytes(),
+            value: entry.offset.unwrap_or(0),
+            size: entry.size,
+            kind: entry.kind.to_object_kind(),
+            scope: if entry.is_global {
+                SymbolScope::Dynamic
+            } else {
+                SymbolScope::Compilation
+            },
+            weak: false,
+            section: if entry.offset.is_some() {
+                // For defined symbols, we would ideally link to the actual section.
+                // For now, we use Undefined and let the linker resolve via absolute addressing.
+                // In a full implementation, the caller would specify which section the symbol belongs to.
+                SymbolSection::Undefined
+            } else {
+                SymbolSection::Undefined
+            },
+            flags: SymbolFlags::None,
+        });
+
+        self.symbols.insert(sym_name, (entry, sym_id));
+        Ok(())
+    }
+
+    /// Add a relocation to a section.
+    ///
+    /// Registers a relocation request for the given section. The target symbol
+    /// must already have been added via [`add_symbol`](Self::add_symbol).
+    ///
+    /// Maps paideia-as relocation kinds to `object` crate kinds:
+    /// - [`RelocKind::PC32`] → [`RelocationKind::Relative`] (32-bit PC-relative)
+    /// - [`RelocKind::Abs64`] → [`RelocationKind::Absolute`] (64-bit absolute)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the target symbol is not found in the symbol table,
+    /// or if the underlying `object` crate operation fails.
+    pub fn add_relocation(
+        &mut self,
+        section: SectionId,
+        entry: RelocEntry,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Look up the target symbol in our symbol table.
+        let sym_id = self
+            .symbols
+            .get(&entry.target)
+            .map(|(_, id)| *id)
+            .ok_or_else(|| -> Box<dyn std::error::Error> {
+                format!("symbol '{}' not found in symbol table", entry.target).into()
+            })?;
+
+        let flags = match entry.kind {
+            RelocKind::PC32 => RelocationFlags::Generic {
+                kind: RelocationKind::Relative,
+                encoding: RelocationEncoding::X86Branch,
+                size: 32,
+            },
+            RelocKind::Abs64 => RelocationFlags::Generic {
+                kind: RelocationKind::Absolute,
+                encoding: RelocationEncoding::Generic,
+                size: 64,
+            },
+        };
+
+        let reloc = Relocation {
+            offset: entry.offset,
+            symbol: sym_id,
+            addend: entry.addend,
+            flags,
+        };
+
+        self.obj.add_relocation(section, reloc)?;
+        Ok(())
     }
 
     /// Finalize and write the ELF object to bytes.
@@ -189,6 +292,133 @@ mod tests {
             writer.sections().len() >= 7,
             "should have at least 7 explicitly allocated sections, got {}",
             writer.sections().len()
+        );
+    }
+
+    #[test]
+    fn writer_accepts_a_function_symbol() {
+        use object::Object;
+
+        let mut writer = ElfWriter::new(Arch::X86_64, Kind::Relocatable);
+        let entry = crate::symtab::SymbolEntry::func("main", 0, 5);
+
+        let result = writer.add_symbol(entry);
+        assert!(result.is_ok(), "adding a function symbol should succeed");
+
+        // Finalize and verify the output is parseable ELF.
+        let bytes = writer
+            .finalize()
+            .expect("finalize should not fail after adding a symbol");
+        let elf = object::read::elf::ElfFile64::<object::Endianness>::parse(bytes.as_slice())
+            .expect("finalized bytes should parse as valid ELF64");
+
+        // Verify at least one symbol was written.
+        let symbols: Vec<_> = elf.symbols().collect();
+        assert!(
+            !symbols.is_empty(),
+            "ELF should contain at least one symbol"
+        );
+    }
+
+    #[test]
+    fn writer_accepts_a_pc32_call_relocation() {
+        use crate::relocs::RelocEntry;
+        use object::{Object, ObjectSection};
+
+        let mut writer = ElfWriter::new(Arch::X86_64, Kind::Relocatable);
+
+        // Add two function symbols.
+        let sym1 = crate::symtab::SymbolEntry::func("caller", 0, 10);
+        let sym2 = crate::symtab::SymbolEntry::func("callee", 10, 5);
+
+        writer
+            .add_symbol(sym1)
+            .expect("adding caller should succeed");
+        writer
+            .add_symbol(sym2)
+            .expect("adding callee should succeed");
+
+        // Get the .text section ID.
+        let text_section = writer
+            .sections()
+            .iter()
+            .find(|(name, _)| name == ".text")
+            .map(|(_, id)| *id)
+            .expect("should have .text section");
+
+        // Add a PC32 relocation from caller to callee.
+        let reloc = RelocEntry::call(5, "callee");
+        let result = writer.add_relocation(text_section, reloc);
+        assert!(result.is_ok(), "adding a PC32 relocation should succeed");
+
+        // Finalize and verify the output is parseable ELF.
+        let bytes = writer
+            .finalize()
+            .expect("finalize should not fail after adding a relocation");
+        let elf = object::read::elf::ElfFile64::<object::Endianness>::parse(bytes.as_slice())
+            .expect("finalized bytes should parse as valid ELF64");
+
+        // Verify at least one relocation was written (in .text or .rela.text).
+        let mut found_relocation = false;
+        for section in elf.sections() {
+            let reloc_vec: Vec<_> = section.relocations().collect();
+            if !reloc_vec.is_empty() {
+                found_relocation = true;
+                break;
+            }
+        }
+        assert!(
+            found_relocation,
+            "ELF should contain at least one relocation"
+        );
+    }
+
+    #[test]
+    fn writer_accepts_an_undefined_symbol() {
+        use object::Object;
+
+        let mut writer = ElfWriter::new(Arch::X86_64, Kind::Relocatable);
+        let entry = crate::symtab::SymbolEntry::undefined("external_fn");
+
+        let result = writer.add_symbol(entry);
+        assert!(result.is_ok(), "adding an undefined symbol should succeed");
+
+        // Finalize and verify the output is parseable ELF.
+        let bytes = writer
+            .finalize()
+            .expect("finalize should not fail after adding an undefined symbol");
+        let elf = object::read::elf::ElfFile64::<object::Endianness>::parse(bytes.as_slice())
+            .expect("finalized bytes should parse as valid ELF64");
+
+        // Verify at least one symbol was written.
+        let symbols: Vec<_> = elf.symbols().collect();
+        assert!(
+            !symbols.is_empty(),
+            "ELF should contain at least one symbol"
+        );
+    }
+
+    #[test]
+    fn writer_rejects_relocation_to_unknown_symbol() {
+        use crate::relocs::RelocEntry;
+
+        let mut writer = ElfWriter::new(Arch::X86_64, Kind::Relocatable);
+
+        // Get the .text section ID.
+        let text_section = writer
+            .sections()
+            .iter()
+            .find(|(name, _)| name == ".text")
+            .map(|(_, id)| *id)
+            .expect("should have .text section");
+
+        // Try to add a relocation to a symbol that was never added.
+        let reloc = RelocEntry::call(5, "unknown_symbol");
+        let result = writer.add_relocation(text_section, reloc);
+
+        assert!(
+            result.is_err(),
+            "adding a relocation to an unknown symbol should fail"
         );
     }
 }

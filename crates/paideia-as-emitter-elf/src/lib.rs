@@ -9,7 +9,9 @@
 pub mod encode;
 pub mod lower;
 pub mod prologue;
+pub mod relocs;
 mod sections;
+pub mod symtab;
 mod writer;
 
 pub use encode::{
@@ -23,5 +25,7 @@ pub use lower::{
     lower_handler_call, lower_ir_to_bytes, lower_let_literal, lower_local_load,
 };
 pub use prologue::{FrameLayout, STACK_ALIGN, STACK_PROBE_THRESHOLD, emit_epilogue, emit_prologue};
+pub use relocs::{RelocEntry, RelocKind};
 pub use sections::{PAIDEIA_SECTIONS, STANDARD_SECTIONS, all_sections};
+pub use symtab::{SymKind, SymbolEntry};
 pub use writer::{Arch, ElfWriter, Kind};
