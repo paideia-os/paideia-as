@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 
 mod cli;
+mod cmd_build;
 mod cmd_check;
 mod cmd_dump_ast;
 
@@ -20,10 +21,7 @@ use crate::cli::{Cli, Cmd};
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
-        Cmd::Build { .. } => {
-            eprintln!("paideia-as build: stub (phase 1)");
-            ExitCode::SUCCESS
-        }
+        Cmd::Build { input } => cmd_build::run(&input),
         Cmd::Check { input, dump_ir } => cmd_check::run(&input, dump_ir),
         Cmd::Lint { .. } => {
             eprintln!("paideia-as lint: stub (phase 1)");
