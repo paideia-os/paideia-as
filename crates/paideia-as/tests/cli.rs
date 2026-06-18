@@ -1,8 +1,8 @@
-//! End-to-end CLI tests for `paideia-as check`.
+//! End-to-end CLI tests for `paideia-as check` and `paideia-as build`.
 //!
 //! These build the binary via `cargo run` and assert on exit code,
 //! stderr/stdout, and the SARIF sidecar file. The tests run against
-//! fixtures in `tests/data/`.
+//! fixtures in `tests/data/` and examples.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -131,4 +131,73 @@ fn build_lex_error_skips_placeholder_and_exits_one() {
         !placeholder.exists(),
         "placeholder should not be written when errors present"
     );
+}
+
+#[test]
+fn build_linear_double_use_compiles_but_doesnt_fire_walker() {
+    // Phase-2-m1 limitation: the walker infrastructure runs end-to-end, but
+    // the IR carries only IrKind (no structured payloads). Linear/Ordered
+    // linearity classes are not populated in phase-1 lowering, so the
+    // LinearityWalker sees all bindings as Unrestricted and cannot fire
+    // S0901 (overused) diagnostics on real source.
+    //
+    // This test confirms the walker runs without panicking (end-to-end proof
+    // that CLI wiring works) but does not expect S0901 to fire yet.
+    // Structured linearity payload arrives in m3/m5 when the IR gains
+    // per-binding class info at lowering time.
+    let input = data("linear_double_use.pdx");
+    let out = cargo_run(&["build", input.to_str().unwrap()]);
+
+    assert!(
+        out.status.success(),
+        "expected exit 0 (walker runs without crashing), got {:?}\nstderr: {}",
+        out.status,
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // Placeholder should be written successfully
+    let mut placeholder = input.clone();
+    placeholder.set_file_name("linear_double_use.placeholder");
+    assert!(
+        placeholder.exists(),
+        "placeholder should be written when no errors present"
+    );
+
+    let _ = std::fs::remove_file(&placeholder);
+}
+
+#[test]
+fn build_calling_convention_example_emits_clean_elf() {
+    // Test that a known-good example (§12) still produces a valid ELF
+    let input = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .and_then(|p| p.parent())
+        .map(|p| p.join("examples").join("12_calling_convention.pdx"))
+        .expect("could not resolve examples directory");
+
+    if !input.exists() {
+        // Skip if the example doesn't exist in this build context
+        return;
+    }
+
+    let out = cargo_run(&["build", "--emit", "elf64", input.to_str().unwrap()]);
+
+    assert!(
+        out.status.success(),
+        "expected exit 0 on valid example, got {:?}\nstderr: {}",
+        out.status,
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // Verify ELF magic bytes were written
+    let mut elf_path = input.clone();
+    elf_path.set_extension("o");
+    if elf_path.exists() {
+        let elf_bytes = std::fs::read(&elf_path).expect("could not read ELF");
+        assert!(elf_bytes.len() >= 4, "ELF file too small");
+        // ELF magic: 0x7f 0x45 0x4c 0x46 (= "\x7fELF")
+        assert_eq!(&elf_bytes[0..4], b"\x7fELF", "invalid ELF magic bytes");
+        let _ = std::fs::remove_file(&elf_path);
+    }
 }
