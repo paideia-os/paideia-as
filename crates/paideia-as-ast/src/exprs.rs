@@ -51,6 +51,9 @@ pub enum ExprData {
         bind: NodeId,
         /// Block expression to be protected by the handler.
         block: NodeId,
+        /// Optional `finally => body` clause appearing as the final element of
+        /// the handled block. `None` for legacy callers; `Some(expr)` when present.
+        finally: Option<NodeId>,
     },
 
     /// `unsafe { effects: …, capabilities: …, justification: …, block: … }`.
@@ -196,6 +199,24 @@ pub enum ExprData {
     OperandMemoryRef {
         /// Address expression.
         addr: NodeId,
+    },
+
+    /// `perform Effect::op(args)`.
+    ///
+    /// Perform expression: invokes an effect operation with arguments.
+    Perform {
+        /// Path to the effect operation (an ExprPath node).
+        op_path: NodeId,
+        /// Argument expressions.
+        args: Vec<NodeId>,
+    },
+
+    /// `resume value`.
+    ///
+    /// Resume expression: phase-1 has no context check.
+    Resume {
+        /// Value expression.
+        value: NodeId,
     },
 }
 

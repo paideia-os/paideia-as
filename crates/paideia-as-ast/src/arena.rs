@@ -83,6 +83,10 @@ pub enum NodeKind {
     ExprIf,
     /// `loop block` or `while cond block` or `for pat in iter block`.
     ExprLoop,
+    /// `perform Effect::op(args)`.
+    ExprPerform,
+    /// `resume value`.
+    ExprResume,
 
     // Statements (§8 Stmt: LetStmt | ExprStmt | InstructionStmt | ReturnStmt)
     /// `let name: ty? = expr;`.

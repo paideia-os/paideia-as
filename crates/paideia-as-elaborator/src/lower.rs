@@ -142,6 +142,12 @@ fn map_node_kind(kind: NodeKind) -> IrKind {
         // Handler installation
         NodeKind::ExprWithHandler => IrKind::Handle,
 
+        // Effect operations
+        NodeKind::ExprPerform => IrKind::Perform,
+
+        // Resume expressions (phase-1 placeholder)
+        NodeKind::ExprResume => IrKind::App,
+
         // Unsafe block escape hatch
         NodeKind::ExprUnsafe => IrKind::Unsafe,
 
