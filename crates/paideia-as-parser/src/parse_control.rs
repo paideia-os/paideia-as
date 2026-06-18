@@ -211,9 +211,20 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// Parse a block expression.
     ///
     /// Form: `{ stmt1; stmt2; expr? }`.
-    /// Statements are expressions followed by `;`.
+    /// Statements can be let-bindings, return statements, or expressions followed by `;`.
     /// The last expression (if not followed by `;`) is the tail expression.
     /// Returns a `NodeKind::ExprBlock`.
+    ///
+    /// **Parsing flow:**
+    /// 1. If current token is `KwLet` or `KwReturn`: dispatch to `parse_stmt(false)`
+    ///    to parse the full statement (which consumes its trailing `;`).
+    /// 2. Otherwise: parse an expression via `parse_expr()`.
+    ///    - If `;` follows: wrap as `StmtData::Expr` and add to statements.
+    ///    - If `}` follows: this is the tail expression.
+    ///
+    /// **Validation:**
+    /// - If block is empty (`stmts` empty and `tail` None): emit P0157 and return Err.
+    /// - If block ends with `;` (`tail` None but `stmts` non-empty): emit P0158 and return Err.
     pub(crate) fn parse_block(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
         let lbrace_tok = self.expect(TokenKind::LBrace)?;
         let lbrace_span = lbrace_tok.span;
@@ -227,29 +238,36 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 break;
             }
 
-            // Parse one expression
-            let expr = self.parse_expr()?;
-
-            // Check for semicolon
-            if self.at(TokenKind::Semicolon) {
-                self.bump(); // consume `;`
-                // Get the span before mutably borrowing arena
-                let expr_span = self
-                    .arena()
-                    .get(expr)
-                    .map(|nd| nd.span)
-                    .unwrap_or(lbrace_span);
-                // Wrap as a statement
-                let stmt = self.arena_mut().alloc_stmt(
-                    NodeKind::StmtExpr,
-                    expr_span,
-                    paideia_as_ast::StmtData::Expr { expr },
-                );
+            // Check if this is a let or return statement (keywords recognized at stmt level)
+            if self.at(TokenKind::KwLet) || self.at(TokenKind::KwReturn) {
+                // Parse as a statement; parse_stmt consumes trailing `;`
+                let stmt = self.parse_stmt(false)?;
                 stmts.push(stmt);
             } else {
-                // No semicolon: this is the tail expression
-                tail = Some(expr);
-                // Next iteration should see RBrace
+                // Parse one expression
+                let expr = self.parse_expr()?;
+
+                // Check for semicolon
+                if self.at(TokenKind::Semicolon) {
+                    self.bump(); // consume `;`
+                    // Get the span before mutably borrowing arena
+                    let expr_span = self
+                        .arena()
+                        .get(expr)
+                        .map(|nd| nd.span)
+                        .unwrap_or(lbrace_span);
+                    // Wrap as a statement
+                    let stmt = self.arena_mut().alloc_stmt(
+                        NodeKind::StmtExpr,
+                        expr_span,
+                        paideia_as_ast::StmtData::Expr { expr },
+                    );
+                    stmts.push(stmt);
+                } else {
+                    // No semicolon: this is the tail expression
+                    tail = Some(expr);
+                    // Next iteration should see RBrace
+                }
             }
         }
 
@@ -262,6 +280,35 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             lbrace_span.byte_start(),
             rbrace_span.byte_start() + rbrace_span.byte_len() - lbrace_span.byte_start(),
         );
+
+        // Validate block: must not be empty, and must end with an expression
+        if stmts.is_empty() && tail.is_none() {
+            // Emit P0157: empty block expression
+            use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity};
+            let code =
+                DiagnosticCode::new(Category::P, Severity::Error, 157).expect("valid P0157 code");
+            self.emit_diagnostic(
+                Diagnostic::error(code)
+                    .message("empty block expression is not allowed")
+                    .with_span(block_span)
+                    .finish(),
+            );
+            return Err(ParseError);
+        }
+
+        if !stmts.is_empty() && tail.is_none() {
+            // Emit P0158: block must end with an expression
+            use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity};
+            let code =
+                DiagnosticCode::new(Category::P, Severity::Error, 158).expect("valid P0158 code");
+            self.emit_diagnostic(
+                Diagnostic::error(code)
+                    .message("block expression must have a final expression; trailing `;` is not allowed")
+                    .with_span(block_span)
+                    .finish(),
+            );
+            return Err(ParseError);
+        }
 
         Ok(self.arena_mut().alloc_expr(
             NodeKind::ExprBlock,
@@ -470,11 +517,13 @@ mod tests {
     }
 
     #[test]
-    fn empty_block() {
+    fn block_single_tail_expr() {
+        // { x } parses as Block with stmts=[], tail=Some(x)
         let tokens = vec![
             tok(TokenKind::LBrace, 0, 1),
-            tok(TokenKind::RBrace, 1, 1),
-            tok(TokenKind::Eof, 2, 0),
+            tok(TokenKind::Ident, 2, 1), // x
+            tok(TokenKind::RBrace, 3, 1),
+            tok(TokenKind::Eof, 4, 0),
         ];
         let (arena, root, diags) = parse(tokens);
 
@@ -483,8 +532,221 @@ mod tests {
         assert_eq!(node.kind, NodeKind::ExprBlock);
         if let Some(expr_data) = arena.expr_data(root) {
             if let ExprData::Block { stmts, tail } = expr_data {
-                assert_eq!(stmts.len(), 0);
-                assert!(tail.is_none());
+                assert_eq!(stmts.len(), 0, "no statements expected");
+                assert!(tail.is_some(), "tail expression expected");
+            } else {
+                panic!("expected ExprBlock");
+            }
+        }
+    }
+
+    #[test]
+    fn block_let_then_tail() {
+        // { let x = 1; x + 1 } parses with 1 stmt + tail
+        let tokens = vec![
+            tok(TokenKind::LBrace, 0, 1),
+            tok(TokenKind::KwLet, 2, 3),      // let
+            tok(TokenKind::Ident, 6, 1),      // x
+            tok(TokenKind::Assign, 8, 1),     // =
+            tok(TokenKind::IntLit, 10, 1),    // 1
+            tok(TokenKind::Semicolon, 11, 1), // ;
+            tok(TokenKind::Ident, 13, 1),     // x
+            tok(TokenKind::Plus, 15, 1),      // +
+            tok(TokenKind::IntLit, 17, 1),    // 1
+            tok(TokenKind::RBrace, 18, 1),
+            tok(TokenKind::Eof, 19, 0),
+        ];
+        let (arena, root, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected");
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprBlock);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Block { stmts, tail } = expr_data {
+                assert_eq!(stmts.len(), 1, "one statement expected");
+                assert!(tail.is_some(), "tail expression expected");
+            } else {
+                panic!("expected ExprBlock");
+            }
+        }
+    }
+
+    #[test]
+    fn block_multi_let_then_tail() {
+        // { let x = 1; let y = 2; x + y } parses with 2 stmts + tail
+        let tokens = vec![
+            tok(TokenKind::LBrace, 0, 1),
+            tok(TokenKind::KwLet, 2, 3),      // let
+            tok(TokenKind::Ident, 6, 1),      // x
+            tok(TokenKind::Assign, 8, 1),     // =
+            tok(TokenKind::IntLit, 10, 1),    // 1
+            tok(TokenKind::Semicolon, 11, 1), // ;
+            tok(TokenKind::KwLet, 13, 3),     // let
+            tok(TokenKind::Ident, 17, 1),     // y
+            tok(TokenKind::Assign, 19, 1),    // =
+            tok(TokenKind::IntLit, 21, 1),    // 2
+            tok(TokenKind::Semicolon, 22, 1), // ;
+            tok(TokenKind::Ident, 24, 1),     // x
+            tok(TokenKind::Plus, 26, 1),      // +
+            tok(TokenKind::Ident, 28, 1),     // y
+            tok(TokenKind::RBrace, 29, 1),
+            tok(TokenKind::Eof, 30, 0),
+        ];
+        let (arena, root, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected");
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprBlock);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Block { stmts, tail } = expr_data {
+                assert_eq!(stmts.len(), 2, "two statements expected");
+                assert!(tail.is_some(), "tail expression expected");
+            } else {
+                panic!("expected ExprBlock");
+            }
+        }
+    }
+
+    #[test]
+    fn block_empty_rejected() {
+        // { } should return Err and emit P0157
+        let tokens = vec![
+            tok(TokenKind::LBrace, 0, 1),
+            tok(TokenKind::RBrace, 1, 1),
+            tok(TokenKind::Eof, 2, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = paideia_as_diagnostics::VecSink::new();
+        let result = {
+            let mut p = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+            p.parse_expr()
+        };
+
+        assert!(result.is_err(), "expected parse error");
+        let diags = sink.diagnostics();
+        assert!(
+            diags.iter().any(|d| d.code().number() == 157),
+            "expected P0157 diagnostic"
+        );
+    }
+
+    #[test]
+    fn block_trailing_semi_rejected() {
+        // { let x = 1; } should return Err and emit P0158
+        let tokens = vec![
+            tok(TokenKind::LBrace, 0, 1),
+            tok(TokenKind::KwLet, 2, 3),      // let
+            tok(TokenKind::Ident, 6, 1),      // x
+            tok(TokenKind::Assign, 8, 1),     // =
+            tok(TokenKind::IntLit, 10, 1),    // 1
+            tok(TokenKind::Semicolon, 11, 1), // ;
+            tok(TokenKind::RBrace, 12, 1),
+            tok(TokenKind::Eof, 13, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = paideia_as_diagnostics::VecSink::new();
+        let result = {
+            let mut p = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+            p.parse_expr()
+        };
+
+        assert!(result.is_err(), "expected parse error");
+        let diags = sink.diagnostics();
+        assert!(
+            diags.iter().any(|d| d.code().number() == 158),
+            "expected P0158 diagnostic"
+        );
+    }
+
+    #[test]
+    fn block_expr_stmt_then_tail() {
+        // { foo(); x } parses with 1 StmtExpr + tail
+        let tokens = vec![
+            tok(TokenKind::LBrace, 0, 1),
+            tok(TokenKind::Ident, 2, 3), // foo
+            tok(TokenKind::LParen, 5, 1),
+            tok(TokenKind::RParen, 6, 1),
+            tok(TokenKind::Semicolon, 7, 1), // ;
+            tok(TokenKind::Ident, 9, 1),     // x
+            tok(TokenKind::RBrace, 10, 1),
+            tok(TokenKind::Eof, 11, 0),
+        ];
+        let (arena, root, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected");
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprBlock);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Block { stmts, tail } = expr_data {
+                assert_eq!(stmts.len(), 1, "one statement expected");
+                assert!(tail.is_some(), "tail expression expected");
+            } else {
+                panic!("expected ExprBlock");
+            }
+        }
+    }
+
+    #[test]
+    fn block_nested() {
+        // { let x = { let y = 1; y }; x } parses
+        let tokens = vec![
+            tok(TokenKind::LBrace, 0, 1),
+            tok(TokenKind::KwLet, 2, 3),      // let
+            tok(TokenKind::Ident, 6, 1),      // x
+            tok(TokenKind::Assign, 8, 1),     // =
+            tok(TokenKind::LBrace, 10, 1),    // inner {
+            tok(TokenKind::KwLet, 12, 3),     // let
+            tok(TokenKind::Ident, 16, 1),     // y
+            tok(TokenKind::Assign, 18, 1),    // =
+            tok(TokenKind::IntLit, 20, 1),    // 1
+            tok(TokenKind::Semicolon, 21, 1), // ;
+            tok(TokenKind::Ident, 23, 1),     // y
+            tok(TokenKind::RBrace, 24, 1),    // inner }
+            tok(TokenKind::Semicolon, 25, 1), // ;
+            tok(TokenKind::Ident, 27, 1),     // x
+            tok(TokenKind::RBrace, 28, 1),
+            tok(TokenKind::Eof, 29, 0),
+        ];
+        let (arena, root, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected");
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprBlock);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Block { stmts, tail } = expr_data {
+                assert_eq!(stmts.len(), 1, "one statement expected");
+                assert!(tail.is_some(), "tail expression expected");
+            } else {
+                panic!("expected ExprBlock");
+            }
+        }
+    }
+
+    #[test]
+    fn block_let_typed() {
+        // { let x : u64 = 1; x } parses (type annotation works inside blocks)
+        let tokens = vec![
+            tok(TokenKind::LBrace, 0, 1),
+            tok(TokenKind::KwLet, 2, 3),      // let
+            tok(TokenKind::Ident, 6, 1),      // x
+            tok(TokenKind::Colon, 8, 1),      // :
+            tok(TokenKind::Ident, 10, 3),     // u64
+            tok(TokenKind::Assign, 14, 1),    // =
+            tok(TokenKind::IntLit, 16, 1),    // 1
+            tok(TokenKind::Semicolon, 17, 1), // ;
+            tok(TokenKind::Ident, 19, 1),     // x
+            tok(TokenKind::RBrace, 20, 1),
+            tok(TokenKind::Eof, 21, 0),
+        ];
+        let (arena, root, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected");
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprBlock);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Block { stmts, tail } = expr_data {
+                assert_eq!(stmts.len(), 1, "one statement expected");
+                assert!(tail.is_some(), "tail expression expected");
             } else {
                 panic!("expected ExprBlock");
             }
