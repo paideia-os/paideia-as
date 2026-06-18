@@ -994,6 +994,11 @@ dependencies = [
 [[package]]
 name = "paideia-as-elaborator"
 version = "0.0.1"
+dependencies = [
+ "paideia-as-ast",
+ "paideia-as-diagnostics",
+ "paideia-as-ir",
+]
 
 [[package]]
 name = "paideia-as-emitter-elf"

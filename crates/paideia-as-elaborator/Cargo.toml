@@ -11,3 +11,6 @@ repository.workspace = true
 name = "paideia_as_elaborator"
 
 [dependencies]
+paideia-as-ast = { path = "../paideia-as-ast" }
+paideia-as-ir = { path = "../paideia-as-ir" }
+paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
