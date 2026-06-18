@@ -408,12 +408,12 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         if self.at(TokenKind::Pipe) {
             self.bump(); // consume `|`
 
-            if let Some(tok) = self.peek() {
-                if tok.kind == TokenKind::Ident {
-                    let rest_tok = self.bump().unwrap();
-                    let rest_id = self.arena_mut().alloc(NodeKind::Ident, rest_tok.span);
-                    rest = Some(rest_id);
-                }
+            if let Some(tok) = self.peek()
+                && tok.kind == TokenKind::Ident
+            {
+                let rest_tok = self.bump().unwrap();
+                let rest_id = self.arena_mut().alloc(NodeKind::Ident, rest_tok.span);
+                rest = Some(rest_id);
             }
         }
 
