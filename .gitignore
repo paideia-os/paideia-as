@@ -2,6 +2,9 @@
 /target/
 **/*.rs.bk
 
+# Diagnostic sidecars emitted by `paideia-as check`
+**/*.pdx.sarif.json
+
 # Editor
 .vscode/
 .idea/

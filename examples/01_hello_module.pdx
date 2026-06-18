@@ -1,0 +1,38 @@
+// =============================================================================
+// 01_hello_module.pdx — minimal module + structure + let bindings
+// -----------------------------------------------------------------------------
+// status: parses cleanly
+// design-doc:
+//   design/toolchain/custom-assembler.md §2.3 (surface example),
+//   design/toolchain/custom-assembler.md §7 (modules),
+//   design/toolchain/syntax-reference.md §8 (grammar — ModuleDecl / Structure).
+// feature:
+//   - module declaration
+//   - structure body
+//   - top-level `let` bindings with numeric literals
+// =============================================================================
+
+// A `.pdx` source file maps to *exactly one* structure or functor
+// (custom-assembler.md §7.6). The structure's identity is the module name;
+// here `Hello` is that name, and the file basename matches by convention.
+//
+// `structure { ... }` is the simplest module body: a sequence of item
+// declarations, no parameters. Functors (parameterized modules) appear in
+// 12_calling_convention.pdx.
+module Hello = structure {
+
+  // `let` introduces a value-level binding. With no type annotation the
+  // elaborator infers the substructural class as `unrestricted` (the most
+  // permissive) and the type from the right-hand side. Integer literals
+  // default to `i32` per syntax-reference §5.1.
+  let answer    = 42
+
+  // Hex literals are spelled `0x...`; underscore separators are permitted
+  // inside any numeric literal (syntax-reference §5.1).
+  let magic    = 0xCAFE_F00D_DEAD_BEEF
+
+  // Booleans and the unit literal are reserved (syntax-reference §3.4 / §5.5
+  // / §5.6). The parser accepts both as primary expressions.
+  let ready    = true
+  let nothing  = ()
+}

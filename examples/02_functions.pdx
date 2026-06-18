@@ -1,0 +1,83 @@
+// =============================================================================
+// 02_functions.pdx — function definitions, parameter passing, return values
+// -----------------------------------------------------------------------------
+// status: parses cleanly
+// design-doc:
+//   design/toolchain/custom-assembler.md §2.3 (surface example),
+//   design/toolchain/calling-convention.md §1.3 / §6 / §12.1,
+//   design/toolchain/syntax-reference.md §8 (LambdaExpr).
+// feature:
+//   - `fn (x : T) -> body` lambda form
+//   - pipe-form `|x, y| body` lambda
+//   - function-type signatures `(T) -> U` with effect/cap rows
+//   - integer/pointer argument passing in RDI, RSI, RDX, RCX
+//   - integer return value in RAX
+//   - the canonical "leaf function compiles to two instructions" example
+// =============================================================================
+
+module Functions = structure {
+
+  // ---------------------------------------------------------------------------
+  // The classic single-argument leaf function. The signature reads:
+  //   "consume a u64, perform no effects, return a u64".
+  //
+  // Note: in the type-side of a let-binding, parameter slots are written by
+  // type only — `(u64) -> u64` — not by name. Names appear on the lambda's
+  // own parameter list, where they bind the formals. The two halves are
+  // checked for arity and type compatibility by the elaborator.
+  //
+  // Why this shape matters: per calling-convention.md §12.1, the body
+  //
+  //     fn (x : u64) -> x + 1
+  //
+  // lowers to exactly two emitted instructions:
+  //
+  //     lea rax, [rdi + 1]
+  //     ret
+  //
+  // because the first integer argument enters in RDI (§1.3) and the integer
+  // return value leaves in RAX (§1.4). `lea` is preferred over `add`+`mov`
+  // because it both computes the sum and writes the result in one micro-op
+  // without touching flags — a peephole the elaborator pre-emits without
+  // needing the #[peephole] pass.
+  // ---------------------------------------------------------------------------
+  let add_one : (u64) -> u64 = fn (x : u64) -> x + 1
+
+  // ---------------------------------------------------------------------------
+  // Two-argument variant. Per §1.3, the first four integer/pointer arguments
+  // are placed in (RDI, RSI, RDX, RCX) in declaration order. So `lhs` lives
+  // in RDI and `rhs` in RSI at function entry; the body computes `lhs + rhs`
+  // into RAX and returns.
+  // ---------------------------------------------------------------------------
+  let add : (u64, u64) -> u64 =
+    fn (lhs : u64) (rhs : u64) -> lhs + rhs
+
+  // ---------------------------------------------------------------------------
+  // Pipe-form lambdas (syntax-reference §8, LambdaExpr alternative). They are
+  // a convenience for short higher-order forms; the typing rules are
+  // identical to the `fn` form. The elaborator infers parameter types from
+  // the let-binding signature when one is present.
+  // ---------------------------------------------------------------------------
+  let double : (u64) -> u64 = |x| x + x
+
+  // ---------------------------------------------------------------------------
+  // A function calling another function. The call site obeys §1.3 / §6:
+  //   - argument `n` is materialized into RDI,
+  //   - the call transfers control to `add_one`,
+  //   - the result returns in RAX (which is then used as our own return).
+  //
+  // Because nothing else in the caller needs a register across the call, the
+  // caller doesn't have to save any caller-saved register (§7.2). This is the
+  // best case for the convention.
+  // ---------------------------------------------------------------------------
+  let bump_twice : (u64) -> u64 =
+    fn (n : u64) -> add_one(add_one(n))
+
+  // ---------------------------------------------------------------------------
+  // Effect and capability rows are part of the function type, written after
+  // the return type. Empty sets `!{} @{}` explicitly mark the function as
+  // pure with no required rights — see 10_pure_function.pdx for what that
+  // commits to.
+  // ---------------------------------------------------------------------------
+  let identity : (u64) -> u64 !{} @{} = fn (x : u64) -> x
+}

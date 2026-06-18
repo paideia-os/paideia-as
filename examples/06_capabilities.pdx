@@ -1,0 +1,118 @@
+// =============================================================================
+// 06_capabilities.pdx — capability sets on function signatures
+// -----------------------------------------------------------------------------
+// status: parses cleanly
+// design-doc:
+//   design/toolchain/custom-assembler.md §2.3 (capability sets `@{...}`),
+//   design/toolchain/custom-assembler.md §8 (R12/R13 hold cap handles),
+//   design/toolchain/calling-convention.md §5 (LAM-tagged handles),
+//   design/toolchain/syntax-reference.md §8 (CapSet).
+// feature:
+//   - capability sets on signatures: `@{Mmio.read_cap, Pci.config_read_cap}`
+//   - capability handles bound to R12/R13 by the calling convention
+//   - the relationship between effects (`!{...}`) and capabilities (`@{...}`):
+//     effects are *what* a function does; capabilities are *what it needs*
+// =============================================================================
+//
+// PaideiaOS treats capabilities as first-class lexical citizens
+// (custom-assembler.md §2.1). A capability set `@{...}` on a signature lists
+// the rights the function requires from its caller; the type system enforces
+// that every caller supplies them, and the calling convention places the
+// first two capability handles in R12 and R13 (calling-convention.md §1.3 /
+// §5).
+//
+// Capabilities and effects answer different questions:
+//
+//   - `!{Io}`        — "this function performs Io"          (what it does)
+//   - `@{Mmio.read}` — "this function needs Mmio.read rights" (what it needs)
+//
+// A function performing `mmio_read` must also hold `Mmio.read_cap`; the
+// elaborator's capability-check pass (diagnostic C1300 — "missing
+// capability", per STATUS.md) catches mismatches at compile time. At runtime
+// the LAM tag bits on the handle (calling-convention.md §5.1) catch any
+// `unsafe`-block that lied about its declarations.
+//
+// =============================================================================
+
+module Capabilities = structure {
+
+  // ---------------------------------------------------------------------------
+  // CAPABILITY DECLARATIONS
+  //
+  // `capability Name { ... }` declares a named capability with one or more
+  // rights. Each right's signature describes what an operation guarded by
+  // that right looks like.
+  //
+  // For this example, we model two capabilities that together describe a
+  // memory-mapped PCIe device.
+  // ---------------------------------------------------------------------------
+  capability Mmio {
+    read_cap  : (u64) -> u64
+    write_cap : (u64, u64) -> unit
+  }
+
+  capability Pci {
+    config_read_cap : (u8, u8, u16) -> u32
+  }
+
+  // ---------------------------------------------------------------------------
+  // EFFECT THAT THE CAPABILITY GUARDS
+  //
+  // Effects and capabilities are independent declarations; convention pairs
+  // them by name (effect `Mmio` carries operations; capability `Mmio`
+  // carries rights). The elaborator's capability-check pass requires that
+  // a function performing `Mmio.mmio_read` holds `Mmio.read_cap` in its
+  // capability set.
+  // ---------------------------------------------------------------------------
+  effect MmioEff {
+    op mmio_read  : (u64) -> u64
+    op mmio_write : (u64, u64) -> unit
+  }
+
+  effect PciEff {
+    op pci_config_read : (u8, u8, u16) -> u32
+  }
+
+  // ---------------------------------------------------------------------------
+  // FUNCTION REQUIRING A CAPABILITY SET
+  //
+  // `read_bar_size` reads a BAR-size register; it both *performs* an
+  // `MmioEff` effect and *requires* the `Mmio.read_cap` right. The two
+  // annotations sit side-by-side after the return type:
+  //
+  //     ... -> u64 !{MmioEff} @{Mmio.read_cap}
+  //
+  // Calling-convention impact: the handle for `Mmio.read_cap` is passed in
+  // R12 (the first capability slot, §1.3). The integer argument `addr` goes
+  // in RDI. The result returns in RAX.
+  // ---------------------------------------------------------------------------
+  let read_bar_size : (u64) -> u64 !{MmioEff} @{Mmio.read_cap} =
+    fn (addr : u64) -> 0
+
+  // ---------------------------------------------------------------------------
+  // FUNCTION REQUIRING TWO CAPABILITIES
+  //
+  // A single function may require multiple rights. They live in the same
+  // `@{...}` set, comma-separated. The first two enter in R12 and R13
+  // respectively (calling-convention.md §1.3); additional capability
+  // arguments would spill to the stack with a capability-tagged slot
+  // annotation.
+  //
+  // The effect row similarly grows: `PciEff` for the PCIe-config read,
+  // `MmioEff` for the BAR write.
+  // ---------------------------------------------------------------------------
+  let probe_and_init : (u8, u8, u64) -> unit
+                       !{PciEff, MmioEff}
+                       @{Pci.config_read_cap, Mmio.write_cap} =
+    fn (bus : u8) (dev : u8) (bar_addr : u64) -> ()
+
+  // ---------------------------------------------------------------------------
+  // PURE / NO-CAPABILITY FUNCTION
+  //
+  // A function that performs no effects and requires no capabilities
+  // explicitly states `!{} @{}`. The empty sets are not optional — they are
+  // a contract that the function will never reach for any right (the
+  // capability-check pass enforces it).
+  // ---------------------------------------------------------------------------
+  let identity : (u64) -> u64 !{} @{} = fn (x : u64) -> x
+}

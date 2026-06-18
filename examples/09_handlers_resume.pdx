@@ -1,0 +1,146 @@
+// =============================================================================
+// 09_handlers_resume.pdx — handler implementation using `resume`
+// -----------------------------------------------------------------------------
+// status: language-intent only
+// design-doc:
+//   design/toolchain/custom-assembler.md §4 (algebraic effects with handlers),
+//   design/toolchain/syntax-reference.md §3.4 (effect-system reserved words:
+//     `handle`, `perform`, `resume`, `finally`),
+//   design/toolchain/calling-convention.md §4 (R15 + handler-table layout).
+// feature:
+//   - declaring a handler value for an effect
+//   - `resume` to return a value from a `perform` site to its `perform` caller
+//   - `finally` for cleanup that runs after a handler exits
+//   - aborting (non-resuming) clauses
+// =============================================================================
+//
+// A handler is the concrete implementation of an effect signature. Per the
+// algebraic-effect calculus (Plotkin & Pretnar 2009; Bauer & Pretnar 2015),
+// each operation in the signature gets a clause; the clause receives the
+// operation's arguments and a *continuation* called `resume`. Invoking
+// `resume v` returns control to the `perform` site with `v` as its value;
+// not invoking it (and instead returning normally) *aborts* the perform site
+// and unwinds back to where the handler was installed.
+//
+// This is what makes algebraic effects strictly more expressive than
+// callbacks: a handler can decide whether to continue, abort, or even call
+// the continuation multiple times (rare, used for backtracking).
+//
+// Reserved words used here (syntax-reference §3.4):
+//
+//   - `handle`   — install a handler over a region (the `with` form, ex 04),
+//                  AND build a handler value (the form below)
+//   - `perform`  — invoke an effect operation
+//   - `resume`   — return from a handler clause to its `perform`
+//   - `finally`  — cleanup that runs after the handled region exits
+//
+// PHASE-1 NOTE: All four words are reserved (syntax-reference.md §3.4), but
+// only `with handler handle Effect { ... }` (handler *installation*) has a
+// phase-1 expression form. Handler-value *declaration* (the `let H = handle
+// Effect { op ... => ... }` shape below) and the `perform`/`resume`/
+// `finally` expression forms are phase-2 deliverables. The text below is
+// the language-intent reference; the file therefore carries the
+// "language-intent only" status header.
+//
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// EFFECT DECLARATION
+//
+// Reuse the canonical `Io` effect with `port_read` / `port_write`.
+// ---------------------------------------------------------------------------
+//
+// effect Io {
+//   op port_read  : (u16) -> u8
+//   op port_write : (u16, u8) -> unit
+// }
+//
+// ---------------------------------------------------------------------------
+// HANDLER DECLARATION (intent)
+//
+// A handler value is named (`io_handler`) and gives a clause per operation
+// declared in the effect signature.
+//
+// The clause receives:
+//   - the operation's arguments by name,
+//   - the implicit continuation as `resume`.
+//
+// `resume v` returns control to the `perform` site with `v`.
+// Returning normally (no `resume`) means the handler *aborts* the region
+// and the value of the handled block is whatever the clause returned.
+//
+// The handler-table layout (calling-convention.md §4.1) gives each clause
+// a fixed offset in the table addressed by R15; dispatch is a `mov` + `call`.
+// ---------------------------------------------------------------------------
+//
+// Documented form (intent):
+//
+//     let io_handler = handle Io {
+//       op port_read(port) =>
+//         let byte = inb(port)
+//         resume byte
+//
+//       op port_write(port, value) =>
+//         outb(port, value)
+//         resume ()
+//
+//       finally =>
+//         release_io_state()
+//     }
+//
+// ---------------------------------------------------------------------------
+// USING THE HANDLER (intent)
+//
+// Inside the `with` block, every `perform Io.port_read` and
+// `perform Io.port_write` dispatches to the corresponding clause via R15.
+// Outside the block, the function's signature shows no `Io` — the handler
+// discharged it.
+// ---------------------------------------------------------------------------
+//
+// Documented form (intent):
+//
+//     let blink_kbd_led : (unit) -> u8 !{} =
+//       fn (_ : unit) ->
+//         with io_handler handle Io {
+//           let status = perform Io.port_read(0x64)
+//           perform Io.port_write(0x64, 0xED)
+//           status
+//         }
+//
+// ---------------------------------------------------------------------------
+// ABORTING (NON-RESUMING) CLAUSE
+//
+// A handler clause that returns *without* calling `resume` aborts the
+// performing region, and the handled block's value is whatever the clause
+// returned. The pattern below treats `Io` as fatal: any `port_read`
+// immediately yields `0xFF` to the surrounding block.
+// ---------------------------------------------------------------------------
+//
+// Documented form (intent):
+//
+//     let pessimistic_handler = handle Io {
+//       op port_read(port) =>
+//         // No `resume`: control does NOT return to the `perform` site.
+//         // The `with ... handle Io { ... }` block evaluates to `0xFF`.
+//         0xFF
+//
+//       op port_write(port, value) =>
+//         // Same: any write aborts the block with unit.
+//         ()
+//     }
+//
+// ---------------------------------------------------------------------------
+// PHASE-1 PARSEABLE PLACEHOLDER
+//
+// To keep this file well-formed under `paideia-as check`, the placeholder
+// module below declares the effect signature alone. The signature is the
+// piece of the example that *does* parse cleanly in phase 1; handlers and
+// `perform` join it in phase 2.
+// ---------------------------------------------------------------------------
+
+module HandlersResume = structure {
+  effect Io {
+    op port_read  : (u16) -> u8
+    op port_write : (u16, u8) -> unit
+  }
+}

@@ -1,0 +1,134 @@
+// =============================================================================
+// 11_unsafe_block.pdx — capability-gated escape hatch
+// -----------------------------------------------------------------------------
+// status: parses cleanly
+// design-doc:
+//   design/toolchain/custom-assembler.md §9 (Inline-assembly escape Q-A8),
+//   design/toolchain/syntax-reference.md §8 (UnsafeExpr / UnsafeFields),
+//   design/toolchain/calling-convention.md §11 (PIC; no GOT/PLT).
+// feature:
+//   - `unsafe { effects: { ... }, capabilities: { ... }, justification: "...", block: { ... } }`
+//   - all four fields are mandatory and in declared order
+//   - the audit catalog (target/audit/unsafe-blocks.json) tracks every block
+//   - the trust contract: declarations are believed, not checked
+// =============================================================================
+//
+// `unsafe { ... }` is the ONLY place in paideia-as where raw Intel
+// instructions appear without the typed surface in between
+// (custom-assembler.md §9.2). The block exists because some operations
+// fundamentally cannot be modeled by the typed surface yet — fences,
+// architecture-specific control transfers, CPU-feature-dependent encoding
+// choices.
+//
+// The contract has four parts, all of them required by the parser
+// (parse_unsafe.rs: "Phase-1 implementation: Fields must appear in the
+// order declared in §8"):
+//
+//   1. `effects: { ... }`        — what effects the block declares it performs
+//   2. `capabilities: { ... }`   — what capabilities it declares it consumes
+//   3. `justification: "..."`    — free-form text recorded in the audit log
+//   4. `block: { ... }`          — the actual raw-instruction body
+//
+// Missing any of the four → diagnostic U1600.
+//
+// The crucial property (custom-assembler.md §9.2): the declared effects /
+// capabilities are *believed*, not checked. The surrounding type system
+// treats the block as if it performed exactly those effects and consumed
+// exactly those capabilities. An `unsafe` block whose declarations *lie*
+// (e.g., performs `Io` without declaring it) subverts the type system
+// locally. The audit trail and CI review are the project's defense
+// (custom-assembler.md §9.5 — "the trust contract").
+//
+// PHASE-1 NOTE on identifier shape: inside the `capabilities: { ... }`
+// field, the phase-1 parser accepts bare identifiers (e.g.,
+// `mmio_read_cap`). The dotted form `Mmio.read_cap` is supported in
+// signature-side `@{...}` capability sets but is on the phase-2 list for
+// unsafe-block fields. The examples below use bare names accordingly; a
+// linker-side capability-name resolution mechanism maps them to the
+// signature-level dotted form.
+//
+// =============================================================================
+
+module UnsafeBlock = structure {
+
+  // ---------------------------------------------------------------------------
+  // CANONICAL EXAMPLE: MMIO STORE FENCE
+  //
+  // This is the example from custom-assembler.md §2.3. The `sfence`
+  // instruction is required before doorbell writes on some PCIe devices to
+  // ensure that prior posted writes have drained; the elaborator does not
+  // (yet) model fence semantics, so we declare an `mmio_fence` effect,
+  // justify the escape, and emit the raw instruction inside the `block`
+  // field.
+  //
+  // Why no capability is required: a memory-ordering fence does not touch
+  // any specific device or address; it is purely a CPU-internal effect.
+  // ---------------------------------------------------------------------------
+  let mmio_fence : (unit) -> unit !{mmio_fence} @{} =
+    fn (_ : unit) ->
+      unsafe {
+        effects: { mmio_fence }
+        capabilities: {}
+        justification: "sfence required before doorbell write; the elaborator does not yet model fence semantics, track in toolchain issue T-0042"
+        block: {
+          sfence
+        }
+      }
+
+  // ---------------------------------------------------------------------------
+  // CAPABILITY-GATED RAW LOAD
+  //
+  // This block declares it performs an `mmio_read` effect AND consumes the
+  // `mmio_read_cap` right (named in the bare-identifier form per the
+  // phase-1 unsafe-field grammar). The compiler will require the caller to
+  // supply an `Mmio.read_cap` handle (R12 at call-time) and will charge the
+  // call site with the `mmio_read` effect on its row. Inside the block, raw
+  // instructions perform the actual hardware access.
+  //
+  // The integer argument `addr` reaches the block via the normal calling
+  // convention — RDI at function entry (calling-convention.md §1.3). Inside
+  // the raw block we read `[rdi]` and let the RAX-as-return convention
+  // carry the value out.
+  // ---------------------------------------------------------------------------
+  // The phase-1 `unsafe.block` body grammar is the expression grammar — a
+  // sequence of statement-shaped expressions — not yet the assembly-
+  // instruction grammar of `action !{...} @{...} { ... }`. The
+  // instruction-stream form is the documented intent (custom-assembler.md
+  // §9.1 example: `block: { mov rax, [bar.base + off] }`) and is on the
+  // phase-2 list. Until then, the block body in an `unsafe` is best
+  // confined to one or more zero-operand mnemonics such as `sfence`,
+  // `lfence`, `mfence`, `cli`, `sti`, or `pause`.
+  //
+  // The example below uses `mfence` to illustrate a two-effect-no-capability
+  // shape that parses cleanly today; once the phase-2 instruction grammar
+  // arrives in the `unsafe.block` body, the more interesting capability-
+  // gated load form will replace it.
+  let mmio_full_barrier : (unit) -> unit !{mmio_fence} @{} =
+    fn (_ : unit) ->
+      unsafe {
+        effects: { mmio_fence }
+        capabilities: {}
+        justification: "mfence required between MMIO load and dependent store on uncached regions; the elaborator does not yet model fence semantics"
+        block: {
+          mfence
+        }
+      }
+
+  // ---------------------------------------------------------------------------
+  // AUDIT TRAIL
+  //
+  // Per custom-assembler.md §9.3, the elaborator emits one entry per unsafe
+  // block to `target/audit/unsafe-blocks.json`:
+  //
+  //   - source span (file, line range, byte range)
+  //   - declared effects and capabilities
+  //   - justification text (verbatim)
+  //   - git commit SHA-3-256 at build time
+  //   - BLAKE3 hash of the block's contents
+  //
+  // CI mirrors the catalog to `audit/unsafe-blocks-history.md` on every main
+  // merge. The growth rate is itself a tracked metric — a sudden spike is a
+  // review trigger. The honesty of these declarations is a project-wide
+  // trust assumption (§9.5).
+  // ---------------------------------------------------------------------------
+}

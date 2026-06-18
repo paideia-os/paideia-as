@@ -1,0 +1,124 @@
+// =============================================================================
+// 07_macros_simple.pdx — pattern-based macros (phase-1 restricted form)
+// -----------------------------------------------------------------------------
+// status: parses cleanly (single-rule); language-intent for multi-rule
+// design-doc:
+//   design/toolchain/macros-phase1.md §1 (syntax / pattern types),
+//   design/toolchain/macros-phase1.md §1.4 (example macros),
+//   design/toolchain/custom-assembler.md §5.2 (macros as typed programs;
+//     phase-1 is the restricted, pattern-only subset per §14.5).
+// feature:
+//   - `macro Name(pattern) => template` single-rule form
+//   - multi-rule form with several arrow-separated alternatives (documented)
+//   - fragment types: $x:expr, $x:ident, $x:type, $x:literal, $x:block, $x:tt
+// =============================================================================
+//
+// Phase-1 macros are *pattern-based only* (macros-phase1.md MP-D1). The full
+// typed elaborator reflection of Q-A4 — type-driven macros, reflection on
+// the AST, procedural macros — is deferred to phase 2 (macros-phase1.md §2,
+// error code M0307 for attempts to use phase-2 features in phase 1).
+//
+// Phase-1 macros are *forward-compatible*: every macro that the elaborator
+// accepts in phase 1 will still be accepted in phase 2 (macros-phase1.md
+// MP-D6). The migration insurance is that pattern macros are a strict subset
+// of typed-reflection macros.
+//
+// The phase-1 expansion order (macros-phase1.md §4):
+//   1. Parser produces the AST.
+//   2. Macro expansion pass walks the AST, replacing invocations.
+//   3. Type checking runs on the post-expansion AST.
+//
+// In phase 2 the order interleaves; in phase 1 it is strictly sequential.
+//
+// PHASE-1 NOTE on placement: phase-1 `parse_macro_decl` is a top-level item.
+// In this file, macros sit at the source-file top level rather than inside a
+// `module ... = structure { ... }` block. A future revision is expected to
+// permit nested declarations; until then, top-level is the documented site.
+//
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// SINGLE-RULE MACRO — `$x:expr`
+//
+// The simplest form: one pattern, one template. The pattern `($x:expr)`
+// names a single metavariable `x` of fragment kind `expr` ("any
+// expression", macros-phase1.md §1.2). The template references it as `$x`.
+//
+// Calling `square!(3 + 4)` expands to `(3 + 4) * (3 + 4)` *before* type
+// checking — the expression tree is duplicated. Macros must therefore be
+// careful with side effects (none, here, since arithmetic is pure).
+// ---------------------------------------------------------------------------
+macro square($x:expr) => $x * $x
+
+// ---------------------------------------------------------------------------
+// SINGLE-RULE MACRO — `$x:ident`
+//
+// `$x:ident` matches an identifier only. The template can splice it as a
+// reference site (e.g., to read or refer to that name). Macro hygiene
+// ensures the introduced name does not collide with identifiers visible at
+// the use site; see 08_macros_hygiene.pdx.
+//
+// (The classic shape from macros-phase1.md §1.4 — `let $name : u64 = 0` —
+// requires let-statements inside expression bodies, which the phase-1
+// expression grammar does not accept; the simpler form below sidesteps it.)
+// ---------------------------------------------------------------------------
+macro multiply_by_zero($name:ident) => $name * 0
+
+// ---------------------------------------------------------------------------
+// SINGLE-RULE MACRO — `$x:type`
+//
+// `$x:type` matches any type expression. Phase-1 macros cannot *inspect*
+// the captured type (no reflection); they can only splice it back into
+// the template. Type-driven dispatch is M0307 territory (phase-2 only,
+// per macros-phase1.md §2).
+// ---------------------------------------------------------------------------
+macro identity_of($t:type) => fn (x : $t) -> x
+
+// ---------------------------------------------------------------------------
+// SINGLE-RULE MACRO — `$x:literal`
+//
+// `$x:literal` matches a literal token (a number, string, char, bool, etc.;
+// syntax-reference §5). Useful for compile-time-known constants that need
+// to appear in instruction encodings (e.g., immediate operands).
+// ---------------------------------------------------------------------------
+macro const_byte($v:literal) => ($v)
+
+// ---------------------------------------------------------------------------
+// SINGLE-RULE MACRO — `$x:block`
+//
+// `$x:block` matches a `{...}` block. Splicing a block back in lets a macro
+// wrap a user-supplied body in surrounding setup/teardown. The canonical
+// example is the `with_handler` shape from macros-phase1.md §1.4: install
+// an effect handler around the user's body. The simplest valid template
+// is to forward the body unchanged.
+// ---------------------------------------------------------------------------
+macro emit_block($body:block) => $body
+
+// ---------------------------------------------------------------------------
+// MULTI-RULE MACRO (documented form — see macros-phase1.md §1.1)
+//
+// A macro may declare multiple rules. The expander tries them in order;
+// the first match wins. If no rule matches, diagnostic M0308 ("macro
+// pattern does not match any rule") fires.
+//
+// Phase-1 parser status: `parse_macro_decl` currently extracts one rule
+// per `macro` declaration. The multi-rule form below is the documented
+// surface; full parsing for multiple `=>` alternatives is part of the
+// phase-2 macro polish. Until then, additional rules are best written as
+// separate `macro` declarations.
+// ---------------------------------------------------------------------------
+//
+// Documented form (intent):
+//
+//     macro choose_op
+//         ($x:expr) => simple_form($x)
+//         ($x:expr, $y:expr) => complex_form($x, $y)
+//
+// Phase-1 fallback (this parses cleanly today):
+//
+//     macro choose_op_1($x:expr) => simple_form($x)
+//     macro choose_op_2($x:expr, $y:expr) => complex_form($x, $y)
+//
+// ---------------------------------------------------------------------------
+macro choose_op_1($x:expr) => simple_form($x)
+macro choose_op_2($x:expr, $y:expr) => complex_form($x, $y)
