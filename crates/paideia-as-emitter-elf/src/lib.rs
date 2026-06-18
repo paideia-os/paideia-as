@@ -7,6 +7,7 @@
 #![forbid(unsafe_code)]
 
 pub mod encode;
+pub mod lower;
 pub mod prologue;
 mod sections;
 mod writer;
@@ -16,6 +17,10 @@ pub use encode::{
     jmp_rel8, jmp_rel32, mov_mem_rbp_disp_reg64, mov_reg64_imm32, mov_reg64_imm64,
     mov_reg64_mem_rbp_disp, mov_reg64_reg64, pop_reg64, push_reg64, ret, sub_reg64_reg64,
     test_reg64_reg64, xor_reg64_reg64,
+};
+pub use lower::{
+    BodyShape, lea_rax_rdi_disp, lower_add_one, lower_app_mnemonic, lower_function_body,
+    lower_handler_call, lower_ir_to_bytes, lower_let_literal, lower_local_load,
 };
 pub use prologue::{FrameLayout, STACK_ALIGN, STACK_PROBE_THRESHOLD, emit_epilogue, emit_prologue};
 pub use sections::{PAIDEIA_SECTIONS, STANDARD_SECTIONS, all_sections};

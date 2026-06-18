@@ -13,6 +13,7 @@ name = "paideia_as_emitter_elf"
 [dependencies]
 object = { workspace = true }
 paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
+paideia-as-ir = { path = "../paideia-as-ir" }
 static_assertions = { workspace = true }
 
 [dev-dependencies]
