@@ -13,6 +13,7 @@ mod arena;
 pub mod effect_rewrite;
 mod node;
 pub mod pretty;
+pub mod walker;
 
 pub use anf::{AnfRewrite, is_atomic, normalise_operands};
 pub use arena::IrArena;
@@ -21,6 +22,7 @@ pub use effect_rewrite::{
     rewrite_with_save_restore,
 };
 pub use node::{EffectRowId, IrKind, IrNodeData, IrNodeId, LinClass};
+pub use walker::{IrWalker, walk};
 
 // Re-export smallvec for clients building child lists.
 pub use smallvec::SmallVec;
