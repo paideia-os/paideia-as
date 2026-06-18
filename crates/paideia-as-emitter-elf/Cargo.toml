@@ -11,3 +11,6 @@ repository.workspace = true
 name = "paideia_as_emitter_elf"
 
 [dependencies]
+object = { workspace = true }
+paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
+static_assertions = { workspace = true }
