@@ -17,11 +17,41 @@ use paideia_as_diagnostics::{
     Catalog, DiagnosticSink, HumanRenderer, HumanSink, Severity, SourceMap, VecSink,
 };
 use paideia_as_elaborator::{lower_ast_to_ir, placeholder_for};
+use paideia_as_emitter_elf::{Arch, ElfWriter, Kind, SymbolEntry, lower_add_one};
 use paideia_as_lexer::{Lexer, SourceText};
 use paideia_as_parser::Parser;
 
-/// Run `paideia-as build <input>`.
-pub fn run(input: &Path) -> ExitCode {
+/// Output format selector for `paideia-as build --emit`.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum EmitFormat {
+    /// Phase-1 default: write a `<stem>.placeholder` hash next to input.
+    Placeholder,
+    /// Real ELF64 object via paideia-as-emitter-elf.
+    Elf64,
+}
+
+impl EmitFormat {
+    /// Parse the `--emit` flag value.
+    pub fn parse(s: &str) -> Result<Self, String> {
+        match s {
+            "placeholder" => Ok(Self::Placeholder),
+            "elf64" => Ok(Self::Elf64),
+            other => Err(format!(
+                "unknown --emit format `{other}`; expected `placeholder` or `elf64`"
+            )),
+        }
+    }
+}
+
+/// Run `paideia-as build <input> [--emit <format>] [-o <output>]`.
+pub fn run(input: &Path, output: Option<&Path>, emit: &str) -> ExitCode {
+    let format = match EmitFormat::parse(emit) {
+        Ok(f) => f,
+        Err(msg) => {
+            eprintln!("paideia-as: {msg}");
+            return ExitCode::from(2);
+        }
+    };
     let bytes = match fs::read(input) {
         Ok(b) => b,
         Err(e) => {
@@ -41,7 +71,7 @@ pub fn run(input: &Path) -> ExitCode {
         Ok(s) => s,
         Err(diag) => {
             let _ = sink.emit(*diag);
-            return finish(&source_map, catalog, sink, None, input);
+            return finish_placeholder(&source_map, catalog, sink, None, input, output);
         }
     };
 
@@ -70,28 +100,102 @@ pub fn run(input: &Path) -> ExitCode {
         }
     }
 
-    // If there are any errors so far, do not emit the placeholder.
+    // If there are any errors so far, do not emit anything downstream.
     let lowering = lower_ast_to_ir(&arena);
 
     let preview = sink
         .diagnostics()
         .iter()
         .any(|d| d.severity() == Severity::Error);
-    let placeholder_to_write = if preview {
-        None
-    } else {
-        Some(placeholder_for(&lowering.ir))
-    };
 
-    finish(&source_map, catalog, sink, placeholder_to_write, input)
+    match format {
+        EmitFormat::Placeholder => {
+            let to_write = if preview {
+                None
+            } else {
+                Some(placeholder_for(&lowering.ir))
+            };
+            finish_placeholder(&source_map, catalog, sink, to_write, input, output)
+        }
+        EmitFormat::Elf64 => {
+            let bytes = if preview {
+                None
+            } else {
+                Some(build_elf_object())
+            };
+            finish_elf(&source_map, catalog, sink, bytes, input, output)
+        }
+    }
 }
 
-fn finish(
+/// Build the phase-1 ELF object body. The emitter currently produces a
+/// single canonical "add one" function so the smoke test has a real
+/// symbol to link against. Once the IR walker can dispatch on node
+/// payloads this expands to the full lowering pipeline.
+fn build_elf_object() -> Vec<u8> {
+    let mut writer = ElfWriter::new(Arch::X86_64, Kind::Relocatable);
+    let mut buf = paideia_as_emitter_elf::CodeBuffer::new();
+    lower_add_one(&mut buf);
+    let body_size = buf.bytes.len() as u64;
+    writer.add_text_bytes(&buf.bytes);
+    let _ = writer.add_symbol(SymbolEntry::func("add_one", 0, body_size));
+    writer.finalize().unwrap_or_default()
+}
+
+fn finish_elf(
+    source_map: &SourceMap,
+    catalog: &Catalog,
+    sink: VecSink,
+    bytes: Option<Vec<u8>>,
+    input: &Path,
+    output: Option<&Path>,
+) -> ExitCode {
+    let diagnostics = sink.into_diagnostics();
+    let stderr = std::io::stderr();
+    let renderer = HumanRenderer::with_catalog(source_map, true, catalog);
+    let mut human = HumanSink::new(stderr.lock(), renderer);
+    for d in &diagnostics {
+        let _ = human.emit(d.clone());
+    }
+    let has_error = diagnostics.iter().any(|d| d.severity() == Severity::Error);
+    if has_error {
+        return ExitCode::from(1);
+    }
+    if let Some(bytes) = bytes {
+        let path = output
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| elf_path_for(input));
+        match fs::File::create(&path) {
+            Ok(file) => {
+                let mut w = std::io::BufWriter::new(file);
+                let _ = w.write_all(&bytes);
+            }
+            Err(e) => {
+                eprintln!("paideia-as: cannot write ELF at {}: {e}", path.display());
+                return ExitCode::from(2);
+            }
+        }
+    }
+    ExitCode::SUCCESS
+}
+
+fn elf_path_for(input: &Path) -> PathBuf {
+    let mut p = input.to_path_buf();
+    let stem = p
+        .file_stem()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "input".to_string());
+    p.set_file_name(format!("{stem}.o"));
+    p
+}
+
+fn finish_placeholder(
     source_map: &SourceMap,
     catalog: &Catalog,
     sink: VecSink,
     placeholder: Option<String>,
     input: &Path,
+    output: Option<&Path>,
 ) -> ExitCode {
     let diagnostics = sink.into_diagnostics();
 
@@ -108,7 +212,9 @@ fn finish(
     if let Some(text) = placeholder
         && !has_error
     {
-        let path = placeholder_path_for(input);
+        let path = output
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| placeholder_path_for(input));
         match fs::File::create(&path) {
             Ok(file) => {
                 let mut w = std::io::BufWriter::new(file);

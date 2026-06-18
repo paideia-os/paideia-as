@@ -102,6 +102,15 @@ impl ElfWriter {
         &self.sections
     }
 
+    /// Append `bytes` to the `.text` section. Returns the offset at
+    /// which the append starts. Phase-1 helper used by the CLI to
+    /// land function bodies; later refinements will accept a
+    /// per-function bytes payload + automatic symbol binding.
+    pub fn add_text_bytes(&mut self, bytes: &[u8]) -> u64 {
+        let text_section = self.obj.section_id(StandardSection::Text);
+        self.obj.append_section_data(text_section, bytes, 1)
+    }
+
     /// Add a symbol to the symbol table.
     ///
     /// Accepts a [`SymbolEntry`] and registers it with the ELF object.

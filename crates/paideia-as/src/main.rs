@@ -21,7 +21,11 @@ use crate::cli::{Cli, Cmd};
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
-        Cmd::Build { input } => cmd_build::run(&input),
+        Cmd::Build {
+            input,
+            output,
+            emit,
+        } => cmd_build::run(&input, output.as_deref(), &emit),
         Cmd::Check { input, dump_ir } => cmd_check::run(&input, dump_ir),
         Cmd::Lint { .. } => {
             eprintln!("paideia-as lint: stub (phase 1)");
