@@ -554,6 +554,37 @@ fn print_pattern_internal(arena: &AstArena, id: NodeId, depth: usize, output: &m
     let _ = writeln!(output, "{}{}", indent, line);
 }
 
+/// Dump every item node in the arena as a top-level S-expression-style tree.
+///
+/// Walks `arena` in NodeId order and pretty-prints each item-kind node it
+/// finds; non-item nodes are skipped (they're emitted as children when the
+/// containing item recurses into them).
+///
+/// Output begins with a header line `(ast-arena nodes=<N>)` so the
+/// snapshot is easy to grep. Each subsequent line is one tree from
+/// [`print_item`].
+///
+/// Use this for snapshot tests of the parser output: the output is
+/// **idempotent** (re-pretty-printing the same arena yields the same
+/// string).
+#[must_use]
+pub fn dump_arena(arena: &AstArena) -> String {
+    use std::fmt::Write;
+    let mut output = String::new();
+    let _ = writeln!(output, "(ast-arena nodes={})", arena.len());
+
+    // Walk all nodes in allocation order; emit only items here. Items
+    // recurse into their children themselves (via print_item).
+    for index in 0..arena.len() {
+        let id = NodeId::new((index + 1) as u32).expect("non-zero");
+        if arena.item_data(id).is_some() {
+            output.push_str(&print_item(arena, id));
+        }
+    }
+
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
