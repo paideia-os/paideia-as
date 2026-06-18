@@ -1,0 +1,90 @@
+name: Cross-Build Smoke Test
+
+on:
+  push:
+    branches:
+      - main
+      - topic/**
+  pull_request:
+    branches:
+      - main
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  cross-build:
+    name: NASM ↔ paideia-as ABI Parity
+    runs-on: ubuntu-latest
+    continue-on-error: true  # Phase-1: only add_one fixture passes; others arrive in m2/m5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm binutils
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build paideia-as
+        run: cargo build --release -p paideia-as
+
+      - name: Run cross-build fixtures
+        run: |
+          fixtures_dir="tools/cross-build/fixtures"
+          if [[ ! -d "$fixtures_dir" ]]; then
+            echo "No fixtures directory found at $fixtures_dir"
+            exit 0
+          fi
+
+          passed=0
+          failed=0
+
+          # Find all fixture directories (those containing module.asm and module.pdx)
+          for fixture in "$fixtures_dir"/*/; do
+            if [[ -f "$fixture/module.asm" ]] && [[ -f "$fixture/module.pdx" ]] && [[ -f "$fixture/module.expect-mnemonics.txt" ]]; then
+              fixture_name=$(basename "$fixture")
+              echo ""
+              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              echo "Testing fixture: $fixture_name"
+              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+              if bash tools/cross-build/tools/cross-build.sh "$fixture"; then
+                passed=$((passed + 1))
+                echo "✓ $fixture_name PASSED"
+              else
+                failed=$((failed + 1))
+                echo "✗ $fixture_name FAILED"
+              fi
+            fi
+          done
+
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Summary: $passed passed, $failed failed"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+          if [[ $failed -gt 0 ]]; then
+            exit 1
+          fi
