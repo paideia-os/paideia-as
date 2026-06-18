@@ -1,0 +1,7 @@
+effect Io = {
+  op port_read(addr: u16) -> u8
+}
+
+module M = structure {
+  let f = fn _ -> with handler { op bad_op(x) -> resume x } perform Io::port_read(0x60)
+}

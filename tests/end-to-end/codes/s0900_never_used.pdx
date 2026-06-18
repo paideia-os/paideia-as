@@ -1,0 +1,3 @@
+module M = structure {
+  let unused_binding = 1
+}

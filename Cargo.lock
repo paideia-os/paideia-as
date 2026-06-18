@@ -1227,6 +1227,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "paideia-end-to-end"
+version = "0.0.1"
+
+[[package]]
 name = "paideia-fmt"
 version = "0.0.1"
 

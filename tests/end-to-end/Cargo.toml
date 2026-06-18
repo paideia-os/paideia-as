@@ -1,0 +1,17 @@
+[package]
+name = "paideia-end-to-end"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+# This crate is *only* a test harness — it contains no library code or
+# binaries, just the integration test in `tests/runner.rs` that walks
+# the codes/ directory and validates S/F/C/T diagnostic coverage.
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]

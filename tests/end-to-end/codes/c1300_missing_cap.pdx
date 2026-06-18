@@ -1,0 +1,7 @@
+capability Mem = {
+  perm read: u32
+}
+
+module M = structure {
+  let f = fn @{} _ -> 1
+}
