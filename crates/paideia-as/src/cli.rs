@@ -24,6 +24,15 @@ pub enum Cmd {
     Build {
         /// Path to the input `.pdx` file.
         input: PathBuf,
+        /// Output artifact path. When `--emit elf64` is passed, defaults
+        /// to `<stem>.o` next to the input.
+        #[arg(short = 'o', long = "output")]
+        output: Option<PathBuf>,
+        /// Output format. Phase-1 supports `placeholder` (default) and
+        /// `elf64` (writes a parseable ELF64 object via
+        /// paideia-as-emitter-elf).
+        #[arg(long = "emit", default_value = "placeholder")]
+        emit: String,
     },
     /// Type-check without emitting object files. Phase-1: lex + parse +
     /// lower; the type checker is a stub. Writes a SARIF sidecar

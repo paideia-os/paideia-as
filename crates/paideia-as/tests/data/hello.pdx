@@ -1,0 +1,3 @@
+module Hello = structure {
+  let add_one = 1
+}

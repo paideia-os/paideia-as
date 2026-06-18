@@ -1094,6 +1094,7 @@ version = "0.0.1"
 dependencies = [
  "clap",
  "miette",
+ "object",
  "paideia-as-ast",
  "paideia-as-diagnostics",
  "paideia-as-elaborator",
