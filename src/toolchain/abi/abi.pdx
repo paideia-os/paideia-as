@@ -1,0 +1,226 @@
+// =============================================================================
+// src/toolchain/abi/abi.pdx
+// =============================================================================
+// PaideiaOS x86_64 ABI — canonical machine-readable definition
+//
+// Consumed by NASM (via a macro generator) and paideia-as (directly).
+// See `design/toolchain/abi.md` for the prose specification.
+//
+// Machine-readable constants declared herein are the single source of truth
+// for both the NASM cross-build path (phase 2 legacy) and the paideia-as
+// canonical path. The cross-build smoke test (per `design/02-development-
+// environment.md` §8.2) compares ABI versions to ensure compatibility before
+// linking.
+//
+// Status: parses cleanly (phase 2)
+// Design doc: design/toolchain/abi.md
+// References:
+//   - design/toolchain/calling-convention.md §1–§7 (register semantics)
+//   - design/toolchain/custom-assembler.md §8 (calling convention overview)
+//   - design/02-development-environment.md §8.2 (cross-build smoke test)
+// =============================================================================
+
+module Abi = structure {
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // § 1. Semantic version (per design/toolchain/abi.md §0)
+  // ═════════════════════════════════════════════════════════════════════════
+  // The ABI version must be incremented when the ABI contract changes.
+  // Phase 2 canonical version is 1.
+  // Semver policy: minor bump for additive changes (new sections, new codes);
+  // major bump for breaking changes (register reordering, etc.).
+  let abi_version : u32 = 1
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // § 2. General-purpose registers (per abi.md §1.1)
+  // ═════════════════════════════════════════════════════════════════════════
+
+  // Caller-saved GPRs (per calling-convention.md §7.2)
+  let gpr_caller_saved_0 : u32 = 0    // RAX
+  let gpr_caller_saved_1 : u32 = 2    // RDX
+  let gpr_caller_saved_2 : u32 = 1    // RCX
+  let gpr_caller_saved_3 : u32 = 6    // RSI
+  let gpr_caller_saved_4 : u32 = 7    // RDI
+  let gpr_caller_saved_5 : u32 = 8    // R8
+  let gpr_caller_saved_6 : u32 = 9    // R9
+  let gpr_caller_saved_7 : u32 = 10   // R10
+  let gpr_caller_saved_8 : u32 = 11   // R11
+
+  // Callee-saved GPRs (per calling-convention.md §7.1)
+  let gpr_callee_saved_0 : u32 = 3    // RBX
+  let gpr_callee_saved_1 : u32 = 4    // RSP (architectural, always preserved)
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // § 3. Argument-passing registers (per abi.md §2.1, calling-convention.md §1.3)
+  // ═════════════════════════════════════════════════════════════════════════
+  // The first four integer/pointer arguments are passed in these registers
+  // in declaration order.
+
+  let arg_int_0 : u32 = 7    // RDI (first integer argument)
+  let arg_int_1 : u32 = 6    // RSI (second integer argument)
+  let arg_int_2 : u32 = 2    // RDX (third integer argument)
+  let arg_int_3 : u32 = 1    // RCX (fourth integer argument)
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // § 4. Capability registers (per abi.md §1.2, calling-convention.md §5)
+  // ═════════════════════════════════════════════════════════════════════════
+  // R12 and R13 hold LAM-tagged capability handles (linear discipline).
+  // Both are callee-saved, so a caller retains its capability across calls
+  // without spilling.
+
+  let cap_register_0 : u32 = 12   // R12 (first capability argument)
+  let cap_register_1 : u32 = 13   // R13 (second capability argument)
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // § 5. Effect environment registers (per abi.md §1.3, calling-convention.md §4)
+  // ═════════════════════════════════════════════════════════════════════════
+  // R14 and R15 are reserved for effect-handler infrastructure.
+  // R15 holds the active handler-table base address and is used for 2-instruction
+  // effect dispatch. Both are callee-saved (affine discipline).
+
+  let effect_handler_table_reg : u32 = 15   // R15 (handler table base)
+  let effect_handler_stack_reg : u32 = 14   // R14 (handler stack pointer, reserved)
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // § 6. Return value registers (per abi.md §2.2)
+  // ═════════════════════════════════════════════════════════════════════════
+
+  let ret_int : u32 = 0     // RAX (integer/pointer return value)
+  let ret_cap : u32 = 12    // R12 (capability return value)
+  let ret_vec_0 : u32 = 0   // XMM0 (floating-point/vector return)
+  let ret_vec_1 : u32 = 1   // XMM1 (second vector return in tuples)
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // § 7. Vector registers (per abi.md §1.4, calling-convention.md §8.2)
+  // ═════════════════════════════════════════════════════════════════════════
+
+  // First four vector/floating-point arguments use XMM0–XMM3.
+  let vec_arg_0 : u32 = 0    // XMM0
+  let vec_arg_1 : u32 = 1    // XMM1
+  let vec_arg_2 : u32 = 2    // XMM2
+  let vec_arg_3 : u32 = 3    // XMM3
+
+  // Reserved for vectorized PQ-crypto state (callee-saved).
+  let vec_reserved_start : u32 = 16   // ZMM16
+  let vec_reserved_end : u32 = 31     // ZMM31
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // § 8. Stack alignment and layout (per abi.md §2.5–§2.6)
+  // ═════════════════════════════════════════════════════════════════════════
+
+  // Stack alignment at every call boundary (versus System V's 16-byte alignment).
+  // 64-byte alignment accommodates ZMM stores without unaligned-access penalties.
+  let stack_align_before_call : u32 = 64
+
+  // No red zone in PaideiaOS-native calling convention (in contrast to System V).
+  // Exception/interrupt entry would corrupt the red zone on PaideiaOS frames,
+  // so RSP must always point to or above the top of allocated storage.
+  let red_zone_size : u32 = 0
+
+  // System V AMD64 ABI uses a 128-byte red zone. Documented here for reference
+  // (NASM modules may need to know about this for interop, though phase 2 does
+  // not require red-zone usage in PaideiaOS-native code).
+  let system_v_red_zone_size : u32 = 128
+
+  // Frame pointer (RBP): mandatory in debug builds, optional in release.
+  // The constant below is advisory; the actual choice is per-function annotated
+  // in the source.
+  let frame_pointer_mandatory_in_debug : u32 = 1
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // § 9. Callee-saved register count
+  // ═════════════════════════════════════════════════════════════════════════
+  // Advisory: the number of GPRs + vector registers that must be preserved
+  // by the callee (excluding RSP, which is always preserved).
+
+  let callee_saved_gpr_count : u32 = 9    // RBX + R12–R15 + R14 (9 regs)
+  let callee_saved_vec_count : u32 = 16   // ZMM16–ZMM31 (16 regs)
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // § 10. System V AMD64 ABI bridge (per abi.md §8, calling-convention.md §8)
+  // ═════════════════════════════════════════════════════════════════════════
+  // PaideiaOS uses System V bridge thunks to call C-runtime code (ACPICA,
+  // wasmtime, etc.). These constants are for reference and for NASM macro
+  // generators that may need to emit thunk code.
+
+  // System V argument-passing registers (for documentation; not used in
+  // PaideiaOS-native code).
+  let sysv_arg_int_0 : u32 = 7    // RDI
+  let sysv_arg_int_1 : u32 = 6    // RSI
+  let sysv_arg_int_2 : u32 = 2    // RDX
+  let sysv_arg_int_3 : u32 = 1    // RCX
+  let sysv_arg_int_4 : u32 = 8    // R8
+  let sysv_arg_int_5 : u32 = 9    // R9
+
+  // System V vector argument registers.
+  let sysv_vec_arg_0 : u32 = 0    // XMM0
+  let sysv_vec_arg_1 : u32 = 1    // XMM1
+  let sysv_vec_arg_2 : u32 = 2    // XMM2
+  let sysv_vec_arg_3 : u32 = 3    // XMM3
+  let sysv_vec_arg_4 : u32 = 4    // XMM4
+  let sysv_vec_arg_5 : u32 = 5    // XMM5
+  let sysv_vec_arg_6 : u32 = 6    // XMM6
+  let sysv_vec_arg_7 : u32 = 7    // XMM7
+
+  // System V stack alignment (16 bytes; differs from PaideiaOS's 64-byte).
+  let sysv_stack_align_before_call : u32 = 16
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // § 11. ELF section constants (per abi.md §5)
+  // ═════════════════════════════════════════════════════════════════════════
+  // Advisory: section names for cross-reference. The actual section emission
+  // is handled by the emitter backends (paideia-as ELF emitter, paideia-link).
+
+  // Standard ELF sections
+  let section_text : u32 = 1        // .text (executable code)
+  let section_rodata : u32 = 2      // .rodata (read-only data)
+  let section_data : u32 = 3        // .data (initialized data)
+  let section_bss : u32 = 4         // .bss (zero-initialized data)
+
+  // PaideiaOS-specific sections
+  let section_paideia_caps : u32 = 100          // .paideia.caps
+  let section_paideia_effects : u32 = 101       // .paideia.effects
+  let section_paideia_unsafe : u32 = 102        // .paideia.unsafe
+  let section_paideia_opt_passes : u32 = 103    // .paideia.opt-passes
+  let section_paideia_lin : u32 = 104           // .paideia.lin
+  let section_paideia_abi_version : u32 = 105   // .paideia.abi_version
+
+  // DWARF sections
+  let section_debug_info : u32 = 200           // .debug_info
+  let section_debug_line : u32 = 201           // .debug_line
+  let section_debug_frame : u32 = 202          // .debug_frame
+  let section_debug_loc : u32 = 203            // .debug_loc
+
+  // DWARF vendor extensions (phase-2 stubs)
+  let section_debug_paideia_caps : u32 = 210        // .debug_paideia.caps
+  let section_debug_paideia_effects : u32 = 211     // .debug_paideia.effects
+  let section_debug_paideia_sig : u32 = 212         // .debug_paideia.sig
+
+  // Symbol and relocation sections
+  let section_symtab : u32 = 300                // .symtab
+  let section_strtab : u32 = 301                // .strtab
+  let section_shstrtab : u32 = 302              // .shstrtab
+  let section_rel_text : u32 = 303              // .rel.text
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // § 12. Architecture and OS info (per abi.md §5.1)
+  // ═════════════════════════════════════════════════════════════════════════
+
+  // ELF e_machine value for x86_64 (EM_X86_64 = 62)
+  let elf_machine_x86_64 : u32 = 62
+
+  // ELF OS/ABI value (ELFOSABI_SYSV = 0)
+  let elf_osabi_sysv : u32 = 0
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // § 13. ABI metadata (per abi.md §5.3)
+  // ═════════════════════════════════════════════════════════════════════════
+  // Structure of `.paideia.abi_version` section:
+  //   u32 abi_version      (this constant)
+  //   u32 reserved         (0, reserved for future use)
+
+  let abi_info_version_offset : u32 = 0
+  let abi_info_reserved_offset : u32 = 4
+  let abi_info_total_size : u32 = 8
+
+}
