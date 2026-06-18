@@ -1,6 +1,16 @@
 //! paideia-as-types
 //!
-//! Phase-1 skeleton crate; see PaideiaOS design corpus for spec:
-//! https://github.com/paideia-os/paideia-os/tree/main/design/toolchain
+//! Monomorphic type interner + lattice-class kinds. The elaborator
+//! (PR-30+) uses this to assign types to IR nodes. See
+//! `design/toolchain/custom-assembler.md` §5.
 
-#![allow(dead_code)]
+#![warn(missing_docs)]
+#![forbid(unsafe_code)]
+
+mod intern;
+mod kinds;
+mod types;
+
+pub use intern::TypeInterner;
+pub use kinds::{Kind, type_kind};
+pub use types::{CapSetId, SIZE_WIDTH_SENTINEL, Type, TypeId};

@@ -1036,6 +1036,10 @@ dependencies = [
 [[package]]
 name = "paideia-as-types"
 version = "0.0.1"
+dependencies = [
+ "paideia-as-ir",
+ "static_assertions",
+]
 
 [[package]]
 name = "paideia-fmt"
