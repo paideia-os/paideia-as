@@ -1105,8 +1105,11 @@ dependencies = [
 name = "paideia-as-types"
 version = "0.0.1"
 dependencies = [
+ "paideia-as-diagnostics",
  "paideia-as-ir",
+ "proptest",
  "static_assertions",
+ "thiserror",
 ]
 
 [[package]]

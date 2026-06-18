@@ -10,9 +10,13 @@
 mod cap_set;
 mod intern;
 mod kinds;
+mod subst;
 mod types;
+mod unify;
 
 pub use cap_set::{CapId, CapSet, CapSetInterner};
 pub use intern::TypeInterner;
 pub use kinds::{Kind, type_kind};
-pub use types::{CapSetId, SIZE_WIDTH_SENTINEL, Type, TypeId};
+pub use subst::Subst;
+pub use types::{CapSetId, SIZE_WIDTH_SENTINEL, TyVar, Type, TypeId};
+pub use unify::{UnifyError, unify};
