@@ -416,6 +416,12 @@ fn print_expr_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 effect, arms_str
             )
         }
+        ExprData::Quote { body } => {
+            format!("Quote {{ body: {} }}", body)
+        }
+        ExprData::Antiquote { value } => {
+            format!("Antiquote {{ value: {} }}", value)
+        }
     };
 
     use std::fmt::Write;

@@ -32,6 +32,10 @@ pub struct Parser<'tok, 'ast, 'snk> {
     arena: &'ast mut AstArena,
     sink: &'snk mut dyn DiagnosticSink,
     file: FileId,
+    /// Depth counter for nested `quote { ... }` blocks.
+    /// Used to disambiguate `~(` as antiquote vs. affine-drop.
+    /// Package-private to quote module; use `in_quote()` method publicly.
+    pub(crate) in_quote_depth: u32,
 }
 
 impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
@@ -53,6 +57,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             arena,
             sink,
             file,
+            in_quote_depth: 0,
         }
     }
 
@@ -77,6 +82,25 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     #[must_use]
     pub fn source(&self) -> &str {
         self.source
+    }
+
+    /// Check if we are currently inside a `quote { ... }` block.
+    #[must_use]
+    pub fn in_quote(&self) -> bool {
+        self.in_quote_depth > 0
+    }
+
+    /// Get the current span (of the current/next token).
+    #[must_use]
+    pub(crate) fn current_span(&self) -> paideia_as_diagnostics::Span {
+        self.cursor.current_span()
+    }
+
+    /// Get the span of the previously consumed token.
+    #[must_use]
+    #[allow(dead_code)]
+    pub(crate) fn previous_span(&self) -> paideia_as_diagnostics::Span {
+        self.cursor.previous_span()
     }
 
     /// Peek the current token (None past EOF).

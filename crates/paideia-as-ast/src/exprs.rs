@@ -230,6 +230,24 @@ pub enum ExprData {
         /// Handler arms (Op | Finally variants).
         arms: Vec<HandlerArm>,
     },
+
+    /// `quote { ... }` (code quotation).
+    ///
+    /// Captures the abstract syntax tree of the quoted expression as data,
+    /// enabling code-as-data and metaprogramming patterns.
+    Quote {
+        /// The quoted expression body.
+        body: NodeId,
+    },
+
+    /// `~(...)` (antiquotation).
+    ///
+    /// Splices a computed value into a quoted expression. Only valid inside
+    /// a `quote { ... }` block.
+    Antiquote {
+        /// The value expression to splice.
+        value: NodeId,
+    },
 }
 
 /// A single arm in a match expression.

@@ -26,6 +26,7 @@ mod parse_type;
 mod parse_unsafe;
 mod parser;
 mod precedence;
+mod quote;
 
 pub use cursor::TokenCursor;
 pub use parser::{ParseError, Parser};

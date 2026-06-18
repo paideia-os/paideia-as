@@ -15,6 +15,7 @@ mod macros;
 mod node_id;
 mod patterns;
 pub mod pretty;
+pub mod reflect;
 mod stmts;
 mod types;
 mod visit;
@@ -25,6 +26,7 @@ pub use items::ItemData;
 pub use macros::{MacroDeclData, MacroFragment, MacroFragmentKind, MacroRule};
 pub use node_id::NodeId;
 pub use patterns::{PatField, PatternData};
+pub use reflect::{SerializedSpan, SerializedTerm, Term, TermHead};
 pub use stmts::StmtData;
 pub use types::{LinClass, TypeData};
 pub use visit::{

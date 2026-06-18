@@ -89,6 +89,20 @@ impl<'a> TokenCursor<'a> {
         )
     }
 
+    /// Span of the previously consumed token, or a zero-length span
+    /// at position 0 if no token has been consumed yet.
+    #[must_use]
+    pub fn previous_span(&self) -> Span {
+        if self.pos == 0 {
+            Span::new(self.file, 0, 0)
+        } else {
+            self.tokens
+                .get(self.pos - 1)
+                .map(|t| t.span)
+                .unwrap_or_else(|| Span::new(self.file, 0, 0))
+        }
+    }
+
     /// `true` if the cursor is past the last token (or the next token is
     /// `Eof`).
     #[must_use]
