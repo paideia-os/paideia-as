@@ -1,6 +1,17 @@
 //! paideia-as-effects
 //!
-//! Phase-1 skeleton crate; see PaideiaOS design corpus for spec:
-//! https://github.com/paideia-os/paideia-os/tree/main/design/toolchain
+//! Effect-row representation and row-polymorphism unifier per
+//! `design/toolchain/custom-assembler.md` §4.2. Uses
+//! `paideia_as_ir::EffectRowId` as the interner's id type so types,
+//! effects, and IR all share the same row identifier space.
 
-#![allow(dead_code)]
+#![warn(missing_docs)]
+#![forbid(unsafe_code)]
+
+mod intern;
+mod row;
+mod unify;
+
+pub use intern::EffectInterner;
+pub use row::{EffectId, EffectRow, RowVarId};
+pub use unify::{Substitution, UnifyError, unify};

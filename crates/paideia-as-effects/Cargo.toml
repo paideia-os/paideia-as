@@ -11,3 +11,7 @@ repository.workspace = true
 name = "paideia_as_effects"
 
 [dependencies]
+paideia-as-ir = { path = "../paideia-as-ir" }
+
+[dev-dependencies]
+proptest = { workspace = true }
