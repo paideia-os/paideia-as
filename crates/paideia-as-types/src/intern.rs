@@ -30,6 +30,8 @@ pub struct TypeInterner {
     cached_top: Option<TypeId>,
     /// Fast path for bot type.
     cached_bot: Option<TypeId>,
+    /// Fast path for term type.
+    cached_term: Option<TypeId>,
 }
 
 impl TypeInterner {
@@ -43,6 +45,7 @@ impl TypeInterner {
             cached_char: None,
             cached_top: None,
             cached_bot: None,
+            cached_term: None,
         }
     }
 
@@ -139,6 +142,16 @@ impl TypeInterner {
     /// Intern a floating-point type of the given width (32 or 64).
     pub fn float(&mut self, bits: u16) -> TypeId {
         self.intern(Type::float(bits))
+    }
+
+    /// Intern the term type, with caching.
+    pub fn term_ty(&mut self) -> TypeId {
+        if let Some(id) = self.cached_term {
+            return id;
+        }
+        let id = self.intern(Type::Term);
+        self.cached_term = Some(id);
+        id
     }
 
     /// Get the kind (lattice class) of an interned type.

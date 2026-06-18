@@ -161,4 +161,14 @@ mod tests {
             Kind::Unrestricted
         );
     }
+
+    #[test]
+    fn term_type_is_unrestricted() {
+        let term = Type::Term;
+
+        assert_eq!(
+            type_kind(TypeId::new(1).unwrap(), &term),
+            Kind::Unrestricted
+        );
+    }
 }

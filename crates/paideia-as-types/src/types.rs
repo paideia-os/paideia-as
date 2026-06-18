@@ -128,6 +128,12 @@ pub enum Type {
     },
     /// Type variable awaiting unification.
     Var(TyVar),
+    /// Reflective syntactic term (introduced by `quote`, eliminated by `~`).
+    ///
+    /// The typer doesn't yet refine `Term` by the shape of what's quoted;
+    /// m2-003+ may add `Term<expr>` / `Term<type>` variants. Phase-1 treats
+    /// all `quote` and `~` forms as producing/expecting `Term`.
+    Term,
 }
 
 /// Sentinel value for "size word" (`usize`/`isize`): stored as the

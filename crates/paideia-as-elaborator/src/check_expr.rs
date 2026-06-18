@@ -176,6 +176,7 @@ fn describe_type(types: &TypeInterner, t: TypeId) -> String {
         Type::Fn { .. } => "(args) -> ret".to_string(),
         Type::Tuple(_) => "(elts,)".to_string(),
         Type::Named { .. } => "?".to_string(),
+        Type::Term => "Term".to_string(),
         _ => "?".to_string(),
     }
 }
@@ -354,6 +355,60 @@ mod tests {
 
         assert_eq!(diags.len(), 1);
         // Kind mismatch (Named vs UInt) produces T0504 from unification.
+        assert_eq!(diags[0].code(), t_code(504));
+    }
+
+    /// Test 8: term_type_has_stable_id — ensure `Type::Term` is recognised
+    /// by the interner with the same id across two calls.
+    #[test]
+    fn term_type_has_stable_id() {
+        let mut types = TypeInterner::new();
+        let id1 = types.term_ty();
+        let id2 = types.term_ty();
+        assert_eq!(id1, id2);
+        assert_eq!(types.len(), 1);
+    }
+
+    /// Test 9: term_type_displays_as_Term — round-trip the Term type's
+    /// string representation.
+    #[test]
+    fn term_type_displays_as_term() {
+        let mut types = TypeInterner::new();
+        let term_id = types.term_ty();
+        let desc = describe_type(&types, term_id);
+        assert_eq!(desc, "Term");
+    }
+
+    /// Test 10: check_annotation_term_unifies — unifying two Term types
+    /// produces no diagnostic.
+    #[test]
+    fn check_annotation_term_unifies() {
+        let mut types = TypeInterner::new();
+        let mut subst = Subst::new();
+
+        let term_ty = types.term_ty();
+        let span = test_span(0);
+
+        let diags = check_annotation(&mut types, &mut subst, term_ty, term_ty, span);
+
+        assert!(diags.is_empty());
+    }
+
+    /// Test 11: check_annotation_term_vs_int_mismatch — unifying Term
+    /// with u64 emits a diagnostic.
+    #[test]
+    fn check_annotation_term_vs_int_mismatch() {
+        let mut types = TypeInterner::new();
+        let mut subst = Subst::new();
+
+        let term_ty = types.term_ty();
+        let u64_ty = types.uint(64);
+        let span = test_span(0);
+
+        let diags = check_annotation(&mut types, &mut subst, term_ty, u64_ty, span);
+
+        assert_eq!(diags.len(), 1);
+        // Kind mismatch (Term vs UInt) produces T0504 from unification.
         assert_eq!(diags[0].code(), t_code(504));
     }
 }

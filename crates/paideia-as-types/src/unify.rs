@@ -85,7 +85,8 @@ pub fn unify(
         | (Type::Bool, Type::Bool)
         | (Type::Char, Type::Char)
         | (Type::Top, Type::Top)
-        | (Type::Bot, Type::Bot) => Ok(()),
+        | (Type::Bot, Type::Bot)
+        | (Type::Term, Type::Term) => Ok(()),
         (Type::UInt(b1), Type::UInt(b2)) if b1 == b2 => Ok(()),
         (Type::SInt(b1), Type::SInt(b2)) if b1 == b2 => Ok(()),
         (Type::Float(b1), Type::Float(b2)) if b1 == b2 => Ok(()),
