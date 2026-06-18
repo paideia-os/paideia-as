@@ -21,6 +21,8 @@ use paideia_as_ast::{AstArena, ExprData, NodeId, NodeKind};
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity};
 use paideia_as_ir::{IrArena, IrKind, IrNodeData, IrNodeId, IrWalker, LinClass, WalkerCtx};
 
+use crate::capture::analyze_captures;
+use crate::check_lambda;
 use crate::check_ordered::OrderedLog;
 use crate::env::Symbol;
 use crate::linearity_ctx::{Binding, LinearityCtx};
@@ -150,8 +152,9 @@ pub fn walk_expr_for_scope(arena: &AstArena, ctx: &mut LinearityCtx, expr_id: No
 /// IR-walker implementation for linearity checking.
 ///
 /// Runs the substructural-lattice checks over an IR subtree. Records S0900
-/// (never used), S0901 (overused), and S0903 (out-of-order) diagnostics via
-/// the walker context's diagnostic sink.
+/// (never used), S0901 (overused), S0903 (out-of-order), S0906 (branch-merge),
+/// and S0907 (illegal lambda capture) diagnostics via the walker context's
+/// diagnostic sink.
 ///
 /// ## Symbol Proxy Strategy (Phase-2-m1)
 ///
@@ -164,17 +167,31 @@ pub fn walk_expr_for_scope(arena: &AstArena, ctx: &mut LinearityCtx, expr_id: No
 /// switch to real symbol lookup via those payloads. For now, the test corpus
 /// is constructed to use Var → Let id linkage explicitly.
 ///
+/// ## Lambda Capture Analysis (m1-005 #175)
+///
+/// When visiting a Lambda node:
+/// 1. Pre-visit: snapshot the outer scope's bindings before entering the lambda's scope.
+/// 2. Post-visit: pop the lambda's scope, analyze captures via `analyze_captures`,
+///    validate captures via `check_lambda`, and emit S0907 diagnostics for illegal captures.
+///
 /// ## Branch-Merge Handling
 ///
-/// Deferred to m1-005 (#175). `IrKind::Match` post-visit can call
-/// `merge_branches` once its semantics are stable. For now, focus is on
-/// linear and ordered binding semantics.
+/// Deferred to phase-3. The IR currently has no `IrKind::Match` or `IrKind::If`
+/// variants. When phase-3 introduces these, `post_visit` should:
+/// 1. Collect per-arm `LinearityCtx` snapshots.
+/// 2. Call `branch_merge::merge_branches` to validate use-count agreement.
+/// 3. Emit S0906 diagnostics for branch mismatches.
+///
+/// For now, focus is on linear/ordered binding semantics and lambda captures.
 #[derive(Debug)]
 pub struct LinearityWalker {
     /// Tracks binding use-counts and classes.
     linearity_ctx: LinearityCtx,
     /// Tracks Ordered binding declaration/use order per scope.
     ordered_log: OrderedLog,
+    /// Stack of pre-lambda snapshots: when entering a Lambda's pre_visit,
+    /// push a snapshot of the outer scope. Used in post_visit to analyze captures.
+    lambda_snapshots: Vec<HashMap<Symbol, Binding>>,
 }
 
 impl LinearityWalker {
@@ -184,7 +201,16 @@ impl LinearityWalker {
         Self {
             linearity_ctx: LinearityCtx::new(),
             ordered_log: OrderedLog::new(),
+            lambda_snapshots: Vec::new(),
         }
+    }
+
+    /// Take a snapshot of the innermost scope's bindings.
+    ///
+    /// Used by `pre_visit(Lambda)` to capture the outer scope state
+    /// before entering the lambda's inner scope.
+    fn snapshot_outer_scope(&self) -> HashMap<Symbol, Binding> {
+        self.linearity_ctx.innermost().clone()
     }
 }
 
@@ -230,8 +256,16 @@ impl IrWalker for LinearityWalker {
                     ctx.emit(diag);
                 }
             }
-            IrKind::Lambda | IrKind::Module | IrKind::Action | IrKind::Unsafe => {
-                // Scope-introducing nodes: enter a scope.
+            IrKind::Lambda => {
+                // Lambda: snapshot the outer scope before entering the lambda's scope.
+                // This is used in post_visit to analyze captures.
+                let outer_snapshot = self.snapshot_outer_scope();
+                self.lambda_snapshots.push(outer_snapshot);
+                // Now enter the lambda's inner scope.
+                self.linearity_ctx.enter_scope();
+            }
+            IrKind::Module | IrKind::Action | IrKind::Unsafe => {
+                // Other scope-introducing nodes: enter a scope.
                 self.linearity_ctx.enter_scope();
             }
             _ => {}
@@ -246,8 +280,36 @@ impl IrWalker for LinearityWalker {
         ctx: &mut WalkerCtx<'_>,
     ) {
         match node.kind {
-            IrKind::Lambda | IrKind::Module | IrKind::Action | IrKind::Unsafe => {
-                // Scope-introducing nodes: leave the scope and validate.
+            IrKind::Lambda => {
+                // Lambda: pop the inner scope, analyze captures, and emit S0907 diagnostics.
+                let inner_scope = self.linearity_ctx.leave_scope();
+
+                // Recover the outer scope snapshot from the stack.
+                let outer_snapshot = self.lambda_snapshots.pop().expect(
+                    "lambda_snapshots stack should have a pre_visit snapshot for every post_visit Lambda",
+                );
+
+                // Analyze captures: compare the outer scope's state BEFORE the lambda
+                // with its state AFTER the lambda. The difference in use-counts tells us
+                // which outer bindings were used (captured) inside the lambda body.
+                let outer_current = self.linearity_ctx.innermost().clone();
+                let captures = analyze_captures(&outer_snapshot, &outer_current);
+
+                // Validate captures against the lambda's linearity class.
+                let capture_diags =
+                    check_lambda::check_lambda(&captures, node.lin_class, node.span);
+                for diag in capture_diags {
+                    ctx.emit(diag);
+                }
+
+                // Also validate the inner scope itself (linear bindings used exactly once, etc).
+                let scope_diags = validate_scope(&inner_scope);
+                for diag in scope_diags {
+                    ctx.emit(diag);
+                }
+            }
+            IrKind::Module | IrKind::Action | IrKind::Unsafe => {
+                // Other scope-introducing nodes: leave the scope and validate.
                 let scope = self.linearity_ctx.leave_scope();
                 let diags = validate_scope(&scope);
                 for diag in diags {
@@ -670,5 +732,153 @@ mod tests {
         // Should have one S0900 diagnostic
         assert_eq!(sink.count(), 1, "unused Linear binding should emit S0900");
         assert_eq!(sink.diagnostics()[0].code().number(), S_NEVER_USED);
+    }
+
+    #[test]
+    fn walker_emits_s0907_on_illegal_linear_capture() {
+        // Lambda captures a Linear binding from outer scope.
+        // The lambda is Unrestricted (not Linear/Affine), so it cannot
+        // consume Linear bindings.
+        let mut walker = LinearityWalker::new();
+        let sm = paideia_as_diagnostics::SourceMap::new();
+        let mut sink = paideia_as_diagnostics::VecSink::new();
+        let mut ctx = WalkerCtx::new(&sm, &mut sink);
+        let mut arena = paideia_as_ir::IrArena::new();
+        let s = span(100);
+
+        // Create a Module (outer scope)
+        let module_id = arena.alloc(IrKind::Module, s);
+        let module_data = arena[module_id];
+
+        // Pre-visit Module (enter outer scope)
+        walker.pre_visit(module_id, &module_data, &arena, &mut ctx);
+
+        // Create a Let in the outer scope (id=2, class=Linear)
+        let outer_let_id = arena.alloc(IrKind::Let, s);
+        let mut outer_let_data = arena[outer_let_id];
+        outer_let_data.lin_class = LinClass::Linear;
+
+        // Pre-visit outer Let (bind symbol 2 as Linear)
+        walker.pre_visit(outer_let_id, &outer_let_data, &arena, &mut ctx);
+
+        // Create a Lambda (id=3, class=Unrestricted — default)
+        let lambda_id = arena.alloc(IrKind::Lambda, s);
+        let lambda_data = arena[lambda_id];
+        // lambda_data.lin_class defaults to Unrestricted
+
+        // Pre-visit Lambda (snapshot outer scope, enter lambda scope)
+        walker.pre_visit(lambda_id, &lambda_data, &arena, &mut ctx);
+
+        // Inside the lambda: use the outer binding (symbol 2)
+        walker.linearity_ctx.use_(2); // This increments the use-count in the outer scope
+
+        // Post-visit Lambda: should detect that we captured Linear binding 2 by consume
+        // in an Unrestricted lambda, emitting S0907.
+        walker.post_visit(lambda_id, &lambda_data, &arena, &mut ctx);
+
+        // Check diagnostics
+        let diags = sink.diagnostics();
+        let s0907_diags: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().number() == crate::check_lambda::S_ILLEGAL_CAPTURE)
+            .collect();
+        assert_eq!(
+            s0907_diags.len(),
+            1,
+            "should emit exactly one S0907 for illegal linear capture"
+        );
+    }
+
+    #[test]
+    fn walker_lambda_allows_capture_of_unrestricted() {
+        // Regression test: Lambda captures an Unrestricted binding.
+        // This is always OK, regardless of the lambda's class.
+        let mut walker = LinearityWalker::new();
+        let sm = paideia_as_diagnostics::SourceMap::new();
+        let mut sink = paideia_as_diagnostics::VecSink::new();
+        let mut ctx = WalkerCtx::new(&sm, &mut sink);
+        let mut arena = paideia_as_ir::IrArena::new();
+        let s = span(200);
+
+        // Create a Module (outer scope)
+        let module_id = arena.alloc(IrKind::Module, s);
+        let module_data = arena[module_id];
+
+        // Pre-visit Module
+        walker.pre_visit(module_id, &module_data, &arena, &mut ctx);
+
+        // Create a Let in the outer scope (id=2, class=Unrestricted)
+        let outer_let_id = arena.alloc(IrKind::Let, s);
+        let mut outer_let_data = arena[outer_let_id];
+        outer_let_data.lin_class = LinClass::Unrestricted;
+
+        // Pre-visit outer Let (bind symbol 2 as Unrestricted)
+        walker.pre_visit(outer_let_id, &outer_let_data, &arena, &mut ctx);
+
+        // Create a Lambda (class=Unrestricted)
+        let lambda_id = arena.alloc(IrKind::Lambda, s);
+        let lambda_data = arena[lambda_id];
+
+        // Pre-visit Lambda
+        walker.pre_visit(lambda_id, &lambda_data, &arena, &mut ctx);
+
+        // Inside the lambda: use the outer binding (symbol 2)
+        walker.linearity_ctx.use_(2);
+
+        // Post-visit Lambda: no S0907 expected
+        walker.post_visit(lambda_id, &lambda_data, &arena, &mut ctx);
+
+        // Check that no S0907 was emitted
+        let diags = sink.diagnostics();
+        let s0907_diags: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().number() == crate::check_lambda::S_ILLEGAL_CAPTURE)
+            .collect();
+        assert!(
+            s0907_diags.is_empty(),
+            "no S0907 expected for Unrestricted capture"
+        );
+    }
+
+    #[test]
+    fn walker_lambda_with_no_capture_no_diagnostics() {
+        // A Lambda whose body uses only its own params.
+        // No captures from outer scope, so no S0907.
+        let mut walker = LinearityWalker::new();
+        let sm = paideia_as_diagnostics::SourceMap::new();
+        let mut sink = paideia_as_diagnostics::VecSink::new();
+        let mut ctx = WalkerCtx::new(&sm, &mut sink);
+        let mut arena = paideia_as_ir::IrArena::new();
+        let s = span(300);
+
+        // Create a Module (outer scope)
+        let module_id = arena.alloc(IrKind::Module, s);
+        let module_data = arena[module_id];
+
+        // Pre-visit Module
+        walker.pre_visit(module_id, &module_data, &arena, &mut ctx);
+
+        // Create a Lambda (class=Unrestricted)
+        let lambda_id = arena.alloc(IrKind::Lambda, s);
+        let lambda_data = arena[lambda_id];
+
+        // Pre-visit Lambda
+        walker.pre_visit(lambda_id, &lambda_data, &arena, &mut ctx);
+
+        // Bind a param inside the lambda (symbol 99, class=Unrestricted)
+        walker.linearity_ctx.bind(99, LinClass::Unrestricted, s);
+
+        // Use only the param (no outer captures)
+        walker.linearity_ctx.use_(99);
+
+        // Post-visit Lambda: no diagnostics expected
+        walker.post_visit(lambda_id, &lambda_data, &arena, &mut ctx);
+
+        // Should have no diagnostics (empty inner scope, no outer captures)
+        assert_eq!(
+            sink.count(),
+            0,
+            "no diagnostics for lambda with param-only body"
+        );
     }
 }
