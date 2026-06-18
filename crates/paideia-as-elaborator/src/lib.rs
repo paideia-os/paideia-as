@@ -17,6 +17,7 @@ pub mod check_ordered;
 pub mod check_pure;
 pub mod effect_infer;
 pub mod effect_unify;
+pub mod effect_walker;
 pub mod env;
 pub mod hygiene;
 pub mod linearity_ctx;
@@ -45,6 +46,7 @@ pub use effect_unify::{
     CallUnifyOutcome, F_HANDLER_ORDER, F_ROW_MISMATCH, check_handler_order, instantiate_fresh_tail,
     unify_call_row,
 };
+pub use effect_walker::EffectRowWalker;
 pub use env::{Symbol, TypeEnv};
 pub use hygiene::{HygienicName, MacroId};
 pub use linearity_ctx::{Binding, LinearityCtx};
