@@ -9,9 +9,11 @@
 #![forbid(unsafe_code)]
 
 mod intern;
+mod registry;
 mod row;
 mod unify;
 
 pub use intern::EffectInterner;
+pub use registry::{EffectRegistry, F_REDECL_MISMATCH, Operation, SignatureId};
 pub use row::{EffectId, EffectRow, RowVarId};
 pub use unify::{Substitution, UnifyError, unify};
