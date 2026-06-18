@@ -22,15 +22,16 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// Parse an expression with Pratt precedence climbing.
     ///
     /// **Algorithm:**
-    /// 1. Check for prefix operators (!, -, &, *). If found, bump, parse operand
-    ///    at `prefix_bp(op)`, wrap in `ExprPrefix`.
+    /// 1. Check for prefix operators (!, -, &, *, $). If found, delegate to `parse_prefix()`.
     /// 2. Otherwise, parse primary via `parse_primary()`.
     /// 3. Loop: peek next token.
-    ///    - If postfix op with `postfix_bp >= min_bp`: bump, allocate `ExprPostfix`,
-    ///      continue. (Phase-1: only `?` supported; calls/indexing deferred.)
+    ///    - If postfix op with `postfix_bp >= min_bp`: delegate to `parse_postfix(lhs)`.
     ///    - Else if infix op with `infix_bp.left >= min_bp`: bump, recurse,
     ///      allocate `ExprInfix`, continue.
     ///    - Else: return lhs.
+    ///
+    /// **Postfix operators:** `(` (calls), `[` (indexing), `.` (field/method), `?` (question).
+    /// `parse_postfix` handles all of these uniformly, dispatching on token kind.
     ///
     /// **Operator nodes:** Allocated as `NodeKind::Placeholder` covering the op token.
     ///
@@ -38,34 +39,8 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// emit P0103 and continue recovery.
     pub fn parse_expr_bp(&mut self, min_bp: u8) -> Result<NodeId, ParseError> {
         // Step 1: Check for prefix operator.
-        let mut lhs = if let Some(op_bp) = self.peek().and_then(|tok| prefix_bp(tok.kind)) {
-            let op_tok = self
-                .bump()
-                .expect("peek() returned Some => bump() returns Some");
-            let op_span = op_tok.span;
-            let op_node = self.arena_mut().alloc(NodeKind::Placeholder, op_span);
-
-            let operand = self.parse_expr_bp(op_bp)?;
-
-            // Get the span of the operand from the arena
-            let operand_span = self
-                .arena()
-                .get(operand)
-                .map(|nd| nd.span)
-                .unwrap_or(op_span);
-
-            self.arena_mut().alloc_expr(
-                NodeKind::ExprPrefix,
-                Span::new(
-                    op_span.file(),
-                    op_span.byte_start(),
-                    operand_span.byte_start() + operand_span.byte_len() - op_span.byte_start(),
-                ),
-                ExprData::Prefix {
-                    op: op_node,
-                    expr: operand,
-                },
-            )
+        let mut lhs = if self.peek().and_then(|tok| prefix_bp(tok.kind)).is_some() {
+            self.parse_prefix()?
         } else {
             // Step 2: Parse primary.
             self.parse_primary()?
@@ -79,25 +54,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             if let Some(post_bp) = postfix_bp(next_tok.kind)
                 && post_bp >= min_bp
             {
-                let op_tok = self.bump().expect("peek returned Some");
-                let op_span = op_tok.span;
-                let op_node = self.arena_mut().alloc(NodeKind::Placeholder, op_span);
-
-                // Get the span of lhs from the arena
-                let lhs_span = self.arena().get(lhs).map(|nd| nd.span).unwrap_or(op_span);
-
-                lhs = self.arena_mut().alloc_expr(
-                    NodeKind::ExprPostfix,
-                    Span::new(
-                        lhs_span.file(),
-                        lhs_span.byte_start(),
-                        op_span.byte_start() + op_span.byte_len() - lhs_span.byte_start(),
-                    ),
-                    ExprData::Postfix {
-                        expr: lhs,
-                        op: op_node,
-                    },
-                );
+                lhs = self.parse_postfix(lhs)?;
                 continue;
             }
 

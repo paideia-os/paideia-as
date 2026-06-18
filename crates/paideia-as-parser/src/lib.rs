@@ -10,6 +10,8 @@
 
 mod cursor;
 mod parse_expr;
+mod parse_postfix;
+mod parse_prefix;
 mod parse_primary;
 mod parser;
 mod precedence;

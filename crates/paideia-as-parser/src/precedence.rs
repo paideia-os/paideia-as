@@ -122,8 +122,8 @@ pub fn infix_bp(kind: TokenKind) -> Option<InfixBp> {
 pub fn prefix_bp(kind: TokenKind) -> Option<u8> {
     use TokenKind::*;
     match kind {
-        // Tier 2: Prefix operators (!,  ~, -, &, * as unary)
-        Bang | Minus | Amp | Star => Some(130),
+        // Tier 2: Prefix operators (!, -, &, *, $ as linear consume marker)
+        Bang | Minus | Amp | Star | LinearMark => Some(130),
         _ => None,
     }
 }
@@ -138,9 +138,8 @@ pub fn prefix_bp(kind: TokenKind) -> Option<u8> {
 pub fn postfix_bp(kind: TokenKind) -> Option<u8> {
     use TokenKind::*;
     match kind {
-        // Tier 1: Postfix operators (?, field access ., indexing [, calls ())
-        // Phase-1: only handle `?`; calls and indexing deferred to later PRs.
-        Question => Some(140),
+        // Tier 1: Postfix operators (calls (), indexing [], field access ., and ?)
+        LParen | LBracket | Dot | Question => Some(140),
         _ => None,
     }
 }
