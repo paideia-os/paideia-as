@@ -1,0 +1,4 @@
+module M19 = structure {
+  let x = 19
+  let y = 20
+}
