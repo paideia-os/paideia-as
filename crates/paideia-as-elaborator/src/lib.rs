@@ -26,6 +26,7 @@ mod lower;
 pub mod macro_expand;
 pub mod macro_match;
 mod placeholder_emit;
+pub mod reflect_api;
 pub mod resolve;
 
 pub use branch_merge::{S_BRANCH_MISMATCH, merge_branches};
@@ -61,4 +62,5 @@ pub use macro_match::{
     InvocationMatch, M_NO_MATCH, MatchBinding, RuleMatch, match_invocation, match_rule,
 };
 pub use placeholder_emit::placeholder_for;
+pub use reflect_api::{TypeCache, children, kind, span, type_of};
 pub use resolve::{HygienicEnv, ResolveValue};
