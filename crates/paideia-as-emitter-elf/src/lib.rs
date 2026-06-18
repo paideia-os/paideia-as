@@ -1,6 +1,13 @@
 //! paideia-as-emitter-elf
 //!
-//! Phase-1 skeleton crate; see PaideiaOS design corpus for spec:
-//! https://github.com/paideia-os/paideia-os/tree/main/design/toolchain
+//! ELF64 writer for paideia-as object files per
+//! `design/toolchain/custom-assembler.md` §12.1.
 
-#![allow(dead_code)]
+#![warn(missing_docs)]
+#![forbid(unsafe_code)]
+
+mod sections;
+mod writer;
+
+pub use sections::{PAIDEIA_SECTIONS, STANDARD_SECTIONS, all_sections};
+pub use writer::{Arch, ElfWriter, Kind};
