@@ -32,7 +32,7 @@ pub use capture::{CaptureKind, CapturedBinding, analyze_captures};
 pub use check_expr::{InferOutcome, check_annotation, infer_node};
 pub use check_handler::{F_HANDLER_MISMATCH, HandlerImpl, check_handler, check_resume};
 pub use check_lambda::{S_ILLEGAL_CAPTURE, check_lambda};
-pub use check_linearity::{S_NEVER_USED, S_OVERUSED, validate_scope};
+pub use check_linearity::{S_NEVER_USED, S_OVERUSED, validate_scope, walk_expr_for_scope};
 pub use check_ordered::{OrderedEntry, OrderedLog, S_OUT_OF_ORDER};
 pub use check_pure::{F_PURE_VIOLATION, check_pure};
 pub use effect_infer::{

@@ -69,9 +69,15 @@ module Functions = structure {
   // Because nothing else in the caller needs a register across the call, the
   // caller doesn't have to save any caller-saved register (§7.2). This is the
   // best case for the convention.
+  //
+  // This version uses a block expression with let-statements to demonstrate
+  // the #156 feature: let-statements inside block expression bodies.
   // ---------------------------------------------------------------------------
   let bump_twice : (u64) -> u64 =
-    fn (n : u64) -> add_one(add_one(n))
+    fn (n : u64) -> {
+      let once = add_one(n);
+      add_one(once)
+    }
 
   // ---------------------------------------------------------------------------
   // Effect and capability rows are part of the function type, written after

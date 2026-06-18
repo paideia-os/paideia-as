@@ -515,7 +515,9 @@ mod tests {
     }
 
     #[test]
-    fn parses_empty_block() {
+    fn parses_empty_block_rejected() {
+        // Empty blocks are not allowed; must have a tail expression.
+        // Per #156 requirement: emits P0157 and returns Err.
         let tokens = vec![
             tok(TokenKind::LBrace, 0, 1),
             tok(TokenKind::RBrace, 1, 1),
@@ -527,10 +529,12 @@ mod tests {
 
         // Note: blocks are now parsed in parse_expr_bp Step 0, not in parse_primary
         let result = parser.parse_expr();
-        assert!(result.is_ok());
-        let expr_id = result.unwrap();
+        assert!(result.is_err(), "empty block should parse error");
 
-        let node = arena.get(expr_id).unwrap();
-        assert_eq!(node.kind, NodeKind::ExprBlock);
+        let diags = sink.diagnostics();
+        assert!(
+            diags.iter().any(|d| d.code().number() == 157),
+            "expected P0157 diagnostic (empty block)"
+        );
     }
 }
