@@ -58,8 +58,8 @@ pub use hygiene::{HygienicName, MacroId};
 pub use linearity_ctx::{Binding, LinearityCtx};
 pub use lower::{LoweringResult, lower_ast_to_ir};
 pub use macro_expand::{
-    ExpansionOutcome, M_RECURSION_LIMIT, M_UNBOUND_META, MAX_EXPANSION_DEPTH, check_depth,
-    expand_template,
+    ExpansionOutcome, M_MACRO_EFFECT_VIOLATION, M_RECURSION_LIMIT, M_UNBOUND_META,
+    MAX_EXPANSION_DEPTH, check_depth, expand_template,
 };
 pub use macro_match::{
     InvocationMatch, M_NO_MATCH, MatchBinding, RuleMatch, match_invocation, match_rule,

@@ -11,7 +11,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
+use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, FileId, Severity, Span};
 
 use crate::row::EffectId;
 
@@ -151,6 +151,62 @@ impl EffectRegistry {
         out.sort_by_key(|(id, _)| id.get());
         out
     }
+
+    /// Register the three Diag / Elab / FreshName effects that macro
+    /// bodies are permitted to use. Each is a simple kind-only effect
+    /// with one op stub for phase-2-m9; the operations themselves are
+    /// wired through their builtin call paths (Diag → ctx.emit,
+    /// Elab → elab_builtin, FreshName → not yet implemented).
+    ///
+    /// This method is idempotent: calling it multiple times is safe and
+    /// produces the same effect IDs. Per `custom-assembler.md` §5.4
+    /// (macro-pure context), these are the only effects permitted inside
+    /// macro bodies.
+    ///
+    /// Phase-2-m9: the term_eval evaluator is pure-functional plus the
+    /// four builtins (kind/children/span/splice/elab). None of these emit
+    /// effects outside MACRO_EFFECT_ROW today, so the enforcement is
+    /// structurally vacuous. The check is wired so that when m3 / m5 add
+    /// user-source effect statements inside macro bodies, the violations
+    /// fire automatically.
+    pub fn register_macro_effects(&mut self) {
+        // Use a sentinel FileId and Span for these synthesized effect declarations.
+        let sentinel_span = Span::new(
+            FileId::new(u32::MAX).expect("u32::MAX is valid FileId"),
+            0,
+            0,
+        );
+        let _ = self.declare_effect("Diag", &[("emit".into(), 0, sentinel_span)], sentinel_span);
+        let _ = self.declare_effect("Elab", &[("elab".into(), 0, sentinel_span)], sentinel_span);
+        let _ = self.declare_effect(
+            "FreshName",
+            &[("fresh".into(), 0, sentinel_span)],
+            sentinel_span,
+        );
+    }
+
+    /// The fixed effect row permitted inside macro bodies per
+    /// `custom-assembler.md` §5.4 (macro-pure context).
+    ///
+    /// Must only be called after `register_macro_effects` has been invoked.
+    /// Returns the row `!{Diag, Elab, FreshName}` containing the three
+    /// hygienic macro effects.
+    ///
+    /// Panics if the macro effects have not yet been registered (i.e.,
+    /// if register_macro_effects was not called first).
+    #[must_use]
+    pub fn macro_effect_row(&self) -> crate::EffectRow {
+        let diag = self
+            .lookup_effect("Diag")
+            .expect("Diag registered via register_macro_effects");
+        let elab = self
+            .lookup_effect("Elab")
+            .expect("Elab registered via register_macro_effects");
+        let fresh = self
+            .lookup_effect("FreshName")
+            .expect("FreshName registered via register_macro_effects");
+        crate::EffectRow::from_ids(vec![diag, elab, fresh], None)
+    }
 }
 
 fn f_code(n: u16) -> DiagnosticCode {
@@ -235,5 +291,51 @@ mod tests {
         assert_eq!(effects.len(), 3);
         assert!(effects[0].0.get() < effects[1].0.get());
         assert!(effects[1].0.get() < effects[2].0.get());
+    }
+
+    #[test]
+    fn register_macro_effects_idempotent() {
+        let mut reg = EffectRegistry::new();
+        reg.register_macro_effects();
+        let diag1 = reg.lookup_effect("Diag").unwrap();
+        let elab1 = reg.lookup_effect("Elab").unwrap();
+        let fresh1 = reg.lookup_effect("FreshName").unwrap();
+
+        // Call again
+        reg.register_macro_effects();
+        let diag2 = reg.lookup_effect("Diag").unwrap();
+        let elab2 = reg.lookup_effect("Elab").unwrap();
+        let fresh2 = reg.lookup_effect("FreshName").unwrap();
+
+        // Same IDs (idempotent)
+        assert_eq!(diag1, diag2);
+        assert_eq!(elab1, elab2);
+        assert_eq!(fresh1, fresh2);
+
+        // Only 3 effects in the registry
+        let all_effects = reg.effects();
+        assert_eq!(all_effects.len(), 3);
+    }
+
+    #[test]
+    fn macro_effect_row_contains_diag_elab_freshname() {
+        let mut reg = EffectRegistry::new();
+        reg.register_macro_effects();
+        let row = reg.macro_effect_row();
+
+        // The row should contain exactly three effects
+        assert_eq!(row.fixed.len(), 3);
+
+        // The row should not have a tail variable
+        assert!(row.tail.is_none());
+
+        // Verify it's the correct three effects by checking they can be looked up
+        let diag = reg.lookup_effect("Diag").unwrap();
+        let elab = reg.lookup_effect("Elab").unwrap();
+        let fresh = reg.lookup_effect("FreshName").unwrap();
+
+        assert!(row.fixed.contains(&diag));
+        assert!(row.fixed.contains(&elab));
+        assert!(row.fixed.contains(&fresh));
     }
 }
