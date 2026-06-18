@@ -1189,6 +1189,7 @@ name = "paideia-as-ir"
 version = "0.0.1"
 dependencies = [
  "paideia-as-diagnostics",
+ "smallvec",
  "static_assertions",
 ]
 

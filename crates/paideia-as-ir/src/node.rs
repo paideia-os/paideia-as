@@ -70,6 +70,27 @@ impl EffectRowId {
 }
 
 /// Variant discriminant for an IR node.
+///
+/// ## Child Semantics
+///
+/// Each variant produces children in the following order:
+///
+/// - **Module**: immediate item children (any number). Children appear
+///   in source order.
+/// - **Functor**: parameter descriptors + body. Structure TBD (PR-156+).
+/// - **Let**: exactly one child — the value expression.
+/// - **Lambda**: exactly one child — the body expression. Parameters
+///   are stored in a separate side-table (not in children).
+/// - **App**: callee + arguments. Children are [callee, arg0, arg1, ...].
+/// - **Perform**: operation path + operand arguments. Children are
+///   [op_callee, arg0, arg1, ...] per PR-155 semantics.
+/// - **Handle**: handler + body. Children are [handler, body].
+/// - **Action**: statement sequence (any number). Children appear
+///   in source order.
+/// - **Unsafe**: statement sequence (any number). Children appear
+///   in source order.
+/// - **Var** / **Literal** / **Placeholder**: no children.
+/// - **Resume**: reserved for future extension; no children yet.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 #[repr(u8)]
 #[non_exhaustive]
@@ -106,6 +127,11 @@ pub enum IrKind {
 /// and effect-row reference. Per the AC, every variant has a `LinClass`
 /// and an `EffectRowId` slot — the elaborator may leave them at their
 /// `Default` until checking runs.
+///
+/// **Children storage**: children are stored in a separate side-table
+/// (`children_table` in `IrArena`), indexed by `IrNodeId.index()`.
+/// This preserves the 48-byte budget while allowing unbounded children
+/// via SmallVec<[IrNodeId; 4]> (inline for ≤4, heap-spilled for more).
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
 pub struct IrNodeData {
@@ -181,5 +207,13 @@ mod tests {
         assert_eq!(d.lin_class, LinClass::Unrestricted);
         assert_eq!(d.effect_row, EffectRowId::EMPTY);
         assert_eq!(d.kind, IrKind::Placeholder);
+    }
+
+    #[test]
+    fn size_budget_preserved_under_48_bytes() {
+        // Phase-1 AC: IrNodeData must stay ≤ 48 bytes.
+        // Currently 20 bytes (u8+u8+u32 + 12-byte Span).
+        // Children are in a side-table (arena), not inline.
+        assert!(size_of::<IrNodeData>() <= 48);
     }
 }
