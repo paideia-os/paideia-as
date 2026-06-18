@@ -77,7 +77,7 @@ impl FrameLayout {
 /// 1. `push rbp`
 /// 2. `mov rbp, rsp`
 /// 3. `sub rsp, aligned_local_size` (via repeated `push` if probing; see
-///    [`needs_stack_probe`]).
+///    [`FrameLayout::needs_stack_probe`]).
 /// 4. Save each callee-saved register at `[rbp - 16 - i*8]`.
 ///
 /// Leaf:
