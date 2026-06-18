@@ -1006,6 +1006,10 @@ version = "0.0.1"
 [[package]]
 name = "paideia-as-ir"
 version = "0.0.1"
+dependencies = [
+ "paideia-as-diagnostics",
+ "static_assertions",
+]
 
 [[package]]
 name = "paideia-as-lexer"
