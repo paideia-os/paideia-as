@@ -25,3 +25,7 @@ result-*
 
 # Logs
 *.log
+
+# Phase-1 paideia-as build placeholder artifacts written alongside .pdx fixtures
+tests/linearity-regression/accept/*.placeholder
+tests/linearity-regression/reject/*.placeholder
