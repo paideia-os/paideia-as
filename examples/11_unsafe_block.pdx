@@ -39,13 +39,11 @@
 // locally. The audit trail and CI review are the project's defense
 // (custom-assembler.md §9.5 — "the trust contract").
 //
-// PHASE-1 NOTE on identifier shape: inside the `capabilities: { ... }`
-// field, the phase-1 parser accepts bare identifiers (e.g.,
-// `mmio_read_cap`). The dotted form `Mmio.read_cap` is supported in
-// signature-side `@{...}` capability sets but is on the phase-2 list for
-// unsafe-block fields. The examples below use bare names accordingly; a
-// linker-side capability-name resolution mechanism maps them to the
-// signature-level dotted form.
+// NOTE on identifier shape: inside the `capabilities: { ... }` field,
+// the parser accepts both bare identifiers (e.g., `mmio_read_cap`) and
+// dotted paths (e.g., `Mmio.read_cap`). Dotted paths are preferred and
+// consistent with signature-side `@{...}` capability sets. A linker-side
+// capability-name resolution mechanism maps them to the fully-qualified form.
 //
 // =============================================================================
 
@@ -109,6 +107,26 @@ module UnsafeBlock = structure {
         effects: { mmio_fence }
         capabilities: {}
         justification: "mfence required between MMIO load and dependent store on uncached regions; the elaborator does not yet model fence semantics"
+        block: {
+          mfence
+        }
+      }
+
+  // ---------------------------------------------------------------------------
+  // DOTTED CAPABILITY PATH EXAMPLE
+  //
+  // This example demonstrates the dotted-path form for capabilities inside
+  // the unsafe block. Dotted paths (e.g., `Mmio.read_cap`) align the unsafe
+  // block's capability declarations with the signature-side form.
+  //
+  // The linker-side capability-name resolution mechanism maps these paths
+  // to their fully-qualified canonical form at link time.
+  let mmio_with_dotted_cap : (unit) -> unit !{mmio_fence} @{Mmio.read_cap} =
+    fn (_ : unit) ->
+      unsafe {
+        effects: { mmio_fence }
+        capabilities: { Mmio.read_cap }
+        justification: "illustrative example demonstrating dotted capability path form; issue #160"
         block: {
           mfence
         }
