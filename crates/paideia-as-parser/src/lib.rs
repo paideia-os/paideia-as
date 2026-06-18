@@ -15,6 +15,7 @@ mod parse_expr;
 mod parse_handler;
 mod parse_item;
 mod parse_lambda;
+mod parse_macro;
 mod parse_match;
 mod parse_memref;
 mod parse_postfix;
