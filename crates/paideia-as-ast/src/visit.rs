@@ -115,6 +115,8 @@ pub trait ExprVisitor {
     fn visit_expr_perform(&mut self, _arena: &AstArena, _id: NodeId) {}
     /// Visit a Resume expression.
     fn visit_expr_resume(&mut self, _arena: &AstArena, _id: NodeId) {}
+    /// Visit a HandlerValue expression.
+    fn visit_expr_handler_value(&mut self, _arena: &AstArena, _id: NodeId) {}
 }
 
 /// Dispatch visitor call by node kind for expressions.
@@ -141,6 +143,7 @@ pub fn walk_expr<V: ExprVisitor>(visitor: &mut V, arena: &AstArena, id: NodeId) 
         NodeKind::ExprLoop => visitor.visit_expr_loop(arena, id),
         NodeKind::ExprPerform => visitor.visit_expr_perform(arena, id),
         NodeKind::ExprResume => visitor.visit_expr_resume(arena, id),
+        NodeKind::ExprHandlerValue => visitor.visit_expr_handler_value(arena, id),
         _ => {}
     }
 }

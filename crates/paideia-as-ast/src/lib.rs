@@ -20,7 +20,7 @@ mod types;
 mod visit;
 
 pub use arena::{AstArena, NodeData, NodeKind};
-pub use exprs::{ExprData, LoopKind, MatchArm};
+pub use exprs::{ExprData, HandlerArm, LoopKind, MatchArm};
 pub use items::ItemData;
 pub use macros::{MacroDeclData, MacroFragment, MacroFragmentKind, MacroRule};
 pub use node_id::NodeId;

@@ -31,7 +31,10 @@
 //! | ExprIf | Action | If-else placeholder; phase-1 does not model if in IR |
 //! | ExprLoop | Action | Loop placeholder; phase-1 does not model loop in IR |
 //! | ExprActionBlock | Action | Action-marked block |
+//! | ExprPerform | Perform | Effect operation invocation |
+//! | ExprResume | App | Resume continuation (desugared to app; phase-1 placeholder) |
 //! | ExprWithHandler | Handle | Handler installation |
+//! | ExprHandlerValue | Action | Handler-value construction (phase-1 placeholder) |
 //! | ExprUnsafe | Unsafe | Unsafe block escape hatch |
 //! | StmtLet | Let | Let binding |
 //! | StmtExpr | Action | Statement-as-action |
@@ -147,6 +150,11 @@ fn map_node_kind(kind: NodeKind) -> IrKind {
 
         // Resume expressions (phase-1 placeholder)
         NodeKind::ExprResume => IrKind::App,
+
+        // Handler-value construction (phase-1: placeholder mapped to Action)
+        // TODO: phase-2 will introduce a dedicated IrKind::HandlerValue when elaborator
+        // validates handler arm coverage and parameter binding.
+        NodeKind::ExprHandlerValue => IrKind::Action,
 
         // Unsafe block escape hatch
         NodeKind::ExprUnsafe => IrKind::Unsafe,

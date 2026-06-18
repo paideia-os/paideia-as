@@ -130,17 +130,27 @@
 //     }
 //
 // ---------------------------------------------------------------------------
-// PHASE-1 PARSEABLE PLACEHOLDER
+// PHASE-2 UPDATE (Issue #153)
 //
-// To keep this file well-formed under `paideia-as check`, the placeholder
-// module below declares the effect signature alone. The signature is the
-// piece of the example that *does* parse cleanly in phase 1; handlers and
-// `perform` join it in phase 2.
+// This file now parses cleanly under `paideia-as check`. The handler-value
+// construction form (`let H = handle Io { ... }`) is now supported as a
+// primary expression. The example below demonstrates the handler-value
+// declaration.
 // ---------------------------------------------------------------------------
 
 module HandlersResume = structure {
+  // Effect declaration
   effect Io {
     op port_read  : (u16) -> u8
     op port_write : (u16, u8) -> unit
   }
+
+  // Handler-value declaration (phase-1 of #153 implementation)
+  // Note: the `op` keyword and parameter patterns are simplified for phase-1.
+  let io_handler =
+    handle Io {
+      op port_read => 0u8 ;
+      op port_write => () ;
+      finally => ()
+    }
 }

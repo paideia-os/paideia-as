@@ -87,6 +87,8 @@ pub enum NodeKind {
     ExprPerform,
     /// `resume value`.
     ExprResume,
+    /// `handle Effect { arms }` — handler-value construction.
+    ExprHandlerValue,
 
     // Statements (§8 Stmt: LetStmt | ExprStmt | InstructionStmt | ReturnStmt)
     /// `let name: ty? = expr;`.
