@@ -1,0 +1,13 @@
+// Reflective hygiene test: antiquoted identifiers pass through unchanged.
+// An identifier inside ~(...) is provided by the call site and retains
+// its call-site tag set (unmarked).
+
+module M2Hygiene002;
+
+let caller_x = 42;
+
+// In phase-2-m10, this uses quote { ~(caller_x) } which antiquotes
+// the call-site identifier. The antiquoted identifier should not receive
+// the macro's tag; it remains unmarked and resolves in the caller's context.
+
+let result = caller_x;

@@ -1,0 +1,16 @@
+// Reflective hygiene test: macro-introduced identifier doesn't shadow use-site.
+// This fixture uses quote { ... } to construct an identifier reflectively.
+// The identifier introduced by the macro (via splice) should not shadow
+// an identically-named identifier from the use site.
+
+module M2Hygiene001;
+
+let caller_temp = 1;
+
+// In phase-2-m10, this macro's body uses quote { temp } which splices
+// an identifier with the macro's fresh tag. At the use site, caller_temp
+// is in scope. The macro-introduced temp should resolve separately.
+// (Phase honesty: the enforcement doesn't yet fire end-to-end; the
+// fixture is set up for phase-3 when elaboration is complete.)
+
+let result = caller_temp;

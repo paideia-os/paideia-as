@@ -1,0 +1,14 @@
+// Reflective hygiene reject test: macro-introduced identifier shadows caller's.
+// A quote { ... } that introduces temp without antiquoting the caller's temp
+// will cause shadowing (the caller's temp becomes inaccessible).
+// Phase honesty: enforcement not yet active in CLI; fixture prepared for phase-3.
+
+module M2Hygiene_Reject001;
+
+let caller_temp = 1;
+
+// If a macro does quote { temp + caller_temp } where temp is introduced
+// and caller_temp is not antiquoted, the behavior is undefined and should
+// error when hygiene checking is active (phase-3+).
+
+let result = caller_temp;

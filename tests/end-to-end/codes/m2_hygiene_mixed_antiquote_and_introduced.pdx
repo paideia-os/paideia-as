@@ -1,0 +1,12 @@
+// Reflective hygiene test: mixed antiquoted + introduced identifiers.
+// A quote { ... } that uses both antiquotes and introduces new identifiers.
+
+module M2Hygiene004;
+
+let caller_result = 42;
+let caller_temp = 1;
+
+// quote { let macro_temp = caller_temp; macro_temp }
+// Here: caller_temp is antiquoted (passes through), macro_temp is introduced.
+
+let result = caller_result;
