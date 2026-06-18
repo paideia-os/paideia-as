@@ -1,0 +1,22 @@
+[package]
+name = "paideia-linearity-regression"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+# This crate is *only* a test harness — it contains no library code or
+# binaries, just the integration test in `tests/harness.rs` that walks
+# the accept/ and reject/ corpus directories.
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+paideia-as-lexer = { path = "../../crates/paideia-as-lexer" }
+paideia-as-parser = { path = "../../crates/paideia-as-parser" }
+paideia-as-ast = { path = "../../crates/paideia-as-ast" }
+paideia-as-elaborator = { path = "../../crates/paideia-as-elaborator" }
+paideia-as-diagnostics = { path = "../../crates/paideia-as-diagnostics" }

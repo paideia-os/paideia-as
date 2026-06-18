@@ -1223,6 +1223,17 @@ name = "paideia-fmt"
 version = "0.0.1"
 
 [[package]]
+name = "paideia-linearity-regression"
+version = "0.0.1"
+dependencies = [
+ "paideia-as-ast",
+ "paideia-as-diagnostics",
+ "paideia-as-elaborator",
+ "paideia-as-lexer",
+ "paideia-as-parser",
+]
+
+[[package]]
 name = "paideia-lsp"
 version = "0.0.1"
 dependencies = [
