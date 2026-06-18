@@ -1,6 +1,11 @@
 //! paideia-as-elaborator
 //!
-//! Phase-1 skeleton crate; see PaideiaOS design corpus for spec:
-//! https://github.com/paideia-os/paideia-os/tree/main/design/toolchain
+//! AST → IR lowering and (in later PRs) type/effect/capability checking
+//! passes. See `design/toolchain/custom-assembler.md` §6.
 
-#![allow(dead_code)]
+#![warn(missing_docs)]
+#![forbid(unsafe_code)]
+
+mod lower;
+
+pub use lower::{LoweringResult, lower_ast_to_ir};
