@@ -194,8 +194,8 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             ""
         };
 
-        if ident_lexeme == "quote" && self.peek_at(1).is_some_and(|t| t.kind == TokenKind::LBrace) {
-            return self.parse_quote_expr();
+        if ident_lexeme == "quote" && self.peek().is_some_and(|t| t.kind == TokenKind::LBrace) {
+            return self.parse_quote_expr(first_tok);
         }
 
         // Otherwise, parse as a normal path
