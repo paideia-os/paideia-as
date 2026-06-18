@@ -13,6 +13,14 @@
 //! one U1600 diagnostic listing all missing fields, spanning the closing brace.
 //!
 //! Capabilities support dotted paths (e.g., `Mmio.read_cap`) in phase-1 and later.
+//!
+//! **Instruction-stream grammar (§9.1-§9.2):**
+//! The `block:` body accepts the instruction-stream grammar identical to `action { ... }`'s body.
+//! Both use `parse_stmt(true)` to enable instruction-statement parsing. This allows the `block:`
+//! to contain raw Intel instructions with operands: zero-operand mnemonics (e.g., `sfence`),
+//! register operands (e.g., `mov rax, rbx`), memory references (e.g., `mov rax, [rbp - 8]`),
+//! and immediates (e.g., `add rax, 42`). The only place in paideia-as where raw assembly
+//! instructions appear without the typed surface in between (custom-assembler.md §9.1).
 
 use paideia_as_ast::{ExprData, NodeId, NodeKind};
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
@@ -260,6 +268,10 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 }
                 3 => {
                     // Parse block: { Stmt+ }
+                    // The block body uses the instruction-stream grammar (§9.1-§9.2),
+                    // identical to action blocks. Pass in_action_context=true to enable
+                    // instruction-statement parsing alongside let, return, and expression
+                    // statements.
                     self.expect(TokenKind::LBrace)?;
 
                     let mut block_body = Vec::new();
@@ -269,8 +281,8 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                             break;
                         }
 
-                        // Unsafe block statements: pass in_action_context=false
-                        let stmt = self.parse_stmt(false)?;
+                        // Unsafe block statements: pass in_action_context=true
+                        let stmt = self.parse_stmt(true)?;
                         block_body.push(stmt);
                     }
 
@@ -386,8 +398,16 @@ mod tests {
     ) {
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
+        // Use a dummy source that covers all possible byte positions in tests.
+        let dummy_source = "effects capabilities justification block sfence mov rax rbx add rcx comma semicolon lfence mfence ret pause bar base off rdi r8";
         let result = {
-            let mut p = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+            let mut p = Parser::new(
+                &tokens,
+                dummy_source,
+                FileId::new(1).unwrap(),
+                &mut arena,
+                &mut sink,
+            );
             p.parse_unsafe()
         };
         (arena, result, sink.diagnostics().to_vec())
@@ -559,5 +579,382 @@ mod tests {
         let expr_id = result.unwrap();
         let expr_node = arena.get(expr_id).unwrap();
         assert_eq!(expr_node.kind, NodeKind::ExprUnsafe);
+    }
+
+    #[test]
+    fn unsafe_block_accepts_zero_operand_mnemonic() {
+        // Regression test: block: { sfence }
+        // Confirms backward compatibility with zero-operand mnemonics.
+        // Note: zero-operand mnemonics parse as expression statements (not StmtInstruction)
+        // because the heuristic in parse_stmt requires a following operand token.
+        let tokens = vec![
+            tok(TokenKind::KwUnsafe, 0),
+            tok(TokenKind::LBrace, 7),
+            tok(TokenKind::Ident, 9), // effects
+            tok(TokenKind::Colon, 16),
+            tok(TokenKind::LBrace, 18),
+            tok(TokenKind::RBrace, 19),
+            tok(TokenKind::Comma, 20),
+            tok(TokenKind::Ident, 22), // capabilities
+            tok(TokenKind::Colon, 34),
+            tok(TokenKind::LBrace, 36),
+            tok(TokenKind::RBrace, 37),
+            tok(TokenKind::Comma, 38),
+            tok(TokenKind::Ident, 40), // justification
+            tok(TokenKind::Colon, 53),
+            tok(TokenKind::StringLit, 55),
+            tok(TokenKind::Comma, 77),
+            tok(TokenKind::Ident, 79), // block
+            tok(TokenKind::Colon, 84),
+            tok(TokenKind::LBrace, 86),
+            tok(TokenKind::Ident, 88), // sfence
+            tok(TokenKind::RBrace, 94),
+            tok(TokenKind::RBrace, 96),
+            tok(TokenKind::Eof, 97),
+        ];
+        let (arena, result, diags) = parse_unsafe_block(tokens);
+
+        assert_eq!(diags.len(), 0, "Expected no diagnostics");
+        assert!(result.is_ok(), "Expected parse success");
+
+        let expr_id = result.unwrap();
+        let expr_node = arena.get(expr_id).unwrap();
+        assert_eq!(expr_node.kind, NodeKind::ExprUnsafe);
+
+        // Verify block contains a statement
+        if let Some(ExprData::Unsafe { block, .. }) = arena.expr_data(expr_id) {
+            assert!(!block.is_empty(), "Block should contain statements");
+            let stmt_node = arena.get(block[0]).unwrap();
+            // Zero-operand mnemonics parse as expression statements per the heuristic
+            assert_eq!(stmt_node.kind, NodeKind::StmtExpr);
+        } else {
+            panic!("Expected ExprUnsafe");
+        }
+    }
+
+    #[test]
+    fn unsafe_block_accepts_register_operands() {
+        // block: { mov rax, rbx }
+        let tokens = vec![
+            tok(TokenKind::KwUnsafe, 0),
+            tok(TokenKind::LBrace, 7),
+            tok(TokenKind::Ident, 9), // effects
+            tok(TokenKind::Colon, 16),
+            tok(TokenKind::LBrace, 18),
+            tok(TokenKind::RBrace, 19),
+            tok(TokenKind::Comma, 20),
+            tok(TokenKind::Ident, 22), // capabilities
+            tok(TokenKind::Colon, 34),
+            tok(TokenKind::LBrace, 36),
+            tok(TokenKind::RBrace, 37),
+            tok(TokenKind::Comma, 38),
+            tok(TokenKind::Ident, 40), // justification
+            tok(TokenKind::Colon, 53),
+            tok(TokenKind::StringLit, 55),
+            tok(TokenKind::Comma, 77),
+            tok(TokenKind::Ident, 79), // block
+            tok(TokenKind::Colon, 84),
+            tok(TokenKind::LBrace, 86),
+            tok(TokenKind::Ident, 88), // mov
+            tok(TokenKind::Ident, 92), // rax
+            tok(TokenKind::Comma, 95),
+            tok(TokenKind::Ident, 97), // rbx
+            tok(TokenKind::RBrace, 100),
+            tok(TokenKind::RBrace, 102),
+            tok(TokenKind::Eof, 103),
+        ];
+        let (arena, result, diags) = parse_unsafe_block(tokens);
+
+        assert_eq!(diags.len(), 0, "Expected no diagnostics");
+        assert!(result.is_ok(), "Expected parse success");
+
+        let expr_id = result.unwrap();
+        let expr_node = arena.get(expr_id).unwrap();
+        assert_eq!(expr_node.kind, NodeKind::ExprUnsafe);
+
+        if let Some(ExprData::Unsafe { block, .. }) = arena.expr_data(expr_id) {
+            assert!(!block.is_empty());
+            let stmt_node = arena.get(block[0]).unwrap();
+            assert_eq!(stmt_node.kind, NodeKind::StmtInstruction);
+        } else {
+            panic!("Expected ExprUnsafe");
+        }
+    }
+
+    #[test]
+    fn unsafe_block_accepts_immediate_operand() {
+        // block: { add rax, 42 }
+        let tokens = vec![
+            tok(TokenKind::KwUnsafe, 0),
+            tok(TokenKind::LBrace, 7),
+            tok(TokenKind::Ident, 9), // effects
+            tok(TokenKind::Colon, 16),
+            tok(TokenKind::LBrace, 18),
+            tok(TokenKind::RBrace, 19),
+            tok(TokenKind::Comma, 20),
+            tok(TokenKind::Ident, 22), // capabilities
+            tok(TokenKind::Colon, 34),
+            tok(TokenKind::LBrace, 36),
+            tok(TokenKind::RBrace, 37),
+            tok(TokenKind::Comma, 38),
+            tok(TokenKind::Ident, 40), // justification
+            tok(TokenKind::Colon, 53),
+            tok(TokenKind::StringLit, 55),
+            tok(TokenKind::Comma, 77),
+            tok(TokenKind::Ident, 79), // block
+            tok(TokenKind::Colon, 84),
+            tok(TokenKind::LBrace, 86),
+            tok(TokenKind::Ident, 88), // add
+            tok(TokenKind::Ident, 92), // rax
+            tok(TokenKind::Comma, 95),
+            tok(TokenKind::IntLit, 97), // 42
+            tok(TokenKind::RBrace, 99),
+            tok(TokenKind::RBrace, 101),
+            tok(TokenKind::Eof, 102),
+        ];
+        let (arena, result, diags) = parse_unsafe_block(tokens);
+
+        assert_eq!(diags.len(), 0, "Expected no diagnostics");
+        assert!(result.is_ok(), "Expected parse success");
+
+        let expr_id = result.unwrap();
+        let expr_node = arena.get(expr_id).unwrap();
+        assert_eq!(expr_node.kind, NodeKind::ExprUnsafe);
+    }
+
+    #[test]
+    fn unsafe_block_accepts_memref_operand() {
+        // block: { mov rax, [rbp - 8] }
+        let tokens = vec![
+            tok(TokenKind::KwUnsafe, 0),
+            tok(TokenKind::LBrace, 7),
+            tok(TokenKind::Ident, 9), // effects
+            tok(TokenKind::Colon, 16),
+            tok(TokenKind::LBrace, 18),
+            tok(TokenKind::RBrace, 19),
+            tok(TokenKind::Comma, 20),
+            tok(TokenKind::Ident, 22), // capabilities
+            tok(TokenKind::Colon, 34),
+            tok(TokenKind::LBrace, 36),
+            tok(TokenKind::RBrace, 37),
+            tok(TokenKind::Comma, 38),
+            tok(TokenKind::Ident, 40), // justification
+            tok(TokenKind::Colon, 53),
+            tok(TokenKind::StringLit, 55),
+            tok(TokenKind::Comma, 77),
+            tok(TokenKind::Ident, 79), // block
+            tok(TokenKind::Colon, 84),
+            tok(TokenKind::LBrace, 86),
+            tok(TokenKind::Ident, 88), // mov
+            tok(TokenKind::Ident, 92), // rax
+            tok(TokenKind::Comma, 95),
+            tok(TokenKind::LBracket, 97), // [
+            tok(TokenKind::Ident, 98),    // rbp
+            tok(TokenKind::Minus, 102),
+            tok(TokenKind::IntLit, 104), // 8
+            tok(TokenKind::RBracket, 105),
+            tok(TokenKind::RBrace, 107),
+            tok(TokenKind::RBrace, 109),
+            tok(TokenKind::Eof, 110),
+        ];
+        let (arena, result, diags) = parse_unsafe_block(tokens);
+
+        assert_eq!(diags.len(), 0, "Expected no diagnostics");
+        assert!(result.is_ok(), "Expected parse success");
+
+        let expr_id = result.unwrap();
+        let expr_node = arena.get(expr_id).unwrap();
+        assert_eq!(expr_node.kind, NodeKind::ExprUnsafe);
+    }
+
+    #[test]
+    fn unsafe_block_accepts_dotted_memref_operand() {
+        // block: { mov rax, [bar.base + off] }
+        let tokens = vec![
+            tok(TokenKind::KwUnsafe, 0),
+            tok(TokenKind::LBrace, 7),
+            tok(TokenKind::Ident, 9), // effects
+            tok(TokenKind::Colon, 16),
+            tok(TokenKind::LBrace, 18),
+            tok(TokenKind::RBrace, 19),
+            tok(TokenKind::Comma, 20),
+            tok(TokenKind::Ident, 22), // capabilities
+            tok(TokenKind::Colon, 34),
+            tok(TokenKind::LBrace, 36),
+            tok(TokenKind::RBrace, 37),
+            tok(TokenKind::Comma, 38),
+            tok(TokenKind::Ident, 40), // justification
+            tok(TokenKind::Colon, 53),
+            tok(TokenKind::StringLit, 55),
+            tok(TokenKind::Comma, 77),
+            tok(TokenKind::Ident, 79), // block
+            tok(TokenKind::Colon, 84),
+            tok(TokenKind::LBrace, 86),
+            tok(TokenKind::Ident, 88), // mov
+            tok(TokenKind::Ident, 92), // rax
+            tok(TokenKind::Comma, 95),
+            tok(TokenKind::LBracket, 97), // [
+            tok(TokenKind::Ident, 98),    // bar
+            tok(TokenKind::Dot, 101),
+            tok(TokenKind::Ident, 102), // base
+            tok(TokenKind::Plus, 107),
+            tok(TokenKind::Ident, 109), // off
+            tok(TokenKind::RBracket, 112),
+            tok(TokenKind::RBrace, 114),
+            tok(TokenKind::RBrace, 116),
+            tok(TokenKind::Eof, 117),
+        ];
+        let (arena, result, diags) = parse_unsafe_block(tokens);
+
+        assert_eq!(diags.len(), 0, "Expected no diagnostics");
+        assert!(result.is_ok(), "Expected parse success");
+
+        let expr_id = result.unwrap();
+        let expr_node = arena.get(expr_id).unwrap();
+        assert_eq!(expr_node.kind, NodeKind::ExprUnsafe);
+    }
+
+    #[test]
+    fn unsafe_block_accepts_multiple_instructions() {
+        // block: { mov rax, [rdi] ; ret rax }
+        let tokens = vec![
+            tok(TokenKind::KwUnsafe, 0),
+            tok(TokenKind::LBrace, 7),
+            tok(TokenKind::Ident, 9), // effects
+            tok(TokenKind::Colon, 16),
+            tok(TokenKind::LBrace, 18),
+            tok(TokenKind::RBrace, 19),
+            tok(TokenKind::Comma, 20),
+            tok(TokenKind::Ident, 22), // capabilities
+            tok(TokenKind::Colon, 34),
+            tok(TokenKind::LBrace, 36),
+            tok(TokenKind::RBrace, 37),
+            tok(TokenKind::Comma, 38),
+            tok(TokenKind::Ident, 40), // justification
+            tok(TokenKind::Colon, 53),
+            tok(TokenKind::StringLit, 55),
+            tok(TokenKind::Comma, 77),
+            tok(TokenKind::Ident, 79), // block
+            tok(TokenKind::Colon, 84),
+            tok(TokenKind::LBrace, 86),
+            tok(TokenKind::Ident, 88), // mov
+            tok(TokenKind::Ident, 92), // rax
+            tok(TokenKind::Comma, 95),
+            tok(TokenKind::LBracket, 97), // [
+            tok(TokenKind::Ident, 98),    // rdi
+            tok(TokenKind::RBracket, 101),
+            tok(TokenKind::Semicolon, 103),
+            tok(TokenKind::Ident, 105), // ret
+            tok(TokenKind::Ident, 109), // rax
+            tok(TokenKind::RBrace, 112),
+            tok(TokenKind::RBrace, 114),
+            tok(TokenKind::Eof, 115),
+        ];
+        let (arena, result, diags) = parse_unsafe_block(tokens);
+
+        assert_eq!(diags.len(), 0, "Expected no diagnostics");
+        assert!(result.is_ok(), "Expected parse success");
+
+        let expr_id = result.unwrap();
+        let expr_node = arena.get(expr_id).unwrap();
+        assert_eq!(expr_node.kind, NodeKind::ExprUnsafe);
+
+        if let Some(ExprData::Unsafe { block, .. }) = arena.expr_data(expr_id) {
+            assert_eq!(block.len(), 2, "Block should contain 2 statements");
+            for stmt_id in block {
+                let stmt_node = arena.get(*stmt_id).unwrap();
+                assert_eq!(stmt_node.kind, NodeKind::StmtInstruction);
+            }
+        } else {
+            panic!("Expected ExprUnsafe");
+        }
+    }
+
+    #[test]
+    fn unsafe_block_parity_with_action_block() {
+        // Verify that the same instruction sequence produces identical stmt kinds
+        // when parsed in action block vs unsafe block.
+        // action { mov rax, rbx ; sfence } vs unsafe { ..., block: { mov rax, rbx ; sfence } }
+        let action_tokens = vec![
+            tok(TokenKind::KwAction, 0),
+            tok(TokenKind::LBrace, 7),
+            tok(TokenKind::Ident, 9),  // mov
+            tok(TokenKind::Ident, 13), // rax
+            tok(TokenKind::Comma, 16),
+            tok(TokenKind::Ident, 18), // rbx
+            tok(TokenKind::Semicolon, 21),
+            tok(TokenKind::Ident, 23), // sfence
+            tok(TokenKind::RBrace, 29),
+            tok(TokenKind::Eof, 30),
+        ];
+
+        let unsafe_tokens = vec![
+            tok(TokenKind::KwUnsafe, 0),
+            tok(TokenKind::LBrace, 7),
+            tok(TokenKind::Ident, 9), // effects
+            tok(TokenKind::Colon, 16),
+            tok(TokenKind::LBrace, 18),
+            tok(TokenKind::RBrace, 19),
+            tok(TokenKind::Comma, 20),
+            tok(TokenKind::Ident, 22), // capabilities
+            tok(TokenKind::Colon, 34),
+            tok(TokenKind::LBrace, 36),
+            tok(TokenKind::RBrace, 37),
+            tok(TokenKind::Comma, 38),
+            tok(TokenKind::Ident, 40), // justification
+            tok(TokenKind::Colon, 53),
+            tok(TokenKind::StringLit, 55),
+            tok(TokenKind::Comma, 77),
+            tok(TokenKind::Ident, 79), // block
+            tok(TokenKind::Colon, 84),
+            tok(TokenKind::LBrace, 86),
+            tok(TokenKind::Ident, 88), // mov
+            tok(TokenKind::Ident, 92), // rax
+            tok(TokenKind::Comma, 95),
+            tok(TokenKind::Ident, 97), // rbx
+            tok(TokenKind::Semicolon, 100),
+            tok(TokenKind::Ident, 102), // sfence
+            tok(TokenKind::RBrace, 108),
+            tok(TokenKind::RBrace, 110),
+            tok(TokenKind::Eof, 111),
+        ];
+
+        let (action_arena, action_result, action_diags) =
+            crate::parser::parse_action_block_for_test(action_tokens);
+        let (unsafe_arena, unsafe_result, _unsafe_diags) = parse_unsafe_block(unsafe_tokens);
+
+        assert_eq!(action_diags.len(), 0);
+        assert!(action_result.is_ok());
+        assert!(unsafe_result.is_ok());
+
+        // Extract bodies from both
+        let action_expr = action_result.unwrap();
+        let action_body =
+            if let Some(ExprData::ActionBlock { body, .. }) = action_arena.expr_data(action_expr) {
+                body
+            } else {
+                panic!("Expected ActionBlock")
+            };
+
+        let unsafe_expr = unsafe_result.unwrap();
+        let unsafe_body =
+            if let Some(ExprData::Unsafe { block, .. }) = unsafe_arena.expr_data(unsafe_expr) {
+                block
+            } else {
+                panic!("Expected Unsafe")
+            };
+
+        // Both should have 2 statements
+        assert_eq!(action_body.len(), unsafe_body.len());
+
+        // Check that stmt kinds match
+        for (act_stmt_id, unsafe_stmt_id) in action_body.iter().zip(unsafe_body.iter()) {
+            let act_stmt = action_arena.get(*act_stmt_id).unwrap();
+            let unsafe_stmt = unsafe_arena.get(*unsafe_stmt_id).unwrap();
+            assert_eq!(
+                act_stmt.kind, unsafe_stmt.kind,
+                "Parity failure: action and unsafe stmt kinds differ"
+            );
+        }
     }
 }
