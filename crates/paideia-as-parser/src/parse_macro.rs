@@ -572,4 +572,173 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn macro_in_structure_body_parses() {
+        let (arena, result, diags) =
+            parse_source_str("module M = structure { macro foo($x:expr) => $x + 1 }");
+        assert!(result.is_ok(), "should parse successfully");
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "should have no parse errors");
+
+        if let Ok(root_id) = result {
+            if let Some(ItemData::Structure { items, .. }) = arena.item_data(root_id) {
+                assert!(!items.is_empty(), "should have at least one item");
+                // The structure contains a Module item
+                if let Some(ItemData::Module { body, .. }) = arena.item_data(items[0]) {
+                    if let Some(ItemData::Structure {
+                        items: body_items, ..
+                    }) = arena.item_data(*body)
+                    {
+                        assert!(
+                            !body_items.is_empty(),
+                            "module structure should have at least one item"
+                        );
+                        if let Some(ItemData::MacroDecl(_decl)) = arena.item_data(body_items[0]) {
+                            // Success: macro was parsed inside the structure body
+                        } else {
+                            panic!("expected MacroDecl in structure body");
+                        }
+                    } else {
+                        panic!("expected Structure as module body");
+                    }
+                } else {
+                    panic!("expected Module item");
+                }
+            } else {
+                panic!("expected Structure root");
+            }
+        }
+    }
+
+    #[test]
+    fn macro_in_nested_structure_parses() {
+        let (arena, result, diags) = parse_source_str(
+            "module M = structure { module Inner = structure { macro f($x:expr) => $x } }",
+        );
+        assert!(result.is_ok(), "should parse successfully");
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "should have no parse errors");
+
+        if let Ok(root_id) = result {
+            if let Some(ItemData::Structure { items, .. }) = arena.item_data(root_id) {
+                assert!(!items.is_empty(), "should have at least one item");
+                // First item is outer Module
+                if let Some(ItemData::Module {
+                    body: outer_body, ..
+                }) = arena.item_data(items[0])
+                {
+                    if let Some(ItemData::Structure {
+                        items: outer_items, ..
+                    }) = arena.item_data(*outer_body)
+                    {
+                        assert!(!outer_items.is_empty(), "outer structure should have items");
+                        // First item in outer structure is inner Module
+                        if let Some(ItemData::Module {
+                            body: inner_body, ..
+                        }) = arena.item_data(outer_items[0])
+                        {
+                            if let Some(ItemData::Structure {
+                                items: inner_items, ..
+                            }) = arena.item_data(*inner_body)
+                            {
+                                assert!(
+                                    !inner_items.is_empty(),
+                                    "inner structure should have items"
+                                );
+                                if let Some(ItemData::MacroDecl(_decl)) =
+                                    arena.item_data(inner_items[0])
+                                {
+                                    // Success: macro was parsed in nested structure
+                                } else {
+                                    panic!("expected MacroDecl in inner structure");
+                                }
+                            } else {
+                                panic!("expected Structure as inner module body");
+                            }
+                        } else {
+                            panic!("expected Module as first item in outer structure");
+                        }
+                    } else {
+                        panic!("expected Structure as outer module body");
+                    }
+                } else {
+                    panic!("expected Module item");
+                }
+            } else {
+                panic!("expected Structure root");
+            }
+        }
+    }
+
+    #[test]
+    fn macro_then_let_in_structure_parses() {
+        let (arena, result, diags) =
+            parse_source_str("module M = structure { macro foo($x:expr) => $x + 1 ; let y = 42 }");
+        assert!(result.is_ok(), "should parse successfully");
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "should have no parse errors");
+
+        if let Ok(root_id) = result {
+            if let Some(ItemData::Structure { items, .. }) = arena.item_data(root_id) {
+                assert!(!items.is_empty(), "should have at least one item");
+                if let Some(ItemData::Module { body, .. }) = arena.item_data(items[0]) {
+                    if let Some(ItemData::Structure {
+                        items: body_items, ..
+                    }) = arena.item_data(*body)
+                    {
+                        assert_eq!(body_items.len(), 2, "structure should have exactly 2 items");
+                        if let Some(ItemData::MacroDecl(_decl)) = arena.item_data(body_items[0]) {
+                            if let Some(ItemData::Let { .. }) = arena.item_data(body_items[1]) {
+                                // Success: both macro and let parsed correctly
+                            } else {
+                                panic!("expected Let as second item");
+                            }
+                        } else {
+                            panic!("expected MacroDecl as first item");
+                        }
+                    } else {
+                        panic!("expected Structure as module body");
+                    }
+                } else {
+                    panic!("expected Module item");
+                }
+            } else {
+                panic!("expected Structure root");
+            }
+        }
+    }
+
+    #[test]
+    fn top_level_macro_still_parses() {
+        let (arena, result, diags) = parse_source_str("macro foo($x:expr) => $x + 1");
+        assert!(result.is_ok(), "should parse successfully");
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "should have no parse errors");
+
+        if let Ok(root_id) = result {
+            if let Some(ItemData::Structure { items, .. }) = arena.item_data(root_id) {
+                assert!(!items.is_empty(), "should have at least one item");
+                if let Some(ItemData::MacroDecl(decl)) = arena.item_data(items[0]) {
+                    assert_eq!(decl.rules.len(), 1, "should have one rule");
+                } else {
+                    panic!("expected MacroDecl item");
+                }
+            } else {
+                panic!("expected Structure root");
+            }
+        }
+    }
 }
