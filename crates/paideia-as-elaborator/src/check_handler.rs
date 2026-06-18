@@ -7,7 +7,7 @@
 //! corresponding `op_i`'s declared return type.
 //!
 //! Phase-1 simplification: signatures are opaque `u32` ids (the same
-//! [`SignatureId`] used by the [`EffectRegistry`]). Matching is by
+//! [`SignatureId`] used by `EffectRegistry`). Matching is by
 //! equality. Real subtype/return-type matching arrives once
 //! `paideia-as-types` is wired through this pass.
 
