@@ -13,6 +13,7 @@ mod parse_action;
 mod parse_control;
 mod parse_expr;
 mod parse_handler;
+mod parse_item;
 mod parse_lambda;
 mod parse_match;
 mod parse_memref;
