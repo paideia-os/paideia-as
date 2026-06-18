@@ -19,6 +19,7 @@ pub mod check_pure;
 pub mod effect_infer;
 pub mod effect_unify;
 pub mod effect_walker;
+pub mod elab_builtin;
 pub mod env;
 pub mod hygiene;
 pub mod linearity_ctx;
