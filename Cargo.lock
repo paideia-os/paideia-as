@@ -986,6 +986,10 @@ version = "0.0.1"
 [[package]]
 name = "paideia-as-effects"
 version = "0.0.1"
+dependencies = [
+ "paideia-as-ir",
+ "proptest",
+]
 
 [[package]]
 name = "paideia-as-elaborator"
