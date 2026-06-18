@@ -28,6 +28,7 @@ pub mod macro_match;
 mod placeholder_emit;
 pub mod reflect_api;
 pub mod resolve;
+pub mod term_eval;
 
 pub use branch_merge::{S_BRANCH_MISMATCH, merge_branches};
 pub use cap_infer::{C_MISSING_CAP, check_capabilities, compose_caps};
