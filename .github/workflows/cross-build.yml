@@ -71,10 +71,10 @@ jobs:
               echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
               if bash tools/cross-build/tools/cross-build.sh "$fixture"; then
-                ((passed++))
+                passed=$((passed + 1))
                 echo "✓ $fixture_name PASSED"
               else
-                ((failed++))
+                failed=$((failed + 1))
                 echo "✗ $fixture_name FAILED"
               fi
             fi
