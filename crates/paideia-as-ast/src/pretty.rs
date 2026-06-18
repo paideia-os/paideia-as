@@ -5,7 +5,7 @@
 //! in the parser. Functions include [`print_item`], [`print_expr`], [`print_stmt`],
 //! [`print_type`], and [`print_pattern`].
 
-use crate::{AstArena, ExprData, ItemData, NodeId, PatternData, StmtData, TypeData};
+use crate::{AstArena, ExprData, HandlerArm, ItemData, NodeId, PatternData, StmtData, TypeData};
 
 /// Pretty-print an item node as a structured indented dump.
 ///
@@ -397,6 +397,24 @@ fn print_expr_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
         }
         ExprData::Resume { value } => {
             format!("Resume {{ value: {} }}", value)
+        }
+        ExprData::HandlerValue { effect, arms } => {
+            let arms_str = arms
+                .iter()
+                .map(|arm| match arm {
+                    HandlerArm::Op { op, handler } => {
+                        format!("Op {{ op: {}, handler: {} }}", op, handler)
+                    }
+                    HandlerArm::Finally { cleanup } => {
+                        format!("Finally {{ cleanup: {} }}", cleanup)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "HandlerValue {{ effect: {}, arms: [{}] }}",
+                effect, arms_str
+            )
         }
     };
 

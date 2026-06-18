@@ -218,6 +218,18 @@ pub enum ExprData {
         /// Value expression.
         value: NodeId,
     },
+
+    /// `handle Effect { op ... ; finally => ... }`.
+    ///
+    /// Handler-value construction: bundles operation handlers and an optional
+    /// cleanup handler into a single first-class value. This is distinct from
+    /// `with handler-expr handle Effect { ... }` (which installs a handler).
+    HandlerValue {
+        /// Effect name being handled (Ident or Path node).
+        effect: NodeId,
+        /// Handler arms (Op | Finally variants).
+        arms: Vec<HandlerArm>,
+    },
 }
 
 /// A single arm in a match expression.
@@ -231,6 +243,25 @@ pub struct MatchArm {
     pub guard: Option<NodeId>,
     /// Arm body expression.
     pub body: NodeId,
+}
+
+/// A single arm in a handler-value expression.
+///
+/// Either an operation handler (`op name => body`) or a finally handler (`finally => body`).
+#[derive(Copy, Clone, Debug)]
+pub enum HandlerArm {
+    /// Operation handler: `op name => expr`.
+    Op {
+        /// Operation name (Ident node).
+        op: NodeId,
+        /// Handler expression.
+        handler: NodeId,
+    },
+    /// Finally handler: `finally => expr`.
+    Finally {
+        /// Cleanup expression.
+        cleanup: NodeId,
+    },
 }
 
 /// Kind of loop construct.

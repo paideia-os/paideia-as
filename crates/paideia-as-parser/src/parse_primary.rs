@@ -139,6 +139,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                     // Effect operations
                     TokenKind::KwPerform => self.parse_perform(),
                     TokenKind::KwResume => self.parse_resume(),
+                    TokenKind::KwHandle => self.parse_handler_value(),
 
                     // Identifiers and paths
                     TokenKind::Ident => self.parse_path_or_ident(),
@@ -170,7 +171,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     ///
     /// Path syntax: `Ident (:: Ident)*`.
     /// Returns an ExprPath node with segments.
-    fn parse_path_or_ident(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
+    pub(crate) fn parse_path_or_ident(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
         let first_tok = self.expect(TokenKind::Ident)?;
         let span_start = first_tok.span;
         let mut segments = vec![self.arena_mut().alloc(NodeKind::Ident, span_start)];
