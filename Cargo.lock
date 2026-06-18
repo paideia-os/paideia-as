@@ -1143,6 +1143,7 @@ dependencies = [
  "iced-x86",
  "object",
  "paideia-as-diagnostics",
+ "paideia-as-ir",
  "static_assertions",
 ]
 
