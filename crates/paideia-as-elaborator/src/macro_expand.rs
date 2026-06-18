@@ -163,8 +163,11 @@ pub fn expand_reflective(
         }
     }
 
-    // Call eval(arena, decl_body, &mut env).
-    match eval(arena, decl_body, &mut env) {
+    // Create a type cache for type inference results.
+    let mut type_cache = crate::reflect_api::TypeCache::new();
+
+    // Call eval(arena, decl_body, &mut env, &mut type_cache).
+    match eval(arena, decl_body, &mut env, &mut type_cache) {
         Ok(Value::Term(t)) => {
             // On Ok(Value::Term(t)): call splice to install it at the call site.
             crate::splice::splice(Value::Term(t), call_site).map_err(|d| vec![d])

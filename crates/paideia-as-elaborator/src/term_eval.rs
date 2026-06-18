@@ -184,12 +184,17 @@ fn extract_op_name(_arena: &AstArena, _op_id: NodeId) -> Option<String> {
 /// - If/Then/Else
 /// - Let x = e1 in e2
 /// - Match t with | Head1 => e1 | _ => e2
-/// - Calls to reflect-api functions: kind, children, span
+/// - Calls to reflect-api functions: kind, children, span, elab
 ///
 /// Returns a `Diagnostic` on type mismatch, undefined identifier, or
 /// non-exhaustive match.
 #[allow(clippy::result_large_err)]
-pub fn eval<'a>(arena: &'a AstArena, expr_id: NodeId, env: &mut Env<'a>) -> EvalResult<'a> {
+pub fn eval<'a>(
+    arena: &'a AstArena,
+    expr_id: NodeId,
+    env: &mut Env<'a>,
+    type_cache: &mut crate::reflect_api::TypeCache,
+) -> EvalResult<'a> {
     // Fetch the node data.
     let node_data = arena.get(expr_id).ok_or_else(|| {
         Diagnostic::error(
@@ -269,8 +274,8 @@ pub fn eval<'a>(arena: &'a AstArena, expr_id: NodeId, env: &mut Env<'a>) -> Eval
 
         NodeKind::ExprInfix => {
             if let Some(ExprData::Infix { lhs, op, rhs }) = arena.expr_data(expr_id) {
-                let lhs_val = eval(arena, *lhs, env)?;
-                let rhs_val = eval(arena, *rhs, env)?;
+                let lhs_val = eval(arena, *lhs, env, type_cache)?;
+                let rhs_val = eval(arena, *rhs, env, type_cache)?;
 
                 // Extract the operator name from the op node.
                 // Heuristic: byte_start of the op's span encodes the operator.
@@ -323,12 +328,12 @@ pub fn eval<'a>(arena: &'a AstArena, expr_id: NodeId, env: &mut Env<'a>) -> Eval
                 else_block,
             }) = arena.expr_data(expr_id)
             {
-                let cond_val = eval(arena, *cond, env)?;
+                let cond_val = eval(arena, *cond, env, type_cache)?;
                 match cond_val {
-                    Value::Bool(true) => eval(arena, *then_block, env),
+                    Value::Bool(true) => eval(arena, *then_block, env, type_cache),
                     Value::Bool(false) => {
                         if let Some(else_id) = else_block {
-                            eval(arena, *else_id, env)
+                            eval(arena, *else_id, env, type_cache)
                         } else {
                             Ok(Value::Unit)
                         }
@@ -349,11 +354,11 @@ pub fn eval<'a>(arena: &'a AstArena, expr_id: NodeId, env: &mut Env<'a>) -> Eval
             if let Some(ExprData::Block { stmts, tail }) = arena.expr_data(expr_id) {
                 // Evaluate all statements (typically let bindings).
                 for &stmt_id in stmts {
-                    let _ = eval(arena, stmt_id, env)?;
+                    let _ = eval(arena, stmt_id, env, type_cache)?;
                 }
                 // Evaluate tail if present.
                 if let Some(tail_id) = tail {
-                    eval(arena, *tail_id, env)
+                    eval(arena, *tail_id, env, type_cache)
                 } else {
                     Ok(Value::Unit)
                 }
@@ -369,7 +374,7 @@ pub fn eval<'a>(arena: &'a AstArena, expr_id: NodeId, env: &mut Env<'a>) -> Eval
         NodeKind::StmtLet => {
             // Let statement: bind the variable and return Unit.
             if let Some(StmtData::Let { name, ty: _, value }) = arena.stmt_data(expr_id) {
-                let val = eval(arena, *value, env)?;
+                let val = eval(arena, *value, env, type_cache)?;
                 // Bind the name (for now, assume it's a simple identifier).
                 // Use the name node's span byte_start as the variable key.
                 let name_data = arena.get(*name).ok_or_else(|| {
@@ -394,7 +399,7 @@ pub fn eval<'a>(arena: &'a AstArena, expr_id: NodeId, env: &mut Env<'a>) -> Eval
 
         NodeKind::ExprMatch => {
             if let Some(ExprData::Match { scrutinee, arms }) = arena.expr_data(expr_id) {
-                let scrutinee_val = eval(arena, *scrutinee, env)?;
+                let scrutinee_val = eval(arena, *scrutinee, env, type_cache)?;
 
                 // Scrutinee must be a Term for pattern matching on TermHead.
                 let scrutinee_term = match scrutinee_val {
@@ -432,7 +437,7 @@ pub fn eval<'a>(arena: &'a AstArena, expr_id: NodeId, env: &mut Env<'a>) -> Eval
 
                     if matches {
                         // Evaluate the arm body.
-                        return eval(arena, arm.body, env);
+                        return eval(arena, arm.body, env, type_cache);
                     }
                 }
 
@@ -466,6 +471,7 @@ pub fn eval<'a>(arena: &'a AstArena, expr_id: NodeId, env: &mut Env<'a>) -> Eval
                 // - 1: children
                 // - 2: span
                 // - 3: splice
+                // - 4: elab
                 let builtin_code = callee_data.span.byte_start();
 
                 match builtin_code {
@@ -480,7 +486,7 @@ pub fn eval<'a>(arena: &'a AstArena, expr_id: NodeId, env: &mut Env<'a>) -> Eval
                             .with_span(span)
                             .finish());
                         }
-                        let arg_val = eval(arena, args[0], env)?;
+                        let arg_val = eval(arena, args[0], env, type_cache)?;
                         match arg_val {
                             Value::Term(t) => Ok(Value::Head(t.head())),
                             _ => Err(type_mismatch_diag("term", &arg_val, span)),
@@ -498,7 +504,7 @@ pub fn eval<'a>(arena: &'a AstArena, expr_id: NodeId, env: &mut Env<'a>) -> Eval
                             .with_span(span)
                             .finish());
                         }
-                        let arg_val = eval(arena, args[0], env)?;
+                        let arg_val = eval(arena, args[0], env, type_cache)?;
                         match arg_val {
                             Value::Term(t) => {
                                 let child_terms: Vec<Value> = t
@@ -523,7 +529,7 @@ pub fn eval<'a>(arena: &'a AstArena, expr_id: NodeId, env: &mut Env<'a>) -> Eval
                             .with_span(span)
                             .finish());
                         }
-                        let arg_val = eval(arena, args[0], env)?;
+                        let arg_val = eval(arena, args[0], env, type_cache)?;
                         match arg_val {
                             Value::Term(t) => {
                                 // Return a representation of the span.
@@ -548,7 +554,7 @@ pub fn eval<'a>(arena: &'a AstArena, expr_id: NodeId, env: &mut Env<'a>) -> Eval
                             .with_span(span)
                             .finish());
                         }
-                        let arg_val = eval(arena, args[0], env)?;
+                        let arg_val = eval(arena, args[0], env, type_cache)?;
                         // Use the splice module to handle splicing.
                         // For m2-006, this is a pass-through: return the Term's NodeId
                         // wrapped in a Value::Term, with the call site span for diagnostics.
@@ -556,6 +562,21 @@ pub fn eval<'a>(arena: &'a AstArena, expr_id: NodeId, env: &mut Env<'a>) -> Eval
                             // Wrap the spliced node ID back into a Value::Term.
                             Value::Term(Term::new(arena, node_id))
                         })
+                    }
+
+                    4 => {
+                        // elab(t) builtin (phase-2-m8+)
+                        if args.len() != 1 {
+                            return Err(Diagnostic::error(
+                                DiagnosticCode::new(Category::T, Severity::Error, 524)
+                                    .expect("valid T code"),
+                            )
+                            .message("elab() expects exactly 1 argument")
+                            .with_span(span)
+                            .finish());
+                        }
+                        let arg_val = eval(arena, args[0], env, type_cache)?;
+                        crate::elab_builtin::elab(arena, arg_val, type_cache, span)
                     }
 
                     _ => Err(Diagnostic::error(
@@ -620,7 +641,8 @@ mod tests {
         );
 
         let mut env = Env::new();
-        let result = eval(&arena, lit_id, &mut env);
+        let mut type_cache = crate::reflect_api::TypeCache::new();
+        let result = eval(&arena, lit_id, &mut env, &mut type_cache);
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Value::Int(1));
@@ -662,7 +684,8 @@ mod tests {
         );
 
         let mut env = Env::new();
-        let result = eval(&arena, infix_id, &mut env);
+        let mut type_cache = crate::reflect_api::TypeCache::new();
+        let result = eval(&arena, infix_id, &mut env, &mut type_cache);
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Value::Int(3));
@@ -736,7 +759,8 @@ mod tests {
         );
 
         let mut env = Env::new();
-        let result = eval(&arena, block_id, &mut env);
+        let mut type_cache = crate::reflect_api::TypeCache::new();
+        let result = eval(&arena, block_id, &mut env, &mut type_cache);
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Value::Int(2));
@@ -785,7 +809,8 @@ mod tests {
         );
 
         let mut env = Env::new();
-        let result = eval(&arena, if_id, &mut env);
+        let mut type_cache = crate::reflect_api::TypeCache::new();
+        let result = eval(&arena, if_id, &mut env, &mut type_cache);
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Value::Int(1));
@@ -834,7 +859,8 @@ mod tests {
         );
 
         let mut env = Env::new();
-        let result = eval(&arena, if_id, &mut env);
+        let mut type_cache = crate::reflect_api::TypeCache::new();
+        let result = eval(&arena, if_id, &mut env, &mut type_cache);
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Value::Int(2));
@@ -893,7 +919,8 @@ mod tests {
         );
 
         let mut env = Env::new();
-        let _result = eval(&arena, if_id, &mut env);
+        let mut type_cache = crate::reflect_api::TypeCache::new();
+        let _result = eval(&arena, if_id, &mut env, &mut type_cache);
 
         // With cond = 5 (non-zero byte_start, zero byte_len), it parses as Int(5), which is not a bool.
         // Let me adjust: use byte_len=1 to make it true.
@@ -921,7 +948,8 @@ mod tests {
         );
 
         let mut env2 = Env::new();
-        let result2 = eval(&arena, if_id2, &mut env2);
+        let mut type_cache2 = crate::reflect_api::TypeCache::new();
+        let result2 = eval(&arena, if_id2, &mut env2, &mut type_cache2);
 
         assert!(result2.is_ok());
         assert_eq!(result2.unwrap(), Value::Int(1)); // True branch taken
@@ -942,7 +970,8 @@ mod tests {
         );
 
         let mut env = Env::new();
-        let result = eval(&arena, x_path, &mut env);
+        let mut type_cache = crate::reflect_api::TypeCache::new();
+        let result = eval(&arena, x_path, &mut env, &mut type_cache);
 
         assert!(result.is_err());
         let diag = result.unwrap_err();
@@ -986,7 +1015,8 @@ mod tests {
         );
 
         let mut env = Env::new();
-        let result = eval(&arena, infix_id, &mut env);
+        let mut type_cache = crate::reflect_api::TypeCache::new();
+        let result = eval(&arena, infix_id, &mut env, &mut type_cache);
 
         assert!(result.is_err());
         let diag = result.unwrap_err();
@@ -1125,7 +1155,8 @@ mod tests {
         );
 
         let mut env = Env::new();
-        let result = eval(&arena, infix_id, &mut env);
+        let mut type_cache = crate::reflect_api::TypeCache::new();
+        let result = eval(&arena, infix_id, &mut env, &mut type_cache);
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Value::Int(2));
@@ -1167,7 +1198,8 @@ mod tests {
         );
 
         let mut env = Env::new();
-        let result = eval(&arena, infix_id, &mut env);
+        let mut type_cache = crate::reflect_api::TypeCache::new();
+        let result = eval(&arena, infix_id, &mut env, &mut type_cache);
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Value::Int(12));
@@ -1209,7 +1241,8 @@ mod tests {
         );
 
         let mut env = Env::new();
-        let result = eval(&arena, infix_id, &mut env);
+        let mut type_cache = crate::reflect_api::TypeCache::new();
+        let result = eval(&arena, infix_id, &mut env, &mut type_cache);
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Value::Bool(true));
@@ -1249,7 +1282,8 @@ mod tests {
         );
 
         let mut env = Env::new();
-        let result = eval(&arena, splice_call_id, &mut env);
+        let mut type_cache = crate::reflect_api::TypeCache::new();
+        let result = eval(&arena, splice_call_id, &mut env, &mut type_cache);
 
         // Should succeed, returning a Value::Term wrapping the spliced node.
         assert!(result.is_ok());
@@ -1260,6 +1294,66 @@ mod tests {
                 assert_eq!(t.id(), lit_id);
             }
             _ => panic!("Expected Value::Term from splice call"),
+        }
+    }
+
+    #[test]
+    fn evals_elab_call() {
+        let mut arena = AstArena::new();
+
+        // Build a literal: 42
+        let lit_placeholder = arena.alloc(NodeKind::Placeholder, test_span(42, 0));
+        let lit_id = arena.alloc_expr(
+            NodeKind::ExprLiteral,
+            test_span(42, 0),
+            ExprData::Literal {
+                lit: lit_placeholder,
+            },
+        );
+
+        // Build a quoted literal: quote { 42 }
+        let quote_id = arena.alloc_expr(
+            NodeKind::ExprQuote,
+            test_span(40, 10),
+            ExprData::Quote { body: lit_id },
+        );
+
+        // Build an elab call: elab(quote { 42 })
+        // The callee's span.byte_start = 4 indicates the elab builtin.
+        let callee_id = arena.alloc(NodeKind::Placeholder, test_span(4, 4)); // "elab"
+
+        let elab_call_id = arena.alloc_expr(
+            NodeKind::ExprCall,
+            test_span(0, 20),
+            ExprData::Call {
+                callee: callee_id,
+                args: vec![quote_id],
+            },
+        );
+
+        let mut env = Env::new();
+        let mut type_cache = crate::reflect_api::TypeCache::new();
+        let result = eval(&arena, elab_call_id, &mut env, &mut type_cache);
+
+        // Should succeed, returning a Value::Term.
+        assert!(result.is_ok());
+        let value = result.unwrap();
+        match value {
+            Value::Term(t) => {
+                // The flow is:
+                // 1. eval(quote { 42 }) evaluates the quote, which returns Value::Term(lit_id)
+                // 2. elab receives that Value::Term(lit_id)
+                // 3. elab returns Value::Term(lit_id) after populating the cache
+                let returned_id = t.id();
+                // So the returned term should be the literal (lit_id).
+                assert_eq!(
+                    returned_id, lit_id,
+                    "Expected elab to return the term it received (the quoted literal)"
+                );
+                // Verify the type cache has an entry for the literal (elab should have populated it).
+                assert!(type_cache.get(lit_id).is_some());
+            }
+            _ => panic!("Expected Value::Term from elab call"),
         }
     }
 }
