@@ -362,7 +362,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     ///
     /// Syntax: `EffectOpen (idents with optional Pipe tail) RBrace`.
     /// Empty effect set `!{}` is recognized.
-    fn parse_effect_row(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
+    pub(crate) fn parse_effect_row(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
         let effect_open_tok = self.expect(TokenKind::EffectOpen)?;
         let span_start = effect_open_tok.span;
 
@@ -439,7 +439,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// as a sequence of Ident nodes and stored in `TypeData::EffectRow` with
     /// `rest: None` (reusing the effect row variant). A dedicated TypeData
     /// variant for capability sets can be added in a later phase if needed.
-    fn parse_cap_set(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
+    pub(crate) fn parse_cap_set(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
         let cap_open_tok = self.expect(TokenKind::CapOpen)?;
         let span_start = cap_open_tok.span;
 

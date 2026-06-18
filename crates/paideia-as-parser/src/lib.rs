@@ -9,14 +9,18 @@
 #![forbid(unsafe_code)]
 
 mod cursor;
+mod parse_action;
 mod parse_control;
 mod parse_expr;
+mod parse_handler;
 mod parse_lambda;
 mod parse_match;
 mod parse_postfix;
 mod parse_prefix;
 mod parse_primary;
+mod parse_stmt;
 mod parse_type;
+mod parse_unsafe;
 mod parser;
 mod precedence;
 
