@@ -9,6 +9,7 @@
 pub mod branch_merge;
 pub mod capture;
 pub mod check_expr;
+pub mod check_handler;
 pub mod check_lambda;
 pub mod check_linearity;
 pub mod check_ordered;
@@ -22,6 +23,7 @@ mod placeholder_emit;
 pub use branch_merge::{S_BRANCH_MISMATCH, merge_branches};
 pub use capture::{CaptureKind, CapturedBinding, analyze_captures};
 pub use check_expr::{InferOutcome, check_annotation, infer_node};
+pub use check_handler::{F_HANDLER_MISMATCH, HandlerImpl, check_handler, check_resume};
 pub use check_lambda::{S_ILLEGAL_CAPTURE, check_lambda};
 pub use check_linearity::{S_NEVER_USED, S_OVERUSED, validate_scope};
 pub use check_ordered::{OrderedEntry, OrderedLog, S_OUT_OF_ORDER};
