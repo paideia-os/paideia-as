@@ -211,8 +211,8 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             ));
         }
 
-        // Parse the first expression
-        let first_expr = self.parse_primary()?;
+        // Parse the first expression with full infix/prefix/postfix support
+        let first_expr = self.parse_expr()?;
 
         // Check for comma: tuple case or parenthesized single expr?
         if self.at(TokenKind::Comma) {
@@ -227,7 +227,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                     break;
                 }
 
-                _elements.push(self.parse_primary()?);
+                _elements.push(self.parse_expr()?);
             }
 
             if !self.at(TokenKind::RParen) {
