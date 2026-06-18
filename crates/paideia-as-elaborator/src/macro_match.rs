@@ -330,4 +330,31 @@ mod tests {
         assert_eq!(r.bindings[0].captured, "a");
         assert_eq!(r.bindings[1].captured, "b");
     }
+
+    #[test]
+    fn match_invocation_dispatches_across_two_rules() {
+        // Rule 0: single expr
+        // Rule 1: two exprs
+        let (decl, pats) = decl_with_rules(vec!["$x:expr", "$x:expr, $y:expr"]);
+
+        // Call with single arg should match rule 0
+        let r = match_invocation(&decl, &pats, "3", span());
+        assert!(r.diagnostics.is_empty());
+        assert_eq!(r.rule_index, Some(0), "single arg should match rule 0");
+        assert_eq!(r.bindings.len(), 1);
+        assert_eq!(r.bindings[0].captured, "3");
+
+        // Call with two args should match rule 1
+        let r = match_invocation(&decl, &pats, "3, 4", span());
+        assert!(r.diagnostics.is_empty());
+        assert_eq!(r.rule_index, Some(1), "two args should match rule 1");
+        assert_eq!(r.bindings.len(), 2);
+        assert_eq!(r.bindings[0].captured, "3");
+        assert_eq!(r.bindings[1].captured, "4");
+
+        // Call with no args should match neither
+        let r = match_invocation(&decl, &pats, "", span());
+        assert!(!r.diagnostics.is_empty());
+        assert_eq!(r.rule_index, None);
+    }
 }
