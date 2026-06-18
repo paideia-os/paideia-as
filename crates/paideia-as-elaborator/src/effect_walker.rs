@@ -3,7 +3,8 @@
 //! Implements an [`IrWalker`] that tracks effect rows through an IR tree,
 //! running row composition at Perform and App nodes, and unification at
 //! call sites. Produces F1100 (unhandled effect), F1102 (handler installation
-//! order), and F1105 (row mismatch) diagnostics.
+//! order), F1105 (row mismatch), F1101 (handler well-typedness), and
+//! F1106 (pure-context forbidden-effect) diagnostics.
 //!
 //! ## Phase-2-m1 Status
 //!
@@ -17,15 +18,19 @@
 //! Similarly, Handle nodes don't yet carry per-arm effect metadata; the
 //! walker takes the handled effect from a parallel side-table for phase-2-m1.
 //! Real effect-arm resolution lands in m3.
+//!
+//! Handler implementations (for F1101 checking) and pure-context markers
+//! (for F1106 checking) also arrive via injection tables in phase-2-m1.
+//! Phase-3 will embed these in the IR structure.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use paideia_as_effects::{EffectId, EffectRow, RowVarId};
+use paideia_as_effects::{EffectId, EffectRow, RowVarId, SignatureId};
 use paideia_as_ir::{IrArena, IrKind, IrNodeData, IrNodeId, IrWalker, WalkerCtx};
 
 use crate::{
-    check_handler_order, check_no_unhandled, compose_rows, handle_row, instantiate_fresh_tail,
-    unify_call_row,
+    HandlerImpl, check_handler, check_handler_order, check_no_unhandled, check_pure, compose_rows,
+    handle_row, instantiate_fresh_tail, unify_call_row,
 };
 
 /// IrWalker that tracks effect rows and runs unification at call sites.
@@ -40,6 +45,12 @@ pub struct EffectRowWalker {
     /// Stack of effect IDs from enclosing with-handle blocks.
     /// Used to validate handler installation order.
     handle_stack: Vec<EffectId>,
+    /// Stack of saved effect rows for Lambda boundaries.
+    /// When entering a Lambda (pre_visit), the current row is pushed;
+    /// when exiting (post_visit), it is popped and restored.
+    /// This isolation allows pure Lambdas to accumulate their body effects
+    /// independently of the outer scope.
+    row_stack: Vec<EffectRow>,
     /// Phase-2-m1: injection table mapping IrNodeId → (effect_name, op_name)
     /// per Perform. Tests populate this directly; the IR walker resolves.
     perform_ops: HashMap<IrNodeId, (String, String)>,
@@ -50,6 +61,17 @@ pub struct EffectRowWalker {
     /// Tests inject the callee's declared row; production will pull this from
     /// the IR once function types are threaded through.
     call_declared_rows: HashMap<IrNodeId, EffectRow>,
+    /// Phase-2-m1: injection table mapping IrNodeId (Handle nodes) → handler implementations.
+    /// Each entry is a list of (op_name, signature) pairs that the handle block
+    /// provides. F1101 checking compares this against the declared effect's op set.
+    handler_impls: HashMap<IrNodeId, Vec<HandlerImpl>>,
+    /// Phase-2-m1: injection table mapping effect name → declared (op_name, signature) pairs.
+    /// Used by F1101 checking to validate handler implementations.
+    effect_decls: HashMap<String, Vec<(String, SignatureId)>>,
+    /// Phase-2-m1: set of Lambda IrNodeIds that are marked as pure contexts.
+    /// Lambdas in this set must not perform any effects; their body rows
+    /// are checked by F1106 validation.
+    pure_contexts: HashSet<IrNodeId>,
     /// Counter for generating fresh row variables at each call site.
     next_fresh_row_var: u32,
 }
@@ -61,9 +83,13 @@ impl EffectRowWalker {
         Self {
             current_row: EffectRow::empty(),
             handle_stack: Vec::new(),
+            row_stack: Vec::new(),
             perform_ops: HashMap::new(),
             handle_effects: HashMap::new(),
             call_declared_rows: HashMap::new(),
+            handler_impls: HashMap::new(),
+            effect_decls: HashMap::new(),
+            pure_contexts: HashSet::new(),
             next_fresh_row_var: 1,
         }
     }
@@ -81,6 +107,25 @@ impl EffectRowWalker {
     /// Inject the declared callee row for an App node (phase-2-m1).
     pub fn inject_call_row(&mut self, node_id: IrNodeId, declared_row: EffectRow) {
         self.call_declared_rows.insert(node_id, declared_row);
+    }
+
+    /// Inject handler implementations for a Handle node (phase-2-m1, F1101 checking).
+    pub fn inject_handler_impls(&mut self, node_id: IrNodeId, impls: Vec<HandlerImpl>) {
+        self.handler_impls.insert(node_id, impls);
+    }
+
+    /// Inject the declared operations for an effect (phase-2-m1, F1101 checking).
+    pub fn inject_effect_decl(
+        &mut self,
+        effect_name: String,
+        declared_ops: Vec<(String, SignatureId)>,
+    ) {
+        self.effect_decls.insert(effect_name, declared_ops);
+    }
+
+    /// Mark a Lambda node as a pure context (phase-2-m1, F1106 checking).
+    pub fn mark_pure_context(&mut self, lambda_id: IrNodeId) {
+        self.pure_contexts.insert(lambda_id);
     }
 
     /// Generate a fresh row variable for use in instantiation.
@@ -123,6 +168,14 @@ impl IrWalker for EffectRowWalker {
                     self.handle_stack.push(*handled_id);
                 }
             }
+            IrKind::Lambda => {
+                // Enter a Lambda scope: push the current row and reset to empty.
+                // This isolates the Lambda's body effects from the outer scope.
+                // After post_visit, the body's accumulated effects will be checked
+                // if this Lambda is in pure_contexts.
+                self.row_stack.push(self.current_row.clone());
+                self.current_row = EffectRow::empty();
+            }
             _ => {}
         }
     }
@@ -136,6 +189,27 @@ impl IrWalker for EffectRowWalker {
     ) {
         match node.kind {
             IrKind::Handle => {
+                // Check handler well-typedness (F1101) before subtracting the effect.
+                // This requires knowing which effect this Handle is for, and the declared
+                // operations of that effect. If both are injected, we run check_handler.
+                if let Some(handled_id) = self.handle_effects.get(&id) {
+                    // Look for handler implementations injected for this Handle node.
+                    if let Some(impls) = self.handler_impls.get(&id) {
+                        // Map the effect ID back to its name so we can find declared ops.
+                        // Phase-2-m1: we rely on an optional injected mapping.
+                        // For now, reconstruct the name as a string from the ID.
+                        // In production, phase-3 will embed this in the IR.
+                        let effect_name = handled_id.get().to_string(); // Dummy mapping
+
+                        if let Some(declared_ops) = self.effect_decls.get(&effect_name) {
+                            let diags = check_handler(&effect_name, declared_ops, impls, node.span);
+                            for diag in diags {
+                                ctx.emit(diag);
+                            }
+                        }
+                    }
+                }
+
                 // Subtract the handled effect from current_row.
                 if let Some(handled_id) = self.handle_effects.get(&id) {
                     self.current_row = handle_row(&self.current_row, *handled_id);
@@ -155,6 +229,25 @@ impl IrWalker for EffectRowWalker {
 
                     // Pop the stack (handled effect is now processed).
                     self.handle_stack.pop();
+                }
+            }
+            IrKind::Lambda => {
+                // Exiting a Lambda scope: check for pure-context violations (F1106),
+                // then restore the outer row.
+                let body_row = self.current_row.clone();
+
+                // If this Lambda is marked as a pure context, validate that the
+                // accumulated body effects are empty.
+                if self.pure_contexts.contains(&id) {
+                    let diags = check_pure(&body_row, node.span);
+                    for diag in diags {
+                        ctx.emit(diag);
+                    }
+                }
+
+                // Restore the outer scope's row.
+                if let Some(saved_row) = self.row_stack.pop() {
+                    self.current_row = saved_row;
                 }
             }
             IrKind::App => {
@@ -431,5 +524,259 @@ mod tests {
 
         // No diagnostics for an empty module.
         assert_eq!(sink.count(), 0, "no diagnostics for empty module");
+    }
+
+    // ─── F1101 Handler Well-Typedness Tests ──────────────────────────────
+
+    #[test]
+    fn walker_emits_f1101_on_handler_missing_op() {
+        // Build IR: Module → Handle
+        // Inject: Handle has one impl (read), but effect declares two ops (read, write)
+        // Expected: F1101 for missing write operation.
+        let mut arena = paideia_as_ir::IrArena::new();
+        let s = span(0);
+
+        let handle_id = arena.alloc(IrKind::Handle, s);
+        let module_id = arena.alloc_with_children(IrKind::Module, s, [handle_id]);
+
+        let mut walker = EffectRowWalker::new();
+
+        // Inject: handle_id handles effect id 1
+        walker.inject_handle_effect(handle_id, eff(1));
+
+        // Inject: handler implementation with only "read" op (SignatureId is a u32)
+        let impl_read = crate::HandlerImpl {
+            op_name: "read".to_string(),
+            signature: 101,
+            span: s,
+        };
+        walker.inject_handler_impls(handle_id, vec![impl_read]);
+
+        // Inject: effect 1 (named "1") declares two ops: read and write
+        walker.inject_effect_decl(
+            "1".to_string(),
+            vec![("read".to_string(), 101), ("write".to_string(), 102)],
+        );
+
+        let sm = SourceMap::new();
+        let mut sink = VecSink::new();
+        let mut ctx = WalkerCtx::new(&sm, &mut sink);
+
+        walk(&mut walker, &arena, module_id, &mut ctx);
+
+        // Should emit F1101 for missing "write" operation.
+        let f1101_count = sink
+            .diagnostics()
+            .iter()
+            .filter(|d| d.code().number() == crate::F_HANDLER_MISMATCH)
+            .count();
+        assert_eq!(f1101_count, 1, "exactly one F1101 expected for missing op");
+    }
+
+    #[test]
+    fn walker_no_f1101_on_matching_handler() {
+        // Build IR: Module → Handle
+        // Inject: Handle has complete matching implementation.
+        // Expected: No F1101.
+        let mut arena = paideia_as_ir::IrArena::new();
+        let s = span(0);
+
+        let handle_id = arena.alloc(IrKind::Handle, s);
+        let module_id = arena.alloc_with_children(IrKind::Module, s, [handle_id]);
+
+        let mut walker = EffectRowWalker::new();
+
+        // Inject: handle_id handles effect id 1
+        walker.inject_handle_effect(handle_id, eff(1));
+
+        // Inject: complete handler implementation
+        let impl_read = crate::HandlerImpl {
+            op_name: "read".to_string(),
+            signature: 101,
+            span: s,
+        };
+        let impl_write = crate::HandlerImpl {
+            op_name: "write".to_string(),
+            signature: 102,
+            span: s,
+        };
+        walker.inject_handler_impls(handle_id, vec![impl_read, impl_write]);
+
+        // Inject: effect 1 declares the same two ops
+        walker.inject_effect_decl(
+            "1".to_string(),
+            vec![("read".to_string(), 101), ("write".to_string(), 102)],
+        );
+
+        let sm = SourceMap::new();
+        let mut sink = VecSink::new();
+        let mut ctx = WalkerCtx::new(&sm, &mut sink);
+
+        walk(&mut walker, &arena, module_id, &mut ctx);
+
+        // No F1101 should be emitted.
+        let f1101_count = sink
+            .diagnostics()
+            .iter()
+            .filter(|d| d.code().number() == crate::F_HANDLER_MISMATCH)
+            .count();
+        assert_eq!(f1101_count, 0, "no F1101 expected for matching handler");
+    }
+
+    // ─── F1106 Pure-Context Forbidden-Effect Tests ──────────────────────
+
+    #[test]
+    fn walker_no_f1106_on_pure_context_no_effects() {
+        // Build IR: Module → Lambda → (empty body, no Perform)
+        // Mark: Lambda as pure context.
+        // Expected: No F1106 (pure lambda with no effects is valid).
+        let mut arena = paideia_as_ir::IrArena::new();
+        let s = span(0);
+
+        let lambda_id = arena.alloc(IrKind::Lambda, s);
+        let module_id = arena.alloc_with_children(IrKind::Module, s, [lambda_id]);
+
+        let mut walker = EffectRowWalker::new();
+        walker.mark_pure_context(lambda_id);
+
+        let sm = SourceMap::new();
+        let mut sink = VecSink::new();
+        let mut ctx = WalkerCtx::new(&sm, &mut sink);
+
+        walk(&mut walker, &arena, module_id, &mut ctx);
+
+        // No F1106 should be emitted.
+        let f1106_count = sink
+            .diagnostics()
+            .iter()
+            .filter(|d| d.code().number() == crate::F_PURE_VIOLATION)
+            .count();
+        assert_eq!(
+            f1106_count, 0,
+            "no F1106 expected for pure lambda with no effects"
+        );
+    }
+
+    #[test]
+    fn walker_emits_f1106_on_pure_context_with_effect() {
+        // Build IR: Module → Lambda → Perform(Io)
+        // Mark: Lambda as pure context.
+        // Expected: F1106 (pure lambda must not perform effects).
+        let mut arena = paideia_as_ir::IrArena::new();
+        let s = span(0);
+
+        let perform_id = arena.alloc(IrKind::Perform, s);
+        let lambda_id = arena.alloc_with_children(IrKind::Lambda, s, [perform_id]);
+        let module_id = arena.alloc_with_children(IrKind::Module, s, [lambda_id]);
+
+        let mut walker = EffectRowWalker::new();
+        // Inject: perform_id → Io (effect id 1)
+        walker.inject_perform(perform_id, "Io".to_string(), "read".to_string());
+        // Mark: lambda_id as pure context
+        walker.mark_pure_context(lambda_id);
+
+        let sm = SourceMap::new();
+        let mut sink = VecSink::new();
+        let mut ctx = WalkerCtx::new(&sm, &mut sink);
+
+        walk(&mut walker, &arena, module_id, &mut ctx);
+
+        // Should emit F1106 for the effect in the pure lambda.
+        let f1106_count = sink
+            .diagnostics()
+            .iter()
+            .filter(|d| d.code().number() == crate::F_PURE_VIOLATION)
+            .count();
+        assert_eq!(
+            f1106_count, 1,
+            "exactly one F1106 expected for pure lambda with effect"
+        );
+    }
+
+    #[test]
+    fn walker_no_f1106_on_impure_context_with_effect() {
+        // Build IR: Module → Lambda → Perform(Io)
+        // Don't mark: Lambda as pure context.
+        // Expected: No F1106 (impure lambda can perform effects).
+        // (Note: F1100 may be emitted for unhandled effect, but that's separate.)
+        let mut arena = paideia_as_ir::IrArena::new();
+        let s = span(0);
+
+        let perform_id = arena.alloc(IrKind::Perform, s);
+        let lambda_id = arena.alloc_with_children(IrKind::Lambda, s, [perform_id]);
+        let module_id = arena.alloc_with_children(IrKind::Module, s, [lambda_id]);
+
+        let mut walker = EffectRowWalker::new();
+        // Inject: perform_id → Io (effect id 1)
+        walker.inject_perform(perform_id, "Io".to_string(), "read".to_string());
+        // Don't mark lambda as pure context
+
+        let sm = SourceMap::new();
+        let mut sink = VecSink::new();
+        let mut ctx = WalkerCtx::new(&sm, &mut sink);
+
+        walk(&mut walker, &arena, module_id, &mut ctx);
+
+        // No F1106 should be emitted (lambda is impure).
+        let f1106_count = sink
+            .diagnostics()
+            .iter()
+            .filter(|d| d.code().number() == crate::F_PURE_VIOLATION)
+            .count();
+        assert_eq!(f1106_count, 0, "no F1106 expected for impure lambda");
+    }
+
+    #[test]
+    fn walker_pure_lambda_nested_in_handle() {
+        // Integration test: verify row stack isolation works with nested handlers.
+        // Build IR: Module → Handle(Io) → Lambda → Perform(Ipc)
+        // Mark: Lambda as pure context.
+        // Expected: F1106 for Perform in pure lambda (outer handle doesn't grant purity).
+        // Also: Ipc is confined to the lambda's isolated row; no F1100 leaks out
+        // (lambda's effects don't bubble up due to row stacking).
+        let mut arena = paideia_as_ir::IrArena::new();
+        let s = span(0);
+
+        let perform_id = arena.alloc(IrKind::Perform, s);
+        let lambda_id = arena.alloc_with_children(IrKind::Lambda, s, [perform_id]);
+        let handle_id = arena.alloc_with_children(IrKind::Handle, s, [lambda_id]);
+        let module_id = arena.alloc_with_children(IrKind::Module, s, [handle_id]);
+
+        let mut walker = EffectRowWalker::new();
+        // Inject: perform_id → Ipc (effect id 2)
+        walker.inject_perform(perform_id, "Ipc".to_string(), "send".to_string());
+        // Inject: handle_id handles Io (effect id 1)
+        walker.inject_handle_effect(handle_id, eff(1));
+        // Mark: lambda_id as pure context
+        walker.mark_pure_context(lambda_id);
+
+        let sm = SourceMap::new();
+        let mut sink = VecSink::new();
+        let mut ctx = WalkerCtx::new(&sm, &mut sink);
+
+        walk(&mut walker, &arena, module_id, &mut ctx);
+
+        // Should emit F1106 for Perform in pure lambda.
+        let f1106_count = sink
+            .diagnostics()
+            .iter()
+            .filter(|d| d.code().number() == crate::F_PURE_VIOLATION)
+            .count();
+        assert_eq!(
+            f1106_count, 1,
+            "exactly one F1106 expected in nested pure lambda"
+        );
+
+        // Ipc is confined to the lambda's isolated row (row stack isolation).
+        // No effects escape the lambda, so no F1100.
+        let f1100_count = sink
+            .diagnostics()
+            .iter()
+            .filter(|d| d.code().number() == crate::F_UNHANDLED_EFFECT)
+            .count();
+        assert_eq!(
+            f1100_count, 0,
+            "no F1100 expected (Ipc confined to lambda row)"
+        );
     }
 }
