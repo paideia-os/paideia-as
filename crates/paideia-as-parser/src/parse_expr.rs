@@ -38,6 +38,35 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// **Range chaining:** If `..` (not yet in lexer) is encountered twice in a row,
     /// emit P0103 and continue recovery.
     pub fn parse_expr_bp(&mut self, min_bp: u8) -> Result<NodeId, ParseError> {
+        // Step 0: Check for control-flow constructs and lambdas (highest precedence as they parse their own subtrees).
+        if let Some(tok) = self.peek() {
+            match tok.kind {
+                // Keywords that open control structures or lambdas
+                paideia_as_lexer::TokenKind::KwFn => {
+                    return self.parse_lambda_fn();
+                }
+                paideia_as_lexer::TokenKind::KwMatch => {
+                    return self.parse_match();
+                }
+                paideia_as_lexer::TokenKind::KwIf => {
+                    return self.parse_if();
+                }
+                paideia_as_lexer::TokenKind::KwLoop
+                | paideia_as_lexer::TokenKind::KwWhile
+                | paideia_as_lexer::TokenKind::KwFor => {
+                    return self.parse_loop_form();
+                }
+                paideia_as_lexer::TokenKind::LBrace => {
+                    return self.parse_block();
+                }
+                paideia_as_lexer::TokenKind::Pipe => {
+                    // Pipe-form lambda: |x, y| body
+                    return self.parse_lambda_pipe();
+                }
+                _ => {}
+            }
+        }
+
         // Step 1: Check for prefix operator.
         let mut lhs = if self.peek().and_then(|tok| prefix_bp(tok.kind)).is_some() {
             self.parse_prefix()?
