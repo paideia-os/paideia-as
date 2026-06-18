@@ -66,6 +66,7 @@ blake3 = "1"
 # Testing
 insta = "1"
 proptest = "1"
+iced-x86 = "1"
 
 [profile.release]
 opt-level = 3
