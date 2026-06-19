@@ -127,6 +127,14 @@ impl DocumentStore {
     pub fn is_empty(&self) -> bool {
         self.docs.read().unwrap().is_empty()
     }
+
+    /// Iterate over all documents in the store, yielding (URI, Document) pairs.
+    pub fn iter(&self) -> Vec<(Url, Document)> {
+        let docs = self.docs.read().unwrap();
+        docs.iter()
+            .map(|(uri, doc)| (uri.clone(), doc.clone()))
+            .collect()
+    }
 }
 
 #[cfg(test)]

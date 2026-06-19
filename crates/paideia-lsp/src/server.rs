@@ -72,6 +72,17 @@ impl LanguageServer for Backend {
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         Ok(crate::hover::hover_at(&self.store, &params))
     }
+
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        Ok(crate::navigation::definition_at(&self.store, &params))
+    }
+
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        Ok(crate::navigation::references_at(&self.store, &params))
+    }
 }
 
 /// Server capabilities per editor-support.md §1.1.
