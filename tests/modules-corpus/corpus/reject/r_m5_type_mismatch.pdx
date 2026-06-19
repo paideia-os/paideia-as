@@ -1,0 +1,6 @@
+// Issue #242: signature matching — kind mismatch (val vs type).
+// M0302: structure binding kind or type does not match signature declaration.
+
+module M : sig { val x : int } = structure {
+  type x = int
+}

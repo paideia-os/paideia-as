@@ -397,6 +397,34 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "Signature ascription requires the structure to define a named type/val/module that is absent."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/M0301",
+              "id": "M0301",
+              "name": "Structure missing signature declaration",
+              "shortDescription": {
+                "text": "structure does not provide a declaration required by the signature"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "A name is bound in both the signature and the structure but with incompatible kinds (type/val/module) or types."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/M0302",
+              "id": "M0302",
+              "name": "Structure binding kind mismatches signature",
+              "shortDescription": {
+                "text": "structure binding kind or type does not match signature declaration"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "Phase-1 placeholder for reflective macro features (typed elaborator reflection, quote/antiquote, splice, elab, hygiene under reflection). Retired in Phase 2 m2 (PRs #361–#371) — the full Lean-4-style reflection track is now live so this code should never fire. Reserved for compatibility; will be deleted in Phase 3."
               },
               "helpUri": "https://paideia-os.org/diagnostics/M0307",
