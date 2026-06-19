@@ -1,0 +1,3 @@
+# Expect M0311: fuel exhausted during macro evaluation
+# (Fixture deferred: macro driver not yet wired; #[ignore] in test runner)
+M0311
