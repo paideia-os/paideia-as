@@ -34,6 +34,43 @@ pub const IMAGE_SUBSYSTEM_EFI_APPLICATION: u16 = 10;
 /// Optional Header magic for PE32+ (64-bit).
 pub const IMAGE_NT_OPTIONAL_HDR64_MAGIC: u16 = 0x20b;
 
+/// DLL Characteristic: High Entropy Virtual Address Space.
+pub const IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA: u16 = 0x0020;
+
+/// DLL Characteristic: Dynamic Base (ASLR).
+pub const IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE: u16 = 0x0040;
+
+/// DLL Characteristic: Force Integrity.
+pub const IMAGE_DLLCHARACTERISTICS_FORCE_INTEGRITY: u16 = 0x0080;
+
+/// DLL Characteristic: NX Compatible.
+pub const IMAGE_DLLCHARACTERISTICS_NX_COMPAT: u16 = 0x0100;
+
+/// DLL Characteristic: No Isolation.
+pub const IMAGE_DLLCHARACTERISTICS_NO_ISOLATION: u16 = 0x0200;
+
+/// DLL Characteristic: No SEH (Structured Exception Handling).
+pub const IMAGE_DLLCHARACTERISTICS_NO_SEH: u16 = 0x0400;
+
+/// DLL Characteristic: No Bind.
+pub const IMAGE_DLLCHARACTERISTICS_NO_BIND: u16 = 0x0800;
+
+/// DLL Characteristic: AppContainer.
+pub const IMAGE_DLLCHARACTERISTICS_APPCONTAINER: u16 = 0x1000;
+
+/// DLL Characteristic: WDM Driver.
+pub const IMAGE_DLLCHARACTERISTICS_WDM_DRIVER: u16 = 0x2000;
+
+/// DLL Characteristic: Control Flow Guard.
+pub const IMAGE_DLLCHARACTERISTICS_GUARD_CF: u16 = 0x4000;
+
+/// DLL Characteristic: Terminal Server Aware.
+pub const IMAGE_DLLCHARACTERISTICS_TERMINAL_SERVER_AWARE: u16 = 0x8000;
+
+/// UEFI Application DLL Characteristics: DYNAMIC_BASE | NX_COMPAT.
+pub const DLLCHARACTERISTICS_UEFI_APPLICATION: u16 =
+    IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE | IMAGE_DLLCHARACTERISTICS_NX_COMPAT;
+
 /// DOS header size in bytes.
 pub const DOS_HEADER_SIZE: usize = 64;
 
@@ -375,6 +412,7 @@ impl OptionalHeaderPe32Plus {
     /// Initializes:
     /// - `magic` = 0x20b (PE32+)
     /// - `subsystem` = EFI_APPLICATION (10)
+    /// - `dll_characteristics` = DLLCHARACTERISTICS_UEFI_APPLICATION (DYNAMIC_BASE | NX_COMPAT)
     /// - `image_base` = 0
     /// - `section_alignment` = 0x1000
     /// - `file_alignment` = 0x200
@@ -404,7 +442,7 @@ impl OptionalHeaderPe32Plus {
             size_of_headers: 0,
             checksum: 0,
             subsystem: IMAGE_SUBSYSTEM_EFI_APPLICATION,
-            dll_characteristics: 0,
+            dll_characteristics: DLLCHARACTERISTICS_UEFI_APPLICATION,
             size_of_stack_reserve: 0,
             size_of_stack_commit: 0,
             size_of_heap_reserve: 0,
@@ -770,5 +808,40 @@ mod tests {
         // e_lfanew should be at offset 60-63, value should be 64
         let e_lfanew = u32::from_le_bytes([bytes[60], bytes[61], bytes[62], bytes[63]]);
         assert_eq!(e_lfanew, 64u32);
+    }
+
+    #[test]
+    fn subsystem_efi_application_round_trips_as_0x0a() {
+        let opt = OptionalHeaderPe32Plus::new_efi_amd64();
+        assert_eq!(opt.subsystem, IMAGE_SUBSYSTEM_EFI_APPLICATION);
+
+        let bytes = opt.to_bytes();
+        // Check subsystem at offset 68-69 (EFI_APPLICATION = 10 in little-endian)
+        let subsystem_bytes = u16::from_le_bytes([bytes[68], bytes[69]]);
+        assert_eq!(subsystem_bytes, 0x0A);
+
+        // Round-trip: parse back from bytes
+        let parsed = OptionalHeaderPe32Plus::from_bytes(&bytes);
+        assert_eq!(parsed.unwrap().subsystem, IMAGE_SUBSYSTEM_EFI_APPLICATION);
+    }
+
+    #[test]
+    fn dll_characteristics_default_match_uefi_bundle() {
+        let opt = OptionalHeaderPe32Plus::new_efi_amd64();
+        assert_eq!(opt.dll_characteristics, DLLCHARACTERISTICS_UEFI_APPLICATION);
+        // DLLCHARACTERISTICS_UEFI_APPLICATION = DYNAMIC_BASE | NX_COMPAT = 0x0040 | 0x0100 = 0x0140
+        assert_eq!(opt.dll_characteristics, 0x0140);
+    }
+
+    #[test]
+    fn dll_characteristics_round_trip_preserves_flags() {
+        let custom_flags = 0x0560u16;
+        let mut opt = OptionalHeaderPe32Plus::new_efi_amd64();
+        opt.dll_characteristics = custom_flags;
+
+        let bytes = opt.to_bytes();
+        let parsed = OptionalHeaderPe32Plus::from_bytes(&bytes).expect("Failed to parse");
+
+        assert_eq!(parsed.dll_characteristics, custom_flags);
     }
 }
