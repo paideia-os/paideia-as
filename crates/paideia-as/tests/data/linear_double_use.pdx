@@ -1,4 +1,4 @@
-module M = structure {
+module LinearDoubleUse = structure {
   let test : (u64) -> u64 = fn (x : u64) -> {
     let y = x;
     y;
