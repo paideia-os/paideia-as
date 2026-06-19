@@ -12,6 +12,7 @@ pub mod mldsa;
 pub mod pax;
 pub mod release;
 pub mod scope_check;
+pub mod soft_hsm;
 
 pub use ed25519::Ed25519;
 pub use hybrid::{Hybrid, HybridPublicKey, HybridSecretKey, HybridSignature};
