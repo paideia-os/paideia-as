@@ -1,0 +1,5 @@
+# REX/EVEX tightening AC 2: Jcc rel32 that fits in rel8
+# Pattern: Jcc target where displacement is within -128..=127
+# This fixture should trigger shortening from rel32 to rel8 form
+
+[STUB IR: Jcc rel32 with displacement in rel8 range; can shorten to rel8]

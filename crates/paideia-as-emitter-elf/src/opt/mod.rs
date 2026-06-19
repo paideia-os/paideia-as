@@ -7,6 +7,8 @@
 //! Note: The IR opt module in paideia-as-ir is for IR-level passes. These are
 //! emitter-level passes, which are invoked during the emission phase.
 
+pub mod encode_tight;
 pub mod macro_fusion;
 
+pub use encode_tight::EncodeTightPass;
 pub use macro_fusion::MacroFusionPass;

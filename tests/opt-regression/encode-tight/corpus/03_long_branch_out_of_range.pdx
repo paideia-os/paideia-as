@@ -1,0 +1,5 @@
+# REX/EVEX tightening AC 3: Jcc rel32 that does NOT fit in rel8
+# Pattern: Jcc target where displacement exceeds rel8 range
+# This fixture should NOT trigger shortening (already optimal)
+
+[STUB IR: Jcc rel32 with large displacement; cannot shorten below rel32]
