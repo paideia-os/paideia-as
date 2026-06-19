@@ -7,9 +7,11 @@
 #![forbid(unsafe_code)]
 
 pub mod ed25519;
+pub mod hybrid;
 pub mod mldsa;
 
 pub use ed25519::Ed25519;
+pub use hybrid::{Hybrid, HybridPublicKey, HybridSecretKey, HybridSignature};
 pub use mldsa::MlDsa65Marker;
 
 /// Ed25519 public key length (bytes).
@@ -25,6 +27,13 @@ pub const MLDSA65_PK_LEN: usize = 1952;
 pub const MLDSA65_SK_LEN: usize = 32;
 /// ML-DSA-65 signature length (bytes).
 pub const MLDSA65_SIG_LEN: usize = 3309;
+
+/// Hybrid public key length (bytes).
+pub const HYBRID_PK_LEN: usize = ED25519_PK_LEN + MLDSA65_PK_LEN;
+/// Hybrid secret key length (bytes, seed form).
+pub const HYBRID_SK_LEN: usize = ED25519_SK_LEN + MLDSA65_SK_LEN;
+/// Hybrid signature length (bytes).
+pub const HYBRID_SIG_LEN: usize = ED25519_SIG_LEN + MLDSA65_SIG_LEN;
 
 /// Common trait for post-quantum and classical signers.
 pub trait Signer {
