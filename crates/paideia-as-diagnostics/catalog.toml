@@ -1,6 +1,6 @@
 [catalog]
 version = "0.1.0"
-last_updated = "2026-06-17"
+last_updated = "2026-06-18"
 
 [diagnostic.E0001]
 severity = "error"
@@ -163,3 +163,12 @@ brief = "source file empty or whitespace-only"
 description = "A source file must contain at least one meaningful token (not just whitespace or comments)."
 since = "0.1.0"
 deprecated = false
+
+[diagnostic.M0307]
+severity = "error"
+category = "module"
+title = "Macro feature not implemented in phase 1"
+brief = "macro feature deferred to phase 2"
+description = "Phase-1 placeholder for reflective macro features (typed elaborator reflection, quote/antiquote, splice, elab, hygiene under reflection). Retired in Phase 2 m2 (PRs #361–#371) — the full Lean-4-style reflection track is now live so this code should never fire. Reserved for compatibility; will be deleted in Phase 3."
+since = "0.1.0"
+deprecated = true
