@@ -8,7 +8,11 @@
 #![forbid(unsafe_code)]
 
 pub mod header;
+pub mod section;
 
 pub use header::{
     Architecture, HeaderFlag, PAX_FORMAT_VERSION, PAX_HEADER_SIZE, PAX_MAGIC, PaxHeader,
+};
+pub use section::{
+    SECTION_DESCRIPTOR_SIZE, SECTION_NAME_MAX, Section, SectionFlag, SectionTable, SectionType,
 };
