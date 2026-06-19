@@ -7,5 +7,7 @@
 #![forbid(unsafe_code)]
 
 pub mod server;
+pub mod workspace;
 
 pub use server::{Backend, capabilities};
+pub use workspace::{ManifestError, SigningConfig, WorkspaceConfig, WorkspaceManifest};

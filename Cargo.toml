@@ -82,6 +82,7 @@ signature = "2"
 insta = "1"
 proptest = "1"
 iced-x86 = "1"
+tempfile = "3"
 
 [profile.release]
 opt-level = 3
