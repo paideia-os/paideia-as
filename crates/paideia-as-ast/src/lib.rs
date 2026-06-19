@@ -12,6 +12,7 @@ mod arena;
 mod exprs;
 mod items;
 mod macros;
+mod modules;
 mod node_id;
 mod patterns;
 pub mod pretty;
@@ -24,6 +25,10 @@ pub use arena::{AstArena, NodeData, NodeKind};
 pub use exprs::{ExprData, HandlerArm, LoopKind, MatchArm};
 pub use items::ItemData;
 pub use macros::{MacroDeclData, MacroFragment, MacroFragmentKind, MacroRule};
+pub use modules::{
+    Def, Functor, IncludeDecl, ModuleDecl, SigDecl, Signature, Structure, TypeAbstraction,
+    TypeDecl, ValDecl,
+};
 pub use node_id::NodeId;
 pub use patterns::{PatField, PatternData};
 pub use reflect::{SerializedSpan, SerializedTerm, Term, TermHead};
