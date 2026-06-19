@@ -11,7 +11,7 @@
 
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
 use paideia_as_effects::{
-    EffectId, EffectInterner, EffectRow, RowVarId, Substitution, UnifyError, unify,
+    EffectInterner, EffectRow, RowDiff, RowVarId, Substitution, UnifyError, unify,
 };
 
 /// Diagnostic code for declared-vs-inferred row mismatch.
@@ -57,25 +57,15 @@ pub fn unify_call_row(declared: &EffectRow, inferred: &EffectRow, span: Span) ->
 }
 
 fn row_mismatch_diag(declared: &EffectRow, inferred: &EffectRow, span: Span) -> Diagnostic {
-    let extra: Vec<EffectId> = inferred
-        .fixed
-        .iter()
-        .copied()
-        .filter(|e| !declared.fixed.contains(e))
-        .collect();
-    let missing: Vec<EffectId> = declared
-        .fixed
-        .iter()
-        .copied()
-        .filter(|e| !inferred.fixed.contains(e))
-        .collect();
-    let extra_str: Vec<u32> = extra.iter().map(|e| e.get()).collect();
-    let missing_str: Vec<u32> = missing.iter().map(|e| e.get()).collect();
+    let diff = RowDiff {
+        expected: declared,
+        got: inferred,
+        name_for: None,
+    };
+    let diff_rendering = diff.render();
+    let message = format!("effect-row mismatch at call site:\n{}", diff_rendering);
     Diagnostic::error(f_code(F_ROW_MISMATCH))
-        .message(format!(
-            "effect-row mismatch at call site: declared row missing {extra_str:?}, \
-             inferred row missing {missing_str:?}"
-        ))
+        .message(message)
         .with_span(span)
         .finish()
 }
@@ -152,6 +142,7 @@ fn f_code(n: u16) -> DiagnosticCode {
 mod tests {
     use super::*;
     use paideia_as_diagnostics::FileId;
+    use paideia_as_effects::EffectId;
 
     fn eff(n: u32) -> EffectId {
         EffectId::new(n).unwrap()
@@ -328,5 +319,27 @@ mod tests {
         // No fresh row var binding because the callee was closed.
         let fresh_var = RowVarId::new(1).unwrap();
         assert!(!out.subst.bindings.contains_key(&fresh_var));
+    }
+
+    #[test]
+    fn f1105_diagnostic_message_contains_diff_rendering() {
+        // Regression test: the F1105 diagnostic message should contain
+        // the multi-line expected/got/diff rendering.
+        // declared {Io, Net}, inferred {Io, Mmio}
+        let declared = row(&[1, 2], None); // Io, Net
+        let inferred = row(&[1, 3], None); // Io, Mmio
+
+        let out = unify_call_row(&declared, &inferred, span());
+        assert_eq!(out.diagnostics.len(), 1);
+        assert_eq!(out.diagnostics[0].code().number(), 1105);
+
+        let msg = out.diagnostics[0].message();
+        // Check that the message contains the diff rendering components
+        assert!(msg.contains("expected:"));
+        assert!(msg.contains("got     :"));
+        assert!(msg.contains("diff    :"));
+        // Should contain the diff markers for the additions/removals
+        assert!(msg.contains("+ 3") || msg.contains("Mmio"));
+        assert!(msg.contains("- 2") || msg.contains("Net"));
     }
 }

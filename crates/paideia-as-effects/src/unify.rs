@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::row::{EffectRow, RowVarId};
+use crate::row::{EffectId, EffectRow, RowVarId};
 
 /// Result of unifying two effect rows.
 ///
@@ -28,6 +28,158 @@ impl Substitution {
 pub enum UnifyError {
     /// Two closed rows have different fixed sets.
     Mismatch,
+}
+
+/// A structured representation of the differences between two effect rows.
+///
+/// Used for high-quality row-mismatch diagnostics. The diff shows:
+/// - `expected`: the declared row (what should have been provided)
+/// - `got`: the inferred/actual row (what was actually inferred)
+/// - `name_for`: optional effect name resolver (EffectId -> human-readable name)
+///
+/// Phase-2-m13: without a name resolver, numeric ids are printed.
+/// A real name resolver lands when the elaborator threads the EffectRegistry through.
+pub struct RowDiff<'a> {
+    /// The declared/expected row.
+    pub expected: &'a EffectRow,
+    /// The inferred/actual row.
+    pub got: &'a EffectRow,
+    /// Optional effect name lookup function.
+    pub name_for: Option<&'a dyn Fn(EffectId) -> Option<String>>,
+}
+
+impl<'a> RowDiff<'a> {
+    /// Render the row diff as a multi-line string.
+    ///
+    /// Format:
+    /// ```text
+    /// expected: !{Io, Net}
+    /// got     : !{Io, Net, Mmio}
+    /// diff    : + Mmio
+    /// ```
+    ///
+    /// Effects are sorted lexicographically (by name if resolver provided, else by numeric id).
+    /// The diff line lists:
+    /// - `+ <name>` for effects in `got` but not in `expected`.
+    /// - `- <name>` for effects in `expected` but not in `got`.
+    /// - Tail changes (e.g., `- | e1` if `expected` has a tail and `got` doesn't).
+    pub fn render(&self) -> String {
+        let expected_str = self.format_row(self.expected);
+        let got_str = self.format_row(self.got);
+        let diff_str = self.format_diff();
+
+        format!(
+            "expected: {}\ngot     : {}\ndiff    : {}",
+            expected_str, got_str, diff_str
+        )
+    }
+
+    /// Format a single row for display.
+    fn format_row(&self, row: &EffectRow) -> String {
+        let mut fixed = row.fixed.clone();
+        // Sort by name if resolver available, else by numeric id.
+        fixed.sort_by_key(|e| {
+            self.name_for
+                .and_then(|f| f(*e))
+                .unwrap_or_else(|| e.get().to_string())
+        });
+
+        let fixed_strs: Vec<String> = fixed
+            .iter()
+            .map(|e| {
+                self.name_for
+                    .and_then(|f| f(*e))
+                    .unwrap_or_else(|| e.get().to_string())
+            })
+            .collect();
+
+        let fixed_part = fixed_strs.join(", ");
+        match row.tail {
+            Some(tail) => format!("!{{{} | r{}}}", fixed_part, tail.get()),
+            None => {
+                if fixed_part.is_empty() {
+                    "!{}".to_string()
+                } else {
+                    format!("!{{{}}}", fixed_part)
+                }
+            }
+        }
+    }
+
+    /// Format the diff line showing what changed.
+    fn format_diff(&self) -> String {
+        let mut additions: Vec<EffectId> = self
+            .got
+            .fixed
+            .iter()
+            .copied()
+            .filter(|e| !self.expected.fixed.contains(e))
+            .collect();
+
+        let mut removals: Vec<EffectId> = self
+            .expected
+            .fixed
+            .iter()
+            .copied()
+            .filter(|e| !self.got.fixed.contains(e))
+            .collect();
+
+        // Sort by name if resolver available, else by numeric id.
+        additions.sort_by_key(|e| {
+            self.name_for
+                .and_then(|f| f(*e))
+                .unwrap_or_else(|| e.get().to_string())
+        });
+
+        removals.sort_by_key(|e| {
+            self.name_for
+                .and_then(|f| f(*e))
+                .unwrap_or_else(|| e.get().to_string())
+        });
+
+        let mut parts: Vec<String> = Vec::new();
+
+        // Additions: + Effect
+        for e in additions {
+            let name = self
+                .name_for
+                .and_then(|f| f(e))
+                .unwrap_or_else(|| e.get().to_string());
+            parts.push(format!("+ {}", name));
+        }
+
+        // Removals: - Effect
+        for e in removals {
+            let name = self
+                .name_for
+                .and_then(|f| f(e))
+                .unwrap_or_else(|| e.get().to_string());
+            parts.push(format!("- {}", name));
+        }
+
+        // Tail changes
+        match (self.expected.tail, self.got.tail) {
+            (Some(e_tail), Some(g_tail)) if e_tail != g_tail => {
+                // Both have tails but they differ
+                parts.push(format!("~ tail: r{} vs r{}", e_tail.get(), g_tail.get()));
+            }
+            (Some(e_tail), None) => {
+                // Expected has tail, got doesn't
+                parts.push(format!("- | r{}", e_tail.get()));
+            }
+            (None, Some(g_tail)) => {
+                // Got has tail, expected doesn't
+                parts.push(format!("+ | r{}", g_tail.get()));
+            }
+            _ => {}
+        }
+
+        if parts.is_empty() {
+            "(no differences)".to_string()
+        } else {
+            parts.join(", ")
+        }
+    }
 }
 
 /// Unify two effect rows.
@@ -228,5 +380,162 @@ mod tests {
 
         // Unifying a row with itself produces an identity substitution.
         assert!(result.bindings.is_empty());
+    }
+
+    // ── RowDiff rendering tests ────────────────────────────────────────
+
+    #[test]
+    fn row_diff_renders_addition() {
+        // expected {Io}, got {Io, Net} → diff line is + Net
+        let io = EffectId::new(1).unwrap();
+        let net = EffectId::new(2).unwrap();
+
+        let expected = EffectRow::from_ids(vec![io], None);
+        let got = EffectRow::from_ids(vec![io, net], None);
+
+        let diff = RowDiff {
+            expected: &expected,
+            got: &got,
+            name_for: None,
+        };
+
+        let output = diff.render();
+        assert!(output.contains("+ 2")); // net = 2
+        assert!(output.contains("expected:"));
+        assert!(output.contains("got     :"));
+        assert!(output.contains("diff    :"));
+    }
+
+    #[test]
+    fn row_diff_renders_removal() {
+        // expected {Io, Net}, got {Io} → diff line is - Net
+        let io = EffectId::new(1).unwrap();
+        let net = EffectId::new(2).unwrap();
+
+        let expected = EffectRow::from_ids(vec![io, net], None);
+        let got = EffectRow::from_ids(vec![io], None);
+
+        let diff = RowDiff {
+            expected: &expected,
+            got: &got,
+            name_for: None,
+        };
+
+        let output = diff.render();
+        assert!(output.contains("- 2")); // net = 2
+    }
+
+    #[test]
+    fn row_diff_renders_both() {
+        // expected {Io, Net}, got {Io, Mmio} → both + Mmio and - Net
+        let io = EffectId::new(1).unwrap();
+        let net = EffectId::new(2).unwrap();
+        let mmio = EffectId::new(3).unwrap();
+
+        let expected = EffectRow::from_ids(vec![io, net], None);
+        let got = EffectRow::from_ids(vec![io, mmio], None);
+
+        let diff = RowDiff {
+            expected: &expected,
+            got: &got,
+            name_for: None,
+        };
+
+        let output = diff.render();
+        assert!(output.contains("+ 3")); // mmio = 3
+        assert!(output.contains("- 2")); // net = 2
+    }
+
+    #[test]
+    fn row_diff_renders_with_tail_change() {
+        // expected !{Io | e}, got !{Io} → diff mentions tail removal
+        let io = EffectId::new(1).unwrap();
+        let r_expected = RowVarId::new(1).unwrap();
+
+        let expected = EffectRow::from_ids(vec![io], Some(r_expected));
+        let got = EffectRow::from_ids(vec![io], None);
+
+        let diff = RowDiff {
+            expected: &expected,
+            got: &got,
+            name_for: None,
+        };
+
+        let output = diff.render();
+        // Should show removal of the tail variable
+        assert!(output.contains("- | r1"));
+    }
+
+    #[test]
+    fn row_diff_renders_with_tail_addition() {
+        // expected !{Io}, got !{Io | e} → diff mentions tail addition
+        let io = EffectId::new(1).unwrap();
+        let r_got = RowVarId::new(2).unwrap();
+
+        let expected = EffectRow::from_ids(vec![io], None);
+        let got = EffectRow::from_ids(vec![io], Some(r_got));
+
+        let diff = RowDiff {
+            expected: &expected,
+            got: &got,
+            name_for: None,
+        };
+
+        let output = diff.render();
+        // Should show addition of the tail variable
+        assert!(output.contains("+ | r2"));
+    }
+
+    #[test]
+    fn row_diff_lex_sorted() {
+        // expected {Acl, Ipc, Net}, got {Net, Ipc, Acl} (same set, different order)
+        // → diff should be empty (sets equal after sort)
+        let acl = EffectId::new(1).unwrap();
+        let ipc = EffectId::new(2).unwrap();
+        let net = EffectId::new(3).unwrap();
+
+        let expected = EffectRow::from_ids(vec![acl, ipc, net], None);
+        let got = EffectRow::from_ids(vec![net, ipc, acl], None);
+
+        let diff = RowDiff {
+            expected: &expected,
+            got: &got,
+            name_for: None,
+        };
+
+        let output = diff.render();
+        // Diff section should be empty or show no differences
+        assert!(output.contains("(no differences)"));
+    }
+
+    #[test]
+    fn row_diff_with_name_resolver() {
+        // Test with a name resolver to display readable effect names
+        let io = EffectId::new(1).unwrap();
+        let net = EffectId::new(2).unwrap();
+        let mmio = EffectId::new(3).unwrap();
+
+        let expected = EffectRow::from_ids(vec![io, net], None);
+        let got = EffectRow::from_ids(vec![io, mmio], None);
+
+        let name_map = |e: EffectId| -> Option<String> {
+            match e.get() {
+                1 => Some("Io".to_string()),
+                2 => Some("Net".to_string()),
+                3 => Some("Mmio".to_string()),
+                _ => None,
+            }
+        };
+
+        let diff = RowDiff {
+            expected: &expected,
+            got: &got,
+            name_for: Some(&name_map),
+        };
+
+        let output = diff.render();
+        assert!(output.contains("Io"));
+        assert!(output.contains("+ Mmio"));
+        assert!(output.contains("- Net"));
     }
 }
