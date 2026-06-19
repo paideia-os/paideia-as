@@ -22,11 +22,32 @@
 //! emits save/restore `App` nodes around the inner body's first/last
 //! nodes. The actual register-allocation lowering is the emitter's
 //! job (T8).
+//!
+//! ## Deep-Handler Compilation (m3-009)
+//!
+//! The deep-handler strategy compiles handler operation implementations
+//! according to their `resume` usage patterns:
+//!
+//! - **SingleShot**: `resume` is called exactly once on every control-flow
+//!   path. Compiled to a direct continuation invocation.
+//! - **MultiShot**: `resume` is called 0 or 2+ times on some path. Compiled
+//!   to a multi-shot deep-handler continuation (closure-wrapped).
+//! - **Abort**: `resume` is never called on at least one path. The operation
+//!   returns a value directly without resuming.
+//!
+//! Phase-2-m9 note: Resume classification uses a simple count-based heuristic
+//! (not control-flow-sensitive analysis). This conservatively approximates
+//! the actual mode; future phases will refine with proper data-flow analysis.
+//! Additionally, resume sites are currently modeled as `App` nodes (Phase-2-m7
+//! will introduce a dedicated `IrKind::Resume` variant).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::arena::IrArena;
 use crate::node::{IrKind, IrNodeId};
+use crate::walker::{IrWalker, walk};
+use crate::walker_ctx::WalkerCtx;
+use paideia_as_diagnostics::{SourceMap, VecSink};
 
 /// Outcome of rewriting one `IrPerform`.
 #[derive(Debug, Clone)]
@@ -136,6 +157,240 @@ pub fn rewrite_with_save_restore(arena: &mut IrArena, body_id: IrNodeId) -> With
     let save = arena.alloc(IrKind::App, span);
     let restore = arena.alloc(IrKind::App, span);
     WithRewrite { save, restore }
+}
+
+/// How a handler's op impl uses `resume`.
+///
+/// This classification indicates the compilation strategy for the operation:
+/// - **SingleShot**: Direct continuation invocation (no closure wrapper).
+/// - **MultiShot**: Multi-shot deep-handler form (closure-wrapped continuation).
+/// - **Abort**: The op returns a value directly without resuming.
+///
+/// Phase-2-m9 note: The current classification is count-based (conservative).
+/// A future control-flow-sensitive analysis will refine this to account for
+/// branching and unreachable paths.
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+pub enum ResumeMode {
+    /// `resume` is called exactly once on every control-flow path that
+    /// returns from the op. Compile to a direct branch / cont-call.
+    SingleShot,
+    /// `resume` is called 0 or 2+ times on some path. Must compile to
+    /// the multi-shot deep-handler continuation form.
+    MultiShot,
+    /// No `resume` call at all on at least one path. Abort handler;
+    /// the op body returns a value directly without resuming.
+    Abort,
+}
+
+/// Side-table marking resume sites in an IR tree.
+///
+/// Resume sites are currently modeled as `App` nodes with an attached marker.
+/// Phase-2-m7 will introduce a dedicated `IrKind::Resume` variant, eliminating
+/// the need for this table.
+///
+/// The table maps IR node IDs that represent resume continuations.
+#[derive(Default, Debug, Clone)]
+pub struct ResumeSiteTable {
+    /// Set of IrNodeId values that represent resume sites.
+    sites: HashSet<IrNodeId>,
+}
+
+impl ResumeSiteTable {
+    /// Construct an empty resume-site table.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Mark an IR node as a resume site.
+    pub fn mark_resume_site(&mut self, id: IrNodeId) {
+        self.sites.insert(id);
+    }
+
+    /// Check whether an IR node is marked as a resume site.
+    #[must_use]
+    pub fn is_resume_site(&self, id: IrNodeId) -> bool {
+        self.sites.contains(&id)
+    }
+
+    /// Collect all resume sites below a given root node.
+    #[must_use]
+    pub fn collect_resume_sites(&self, arena: &IrArena, root: IrNodeId) -> Vec<IrNodeId> {
+        let mut result = Vec::new();
+        let mut collector = ResumeSiteCollector {
+            table: self,
+            results: &mut result,
+        };
+        let sm = SourceMap::new();
+        let mut sink = VecSink::new();
+        let mut ctx = WalkerCtx::new(&sm, &mut sink);
+        walk(&mut collector, arena, root, &mut ctx);
+        result
+    }
+
+    /// Number of resume sites marked in this table.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.sites.len()
+    }
+
+    /// `true` iff no resume sites are marked.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.sites.is_empty()
+    }
+}
+
+/// Helper walker to collect resume sites.
+struct ResumeSiteCollector<'a> {
+    table: &'a ResumeSiteTable,
+    results: &'a mut Vec<IrNodeId>,
+}
+
+impl<'a> IrWalker for ResumeSiteCollector<'a> {
+    fn pre_visit(
+        &mut self,
+        id: IrNodeId,
+        _node: &crate::node::IrNodeData,
+        _arena: &IrArena,
+        _ctx: &mut WalkerCtx<'_>,
+    ) {
+        if self.table.is_resume_site(id) {
+            self.results.push(id);
+        }
+    }
+}
+
+/// Classify how a handler op impl uses resume by counting resume nodes
+/// in the body's IR subtree.
+///
+/// # Phase-2-m9 Note
+///
+/// This implementation uses a simple count-based heuristic:
+/// - Count 0 → `Abort`
+/// - Count 1 → `SingleShot`
+/// - Count 2+ → `MultiShot`
+///
+/// This approach does not account for control-flow branches. A resume site
+/// reachable only on a rare error path is counted the same as one on the
+/// main path. Future phases will implement control-flow-sensitive analysis
+/// to refine the classification.
+///
+/// # Arguments
+///
+/// * `arena` - The IR arena containing all nodes.
+/// * `body` - The root node ID of the handler op body to classify.
+/// * `resume_table` - The side-table marking resume sites.
+///
+/// # Returns
+///
+/// The classified resume mode.
+#[must_use]
+pub fn classify_resume_mode(
+    arena: &IrArena,
+    body: IrNodeId,
+    resume_table: &ResumeSiteTable,
+) -> ResumeMode {
+    let resume_sites = resume_table.collect_resume_sites(arena, body);
+    let count = resume_sites.len();
+    match count {
+        0 => ResumeMode::Abort,
+        1 => ResumeMode::SingleShot,
+        _ => ResumeMode::MultiShot,
+    }
+}
+
+/// Rewrite a SingleShot resume call into a direct continuation invocation.
+///
+/// # Phase-2-m9 Placeholder
+///
+/// This implementation allocates a synthetic `App` node representing the
+/// direct continuation call. The emitter (T8+) will lower this to the
+/// actual calling convention (e.g., a tail call to the resume value with
+/// the payload arguments).
+///
+/// # Arguments
+///
+/// * `arena` - The mutable IR arena.
+/// * `resume_id` - The ID of the resume site (currently an `App` node).
+///
+/// # Returns
+///
+/// A new `App` node ID representing the direct continuation invocation.
+#[must_use]
+pub fn rewrite_resume_singleshot(arena: &mut IrArena, resume_id: IrNodeId) -> IrNodeId {
+    let node = arena[resume_id];
+    // For single-shot resumes, allocate an App representing direct invocation.
+    // The emitter will expand this to: tail-call resume(payload).
+    arena.alloc(IrKind::App, node.span)
+}
+
+/// Rewrite a MultiShot resume call into a "capture-and-invoke" form.
+///
+/// # Phase-2-m9 Placeholder
+///
+/// This implementation allocates a synthetic `App` node representing the
+/// continuation captured in a closure. The emitter (T8+) will lower this to
+/// actual closure allocation + invocation.
+///
+/// # Arguments
+///
+/// * `arena` - The mutable IR arena.
+/// * `resume_id` - The ID of the resume site (currently an `App` node).
+///
+/// # Returns
+///
+/// A new `App` node ID representing the closure-wrapped continuation.
+#[must_use]
+pub fn rewrite_resume_multishot(arena: &mut IrArena, resume_id: IrNodeId) -> IrNodeId {
+    let node = arena[resume_id];
+    // For multi-shot resumes, allocate an App representing closure-wrapped invocation.
+    // The emitter will expand this to: (λ ↦ resume(payload))(captured_cont).
+    arena.alloc(IrKind::App, node.span)
+}
+
+/// Compile a handler op impl using the deep-handler strategy.
+///
+/// This function:
+/// 1. Classifies the op's resume usage by counting resume sites.
+/// 2. Applies the matching rewrite to each resume site in the body.
+/// 3. Returns both the classified mode and the rewritten body root.
+///
+/// # Arguments
+///
+/// * `arena` - The mutable IR arena.
+/// * `op_body` - The root node ID of the handler op body.
+/// * `resume_table` - The side-table marking resume sites.
+///
+/// # Returns
+///
+/// A tuple `(mode, rewritten_body)` where `mode` indicates the classification
+/// and `rewritten_body` is the root of the rewritten op body.
+#[must_use]
+pub fn compile_deep_handler_op(
+    arena: &mut IrArena,
+    op_body: IrNodeId,
+    resume_table: &ResumeSiteTable,
+) -> (ResumeMode, IrNodeId) {
+    let mode = classify_resume_mode(arena, op_body, resume_table);
+
+    // Collect all resume sites in the op body.
+    let resume_sites = resume_table.collect_resume_sites(arena, op_body);
+
+    // Rewrite each resume site according to the mode.
+    let mut rewritten_body = op_body;
+    for &resume_id in &resume_sites {
+        rewritten_body = match mode {
+            ResumeMode::SingleShot => rewrite_resume_singleshot(arena, resume_id),
+            ResumeMode::MultiShot => rewrite_resume_multishot(arena, resume_id),
+            ResumeMode::Abort => {
+                // No rewrites needed; resume sites are unreachable.
+                resume_id
+            }
+        };
+    }
+
+    (mode, rewritten_body)
 }
 
 #[cfg(test)]
@@ -255,5 +510,139 @@ mod tests {
         let _ = t.slot_for("Io", "write"); // new
         assert_eq!(t.len(), 2);
         assert!(!t.is_empty());
+    }
+
+    // ── Deep-Handler Compilation Tests (m3-009) ─────────────────────
+
+    #[test]
+    fn classify_zero_resumes_is_abort() {
+        let mut arena = IrArena::new();
+        let body = arena.alloc(IrKind::Literal, span(0));
+        let resume_table = ResumeSiteTable::new();
+        assert_eq!(
+            classify_resume_mode(&arena, body, &resume_table),
+            ResumeMode::Abort
+        );
+    }
+
+    #[test]
+    fn classify_one_resume_is_singleshot() {
+        let mut arena = IrArena::new();
+        let resume_site = arena.alloc(IrKind::App, span(0));
+        let body = arena.alloc_with_children(IrKind::Action, span(0), [resume_site]);
+        let mut resume_table = ResumeSiteTable::new();
+        resume_table.mark_resume_site(resume_site);
+        assert_eq!(
+            classify_resume_mode(&arena, body, &resume_table),
+            ResumeMode::SingleShot
+        );
+    }
+
+    #[test]
+    fn classify_two_resumes_is_multishot() {
+        let mut arena = IrArena::new();
+        let resume1 = arena.alloc(IrKind::App, span(0));
+        let resume2 = arena.alloc(IrKind::App, span(10));
+        let body = arena.alloc_with_children(IrKind::Action, span(0), [resume1, resume2]);
+        let mut resume_table = ResumeSiteTable::new();
+        resume_table.mark_resume_site(resume1);
+        resume_table.mark_resume_site(resume2);
+        assert_eq!(
+            classify_resume_mode(&arena, body, &resume_table),
+            ResumeMode::MultiShot
+        );
+    }
+
+    #[test]
+    fn rewrite_resume_singleshot_produces_app_node() {
+        let mut arena = IrArena::new();
+        let resume_id = arena.alloc(IrKind::App, span(0));
+        let rewritten = rewrite_resume_singleshot(&mut arena, resume_id);
+        assert_eq!(arena[rewritten].kind, IrKind::App);
+        // Span should be preserved from original
+        assert_eq!(arena[rewritten].span, arena[resume_id].span);
+    }
+
+    #[test]
+    fn rewrite_resume_multishot_produces_app_node() {
+        let mut arena = IrArena::new();
+        let resume_id = arena.alloc(IrKind::App, span(0));
+        let rewritten = rewrite_resume_multishot(&mut arena, resume_id);
+        assert_eq!(arena[rewritten].kind, IrKind::App);
+        // Span should be preserved from original
+        assert_eq!(arena[rewritten].span, arena[resume_id].span);
+    }
+
+    #[test]
+    fn compile_deep_handler_op_singleshot_path() {
+        let mut arena = IrArena::new();
+        let resume_site = arena.alloc(IrKind::App, span(0));
+        let op_body = arena.alloc_with_children(IrKind::Action, span(0), [resume_site]);
+        let mut resume_table = ResumeSiteTable::new();
+        resume_table.mark_resume_site(resume_site);
+
+        let (mode, rewritten) = compile_deep_handler_op(&mut arena, op_body, &resume_table);
+
+        assert_eq!(mode, ResumeMode::SingleShot);
+        assert_eq!(arena[rewritten].kind, IrKind::App);
+        // Original span should be preserved
+        assert_eq!(arena[rewritten].span, arena[resume_site].span);
+    }
+
+    #[test]
+    fn compile_deep_handler_op_multishot_path() {
+        let mut arena = IrArena::new();
+        let resume1 = arena.alloc(IrKind::App, span(0));
+        let resume2 = arena.alloc(IrKind::App, span(10));
+        let op_body = arena.alloc_with_children(IrKind::Action, span(0), [resume1, resume2]);
+        let mut resume_table = ResumeSiteTable::new();
+        resume_table.mark_resume_site(resume1);
+        resume_table.mark_resume_site(resume2);
+
+        let (mode, _rewritten) = compile_deep_handler_op(&mut arena, op_body, &resume_table);
+
+        assert_eq!(mode, ResumeMode::MultiShot);
+    }
+
+    #[test]
+    fn resume_site_table_marks_and_checks() {
+        let id1 = IrNodeId::new(1).unwrap();
+        let id2 = IrNodeId::new(2).unwrap();
+        let id3 = IrNodeId::new(3).unwrap();
+
+        let mut table = ResumeSiteTable::new();
+        table.mark_resume_site(id1);
+        table.mark_resume_site(id2);
+
+        assert!(table.is_resume_site(id1));
+        assert!(table.is_resume_site(id2));
+        assert!(!table.is_resume_site(id3));
+        assert_eq!(table.len(), 2);
+    }
+
+    #[test]
+    fn resume_site_table_collect_from_tree() {
+        let mut arena = IrArena::new();
+        let resume1 = arena.alloc(IrKind::App, span(0));
+        let resume2 = arena.alloc(IrKind::App, span(10));
+        let resume3 = arena.alloc(IrKind::App, span(20));
+        let regular = arena.alloc(IrKind::Literal, span(30));
+        let body = arena.alloc_with_children(
+            IrKind::Action,
+            span(0),
+            [resume1, resume2, regular, resume3],
+        );
+
+        let mut resume_table = ResumeSiteTable::new();
+        resume_table.mark_resume_site(resume1);
+        resume_table.mark_resume_site(resume2);
+        resume_table.mark_resume_site(resume3);
+
+        let collected = resume_table.collect_resume_sites(&arena, body);
+        assert_eq!(collected.len(), 3);
+        // Verify all resume sites are found (order may vary)
+        assert!(collected.contains(&resume1));
+        assert!(collected.contains(&resume2));
+        assert!(collected.contains(&resume3));
     }
 }

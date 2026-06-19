@@ -1,0 +1,20 @@
+// SingleShot resumption optimization test (m3-009)
+// This handler has exactly one resume site on all control-flow paths.
+// Expected: compile_deep_handler_op classifies this as SingleShot,
+// rewriting the resume to a direct continuation invocation.
+
+effect Io = {
+  op read_byte: () -> u8
+}
+
+module M = structure {
+  let test_singleshot = fn _ ->
+    with handler {
+      op read_byte() -> resume (val: u8) {
+        resume val
+      }
+    }
+    {
+      perform Io::read_byte()
+    }
+}
