@@ -605,6 +605,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
             },
             {
               "defaultConfiguration": {
+                "level": "note"
+              },
+              "fullDescription": {
+                "text": "Per optimization-passes.md §4, modern x86_64 CPUs fuse CMP+Jcc (or TEST+Jcc) pairs into a single µop, but only when both fit within one 16-byte fetch window. This pass aligns such pairs by inserting NOPs as needed."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/O1504",
+              "id": "O1504",
+              "name": "Macro-fusion alignment applied",
+              "shortDescription": {
+                "text": "CMP+Jcc pair aligned within a 16-byte fetch window for macro fusion"
+              }
+            },
+            {
+              "defaultConfiguration": {
                 "level": "error"
               },
               "fullDescription": {
