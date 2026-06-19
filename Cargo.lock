@@ -1213,6 +1213,10 @@ dependencies = [
 [[package]]
 name = "paideia-as-linker"
 version = "0.0.1"
+dependencies = [
+ "paideia-as-diagnostics",
+ "paideia-as-emitter-pax",
+]
 
 [[package]]
 name = "paideia-as-parser"

@@ -1,6 +1,10 @@
-//! paideia-as-linker
+//! paideia-link — the PAX-format linker.
 //!
-//! Phase-1 skeleton crate; see PaideiaOS design corpus for spec:
-//! https://github.com/paideia-os/paideia-os/tree/main/design/toolchain
+//! 4-phase pipeline: parse → resolve → relocate → emit.
+//! m4-009 ships the parse phase; m4-010..012 ship the rest.
 
-#![allow(dead_code)]
+#![warn(missing_docs)]
+#![forbid(unsafe_code)]
+
+pub mod parse;
+pub use parse::{ParseError, ParsedPax, parse_inputs, parse_pax};

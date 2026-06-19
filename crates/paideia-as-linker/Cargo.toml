@@ -11,3 +11,5 @@ repository.workspace = true
 name = "paideia_as_linker"
 
 [dependencies]
+paideia-as-emitter-pax = { path = "../paideia-as-emitter-pax" }
+paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
