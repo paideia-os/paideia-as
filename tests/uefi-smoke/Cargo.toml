@@ -1,0 +1,16 @@
+[package]
+name = "paideia-uefi-smoke"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+paideia-as-emitter-pe = { path = "../../crates/paideia-as-emitter-pe" }
+paideia-as-encoder = { path = "../../crates/paideia-as-encoder" }
