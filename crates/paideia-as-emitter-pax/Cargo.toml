@@ -12,3 +12,4 @@ name = "paideia_as_emitter_pax"
 
 [dependencies]
 static_assertions = { workspace = true }
+blake3 = { workspace = true }
