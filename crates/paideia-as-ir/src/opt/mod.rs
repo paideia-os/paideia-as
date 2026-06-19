@@ -7,6 +7,10 @@
 //! passes.
 
 pub mod dispatch;
+pub mod peephole;
+
+// Re-export canonical pass types.
+pub use peephole::PeepholePass;
 
 use crate::IrArena;
 use crate::node::IrNodeId;

@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use super::{NoOpPass, OptDiagSink, OptPass};
+use super::{NoOpPass, OptDiagSink, OptPass, PeepholePass};
 use crate::IrArena;
 use crate::node::IrNodeId;
 
@@ -30,8 +30,8 @@ pub fn parse_annotations(annotation: &str) -> BTreeSet<String> {
 /// Each entry is a boxed pass.
 pub fn canonical_catalog() -> Vec<Box<dyn OptPass>> {
     vec![
-        // Phase-2-m9-001 ships only the no-op pass. m9-002+ adds peephole, dse, etc.
         Box::new(NoOpPass),
+        Box::new(PeepholePass), // m9-002
     ]
 }
 

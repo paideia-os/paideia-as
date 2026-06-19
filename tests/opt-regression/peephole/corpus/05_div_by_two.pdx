@@ -1,0 +1,5 @@
+# Peephole rewrite 5: StrengthReduceDiv
+# Pattern: div r, 2 → shr r, 1 (unsigned)
+# This fixture should trigger the strength-reduce-div rewrite.
+
+[STUB IR: would trigger StrengthReduceDiv]

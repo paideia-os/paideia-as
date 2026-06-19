@@ -1,0 +1,5 @@
+# Peephole rewrite 3: SimplifyZeroSub
+# Pattern: sub r, 0 → eliminate
+# This fixture should trigger the simplify-zero-sub rewrite.
+
+[STUB IR: would trigger SimplifyZeroSub]
