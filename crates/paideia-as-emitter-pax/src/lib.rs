@@ -1,6 +1,14 @@
 //! paideia-as-emitter-pax
 //!
-//! Phase-1 skeleton crate; see PaideiaOS design corpus for spec:
-//! https://github.com/paideia-os/paideia-os/tree/main/design/toolchain
+//! PAX (PaideiaOS Architectural Executable) emitter. PAX is the
+//! canonical PaideiaOS object format carrying capability sigs,
+//! effect rows, PQ signatures, BLAKE3 content hashes.
 
-#![allow(dead_code)]
+#![warn(missing_docs)]
+#![forbid(unsafe_code)]
+
+pub mod header;
+
+pub use header::{
+    Architecture, HeaderFlag, PAX_FORMAT_VERSION, PAX_HEADER_SIZE, PAX_MAGIC, PaxHeader,
+};
