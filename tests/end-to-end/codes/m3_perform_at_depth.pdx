@@ -1,0 +1,28 @@
+// Perform at nested handler depth (m3-010)
+// This code has a perform call inside a nested handler context.
+// The rewrite_perform_at_depth function should correctly track the handler
+// stack depth and emit a call that dereferences the right frame.
+
+effect Io = {
+  op read_byte: () -> u8
+}
+
+module M = structure {
+  let test_nested = fn _ ->
+    with handler {
+      op read_byte() -> resume (val: u8) {
+        resume val
+      }
+    }
+    {
+      with handler {
+        op read_byte() -> resume (val: u8) {
+          // This perform is at depth 1 relative to the outer handler
+          perform Io::read_byte()
+        }
+      }
+      {
+        perform Io::read_byte()
+      }
+    }
+}

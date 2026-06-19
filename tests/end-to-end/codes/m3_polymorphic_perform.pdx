@@ -1,0 +1,25 @@
+// Perform in row-polymorphic function (m3-010)
+// This code has a perform call inside a row-polymorphic function,
+// demonstrating the use of rewrite_perform_at_depth to correctly
+// lower the indirect call via the handler stack with proper depth tracking.
+
+effect Io = {
+  op read_byte: () -> u8
+}
+
+module M = structure {
+  let poly_read: forall [E]. () -E-> u8 = fn _ ->
+    perform Io::read_byte()
+
+  let test_poly = fn _ ->
+    with handler {
+      op read_byte() -> resume (val: u8) {
+        resume val
+      }
+    }
+    {
+      // Call the polymorphic function; it performs Io::read_byte
+      // which must resolve via the handler stack at the correct depth
+      poly_read()
+    }
+}

@@ -14,3 +14,6 @@ name = "paideia_as_ir"
 paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
 static_assertions = { workspace = true }
 smallvec = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
