@@ -172,3 +172,21 @@ brief = "macro feature deferred to phase 2"
 description = "Phase-1 placeholder for reflective macro features (typed elaborator reflection, quote/antiquote, splice, elab, hygiene under reflection). Retired in Phase 2 m2 (PRs #361–#371) — the full Lean-4-style reflection track is now live so this code should never fire. Reserved for compatibility; will be deleted in Phase 3."
 since = "0.1.0"
 deprecated = true
+
+[diagnostic.B1700]
+severity = "error"
+category = "binary"
+title = "Undefined symbol"
+brief = "undefined symbol — no exporting PAX provides it"
+description = "A symbol is marked as undefined (section_index=0xFFFFFFFF) in the symbol table, but no input PAX exports a symbol with the same BLAKE3 name hash. The linker cannot resolve this reference."
+since = "0.1.0"
+deprecated = false
+
+[diagnostic.B1701]
+severity = "error"
+category = "binary"
+title = "Unbound capability"
+brief = "unbound capability — no export matches an import"
+description = "An ImportsSection entry requests a capability (by BLAKE3 name hash), but no PAX's ExportsSection provides a capability with that hash. The linker cannot bind this required capability."
+since = "0.1.0"
+deprecated = false

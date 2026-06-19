@@ -405,6 +405,34 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "shortDescription": {
                 "text": "macro feature deferred to phase 2"
               }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "A symbol is marked as undefined (section_index=0xFFFFFFFF) in the symbol table, but no input PAX exports a symbol with the same BLAKE3 name hash. The linker cannot resolve this reference."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/B1700",
+              "id": "B1700",
+              "name": "Undefined symbol",
+              "shortDescription": {
+                "text": "undefined symbol — no exporting PAX provides it"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "An ImportsSection entry requests a capability (by BLAKE3 name hash), but no PAX's ExportsSection provides a capability with that hash. The linker cannot bind this required capability."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/B1701",
+              "id": "B1701",
+              "name": "Unbound capability",
+              "shortDescription": {
+                "text": "unbound capability — no export matches an import"
+              }
             }
           ],
           "semanticVersion": "0.0.1",

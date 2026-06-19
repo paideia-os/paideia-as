@@ -7,4 +7,9 @@
 #![forbid(unsafe_code)]
 
 pub mod parse;
+pub mod resolve;
+
 pub use parse::{ParseError, ParsedPax, parse_inputs, parse_pax};
+pub use resolve::{
+    GlobalCapabilityTable, GlobalSymbolTable, ResolvedLink, ResolvedPax, resolve_inputs,
+};
