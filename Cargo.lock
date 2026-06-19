@@ -1303,6 +1303,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pax-load-smoke"
+version = "0.0.1"
+dependencies = [
+ "blake3",
+ "paideia-as-emitter-pax",
+ "tempfile",
+]
+
+[[package]]
 name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
