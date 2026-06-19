@@ -24,6 +24,10 @@ use paideia_as_emitter_elf::{Arch, ElfWriter, Kind, SymbolEntry, lower_add_one};
 use paideia_as_emitter_pax::{
     Architecture, FunctorsSection, PAX_HEADER_SIZE, PaxHeader, SectionTable, compute_content_hash,
 };
+use paideia_as_emitter_pe::{
+    COFF_FILE_HEADER_SIZE, CoffFileHeader, DOS_HEADER_SIZE, DosHeader, NT_SIGNATURE,
+    OPTIONAL_HEADER_PE32PLUS_SIZE, OptionalHeaderPe32Plus, SectionTable as PeSectionTable,
+};
 use paideia_as_ir::{IrNodeId, ModuleSideTable, walk};
 use paideia_as_lexer::{Lexer, SourceText};
 use paideia_as_parser::Parser;
@@ -37,6 +41,8 @@ pub enum EmitFormat {
     Elf64,
     /// PAX (PaideiaOS Architectural Executable) object via paideia-as-emitter-pax.
     Pax,
+    /// PE/COFF (Portable Executable) object via paideia-as-emitter-pe.
+    PeCoff,
 }
 
 impl EmitFormat {
@@ -46,8 +52,9 @@ impl EmitFormat {
             "placeholder" => Ok(Self::Placeholder),
             "elf64" => Ok(Self::Elf64),
             "pax" => Ok(Self::Pax),
+            "pe-coff" => Ok(Self::PeCoff),
             other => Err(format!(
-                "unknown --emit format `{other}`; expected `placeholder`, `elf64`, or `pax`"
+                "unknown --emit format `{other}`; expected `placeholder`, `elf64`, `pax`, or `pe-coff`"
             )),
         }
     }
@@ -199,6 +206,14 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str) -> ExitCode {
                 Some(build_pax_object())
             };
             finish_pax(&source_map, catalog, sink, bytes, input, output)
+        }
+        EmitFormat::PeCoff => {
+            let bytes = if preview {
+                None
+            } else {
+                Some(build_pe_object())
+            };
+            finish_pe(&source_map, catalog, sink, bytes, input, output)
         }
     }
 }
@@ -380,6 +395,77 @@ pub fn functors_from_modules(
     section
 }
 
+/// Build the phase-2-m6 PE/COFF object body. Constructs a minimal PE/COFF with
+/// one empty .text section and headers sized correctly.
+fn build_pe_object() -> Vec<u8> {
+    // 1. DosHeader::new() (e_lfanew = 64).
+    let dos = DosHeader::new();
+
+    // 2. CoffFileHeader::new_efi_amd64() with number_of_sections set later.
+    let mut coff = CoffFileHeader::new_efi_amd64();
+
+    // 3. OptionalHeaderPe32Plus::new_efi_amd64().
+    let mut opt = OptionalHeaderPe32Plus::new_efi_amd64();
+
+    // 4. SectionTable with one minimal .text section (16 zeros).
+    let mut sections = PeSectionTable::new();
+    sections.add_text(vec![0u8; 16]);
+
+    let headers_size = DOS_HEADER_SIZE
+        + 4
+        + COFF_FILE_HEADER_SIZE
+        + OPTIONAL_HEADER_PE32PLUS_SIZE
+        + 40 * sections.sections.len();
+    sections.finalize(
+        opt.section_alignment,
+        opt.file_alignment,
+        headers_size as u32,
+    );
+
+    coff.number_of_sections = sections.sections.len() as u16;
+
+    // 5. Set OptHdr fields populated by section info:
+    let total_code = sections
+        .sections
+        .iter()
+        .filter(|s| (s.header.characteristics & 0x20) != 0) // CNT_CODE
+        .map(|s| s.header.size_of_raw_data)
+        .sum::<u32>();
+    opt.size_of_code = total_code;
+    opt.size_of_image = sections
+        .sections
+        .iter()
+        .map(|s| s.header.virtual_address + s.header.virtual_size)
+        .max()
+        .unwrap_or(0);
+    opt.size_of_headers = align_up_to(headers_size as u32, opt.file_alignment);
+    // Pick the first .text RVA as the entry point.
+    opt.address_of_entry_point = sections
+        .sections
+        .first()
+        .map(|s| s.header.virtual_address)
+        .unwrap_or(0);
+
+    // 6. Assemble bytes: DOS + NT_SIG + COFF + OptHdr + section headers + section content.
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(&dos.to_bytes());
+    bytes.extend_from_slice(&NT_SIGNATURE);
+    bytes.extend_from_slice(&coff.to_bytes());
+    bytes.extend_from_slice(&opt.to_bytes());
+    bytes.extend_from_slice(&sections.to_bytes_headers());
+    // Pad to file alignment.
+    while bytes.len() < opt.size_of_headers as usize {
+        bytes.push(0);
+    }
+    // Section content.
+    bytes.extend_from_slice(&sections.to_bytes_content(opt.file_alignment));
+    bytes
+}
+
+fn align_up_to(value: u32, align: u32) -> u32 {
+    (value + align - 1) & !(align - 1)
+}
+
 /// `<dir>/<basename>.pax` next to the input file.
 fn pax_path_for(input: &Path) -> PathBuf {
     let mut p = input.to_path_buf();
@@ -388,6 +474,17 @@ fn pax_path_for(input: &Path) -> PathBuf {
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "input".to_string());
     p.set_file_name(format!("{stem}.pax"));
+    p
+}
+
+/// `<dir>/<basename>.efi` next to the input file.
+fn pe_path_for(input: &Path) -> PathBuf {
+    let mut p = input.to_path_buf();
+    let stem = p
+        .file_stem()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "input".to_string());
+    p.set_file_name(format!("{stem}.efi"));
     p
 }
 
@@ -421,6 +518,43 @@ fn finish_pax(
             }
             Err(e) => {
                 eprintln!("paideia-as: cannot write PAX at {}: {e}", path.display());
+                return ExitCode::from(2);
+            }
+        }
+    }
+    ExitCode::SUCCESS
+}
+
+fn finish_pe(
+    source_map: &SourceMap,
+    catalog: &Catalog,
+    sink: VecSink,
+    bytes: Option<Vec<u8>>,
+    input: &Path,
+    output: Option<&Path>,
+) -> ExitCode {
+    let diagnostics = sink.into_diagnostics();
+    let stderr = std::io::stderr();
+    let renderer = HumanRenderer::with_catalog(source_map, true, catalog);
+    let mut human = HumanSink::new(stderr.lock(), renderer);
+    for d in &diagnostics {
+        let _ = human.emit(d.clone());
+    }
+    let has_error = diagnostics.iter().any(|d| d.severity() == Severity::Error);
+    if has_error {
+        return ExitCode::from(1);
+    }
+    if let Some(bytes) = bytes {
+        let path = output
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| pe_path_for(input));
+        match fs::File::create(&path) {
+            Ok(file) => {
+                let mut w = std::io::BufWriter::new(file);
+                let _ = w.write_all(&bytes);
+            }
+            Err(e) => {
+                eprintln!("paideia-as: cannot write PE at {}: {e}", path.display());
                 return ExitCode::from(2);
             }
         }

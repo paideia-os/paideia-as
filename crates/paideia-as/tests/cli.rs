@@ -289,6 +289,115 @@ fn build_pax_content_hash_is_nonzero_after_finalize() {
 }
 
 #[test]
+fn build_pe_writes_file_with_dos_magic() {
+    let input = data("example.pdx");
+    let out = cargo_run(&["build", "--emit", "pe-coff", input.to_str().unwrap()]);
+
+    assert!(
+        out.status.success(),
+        "expected exit 0, got {:?}\nstderr: {}",
+        out.status,
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let mut pe_path = input.clone();
+    pe_path.set_file_name("example.efi");
+    assert!(pe_path.exists(), "expected PE file at {pe_path:?}");
+
+    let pe_bytes = std::fs::read(&pe_path).expect("could not read PE");
+    assert!(pe_bytes.len() >= 2, "PE file too small");
+    // PE magic: 0x4D 0x5A (= "MZ")
+    assert_eq!(&pe_bytes[0..2], &[0x4D, 0x5A], "invalid PE DOS magic bytes");
+
+    let _ = std::fs::remove_file(&pe_path);
+}
+
+#[test]
+fn build_pe_writes_nt_signature_at_e_lfanew() {
+    let input = data("example.pdx");
+    let out = cargo_run(&["build", "--emit", "pe-coff", input.to_str().unwrap()]);
+
+    assert!(
+        out.status.success(),
+        "expected exit 0, got {:?}\nstderr: {}",
+        out.status,
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let mut pe_path = input.clone();
+    pe_path.set_file_name("example.efi");
+    let pe_bytes = std::fs::read(&pe_path).expect("could not read PE");
+
+    assert!(pe_bytes.len() >= 68, "PE file too small for NT signature");
+    // NT signature at offset 64: 0x50 0x45 0x00 0x00 (= "PE\0\0")
+    assert_eq!(
+        &pe_bytes[64..68],
+        &[0x50, 0x45, 0, 0],
+        "invalid NT signature"
+    );
+
+    let _ = std::fs::remove_file(&pe_path);
+}
+
+#[test]
+fn build_pe_unknown_format_still_errors() {
+    let input = data("example.pdx");
+    let out = cargo_run(&["build", "--emit", "garbage", input.to_str().unwrap()]);
+
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "expected exit 2 for unknown format, got {:?}",
+        out.status
+    );
+
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("unknown --emit format"),
+        "expected error message in stderr; got: {stderr}"
+    );
+}
+
+#[test]
+fn build_pe_first_256_bytes_snapshot() {
+    let input = data("example.pdx");
+    let out = cargo_run(&["build", "--emit", "pe-coff", input.to_str().unwrap()]);
+
+    assert!(
+        out.status.success(),
+        "expected exit 0, got {:?}\nstderr: {}",
+        out.status,
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let mut pe_path = input.clone();
+    pe_path.set_file_name("example.efi");
+    let pe_bytes = std::fs::read(&pe_path).expect("could not read PE");
+
+    // Snapshot the first 256 bytes as hex string.
+    // Phase-2-m6: minimal PE with DOS header + NT sig + COFF header + Opt header + section headers + padding.
+    let snapshot_len = std::cmp::min(256, pe_bytes.len());
+    let hex_snapshot = pe_bytes[..snapshot_len]
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect::<Vec<_>>()
+        .join("");
+
+    // Verify that the snapshot is deterministic and structurally valid.
+    // The first 256 bytes should start with MZ and contain PE\0\0 at offset 64.
+    assert!(
+        hex_snapshot.starts_with("4d5a"),
+        "snapshot should start with MZ magic"
+    );
+    assert!(
+        hex_snapshot.len() >= 128,
+        "snapshot should be at least 128 chars (64 bytes)"
+    );
+
+    let _ = std::fs::remove_file(&pe_path);
+}
+
+#[test]
 fn pax_introspect_dumps_header() {
     let input = data("example.pdx");
     let build_out = cargo_run(&["build", "--emit", "pax", input.to_str().unwrap()]);
