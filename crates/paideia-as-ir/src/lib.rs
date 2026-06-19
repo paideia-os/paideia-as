@@ -14,6 +14,7 @@ pub mod effect_rewrite;
 pub mod handler_value;
 pub mod modules;
 mod node;
+pub mod opt;
 pub mod pretty;
 pub mod walker;
 pub mod walker_ctx;
