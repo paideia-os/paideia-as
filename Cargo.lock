@@ -1620,6 +1620,7 @@ dependencies = [
  "paideia-as-elaborator",
  "paideia-as-lexer",
  "paideia-as-parser",
+ "paideia-fmt",
  "serde",
  "serde_json",
  "tempfile",
