@@ -132,14 +132,27 @@ impl LanguageServer for Backend {
             new_text: formatted,
         }]))
     }
+
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> Result<Option<SemanticTokensResult>> {
+        Ok(crate::semantic_tokens::semantic_tokens_at(
+            &self.store,
+            &params,
+        ))
+    }
+
+    async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
+        Ok(crate::inlay_hints::inlay_hints_at(&self.store, &params))
+    }
 }
 
 /// Server capabilities per editor-support.md §1.1.
 ///
-/// Phase-2-m8-001: Advertises text-document sync (incremental), hover,
-/// definition, references, completion, code action, formatting, and
-/// semantic tokens. However, handlers are no-op stubs; real handlers
-/// ship in m8-003..010.
+/// Phase-2-m8-011: Advertises text-document sync (incremental), hover,
+/// definition, references, completion, code action, formatting,
+/// semantic tokens, and inlay hints.
 pub fn capabilities() -> ServerCapabilities {
     ServerCapabilities {
         text_document_sync: Some(TextDocumentSyncCapability::Kind(
@@ -162,6 +175,7 @@ pub fn capabilities() -> ServerCapabilities {
                 ..Default::default()
             },
         )),
+        inlay_hint_provider: Some(OneOf::Left(true)),
         ..Default::default()
     }
 }
@@ -196,5 +210,11 @@ mod tests {
         assert!(caps.code_action_provider.is_some());
         assert!(caps.document_formatting_provider.is_some());
         assert!(caps.semantic_tokens_provider.is_some());
+    }
+
+    #[test]
+    fn capabilities_advertises_inlay_hint_provider() {
+        let caps = capabilities();
+        assert!(caps.inlay_hint_provider.is_some());
     }
 }

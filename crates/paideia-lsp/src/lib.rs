@@ -13,7 +13,9 @@ pub mod diagnostics;
 pub mod document;
 pub mod hover;
 pub mod incremental;
+pub mod inlay_hints;
 pub mod navigation;
+pub mod semantic_tokens;
 pub mod server;
 pub mod workspace;
 
