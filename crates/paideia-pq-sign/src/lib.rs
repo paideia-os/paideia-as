@@ -9,10 +9,12 @@
 pub mod ed25519;
 pub mod hybrid;
 pub mod mldsa;
+pub mod pax;
 
 pub use ed25519::Ed25519;
 pub use hybrid::{Hybrid, HybridPublicKey, HybridSecretKey, HybridSignature};
 pub use mldsa::MlDsa65Marker;
+pub use pax::{sign_pax_hash, verify_pax_hash};
 
 /// Ed25519 public key length (bytes).
 pub const ED25519_PK_LEN: usize = 32;
