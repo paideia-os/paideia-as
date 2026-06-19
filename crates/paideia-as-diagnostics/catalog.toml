@@ -335,6 +335,15 @@ description = "Per optimization-passes.md §5, basic-block-local dead-store elim
 since = "0.1.0"
 deprecated = false
 
+[diagnostic.O1506]
+severity = "note"
+category = "optimization"
+title = "REX/EVEX prefix tightening applied"
+brief = "instruction shortened to its smallest legal encoding"
+description = "Per optimization-passes.md §6, picking the shortest legal encoding (32-bit ADD short form, Jcc rel8 over rel32) reduces code size and improves L1i density."
+since = "0.1.0"
+deprecated = false
+
 [diagnostic.Q0901]
 severity = "error"
 category = "post-quantum"

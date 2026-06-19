@@ -1,0 +1,5 @@
+# REX/EVEX tightening AC 1: 64-bit ADD with unused high bits
+# Pattern: ADD r64, imm64 where result high 32 bits are zero
+# This fixture demonstrates shortening 64-bit ADD to 32-bit when high bits unused
+
+[STUB IR: ADD r64, imm32 with zero high bits; can shorten to 32-bit form]
