@@ -1,0 +1,11 @@
+effect Io = {
+  op print(x: u32)
+}
+
+module M = structure {
+  let f = fn x !{Io | r} -> x
+
+  let test1 = fn _ -> f(1)
+
+  let test2 = fn _ -> f(2)
+}

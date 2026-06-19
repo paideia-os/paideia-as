@@ -1,0 +1,10 @@
+effect Io = {
+  op print(x: u32)
+}
+
+module M = structure {
+  let id = fn x !{Io | r} -> x
+
+  let use_id = fn _ ->
+    id(1)
+}

@@ -233,4 +233,19 @@ mod tests {
         let instantiated = instantiate_fresh_tail(&declared, row_var(99));
         assert_eq!(instantiated.tail, None);
     }
+
+    #[test]
+    fn monomorphic_call_to_polymorphic_yields_f1105_with_diff() {
+        // Build a polymorphic callee: (...) !{Io | r}
+        // Call from a context with only {Net}
+        // Expect F1105 whose message names Io or Net.
+        let declared = row(&[1], Some(99)); // Io = 1, with tail r99
+        let inferred = row(&[3], None); // Net = 3, closed
+        let out = unify_call_row(&declared, &inferred, span());
+        assert_eq!(out.diagnostics.len(), 1);
+        assert_eq!(out.diagnostics[0].code().number(), 1105);
+        let msg = out.diagnostics[0].message();
+        // Should show the row diff: inferred has extra [3] (Net), declared is missing [3].
+        assert!(msg.contains("1") || msg.contains("3"));
+    }
 }

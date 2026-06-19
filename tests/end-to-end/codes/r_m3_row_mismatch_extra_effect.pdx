@@ -1,0 +1,13 @@
+effect Io = {
+  op print(x: u32)
+}
+
+effect Net = {
+  op send(data: u32)
+}
+
+module M = structure {
+  let strict_fn = fn _ !{Io} -> perform Io::print(42)
+
+  let caller = fn _ -> perform Net::send(1); strict_fn()
+}

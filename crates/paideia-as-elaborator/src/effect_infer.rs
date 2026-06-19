@@ -6,7 +6,7 @@
 //! lands when the IR carries enough structure. See `design/toolchain/custom-assembler.md` §4.2.
 
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
-use paideia_as_effects::{EffectId, EffectRow};
+use paideia_as_effects::{EffectId, EffectInterner, EffectRow};
 
 #[cfg(test)]
 use paideia_as_effects::RowVarId;
@@ -128,6 +128,37 @@ pub fn check_no_unhandled(final_row: &EffectRow, program_span: Span) -> Vec<Diag
         );
     }
     diags
+}
+
+/// Generalize an inferred effect row at a function declaration's exit.
+///
+/// If `row` is closed (`is_closed()`) AND the function declaration didn't
+/// explicitly annotate `!{}` (pure), allocate a fresh `RowVarId` and
+/// attach it to the row. This makes the function row-polymorphic at
+/// every later call site.
+///
+/// If `row` has a tail already, return as-is (already polymorphic).
+/// If `row` was explicitly pure-annotated, return as-is.
+///
+/// # Example
+/// ```ignore
+/// generalize_row({Io}, interner, false) → {Io | fresh}
+/// generalize_row({Io | r1}, interner, false) → {Io | r1}  // already open
+/// generalize_row({}, interner, true) → {}  // explicitly pure
+/// ```
+pub fn generalize_row(
+    row: &EffectRow,
+    interner: &mut EffectInterner,
+    explicitly_pure: bool,
+) -> EffectRow {
+    if row.tail.is_some() || explicitly_pure {
+        return row.clone();
+    }
+    let fresh = interner.fresh_row_var();
+    EffectRow {
+        fixed: row.fixed.clone(),
+        tail: Some(fresh),
+    }
 }
 
 /// Helper to construct an F-category error diagnostic code.
@@ -355,5 +386,66 @@ mod tests {
         let msg = diags[0].message();
         assert!(msg.contains("42"));
         assert!(msg.contains("escapes"));
+    }
+
+    /// generalize_closed_row_attaches_fresh_tail: {Io} → {Io | fresh}
+    #[test]
+    fn generalize_closed_row_attaches_fresh_tail() {
+        let io = eff(1);
+        let row = EffectRow::from_ids(vec![io], None);
+        let mut interner = paideia_as_effects::EffectInterner::new();
+
+        let generalized = generalize_row(&row, &mut interner, false);
+
+        // Should have same fixed effects.
+        assert_eq!(generalized.fixed, vec![io]);
+        // Should now have a tail.
+        assert!(generalized.tail.is_some());
+        // Original row is unchanged.
+        assert!(row.tail.is_none());
+    }
+
+    /// generalize_already_open_row_unchanged: {Io | r1} → {Io | r1}
+    #[test]
+    fn generalize_already_open_row_unchanged() {
+        let io = eff(1);
+        let r1 = RowVarId::new(1).unwrap();
+        let row = EffectRow::from_ids(vec![io], Some(r1));
+        let mut interner = paideia_as_effects::EffectInterner::new();
+
+        let generalized = generalize_row(&row, &mut interner, false);
+
+        assert_eq!(generalized.fixed, vec![io]);
+        assert_eq!(generalized.tail, Some(r1));
+    }
+
+    /// generalize_explicitly_pure_unchanged: {} → {}
+    #[test]
+    fn generalize_explicitly_pure_unchanged() {
+        let row = EffectRow::empty();
+        let mut interner = paideia_as_effects::EffectInterner::new();
+
+        let generalized = generalize_row(&row, &mut interner, true);
+
+        assert!(generalized.is_empty());
+        assert!(generalized.tail.is_none());
+    }
+
+    /// generalize_uses_unique_id_per_call: two calls produce distinct row vars
+    #[test]
+    fn generalize_uses_unique_id_per_call() {
+        let io = eff(1);
+        let row1 = EffectRow::from_ids(vec![io], None);
+        let row2 = EffectRow::from_ids(vec![io], None);
+        let mut interner = paideia_as_effects::EffectInterner::new();
+
+        let gen1 = generalize_row(&row1, &mut interner, false);
+        let gen2 = generalize_row(&row2, &mut interner, false);
+
+        // Both should have tails.
+        assert!(gen1.tail.is_some());
+        assert!(gen2.tail.is_some());
+        // But the tails should be distinct.
+        assert_ne!(gen1.tail, gen2.tail);
     }
 }
