@@ -1,0 +1,24 @@
+// MultiShot resumption test (m3-009)
+// This handler has multiple resume sites (two paths with resume calls).
+// Expected: compile_deep_handler_op classifies this as MultiShot,
+// rewriting the resumes to closure-wrapped continuation invocations.
+
+effect Io = {
+  op port_status: (port: u16) -> u8
+}
+
+module M = structure {
+  let test_multishot = fn _ ->
+    with handler {
+      op port_status(port: u16) -> resume (status: u8) {
+        if port == 0x80 {
+          resume 0
+        } else {
+          resume 1
+        }
+      }
+    }
+    {
+      perform Io::port_status(0x0000)
+    }
+}
