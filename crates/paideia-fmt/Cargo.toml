@@ -10,4 +10,8 @@ repository.workspace = true
 [lib]
 name = "paideia_fmt"
 
+[[bin]]
+name = "paideia-fmt"
+path = "src/main.rs"
+
 [dependencies]

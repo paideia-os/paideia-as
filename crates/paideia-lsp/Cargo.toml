@@ -27,6 +27,7 @@ paideia-as-lexer = { path = "../paideia-as-lexer" }
 paideia-as-parser = { path = "../paideia-as-parser" }
 paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
 paideia-as-ast = { path = "../paideia-as-ast" }
+paideia-fmt = { path = "../paideia-fmt" }
 
 [dev-dependencies]
 tempfile = { workspace = true }

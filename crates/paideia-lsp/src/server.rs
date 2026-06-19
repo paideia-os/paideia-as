@@ -93,6 +93,45 @@ impl LanguageServer for Backend {
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
         Ok(crate::navigation::references_at(&self.store, &params))
     }
+
+    async fn code_action(
+        &self,
+        params: CodeActionParams,
+    ) -> Result<Option<Vec<CodeActionOrCommand>>> {
+        let actions = crate::code_action::code_actions_at(&self.store, &params);
+        Ok(actions.map(|acts| {
+            acts.into_iter()
+                .map(CodeActionOrCommand::CodeAction)
+                .collect()
+        }))
+    }
+
+    async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
+        let Some(doc) = self.store.get(&params.text_document.uri) else {
+            return Ok(None);
+        };
+        let opts = paideia_fmt::FormatOptions::default();
+        let formatted = paideia_fmt::format(&doc.text, &opts);
+        if formatted == doc.text {
+            return Ok(Some(vec![]));
+        }
+        let line_count = doc.text.lines().count() as u32;
+        let last_line_len = doc.text.lines().last().map(|l| l.len()).unwrap_or(0) as u32;
+        let full_range = Range {
+            start: Position {
+                line: 0,
+                character: 0,
+            },
+            end: Position {
+                line: line_count,
+                character: last_line_len,
+            },
+        };
+        Ok(Some(vec![TextEdit {
+            range: full_range,
+            new_text: formatted,
+        }]))
+    }
 }
 
 /// Server capabilities per editor-support.md §1.1.
