@@ -208,3 +208,21 @@ brief = "unbound capability — no export matches an import"
 description = "An ImportsSection entry requests a capability (by BLAKE3 name hash), but no PAX's ExportsSection provides a capability with that hash. The linker cannot bind this required capability."
 since = "0.1.0"
 deprecated = false
+
+[diagnostic.P0190]
+severity = "error"
+category = "parser"
+title = "Malformed functor application"
+brief = "malformed functor application: expected `(` or missing close paren"
+description = "A functor application expression `F(M)` is syntactically incomplete: either the opening `(` is missing after the functor name, or the argument list is not closed with `)`. Check that every module argument is wrapped in matching parentheses."
+since = "0.1.0"
+deprecated = false
+
+[diagnostic.P0191]
+severity = "error"
+category = "parser"
+title = "Malformed sharing constraint"
+brief = "malformed sharing constraint: expected `=` between paths"
+description = "A sharing constraint in a functor application `sharing (A::t = B::t)` is malformed: the `=` separator between the two module paths is missing or the paths themselves are incomplete."
+since = "0.1.0"
+deprecated = false

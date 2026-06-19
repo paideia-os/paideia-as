@@ -63,6 +63,8 @@ pub enum TermHead {
     Quote,
     /// `~(...)` (antiquotation).
     Antiquote,
+    /// `F(M)(N) sharing (...)` (functor application).
+    FunctorApp,
 }
 
 /// A typed handle to an AST expression node.
@@ -133,6 +135,7 @@ impl<'a> Term<'a> {
                 NodeKind::ExprHandlerValue => TermHead::HandlerValue,
                 NodeKind::ExprQuote => TermHead::Quote,
                 NodeKind::ExprAntiquote => TermHead::Antiquote,
+                NodeKind::ExprFunctorApp => TermHead::FunctorApp,
                 _ => {
                     // Non-expression kinds: this term does not represent an expression.
                     // Return a placeholder; Phase 2 will add dedicated handling for
@@ -305,6 +308,16 @@ impl<'a> Term<'a> {
                 }
                 ExprData::Antiquote { value } => {
                     result.push(Term::new(self.arena, *value));
+                }
+                ExprData::FunctorApp {
+                    functor,
+                    arguments,
+                    sharing: _,
+                } => {
+                    result.push(Term::new(self.arena, *functor));
+                    for arg in arguments {
+                        result.push(Term::new(self.arena, *arg));
+                    }
                 }
             }
         }

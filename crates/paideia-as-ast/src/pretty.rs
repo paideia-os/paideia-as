@@ -422,6 +422,33 @@ fn print_expr_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
         ExprData::Antiquote { value } => {
             format!("Antiquote {{ value: {} }}", value)
         }
+        ExprData::FunctorApp {
+            functor,
+            arguments,
+            sharing,
+        } => {
+            let args_str = arguments
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let sharing_str = sharing
+                .iter()
+                .map(|c| format!("({} = {})", c.left_path.join("::"), c.right_path.join("::")))
+                .collect::<Vec<_>>()
+                .join(", ");
+            if sharing_str.is_empty() {
+                format!(
+                    "FunctorApp {{ functor: {}, arguments: [{}] }}",
+                    functor, args_str
+                )
+            } else {
+                format!(
+                    "FunctorApp {{ functor: {}, arguments: [{}], sharing: [{}] }}",
+                    functor, args_str, sharing_str
+                )
+            }
+        }
     };
 
     use std::fmt::Write;

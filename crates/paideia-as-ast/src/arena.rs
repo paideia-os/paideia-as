@@ -93,6 +93,8 @@ pub enum NodeKind {
     ExprQuote,
     /// `~(...)` (antiquotation / unquote).
     ExprAntiquote,
+    /// `F(M)(N) sharing (...)` (functor application).
+    ExprFunctorApp,
 
     // Statements (§8 Stmt: LetStmt | ExprStmt | InstructionStmt | ReturnStmt)
     /// `let name: ty? = expr;`.

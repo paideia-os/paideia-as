@@ -1222,6 +1222,7 @@ dependencies = [
 name = "paideia-as-parser"
 version = "0.0.1"
 dependencies = [
+ "insta",
  "paideia-as-ast",
  "paideia-as-diagnostics",
  "paideia-as-lexer",
