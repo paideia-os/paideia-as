@@ -1,0 +1,9 @@
+// Issue #244 AC 2: functor with affine parameter misused.
+//
+// A functor whose signature declares an affine resource parameter.
+// The functor body uses this parameter twice (violates affine constraint).
+
+functor F(M: sig val a : affine:Res end) =
+  val y = use a
+  val z = use a again
+end
