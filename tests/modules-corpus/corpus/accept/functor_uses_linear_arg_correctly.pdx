@@ -1,0 +1,8 @@
+// Issue #244 AC 1: functor with linear parameter correctly used.
+//
+// A functor whose signature declares a linear resource parameter.
+// The functor body uses this parameter exactly once (correct).
+
+functor F(M: sig val r : linear:Res end) =
+  val y = use r
+end

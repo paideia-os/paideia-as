@@ -57,7 +57,7 @@ pub use effect_unify::{
 };
 pub use effect_walker::EffectRowWalker;
 pub use env::{Symbol, TypeEnv};
-pub use functor_apply::{ApplyKey, apply_functor};
+pub use functor_apply::{ApplyKey, apply_functor, elaborate_functor_body};
 pub use hygiene::{HygieneCache, HygienicName, MacroId};
 pub use linearity_ctx::{Binding, LinearityCtx};
 pub use lower::{LoweringResult, lower_ast_to_ir};

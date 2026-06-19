@@ -197,6 +197,15 @@ pub fn elaborate_structure(
     }
 }
 
+/// Compute a Symbol from a name string via folding bytes.
+///
+/// This is used to derive symbol proxies from field names. The computation
+/// folds over the name's bytes, applying `wrapping_mul(31)` and `wrapping_add`.
+pub(crate) fn symbol_of(name: &str) -> Symbol {
+    name.bytes()
+        .fold(0u32, |a, b| a.wrapping_mul(31).wrapping_add(b as u32))
+}
+
 /// Check if a string contains a name as a whole-word token.
 ///
 /// Uses ASCII word-boundary semantics: the match is only accepted when neither
@@ -231,7 +240,7 @@ fn is_word_char(b: u8) -> bool {
 }
 
 /// Check if a structure's definitions contain a name token anywhere.
-fn structure_contains_name_token(s: &Structure, name: &str) -> bool {
+pub(crate) fn structure_contains_name_token(s: &Structure, name: &str) -> bool {
     s.defs.iter().any(|def| match def {
         Def::Val { expr, .. } => contains_name_token(expr, name),
         Def::Type { ty, .. } => contains_name_token(ty, name),
