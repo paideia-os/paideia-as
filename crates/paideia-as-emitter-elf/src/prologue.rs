@@ -296,4 +296,42 @@ mod tests {
         emit_epilogue(&mut buf, &l);
         assert_eq!(buf.bytes, vec![0x48, 0x89, 0xEC, 0x5D]);
     }
+
+    #[test]
+    fn prologue_saves_r15_when_listed_as_callee_saved() {
+        let l = layout(0, vec![Reg64::R15], false);
+        let mut buf = CodeBuffer::new();
+        emit_prologue(&mut buf, &l);
+        // push rbp ; mov rbp, rsp ; mov [rbp-16], r15
+        // push rbp: 55
+        // mov rbp, rsp: 48 89 e5
+        // mov [rbp-16], r15: REX.W + R extending src (r15 is id 15 > 7)
+        //   REX: W=1, R=1, X=0, B=0 → 0x4c
+        //   89 (opcode for mov to memory)
+        //   ModR/M: mod=01 (disp8), src=r15&7=7, rm=rbp=5 → 0x40 | (7<<3) | 5 = 0x7d
+        //   disp8: -16 = 0xf0
+        assert_eq!(
+            buf.bytes,
+            vec![0x55, 0x48, 0x89, 0xE5, 0x4C, 0x89, 0x7D, 0xF0]
+        );
+    }
+
+    #[test]
+    fn epilogue_restores_r15_when_listed_as_callee_saved() {
+        let l = layout(0, vec![Reg64::R15], false);
+        let mut buf = CodeBuffer::new();
+        emit_epilogue(&mut buf, &l);
+        // mov r15, [rbp-16] ; mov rsp, rbp ; pop rbp
+        // mov r15, [rbp-16]: REX.W + R extending dst (r15 is id 15 > 7)
+        //   REX: W=1, R=1, X=0, B=0 → 0x4c
+        //   8b (opcode for mov from memory)
+        //   ModR/M: mod=01 (disp8), dst=r15&7=7, rm=rbp=5 → 0x40 | (7<<3) | 5 = 0x7d
+        //   disp8: -16 = 0xf0
+        // mov rsp, rbp: 48 89 ec
+        // pop rbp: 5d
+        assert_eq!(
+            buf.bytes,
+            vec![0x4C, 0x8B, 0x7D, 0xF0, 0x48, 0x89, 0xEC, 0x5D]
+        );
+    }
 }
