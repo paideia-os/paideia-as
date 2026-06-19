@@ -191,6 +191,15 @@ description = "A sharing constraint asserted equality between two type paths, bu
 since = "0.1.0"
 deprecated = false
 
+[diagnostic.M0304]
+severity = "error"
+category = "module"
+title = "Unpack expects a packed value"
+brief = "`unpack` operand is not a packed module value"
+description = "The `unpack` form opens a packed module value (produced by `pack`). The operand here was a regular structure, not a packed value."
+since = "0.1.0"
+deprecated = false
+
 [diagnostic.M0307]
 severity = "error"
 category = "module"

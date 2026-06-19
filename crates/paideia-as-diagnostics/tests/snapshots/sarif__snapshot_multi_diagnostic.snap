@@ -509,6 +509,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "The `unpack` form opens a packed module value (produced by `pack`). The operand here was a regular structure, not a packed value."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/M0304",
+              "id": "M0304",
+              "name": "Unpack expects a packed value",
+              "shortDescription": {
+                "text": "`unpack` operand is not a packed module value"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "Phase-1 placeholder for reflective macro features (typed elaborator reflection, quote/antiquote, splice, elab, hygiene under reflection). Retired in Phase 2 m2 (PRs #361–#371) — the full Lean-4-style reflection track is now live so this code should never fire. Reserved for compatibility; will be deleted in Phase 3."
               },
               "helpUri": "https://paideia-os.org/diagnostics/M0307",

@@ -28,6 +28,7 @@ mod lower;
 pub mod macro_expand;
 pub mod macro_match;
 pub mod modules;
+pub mod pack;
 mod placeholder_emit;
 pub mod reflect_api;
 pub mod resolve;
@@ -71,6 +72,9 @@ pub use macro_match::{
 };
 pub use modules::{
     FieldBinding, S_LINEAR_FIELD_OVERUSED, TypedValue, ValueRef, elaborate_structure,
+};
+pub use pack::{
+    M_UNPACK_NOT_PACKED, PackedValue, elaborate_let_module, elaborate_pack, elaborate_unpack,
 };
 pub use placeholder_emit::placeholder_for;
 pub use reflect_api::{TypeCache, children, kind, span, type_of};
