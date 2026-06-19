@@ -1,0 +1,5 @@
+# Dead-store elimination AC 3: LOCK barrier
+# Pattern: store to addr; LOCK barrier; store to same addr → both kept (barrier blocks DSE).
+# This fixture should prevent DSE across the LOCK barrier.
+
+[STUB IR: store; LOCK-prefixed atomic; store to same addr; barrier prevents elimination]

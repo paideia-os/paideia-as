@@ -619,6 +619,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
             },
             {
               "defaultConfiguration": {
+                "level": "note"
+              },
+              "fullDescription": {
+                "text": "Per optimization-passes.md §5, basic-block-local dead-store elimination removes stores whose effects are immediately overwritten."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/O1505",
+              "id": "O1505",
+              "name": "Dead-store elimination applied",
+              "shortDescription": {
+                "text": "stores to memory subsequently overwritten without intervening reads were removed"
+              }
+            },
+            {
+              "defaultConfiguration": {
                 "level": "error"
               },
               "fullDescription": {

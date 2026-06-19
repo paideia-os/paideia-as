@@ -1,0 +1,5 @@
+# Dead-store elimination: Load between stores
+# Pattern: store to addr; load from addr; store to same addr → all kept (load reads the value).
+# This fixture should prevent DSE of the first store due to intervening load.
+
+[STUB IR: store; load from same address; store to same addr; load blocks DSE]

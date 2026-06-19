@@ -7,10 +7,12 @@
 //! passes.
 
 pub mod dispatch;
+pub mod dse;
 pub mod peephole;
 pub mod schedule;
 
 // Re-export canonical pass types.
+pub use dse::DsePass;
 pub use peephole::PeepholePass;
 pub use schedule::{InstructionClass, InstructionSchedulingPass, schedule_block};
 
