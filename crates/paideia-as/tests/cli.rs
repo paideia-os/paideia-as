@@ -201,3 +201,129 @@ fn build_calling_convention_example_emits_clean_elf() {
         let _ = std::fs::remove_file(&elf_path);
     }
 }
+
+#[test]
+fn build_pax_writes_file_with_magic() {
+    let input = data("example.pdx");
+    let out = cargo_run(&["build", "--emit", "pax", input.to_str().unwrap()]);
+
+    assert!(
+        out.status.success(),
+        "expected exit 0, got {:?}\nstderr: {}",
+        out.status,
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let mut pax_path = input.clone();
+    pax_path.set_file_name("example.pax");
+    assert!(pax_path.exists(), "expected PAX file at {pax_path:?}");
+
+    let pax_bytes = std::fs::read(&pax_path).expect("could not read PAX");
+    assert!(pax_bytes.len() >= 4, "PAX file too small");
+    // PAX magic: b"PAX\0"
+    assert_eq!(&pax_bytes[0..4], b"PAX\0", "invalid PAX magic bytes");
+
+    let _ = std::fs::remove_file(&pax_path);
+}
+
+#[test]
+fn build_pax_writes_96_byte_header_plus_section_table() {
+    let input = data("example.pdx");
+    let out = cargo_run(&["build", "--emit", "pax", input.to_str().unwrap()]);
+
+    assert!(out.status.success());
+
+    let mut pax_path = input.clone();
+    pax_path.set_file_name("example.pax");
+    let pax_bytes = std::fs::read(&pax_path).expect("could not read PAX");
+
+    // PAX_HEADER_SIZE is 96 bytes; with empty section table, minimum is 96 bytes.
+    assert!(
+        pax_bytes.len() >= 96,
+        "PAX file should be at least 96 bytes (header); got {}",
+        pax_bytes.len()
+    );
+
+    let _ = std::fs::remove_file(&pax_path);
+}
+
+#[test]
+fn build_pax_unknown_format_still_errors() {
+    let input = data("example.pdx");
+    let out = cargo_run(&["build", "--emit", "garbage", input.to_str().unwrap()]);
+
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "expected exit 2 for unknown format, got {:?}",
+        out.status
+    );
+
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("unknown --emit format"),
+        "expected error message in stderr; got: {stderr}"
+    );
+}
+
+#[test]
+fn build_pax_content_hash_is_nonzero_after_finalize() {
+    let input = data("example.pdx");
+    let out = cargo_run(&["build", "--emit", "pax", input.to_str().unwrap()]);
+
+    assert!(out.status.success());
+
+    let mut pax_path = input.clone();
+    pax_path.set_file_name("example.pax");
+    let pax_bytes = std::fs::read(&pax_path).expect("could not read PAX");
+
+    // The BLAKE3 hash is at offset 32..64 in the header
+    let hash_slice = &pax_bytes[32..64];
+    assert_eq!(hash_slice.len(), 32, "hash should be 32 bytes");
+
+    // Check that the hash is not all zeros
+    let is_nonzero = hash_slice.iter().any(|&b| b != 0);
+    assert!(is_nonzero, "expected nonzero content hash, got all zeros");
+
+    let _ = std::fs::remove_file(&pax_path);
+}
+
+#[test]
+fn pax_introspect_dumps_header() {
+    let input = data("example.pdx");
+    let build_out = cargo_run(&["build", "--emit", "pax", input.to_str().unwrap()]);
+    assert!(build_out.status.success());
+
+    let mut pax_path = input.clone();
+    pax_path.set_file_name("example.pax");
+
+    // Run pax-introspect on the PAX file
+    let mut cmd = Command::new(env!("CARGO"));
+    cmd.arg("run")
+        .arg("--quiet")
+        .arg("--bin")
+        .arg("pax-introspect")
+        .arg("--")
+        .arg(pax_path.to_str().unwrap());
+    cmd.env("NO_COLOR", "1");
+    let introspect_out = cmd.output().expect("failed to run pax-introspect");
+
+    assert!(
+        introspect_out.status.success(),
+        "pax-introspect should exit 0; got {:?}\nstderr: {}",
+        introspect_out.status,
+        String::from_utf8_lossy(&introspect_out.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&introspect_out.stdout);
+    assert!(
+        stdout.contains("PaxHeader"),
+        "expected 'PaxHeader' in output; got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("section_table"),
+        "expected 'section_table' in output; got:\n{stdout}"
+    );
+
+    let _ = std::fs::remove_file(&pax_path);
+}

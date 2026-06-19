@@ -20,6 +20,9 @@ use paideia_as_elaborator::{
     CapWalker, EffectRowWalker, LinearityWalker, lower_ast_to_ir, placeholder_for,
 };
 use paideia_as_emitter_elf::{Arch, ElfWriter, Kind, SymbolEntry, lower_add_one};
+use paideia_as_emitter_pax::{
+    Architecture, PAX_HEADER_SIZE, PaxHeader, SectionTable, compute_content_hash,
+};
 use paideia_as_ir::{IrNodeId, walk};
 use paideia_as_lexer::{Lexer, SourceText};
 use paideia_as_parser::Parser;
@@ -31,6 +34,8 @@ pub enum EmitFormat {
     Placeholder,
     /// Real ELF64 object via paideia-as-emitter-elf.
     Elf64,
+    /// PAX (PaideiaOS Architectural Executable) object via paideia-as-emitter-pax.
+    Pax,
 }
 
 impl EmitFormat {
@@ -39,8 +44,9 @@ impl EmitFormat {
         match s {
             "placeholder" => Ok(Self::Placeholder),
             "elf64" => Ok(Self::Elf64),
+            "pax" => Ok(Self::Pax),
             other => Err(format!(
-                "unknown --emit format `{other}`; expected `placeholder` or `elf64`"
+                "unknown --emit format `{other}`; expected `placeholder`, `elf64`, or `pax`"
             )),
         }
     }
@@ -169,6 +175,14 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str) -> ExitCode {
             };
             finish_elf(&source_map, catalog, sink, bytes, input, output)
         }
+        EmitFormat::Pax => {
+            let bytes = if preview {
+                None
+            } else {
+                Some(build_pax_object())
+            };
+            finish_pax(&source_map, catalog, sink, bytes, input, output)
+        }
     }
 }
 
@@ -292,6 +306,74 @@ fn placeholder_path_for(input: &Path) -> PathBuf {
     p
 }
 
+/// Build the phase-2-m4 PAX object body. Constructs a minimal PAX with
+/// empty section table and a canonical BLAKE3 content hash.
+fn build_pax_object() -> Vec<u8> {
+    let mut header = PaxHeader::new(Architecture::X86_64);
+    let table = SectionTable::new();
+
+    // Compute the content hash over the empty section table.
+    let hash = compute_content_hash(&header, &table, &[]);
+    header.blake3_content_hash = hash;
+
+    // Set section table offset to immediately follow the header.
+    header.section_table_offset = PAX_HEADER_SIZE as u64;
+    header.section_count = 0;
+
+    // Serialize: header bytes + table bytes.
+    let mut bytes = header.to_bytes().to_vec();
+    bytes.extend_from_slice(&table.to_bytes());
+    bytes
+}
+
+/// `<dir>/<basename>.pax` next to the input file.
+fn pax_path_for(input: &Path) -> PathBuf {
+    let mut p = input.to_path_buf();
+    let stem = p
+        .file_stem()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "input".to_string());
+    p.set_file_name(format!("{stem}.pax"));
+    p
+}
+
+fn finish_pax(
+    source_map: &SourceMap,
+    catalog: &Catalog,
+    sink: VecSink,
+    bytes: Option<Vec<u8>>,
+    input: &Path,
+    output: Option<&Path>,
+) -> ExitCode {
+    let diagnostics = sink.into_diagnostics();
+    let stderr = std::io::stderr();
+    let renderer = HumanRenderer::with_catalog(source_map, true, catalog);
+    let mut human = HumanSink::new(stderr.lock(), renderer);
+    for d in &diagnostics {
+        let _ = human.emit(d.clone());
+    }
+    let has_error = diagnostics.iter().any(|d| d.severity() == Severity::Error);
+    if has_error {
+        return ExitCode::from(1);
+    }
+    if let Some(bytes) = bytes {
+        let path = output
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| pax_path_for(input));
+        match fs::File::create(&path) {
+            Ok(file) => {
+                let mut w = std::io::BufWriter::new(file);
+                let _ = w.write_all(&bytes);
+            }
+            Err(e) => {
+                eprintln!("paideia-as: cannot write PAX at {}: {e}", path.display());
+                return ExitCode::from(2);
+            }
+        }
+    }
+    ExitCode::SUCCESS
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -309,5 +391,17 @@ mod tests {
             placeholder_path_for(p),
             Path::new("/tmp/foo/example.placeholder")
         );
+    }
+
+    #[test]
+    fn pax_path_replaces_extension() {
+        let p = Path::new("example.pdx");
+        assert_eq!(pax_path_for(p), Path::new("example.pax"));
+    }
+
+    #[test]
+    fn pax_path_preserves_directory() {
+        let p = Path::new("/tmp/foo/example.pdx");
+        assert_eq!(pax_path_for(p), Path::new("/tmp/foo/example.pax"));
     }
 }
