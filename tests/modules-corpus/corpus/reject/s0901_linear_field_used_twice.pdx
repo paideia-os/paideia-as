@@ -1,0 +1,8 @@
+// Issue #241: elaborator — structure elaboration → typed value
+// AC 2: linear field binding consumed in two later val initializers (S0901).
+
+structure {
+  val x = linear:resource
+  val y = use x
+  val z = use x again
+}

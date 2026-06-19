@@ -1,0 +1,9 @@
+// Issue #241: elaborator — structure elaboration → typed value
+// AC 1: three-field structure (type + val + nested module) elaborates cleanly.
+
+structure {
+  type t = int
+  val x = 42
+  module M = structure {
+  }
+}
