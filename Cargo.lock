@@ -1206,6 +1206,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lsp-harness"
+version = "0.0.1"
+dependencies = [
+ "paideia-lsp",
+ "tempfile",
+ "tower-lsp",
+]
+
+[[package]]
 name = "lsp-types"
 version = "0.94.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
