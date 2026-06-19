@@ -18,6 +18,7 @@ use paideia_as_diagnostics::{
 };
 use paideia_as_elaborator::{
     CapWalker, EffectRowWalker, LinearityWalker, lower_ast_to_ir, placeholder_for,
+    validate_file_module_mapping,
 };
 use paideia_as_emitter_elf::{Arch, ElfWriter, Kind, SymbolEntry, lower_add_one};
 use paideia_as_emitter_pax::{
@@ -94,6 +95,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str) -> ExitCode {
 
     // Parse.
     let mut arena = AstArena::new();
+    let root_id;
     {
         let mut parser_sink = VecSink::new();
         let mut p = Parser::new(
@@ -103,8 +105,23 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str) -> ExitCode {
             &mut arena,
             &mut parser_sink,
         );
-        let _ = p.parse_source_file();
+        root_id = p.parse_source_file().ok();
         for d in parser_sink.into_diagnostics() {
+            let _ = sink.emit(d);
+        }
+    }
+
+    // Validate file-to-module mapping (after parse, before lower).
+    if let Some(root) = root_id {
+        let mut file_module_diags = Vec::new();
+        validate_file_module_mapping(
+            input,
+            root,
+            &arena,
+            source.content(),
+            &mut file_module_diags,
+        );
+        for d in file_module_diags {
             let _ = sink.emit(d);
         }
     }

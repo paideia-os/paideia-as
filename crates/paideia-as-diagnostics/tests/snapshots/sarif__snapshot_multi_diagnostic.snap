@@ -523,6 +523,34 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "Per §7.6, each .pdx file declares exactly one top-level structure or functor whose name matches the file basename converted to PascalCase (e.g., my_thing.pdx → MyThing)."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/M0305",
+              "id": "M0305",
+              "name": "Module name does not match file basename",
+              "shortDescription": {
+                "text": "the top-level module's name must match the file basename in PascalCase"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Per §7.6, each .pdx source file declares exactly one module. Found more than one."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/M0306",
+              "id": "M0306",
+              "name": "Multiple top-level modules in file",
+              "shortDescription": {
+                "text": "a .pdx file must contain exactly one top-level structure or functor"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "Phase-1 placeholder for reflective macro features (typed elaborator reflection, quote/antiquote, splice, elab, hygiene under reflection). Retired in Phase 2 m2 (PRs #361–#371) — the full Lean-4-style reflection track is now live so this code should never fire. Reserved for compatibility; will be deleted in Phase 3."
               },
               "helpUri": "https://paideia-os.org/diagnostics/M0307",
@@ -530,6 +558,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "Macro feature not implemented in phase 1",
               "shortDescription": {
                 "text": "macro feature deferred to phase 2"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Per §7.6, each .pdx source file declares exactly one module (structure or functor). Found none."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/M0313",
+              "id": "M0313",
+              "name": "File contains no top-level module",
+              "shortDescription": {
+                "text": "a .pdx file must contain exactly one top-level structure or functor"
               }
             },
             {

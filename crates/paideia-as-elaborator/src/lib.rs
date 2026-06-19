@@ -21,6 +21,7 @@ pub mod effect_unify;
 pub mod effect_walker;
 pub mod elab_builtin;
 pub mod env;
+pub mod file_module;
 pub mod functor_apply;
 pub mod hygiene;
 pub mod linearity_ctx;
@@ -59,6 +60,10 @@ pub use effect_unify::{
 };
 pub use effect_walker::EffectRowWalker;
 pub use env::{Symbol, TypeEnv};
+pub use file_module::{
+    M_FILE_NAME_MISMATCH, M_MULTIPLE_TOP_MODULES, M_NO_TOP_MODULE, expected_module_name,
+    validate_file_module_mapping,
+};
 pub use functor_apply::{ApplyKey, apply_functor, elaborate_functor_body};
 pub use hygiene::{HygieneCache, HygienicName, MacroId};
 pub use linearity_ctx::{Binding, LinearityCtx};

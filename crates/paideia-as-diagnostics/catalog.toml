@@ -200,6 +200,24 @@ description = "The `unpack` form opens a packed module value (produced by `pack`
 since = "0.1.0"
 deprecated = false
 
+[diagnostic.M0305]
+severity = "error"
+category = "module"
+title = "Module name does not match file basename"
+brief = "the top-level module's name must match the file basename in PascalCase"
+description = "Per §7.6, each .pdx file declares exactly one top-level structure or functor whose name matches the file basename converted to PascalCase (e.g., my_thing.pdx → MyThing)."
+since = "0.1.0"
+deprecated = false
+
+[diagnostic.M0306]
+severity = "error"
+category = "module"
+title = "Multiple top-level modules in file"
+brief = "a .pdx file must contain exactly one top-level structure or functor"
+description = "Per §7.6, each .pdx source file declares exactly one module. Found more than one."
+since = "0.1.0"
+deprecated = false
+
 [diagnostic.M0307]
 severity = "error"
 category = "module"
@@ -208,6 +226,15 @@ brief = "macro feature deferred to phase 2"
 description = "Phase-1 placeholder for reflective macro features (typed elaborator reflection, quote/antiquote, splice, elab, hygiene under reflection). Retired in Phase 2 m2 (PRs #361–#371) — the full Lean-4-style reflection track is now live so this code should never fire. Reserved for compatibility; will be deleted in Phase 3."
 since = "0.1.0"
 deprecated = true
+
+[diagnostic.M0313]
+severity = "error"
+category = "module"
+title = "File contains no top-level module"
+brief = "a .pdx file must contain exactly one top-level structure or functor"
+description = "Per §7.6, each .pdx source file declares exactly one module (structure or functor). Found none."
+since = "0.1.0"
+deprecated = false
 
 [diagnostic.B1700]
 severity = "error"

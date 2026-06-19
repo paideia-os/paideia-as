@@ -22,6 +22,7 @@ members = [
     "tests/end-to-end",
     "tests/effects-corpus",
     "tests/linearity-regression",
+    "tests/modules-multifile",
     "tests/reflection-corpus",
     "tests/pax-load-smoke",
 ]
