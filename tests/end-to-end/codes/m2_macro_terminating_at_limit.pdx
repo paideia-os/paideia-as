@@ -1,0 +1,20 @@
+/* Test: terminating macro within fuel budget.
+ * This fixture demonstrates a reflective macro body that terminates
+ * within the default fuel budget (65_536 steps).
+ * The macro performs a bounded computation and returns successfully.
+ */
+module M = structure {
+  /* A macro that terminates within fuel budget.
+   * During phase-2-m11, this is documentation-by-example pending the
+   * macro driver (#217); marked #[ignore] in the runner.
+   */
+  #[reflect]
+  macro bounded_computation =
+    fn(t) => {
+      let x = 1
+      let y = 2
+      x + y
+    }
+
+  let z = 3
+}

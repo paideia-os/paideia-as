@@ -1,0 +1,16 @@
+/* Test: infinite macro recursion should fail with M0311 fuel exhausted.
+ * This fixture demonstrates a reflective macro body that loops infinitely,
+ * causing the evaluator to exhaust fuel during macro expansion.
+ * The macro invokes itself recursively without a termination condition.
+ */
+module M = structure {
+  /* A macro that would loop infinitely if evaluated.
+   * During phase-2-m11, this is documentation-by-example pending the
+   * macro driver (#217); marked #[ignore] in the runner.
+   */
+  #[reflect]
+  macro infinite_loop =
+    fn(t) => infinite_loop(t)
+
+  let x = 1
+}

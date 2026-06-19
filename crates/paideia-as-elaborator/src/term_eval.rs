@@ -27,6 +27,12 @@ use paideia_as_ast::reflect::TermHead;
 use paideia_as_ast::{AstArena, ExprData, NodeId, NodeKind, StmtData, Term};
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
 
+/// Default fuel budget for evaluation: enough for complex macro bodies.
+pub const DEFAULT_FUEL: u64 = 65_536;
+
+/// Default maximum stack depth for evaluation.
+pub const DEFAULT_STACK_DEPTH: u32 = 256;
+
 /// Runtime value produced by evaluating a macro body.
 ///
 /// Phase-2-m5 minimum: integer, bool, term-head, term, list of values.
@@ -82,17 +88,35 @@ impl<'a> Value<'a> {
 pub type EvalResult<'a> = Result<Value<'a>, Diagnostic>;
 
 /// Per-call environment binding names to values.
+///
+/// Also tracks fuel (remaining evaluation steps) and stack depth (current recursion depth)
+/// to detect infinite loops and unbounded recursion in reflective macro bodies.
 #[derive(Clone, Debug)]
 pub struct Env<'a> {
     scope: HashMap<String, Value<'a>>,
+    /// Remaining fuel — decremented on every eval step. Hitting 0 emits M0311.
+    pub fuel: u64,
+    /// Current evaluator stack depth. Incremented on each recursive eval entry; decremented on return.
+    pub depth: u32,
+    /// Cap on `depth`. Default 256.
+    pub max_depth: u32,
 }
 
 impl<'a> Env<'a> {
-    /// Construct a new empty environment.
+    /// Construct a new empty environment with default fuel and depth limits.
     #[must_use]
     pub fn new() -> Self {
+        Self::with_limits(DEFAULT_FUEL, DEFAULT_STACK_DEPTH)
+    }
+
+    /// Construct a new environment with custom fuel and depth limits.
+    #[must_use]
+    pub fn with_limits(fuel: u64, max_depth: u32) -> Self {
         Self {
             scope: HashMap::new(),
+            fuel,
+            depth: 0,
+            max_depth,
         }
     }
 
@@ -142,6 +166,28 @@ fn nonexhaustive_match_diag(span: Span) -> Diagnostic {
         .finish()
 }
 
+/// Create a diagnostic for fuel exhaustion in the evaluator.
+fn fuel_exhausted_diag(span: Span, steps_taken: u64) -> Diagnostic {
+    Diagnostic::error(DiagnosticCode::new(Category::M, Severity::Error, 311).expect("valid M code"))
+        .message(format!(
+            "macro evaluation: fuel exhausted after {} steps (infinite loop?)",
+            steps_taken
+        ))
+        .with_span(span)
+        .finish()
+}
+
+/// Create a diagnostic for stack depth limit exceeded in the evaluator.
+fn depth_exceeded_diag(span: Span, depth: u32) -> Diagnostic {
+    Diagnostic::error(DiagnosticCode::new(Category::M, Severity::Error, 311).expect("valid M code"))
+        .message(format!(
+            "macro evaluation: stack depth {} exceeded (unbounded recursion?)",
+            depth
+        ))
+        .with_span(span)
+        .finish()
+}
+
 /// Parse an integer literal from a span's byte range.
 ///
 /// In unit tests, the span's byte_start and byte_len encode the literal value
@@ -186,6 +232,9 @@ fn extract_op_name(_arena: &AstArena, _op_id: NodeId) -> Option<String> {
 /// - Match t with | Head1 => e1 | _ => e2
 /// - Calls to reflect-api functions: kind, children, span, elab
 ///
+/// Tracks fuel (evaluation steps) and stack depth to detect infinite loops
+/// and unbounded recursion. Returns M0311 if fuel is exhausted or depth limit exceeded.
+///
 /// Returns a `Diagnostic` on type mismatch, undefined identifier, or
 /// non-exhaustive match.
 #[allow(clippy::result_large_err)]
@@ -206,6 +255,34 @@ pub fn eval<'a>(
 
     let span = node_data.span;
 
+    // Check fuel: if exhausted, fail fast.
+    if env.fuel == 0 {
+        return Err(fuel_exhausted_diag(span, DEFAULT_FUEL));
+    }
+    env.fuel -= 1;
+
+    // Check depth: if exceeded, fail fast.
+    if env.depth >= env.max_depth {
+        return Err(depth_exceeded_diag(span, env.depth));
+    }
+    env.depth += 1;
+
+    // Evaluate the node; decrement depth on exit.
+    let result = eval_inner(arena, expr_id, node_data, span, env, type_cache);
+    env.depth -= 1;
+    result
+}
+
+/// Internal evaluator body: dispatches on the node kind after fuel and depth checks.
+#[allow(clippy::result_large_err)]
+fn eval_inner<'a>(
+    arena: &'a AstArena,
+    expr_id: NodeId,
+    node_data: &paideia_as_ast::NodeData,
+    span: Span,
+    env: &mut Env<'a>,
+    type_cache: &mut crate::reflect_api::TypeCache,
+) -> EvalResult<'a> {
     // Dispatch on the expression kind.
     match node_data.kind {
         NodeKind::ExprLiteral => {
@@ -1355,5 +1432,294 @@ mod tests {
             }
             _ => panic!("Expected Value::Term from elab call"),
         }
+    }
+
+    #[test]
+    fn eval_consumes_fuel_per_step() {
+        let mut arena = AstArena::new();
+
+        // Build 1 + 1
+        let lit1_placeholder = arena.alloc(NodeKind::Placeholder, test_span(1, 0));
+        let lit1_id = arena.alloc_expr(
+            NodeKind::ExprLiteral,
+            test_span(1, 0),
+            ExprData::Literal {
+                lit: lit1_placeholder,
+            },
+        );
+
+        let op_id = arena.alloc(NodeKind::Placeholder, test_span(0, 0)); // + operator
+
+        let lit2_placeholder = arena.alloc(NodeKind::Placeholder, test_span(1, 0));
+        let lit2_id = arena.alloc_expr(
+            NodeKind::ExprLiteral,
+            test_span(1, 0),
+            ExprData::Literal {
+                lit: lit2_placeholder,
+            },
+        );
+
+        let infix_id = arena.alloc_expr(
+            NodeKind::ExprInfix,
+            test_span(0, 3),
+            ExprData::Infix {
+                lhs: lit1_id,
+                op: op_id,
+                rhs: lit2_id,
+            },
+        );
+
+        let initial_fuel = 1000u64;
+        let mut env = Env::with_limits(initial_fuel, DEFAULT_STACK_DEPTH);
+        let mut type_cache = crate::reflect_api::TypeCache::new();
+        let result = eval(&arena, infix_id, &mut env, &mut type_cache);
+
+        assert!(result.is_ok());
+        // The evaluation should have consumed some fuel.
+        // We expect to visit: infix node, lhs literal, rhs literal = 3 nodes.
+        // Each costs 1 fuel, so remaining should be initial - 3 or so.
+        // (The actual count depends on how the evaluator walks the AST.)
+        assert!(env.fuel < initial_fuel);
+    }
+
+    #[test]
+    fn eval_exhausts_fuel_emits_m0311() {
+        let mut arena = AstArena::new();
+
+        // Build 1 + 1
+        let lit1_placeholder = arena.alloc(NodeKind::Placeholder, test_span(1, 0));
+        let lit1_id = arena.alloc_expr(
+            NodeKind::ExprLiteral,
+            test_span(1, 0),
+            ExprData::Literal {
+                lit: lit1_placeholder,
+            },
+        );
+
+        let op_id = arena.alloc(NodeKind::Placeholder, test_span(0, 0)); // + operator
+
+        let lit2_placeholder = arena.alloc(NodeKind::Placeholder, test_span(1, 0));
+        let lit2_id = arena.alloc_expr(
+            NodeKind::ExprLiteral,
+            test_span(1, 0),
+            ExprData::Literal {
+                lit: lit2_placeholder,
+            },
+        );
+
+        let infix_id = arena.alloc_expr(
+            NodeKind::ExprInfix,
+            test_span(0, 3),
+            ExprData::Infix {
+                lhs: lit1_id,
+                op: op_id,
+                rhs: lit2_id,
+            },
+        );
+
+        // Set fuel to 1 (only enough for one eval step, not three)
+        let mut env = Env::with_limits(1, DEFAULT_STACK_DEPTH);
+        let mut type_cache = crate::reflect_api::TypeCache::new();
+        let result = eval(&arena, infix_id, &mut env, &mut type_cache);
+
+        // Should fail with fuel exhausted (M0311)
+        assert!(result.is_err());
+        let diag = result.unwrap_err();
+        assert_eq!(diag.code().number(), 311);
+        assert!(diag.message().contains("fuel"));
+    }
+
+    #[test]
+    fn eval_depth_limit_emits_m0311() {
+        let mut arena = AstArena::new();
+
+        // Build a 3-deep nested let: let x = 1 in let y = 1 in let z = 1 in z
+        let lit1_placeholder = arena.alloc(NodeKind::Placeholder, test_span(1, 0));
+        let lit1_id = arena.alloc_expr(
+            NodeKind::ExprLiteral,
+            test_span(1, 0),
+            ExprData::Literal {
+                lit: lit1_placeholder,
+            },
+        );
+
+        let x_name = arena.alloc(NodeKind::Ident, test_span(100, 0));
+        let let_stmt_x = arena.alloc_stmt(
+            NodeKind::StmtLet,
+            test_span(0, 10),
+            StmtData::Let {
+                name: x_name,
+                ty: None,
+                value: lit1_id,
+            },
+        );
+
+        let lit2_placeholder = arena.alloc(NodeKind::Placeholder, test_span(1, 0));
+        let lit2_id = arena.alloc_expr(
+            NodeKind::ExprLiteral,
+            test_span(1, 0),
+            ExprData::Literal {
+                lit: lit2_placeholder,
+            },
+        );
+
+        let y_name = arena.alloc(NodeKind::Ident, test_span(101, 0));
+        let let_stmt_y = arena.alloc_stmt(
+            NodeKind::StmtLet,
+            test_span(10, 10),
+            StmtData::Let {
+                name: y_name,
+                ty: None,
+                value: lit2_id,
+            },
+        );
+
+        let lit3_placeholder = arena.alloc(NodeKind::Placeholder, test_span(1, 0));
+        let lit3_id = arena.alloc_expr(
+            NodeKind::ExprLiteral,
+            test_span(1, 0),
+            ExprData::Literal {
+                lit: lit3_placeholder,
+            },
+        );
+
+        let z_name = arena.alloc(NodeKind::Ident, test_span(102, 0));
+        let let_stmt_z = arena.alloc_stmt(
+            NodeKind::StmtLet,
+            test_span(20, 10),
+            StmtData::Let {
+                name: z_name,
+                ty: None,
+                value: lit3_id,
+            },
+        );
+
+        let z_segment = arena.alloc(NodeKind::Ident, test_span(102, 0));
+        let z_path = arena.alloc_expr(
+            NodeKind::ExprPath,
+            test_span(102, 0),
+            ExprData::Path {
+                segments: vec![z_segment],
+            },
+        );
+
+        // Build nested blocks with max_depth = 2
+        // The chain will be: block(let_stmt_z, tail=z_path) inside block(let_stmt_y, tail=...) inside block(let_stmt_x, tail=...)
+        let inner_block = arena.alloc_expr(
+            NodeKind::ExprBlock,
+            test_span(20, 15),
+            ExprData::Block {
+                stmts: vec![let_stmt_z],
+                tail: Some(z_path),
+            },
+        );
+
+        let middle_block = arena.alloc_expr(
+            NodeKind::ExprBlock,
+            test_span(10, 20),
+            ExprData::Block {
+                stmts: vec![let_stmt_y],
+                tail: Some(inner_block),
+            },
+        );
+
+        let outer_block = arena.alloc_expr(
+            NodeKind::ExprBlock,
+            test_span(0, 30),
+            ExprData::Block {
+                stmts: vec![let_stmt_x],
+                tail: Some(middle_block),
+            },
+        );
+
+        // Set max_depth to 2 so the third eval call (z_path) will hit the limit
+        let mut env = Env::with_limits(DEFAULT_FUEL, 2);
+        let mut type_cache = crate::reflect_api::TypeCache::new();
+        let result = eval(&arena, outer_block, &mut env, &mut type_cache);
+
+        // Should fail with depth exceeded (M0311)
+        assert!(result.is_err());
+        let diag = result.unwrap_err();
+        assert_eq!(diag.code().number(), 311);
+        assert!(diag.message().contains("depth"));
+    }
+
+    #[test]
+    fn eval_with_limits_passes_within_budget() {
+        let mut arena = AstArena::new();
+
+        // Build 1 + 2
+        let lit1_placeholder = arena.alloc(NodeKind::Placeholder, test_span(1, 0));
+        let lit1_id = arena.alloc_expr(
+            NodeKind::ExprLiteral,
+            test_span(1, 0),
+            ExprData::Literal {
+                lit: lit1_placeholder,
+            },
+        );
+
+        let op_id = arena.alloc(NodeKind::Placeholder, test_span(0, 0)); // + operator
+
+        let lit2_placeholder = arena.alloc(NodeKind::Placeholder, test_span(2, 0));
+        let lit2_id = arena.alloc_expr(
+            NodeKind::ExprLiteral,
+            test_span(2, 0),
+            ExprData::Literal {
+                lit: lit2_placeholder,
+            },
+        );
+
+        let infix_id = arena.alloc_expr(
+            NodeKind::ExprInfix,
+            test_span(0, 3),
+            ExprData::Infix {
+                lhs: lit1_id,
+                op: op_id,
+                rhs: lit2_id,
+            },
+        );
+
+        // Generous budget: 100 fuel, 256 depth
+        let mut env = Env::with_limits(100, 256);
+        let mut type_cache = crate::reflect_api::TypeCache::new();
+        let result = eval(&arena, infix_id, &mut env, &mut type_cache);
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Value::Int(3));
+    }
+
+    #[test]
+    fn eval_diagnostic_distinguishes_fuel_vs_depth() {
+        let mut arena = AstArena::new();
+
+        // Build a simple literal
+        let lit_placeholder = arena.alloc(NodeKind::Placeholder, test_span(1, 0));
+        let lit_id = arena.alloc_expr(
+            NodeKind::ExprLiteral,
+            test_span(1, 0),
+            ExprData::Literal {
+                lit: lit_placeholder,
+            },
+        );
+
+        // Test 1: fuel exhausted
+        let mut env_fuel = Env::with_limits(0, DEFAULT_STACK_DEPTH);
+        let mut type_cache_fuel = crate::reflect_api::TypeCache::new();
+        let result_fuel = eval(&arena, lit_id, &mut env_fuel, &mut type_cache_fuel);
+
+        assert!(result_fuel.is_err());
+        let diag_fuel = result_fuel.unwrap_err();
+        assert_eq!(diag_fuel.code().number(), 311);
+        assert!(diag_fuel.message().contains("fuel"));
+
+        // Test 2: depth exceeded
+        let mut env_depth = Env::with_limits(DEFAULT_FUEL, 0);
+        let mut type_cache_depth = crate::reflect_api::TypeCache::new();
+        let result_depth = eval(&arena, lit_id, &mut env_depth, &mut type_cache_depth);
+
+        assert!(result_depth.is_err());
+        let diag_depth = result_depth.unwrap_err();
+        assert_eq!(diag_depth.code().number(), 311);
+        assert!(diag_depth.message().contains("depth"));
     }
 }
