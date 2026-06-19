@@ -27,6 +27,7 @@ members = [
     "tests/reflection-corpus",
     "tests/pax-load-smoke",
     "tests/uefi-smoke",
+    "tests/cross-build",
 ]
 
 [workspace.package]

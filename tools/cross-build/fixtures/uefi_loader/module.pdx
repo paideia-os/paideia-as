@@ -1,0 +1,13 @@
+// Minimal paideia-as source for UEFI loader cross-build fixture.
+//
+// Phase-2-m6-009: emitted binary is currently hardcoded to the add_one stub
+// (computes x + 1), matching the add_one pattern for phase-2 compatibility.
+//
+// This file exists to exercise the cross-build infrastructure end-to-end.
+// The actual UEFI semantics (EFI_HANDLE, EFI_SYSTEM_TABLE dereferencing,
+// ConOut->OutputString calls) will be loaded once the IR walker dispatches
+// on node payloads (m6-010+).
+
+module Module = structure {
+    let success = 0
+}
