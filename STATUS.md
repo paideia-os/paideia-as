@@ -160,6 +160,71 @@ M-codes (macro reflection):
 
 **Workspace count**: 22 crates + 4 test harnesses (added `reflection-corpus`).
 
+## Phase 2 m6 closure (PE/COFF emitter)
+
+The PE/COFF emitter for Microsoft x64 / UEFI binaries is now at
+full power. The m6 series (PRs #414–#422) implements:
+
+- **PE/COFF headers (m6-001)** — DosHeader (64B), CoffFileHeader
+  (20B), DataDirectory (8B), OptionalHeaderPe32Plus (240B) per
+  the Microsoft spec. `const_assert` pins
+  `240 = 24 + 88 + 16*8`. `new_efi_amd64()` constructor presets
+  for UEFI use.
+- **Shared encoder lift (m6-002)** — `paideia-as-encoder` crate
+  hosts the x86_64 instruction encoder (Reg64, CodeBuffer +
+  encoders + 39+ tests). emitter-elf's `encode.rs` becomes a
+  one-line facade; emitter-pe gains the dep. Zero callsite
+  churn.
+- **Section emission + RVA (m6-003)** — 40B `SectionHeader` +
+  `SectionTable` with `add_text` / `add_data` / `add_rdata` /
+  `add_bss` + `finalize(section_alignment, file_alignment,
+  headers_size)`. UEFI defaults 0x1000 / 0x200 produce first
+  RVA 0x1000 and first file ptr 0x400. `IMAGE_SCN_*`
+  characteristics constants + composed bundles for text /
+  rdata / data / bss.
+- **`.reloc` table (m6-004)** — `Relocation` + `RelocSection`
+  serialise per-4KiB-page blocks (12B header + 2B entries +
+  ABSOLUTE pad for odd-count blocks). Sort-by-RVA emission;
+  `IMAGE_REL_BASED_DIR64 = 10` for x86_64 64-bit absolute
+  fixups.
+- **Imports + UEFI thunk (m6-005)** — `ImportSection`
+  two-pass layout (descriptors → ILT → IAT → hint+name → DLL
+  names) parameterised by `base_rva`. `emit_uefi_thunk`
+  10-byte MS-x64 → PaideiaOS-native bridge (push r15 + call
+  rel32 + pop r15 + ret). `calling-convention.md` §2.5
+  documents the bridge as a SysV-bridge variant (resolves the
+  third calling-convention target).
+- **EFI subsystem + DLL characteristics (m6-006)** — 11
+  `IMAGE_DLLCHARACTERISTICS_*` constants +
+  `DLLCHARACTERISTICS_UEFI_APPLICATION` bundle (`DYNAMIC_BASE
+  | NX_COMPAT`). `new_efi_amd64()` sets the bundle by
+  default; subsystem already 0x0A EFI_APPLICATION from
+  m6-001.
+- **CLI `--emit pe-coff` (m6-007)** —
+  `paideia-as build --emit pe-coff hello.pdx -o hello.efi`
+  produces a structurally valid PE/COFF binary that
+  `objdump -p` parses cleanly. Phase-2-m6-007 minimum: no
+  imports / relocations / actual code in `.text`; m6-010+
+  wires the elaborator-driven content.
+- **UEFI smoke harness (m6-008)** — new
+  `tests/uefi-smoke/` workspace member. `UefiEnv::probe`
+  walks the host for OVMF firmware + qemu-system-x86_64;
+  `build_hello_efi` composes a minimal `.efi` via the m6-007
+  pattern; `boot_and_capture_serial` spawns QEMU with a
+  30-second cap (AC). Env-check + structural-build tests
+  ACTIVE; boot test `#[ignore]`'d behind a probe + a
+  meaningful `.efi` (m6-010+).
+- **Cross-build smoke (m6-009)** — second
+  `tools/cross-build/` fixture (`uefi_loader`) + Rust
+  harness in `tests/cross-build/`. Active tests pin the
+  script and fixture file paths; full invocation
+  `#[ignore]`'d because it needs `nasm` + `objdump`. Local
+  invocation confirmed PASSing.
+
+Workspace test totals refreshed: ~1360 across 24 crates + 9
+test harnesses (added pax-load-smoke, uefi-smoke,
+modules-multifile, cross-build).
+
 ## Phase 2 m5 closure (ML modules + functors)
 
 Q-A7 **ML-style modules + applicative functors + first-class
@@ -386,9 +451,10 @@ perform payloads through.
 
 ## Workspace test totals
 
-- 1317+ workspace tests across 23 crates + 7 test harnesses
+- 1360+ workspace tests across 24 crates + 9 test harnesses
   (linearity-regression, end-to-end, reflection-corpus, effects-corpus,
-  pax-load-smoke, modules-multifile, paideia-as-e2e).
+  pax-load-smoke, modules-multifile, uefi-smoke, cross-build,
+  paideia-as-e2e).
 - `cargo test --workspace` runs in well under 60 seconds.
 - CI: temporarily disabled (GitHub Actions billing block); local
   `cargo test --workspace` is the gate. cargo-deny advisory remains
