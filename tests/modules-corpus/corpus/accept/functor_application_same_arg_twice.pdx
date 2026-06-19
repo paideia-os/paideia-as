@@ -1,0 +1,12 @@
+// Issue #243 AC 2: F(M) called twice yields path-equal types (m5-006 will assert; m5-005 just exercises the cache).
+//
+// This test verifies applicative path equality: when a functor is applied to the same argument
+// along the same path (same parameter name, body span, and argument signature), the cache
+// returns the same TypedValue, ensuring F(M) == F(M).
+
+functor G(M: sig end) =
+  val y = 100
+end
+
+val r1 = G(M)
+val r2 = G(M)
