@@ -23,6 +23,7 @@ members = [
     "tests/end-to-end",
     "tests/effects-corpus",
     "tests/linearity-regression",
+    "tests/lsp-harness",
     "tests/modules-multifile",
     "tests/reflection-corpus",
     "tests/pax-load-smoke",

@@ -1,0 +1,19 @@
+[package]
+name = "lsp-harness"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+paideia-lsp = { path = "../../crates/paideia-lsp" }
+tower-lsp = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

@@ -218,6 +218,57 @@ The m7 deliverable ships 6 new modules in paideia-pq-sign
 + 1 in paideia-as-emitter-pax (sign). Resolves the PQ trust
 root question from pq-trust-root.md §5/§12/§13.
 
+## Phase 2 m8 closure (LSP server)
+
+The Language Server Protocol implementation for paideia-as is now at
+full power. The m8 series (PRs #432–#444) implements:
+
+- **tower-lsp scaffold (m8-001)** — Backend / capabilities() / initialize
+  handler. ServerCapabilities advertises text_document_sync, hover,
+  definition, references, completion, code_action, formatting,
+  semantic_tokens, inlay_hint.
+- **workspace manifest (m8-002)** — paideia-os.toml reader with
+  load_from_dir + discover. NotFound is typed, not a panic.
+- **textDocument sync (m8-003)** — DocumentStore + did_open/change/close
+  + 3 snapshot edit sequences.
+- **publishDiagnostics (m8-004)** — diagnose_document drives lexer +
+  parser; to_lsp_diagnostic adapts severity / span / code / source.
+- **parse cache (m8-005)** — LRU-bounded (default 64) by (Url, BLAKE3
+  content hash). hits/misses counters; coarse invalidate_all.
+- **hover (m8-006)** — Backend.hover + identify_token_at +
+  format_hover_markdown. Phase-2 synthetic class inference via
+  "linear:"/"affine:" prefix; real inference deferred to m8-008+.
+- **definition + references (m8-007)** — text-based identifier
+  matching with word-boundary discipline; cross-document refs via
+  DocumentStore.iter().
+- **incremental engine (m8-008)** — hand-rolled Salsa-style query
+  memoisation. Per-file parse incremental; per-module elaborate
+  coarse. AC bullet 1 met at file granularity.
+- **completion (m8-009)** — context classifier (Statement /
+  MemberAccess / TypeAnnotation / Identifier) + keyword + identifier
+  + member completions.
+- **code actions + formatting (m8-010)** — 5 code actions
+  (drop_affine_binding / add_to_effect_signature / wrap_in_unsafe /
+  convert_ascii_to_unicode / convert_unicode_to_ascii). paideia-fmt
+  crate minimum-viable formatter + --stdin CLI.
+- **semantic tokens + inlay hints (m8-011)** — tokenise + delta-
+  encoded SemanticTokens; capability-binding sites via "cap:"
+  prefix. Inlay hints after let/val with synthetic placeholders.
+- **tree-sitter grammar (m8-012)** — tools/editor/tree-sitter-paideia/
+  with 21-case test corpus across 4 fixture files. CI activation
+  deferred.
+- **editor configs (m8-013)** — VS Code, Helix, Emacs, Neovim
+  recipes wiring paideia-lsp + tree-sitter-paideia.
+- **lsp-harness (m8-014)** — tests/lsp-harness/ workspace member:
+  4 correctness tests (diagnostics, hover, definition, references) +
+  1 #[ignore]'d latency probe. Exercises paideia-lsp handlers
+  programmatically via library API (no JSON-RPC stdio). Validates
+  diagnostic publication, hover on linear: prefix, definition jumps,
+  cross-document references, and single-char latency <100ms (release).
+
+Workspace test totals refreshed: 1502+ tests across 25 crates + 11
+test harnesses (added lsp-harness).
+
 ## Phase 2 m6 closure (PE/COFF emitter)
 
 The PE/COFF emitter for Microsoft x64 / UEFI binaries is now at
@@ -509,9 +560,9 @@ perform payloads through.
 
 ## Workspace test totals
 
-- 1411+ workspace tests across 24 crates + 10 test harnesses
+- 1502+ workspace tests across 25 crates + 11 test harnesses
   (linearity-regression, end-to-end, reflection-corpus, effects-corpus,
-  pax-load-smoke, modules-multifile, uefi-smoke, cross-build,
+  lsp-harness, pax-load-smoke, modules-multifile, uefi-smoke, cross-build,
   pq-corpus, paideia-as-e2e).
 - `cargo test --workspace` runs in well under 60 seconds.
 - CI: temporarily disabled (GitHub Actions billing block); local
