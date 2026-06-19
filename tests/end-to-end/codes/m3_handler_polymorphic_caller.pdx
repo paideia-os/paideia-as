@@ -1,0 +1,13 @@
+effect Net = {
+  op send(data: u32)
+}
+
+module M = structure {
+  let poly_fn = fn _ !{Net | r} -> perform Net::send(0x1000)
+
+  let test_poly_handler = fn _ ->
+    with handler { op send(x) -> resume () }
+    {
+      poly_fn()
+    }
+}

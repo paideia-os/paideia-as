@@ -13,8 +13,9 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::effect_infer::handle_row;
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
-use paideia_as_effects::SignatureId;
+use paideia_as_effects::{EffectId, EffectRow, SignatureId};
 
 /// Diagnostic code for handler op-set mismatches.
 ///
@@ -147,6 +148,46 @@ pub fn check_resume(
     }
 }
 
+/// Full handler-installation check under row polymorphism.
+///
+/// Combines:
+/// 1. `check_handler` — verifies the handler's impls match the effect's
+///    declared ops (F1101).
+/// 2. `handle_row` — subtracts the handled effect from the body row
+///    (m1-006's primitive). If the body row was open `!{... | r}`,
+///    the result remains open with the tail preserved — that's the
+///    row-polymorphism story.
+///
+/// Returns `(post_handler_body_row, F1101_diagnostics)`.
+///
+/// # Example
+/// ```ignore
+/// // Handler for Net; body row is {Net | r}
+/// let (post_row, diags) = check_handler_installation_polymorphic(
+///     "Net",
+///     &net_ops,
+///     &impls,
+///     handler_span,
+///     &body_row,
+///     net_effect_id,
+/// );
+/// // post_row is now { | r} (Net subtracted, tail preserved)
+/// // diags contains any F1101 op-set mismatches
+/// ```
+#[must_use]
+pub fn check_handler_installation_polymorphic(
+    effect_name: &str,
+    declared_ops: &[(String, SignatureId)],
+    impls: &[HandlerImpl],
+    handler_span: Span,
+    body_row: &EffectRow,
+    handled_effect: EffectId,
+) -> (EffectRow, Vec<Diagnostic>) {
+    let diags = check_handler(effect_name, declared_ops, impls, handler_span);
+    let post_row = handle_row(body_row, handled_effect);
+    (post_row, diags)
+}
+
 fn f_code(n: u16) -> DiagnosticCode {
     DiagnosticCode::new(Category::F, Severity::Error, n).expect("valid F code")
 }
@@ -246,5 +287,112 @@ mod tests {
         for d in &diags {
             assert_eq!(d.code().number(), 1101);
         }
+    }
+
+    // ── Row-polymorphic handler installation tests ──────────────────
+
+    /// Helper: construct an EffectId from a positive integer.
+    fn eff(n: u32) -> EffectId {
+        EffectId::new(n).expect("valid effect id")
+    }
+
+    /// Helper: construct a RowVarId from a positive integer.
+    fn row_var(n: u32) -> paideia_as_effects::RowVarId {
+        paideia_as_effects::RowVarId::new(n).expect("valid row var id")
+    }
+
+    /// Test 1: handler for Net against row-polymorphic caller.
+    /// Body row is {Net | r}; handler matches.
+    /// - post_row should be { | r} (Net subtracted, tail preserved).
+    /// - No F1101 diagnostics.
+    #[test]
+    fn installation_polymorphic_handler_for_net_against_polymorphic_caller() {
+        let net_effect = eff(1);
+        let declared_ops_net = vec![("send".to_string(), 101)];
+        let impls = vec![impl_("send", 101, 0)];
+        let handler_span = span(30);
+
+        // Body row is {Net | r}
+        let body_row = EffectRow::from_ids(vec![net_effect], Some(row_var(1)));
+
+        let (post_row, diags) = check_handler_installation_polymorphic(
+            "Net",
+            &declared_ops_net,
+            &impls,
+            handler_span,
+            &body_row,
+            net_effect,
+        );
+
+        // Expect no F1101 diagnostics.
+        assert!(diags.is_empty(), "got {:?}", diags);
+
+        // Expect post_row to be { | r} (empty fixed, tail preserved).
+        assert!(post_row.fixed.is_empty());
+        assert_eq!(post_row.tail, Some(row_var(1)));
+    }
+
+    /// Test 2: handler for Net missing op, against row-polymorphic caller.
+    /// Body row is {Net | r}; handler missing "send" op.
+    /// - Expect F1101.
+    /// - post_row is still computed: { | r} (don't fail-fast).
+    #[test]
+    fn installation_polymorphic_handler_missing_op_emits_f1101() {
+        let net_effect = eff(1);
+        let declared_ops_net = vec![("send".to_string(), 101)];
+        let impls = vec![]; // missing implementation
+        let handler_span = span(30);
+
+        // Body row is {Net | r}
+        let body_row = EffectRow::from_ids(vec![net_effect], Some(row_var(1)));
+
+        let (post_row, diags) = check_handler_installation_polymorphic(
+            "Net",
+            &declared_ops_net,
+            &impls,
+            handler_span,
+            &body_row,
+            net_effect,
+        );
+
+        // Expect one F1101 for missing op.
+        assert_eq!(diags.len(), 1);
+        assert_eq!(diags[0].code().number(), 1101);
+        assert!(diags[0].message().contains("send"));
+
+        // post_row is still computed: { | r}
+        assert!(post_row.fixed.is_empty());
+        assert_eq!(post_row.tail, Some(row_var(1)));
+    }
+
+    /// Test 3: handler for Net against closed caller.
+    /// Body row is {Net} (closed, no tail); handler matches.
+    /// - post_row should be {} (closed empty).
+    /// - No F1101 diagnostics.
+    #[test]
+    fn installation_polymorphic_handler_against_closed_caller() {
+        let net_effect = eff(1);
+        let declared_ops_net = vec![("send".to_string(), 101)];
+        let impls = vec![impl_("send", 101, 0)];
+        let handler_span = span(30);
+
+        // Body row is {Net} (closed)
+        let body_row = EffectRow::from_ids(vec![net_effect], None);
+
+        let (post_row, diags) = check_handler_installation_polymorphic(
+            "Net",
+            &declared_ops_net,
+            &impls,
+            handler_span,
+            &body_row,
+            net_effect,
+        );
+
+        // Expect no F1101 diagnostics.
+        assert!(diags.is_empty(), "got {:?}", diags);
+
+        // Expect post_row to be {} (closed empty).
+        assert!(post_row.fixed.is_empty());
+        assert!(post_row.tail.is_none());
     }
 }
