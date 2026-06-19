@@ -26,6 +26,7 @@ pub mod linearity_ctx;
 mod lower;
 pub mod macro_expand;
 pub mod macro_match;
+pub mod modules;
 mod placeholder_emit;
 pub mod reflect_api;
 pub mod resolve;
@@ -63,6 +64,9 @@ pub use macro_expand::{
 };
 pub use macro_match::{
     InvocationMatch, M_NO_MATCH, MatchBinding, RuleMatch, match_invocation, match_rule,
+};
+pub use modules::{
+    FieldBinding, S_LINEAR_FIELD_OVERUSED, TypedValue, ValueRef, elaborate_structure,
 };
 pub use placeholder_emit::placeholder_for;
 pub use reflect_api::{TypeCache, children, kind, span, type_of};
