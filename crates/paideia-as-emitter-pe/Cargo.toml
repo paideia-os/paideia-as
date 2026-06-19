@@ -11,4 +11,5 @@ repository.workspace = true
 name = "paideia_as_emitter_pe"
 
 [dependencies]
+paideia-as-encoder = { path = "../paideia-as-encoder" }
 static_assertions = { workspace = true }

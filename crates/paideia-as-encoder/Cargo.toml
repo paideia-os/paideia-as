@@ -1,0 +1,9 @@
+[package]
+name = "paideia-as-encoder"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[lib]
+name = "paideia_as_encoder"
+path = "src/lib.rs"
