@@ -6,10 +6,11 @@
 //! lands when the IR carries enough structure. See `design/toolchain/custom-assembler.md` §4.2.
 
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
-use paideia_as_effects::{EffectId, EffectInterner, EffectRow};
+use paideia_as_effects::{EffectId, EffectInterner, EffectRow, RowVarId};
+use std::collections::HashSet;
 
-#[cfg(test)]
-use paideia_as_effects::RowVarId;
+/// Diagnostic code for a row variable referenced outside its let-generalisation scope.
+pub const T_ROW_VAR_OUT_OF_SCOPE: u16 = 510;
 
 /// Diagnostic code for an effect that escapes its handler chain.
 pub const F_UNHANDLED_EFFECT: u16 = 1100;
@@ -161,9 +162,66 @@ pub fn generalize_row(
     }
 }
 
+/// Tracks row-variable scoping for let-generalization.
+///
+/// Each let-binding pushes a frame; the frame records row variables
+/// allocated for the let-bound function's row generalization. When
+/// the let scope exits, these variables go out of scope; any later
+/// reference to them is a T0510 error.
+#[derive(Default)]
+pub struct LetGenScope {
+    frames: Vec<HashSet<RowVarId>>,
+}
+
+impl LetGenScope {
+    /// Create a new empty let-generalization scope tracker.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Enter a new let binding scope.
+    pub fn enter_let(&mut self) {
+        self.frames.push(HashSet::new());
+    }
+
+    /// Exit the current let binding scope, returning the set of row variables bound in it.
+    pub fn leave_let(&mut self) -> HashSet<RowVarId> {
+        self.frames.pop().unwrap_or_default()
+    }
+
+    /// Record a row variable as bound in the current let frame.
+    pub fn bind(&mut self, var: RowVarId) {
+        if let Some(top) = self.frames.last_mut() {
+            top.insert(var);
+        }
+    }
+
+    /// Is the row variable in scope anywhere up the stack?
+    pub fn in_scope(&self, var: RowVarId) -> bool {
+        self.frames.iter().any(|frame| frame.contains(&var))
+    }
+}
+
+/// Emit a T0510 when a row variable is referenced outside its
+/// generalised let scope.
+pub fn out_of_scope_row_var_diag(var: RowVarId, span: Span) -> Diagnostic {
+    Diagnostic::error(t_code(T_ROW_VAR_OUT_OF_SCOPE))
+        .message(format!(
+            "row variable {} is out of scope (referenced outside its let-generalisation)",
+            var.get()
+        ))
+        .with_span(span)
+        .finish()
+}
+
 /// Helper to construct an F-category error diagnostic code.
 fn f_code(n: u16) -> DiagnosticCode {
     DiagnosticCode::new(Category::F, Severity::Error, n).expect("valid F code")
+}
+
+/// Helper to construct a T-category error diagnostic code.
+fn t_code(n: u16) -> DiagnosticCode {
+    DiagnosticCode::new(Category::T, Severity::Error, n).expect("valid T code")
 }
 
 #[cfg(test)]
@@ -447,5 +505,82 @@ mod tests {
         assert!(gen2.tail.is_some());
         // But the tails should be distinct.
         assert_ne!(gen1.tail, gen2.tail);
+    }
+
+    /// Test 1: let_gen_scope_bind_then_in_scope
+    /// Enter a let scope, bind r1, and assert in_scope(r1) is true.
+    #[test]
+    fn let_gen_scope_bind_then_in_scope() {
+        let mut scope = LetGenScope::new();
+        let r1 = RowVarId::new(1).unwrap();
+
+        scope.enter_let();
+        scope.bind(r1);
+
+        assert!(scope.in_scope(r1));
+    }
+
+    /// Test 2: let_gen_scope_out_of_scope_after_leave
+    /// Enter a let scope, bind r1, leave, and assert in_scope(r1) is false.
+    #[test]
+    fn let_gen_scope_out_of_scope_after_leave() {
+        let mut scope = LetGenScope::new();
+        let r1 = RowVarId::new(1).unwrap();
+
+        scope.enter_let();
+        scope.bind(r1);
+        scope.leave_let();
+
+        assert!(!scope.in_scope(r1));
+    }
+
+    /// Test 3: let_gen_scope_nested_frames_in_scope
+    /// Enter first let, bind r1, enter second let, and assert in_scope(r1) is true
+    /// (lookup walks the stack).
+    #[test]
+    fn let_gen_scope_nested_frames_in_scope() {
+        let mut scope = LetGenScope::new();
+        let r1 = RowVarId::new(1).unwrap();
+
+        scope.enter_let();
+        scope.bind(r1);
+        scope.enter_let();
+
+        assert!(scope.in_scope(r1));
+    }
+
+    /// Test 4: let_gen_scope_leave_returns_bound_set
+    /// Enter a let scope, bind r1 and r2, leave, and assert the returned set contains both.
+    #[test]
+    fn let_gen_scope_leave_returns_bound_set() {
+        let mut scope = LetGenScope::new();
+        let r1 = RowVarId::new(1).unwrap();
+        let r2 = RowVarId::new(2).unwrap();
+
+        scope.enter_let();
+        scope.bind(r1);
+        scope.bind(r2);
+        let bound_set = scope.leave_let();
+
+        assert_eq!(bound_set.len(), 2);
+        assert!(bound_set.contains(&r1));
+        assert!(bound_set.contains(&r2));
+    }
+
+    /// Test 5: out_of_scope_row_var_diag_emits_t0510
+    /// Build a T0510 diagnostic and assert the code matches.
+    #[test]
+    fn out_of_scope_row_var_diag_emits_t0510() {
+        let r1 = RowVarId::new(1).unwrap();
+        let s = span();
+
+        let diag = out_of_scope_row_var_diag(r1, s);
+
+        assert_eq!(diag.code().number(), T_ROW_VAR_OUT_OF_SCOPE);
+        assert_eq!(diag.code().category(), Category::T);
+        assert_eq!(diag.severity(), Severity::Error);
+        assert_eq!(diag.primary_span(), Some(s));
+        assert!(diag.message().contains("out of scope"));
+        assert!(diag.message().contains("let-generalisation"));
     }
 }
