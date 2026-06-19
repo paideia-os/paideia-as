@@ -16,6 +16,7 @@ pub mod header;
 pub mod imports;
 pub mod relocs;
 pub mod section;
+pub mod sign;
 pub mod symtab;
 
 pub use audit::{
@@ -34,4 +35,5 @@ pub use relocs::{RELOC_ENTRY_SIZE, RelocEntry, RelocKind, Relocs};
 pub use section::{
     SECTION_DESCRIPTOR_SIZE, SECTION_NAME_MAX, Section, SectionFlag, SectionTable, SectionType,
 };
+pub use sign::{embed_signature_hash, header_signature_hash_matches, pax_message_to_sign};
 pub use symtab::{SYM_ENTRY_SIZE, SymBinding, SymEntry, SymTab, SymVisibility};

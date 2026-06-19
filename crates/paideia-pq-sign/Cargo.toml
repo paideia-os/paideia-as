@@ -19,3 +19,4 @@ signature     = { workspace = true }
 [dev-dependencies]
 hex = "0.4"
 rand_core = { workspace = true, features = ["getrandom"] }
+paideia-as-emitter-pax = { path = "../paideia-as-emitter-pax" }
