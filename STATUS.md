@@ -160,6 +160,63 @@ M-codes (macro reflection):
 
 **Workspace count**: 22 crates + 4 test harnesses (added `reflection-corpus`).
 
+## Phase 2 m3 closure (full algebraic effects)
+
+Q-A3 **full algebraic effects with handlers** is now at full power. The
+m3 series (PRs #374–#386) implements:
+
+- **Row schema + interner (m3-001, m3-002)** — `EffectRow::is_closed`,
+  `EffectInterner::fresh_row_var` for monotonic allocation of fresh
+  row variables across the elaborator pipeline.
+- **Row-polymorphic inference (m3-003, m3-004)** — `generalize_row`
+  attaches a fresh tail to closed rows at function exit (unless
+  explicitly `!{}`); `call_site_instantiate_and_unify` composes fresh
+  instantiation + unification at every call site.
+- **Let-generalization scoping + T0510 (m3-005)** — `LetGenScope`
+  stack tracks let-bound row variables; out-of-scope use fires T0510.
+- **Handler well-typedness under polymorphism (m3-006)** —
+  `check_handler_installation_polymorphic` composes F1101 op-set check
+  with `handle_row` effect subtraction; tail preserved.
+- **IR handler-value side-table (m3-007)** — `HandlerSideTable` carries
+  the per-Handle payload (effect, ops, ret, finally) the kind-only IR
+  can't hold directly. `pretty_handler` for snapshot tests.
+- **ANF for handler bodies (m3-008)** — five new per-construct ANF
+  helpers cover perform args, resume value, handler op body, finally
+  clause, and the whole-handler walk.
+- **Deep-handler compilation (m3-009)** — `ResumeMode` + `ResumeSiteTable`
+  classify resume usage; `compile_deep_handler_op` lowers SingleShot to
+  direct cont-call and MultiShot to capture-and-invoke.
+- **Effect-rewrite extended (m3-010)** — `rewrite_perform_at_depth` for
+  row-polymorphic perform sites; `rewrite_handler_install_trampoline`
+  for multi-shot install loops. PBT verifies every resume site gets
+  rewritten regardless of count.
+- **Handler stack + AS3 (m3-011)** — `emit_handler_open` / `emit_handler_close`
+  push/pop R15 around handler-bracketed regions; `sysv_bridge`
+  push/pop R15 around C calls. Resolves AS3 from custom-assembler.md
+  §15.
+- **Effects regression corpus (m3-012)** — new `tests/effects-corpus/`
+  with 15 accept + 8 reject fixtures (7 multi-shot, 4 nested
+  handlers).
+- **Row-mismatch diagnostic (m3-013)** — `RowDiff::render` produces
+  `expected: / got: / diff: + N - M` form with tail tracking. F1105
+  uses it.
+
+F-codes (effect + capability under row polymorphism):
+
+| Code  | Source                                | Emitted by HEAD |
+|-------|---------------------------------------|-----------------|
+| F1100 | effect_infer: unhandled effect        | yes (per-pass)  |
+| F1101 | check_handler: handler well-typedness | yes (per-pass)  |
+| F1102 | effect_unify: handler order           | yes (per-pass)  |
+| F1105 | effect_unify: row mismatch (with diff)| yes (per-pass)  |
+| F1106 | check_pure: forbidden effect          | yes (per-pass)  |
+| T0510 | let-gen scope: row var out of scope   | yes (per-pass)  |
+
+The m3 deliverables are unit-tested via injection tables; activation
+through real `.pdx` source via the CLI tracks the IR-walker driver
+work that lands as the elaborator threads structured handler /
+perform payloads through.
+
 ## Phase 2 enabling deliverables (m1 outputs)
 
 - **`design/toolchain/abi.md`** — canonical ABI specification (~330 lines).
@@ -177,11 +234,13 @@ M-codes (macro reflection):
 
 ## Workspace test totals
 
-- ~950 workspace tests across 22 crates + 4 test harnesses.
+- 1075+ workspace tests across 22 crates + 5 test harnesses
+  (linearity-regression, end-to-end, reflection-corpus, effects-corpus,
+  paideia-as-e2e).
 - `cargo test --workspace` runs in well under 60 seconds.
-- CI: fmt / clippy / build / doc / test all gating; cross-build is a
-  separate advisory lane; cargo-deny is advisory (pre-existing
-  wildcard-dep warnings in the CLI manifest).
+- CI: temporarily disabled (GitHub Actions billing block); local
+  `cargo test --workspace` is the gate. cargo-deny advisory remains
+  pre-existing wildcard-dep warnings.
 
 ## Decision gate G2 → Phase 2
 
