@@ -1,0 +1,13 @@
+// Multi-shot exception handler with multiple resumption points
+module MultiShotException = structure {
+  effect Exception {
+    op throw : (u64) -> u64
+    op catch : (unit) -> u64
+  }
+
+  let exception_loop : (unit) -> u64 !{} =
+    fn (_ : unit) ->
+      with exception_handler handle Exception {
+        0
+      }
+}

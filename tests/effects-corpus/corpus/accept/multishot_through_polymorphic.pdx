@@ -1,0 +1,16 @@
+// Multi-shot handler calling row-polymorphic function
+module MultiShotPoly = structure {
+  effect State {
+    op get : (unit) -> u64
+    op put : (u64) -> unit
+  }
+
+  let poly_state : forall e. (unit) -> u64 !{State | e} =
+    fn (_ : unit) -> 0
+
+  let loop_handler : (unit) -> u64 !{} =
+    fn (_ : unit) ->
+      with state_handler handle State {
+        poly_state()
+      }
+}

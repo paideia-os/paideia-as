@@ -1,0 +1,13 @@
+// Multi-shot handler simulating range iteration
+module MultiShotRange = structure {
+  effect Iterator {
+    op next : (unit) -> u64
+    op has_next : (unit) -> u8
+  }
+
+  let iterate_range : (u64, u64) -> u64 !{} =
+    fn (start : u64) (end : u64) ->
+      with iterator_handler handle Iterator {
+        0
+      }
+}

@@ -1,0 +1,18 @@
+[package]
+name = "paideia-effects-corpus"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+# This crate is *only* a test harness — it contains no library code or
+# binaries, just the integration tests in `tests/runner.rs` that walk
+# the accept/ and reject/ corpus directories and validate effect-system
+# codes (F-category: F1100/F1101/F1102/F1105/F1106; T-category: T0510).
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]

@@ -1,0 +1,13 @@
+// Multi-shot handler with finally clause
+module MultiShotFinally = structure {
+  effect State {
+    op get : (unit) -> u64
+    op put : (u64) -> unit
+  }
+
+  let with_finally : (unit) -> u64 !{} =
+    fn (_ : unit) ->
+      with state_handler handle State {
+        0
+      }
+}

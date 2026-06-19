@@ -1231,6 +1231,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "paideia-effects-corpus"
+version = "0.0.1"
+
+[[package]]
 name = "paideia-end-to-end"
 version = "0.0.1"
 

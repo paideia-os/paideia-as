@@ -1,0 +1,13 @@
+// Handler missing operation
+module HandlerMissingOp = structure {
+  effect Io {
+    op read : (u16) -> u8
+    op write : (u16, u8) -> unit
+  }
+
+  let incomplete : (unit) -> unit !{} =
+    fn (_ : unit) ->
+      with incomplete_handler handle Io {
+        0
+      }
+}

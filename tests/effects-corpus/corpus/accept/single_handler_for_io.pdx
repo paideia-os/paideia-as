@@ -1,0 +1,13 @@
+// Basic handler installation for Io effect
+module SingleHandler = structure {
+  effect Io {
+    op port_read  : (u16) -> u8
+    op port_write : (u16, u8) -> unit
+  }
+
+  let read_port : (u16) -> u8 !{} =
+    fn (port : u16) ->
+      with io_handler handle Io {
+        0
+      }
+}

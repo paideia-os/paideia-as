@@ -1,0 +1,13 @@
+// Multi-shot handler simulating state iteration
+module CountToN = structure {
+  effect State {
+    op get : (unit) -> u64
+    op put : (u64) -> unit
+  }
+
+  let count_loop : (u64) -> u64 !{} =
+    fn (n : u64) ->
+      with state_handler handle State {
+        0
+      }
+}

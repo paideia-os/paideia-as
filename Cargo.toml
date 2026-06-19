@@ -20,6 +20,7 @@ members = [
     "crates/paideia-pq-sign",
     "tests/e2e",
     "tests/end-to-end",
+    "tests/effects-corpus",
     "tests/linearity-regression",
     "tests/reflection-corpus",
 ]

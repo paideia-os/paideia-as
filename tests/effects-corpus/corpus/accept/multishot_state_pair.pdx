@@ -1,0 +1,15 @@
+// Multi-shot handler managing a pair of state values
+module MultiShotPair = structure {
+  effect State {
+    op get_x : (unit) -> u64
+    op set_x : (u64) -> unit
+    op get_y : (unit) -> u64
+    op set_y : (u64) -> unit
+  }
+
+  let paired_state : (unit) -> u64 !{} =
+    fn (_ : unit) ->
+      with state_handler handle State {
+        0
+      }
+}
