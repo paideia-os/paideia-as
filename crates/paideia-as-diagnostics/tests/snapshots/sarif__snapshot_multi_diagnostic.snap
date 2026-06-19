@@ -453,6 +453,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "A sharing constraint asserted equality between two type paths, but the resolved types differ (or one path is unresolved). See the diagnostic message for the resolved types and a 'did you mean' suggestion when paths are close."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/M0303",
+              "id": "M0303",
+              "name": "Sharing constraint violated",
+              "shortDescription": {
+                "text": "functor sharing constraint requires equal types but paths disagree"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "Phase-1 placeholder for reflective macro features (typed elaborator reflection, quote/antiquote, splice, elab, hygiene under reflection). Retired in Phase 2 m2 (PRs #361–#371) — the full Lean-4-style reflection track is now live so this code should never fire. Reserved for compatibility; will be deleted in Phase 3."
               },
               "helpUri": "https://paideia-os.org/diagnostics/M0307",
