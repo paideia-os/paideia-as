@@ -9,6 +9,7 @@ members = [
     "crates/paideia-as-effects",
     "crates/paideia-as-elaborator",
     "crates/paideia-as-ir",
+    "crates/paideia-as-encoder",
     "crates/paideia-as-emitter-elf",
     "crates/paideia-as-emitter-pax",
     "crates/paideia-as-emitter-pe",

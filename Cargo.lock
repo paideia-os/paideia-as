@@ -1175,6 +1175,7 @@ dependencies = [
  "iced-x86",
  "object",
  "paideia-as-diagnostics",
+ "paideia-as-encoder",
  "paideia-as-ir",
  "static_assertions",
 ]
@@ -1191,8 +1192,13 @@ dependencies = [
 name = "paideia-as-emitter-pe"
 version = "0.0.1"
 dependencies = [
+ "paideia-as-encoder",
  "static_assertions",
 ]
+
+[[package]]
+name = "paideia-as-encoder"
+version = "0.0.1"
 
 [[package]]
 name = "paideia-as-ir"
