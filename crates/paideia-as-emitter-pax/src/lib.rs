@@ -7,9 +7,11 @@
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+pub mod caps;
 pub mod header;
 pub mod section;
 
+pub use caps::{CAP_ENTRY_SIZE, CapEntry, CapKind, CapsSection, LinClass, SiteKind};
 pub use header::{
     Architecture, HeaderFlag, PAX_FORMAT_VERSION, PAX_HEADER_SIZE, PAX_MAGIC, PaxHeader,
 };

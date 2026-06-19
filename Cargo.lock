@@ -1183,6 +1183,7 @@ dependencies = [
 name = "paideia-as-emitter-pax"
 version = "0.0.1"
 dependencies = [
+ "blake3",
  "static_assertions",
 ]
 
