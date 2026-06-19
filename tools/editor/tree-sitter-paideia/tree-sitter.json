@@ -1,0 +1,9 @@
+{
+  "scope": "source.paideia",
+  "file-types": [
+    "pdx"
+  ],
+  "first-line-regex": "^(//|#!)",
+  "parser": "paideia",
+  "path": "."
+}

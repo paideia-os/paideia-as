@@ -1,0 +1,97 @@
+==================
+Simple function declaration with pure effect row
+==================
+
+module PureArithmetic = structure {
+  let square : (u64) -> u64 !{} @{} = fn (x : u64) -> x * x
+}
+
+---
+
+(source_file
+  (module_decl
+    name: (identifier)
+    (structure_expr
+      (function_decl
+        name: (identifier)
+        (number)
+        (number)
+        (effect_row)
+        (capability_row)))))
+
+==================
+Function with multiple parameters
+==================
+
+module MultiParam = structure {
+  let add : (i32, i32) -> i32 !{} @{} = fn (x : i32, y : i32) -> x + y
+}
+
+---
+
+(source_file
+  (module_decl
+    name: (identifier)
+    (structure_expr
+      (function_decl
+        name: (identifier)
+        (parameter)
+        (parameter)
+        (effect_row)
+        (capability_row)))))
+
+==================
+Function with effect row
+==================
+
+module Effectful = structure {
+  let read_port : (u16) -> u8 !{Io} @{} = fn (port : u16) -> 0
+}
+
+---
+
+(source_file
+  (module_decl
+    name: (identifier)
+    (structure_expr
+      (function_decl
+        name: (identifier)
+        (effect_row
+          (identifier))
+        (capability_row)))))
+
+==================
+Lambda expression
+==================
+
+module LambdaExample = structure {
+  let identity = fn (x : u64) -> x
+}
+
+---
+
+(source_file
+  (module_decl
+    name: (identifier)
+    (structure_expr
+      (let_decl
+        name: (identifier)
+        (lambda_expr)))))
+
+==================
+Function call expression
+==================
+
+module CallExample = structure {
+  let caller = square(42)
+}
+
+---
+
+(source_file
+  (module_decl
+    name: (identifier)
+    (structure_expr
+      (let_decl
+        name: (identifier)
+        (call_expr)))))
