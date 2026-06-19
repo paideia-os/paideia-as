@@ -8,9 +8,11 @@
 
 pub mod dispatch;
 pub mod peephole;
+pub mod schedule;
 
 // Re-export canonical pass types.
 pub use peephole::PeepholePass;
+pub use schedule::{InstructionClass, InstructionSchedulingPass, schedule_block};
 
 use crate::IrArena;
 use crate::node::IrNodeId;

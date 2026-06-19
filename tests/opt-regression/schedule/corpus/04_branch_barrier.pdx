@@ -1,0 +1,5 @@
+# Instruction Scheduling Test 4: Branch Barrier
+# Pattern: ALU, Branch, Load → Branch acts as barrier
+# Instructions should not reorder across the branch barrier.
+
+[STUB IR: Branch acts as barrier, no reordering across]

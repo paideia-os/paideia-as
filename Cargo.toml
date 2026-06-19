@@ -26,6 +26,7 @@ members = [
     "tests/lsp-harness",
     "tests/modules-multifile",
     "tests/opt-regression/peephole",
+    "tests/opt-regression/schedule",
     "tests/reflection-corpus",
     "tests/pax-load-smoke",
     "tests/pq-corpus",

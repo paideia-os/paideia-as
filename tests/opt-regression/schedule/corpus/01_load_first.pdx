@@ -1,0 +1,5 @@
+# Instruction Scheduling Test 1: Load Hoisting
+# Pattern: ALU then Load → Load should move earlier to hide latency
+# This fixture should trigger load hoisting.
+
+[STUB IR: would trigger load hoisting]
