@@ -1250,6 +1250,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "paideia-cross-build-tests"
+version = "0.0.1"
+
+[[package]]
 name = "paideia-effects-corpus"
 version = "0.0.1"
 
