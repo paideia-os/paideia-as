@@ -68,6 +68,10 @@ impl LanguageServer for Backend {
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         self.store.close(&params.text_document.uri);
     }
+
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        Ok(crate::hover::hover_at(&self.store, &params))
+    }
 }
 
 /// Server capabilities per editor-support.md §1.1.
