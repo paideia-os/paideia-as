@@ -1,0 +1,4 @@
+module M = structure {
+  let q = quote { 1 }
+  let m = quote { 2 }
+}
