@@ -11,3 +11,11 @@ repository.workspace = true
 name = "paideia_pq_sign"
 
 [dependencies]
+ed25519-dalek = { workspace = true, features = ["rand_core"] }
+ml-dsa        = { workspace = true, features = ["rand_core"] }
+rand_core     = { workspace = true }
+signature     = { workspace = true }
+
+[dev-dependencies]
+hex = "0.4"
+rand_core = { workspace = true, features = ["getrandom"] }
