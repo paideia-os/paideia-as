@@ -296,6 +296,271 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
         Err(ParseError)
     }
+
+    /// Parse a pack expression: `pack M : S`.
+    ///
+    /// **Grammar:**
+    /// ```text
+    /// pack_expr := 'pack' module_path ':' module_path
+    /// ```
+    ///
+    /// **Algorithm:**
+    /// 1. Expect contextual `"pack"` keyword.
+    /// 2. `parse_path_or_ident` → module_path.
+    /// 3. Expect `Colon` token; on miss → P0192.
+    /// 4. `parse_path_or_ident` → signature_path.
+    /// 5. Allocate and return ExprPack node.
+    ///
+    /// **Errors:**
+    /// - P0192: missing `:` or signature path.
+    ///
+    /// This is exposed as pub for external testing. It is not wired into
+    /// `parse_primary` to avoid regressing value-level expressions.
+    pub fn parse_pack_expr(&mut self) -> Result<NodeId, ParseError> {
+        let span_start = self.current_span();
+
+        // Expect contextual "pack" keyword
+        if !self.peek_contextual_keyword("pack") {
+            let span = if let Some(tok) = self.peek() {
+                tok.span
+            } else {
+                Span::new(self.file(), 0, 0)
+            };
+            let diag = Diagnostic::error(p_code(192))
+                .message("expected `pack` keyword".to_string())
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+        self.bump(); // consume "pack"
+
+        // Parse module path
+        let module_path = self.parse_path_or_ident()?;
+
+        // Expect colon
+        if !self.at(TokenKind::Colon) {
+            let span = if let Some(tok) = self.peek() {
+                tok.span
+            } else {
+                Span::new(self.file(), 0, 0)
+            };
+            let diag = Diagnostic::error(p_code(192))
+                .message("malformed pack expression: expected `:`".to_string())
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+        self.expect(TokenKind::Colon)?;
+
+        // Parse signature path
+        let signature_path = self.parse_path_or_ident()?;
+
+        // Compute final span
+        let span_end = self
+            .arena()
+            .get(signature_path)
+            .map(|nd| nd.span)
+            .unwrap_or(span_start);
+
+        let final_span = Span::new(
+            span_start.file(),
+            span_start.byte_start(),
+            span_end.byte_start() + span_end.byte_len() - span_start.byte_start(),
+        );
+
+        Ok(self.arena_mut().alloc_expr(
+            NodeKind::ExprPack,
+            final_span,
+            ExprData::Pack {
+                module_path,
+                signature_path,
+            },
+        ))
+    }
+
+    /// Parse an unpack expression: `unpack v`.
+    ///
+    /// **Grammar:**
+    /// ```text
+    /// unpack_expr := 'unpack' expr
+    /// ```
+    ///
+    /// **Algorithm:**
+    /// 1. Expect contextual `"unpack"` keyword.
+    /// 2. parse_expr → value.
+    /// 3. If parse_expr errors before consuming → P0193.
+    /// 4. Allocate and return ExprUnpack node.
+    ///
+    /// **Errors:**
+    /// - P0193: missing operand.
+    ///
+    /// This is exposed as pub for external testing. It is not wired into
+    /// `parse_primary` to avoid regressing value-level expressions.
+    pub fn parse_unpack_expr(&mut self) -> Result<NodeId, ParseError> {
+        let span_start = self.current_span();
+
+        // Expect contextual "unpack" keyword
+        if !self.peek_contextual_keyword("unpack") {
+            let span = if let Some(tok) = self.peek() {
+                tok.span
+            } else {
+                Span::new(self.file(), 0, 0)
+            };
+            let diag = Diagnostic::error(p_code(193))
+                .message("expected `unpack` keyword".to_string())
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+        self.bump(); // consume "unpack"
+
+        // Parse operand expression
+        let value = self.parse_expr()?;
+
+        // Compute final span
+        let span_end = self
+            .arena()
+            .get(value)
+            .map(|nd| nd.span)
+            .unwrap_or(span_start);
+
+        let final_span = Span::new(
+            span_start.file(),
+            span_start.byte_start(),
+            span_end.byte_start() + span_end.byte_len() - span_start.byte_start(),
+        );
+
+        Ok(self.arena_mut().alloc_expr(
+            NodeKind::ExprUnpack,
+            final_span,
+            ExprData::Unpack { value },
+        ))
+    }
+
+    /// Parse a let-module binding: `let module N = unpack v in <expr>`.
+    ///
+    /// **Grammar:**
+    /// ```text
+    /// let_module := 'let' 'module' IDENT '=' unpack_expr 'in' expr
+    /// ```
+    ///
+    /// **Algorithm:**
+    /// 1. Expect `TokenKind::KwLet`.
+    /// 2. Expect contextual `"module"`.
+    /// 3. Expect Ident; extract lexeme as `name`.
+    /// 4. Expect Eq; on miss → P0194.
+    /// 5. Call `parse_unpack_expr()` → body.
+    /// 6. Expect contextual `"in"`; on miss → P0194.
+    /// 7. parse_expr → rest.
+    /// 8. Allocate and return ExprLetModule node.
+    ///
+    /// **Errors:**
+    /// - P0194: missing `=`, `unpack`, or `in`.
+    ///
+    /// This is exposed as pub for external testing. It is not wired into
+    /// `parse_primary` to avoid regressing value-level expressions.
+    pub fn parse_let_module(&mut self) -> Result<NodeId, ParseError> {
+        let span_start = self.current_span();
+
+        // Expect 'let' keyword
+        if !self.at(TokenKind::KwLet) {
+            let span = if let Some(tok) = self.peek() {
+                tok.span
+            } else {
+                Span::new(self.file(), 0, 0)
+            };
+            let diag = Diagnostic::error(p_code(194))
+                .message("expected `let` keyword".to_string())
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+        self.bump(); // consume 'let'
+
+        // Expect contextual "module" keyword
+        if !self.peek_contextual_keyword("module") {
+            let span = if let Some(tok) = self.peek() {
+                tok.span
+            } else {
+                Span::new(self.file(), 0, 0)
+            };
+            let diag = Diagnostic::error(p_code(194))
+                .message("expected `module` keyword in let-module binding".to_string())
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+        self.bump(); // consume "module"
+
+        // Expect identifier (binding name)
+        let ident_tok = self.expect(TokenKind::Ident)?;
+        let source = self.source();
+        let start = ident_tok.span.byte_start() as usize;
+        let end = (ident_tok.span.byte_start() + ident_tok.span.byte_len()) as usize;
+        let name = extract_lexeme(source, start, end);
+
+        // Expect '='
+        if !self.at(TokenKind::Eq) {
+            let span = if let Some(tok) = self.peek() {
+                tok.span
+            } else {
+                Span::new(self.file(), 0, 0)
+            };
+            let diag = Diagnostic::error(p_code(194))
+                .message("malformed let-module: expected `=`".to_string())
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+        self.expect(TokenKind::Eq)?;
+
+        // Parse unpack expression (RHS of =)
+        let body = self.parse_unpack_expr()?;
+
+        // Expect contextual "in" keyword
+        if !self.peek_contextual_keyword("in") {
+            let span = if let Some(tok) = self.peek() {
+                tok.span
+            } else {
+                Span::new(self.file(), 0, 0)
+            };
+            let diag = Diagnostic::error(p_code(194))
+                .message("malformed let-module: expected `in`".to_string())
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+        self.bump(); // consume "in"
+
+        // Parse continuation expression
+        let rest = self.parse_expr()?;
+
+        // Compute final span
+        let span_end = self
+            .arena()
+            .get(rest)
+            .map(|nd| nd.span)
+            .unwrap_or(span_start);
+
+        let final_span = Span::new(
+            span_start.file(),
+            span_start.byte_start(),
+            span_end.byte_start() + span_end.byte_len() - span_start.byte_start(),
+        );
+
+        Ok(self.arena_mut().alloc_expr(
+            NodeKind::ExprLetModule,
+            final_span,
+            ExprData::LetModule { name, body, rest },
+        ))
+    }
 }
 
 /// Extract lexeme text from source at the given byte range.
@@ -620,5 +885,218 @@ mod tests {
         assert!(!diags.is_empty());
         let code_str = format!("{}", diags[0].code());
         assert!(code_str.contains("P0191"));
+    }
+
+    #[test]
+    fn parses_pack_simple() {
+        // pack M : S
+        let tokens = vec![
+            tok(TokenKind::Ident, 0, 4), // pack
+            tok(TokenKind::Ident, 5, 1), // M
+            tok(TokenKind::Colon, 7, 1), // :
+            tok(TokenKind::Ident, 9, 1), // S
+            tok(TokenKind::Eof, 10, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(
+            &tokens,
+            "pack M : S",
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        );
+
+        let result = parser.parse_pack_expr();
+        assert!(result.is_ok());
+        let expr_id = result.unwrap();
+
+        let node = arena.get(expr_id).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprPack);
+
+        if let Some(expr_data) = arena.expr_data(expr_id) {
+            match expr_data {
+                ExprData::Pack {
+                    module_path: _,
+                    signature_path: _,
+                } => {
+                    // Verified
+                }
+                _ => panic!("expected Pack variant"),
+            }
+        } else {
+            panic!("expected expr data");
+        }
+    }
+
+    #[test]
+    fn parses_unpack_simple() {
+        // unpack v
+        let tokens = vec![
+            tok(TokenKind::Ident, 0, 6), // unpack
+            tok(TokenKind::Ident, 7, 1), // v
+            tok(TokenKind::Eof, 8, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(
+            &tokens,
+            "unpack v",
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        );
+
+        let result = parser.parse_unpack_expr();
+        assert!(result.is_ok());
+        let expr_id = result.unwrap();
+
+        let node = arena.get(expr_id).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprUnpack);
+
+        if let Some(expr_data) = arena.expr_data(expr_id) {
+            match expr_data {
+                ExprData::Unpack { value: _ } => {
+                    // Verified
+                }
+                _ => panic!("expected Unpack variant"),
+            }
+        } else {
+            panic!("expected expr data");
+        }
+    }
+
+    #[test]
+    fn parses_let_module_simple() {
+        // let module N = unpack v in body
+        let tokens = vec![
+            tok(TokenKind::KwLet, 0, 3),  // let
+            tok(TokenKind::Ident, 4, 6),  // module
+            tok(TokenKind::Ident, 11, 1), // N
+            tok(TokenKind::Eq, 13, 1),    // =
+            tok(TokenKind::Ident, 15, 6), // unpack
+            tok(TokenKind::Ident, 22, 1), // v
+            tok(TokenKind::Ident, 24, 2), // in
+            tok(TokenKind::Ident, 27, 4), // body
+            tok(TokenKind::Eof, 31, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(
+            &tokens,
+            "let module N = unpack v in body",
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        );
+
+        let result = parser.parse_let_module();
+        assert!(result.is_ok());
+        let expr_id = result.unwrap();
+
+        let node = arena.get(expr_id).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprLetModule);
+
+        if let Some(expr_data) = arena.expr_data(expr_id) {
+            match expr_data {
+                ExprData::LetModule {
+                    name,
+                    body: _,
+                    rest: _,
+                } => {
+                    assert_eq!(name, "N");
+                }
+                _ => panic!("expected LetModule variant"),
+            }
+        } else {
+            panic!("expected expr data");
+        }
+    }
+
+    #[test]
+    fn rejects_pack_missing_colon() {
+        // pack M S - missing colon
+        let tokens = vec![
+            tok(TokenKind::Ident, 0, 4), // pack
+            tok(TokenKind::Ident, 5, 1), // M
+            tok(TokenKind::Ident, 7, 1), // S
+            tok(TokenKind::Eof, 8, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(
+            &tokens,
+            "pack M S",
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        );
+
+        let result = parser.parse_pack_expr();
+        assert!(result.is_err());
+
+        // Check that a P0192 diagnostic was emitted
+        let diags = sink.diagnostics();
+        assert!(!diags.is_empty());
+        let code_str = format!("{}", diags[0].code());
+        assert!(code_str.contains("P0192"));
+    }
+
+    #[test]
+    fn rejects_let_module_missing_in() {
+        // let module N = unpack v body - missing 'in'
+        let tokens = vec![
+            tok(TokenKind::KwLet, 0, 3),  // let
+            tok(TokenKind::Ident, 4, 6),  // module
+            tok(TokenKind::Ident, 11, 1), // N
+            tok(TokenKind::Eq, 13, 1),    // =
+            tok(TokenKind::Ident, 15, 6), // unpack
+            tok(TokenKind::Ident, 22, 1), // v
+            tok(TokenKind::Ident, 24, 4), // body
+            tok(TokenKind::Eof, 28, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(
+            &tokens,
+            "let module N = unpack v body",
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        );
+
+        let result = parser.parse_let_module();
+        assert!(result.is_err());
+
+        // Check that a P0194 diagnostic was emitted
+        let diags = sink.diagnostics();
+        assert!(!diags.is_empty());
+        let code_str = format!("{}", diags[0].code());
+        assert!(code_str.contains("P0194"));
+    }
+
+    #[test]
+    fn rejects_unpack_missing_operand() {
+        // unpack (missing operand - just EOF)
+        let tokens = vec![
+            tok(TokenKind::Ident, 0, 6), // unpack
+            tok(TokenKind::Eof, 6, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(
+            &tokens,
+            "unpack",
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        );
+
+        let result = parser.parse_unpack_expr();
+        assert!(result.is_err());
+
+        // Check that a diagnostic was emitted
+        let diags = sink.diagnostics();
+        assert!(!diags.is_empty());
     }
 }

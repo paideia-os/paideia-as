@@ -425,6 +425,48 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "A pack expression `pack M : S` is syntactically incomplete: either the `:` separator is missing or the signature path is absent. Check that the pack syntax is `pack <module> : <signature>`."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0192",
+              "id": "P0192",
+              "name": "Malformed pack expression",
+              "shortDescription": {
+                "text": "malformed pack expression: expected `:` or signature"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "An unpack expression `unpack v` is missing its operand. Provide an expression that evaluates to a packed module value."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0193",
+              "id": "P0193",
+              "name": "Malformed unpack expression",
+              "shortDescription": {
+                "text": "malformed unpack expression: missing operand"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "A let-module binding `let module N = unpack v in <expr>` is syntactically incomplete: either `=` after the binding name, the `unpack` keyword, or `in` before the continuation is missing. Check the syntax: `let module <name> = unpack <value> in <expr>`."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0194",
+              "id": "P0194",
+              "name": "Malformed let-module binding",
+              "shortDescription": {
+                "text": "malformed let-module binding: missing `=`, `unpack`, or `in`"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "Signature ascription requires the structure to define a named type/val/module that is absent."
               },
               "helpUri": "https://paideia-os.org/diagnostics/M0301",

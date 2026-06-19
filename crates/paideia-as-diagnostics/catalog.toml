@@ -235,3 +235,30 @@ brief = "malformed sharing constraint: expected `=` between paths"
 description = "A sharing constraint in a functor application `sharing (A::t = B::t)` is malformed: the `=` separator between the two module paths is missing or the paths themselves are incomplete."
 since = "0.1.0"
 deprecated = false
+
+[diagnostic.P0192]
+severity = "error"
+category = "parser"
+title = "Malformed pack expression"
+brief = "malformed pack expression: expected `:` or signature"
+description = "A pack expression `pack M : S` is syntactically incomplete: either the `:` separator is missing or the signature path is absent. Check that the pack syntax is `pack <module> : <signature>`."
+since = "0.1.0"
+deprecated = false
+
+[diagnostic.P0193]
+severity = "error"
+category = "parser"
+title = "Malformed unpack expression"
+brief = "malformed unpack expression: missing operand"
+description = "An unpack expression `unpack v` is missing its operand. Provide an expression that evaluates to a packed module value."
+since = "0.1.0"
+deprecated = false
+
+[diagnostic.P0194]
+severity = "error"
+category = "parser"
+title = "Malformed let-module binding"
+brief = "malformed let-module binding: missing `=`, `unpack`, or `in`"
+description = "A let-module binding `let module N = unpack v in <expr>` is syntactically incomplete: either `=` after the binding name, the `unpack` keyword, or `in` before the continuation is missing. Check the syntax: `let module <name> = unpack <value> in <expr>`."
+since = "0.1.0"
+deprecated = false

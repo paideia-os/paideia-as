@@ -449,6 +449,24 @@ fn print_expr_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 )
             }
         }
+        ExprData::Pack {
+            module_path,
+            signature_path,
+        } => {
+            format!(
+                "Pack {{ module_path: {}, signature_path: {} }}",
+                module_path, signature_path
+            )
+        }
+        ExprData::Unpack { value } => {
+            format!("Unpack {{ value: {} }}", value)
+        }
+        ExprData::LetModule { name, body, rest } => {
+            format!(
+                "LetModule {{ name: {}, body: {}, rest: {} }}",
+                name, body, rest
+            )
+        }
     };
 
     use std::fmt::Write;

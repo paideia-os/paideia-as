@@ -1,0 +1,13 @@
+---
+source: crates/paideia-as-parser/tests/snapshots_modules.rs
+expression: snapshot
+---
+LetModule {
+    name: "N",
+    body: NodeId(
+        3,
+    ),
+    rest: NodeId(
+        5,
+    ),
+}
