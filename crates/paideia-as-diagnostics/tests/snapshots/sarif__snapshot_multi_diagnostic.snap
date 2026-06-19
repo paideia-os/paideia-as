@@ -1,5 +1,6 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
+assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -600,6 +601,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "Unbound capability",
               "shortDescription": {
                 "text": "unbound capability — no export matches an import"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Per OS-requirements §4 N1, a signing key is authorized for a specific set of effects (its scope). When signing a PAX, the PAX's effect set (from .paideia.effects section) must be a subset of the key's authorized scope. This error indicates a scope mismatch: the key cannot sign this artifact because it lacks authorization for some required effects. Check the key's scope and the artifact's effect declarations."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/Q0901",
+              "id": "Q0901",
+              "name": "Signing-key scope insufficient",
+              "shortDescription": {
+                "text": "the signing key's scope does not subsume the artifact's effect set"
               }
             }
           ],

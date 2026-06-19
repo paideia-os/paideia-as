@@ -298,3 +298,12 @@ brief = "malformed let-module binding: missing `=`, `unpack`, or `in`"
 description = "A let-module binding `let module N = unpack v in <expr>` is syntactically incomplete: either `=` after the binding name, the `unpack` keyword, or `in` before the continuation is missing. Check the syntax: `let module <name> = unpack <value> in <expr>`."
 since = "0.1.0"
 deprecated = false
+
+[diagnostic.Q0901]
+severity = "error"
+category = "post-quantum"
+title = "Signing-key scope insufficient"
+brief = "the signing key's scope does not subsume the artifact's effect set"
+description = "Per OS-requirements §4 N1, a signing key is authorized for a specific set of effects (its scope). When signing a PAX, the PAX's effect set (from .paideia.effects section) must be a subset of the key's authorized scope. This error indicates a scope mismatch: the key cannot sign this artifact because it lacks authorization for some required effects. Check the key's scope and the artifact's effect declarations."
+since = "0.1.0"
+deprecated = false

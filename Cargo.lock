@@ -1530,6 +1530,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "ml-dsa",
+ "paideia-as-diagnostics",
  "paideia-as-emitter-pax",
  "rand_core 0.6.4",
  "signature 2.2.0",

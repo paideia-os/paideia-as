@@ -39,6 +39,8 @@ pub enum Category {
     W,
     /// Runtime checks — LAM verification, capability runtime (range 3100–3199).
     R,
+    /// Post-quantum (PQ) signing — delegation scope, key authority (range 0900–0999).
+    Q,
     /// Catch-all / experimental (range 9000–9099).
     Z,
 }
@@ -62,6 +64,7 @@ impl Category {
             Self::L => 'L',
             Self::W => 'W',
             Self::R => 'R',
+            Self::Q => 'Q',
             Self::Z => 'Z',
         }
     }
@@ -86,6 +89,7 @@ impl Category {
             'L' => Some(Self::L),
             'W' => Some(Self::W),
             'R' => Some(Self::R),
+            'Q' => Some(Self::Q),
             'Z' => Some(Self::Z),
             _ => None,
         }
@@ -109,6 +113,7 @@ impl Category {
             Self::L => 2000..=2999,
             Self::W => 3000..=3099,
             Self::R => 3100..=3199,
+            Self::Q => 900..=999,
             Self::Z => 9000..=9099,
         }
     }
@@ -508,6 +513,7 @@ mod tests {
             Category::L,
             Category::W,
             Category::R,
+            Category::Q,
             Category::Z,
         ];
 

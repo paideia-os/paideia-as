@@ -20,6 +20,7 @@ fn category_letter(name: &str) -> Option<char> {
         "lint" => Some('L'),
         "workspace" => Some('W'),
         "runtime" => Some('R'),
+        "post-quantum" => Some('Q'),
         "experimental" => Some('Z'),
         _ => None,
     }
