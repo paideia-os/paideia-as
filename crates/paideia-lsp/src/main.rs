@@ -1,6 +1,6 @@
 //! paideia-lsp binary — stdio-based LSP server.
 
-use paideia_lsp::{Backend, DocumentStore};
+use paideia_lsp::{Backend, DocumentStore, ParseCache};
 use tower_lsp::{LspService, Server};
 
 #[tokio::main]
@@ -10,6 +10,7 @@ async fn main() {
     let (service, socket) = LspService::new(|client| Backend {
         client,
         store: DocumentStore::new(),
+        cache: ParseCache::with_default_capacity(),
     });
     Server::new(stdin, stdout, socket).serve(service).await;
 }

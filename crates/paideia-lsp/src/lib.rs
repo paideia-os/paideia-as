@@ -6,11 +6,13 @@
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+pub mod cache;
 pub mod diagnostics;
 pub mod document;
 pub mod server;
 pub mod workspace;
 
+pub use cache::{CacheEntry, ParseCache, content_hash};
 pub use document::{Document, DocumentStore};
 pub use server::{Backend, capabilities};
 pub use workspace::{ManifestError, SigningConfig, WorkspaceConfig, WorkspaceManifest};

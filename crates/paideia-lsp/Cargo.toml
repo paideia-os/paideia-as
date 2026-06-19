@@ -20,6 +20,8 @@ tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
+blake3 = { workspace = true }
+lru = "0.12"
 paideia-as-lexer = { path = "../paideia-as-lexer" }
 paideia-as-parser = { path = "../paideia-as-parser" }
 paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
