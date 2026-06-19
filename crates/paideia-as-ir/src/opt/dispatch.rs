@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use super::{NoOpPass, OptDiagSink, OptPass, PeepholePass};
+use super::{InstructionSchedulingPass, NoOpPass, OptDiagSink, OptPass, PeepholePass};
 use crate::IrArena;
 use crate::node::IrNodeId;
 
@@ -31,7 +31,8 @@ pub fn parse_annotations(annotation: &str) -> BTreeSet<String> {
 pub fn canonical_catalog() -> Vec<Box<dyn OptPass>> {
     vec![
         Box::new(NoOpPass),
-        Box::new(PeepholePass), // m9-002
+        Box::new(PeepholePass),              // m9-002
+        Box::new(InstructionSchedulingPass), // m9-003
     ]
 }
 

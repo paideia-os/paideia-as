@@ -1,0 +1,5 @@
+# Instruction Scheduling Test 3: ALU Chain
+# Pattern: Multiple ALU operations with independent operands
+# Low-latency operations should not be reordered if they're already sequential.
+
+[STUB IR: ALU operations in sequence]

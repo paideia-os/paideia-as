@@ -308,6 +308,15 @@ description = "Per optimization-passes.md §1.2, peephole rewrites improve gener
 since = "0.1.0"
 deprecated = false
 
+[diagnostic.O1503]
+severity = "note"
+category = "optimization"
+title = "Instruction scheduling applied"
+brief = "instruction scheduling reordered independent instructions to hide latency"
+description = "Per optimization-passes.md §2, instruction scheduling exploits ILP within basic blocks by hoisting higher-latency operations earlier."
+since = "0.1.0"
+deprecated = false
+
 [diagnostic.Q0901]
 severity = "error"
 category = "post-quantum"

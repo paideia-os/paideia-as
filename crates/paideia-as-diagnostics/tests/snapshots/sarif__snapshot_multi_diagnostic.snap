@@ -1,5 +1,6 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
+assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -586,6 +587,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "Peephole rewrite applied",
               "shortDescription": {
                 "text": "a peephole rewrite fired on the function"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "fullDescription": {
+                "text": "Per optimization-passes.md §2, instruction scheduling exploits ILP within basic blocks by hoisting higher-latency operations earlier."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/O1503",
+              "id": "O1503",
+              "name": "Instruction scheduling applied",
+              "shortDescription": {
+                "text": "instruction scheduling reordered independent instructions to hide latency"
               }
             },
             {

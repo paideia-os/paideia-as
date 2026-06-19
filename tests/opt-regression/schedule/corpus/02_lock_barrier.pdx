@@ -1,0 +1,5 @@
+# Instruction Scheduling Test 2: LOCK Barrier
+# Pattern: ALU, LOCK-prefixed atomic, Load → LOCK acts as memory barrier
+# Instructions should not reorder across the LOCK barrier.
+
+[STUB IR: LOCK acts as barrier, no reordering across]
