@@ -1,6 +1,5 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
-assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -391,6 +390,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "Source file is empty or whitespace-only",
               "shortDescription": {
                 "text": "source file empty or whitespace-only"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase-1 placeholder for reflective macro features (typed elaborator reflection, quote/antiquote, splice, elab, hygiene under reflection). Retired in Phase 2 m2 (PRs #361–#371) — the full Lean-4-style reflection track is now live so this code should never fire. Reserved for compatibility; will be deleted in Phase 3."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/M0307",
+              "id": "M0307",
+              "name": "Macro feature not implemented in phase 1",
+              "shortDescription": {
+                "text": "macro feature deferred to phase 2"
               }
             }
           ],
