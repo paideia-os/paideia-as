@@ -1643,6 +1643,10 @@ name = "paideia-modules-multifile"
 version = "0.0.1"
 
 [[package]]
+name = "paideia-opt-dse"
+version = "0.0.1"
+
+[[package]]
 name = "paideia-opt-macro-fusion"
 version = "0.0.1"
 

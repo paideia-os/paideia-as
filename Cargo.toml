@@ -28,6 +28,7 @@ members = [
     "tests/opt-regression/peephole",
     "tests/opt-regression/schedule",
     "tests/opt-regression/macro-fusion",
+    "tests/opt-regression/dse",
     "tests/reflection-corpus",
     "tests/pax-load-smoke",
     "tests/pq-corpus",

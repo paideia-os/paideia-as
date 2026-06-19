@@ -1,0 +1,5 @@
+# Dead-store elimination AC 2: MMIO is volatile
+# Pattern: MMIO store; regular store to same addr → both are kept (MMIO is volatile).
+# This fixture should prevent DSE on the MMIO store.
+
+[STUB IR: MMIO store followed by regular store; both kept due to volatile semantics]

@@ -1,0 +1,5 @@
+# Dead-store elimination AC 1: Double store
+# Pattern: store to addr; store to same addr → first store is dead.
+# This fixture should trigger DSE on the first store.
+
+[STUB IR: two stores to same address; second overwrites first]

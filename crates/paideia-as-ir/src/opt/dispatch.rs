@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use super::{InstructionSchedulingPass, NoOpPass, OptDiagSink, OptPass, PeepholePass};
+use super::{DsePass, InstructionSchedulingPass, NoOpPass, OptDiagSink, OptPass, PeepholePass};
 use crate::IrArena;
 use crate::node::IrNodeId;
 
@@ -33,6 +33,7 @@ pub fn canonical_catalog() -> Vec<Box<dyn OptPass>> {
         Box::new(NoOpPass),
         Box::new(PeepholePass),              // m9-002
         Box::new(InstructionSchedulingPass), // m9-003
+        Box::new(DsePass),                   // m9-005
     ]
 }
 

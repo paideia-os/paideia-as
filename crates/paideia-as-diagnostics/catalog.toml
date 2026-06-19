@@ -326,6 +326,15 @@ description = "Per optimization-passes.md §4, modern x86_64 CPUs fuse CMP+Jcc (
 since = "0.1.0"
 deprecated = false
 
+[diagnostic.O1505]
+severity = "note"
+category = "optimization"
+title = "Dead-store elimination applied"
+brief = "stores to memory subsequently overwritten without intervening reads were removed"
+description = "Per optimization-passes.md §5, basic-block-local dead-store elimination removes stores whose effects are immediately overwritten."
+since = "0.1.0"
+deprecated = false
+
 [diagnostic.Q0901]
 severity = "error"
 category = "post-quantum"
