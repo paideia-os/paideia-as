@@ -11,6 +11,7 @@
 pub mod anf;
 mod arena;
 pub mod effect_rewrite;
+pub mod handler_value;
 mod node;
 pub mod pretty;
 pub mod walker;
@@ -22,6 +23,7 @@ pub use effect_rewrite::{
     HandlerTable, PerformRewrite, WithRewrite, rewrite_perform, rewrite_unsafe_passthrough,
     rewrite_with_save_restore,
 };
+pub use handler_value::{HandlerInfo, HandlerSideTable, pretty_handler};
 pub use node::{EffectRowId, IrKind, IrNodeData, IrNodeId, LinClass};
 pub use walker::{IrWalker, walk};
 pub use walker_ctx::WalkerCtx;
