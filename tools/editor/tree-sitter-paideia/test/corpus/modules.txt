@@ -1,0 +1,102 @@
+==================
+Basic module with structure
+==================
+
+module Hello = structure {
+  let answer = 42
+}
+
+---
+
+(source_file
+  (module_decl
+    name: (identifier)
+    (structure_expr
+      (let_decl
+        name: (identifier)
+        (number)))))
+
+==================
+Module with type declaration
+==================
+
+module TypeExample = structure {
+  type MyInt = i32
+}
+
+---
+
+(source_file
+  (module_decl
+    name: (identifier)
+    (structure_expr
+      (type_decl
+        name: (identifier)
+        (identifier)))))
+
+==================
+Module with effect declaration
+==================
+
+module EffectExample = structure {
+  effect Io {
+    op read : (u16) -> u8
+    op write : (u16, u8) -> unit
+  }
+}
+
+---
+
+(source_file
+  (module_decl
+    name: (identifier)
+    (structure_expr
+      (effect_decl
+        name: (identifier)
+        (effect_operation)
+        (effect_operation)))))
+
+==================
+Functor module with parameter
+==================
+
+module MakeBuffer = functor (S : sig) = structure {
+  let buf = 0
+}
+
+---
+
+(source_file
+  (module_decl
+    name: (identifier)
+    (functor_expr
+      (structure_expr
+        (let_decl
+          name: (identifier)
+          (number))))))
+
+==================
+Module with mixed declarations
+==================
+
+module Complex = structure {
+  let x = 10
+  type T = u32
+  let y : u32 = x
+}
+
+---
+
+(source_file
+  (module_decl
+    name: (identifier)
+    (structure_expr
+      (let_decl
+        name: (identifier)
+        (number))
+      (type_decl
+        name: (identifier)
+        (identifier))
+      (let_decl
+        name: (identifier)
+        (identifier)))))

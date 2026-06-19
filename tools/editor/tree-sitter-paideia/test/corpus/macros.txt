@@ -1,0 +1,66 @@
+==================
+Single-rule macro with expression metavariable
+==================
+
+macro square($x:expr) => $x * $x
+
+---
+
+(source_file
+  (single_rule_macro
+    name: (identifier)
+    (macro_pattern)))
+
+==================
+Single-rule macro with identifier metavariable
+==================
+
+macro multiply_by_zero($name:ident) => $name * 0
+
+---
+
+(source_file
+  (single_rule_macro
+    name: (identifier)
+    (macro_pattern)))
+
+==================
+Single-rule macro with type metavariable
+==================
+
+macro identity_of($t:type) => fn (x : $t) -> x
+
+---
+
+(source_file
+  (single_rule_macro
+    name: (identifier)
+    (macro_pattern)))
+
+==================
+Multi-rule macro
+==================
+
+macro choose_op {
+    ($x:expr) => simple_form($x) ;
+    ($x:expr, $y:expr) => complex_form($x, $y)
+}
+
+---
+
+(source_file
+  (multi_rule_macro
+    name: (identifier)))
+
+==================
+Macro with literal metavariable
+==================
+
+macro const_byte($v:literal) => ($v)
+
+---
+
+(source_file
+  (single_rule_macro
+    name: (identifier)
+    (macro_pattern)))

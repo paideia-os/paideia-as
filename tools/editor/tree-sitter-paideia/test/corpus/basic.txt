@@ -1,0 +1,83 @@
+==================
+Simple numeric literal
+==================
+
+let answer = 42
+
+---
+
+(source_file
+  (let_decl
+    name: (identifier)
+    (number)))
+
+==================
+Hexadecimal literal with underscores
+==================
+
+let magic = 0xCAFE_F00D
+
+---
+
+(source_file
+  (let_decl
+    name: (identifier)
+    (number)))
+
+==================
+String literal
+==================
+
+let greeting = "hello world"
+
+---
+
+(source_file
+  (let_decl
+    name: (identifier)
+    (string)))
+
+==================
+Boolean literals
+==================
+
+let yes = true
+let no = false
+
+---
+
+(source_file
+  (let_decl
+    name: (identifier)
+    (boolean))
+  (let_decl
+    name: (identifier)
+    (boolean)))
+
+==================
+Unit literal
+==================
+
+let nothing = ()
+
+---
+
+(source_file
+  (let_decl
+    name: (identifier)
+    (unit)))
+
+==================
+Comment annotation
+==================
+
+// this is a comment
+let x = 1
+
+---
+
+(source_file
+  (comment)
+  (let_decl
+    name: (identifier)
+    (number)))
