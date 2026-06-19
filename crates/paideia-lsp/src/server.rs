@@ -79,6 +79,10 @@ impl LanguageServer for Backend {
         Ok(crate::hover::hover_at(&self.store, &params))
     }
 
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        Ok(crate::completion::completion_at(&self.store, &params))
+    }
+
     async fn goto_definition(
         &self,
         params: GotoDefinitionParams,
