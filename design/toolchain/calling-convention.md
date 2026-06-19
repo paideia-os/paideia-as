@@ -91,6 +91,57 @@ This resolves **AS3** from custom-assembler.md §15: "The effect-environment poi
 
 When one handler installs inside another (nested effects), the new handler's environment record points to the saved outer R15 via a `.parent` field. The `emit_handler_chain()` function emits the open sequence; link-stage constructs the parent chain. Phase-2-m11 minimum: same bytes as `emit_handler_open()`, with the `.parent` field populated at link time.
 
+### 2.5 UEFI thunk variant (Microsoft-x64 caller → PaideiaOS-native callee)
+
+When UEFI firmware (Microsoft x64 ABI) calls into PaideiaOS code, a thunk bridges the calling convention. The role of R15 is inverted relative to the System V bridge (§2.3): the Microsoft caller does *not* preserve R15, so the PaideiaOS thunk must save it to establish the PaideiaOS calling convention for the native function.
+
+#### 2.5.1 Direction
+
+Microsoft x64 ABI caller → PaideiaOS-native callee. This is the inverse of §2.3 (PaideiaOS → C). The UEFI firmware expects to call PaideiaOS native code; the thunk saves the effect environment and returns with R15 preserved.
+
+#### 2.5.2 Register correspondence
+
+At the thunk boundary, argument registers are *not* shuffled (Phase-2-m6-005 assertion: no shuffle):
+
+| Position | Microsoft x64 | PaideiaOS native |
+|---|---|---|
+| Arg 1 | RCX | RDI |
+| Arg 2 | RDX | RSI |
+| Arg 3 | R8 | RDX |
+| Arg 4 | R9 | RCX |
+| FP Arg 1–4 | XMM0–XMM3 | ZMM0–ZMM3 |
+
+A full mapping and register shuffle logic will be added in Phase-2-m6-008. For now, the thunk assumes no shuffle: UEFI passes arguments in Microsoft-x64 registers, and the PaideiaOS function reads them from those same registers without reordering. This is valid when the UEFI call contract matches the PaideiaOS native convention by coincidence (e.g., passing 2 integer arguments in RCX, RDX / RDI, RSI respectively).
+
+#### 2.5.3 R15 discipline (push/pop bracketing)
+
+The thunk wraps the native call:
+
+```asm
+; emit_uefi_thunk(buf, call_rel32_disp):
+push r15            ; save effect environment (2 bytes: 41 57)
+call rel32          ; near call to PaideiaOS native function (5 bytes: E8 <disp32 LE>)
+                    ; TODO(m6-007): disp is backpatched at link time
+pop r15             ; restore effect environment (2 bytes: 41 5F)
+ret                 ; return to UEFI firmware (1 byte: C3)
+```
+
+Total: 2 + 5 + 2 = 9 bytes (ret emitted separately by caller).
+
+This mirrors §2.3's System V bridge structure, with roles inverted: the thunk establishes the PaideiaOS R15 discipline for the native callee and restores it before returning to the UEFI caller.
+
+#### 2.5.4 Shadow space and 16-byte alignment
+
+The Microsoft x64 ABI requires:
+- 32 bytes of **shadow space** (spill area for register arguments) provided by the *caller* at [RSP+8..RSP+40] relative to call site.
+- 16-byte stack alignment at call site (RSP % 16 == 0 before call).
+
+The UEFI-to-PaideiaOS thunk does *not* allocate additional shadow space in Phase-2-m6-005; the UEFI caller provides it. The thunk simply preserves stack alignment by using RSP-relative addressing if needed and assumes the UEFI caller has set up the stack correctly.
+
+#### 2.5.5 Cross-reference
+
+See `crates/paideia-as-emitter-pe/src/uefi_thunk.rs` for implementation.
+
 ---
 
 ## 3. Argument passing
