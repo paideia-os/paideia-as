@@ -59,6 +59,8 @@ pub enum SectionType {
     OptPasses = 0x13,
     /// Linearity annotations (PaideiaOS-specific).
     Linearity = 0x14,
+    /// Functor bindings (PaideiaOS-specific).
+    Functors = 0x15,
     /// Symbol table (PaideiaOS-specific).
     Symtab = 0x20,
     /// Relocation entries (PaideiaOS-specific).
@@ -235,6 +237,7 @@ impl Section {
             0x12 => SectionType::Unsafe,
             0x13 => SectionType::OptPasses,
             0x14 => SectionType::Linearity,
+            0x15 => SectionType::Functors,
             0x20 => SectionType::Symtab,
             0x21 => SectionType::Relocs,
             0x22 => SectionType::Imports,
@@ -549,6 +552,7 @@ mod tests {
             SectionType::Unsafe,
             SectionType::OptPasses,
             SectionType::Linearity,
+            SectionType::Functors,
             SectionType::Symtab,
             SectionType::Relocs,
             SectionType::Imports,
