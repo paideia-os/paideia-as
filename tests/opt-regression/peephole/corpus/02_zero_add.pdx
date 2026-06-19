@@ -1,0 +1,5 @@
+# Peephole rewrite 2: SimplifyZeroAdd
+# Pattern: add r, 0 → eliminate
+# This fixture should trigger the simplify-zero-add rewrite.
+
+[STUB IR: would trigger SimplifyZeroAdd]

@@ -1,0 +1,5 @@
+# Peephole rewrite 4: StrengthReduceMul
+# Pattern: mul r, 2 → shl r, 1
+# This fixture should trigger the strength-reduce-mul rewrite.
+
+[STUB IR: would trigger StrengthReduceMul]

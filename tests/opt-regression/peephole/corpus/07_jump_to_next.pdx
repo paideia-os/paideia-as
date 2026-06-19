@@ -1,0 +1,5 @@
+# Peephole rewrite 7: CollapseJumpToNext
+# Pattern: jmp label_next where label_next immediately follows → eliminate
+# This fixture should trigger the collapse-jump-to-next rewrite.
+
+[STUB IR: would trigger CollapseJumpToNext]

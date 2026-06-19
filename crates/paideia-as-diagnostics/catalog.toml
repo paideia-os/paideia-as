@@ -299,6 +299,15 @@ description = "A let-module binding `let module N = unpack v in <expr>` is synta
 since = "0.1.0"
 deprecated = false
 
+[diagnostic.O1500]
+severity = "note"
+category = "optimization"
+title = "Peephole rewrite applied"
+brief = "a peephole rewrite fired on the function"
+description = "Per optimization-passes.md §1.2, peephole rewrites improve generated code quality. O1500 informs the user when a rewrite fired."
+since = "0.1.0"
+deprecated = false
+
 [diagnostic.Q0901]
 severity = "error"
 category = "post-quantum"

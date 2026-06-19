@@ -1,0 +1,5 @@
+# Peephole rewrite 6: FuseLoadStore
+# Pattern: mov r, [mem]; mov [mem], r (round-trip) → eliminate
+# This fixture should trigger the fuse-load-store rewrite.
+
+[STUB IR: would trigger FuseLoadStore]

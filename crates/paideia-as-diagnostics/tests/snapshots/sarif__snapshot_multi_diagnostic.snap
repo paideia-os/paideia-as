@@ -1,6 +1,5 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
-assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -573,6 +572,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "File contains no top-level module",
               "shortDescription": {
                 "text": "a .pdx file must contain exactly one top-level structure or functor"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "fullDescription": {
+                "text": "Per optimization-passes.md §1.2, peephole rewrites improve generated code quality. O1500 informs the user when a rewrite fired."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/O1500",
+              "id": "O1500",
+              "name": "Peephole rewrite applied",
+              "shortDescription": {
+                "text": "a peephole rewrite fired on the function"
               }
             },
             {

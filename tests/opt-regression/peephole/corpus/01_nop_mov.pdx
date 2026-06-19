@@ -1,0 +1,5 @@
+# Peephole rewrite 1: RemoveNopMov
+# Pattern: mov r, r → eliminate
+# This fixture should trigger the remove-nop-mov rewrite.
+
+[STUB IR: would trigger RemoveNopMov]

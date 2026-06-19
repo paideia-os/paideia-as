@@ -1643,6 +1643,10 @@ name = "paideia-modules-multifile"
 version = "0.0.1"
 
 [[package]]
+name = "paideia-opt-peephole"
+version = "0.0.1"
+
+[[package]]
 name = "paideia-pq-sign"
 version = "0.0.1"
 dependencies = [

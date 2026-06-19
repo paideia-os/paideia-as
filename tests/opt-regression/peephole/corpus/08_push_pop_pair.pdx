@@ -1,0 +1,5 @@
+# Peephole rewrite 8: CombinePushPop
+# Pattern: push r; pop r (no intervening) → eliminate
+# This fixture should trigger the combine-push-pop rewrite.
+
+[STUB IR: would trigger CombinePushPop]
