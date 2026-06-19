@@ -1617,6 +1617,7 @@ dependencies = [
  "lru",
  "paideia-as-ast",
  "paideia-as-diagnostics",
+ "paideia-as-elaborator",
  "paideia-as-lexer",
  "paideia-as-parser",
  "serde",

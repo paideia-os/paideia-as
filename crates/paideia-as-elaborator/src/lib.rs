@@ -24,6 +24,7 @@ pub mod env;
 pub mod file_module;
 pub mod functor_apply;
 pub mod hygiene;
+pub mod incremental;
 pub mod linearity_ctx;
 mod lower;
 pub mod macro_expand;

@@ -6,6 +6,7 @@ use tower_lsp::{Client, LanguageServer};
 
 use crate::cache::ParseCache;
 use crate::document::DocumentStore;
+use crate::incremental::IncrementalEngine;
 
 /// The paideia-lsp backend implementing the Language Server Protocol.
 pub struct Backend {
@@ -15,6 +16,8 @@ pub struct Backend {
     pub store: DocumentStore,
     /// Parse cache for incremental elaboration.
     pub cache: ParseCache,
+    /// Incremental elaboration engine.
+    pub engine: IncrementalEngine,
 }
 
 #[tower_lsp::async_trait]
@@ -44,6 +47,7 @@ impl LanguageServer for Backend {
         let text = params.text_document.text.clone();
         self.store
             .open(uri.clone(), params.text_document.version, text.clone());
+        self.engine.set_document(uri.to_string().as_str(), &text);
         let diagnostics =
             crate::diagnostics::diagnose_document_with_cache(&uri, &text, &self.cache);
         self.client
@@ -58,6 +62,8 @@ impl LanguageServer for Backend {
         let Some(doc) = self.store.get(&uri) else {
             return;
         };
+        self.engine
+            .set_document(uri.to_string().as_str(), &doc.text);
         let diagnostics =
             crate::diagnostics::diagnose_document_with_cache(&uri, &doc.text, &self.cache);
         self.client
