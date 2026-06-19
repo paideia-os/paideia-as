@@ -10,7 +10,9 @@
 //!   an effect not yet handled by an outer `with H handle E { … }`).
 
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
-use paideia_as_effects::{EffectId, EffectRow, RowVarId, Substitution, UnifyError, unify};
+use paideia_as_effects::{
+    EffectId, EffectInterner, EffectRow, RowVarId, Substitution, UnifyError, unify,
+};
 
 /// Diagnostic code for declared-vs-inferred row mismatch.
 pub const F_ROW_MISMATCH: u16 = 1105;
@@ -89,6 +91,27 @@ pub fn instantiate_fresh_tail(declared: &EffectRow, fresh: RowVarId) -> EffectRo
         fixed: declared.fixed.clone(),
         tail: declared.tail.map(|_| fresh),
     }
+}
+
+/// Combined call-site instantiation + unification.
+///
+/// At a call site, the callee's declared row (possibly polymorphic)
+/// must be instantiated with a fresh row variable before unification
+/// against the caller's inferred row. This function does both in one
+/// step.
+///
+/// Returns the unification outcome, whose substitution maps the fresh
+/// row variable to whatever the caller's row demands.
+#[must_use]
+pub fn call_site_instantiate_and_unify(
+    callee_decl_row: &EffectRow,
+    caller_inferred_row: &EffectRow,
+    interner: &mut EffectInterner,
+    span: Span,
+) -> CallUnifyOutcome {
+    let fresh = interner.fresh_row_var();
+    let instantiated = instantiate_fresh_tail(callee_decl_row, fresh);
+    unify_call_row(&instantiated, caller_inferred_row, span)
 }
 
 /// Validate the **installation order** of nested `with H handle E { ... }`
@@ -247,5 +270,63 @@ mod tests {
         let msg = out.diagnostics[0].message();
         // Should show the row diff: inferred has extra [3] (Net), declared is missing [3].
         assert!(msg.contains("1") || msg.contains("3"));
+    }
+
+    // ── call_site_instantiate_and_unify tests ────────────────────────────
+
+    #[test]
+    fn instantiates_and_unifies_polymorphic_callee_against_monomorphic_caller() {
+        // Scenario 1: callee_decl = (Io | r), caller_inferred = (Io)
+        // The callee is polymorphic and the caller has no extras. When we instantiate
+        // with a fresh tail and unify, the fresh tail binds to the empty row
+        // (representing "the caller's row doesn't add anything beyond Io").
+        let mut interner = paideia_as_effects::EffectInterner::new();
+        let callee_decl = row(&[1], Some(99)); // Io = 1, with tail r99
+        let caller_inferred = row(&[1], None); // Io = 1, closed
+        let out =
+            call_site_instantiate_and_unify(&callee_decl, &caller_inferred, &mut interner, span());
+        assert!(out.diagnostics.is_empty());
+        // When both fixed sets are the same and caller is closed, the fresh var
+        // is not bound (no extras to bind). Just verify clean unification.
+        let fresh_var = RowVarId::new(1).unwrap();
+        // Since there are no extras on either side, the fresh row var is not bound.
+        assert!(!out.subst.bindings.contains_key(&fresh_var));
+    }
+
+    #[test]
+    fn instantiates_against_caller_with_extra_effects() {
+        // Scenario 2: callee_decl = (Io | r), caller_inferred = (Io, Net)
+        // The caller has an extra effect (Net). When we instantiate with a fresh
+        // tail and unify, the fresh tail binds to {Net}.
+        let mut interner = paideia_as_effects::EffectInterner::new();
+        let callee_decl = row(&[1], Some(99)); // Io = 1, with tail r99
+        let caller_inferred = row(&[1, 2], None); // Io, Net = 1, 2; closed
+        let out =
+            call_site_instantiate_and_unify(&callee_decl, &caller_inferred, &mut interner, span());
+        assert!(out.diagnostics.is_empty());
+        // The fresh row var allocated should be bound to {Net}.
+        let fresh_var = RowVarId::new(1).unwrap();
+        let bound = out.subst.bindings.get(&fresh_var).unwrap();
+        assert_eq!(bound.fixed.len(), 1);
+        assert_eq!(bound.fixed[0], eff(2)); // Net = 2
+        assert_eq!(bound.tail, None);
+    }
+
+    #[test]
+    fn closed_caller_with_closed_callee_no_substitution() {
+        // Scenario 3: callee_decl = {Io}, caller_inferred = {Io}
+        // The callee is closed (no tail). instantiate_fresh_tail returns a row
+        // with no tail (since the original had no tail to replace).
+        // Unification of two identical closed rows succeeds with an empty substitution.
+        // The fresh var was allocated but never appears in the instantiated row.
+        let mut interner = paideia_as_effects::EffectInterner::new();
+        let callee_decl = row(&[1], None); // Io = 1, closed
+        let caller_inferred = row(&[1], None); // Io = 1, closed
+        let out =
+            call_site_instantiate_and_unify(&callee_decl, &caller_inferred, &mut interner, span());
+        assert!(out.diagnostics.is_empty());
+        // No fresh row var binding because the callee was closed.
+        let fresh_var = RowVarId::new(1).unwrap();
+        assert!(!out.subst.bindings.contains_key(&fresh_var));
     }
 }
