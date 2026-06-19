@@ -1,0 +1,27 @@
+{
+    "name": "paideia",
+    "scopeName": "source.paideia",
+    "patterns": [
+        { "include": "#keywords" },
+        { "include": "#comments" },
+        { "include": "#strings" },
+        { "include": "#numbers" }
+    ],
+    "repository": {
+        "keywords": {
+            "patterns": [{
+                "name": "keyword.control.paideia",
+                "match": "\\b(module|structure|functor|fn|let|val|type|sig|pack|unpack|in|with|handle|perform|use|import|if|then|else|match|case|of|do|linear|affine|ordered|true|false)\\b"
+            }]
+        },
+        "comments": {
+            "patterns": [{ "name": "comment.line.double-slash.paideia", "match": "//.*$" }]
+        },
+        "strings": {
+            "patterns": [{ "name": "string.quoted.double.paideia", "begin": "\"", "end": "\"" }]
+        },
+        "numbers": {
+            "patterns": [{ "name": "constant.numeric.paideia", "match": "\\b[0-9]+\\b" }]
+        }
+    }
+}
