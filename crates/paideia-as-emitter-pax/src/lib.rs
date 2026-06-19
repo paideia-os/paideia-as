@@ -7,11 +7,16 @@
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+pub mod audit;
 pub mod caps;
 pub mod effects;
 pub mod header;
 pub mod section;
 
+pub use audit::{
+    LIN_ENTRY_SIZE, LinEntry, LinSection, OPT_ENTRY_SIZE, OptEntry, OptSection, PassId,
+    UNSAFE_ENTRY_SIZE, UnsafeEntry, UnsafeSection,
+};
 pub use caps::{CAP_ENTRY_SIZE, CapEntry, CapKind, CapsSection, LinClass, SiteKind};
 pub use effects::{EffectRowEntry, EffectsSection};
 pub use header::{
