@@ -164,6 +164,24 @@ description = "A source file must contain at least one meaningful token (not jus
 since = "0.1.0"
 deprecated = false
 
+[diagnostic.M0301]
+severity = "error"
+category = "module"
+title = "Structure missing signature declaration"
+brief = "structure does not provide a declaration required by the signature"
+description = "Signature ascription requires the structure to define a named type/val/module that is absent."
+since = "0.1.0"
+deprecated = false
+
+[diagnostic.M0302]
+severity = "error"
+category = "module"
+title = "Structure binding kind mismatches signature"
+brief = "structure binding kind or type does not match signature declaration"
+description = "A name is bound in both the signature and the structure but with incompatible kinds (type/val/module) or types."
+since = "0.1.0"
+deprecated = false
+
 [diagnostic.M0307]
 severity = "error"
 category = "module"

@@ -1,0 +1,6 @@
+// Issue #242: signature matching — structure missing required field.
+// M0301: structure does not provide a declaration required by the signature.
+
+module M : sig { val x : int } = structure {
+  val y = 42
+}

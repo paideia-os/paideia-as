@@ -1,0 +1,9 @@
+// Issue #242 AC 1: structure with extras satisfies smaller signature.
+// A structure may have additional bindings beyond those required by the signature.
+
+module M : sig { val x : int } = structure {
+  type t = int
+  val x = 42
+  module M = structure {
+  }
+}
