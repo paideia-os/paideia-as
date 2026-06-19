@@ -10,6 +10,7 @@
 pub mod audit;
 pub mod caps;
 pub mod effects;
+pub mod hash;
 pub mod header;
 pub mod imports;
 pub mod relocs;
@@ -22,6 +23,7 @@ pub use audit::{
 };
 pub use caps::{CAP_ENTRY_SIZE, CapEntry, CapKind, CapsSection, LinClass, SiteKind};
 pub use effects::{EffectRowEntry, EffectsSection};
+pub use hash::{CanonicalContent, compute_content_hash};
 pub use header::{
     Architecture, HeaderFlag, PAX_FORMAT_VERSION, PAX_HEADER_SIZE, PAX_MAGIC, PaxHeader,
 };
