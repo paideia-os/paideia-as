@@ -135,6 +135,31 @@ m2/m3/m5 unlock reasons. Diagnostics start firing on real source as
 m2 (typed-elaborator reflection), m3 (full algebraic effects), and
 m5 (modules + functors) thread structured payloads through the IR.
 
+## Phase 2 m2 closure (typed elaborator reflection)
+
+Q-A4 **typed elaborator reflection** is now at full power. The m2 series
+(PRs #361–#372) implements:
+
+- **Quote / Antiquote (m2-001 to m2-003)** — typed `Term` AST, grammar support,
+  syntax validation (`quote { ... }` and `~(...)` within quotes).
+- **Reflective elaborator API (m2-004 to m2-006)** — AST inspection + traversal,
+  typed-term evaluator, splice operation (return elaborated Term to caller).
+- **Typed macro expansion (m2-007 to m2-011)** — replaces pattern-only phase-1
+  matcher; macros can call back into the elaborator, inspect types and effects,
+  with hygiene guarantees (Lean-4-style, extended for capability systems).
+
+M-codes (macro reflection):
+- **M0308** — `macro_match`: no matching rule (end-to-end)
+- **M0309** — `macro_expand`: unbound metavariable in template (end-to-end)
+- **M0311** — `macro_expand`: recursion depth limit (end-to-end)
+- **M0312** — `splice`: type mismatch in elaborated result (deferred to m3)
+
+**Corpus harness**: new `tests/reflection-corpus/` workspace member (16+ accept,
+8+ reject fixtures). Validates M-code emission on real source through the CLI
+(subprocess model; mirrors `end-to-end` and `linearity-regression` patterns).
+
+**Workspace count**: 22 crates + 4 test harnesses (added `reflection-corpus`).
+
 ## Phase 2 enabling deliverables (m1 outputs)
 
 - **`design/toolchain/abi.md`** — canonical ABI specification (~330 lines).
@@ -152,7 +177,7 @@ m5 (modules + functors) thread structured payloads through the IR.
 
 ## Workspace test totals
 
-- 905 workspace tests across 18 crates + 3 test harnesses.
+- ~950 workspace tests across 22 crates + 4 test harnesses.
 - `cargo test --workspace` runs in well under 60 seconds.
 - CI: fmt / clippy / build / doc / test all gating; cross-build is a
   separate advisory lane; cargo-deny is advisory (pre-existing

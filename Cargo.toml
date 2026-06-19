@@ -21,6 +21,7 @@ members = [
     "tests/e2e",
     "tests/end-to-end",
     "tests/linearity-regression",
+    "tests/reflection-corpus",
 ]
 
 [workspace.package]

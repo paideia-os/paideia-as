@@ -1,0 +1,3 @@
+module M = structure {
+  let m = quote { f(1, 2) }
+}

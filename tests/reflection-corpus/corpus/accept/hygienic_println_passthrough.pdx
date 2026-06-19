@@ -1,0 +1,4 @@
+module M = structure {
+  let println_line = "test"
+  let m = quote { println_line }
+}
