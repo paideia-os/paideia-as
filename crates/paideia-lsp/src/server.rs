@@ -4,10 +4,14 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
+use crate::document::DocumentStore;
+
 /// The paideia-lsp backend implementing the Language Server Protocol.
 pub struct Backend {
     /// Client for communicating with the editor.
     pub client: Client,
+    /// In-memory document store.
+    pub store: DocumentStore,
 }
 
 #[tower_lsp::async_trait]
@@ -30,6 +34,26 @@ impl LanguageServer for Backend {
 
     async fn shutdown(&self) -> Result<()> {
         Ok(())
+    }
+
+    async fn did_open(&self, params: DidOpenTextDocumentParams) {
+        self.store.open(
+            params.text_document.uri,
+            params.text_document.version,
+            params.text_document.text,
+        );
+    }
+
+    async fn did_change(&self, params: DidChangeTextDocumentParams) {
+        self.store.change(
+            &params.text_document.uri,
+            params.text_document.version,
+            &params.content_changes,
+        );
+    }
+
+    async fn did_close(&self, params: DidCloseTextDocumentParams) {
+        self.store.close(&params.text_document.uri);
     }
 }
 
