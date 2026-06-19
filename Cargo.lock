@@ -1596,6 +1596,10 @@ dependencies = [
 name = "paideia-lsp"
 version = "0.0.1"
 dependencies = [
+ "paideia-as-ast",
+ "paideia-as-diagnostics",
+ "paideia-as-lexer",
+ "paideia-as-parser",
  "serde",
  "serde_json",
  "tempfile",

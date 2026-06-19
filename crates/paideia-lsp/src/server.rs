@@ -37,19 +37,27 @@ impl LanguageServer for Backend {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        self.store.open(
-            params.text_document.uri,
-            params.text_document.version,
-            params.text_document.text,
-        );
+        let uri = params.text_document.uri.clone();
+        let text = params.text_document.text.clone();
+        self.store
+            .open(uri.clone(), params.text_document.version, text.clone());
+        let diagnostics = crate::diagnostics::diagnose_document(&uri, &text);
+        self.client
+            .publish_diagnostics(uri, diagnostics, Some(params.text_document.version))
+            .await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
-        self.store.change(
-            &params.text_document.uri,
-            params.text_document.version,
-            &params.content_changes,
-        );
+        let uri = params.text_document.uri.clone();
+        self.store
+            .change(&uri, params.text_document.version, &params.content_changes);
+        let Some(doc) = self.store.get(&uri) else {
+            return;
+        };
+        let diagnostics = crate::diagnostics::diagnose_document(&uri, &doc.text);
+        self.client
+            .publish_diagnostics(uri, diagnostics, Some(doc.version))
+            .await;
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
