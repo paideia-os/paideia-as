@@ -137,4 +137,96 @@ mod tests {
         assert_eq!(e1_binding.fixed[0].get(), ipc.get());
         assert_eq!(e1_binding.tail, Some(e2));
     }
+
+    // Five row-unification scenarios per issue #212
+
+    #[test]
+    fn closed_unifies_with_closed_when_same() {
+        let io = EffectId::new(1).unwrap();
+
+        let row_a = EffectRow::from_ids(vec![io], None);
+        let row_b = EffectRow::from_ids(vec![io], None);
+
+        let result = unify(&row_a, &row_b).unwrap();
+
+        // Both rows are identical; no bindings needed.
+        assert!(result.bindings.is_empty());
+    }
+
+    #[test]
+    fn closed_disagrees_emits_mismatch() {
+        let io = EffectId::new(1).unwrap();
+        let net = EffectId::new(2).unwrap();
+
+        let row_a = EffectRow::from_ids(vec![io], None);
+        let row_b = EffectRow::from_ids(vec![net], None);
+
+        let result = unify(&row_a, &row_b);
+
+        // Closed rows with different fixed sets fail to unify.
+        assert_eq!(result, Err(UnifyError::Mismatch));
+    }
+
+    #[test]
+    fn open_unifies_with_closed_binds_tail() {
+        let io = EffectId::new(1).unwrap();
+        let net = EffectId::new(2).unwrap();
+        let r1 = RowVarId::new(1).unwrap();
+
+        // !{io | r1}
+        let row_a = EffectRow::from_ids(vec![io], Some(r1));
+        // !{io, net}
+        let row_b = EffectRow::from_ids(vec![io, net], None);
+
+        let result = unify(&row_a, &row_b).unwrap();
+
+        // r1 should bind to {net}
+        assert_eq!(result.bindings.len(), 1);
+        let r1_binding = result.bindings.get(&r1).unwrap();
+        assert_eq!(r1_binding.fixed.len(), 1);
+        assert_eq!(r1_binding.fixed[0].get(), net.get());
+        assert!(r1_binding.is_closed());
+    }
+
+    #[test]
+    fn open_unifies_with_open_substitutes_one_tail() {
+        let io = EffectId::new(1).unwrap();
+        let net = EffectId::new(2).unwrap();
+        let r1 = RowVarId::new(1).unwrap();
+        let r2 = RowVarId::new(2).unwrap();
+
+        // !{io | r1}
+        let row_a = EffectRow::from_ids(vec![io], Some(r1));
+        // !{net | r2}
+        let row_b = EffectRow::from_ids(vec![net], Some(r2));
+
+        let result = unify(&row_a, &row_b).unwrap();
+
+        // r1 should bind to {net | r2}, r2 should bind to {io | r1}
+        assert_eq!(result.bindings.len(), 2);
+
+        let r1_binding = result.bindings.get(&r1).unwrap();
+        assert_eq!(r1_binding.fixed.len(), 1);
+        assert_eq!(r1_binding.fixed[0].get(), net.get());
+        assert_eq!(r1_binding.tail, Some(r2));
+
+        let r2_binding = result.bindings.get(&r2).unwrap();
+        assert_eq!(r2_binding.fixed.len(), 1);
+        assert_eq!(r2_binding.fixed[0].get(), io.get());
+        assert_eq!(r2_binding.tail, Some(r1));
+    }
+
+    #[test]
+    fn row_unification_idempotent_under_self() {
+        let io = EffectId::new(1).unwrap();
+        let r1 = RowVarId::new(1).unwrap();
+
+        // !{io | r1}
+        let row_a = EffectRow::from_ids(vec![io], Some(r1));
+
+        let result = unify(&row_a, &row_a).unwrap();
+
+        // Unifying a row with itself produces an identity substitution.
+        assert!(result.bindings.is_empty());
+    }
 }
