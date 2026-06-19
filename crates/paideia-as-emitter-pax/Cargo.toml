@@ -11,3 +11,4 @@ repository.workspace = true
 name = "paideia_as_emitter_pax"
 
 [dependencies]
+static_assertions = { workspace = true }
