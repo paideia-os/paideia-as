@@ -1,0 +1,18 @@
+---
+source: crates/paideia-as-parser/tests/snapshots_modules.rs
+expression: snapshot
+---
+FunctorApp {
+    functor: NodeId(
+        2,
+    ),
+    arguments: [
+        NodeId(
+            4,
+        ),
+        NodeId(
+            6,
+        ),
+    ],
+    sharing: [],
+}

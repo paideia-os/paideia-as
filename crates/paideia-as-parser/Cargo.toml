@@ -14,3 +14,6 @@ name = "paideia_as_parser"
 paideia-as-ast = { path = "../paideia-as-ast" }
 paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
 paideia-as-lexer = { path = "../paideia-as-lexer" }
+
+[dev-dependencies]
+insta = "1"

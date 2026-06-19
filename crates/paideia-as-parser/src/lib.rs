@@ -9,6 +9,7 @@
 #![forbid(unsafe_code)]
 
 mod cursor;
+mod modules;
 mod parse_action;
 mod parse_control;
 mod parse_expr;

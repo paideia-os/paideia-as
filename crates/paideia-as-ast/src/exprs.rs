@@ -7,6 +7,7 @@
 //! IfExpr, LoopExpr.
 
 use crate::NodeId;
+use paideia_as_diagnostics::Span;
 
 /// Structured payload for expression nodes.
 ///
@@ -248,6 +249,19 @@ pub enum ExprData {
         /// The value expression to splice.
         value: NodeId,
     },
+
+    /// `F(M)(N) sharing (M::t = N::t, ...)`.
+    ///
+    /// Functor application: applies a functor to one or more module arguments
+    /// with optional sharing constraints on types.
+    FunctorApp {
+        /// Functor name (ExprPath node).
+        functor: NodeId,
+        /// Module arguments (Vec of ExprPath nodes, one per `(M)` group).
+        arguments: Vec<NodeId>,
+        /// Sharing constraints (type equality specifications).
+        sharing: Vec<SharingConstraint>,
+    },
 }
 
 /// A single arm in a match expression.
@@ -280,6 +294,20 @@ pub enum HandlerArm {
         /// Cleanup expression.
         cleanup: NodeId,
     },
+}
+
+/// A sharing constraint in a functor application.
+///
+/// Specifies type equality between two module paths in the context of
+/// functor application, e.g., `M::t = N::t`.
+#[derive(Clone, Debug)]
+pub struct SharingConstraint {
+    /// Left-hand side path segments (e.g., ["M", "t"]).
+    pub left_path: Vec<String>,
+    /// Right-hand side path segments (e.g., ["N", "t"]).
+    pub right_path: Vec<String>,
+    /// Source span of the constraint.
+    pub span: Span,
 }
 
 /// Kind of loop construct.
