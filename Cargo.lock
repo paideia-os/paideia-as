@@ -1767,6 +1767,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "pq-corpus"
+version = "0.0.1"
+dependencies = [
+ "blake3",
+ "paideia-as-diagnostics",
+ "paideia-as-emitter-pax",
+ "paideia-pq-sign",
+ "rand_chacha 0.3.1",
+ "rand_core 0.6.4",
+ "tempfile",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"
