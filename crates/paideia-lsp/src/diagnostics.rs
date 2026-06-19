@@ -2,6 +2,8 @@
 
 use tower_lsp::lsp_types::{Diagnostic as LspDiagnostic, DiagnosticSeverity, Position, Range, Url};
 
+use crate::cache::{CacheEntry, ParseCache, content_hash};
+
 use paideia_as_ast::AstArena;
 use paideia_as_diagnostics::{
     Diagnostic as PaideiaDiagnostic, DiagnosticSink, Severity, SourceMap, VecSink,
@@ -84,6 +86,31 @@ fn byte_offset_to_position(text: &str, byte_offset: usize) -> Position {
         line,
         character: col,
     }
+}
+
+/// Re-parse and re-elaborate a document with cache lookup.
+///
+/// Attempts to retrieve cached diagnostics for the given URI and source content.
+/// On cache hit, returns cached diagnostics. On cache miss, re-parses and re-elaborates,
+/// then caches the result.
+pub fn diagnose_document_with_cache(
+    uri: &Url,
+    source: &str,
+    cache: &ParseCache,
+) -> Vec<LspDiagnostic> {
+    let hash = content_hash(source);
+    if let Some(entry) = cache.lookup(uri, &hash) {
+        return entry.diagnostics;
+    }
+    let diagnostics = diagnose_document(uri, source);
+    cache.insert(
+        uri.clone(),
+        CacheEntry {
+            content_hash: hash,
+            diagnostics: diagnostics.clone(),
+        },
+    );
+    diagnostics
 }
 
 /// Re-parse and re-elaborate a document, returning the list of LSP diagnostics.

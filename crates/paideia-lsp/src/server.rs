@@ -4,6 +4,7 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
+use crate::cache::ParseCache;
 use crate::document::DocumentStore;
 
 /// The paideia-lsp backend implementing the Language Server Protocol.
@@ -12,6 +13,8 @@ pub struct Backend {
     pub client: Client,
     /// In-memory document store.
     pub store: DocumentStore,
+    /// Parse cache for incremental elaboration.
+    pub cache: ParseCache,
 }
 
 #[tower_lsp::async_trait]
@@ -41,7 +44,8 @@ impl LanguageServer for Backend {
         let text = params.text_document.text.clone();
         self.store
             .open(uri.clone(), params.text_document.version, text.clone());
-        let diagnostics = crate::diagnostics::diagnose_document(&uri, &text);
+        let diagnostics =
+            crate::diagnostics::diagnose_document_with_cache(&uri, &text, &self.cache);
         self.client
             .publish_diagnostics(uri, diagnostics, Some(params.text_document.version))
             .await;
@@ -54,7 +58,8 @@ impl LanguageServer for Backend {
         let Some(doc) = self.store.get(&uri) else {
             return;
         };
-        let diagnostics = crate::diagnostics::diagnose_document(&uri, &doc.text);
+        let diagnostics =
+            crate::diagnostics::diagnose_document_with_cache(&uri, &doc.text, &self.cache);
         self.client
             .publish_diagnostics(uri, diagnostics, Some(doc.version))
             .await;
