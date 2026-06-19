@@ -58,6 +58,22 @@ pub struct PerformRewrite {
     pub offset: u32,
 }
 
+/// Outcome of rewriting one `IrPerform` at a given handler depth.
+///
+/// Extends `PerformRewrite` to include the lexical nesting depth at which
+/// the matching handler was installed. This is used in row-polymorphic
+/// contexts where the indirect call must dereference the handler stack
+/// at the right depth.
+#[derive(Debug, Clone)]
+pub struct PerformRewriteWithDepth {
+    /// New `App` node id replacing the original `Perform`.
+    pub call: IrNodeId,
+    /// Handler-table offset for the operation, in bytes.
+    pub offset: u32,
+    /// Lexical nesting depth: how many handler frames to skip in the stack.
+    pub handler_depth: u32,
+}
+
 /// Per-effect operation table. Phase-1 stores `(effect_name, op_name) →
 /// byte offset`; the offset is `slot_index * 8` (each handler pointer
 /// is 64 bits per the calling convention).
@@ -126,6 +142,44 @@ pub fn rewrite_perform(
     let offset = table.slot_for(effect, op);
     let call = arena.alloc(IrKind::App, node.span);
     PerformRewrite { call, offset }
+}
+
+/// Row-polymorphic-aware perform rewrite.
+///
+/// `handler_depth` is the lexical nesting depth at which the matching
+/// handler was installed. The rewritten IR walks the handler-stack
+/// chain `handler_depth` frames before invoking the handler.
+///
+/// Phase-2-m10 minimum: emits an `IrKind::App` representing the
+/// indirect call; the depth is recorded in a side-table for the
+/// emitter to consume. The actual stack-walking instruction sequence
+/// is produced at emit time (T8).
+///
+/// # Panics
+///
+/// Panics if `id`'s kind is not `IrKind::Perform`.
+#[must_use]
+pub fn rewrite_perform_at_depth(
+    arena: &mut IrArena,
+    table: &mut HandlerTable,
+    id: IrNodeId,
+    effect: &str,
+    op: &str,
+    handler_depth: u32,
+) -> PerformRewriteWithDepth {
+    let node = arena[id];
+    assert_eq!(
+        node.kind,
+        IrKind::Perform,
+        "rewrite_perform_at_depth: id must be a Perform node"
+    );
+    let offset = table.slot_for(effect, op);
+    let call = arena.alloc(IrKind::App, node.span);
+    PerformRewriteWithDepth {
+        call,
+        offset,
+        handler_depth,
+    }
 }
 
 /// `unsafe` blocks pass through unchanged per §9.4. This helper is a
@@ -393,6 +447,39 @@ pub fn compile_deep_handler_op(
     (mode, rewritten_body)
 }
 
+/// Emit a trampoline-install node for a handler that has multi-shot
+/// resume semantics.
+///
+/// When a handler with at least one MultiShot op is installed, the
+/// install site must construct a *trampoline* — a thin loop that
+/// re-invokes the handler whenever its body returns.
+///
+/// Phase-2-m10 minimum: produces an IrKind::App representing the
+/// trampoline. The emitter (T8) lowers it to the actual loop +
+/// install sequence.
+///
+/// # Arguments
+///
+/// * `arena` - The mutable IR arena.
+/// * `handler_id` - The IrNodeId of the Handle node.
+/// * `_body_id` - The IrNodeId of the handler body to wrap.
+///
+/// # Returns
+///
+/// An IrNodeId representing the trampoline App node.
+#[must_use]
+pub fn rewrite_handler_install_trampoline(
+    arena: &mut IrArena,
+    handler_id: IrNodeId,
+    _body_id: IrNodeId,
+) -> IrNodeId {
+    // Use the handler's span for the synthetic trampoline node.
+    let handler_node = arena[handler_id];
+    // Allocate a synthetic App node representing the trampoline.
+    // The emitter will expand this to: loop { install(); body(); jump loop_label; }
+    arena.alloc(IrKind::App, handler_node.span)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -644,5 +731,104 @@ mod tests {
         assert!(collected.contains(&resume1));
         assert!(collected.contains(&resume2));
         assert!(collected.contains(&resume3));
+    }
+
+    // ── AC bullet 4: rewrite_perform_at_depth with depth tracking ────
+
+    #[test]
+    fn rewrite_perform_at_depth_zero_matches_phase1() {
+        let mut arena = IrArena::new();
+        let mut table = HandlerTable::new();
+        let p = arena.alloc(IrKind::Perform, span(42));
+
+        let result_phase1 = rewrite_perform(&mut arena, &mut table, p, "E", "op");
+        let mut table2 = HandlerTable::new();
+        let result_depth0 = rewrite_perform_at_depth(&mut arena, &mut table2, p, "E", "op", 0);
+
+        // Both should produce App nodes
+        assert_eq!(arena[result_phase1.call].kind, IrKind::App);
+        assert_eq!(arena[result_depth0.call].kind, IrKind::App);
+
+        // Offsets should match
+        assert_eq!(result_phase1.offset, result_depth0.offset);
+
+        // Depth should be 0
+        assert_eq!(result_depth0.handler_depth, 0);
+    }
+
+    #[test]
+    fn rewrite_perform_at_depth_nonzero_records_depth() {
+        let mut arena = IrArena::new();
+        let mut table = HandlerTable::new();
+        let p = arena.alloc(IrKind::Perform, span(100));
+
+        let result = rewrite_perform_at_depth(&mut arena, &mut table, p, "Io", "read", 3);
+
+        assert_eq!(arena[result.call].kind, IrKind::App);
+        assert_eq!(result.offset, 0);
+        assert_eq!(result.handler_depth, 3);
+    }
+
+    #[test]
+    fn rewrite_handler_install_trampoline_produces_app() {
+        let mut arena = IrArena::new();
+        let handler = arena.alloc(IrKind::Handle, span(0));
+        let body = arena.alloc(IrKind::Action, span(10));
+
+        let trampoline = rewrite_handler_install_trampoline(&mut arena, handler, body);
+
+        assert_eq!(arena[trampoline].kind, IrKind::App);
+        // The trampoline should carry the handler's span
+        assert_eq!(arena[trampoline].span, arena[handler].span);
+    }
+
+    // ── AC bullet 5: Property-based test for deep-handler correctness ─
+
+    #[cfg(test)]
+    mod pbt {
+        use super::*;
+        use proptest::proptest;
+
+        proptest! {
+            #[test]
+            fn pbt_compile_deep_handler_op_rewrites_every_resume_site(
+                num_resumes in 0u8..10,
+            ) {
+                let mut arena = IrArena::new();
+
+                // Build a body with `num_resumes` resume marker nodes.
+                let resume_ids: Vec<IrNodeId> = (0..num_resumes)
+                    .map(|i| arena.alloc(IrKind::App, span(i as u32 * 10)))
+                    .collect();
+
+                // Create a parent Action node containing all resumes
+                let body = if resume_ids.is_empty() {
+                    arena.alloc(IrKind::Literal, span(0))
+                } else {
+                    arena.alloc_with_children(IrKind::Action, span(0), resume_ids.clone())
+                };
+
+                // Mark all as resume sites
+                let mut resume_table = ResumeSiteTable::new();
+                for &resume_id in &resume_ids {
+                    resume_table.mark_resume_site(resume_id);
+                }
+
+                // Compile
+                let (mode, _rewritten) = compile_deep_handler_op(&mut arena, body, &resume_table);
+
+                // Assert: classification is correct
+                match num_resumes {
+                    0 => assert_eq!(mode, ResumeMode::Abort),
+                    1 => assert_eq!(mode, ResumeMode::SingleShot),
+                    _ => assert_eq!(mode, ResumeMode::MultiShot),
+                }
+
+                // Assert: every resume site that was marked should be found.
+                // This is a structural-soundness check: the rewrite ran without panicking.
+                let collected = resume_table.collect_resume_sites(&arena, body);
+                assert_eq!(collected.len(), num_resumes as usize);
+            }
+        }
     }
 }

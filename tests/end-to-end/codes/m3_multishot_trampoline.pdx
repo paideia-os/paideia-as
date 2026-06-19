@@ -1,0 +1,28 @@
+// MultiShot resume with trampoline (m3-010)
+// This handler has multiple resume sites on different control paths,
+// requiring a trampoline that re-invokes the handler on each resumption.
+// Expected: rewrite_handler_install_trampoline produces a placeholder App;
+// classify_resume_mode identifies this as MultiShot.
+
+effect Io = {
+  op read_byte: () -> u8,
+  op write_byte: u8 -> ()
+}
+
+module M = structure {
+  let test_multishot = fn _ ->
+    with handler {
+      op read_byte() -> resume (val: u8) {
+        // First resume on the happy path
+        let x = resume val;
+        // Second resume on the error path (or alternate branch)
+        if x == 0 then
+          resume 42
+        else
+          x
+      }
+    }
+    {
+      perform Io::read_byte()
+    }
+}
