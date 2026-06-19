@@ -1,0 +1,17 @@
+effect Io = {
+  op print(x: u32)
+}
+
+effect Net = {
+  op send(data: u32)
+}
+
+module M = structure {
+  let poly_fn = fn _ !{Io | r} -> perform Io::print(42)
+
+  let test_in_handler = fn _ ->
+    with handler { op send(x) -> resume () }
+    {
+      poly_fn()
+    }
+}
