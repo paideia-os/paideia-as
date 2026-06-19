@@ -160,6 +160,64 @@ M-codes (macro reflection):
 
 **Workspace count**: 22 crates + 4 test harnesses (added `reflection-corpus`).
 
+## Phase 2 m7 closure (PQ signing)
+
+The post-quantum signing infrastructure is now at full power.
+The m7 series (PRs #424–#431) implements:
+
+- **Ed25519 + ML-DSA-65 wrappers (m7-001)** — `paideia-pq-sign`
+  hosts the `Signer` trait + thin newtypes around ed25519-dalek
+  2.x and ml-dsa 0.1.1 (RustCrypto FIPS-204). Ed25519 uses
+  `verify_strict` to reject malleable / small-order forms.
+  RFC 8032 §7.1 Test 1 KAT pins the Ed25519 sign output;
+  deterministic-rnd KAT pins ML-DSA-65.
+- **Hybrid signature scheme (m7-002)** — `Hybrid = Ed25519 ||
+  ML-DSA-65` with AND verification semantics. Wire sizes:
+  PK 1984B, SK 64B (seed-only — ml-dsa 0.1 exposes only the
+  32B seed form), Sig 3373B ≈ 3.4 KB matching paideia-link.md
+  §1.1.
+- **PAX header signature integration (m7-003)** — two-tier
+  storage: the 32B header `pq_signature_placeholder` slot
+  stores `BLAKE3(hybrid_signature)`; the actual 3373B
+  signature lives in a separate `.paideia.sig` section.
+  `pax_message_to_sign` + `embed_signature_hash` +
+  `header_signature_hash_matches` wire the m4-007 content
+  hash through hybrid sign / verify.
+- **Delegation-scope check (m7-004)** — `KeyScope`
+  + `check_delegation_scope` reads `.paideia.effects` (m4-004),
+  enforces `pax.effects ⊆ key.scope`. New `Category::Q`
+  (post-quantum) + Q0901 ("signing-key scope insufficient")
+  added to the diagnostic catalog. The load-bearing
+  rank-5-elaborator-reflection use case from pq-trust-root.md
+  §12/§13.
+- **Release-artifact signing (m7-005)** — `paideia-pq-sign
+  release <path>` CLI subcommand + `release.rs` API
+  (`hash_file` / `sign_release_artifact` /
+  `write_detached_signature` / `verify_detached_signature`).
+  Detached `.sig` alongside the artifact. `docs/
+  release-signing.md` documents the flow.
+- **Soft-HSM (m7-006)** — `SoftHsmFile` with Argon2id KDF +
+  ChaCha20-Poly1305 AEAD over the HybridSecretKey. Versioned
+  PDX-HSM\0 file format. CLI `hsm init` / `hsm release`
+  subcommands replace m7-005's deterministic test keypair as
+  the operational dev path. DEVELOPMENT-ONLY caveat
+  documented.
+- **PQ verification corpus (m7-007)** — `tests/pq-corpus/`
+  workspace member with 6 happy-path + 4 failure-mode tests
+  exercising m7-001..006 end-to-end (Ed25519, ML-DSA-65,
+  Hybrid, PAX content-hash signing, scope-check, soft-HSM).
+
+Q-codes (post-quantum, 0900-0999):
+
+| Code  | Source                                | Status |
+|-------|---------------------------------------|--------|
+| Q0901 | scope_check: scope insufficient       | live   |
+
+The m7 deliverable ships 6 new modules in paideia-pq-sign
+(ed25519, mldsa, hybrid, pax, scope_check, soft_hsm, release)
++ 1 in paideia-as-emitter-pax (sign). Resolves the PQ trust
+root question from pq-trust-root.md §5/§12/§13.
+
 ## Phase 2 m6 closure (PE/COFF emitter)
 
 The PE/COFF emitter for Microsoft x64 / UEFI binaries is now at
@@ -451,10 +509,10 @@ perform payloads through.
 
 ## Workspace test totals
 
-- 1360+ workspace tests across 24 crates + 9 test harnesses
+- 1411+ workspace tests across 24 crates + 10 test harnesses
   (linearity-regression, end-to-end, reflection-corpus, effects-corpus,
   pax-load-smoke, modules-multifile, uefi-smoke, cross-build,
-  paideia-as-e2e).
+  pq-corpus, paideia-as-e2e).
 - `cargo test --workspace` runs in well under 60 seconds.
 - CI: temporarily disabled (GitHub Actions billing block); local
   `cargo test --workspace` is the gate. cargo-deny advisory remains
