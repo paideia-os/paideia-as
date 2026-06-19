@@ -10,10 +10,16 @@ repository.workspace = true
 [lib]
 name = "paideia_pq_sign"
 
+[[bin]]
+name = "paideia-pq-sign"
+path = "src/bin/cli.rs"
+
 [dependencies]
+blake3        = { workspace = true }
 ed25519-dalek = { workspace = true, features = ["rand_core"] }
 ml-dsa        = { workspace = true, features = ["rand_core"] }
 rand_core     = { workspace = true }
+rand_chacha   = "0.3"
 signature     = { workspace = true }
 paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
 paideia-as-emitter-pax = { path = "../paideia-as-emitter-pax" }
@@ -21,4 +27,5 @@ paideia-as-emitter-pax = { path = "../paideia-as-emitter-pax" }
 [dev-dependencies]
 hex = "0.4"
 rand_core = { workspace = true, features = ["getrandom"] }
+tempfile = "3"
 paideia-as-emitter-pax = { path = "../paideia-as-emitter-pax" }
