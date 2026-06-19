@@ -6,10 +6,15 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+default-run = "paideia-as"
 
 [[bin]]
 name = "paideia-as"
 path = "src/main.rs"
+
+[[bin]]
+name = "pax-introspect"
+path = "src/bin/pax_introspect.rs"
 
 [dependencies]
 clap = { workspace = true }
