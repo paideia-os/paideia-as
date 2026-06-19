@@ -160,6 +160,100 @@ M-codes (macro reflection):
 
 **Workspace count**: 22 crates + 4 test harnesses (added `reflection-corpus`).
 
+## Phase 2 m5 closure (ML modules + functors)
+
+Q-A7 **ML-style modules + applicative functors + first-class
+modules** is now at full power. The m5 series (PRs #401–#412)
+implements:
+
+- **AST scaffolding (m5-001)** — `Signature`, `Structure`,
+  `Functor` AST nodes with `SigDecl { Type, Val, Module, Include }`
+  and `Def { Type, Val, Module }`. String placeholders for type
+  and expression slots; m5-003 deferred to coordinate with arena
+  threading.
+- **Module-kind machinery (m5-002)** — `ModuleKind { Sig(SignatureKind),
+  Pi { param_name, param_kind, body_kind, dependent } }` +
+  `SignatureKind` + `kind_signature` / `kind_functor`. Establishes the
+  applicative-vs-generative distinction via the dependent flag.
+- **Structure elaboration → typed value (m5-003)** —
+  `elaborate_structure(s, ctx, diags) → TypedValue { bindings,
+  signature, span }`. Linearity threading via the existing
+  `LinearityCtx`. Whole-word use detection (debugger fix from m5-003)
+  prevents spurious S0901 when one field name is a prefix of another.
+- **Signature matching (m5-004)** — `match_signature(structure,
+  target, diags) → bool` for structural subtyping. M0301 (missing
+  decl) + M0302 (kind/type mismatch). Recurses into nested
+  modules; `Include` deferred to m5-006+ signature registry.
+- **Applicative functor application (m5-005)** —
+  `apply_functor(functor, argument, diags) → Option<TypedValue>`
+  with BLAKE3 ApplyKey cache. Leroy (1995) applicative semantics:
+  `F(M) == F(M)` along the same path is path-equal via cache hit.
+- **Functor body elaboration (m5-006)** — `elaborate_functor_body`
+  checks the body against the parameter signature's abstract
+  shape. `"linear:"` / `"affine:"` prefix on ty placeholder strings
+  drives substructural-class inference until phase-3 wires
+  parser-level linearity syntax. S0900 / S0901 surface at the
+  functor declaration site, not deferred to apply time.
+- **Parser: functor application + sharing (m5-007)** —
+  `parse_functor_app` accepts `F(M)`, `F(M)(N)`, and
+  `F(M)(N) sharing (M::t = N::t, ...)`. New `ExprData::FunctorApp`
+  + `SharingConstraint`. Standalone (NOT wired into parse_primary
+  — protects value-level call). P0190 / P0191.
+- **Sharing-constraint checker (m5-008)** —
+  `check_sharing_constraints` with M0303 + multi-line
+  `expected: / got: / diff: + N - M` form, plus Levenshtein-2
+  "did you mean ..." suggestions. Reuses the `RowDiff` precedent
+  from m3-013.
+- **Parser: pack / unpack / let module (m5-009)** —
+  `parse_pack_expr` (`pack M : S`), `parse_unpack_expr`
+  (`unpack v`), `parse_let_module` (`let module N = unpack v in
+  body`) for first-class modules. P0192 / P0193 / P0194.
+- **Pack / unpack elaboration (m5-010)** — side-table convention:
+  packed TypedValue has one `_packed_module` binding +
+  `_pack_{blake3-hash}` sentinel signature. `elaborate_pack`,
+  `elaborate_unpack`, `elaborate_let_module`. M0304 fires on
+  unpack of a non-pack.
+- **IR + PAX `.paideia.functors` (m5-011)** — `ModuleSideTable`
+  + `FunctorEntry` (40B: symbol_id + param/result hashes +
+  closure-data placeholders + flags). `SectionType::Functors`
+  = 0x15. `functors_from_modules` bridge in the paideia-as
+  driver (keeps PAX as a leaf wire-format crate).
+- **File → module mapping (m5-012)** —
+  `validate_file_module_mapping` enforces §7.6: one structure or
+  functor per file; basename → PascalCase matches the module name.
+  M0305 / M0306 (parser-emitted) / M0313. New
+  `tests/modules-multifile/` workspace member.
+
+M-codes (modules):
+
+| Code  | Source                                | Status |
+|-------|---------------------------------------|--------|
+| M0301 | sig_match: structure missing decl     | live   |
+| M0302 | sig_match: structure kind mismatch    | live   |
+| M0303 | sharing checker: constraint violated  | live   |
+| M0304 | pack: unpack expects a packed value   | live   |
+| M0305 | file_module: name mismatch            | live   |
+| M0306 | parser: multiple top-level modules    | live (parser) |
+| M0313 | file_module: no top-level module      | live   |
+
+P-codes (parser):
+
+| Code  | Source                                | Status |
+|-------|---------------------------------------|--------|
+| P0190 | parser: malformed functor application | live   |
+| P0191 | parser: malformed sharing constraint  | live   |
+| P0192 | parser: malformed pack                | live   |
+| P0193 | parser: malformed unpack              | live   |
+| P0194 | parser: malformed let-module          | live   |
+
+The m5 deliverables ship 8 new modules in `paideia-as-elaborator`
++ 1 in `paideia-as-ir` + 1 in `paideia-as-emitter-pax` + the
+parser modules.rs from m5-007 + the file_module check in m5-012.
+`tests/modules-corpus/` covers structure / signature / functor /
+sharing / pack scenarios with 10 accept fixtures and 6 reject
+fixtures. `tests/modules-multifile/` is the multi-file harness
+target for m5-013+ cross-file imports.
+
 ## Phase 2 m4 closure (PAX + paideia-link)
 
 Q-A5 **PAX format + capability-binding linker** is now at full power.
@@ -292,9 +386,9 @@ perform payloads through.
 
 ## Workspace test totals
 
-- 1227+ workspace tests across 23 crates + 6 test harnesses
+- 1317+ workspace tests across 23 crates + 7 test harnesses
   (linearity-regression, end-to-end, reflection-corpus, effects-corpus,
-  pax-load-smoke, paideia-as-e2e).
+  pax-load-smoke, modules-multifile, paideia-as-e2e).
 - `cargo test --workspace` runs in well under 60 seconds.
 - CI: temporarily disabled (GitHub Actions billing block); local
   `cargo test --workspace` is the gate. cargo-deny advisory remains
