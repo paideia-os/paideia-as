@@ -33,3 +33,4 @@ tests/reflection-corpus/corpus/accept/*.placeholder
 tests/reflection-corpus/corpus/reject/*.placeholder
 tests/effects-corpus/corpus/accept/*.placeholder
 tests/effects-corpus/corpus/reject/*.placeholder
+test_output.txt
