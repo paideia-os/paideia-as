@@ -160,6 +160,64 @@ M-codes (macro reflection):
 
 **Workspace count**: 22 crates + 4 test harnesses (added `reflection-corpus`).
 
+## Phase 2 m4 closure (PAX + paideia-link)
+
+Q-A5 **PAX format + capability-binding linker** is now at full power.
+The m4 series (PRs #388–#399) implements:
+
+- **PaxHeader + scaffolding (m4-001)** — 96-byte canonical header
+  (magic + version + arch + flags + section-table offset + count +
+  32B BLAKE3 hash + 32B PQ-sig placeholder). `const_assert` pins the
+  size invariant.
+- **SectionTable + standard sections (m4-002)** — 64-byte descriptor;
+  Code 0x01, RoData 0x02, Data 0x03, Bss 0x04; plus reserved ids for
+  the PaideiaOS-specific sections that follow.
+- **`.paideia.caps` (m4-003)** — 32B per binding-site descriptor;
+  SiteKind / LinClass / CapKind enums; BLAKE3-derived name hash so
+  the section doesn't need a string-table reference for cross-PAX
+  reconciliation.
+- **`.paideia.effects` (m4-004)** — variable-length per-function
+  effect-row entries; closed and open (row-polymorphic) rows
+  round-trip.
+- **`.paideia.unsafe` + `.paideia.opt-passes` + `.paideia.lin`
+  (m4-005)** — 40B / 32B / 32B audit-trail entries. PassId enum
+  covers Peephole, ANF, DSE, ConstFold, EffectRewrite.
+- **`.symtab` + `.relocs` + `.imports` + `.exports` (m4-006)** —
+  48B sym + 32B reloc (Abs64 / Pc32 / GotPc32 / PltPc32 / CapBind) +
+  shared 32B CapDescriptor for imports + exports.
+- **BLAKE3 content hash (m4-007)** — `CanonicalContent` zeroes the
+  hash + sig slots before hashing so a verifier can recompute and
+  compare deterministically.
+- **CLI `--emit pax` (m4-008)** — `paideia-as build --emit pax`
+  produces a minimal valid PAX; `pax-introspect` companion binary
+  dumps the header + section table.
+- **paideia-link parse (m4-009)** — `parse_pax` validates magic +
+  version + section table; `parse_inputs` walks a list.
+- **paideia-link resolve (m4-010)** — global symbol table +
+  capability table across inputs; B1700 undefined-symbol + B1701
+  unbound-capability diagnostics; Strong-wins-over-Weak semantics.
+  (Note: linker codes use Category::B 1700-1799 per the existing
+  diagnostic taxonomy; the issue body's "L0700" was off-spec since
+  Category::L = linter/style 2000-2999.)
+- **paideia-link relocate + emit (m4-011)** — Abs64 relocation
+  application; final PAX emission with Executable flag + recomputed
+  BLAKE3 hash; `link(inputs, output)` driver ties all four phases.
+- **mock-supervisor smoke (m4-012)** — `tests/pax-load-smoke/` mock
+  supervisor that loads a PAX, parses its metadata sections, and
+  symbolically dispatches by BLAKE3 name hash. Sets the pattern the
+  real m10 supervisor follows.
+
+B-codes (binary emission, 1700-1799):
+
+| Code  | Source                            | Status |
+|-------|-----------------------------------|--------|
+| B1700 | linker: undefined symbol          | live   |
+| B1701 | linker: unbound capability        | live   |
+
+The m4 deliverables ship 12 new modules in paideia-as-emitter-pax +
+4 modules in paideia-as-linker. Resolves AS5 (BLAKE3 content hash)
+and AS8 (PAX object format) from custom-assembler.md §15.
+
 ## Phase 2 m3 closure (full algebraic effects)
 
 Q-A3 **full algebraic effects with handlers** is now at full power. The
@@ -234,9 +292,9 @@ perform payloads through.
 
 ## Workspace test totals
 
-- 1075+ workspace tests across 22 crates + 5 test harnesses
+- 1227+ workspace tests across 23 crates + 6 test harnesses
   (linearity-regression, end-to-end, reflection-corpus, effects-corpus,
-  paideia-as-e2e).
+  pax-load-smoke, paideia-as-e2e).
 - `cargo test --workspace` runs in well under 60 seconds.
 - CI: temporarily disabled (GitHub Actions billing block); local
   `cargo test --workspace` is the gate. cargo-deny advisory remains
