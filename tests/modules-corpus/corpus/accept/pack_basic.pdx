@@ -1,0 +1,12 @@
+// Issue #251: elaborator — pack/unpack elaboration
+// AC 1: pack M : S where M satisfies S elaborates cleanly.
+
+pack
+  structure {
+    type t = int
+    val x = 42
+  }
+: signature {
+    type t
+    val x
+  }

@@ -1,0 +1,17 @@
+// Issue #251: elaborator — pack/unpack elaboration
+// AC 2: let module N = unpack (pack M : S) in body elaborates cleanly.
+
+let module N = unpack (
+  pack
+    structure {
+      type t = int
+      val x = 42
+    }
+  : signature {
+      type t
+      val x
+    }
+) in
+structure {
+  val z = 100
+}
