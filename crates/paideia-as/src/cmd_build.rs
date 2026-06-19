@@ -21,9 +21,9 @@ use paideia_as_elaborator::{
 };
 use paideia_as_emitter_elf::{Arch, ElfWriter, Kind, SymbolEntry, lower_add_one};
 use paideia_as_emitter_pax::{
-    Architecture, PAX_HEADER_SIZE, PaxHeader, SectionTable, compute_content_hash,
+    Architecture, FunctorsSection, PAX_HEADER_SIZE, PaxHeader, SectionTable, compute_content_hash,
 };
-use paideia_as_ir::{IrNodeId, walk};
+use paideia_as_ir::{IrNodeId, ModuleSideTable, walk};
 use paideia_as_lexer::{Lexer, SourceText};
 use paideia_as_parser::Parser;
 
@@ -326,6 +326,43 @@ fn build_pax_object() -> Vec<u8> {
     bytes
 }
 
+/// Bridge: convert IR module metadata to PAX functors section.
+///
+/// Iterates over modules in the table; for each with a functor binding,
+/// emit a FunctorEntry with hashes from the signature.
+///
+/// # Arguments
+///
+/// * `_table` - The IR module side-table.
+/// * `_symbol_resolver` - Closure mapping IrNodeId → symbol_id (u64).
+///
+/// # Returns
+///
+/// A FunctorsSection ready for serialization. Closure data and flags
+/// are placeholders (0) in phase-1; m5-012+ will populate them.
+#[allow(dead_code)]
+pub fn functors_from_modules(
+    table: &ModuleSideTable,
+    symbol_resolver: impl Fn(IrNodeId) -> u64,
+) -> FunctorsSection {
+    use paideia_as_emitter_pax::FunctorEntry;
+
+    let mut section = FunctorsSection::new();
+    for (id, info) in table.iter() {
+        if let Some(fi) = &info.functor {
+            section.push(FunctorEntry {
+                functor_symbol_id: symbol_resolver(*id),
+                param_signature_hash: fi.param_signature_hash,
+                result_signature_hash: fi.result_signature_hash,
+                closure_data_offset: 0,
+                closure_data_size: 0,
+                flags: 0,
+            });
+        }
+    }
+    section
+}
+
 /// `<dir>/<basename>.pax` next to the input file.
 fn pax_path_for(input: &Path) -> PathBuf {
     let mut p = input.to_path_buf();
@@ -403,5 +440,45 @@ mod tests {
     fn pax_path_preserves_directory() {
         let p = Path::new("/tmp/foo/example.pdx");
         assert_eq!(pax_path_for(p), Path::new("/tmp/foo/example.pax"));
+    }
+
+    #[test]
+    fn functors_from_modules_extracts_functor_entries() {
+        use paideia_as_ir::{FunctorInfo, ModuleInfo};
+
+        let mut table = ModuleSideTable::new();
+        let functor_module_id = IrNodeId::new(1).unwrap();
+        let body_id = IrNodeId::new(10).unwrap();
+
+        // Create a functor module.
+        let functor_info = FunctorInfo {
+            param_signature_hash: 0x1111111111111111,
+            result_signature_hash: 0x2222222222222222,
+            body_node_id: body_id,
+        };
+
+        let module_info = ModuleInfo {
+            name: "MyFunctor".to_string(),
+            fields: vec![],
+            functor: Some(functor_info),
+        };
+
+        table.insert(functor_module_id, module_info);
+
+        // Define a simple symbol resolver.
+        let symbol_resolver = |_id: IrNodeId| -> u64 { 42 };
+
+        // Call the bridge.
+        let section = functors_from_modules(&table, symbol_resolver);
+
+        // Bridge must emit exactly one entry for the functor module.
+        assert_eq!(section.len(), 1, "expected one functor entry");
+        let entry = &section.entries[0];
+        assert_eq!(entry.functor_symbol_id, 42);
+        assert_eq!(entry.param_signature_hash, 0x1111111111111111);
+        assert_eq!(entry.result_signature_hash, 0x2222222222222222);
+        assert_eq!(entry.closure_data_offset, 0);
+        assert_eq!(entry.closure_data_size, 0);
+        assert_eq!(entry.flags, 0);
     }
 }
