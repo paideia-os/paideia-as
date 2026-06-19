@@ -1,0 +1,15 @@
+[[language]]
+name = "paideia"
+scope = "source.paideia"
+file-types = ["pdx"]
+roots = ["paideia-os.toml"]
+indent = { tab-width = 4, unit = "    " }
+comment-token = "//"
+language-servers = ["paideia-lsp"]
+
+[language-server.paideia-lsp]
+command = "paideia-lsp"
+
+[[grammar]]
+name = "paideia"
+source = { git = "https://github.com/paideia-os/paideia-as", subpath = "tools/editor/tree-sitter-paideia" }
