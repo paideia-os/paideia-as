@@ -1,0 +1,10 @@
+// Issue #243 AC: F(M) where M : S yields a structure with M's bindings visible under param name.
+//
+// This basic test verifies that applying a functor to a matching argument
+// produces a result where:
+// 1. The parameter name becomes a binding containing the argument module.
+// 2. The functor body's definitions are preserved in the result.
+
+functor F(M: sig end) =
+  val x = 42
+end

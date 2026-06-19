@@ -21,6 +21,7 @@ pub mod effect_unify;
 pub mod effect_walker;
 pub mod elab_builtin;
 pub mod env;
+pub mod functor_apply;
 pub mod hygiene;
 pub mod linearity_ctx;
 mod lower;
@@ -56,6 +57,7 @@ pub use effect_unify::{
 };
 pub use effect_walker::EffectRowWalker;
 pub use env::{Symbol, TypeEnv};
+pub use functor_apply::{ApplyKey, apply_functor};
 pub use hygiene::{HygieneCache, HygienicName, MacroId};
 pub use linearity_ctx::{Binding, LinearityCtx};
 pub use lower::{LoweringResult, lower_ast_to_ir};
