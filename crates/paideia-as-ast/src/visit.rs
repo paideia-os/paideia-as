@@ -123,6 +123,12 @@ pub trait ExprVisitor {
     fn visit_expr_antiquote(&mut self, _arena: &AstArena, _id: NodeId) {}
     /// Visit a FunctorApp expression.
     fn visit_expr_functor_app(&mut self, _arena: &AstArena, _id: NodeId) {}
+    /// Visit a Pack expression.
+    fn visit_expr_pack(&mut self, _arena: &AstArena, _id: NodeId) {}
+    /// Visit an Unpack expression.
+    fn visit_expr_unpack(&mut self, _arena: &AstArena, _id: NodeId) {}
+    /// Visit a LetModule expression.
+    fn visit_expr_let_module(&mut self, _arena: &AstArena, _id: NodeId) {}
 }
 
 /// Dispatch visitor call by node kind for expressions.
@@ -153,6 +159,9 @@ pub fn walk_expr<V: ExprVisitor>(visitor: &mut V, arena: &AstArena, id: NodeId) 
         NodeKind::ExprQuote => visitor.visit_expr_quote(arena, id),
         NodeKind::ExprAntiquote => visitor.visit_expr_antiquote(arena, id),
         NodeKind::ExprFunctorApp => visitor.visit_expr_functor_app(arena, id),
+        NodeKind::ExprPack => visitor.visit_expr_pack(arena, id),
+        NodeKind::ExprUnpack => visitor.visit_expr_unpack(arena, id),
+        NodeKind::ExprLetModule => visitor.visit_expr_let_module(arena, id),
         _ => {}
     }
 }

@@ -262,6 +262,37 @@ pub enum ExprData {
         /// Sharing constraints (type equality specifications).
         sharing: Vec<SharingConstraint>,
     },
+
+    /// `pack M : S`.
+    ///
+    /// Pack expression: packs a module value `M` according to signature `S`.
+    Pack {
+        /// Module path being packed (ExprPath node).
+        module_path: NodeId,
+        /// Signature path constraint (ExprPath node).
+        signature_path: NodeId,
+    },
+
+    /// `unpack v`.
+    ///
+    /// Unpack expression: extracts a module value from a packed value `v`.
+    Unpack {
+        /// Packed value expression.
+        value: NodeId,
+    },
+
+    /// `let module N = unpack v in <expr>`.
+    ///
+    /// Let-module binding: binds a module name `N` to an unpacked value,
+    /// with a continuation `rest` that uses the bound name.
+    LetModule {
+        /// Binding name (module identifier string).
+        name: String,
+        /// RHS of `=` — an unpack expression (ExprUnpack node).
+        body: NodeId,
+        /// Continuation `in <expr>` — the rest expression.
+        rest: NodeId,
+    },
 }
 
 /// A single arm in a match expression.

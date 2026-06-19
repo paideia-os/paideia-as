@@ -95,6 +95,12 @@ pub enum NodeKind {
     ExprAntiquote,
     /// `F(M)(N) sharing (...)` (functor application).
     ExprFunctorApp,
+    /// `pack M : S` (pack expression).
+    ExprPack,
+    /// `unpack v` (unpack expression).
+    ExprUnpack,
+    /// `let module N = unpack v in <expr>` (let-module binding).
+    ExprLetModule,
 
     // Statements (§8 Stmt: LetStmt | ExprStmt | InstructionStmt | ReturnStmt)
     /// `let name: ty? = expr;`.

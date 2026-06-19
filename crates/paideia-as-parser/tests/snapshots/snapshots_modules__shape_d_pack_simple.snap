@@ -1,0 +1,12 @@
+---
+source: crates/paideia-as-parser/tests/snapshots_modules.rs
+expression: snapshot
+---
+Pack {
+    module_path: NodeId(
+        2,
+    ),
+    signature_path: NodeId(
+        4,
+    ),
+}

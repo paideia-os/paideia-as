@@ -65,6 +65,12 @@ pub enum TermHead {
     Antiquote,
     /// `F(M)(N) sharing (...)` (functor application).
     FunctorApp,
+    /// `pack M : S` (pack expression).
+    Pack,
+    /// `unpack v` (unpack expression).
+    Unpack,
+    /// `let module N = unpack v in <expr>` (let-module binding).
+    LetModule,
 }
 
 /// A typed handle to an AST expression node.
@@ -136,6 +142,9 @@ impl<'a> Term<'a> {
                 NodeKind::ExprQuote => TermHead::Quote,
                 NodeKind::ExprAntiquote => TermHead::Antiquote,
                 NodeKind::ExprFunctorApp => TermHead::FunctorApp,
+                NodeKind::ExprPack => TermHead::Pack,
+                NodeKind::ExprUnpack => TermHead::Unpack,
+                NodeKind::ExprLetModule => TermHead::LetModule,
                 _ => {
                     // Non-expression kinds: this term does not represent an expression.
                     // Return a placeholder; Phase 2 will add dedicated handling for
@@ -318,6 +327,24 @@ impl<'a> Term<'a> {
                     for arg in arguments {
                         result.push(Term::new(self.arena, *arg));
                     }
+                }
+                ExprData::Pack {
+                    module_path,
+                    signature_path,
+                } => {
+                    result.push(Term::new(self.arena, *module_path));
+                    result.push(Term::new(self.arena, *signature_path));
+                }
+                ExprData::Unpack { value } => {
+                    result.push(Term::new(self.arena, *value));
+                }
+                ExprData::LetModule {
+                    name: _,
+                    body,
+                    rest,
+                } => {
+                    result.push(Term::new(self.arena, *body));
+                    result.push(Term::new(self.arena, *rest));
                 }
             }
         }
