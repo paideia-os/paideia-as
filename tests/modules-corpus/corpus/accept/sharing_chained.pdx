@@ -1,0 +1,13 @@
+// Issue #247: elaborator — sharing constraint checker
+// AC test: chained modules with shared type
+
+structure {
+  module M = structure {
+    module Inner = structure {
+      type t = int
+    }
+  }
+  module N = structure {
+    type t = int
+  }
+}

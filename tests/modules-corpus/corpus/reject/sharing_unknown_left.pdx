@@ -1,0 +1,10 @@
+// Issue #247: elaborator — sharing constraint checker
+// AC test: left path unresolved in sharing constraint
+
+structure {
+  module M = structure {
+  }
+  module N = structure {
+    type t = int
+  }
+}

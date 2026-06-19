@@ -31,6 +31,7 @@ pub mod modules;
 mod placeholder_emit;
 pub mod reflect_api;
 pub mod resolve;
+pub mod sharing;
 pub mod sig_match;
 pub mod splice;
 pub mod term_eval;
@@ -74,5 +75,6 @@ pub use modules::{
 pub use placeholder_emit::placeholder_for;
 pub use reflect_api::{TypeCache, children, kind, span, type_of};
 pub use resolve::{HygienicEnv, ResolveValue};
+pub use sharing::{M_SHARING_VIOLATED, check_sharing_constraints};
 pub use sig_match::{M_SIG_KIND_MISMATCH, M_SIG_MISSING_DECL, match_signature};
 pub use splice::{splice, splice_with_hygiene, splice_with_type_check};

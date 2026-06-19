@@ -1,0 +1,13 @@
+// Issue #247: elaborator — sharing constraint checker
+// AC test: nested modules with nested type constraints
+
+structure {
+  module Outer = structure {
+    module M = structure {
+      type t = string
+    }
+  }
+  module Inner = structure {
+    type t = string
+  }
+}

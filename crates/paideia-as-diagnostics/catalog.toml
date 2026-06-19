@@ -182,6 +182,15 @@ description = "A name is bound in both the signature and the structure but with 
 since = "0.1.0"
 deprecated = false
 
+[diagnostic.M0303]
+severity = "error"
+category = "module"
+title = "Sharing constraint violated"
+brief = "functor sharing constraint requires equal types but paths disagree"
+description = "A sharing constraint asserted equality between two type paths, but the resolved types differ (or one path is unresolved). See the diagnostic message for the resolved types and a 'did you mean' suggestion when paths are close."
+since = "0.1.0"
+deprecated = false
+
 [diagnostic.M0307]
 severity = "error"
 category = "module"
