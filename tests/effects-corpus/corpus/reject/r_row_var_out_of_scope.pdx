@@ -1,0 +1,12 @@
+// Row variable out of scope
+module RowVarOOScope = structure {
+  effect Io {
+    op read : (u16) -> u8
+  }
+
+  let outer : (u16) -> u8 !{} =
+    fn (port : u16) ->
+      let inner : forall e. (u16) -> u8 !{Io | e} =
+        fn (p : u16) -> 0
+      inner(port)
+}

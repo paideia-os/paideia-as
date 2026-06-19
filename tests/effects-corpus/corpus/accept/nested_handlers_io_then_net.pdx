@@ -1,0 +1,18 @@
+// Nested handlers: Io inside, Net outside
+module NestedIoNet = structure {
+  effect Io {
+    op port_read  : (u16) -> u8
+  }
+
+  effect Net {
+    op send : (u64) -> unit
+  }
+
+  let nested : (unit) -> u8 !{} =
+    fn (_ : unit) ->
+      with net_handler handle Net {
+        with io_handler handle Io {
+          0
+        }
+      }
+}

@@ -1,0 +1,19 @@
+// Multi-shot combined with nested handlers
+module MultiShotNested = structure {
+  effect State {
+    op get : (unit) -> u64
+    op put : (u64) -> unit
+  }
+
+  effect Io {
+    op read : (u16) -> u8
+  }
+
+  let nested_multishot : (unit) -> u64 !{} =
+    fn (_ : unit) ->
+      with io_handler handle Io {
+        with state_handler handle State {
+          0
+        }
+      }
+}

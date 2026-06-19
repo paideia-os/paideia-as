@@ -1,0 +1,13 @@
+// Pattern handler missing operation
+module PatternHandlerMissing = structure {
+  effect Io {
+    op read : (u16) -> u8
+    op write : (u16, u8) -> unit
+  }
+
+  let pattern_incomplete : (unit) -> unit !{} =
+    fn (_ : unit) ->
+      with handler handle Io {
+        0
+      }
+}

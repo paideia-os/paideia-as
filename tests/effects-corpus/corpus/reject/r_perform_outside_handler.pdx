@@ -1,0 +1,9 @@
+// Perform outside handler — unhandled effect
+module PerformOutside = structure {
+  effect Io {
+    op read : (u16) -> u8
+  }
+
+  let outside : (u16) -> u8 !{} =
+    fn (port : u16) -> 0
+}

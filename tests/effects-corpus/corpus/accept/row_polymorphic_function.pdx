@@ -1,0 +1,9 @@
+// Row-polymorphic function with effect row
+module RowPolyFunc = structure {
+  effect Io {
+    op port_read  : (u16) -> u8
+  }
+
+  let read_status : forall e. (u16) -> u8 !{Io | e} =
+    fn (port : u16) -> 0
+}

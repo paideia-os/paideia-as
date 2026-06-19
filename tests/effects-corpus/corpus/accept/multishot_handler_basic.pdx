@@ -1,0 +1,12 @@
+// Basic multi-shot handler with resume
+module MultiShotBasic = structure {
+  effect Io {
+    op read : (u16) -> u8
+  }
+
+  let looping : (unit) -> u8 !{} =
+    fn (_ : unit) ->
+      with io_handler handle Io {
+        0
+      }
+}

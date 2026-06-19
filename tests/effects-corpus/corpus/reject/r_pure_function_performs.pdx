@@ -1,0 +1,9 @@
+// Pure function declared to perform effects
+module PurePerforms = structure {
+  effect Io {
+    op read : (u16) -> u8
+  }
+
+  let claims_pure : (u16) -> u8 !{} =
+    fn (port : u16) -> 0
+}

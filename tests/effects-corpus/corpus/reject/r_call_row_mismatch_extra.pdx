@@ -1,0 +1,16 @@
+// Row mismatch: caller has extra effect not allowed by callee
+module RowMismatchExtra = structure {
+  effect Io {
+    op read : (u16) -> u8
+  }
+
+  effect Net {
+    op send : (u64) -> unit
+  }
+
+  let constrained : (u16) -> u8 !{Io} =
+    fn (port : u16) -> 0
+
+  let mismatch : (u16) -> u8 !{Io, Net} =
+    fn (port : u16) -> constrained(port)
+}

@@ -1,0 +1,21 @@
+// Nested handlers with row-polymorphic function call
+module NestedWithPoly = structure {
+  effect Io {
+    op read : (u16) -> u8
+  }
+
+  effect Net {
+    op send : (u64) -> unit
+  }
+
+  let poly_io : forall e. (u16) -> u8 !{Io | e} =
+    fn (port : u16) -> 0
+
+  let mixed : (unit) -> u8 !{} =
+    fn (_ : unit) ->
+      with net_handler handle Net {
+        with io_handler handle Io {
+          poly_io(0x64)
+        }
+      }
+}
