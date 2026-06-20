@@ -1,4 +1,4 @@
-//! PKCS#11 (cryptoki) backend for the Signer trait.
+//! PKCS#11 (cryptoki) backend for HSM signing.
 //!
 //! Wraps a PKCS#11 session against a configured slot. Phase-3 minimum:
 //! Ed25519 + ML-DSA-65 keypairs are read from the slot at init time;
@@ -8,6 +8,7 @@
 //! SOFTHSM2_CONF=/etc/softhsm/softhsm2.conf; etc.). Real hardware
 //! validation is a follow-up PR.
 
+use super::{HsmSigner, HsmSignerError};
 use thiserror::Error;
 
 /// PKCS#11 error types.
@@ -141,6 +142,22 @@ impl Pkcs11Signer {
     }
 }
 
+impl HsmSigner for Pkcs11Signer {
+    fn sign_ed25519(&self, msg: &[u8]) -> Result<Vec<u8>, HsmSignerError> {
+        self.sign_ed25519(msg).map_err(HsmSignerError::from)
+    }
+
+    fn sign_mldsa65(&self, msg: &[u8]) -> Result<Vec<u8>, HsmSignerError> {
+        self.sign_mldsa65(msg).map_err(HsmSignerError::from)
+    }
+
+    fn is_hardware(&self) -> bool {
+        // PKCS#11 is always backed by hardware (or SoftHSM2 for testing).
+        // For production use, PKCS#11 targets real HSMs (YubiHSM, etc.).
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -232,5 +249,15 @@ mod tests {
         // Phase-3 scaffold: this will return LibraryUnavailable
         let result = signer.sign_ed25519(msg);
         assert!(result.is_err(), "Phase-3 scaffold returns error");
+    }
+
+    #[test]
+    fn signer_trait_is_hardware_true_for_pkcs11() {
+        let signer = Pkcs11Signer::new("/usr/lib/softhsm/libsofthsm2.so", 0, "test-pin")
+            .expect("Should create signer");
+        assert!(
+            signer.is_hardware(),
+            "PKCS#11 signer should report hardware=true"
+        );
     }
 }
