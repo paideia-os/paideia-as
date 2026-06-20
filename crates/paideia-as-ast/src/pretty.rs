@@ -189,6 +189,37 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 doc
             )
         }
+        ItemData::Impl(impl_decl) => {
+            let trait_str = impl_decl
+                .trait_name
+                .map(|t| format!("{}", t))
+                .unwrap_or_else(|| "None".to_string());
+            let trait_args_str = impl_decl
+                .trait_args
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let methods_str = impl_decl
+                .methods
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "Impl {{ generic_params: [{}], trait_name: {}, trait_args: [{}], for_type: {}, methods: [{}] }}",
+                impl_decl
+                    .generic_params
+                    .iter()
+                    .map(|p| format!("{}", p.name))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                trait_str,
+                trait_args_str,
+                impl_decl.for_type,
+                methods_str
+            )
+        }
         ItemData::UnsafeBlock {
             effects,
             capabilities,

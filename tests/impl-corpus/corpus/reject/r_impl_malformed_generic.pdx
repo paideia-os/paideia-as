@@ -1,0 +1,6 @@
+// Issue #658: paideia-as Phase 4 m9-004 — impl blocks
+// AC 10: impl with malformed generic parameters should fail parsing
+
+impl<T, U>> Foo {
+  fn bar() -> int { 42 }
+}

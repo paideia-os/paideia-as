@@ -6,6 +6,24 @@
 
 use crate::{NodeId, exprs::GenericParam};
 
+/// Impl block declaration.
+///
+/// `ImplDecl` represents a single impl block that provides implementations for a type,
+/// either for a specific trait (trait impl) or inherent methods (inherent impl).
+#[derive(Clone, Debug)]
+pub struct ImplDecl {
+    /// Generic parameters (type parameters with optional bounds).
+    pub generic_params: Vec<GenericParam>,
+    /// Optional trait name (Ident node). `None` for inherent impl.
+    pub trait_name: Option<NodeId>,
+    /// Generic arguments to the trait (Type nodes).
+    pub trait_args: Vec<NodeId>,
+    /// The type being impl'd (Type node).
+    pub for_type: NodeId,
+    /// Body items (Let or Fn nodes).
+    pub methods: Vec<NodeId>,
+}
+
 /// Trait method declaration within a trait.
 ///
 /// `TraitMethod` represents a single method signature (and optional default body)
@@ -171,6 +189,9 @@ pub enum ItemData {
         /// Optional documentation comment.
         doc: Option<NodeId>,
     },
+
+    /// Impl block: `impl<T> (Trait<T>)? for Type { items }`
+    Impl(ImplDecl),
 
     /// Unsafe block: `unsafe { effects: {...} capabilities: {...} justification: "..." block: {...} }`
     UnsafeBlock {

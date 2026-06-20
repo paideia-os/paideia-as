@@ -1,0 +1,10 @@
+// Issue #658: paideia-as Phase 4 m9-004 — impl blocks
+// AC 7: duplicate impl for the same (trait, type) pair fires T0513
+
+impl Eq for i32 {
+  fn eq(a: i32, b: i32) -> bool { true }
+}
+
+impl Eq for i32 {
+  fn eq(a: i32, b: i32) -> bool { false }
+}

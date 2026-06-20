@@ -53,6 +53,8 @@ pub enum NodeKind {
     Enum,
     /// Trait declaration.
     Trait,
+    /// Impl block.
+    Impl,
     /// Unsafe block.
     UnsafeBlock,
     /// Macro declaration.

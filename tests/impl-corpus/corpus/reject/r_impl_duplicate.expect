@@ -1,0 +1,5 @@
+error[T0513]: duplicate impl block for (trait: Some(...), type: ...): first impl at ...
+  --> (input):9:1
+   |
+ 9 | impl Eq for i32 {
+   | ^^^^

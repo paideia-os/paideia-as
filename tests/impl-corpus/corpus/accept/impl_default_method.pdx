@@ -1,0 +1,7 @@
+// Issue #658: paideia-as Phase 4 m9-004 — impl blocks
+// AC 5: impl with default trait method implementation parses correctly
+
+impl Display for i32 {
+  fn fmt(self) -> string { "42" }
+  fn to_string(self) -> string { "42" }
+}

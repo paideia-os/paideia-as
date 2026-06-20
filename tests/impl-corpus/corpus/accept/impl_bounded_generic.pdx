@@ -1,0 +1,6 @@
+// Issue #658: paideia-as Phase 4 m9-004 — impl blocks
+// AC 4: impl with bounded generic parameter parses correctly
+
+impl<T: Clone> Cloneable for T {
+  fn clone(self) -> T { self }
+}

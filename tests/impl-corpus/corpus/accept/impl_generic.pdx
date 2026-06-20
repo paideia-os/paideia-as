@@ -1,0 +1,6 @@
+// Issue #658: paideia-as Phase 4 m9-004 — impl blocks
+// AC 3: generic inherent impl parses correctly
+
+impl<T> Vec<T> {
+  fn push(self, x: T) -> () { }
+}

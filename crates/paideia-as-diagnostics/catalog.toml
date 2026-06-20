@@ -344,6 +344,15 @@ description = "A trait declaration must have the form: trait Name<T, U, ...> { m
 since = "0.7.0"
 deprecated = false
 
+[diagnostic.P0202]
+severity = "error"
+category = "parser"
+title = "Malformed impl block"
+brief = "expected impl block syntax"
+description = "An impl block must have the form: impl<T, U, ...> (TraitName)? for Type { items }. The impl keyword must be followed by optional generic parameters, optionally a trait name and 'for' keyword, a type, and a body enclosed in braces."
+since = "0.7.0"
+deprecated = false
+
 [diagnostic.O1500]
 severity = "note"
 category = "optimization"
@@ -540,4 +549,13 @@ title = "Non-exhaustive match"
 brief = "match arms do not cover every variant of the scrutinee's type"
 description = "Phase 4 m7-006: match expressions on enum types must cover every variant. Either add the missing variant arms or use a wildcard pattern `_` to catch the remainder. Diagnostic code lands in the type-system pattern region (0500-0899) — the issue spec's M0900 was out of M's reserved range (0300-0499); T0512 follows m1-003's T0511 reservation for the future borrowed-reference codepath."
 since = "0.4.0"
+deprecated = false
+
+[diagnostic.T0513]
+severity = "error"
+category = "type"
+title = "Duplicate impl for trait-type pair"
+brief = "an impl block for the same (trait, type) pair already exists"
+description = "Phase 4 m9-004: impl coherence check. Each (trait, type) pair may have at most one impl block. Remove the duplicate impl or distinguish the type to avoid the conflict."
+since = "0.7.0"
 deprecated = false

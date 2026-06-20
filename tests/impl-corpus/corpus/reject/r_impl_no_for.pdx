@@ -1,0 +1,6 @@
+// Issue #658: paideia-as Phase 4 m9-004 — impl blocks
+// AC 8: malformed trait impl without 'for' should fail parsing
+
+impl Eq i32 {
+  fn eq(a: i32, b: i32) -> bool { true }
+}

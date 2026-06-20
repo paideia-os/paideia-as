@@ -124,6 +124,8 @@ pub enum TokenKind {
     KwRecord,
     /// `trait`
     KwTrait,
+    /// `impl`
+    KwImpl,
     /// `where`
     KwWhere,
     /// `forall`
@@ -400,6 +402,7 @@ pub fn keyword_kind(text: &str) -> Option<TokenKind> {
         "struct" => TokenKind::KwStruct,
         "record" => TokenKind::KwRecord,
         "trait" => TokenKind::KwTrait,
+        "impl" => TokenKind::KwImpl,
         "where" => TokenKind::KwWhere,
         "forall" => TokenKind::KwForall,
         "ordered" => TokenKind::KwOrdered,
@@ -484,12 +487,13 @@ pub const RESERVED_WORDS: &[&str] = &[
     "yield",
     // Effect system (action blocks) (1)
     "action",
-    // Type system (11)
+    // Type system (12)
     "type",
     "enum",
     "struct",
     "record",
     "trait",
+    "impl",
     "where",
     "forall",
     "ordered",
@@ -561,9 +565,9 @@ mod tests {
 
     #[test]
     fn reserved_words_list_length() {
-        // 12 + 13 + 1 + 11 + 4 + 6 + 5 + 4 + 3 + 11 = 70
-        // (action moved to effect system section after control flow, record added to type system)
-        assert_eq!(RESERVED_WORDS.len(), 70);
+        // 12 + 13 + 1 + 12 + 4 + 6 + 5 + 4 + 3 + 11 = 71
+        // (action moved to effect system section after control flow, record and impl added to type system)
+        assert_eq!(RESERVED_WORDS.len(), 71);
     }
 
     #[test]

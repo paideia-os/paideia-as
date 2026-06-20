@@ -1,0 +1,4 @@
+// Issue #658: paideia-as Phase 4 m9-004 — impl blocks
+// AC 9: impl without body should fail parsing
+
+impl Foo

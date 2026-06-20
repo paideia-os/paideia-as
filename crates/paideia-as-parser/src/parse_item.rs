@@ -29,6 +29,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// - `KwStruct` → `parse_struct_decl`
     /// - `KwEnum` → `parse_enum_decl`
     /// - `KwTrait` → `parse_trait_decl`
+    /// - `KwImpl` → `parse_impl_decl`
     /// - `KwUnsafe` → `parse_unsafe` (existing parser, wrapped as an expression)
     /// - `Ident` with lexeme "macro" → `parse_macro_decl` (contextual keyword)
     /// - Anything else → emit P0100 and return Err
@@ -44,6 +45,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             Some(TokenKind::KwStruct) => self.parse_struct_decl(),
             Some(TokenKind::KwEnum) => self.parse_enum_decl(),
             Some(TokenKind::KwTrait) => self.parse_trait_decl(),
+            Some(TokenKind::KwImpl) => self.parse_impl_decl(),
             Some(TokenKind::KwUnsafe) => {
                 // Unsafe blocks are parsed as expressions but must be wrapped as item-level constructs.
                 // Per the spec, UnsafeBlock is an ItemData variant, so we allocate it here.
@@ -67,7 +69,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 let code = DiagnosticCode::new(Category::P, Severity::Error, 100)
                     .expect("valid P0100 code");
                 let diag = Diagnostic::error(code)
-                    .message("expected item (module, signature, let, effect, capability, struct, enum, trait, macro, or unsafe)")
+                    .message("expected item (module, signature, let, effect, capability, struct, enum, trait, impl, macro, or unsafe)")
                     .with_span(span)
                     .finish();
                 self.emit_diagnostic(diag);
@@ -81,7 +83,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 let code = DiagnosticCode::new(Category::P, Severity::Error, 100)
                     .expect("valid P0100 code");
                 let diag = Diagnostic::error(code)
-                    .message("expected item (module, signature, let, effect, capability, struct, enum, trait, macro, or unsafe)")
+                    .message("expected item (module, signature, let, effect, capability, struct, enum, trait, impl, macro, or unsafe)")
                     .with_span(span)
                     .finish();
                 self.emit_diagnostic(diag);
@@ -1406,6 +1408,175 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             Err(ParseError)
         }
     }
+
+    fn parse_impl_decl(&mut self) -> Result<NodeId, ParseError> {
+        let impl_tok = self.expect(TokenKind::KwImpl)?;
+        let span_start = impl_tok.span;
+
+        // Optional generic parameters: `< T, U: Trait >`
+        let generic_params = if self.at(TokenKind::Lt) {
+            match self.parse_generic_params() {
+                Ok(params) => params,
+                Err(_) => {
+                    let span = self.peek().map(|t| t.span).unwrap_or(span_start);
+                    let code = DiagnosticCode::new(Category::P, Severity::Error, 202)
+                        .expect("valid P0202 code");
+                    let diag = Diagnostic::error(code)
+                        .message("malformed impl block: invalid generic parameters")
+                        .with_span(span)
+                        .finish();
+                    self.emit_diagnostic(diag);
+                    return Err(ParseError);
+                }
+            }
+        } else {
+            Vec::new()
+        };
+
+        // Try to parse `TraitPath<Args>? for Type` or just `Type`
+        // We need to disambiguate using the `for` keyword
+        let trait_name;
+        let trait_args;
+        let for_type;
+
+        // Parse the first type/path
+        let first_type = match self.parse_type() {
+            Ok(t) => t,
+            Err(_) => {
+                let span = self.peek().map(|t| t.span).unwrap_or(span_start);
+                let code = DiagnosticCode::new(Category::P, Severity::Error, 202)
+                    .expect("valid P0202 code");
+                let diag = Diagnostic::error(code)
+                    .message("malformed impl block: expected type or trait name")
+                    .with_span(span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                return Err(ParseError);
+            }
+        };
+
+        // Check for `for` keyword
+        if self.at(TokenKind::KwFor) {
+            // Trait impl: `impl<T> Trait<T> for Type`
+            self.bump(); // consume `for`
+            trait_name = Some(first_type);
+            trait_args = Vec::new(); // TODO: extract from TypeName nodes in later PR
+
+            match self.parse_type() {
+                Ok(t) => for_type = t,
+                Err(_) => {
+                    let span = self.peek().map(|t| t.span).unwrap_or(span_start);
+                    let code = DiagnosticCode::new(Category::P, Severity::Error, 202)
+                        .expect("valid P0202 code");
+                    let diag = Diagnostic::error(code)
+                        .message("malformed impl block: expected type after 'for'")
+                        .with_span(span)
+                        .finish();
+                    self.emit_diagnostic(diag);
+                    return Err(ParseError);
+                }
+            }
+        } else {
+            // Inherent impl: `impl<T> Type`
+            trait_name = None;
+            trait_args = Vec::new();
+            for_type = first_type;
+        }
+
+        // Expect `{` and parse impl items (for now, just skip to closing brace)
+        if !self.at(TokenKind::LBrace) {
+            let span = self.peek().map(|t| t.span).unwrap_or(span_start);
+            let code =
+                DiagnosticCode::new(Category::P, Severity::Error, 202).expect("valid P0202 code");
+            let diag = Diagnostic::error(code)
+                .message("malformed impl block: expected opening brace")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+        self.bump(); // consume `{`
+
+        let mut methods = Vec::new();
+        while !self.at(TokenKind::RBrace) && !self.at_eof() {
+            // Parse items inside the impl body — only Let or Fn declarations allowed
+            // This is phase-1 skeleton; m9-005+ will elaborate binding/elaboration
+            if self.at(TokenKind::KwLet) {
+                match self.parse_let_decl() {
+                    Ok(item) => methods.push(item),
+                    Err(_) => {
+                        // Skip to next item or closing brace
+                        while !self.at(TokenKind::KwLet)
+                            && !self.at(TokenKind::KwFn)
+                            && !self.at(TokenKind::RBrace)
+                            && !self.at_eof()
+                        {
+                            self.bump();
+                        }
+                    }
+                }
+            } else if self.at(TokenKind::KwFn) {
+                // Create a synthetic fn item
+                // For now, just skip the fn declaration; later PRs will parse it properly
+                // This is enough to test the impl block parsing
+                self.bump(); // skip 'fn'
+                // Skip to the next brace-surrounded block or semicolon
+                let mut brace_depth = 0;
+                while !self.at_eof() {
+                    if self.at(TokenKind::LBrace) {
+                        brace_depth += 1;
+                    } else if self.at(TokenKind::RBrace) {
+                        if brace_depth > 0 {
+                            brace_depth -= 1;
+                        } else {
+                            break; // Hit the impl closing brace
+                        }
+                    } else if self.at(TokenKind::Semicolon) && brace_depth == 0 {
+                        self.bump();
+                        break;
+                    }
+                    self.bump();
+                }
+            } else {
+                // Skip unknown item or invalid syntax
+                self.bump();
+            }
+        }
+
+        if !self.at(TokenKind::RBrace) {
+            let span = self.peek().map(|t| t.span).unwrap_or(span_start);
+            let code =
+                DiagnosticCode::new(Category::P, Severity::Error, 202).expect("valid P0202 code");
+            let diag = Diagnostic::error(code)
+                .message("malformed impl block: expected closing brace")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+        let rbrace_span = self.peek().map(|t| t.span).unwrap_or(span_start);
+        self.bump(); // consume `}`
+
+        // Create span covering entire impl block
+        let span = Span::new(
+            span_start.file(),
+            span_start.byte_start(),
+            rbrace_span.byte_start() + rbrace_span.byte_len() - span_start.byte_start(),
+        );
+
+        // Allocate and return the impl item
+        let impl_decl = paideia_as_ast::ImplDecl {
+            generic_params,
+            trait_name,
+            trait_args,
+            for_type,
+            methods,
+        };
+
+        Ok(self
+            .arena_mut()
+            .alloc_item(NodeKind::Impl, span, paideia_as_ast::ItemData::Impl(impl_decl)))
+    }
 }
 
 #[cfg(test)]
@@ -1567,6 +1738,61 @@ mod tests {
         assert!(
             !p0201_diags.is_empty(),
             "should emit at least one P0201 diagnostic"
+        );
+    }
+
+    #[test]
+    fn parse_inherent_impl() {
+        let (_arena, result, diags) = parse_source_str("impl Foo { }");
+        assert!(result.is_ok(), "should parse inherent impl successfully");
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "should have no parse errors");
+    }
+
+    #[test]
+    fn parse_trait_impl() {
+        let (_arena, result, diags) = parse_source_str("impl Eq for i32 { }");
+        assert!(result.is_ok(), "should parse trait impl successfully");
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "should have no parse errors");
+    }
+
+    #[test]
+    fn parse_trait_impl_with_generics() {
+        let (_arena, result, diags) = parse_source_str("impl<T> Eq for T { }");
+        assert!(result.is_ok(), "should parse trait impl with generics successfully");
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "should have no parse errors");
+    }
+
+    #[test]
+    fn parse_impl_with_method() {
+        let (_arena, result, diags) = parse_source_str("impl Foo { fn bar() -> int { 42 } }");
+        assert!(result.is_ok(), "should parse impl with method successfully");
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "should have no parse errors");
+    }
+
+    #[test]
+    fn parse_impl_malformed_no_brace() {
+        let (_arena, result, diags) = parse_source_str("impl Foo");
+        // Parser should emit error for malformed impl (no braces)
+        let p0202_diags: Vec<_> = diags.iter().filter(|d| d.code().number() == 202).collect();
+        assert!(
+            !p0202_diags.is_empty(),
+            "should emit at least one P0202 diagnostic"
         );
     }
 }

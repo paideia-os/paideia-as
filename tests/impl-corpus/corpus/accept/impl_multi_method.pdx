@@ -1,0 +1,8 @@
+// Issue #658: paideia-as Phase 4 m9-004 — impl blocks
+// AC 6: impl with multiple methods parses correctly
+
+impl Ord for string {
+  fn cmp(a: string, b: string) -> int { 0 }
+  fn less_than(a: string, b: string) -> bool { false }
+  fn greater_than(a: string, b: string) -> bool { false }
+}

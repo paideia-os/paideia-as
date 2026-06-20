@@ -1,0 +1,6 @@
+// Issue #658: paideia-as Phase 4 m9-004 — impl blocks
+// AC 1: inherent impl for a simple type parses correctly
+
+impl Foo {
+  fn bar() -> int { 42 }
+}

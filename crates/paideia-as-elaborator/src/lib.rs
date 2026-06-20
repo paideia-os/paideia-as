@@ -10,6 +10,7 @@ pub mod branch_merge;
 pub mod cap_infer;
 pub mod cap_walker;
 pub mod capture;
+pub mod check_coherence;
 pub mod check_expr;
 pub mod check_handler;
 pub mod check_lambda;
