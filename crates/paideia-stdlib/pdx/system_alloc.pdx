@@ -1,0 +1,46 @@
+// Phase 4 m10-004: SystemAllocator — wraps libc malloc/free via FFI.
+//
+// This allocator is for **non-PaideiaOS targets** (dev hosts running
+// paideia-as the tool, test harnesses, etc.). PaideiaOS itself does NOT
+// use this allocator — PaideiaOS is all-assembly per the design pillar
+// and provides its own kernel allocator (m10-002 BumpAllocator,
+// m10-003 Arena, or a future kernel-specific allocator).
+//
+// The target-OS gate `// #[cfg(target_os = "linux")]` (or `darwin` / `windows`)
+// restricts this allocator to non-PaideiaOS builds. Calling it from a
+// PaideiaOS kernel binary fires C1401 ("SystemAllocator unavailable on
+// PaideiaOS targets") at link time (m10-004 honest minimum: emits the
+// cfg attribute; the link-time check is m10 follow-up).
+// Note: The #[cfg(target_os = ...)] attribute parsing is m9-008 derive
+// territory — a follow-up. For now, the comment-marker documents the intent.
+
+// #[cfg(target_os = "linux")]
+struct SystemAllocator {
+  // Phantom — wraps libc; no state.
+  _phantom: u8,
+}
+
+// #[cfg(target_os = "linux")]
+// FFI to libc. Phase-4-m10-004 minimum: the FFI call lowering is gated
+// on m3 runtime integrations (which wire reqwest etc.); today this
+// serves as the surface declaration.
+fn libc_malloc(size: u64) -> *u8 = 0 as *u8;
+
+// #[cfg(target_os = "linux")]
+fn libc_free(ptr: *u8) -> () = ();
+
+struct Layout {
+  size: u64,
+  align: u64,
+}
+
+trait Allocator {
+  fn alloc() -> *u8;
+  fn dealloc() -> ();
+}
+
+// #[cfg(target_os = "linux")]
+impl Allocator for SystemAllocator {
+  fn alloc() -> *u8 = libc_malloc(0);
+  fn dealloc() -> () = ();
+}

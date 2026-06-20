@@ -1,0 +1,11 @@
+// Fixture: system_alloc_decl.pdx
+// Verifies that the trait + record declaration parses cleanly.
+
+struct SystemAllocator {
+  _phantom: u8,
+}
+
+trait Allocator {
+  fn alloc() -> *u8;
+  fn dealloc() -> ();
+}

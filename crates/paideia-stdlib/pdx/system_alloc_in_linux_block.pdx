@@ -1,0 +1,31 @@
+// Fixture: system_alloc_in_linux_block.pdx
+// Verifies that the cfg-gated block parses cleanly.
+// Note: The #[cfg(target_os = ...)] attribute parsing is m9-008 territory.
+// For now, the comment-marker documents the intended gating.
+
+struct Layout {
+  size: u64,
+  align: u64,
+}
+
+// #[cfg(target_os = "linux")]
+struct SystemAllocator {
+  _phantom: u8,
+}
+
+// #[cfg(target_os = "linux")]
+fn libc_malloc(size: u64) -> *u8 = 0 as *u8;
+
+// #[cfg(target_os = "linux")]
+fn libc_free(ptr: *u8) -> () = ();
+
+trait Allocator {
+  fn alloc() -> *u8;
+  fn dealloc() -> ();
+}
+
+// #[cfg(target_os = "linux")]
+impl Allocator for SystemAllocator {
+  fn alloc() -> *u8 = libc_malloc(0);
+  fn dealloc() -> () = ();
+}
