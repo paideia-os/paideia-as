@@ -1,8 +1,42 @@
-# paideia-as Phase 2 status (decision gate G4-ready)
+# paideia-as Phase 3 status (decision gate G4-stamped, G5-ready)
 
-**Phase 2 substrate complete as of m11-004.** The 11 milestones m1–m10 are closed (PRs #347–#465). m11 is in progress (closes via the v0.2.0 tag at m11-006). See `docs/g4-prep.md` for the G4 verification checklist.
+**Phase 3 substrate complete as of m9-002.** All nine Phase 3 milestones (m1–m9) are closed; #525 (NIST ACVP vectors for ML-DSA-65) stays open by design per its own AC. Phase 3 covers PRs #475–#587. See `design/toolchain/phase-transition-3.md` for the Phase 3 retrospective.
 
-Below is the original phase-1 history (decision gate G2) followed by per-milestone Phase 2 closure notes inserted in chronological order.
+## Phase 3 milestone closure (m1–m9)
+
+- **m1 — pointer types + raw memory** (13 issues, PRs #475–#487): `*T` in the type grammar (m1-001); type interner + Type::Ptr (m1-002); elaborator pointer-kind (Unrestricted) + T0511 reserved (m1-003); `index_*` intrinsic family (m1-004); RawMem effect + `paideia.raw_mem` capability (m1-005); IrKind::Load/Store + LoadStoreSideTable (m1-006); SIB-form codegen (m1-007); examples 15/16/17 retirement (m1-008/009/010); `ptr_sub` / `ptr_sub_bytes` intrinsics (m1-011); examples corpus regression test (m1-012); design/toolchain/pointer-types-phase3.md appendix (m1-013).
+
+- **m2 — per-node IR payload** (6 issues, PRs #488–#493): Instruction payload schema + InstructionSideTable (m2-001); Mnemonic ↔ encoder bridge with iced-x86 round-trip tests (m2-002); elaborator populates InstructionSideTable (m2-003 — the chokepoint); opt-pass helper signatures migrated (m2-004); per-node payload regression corpus tests/ir-payload/ (m2-005); design/toolchain/per-node-ir-payload-phase3.md appendix (m2-006).
+
+- **m3 — opt-pass real-rewrites** (9 issues, PRs #494–#502): peephole real rewrite (5/8 working; m3-001); schedule real rewrite (m3-002); dse real rewrite (m3-003); encode-tight real rewrite (m3-004); tailcall real rewrite (m3-005); unroll real rewrite + remainder loops (m3-006); macro-fusion / branch-hint / align / pool-constants (m3-007 — 4 passes as would-fire); pass-catalog regression (m3-008); optimization-passes.md Phase-3-m3 closure (m3-009).
+
+- **m4 — elaborator-driven LSP** (7 issues, PRs #503–#509): elaborator per-position result store (PositionIndex, m4-001); hover uses PositionIndex (m4-002); definition + references use NameResolutionTable (m4-003); completion uses elaborator type context (m4-004); inlay hints use elaborator type results (m4-005); incremental engine integration + latency probe reactivation (m4-006); design/toolchain/lsp-phase3.md appendix (m4-007).
+
+- **m5 — stage-0b GAS source** (3 issues, PRs #569–#571): GAS-syntax stage-0b entry point (m5-001 — byte-identical to NASM stage-0a `48 8d 47 01 c3`); ddc.yml dual-stage-0 activation in tools/ddc/run.sh (m5-002); bootstrap.md Phase 3 closure paragraph (m5-003).
+
+- **m6 — hardware HSM integration** (5 issues, PRs #572–#576): PKCS#11 backend (cryptoki) (m6-001); YubiHSM2 backend with hybrid fallback + Q0902 (m6-002); HsmSigner trait + HybridSigner composer (m6-003); pq-corpus hardware lane #[ignore]'d tests (m6-004); design/security/pq-trust-root.md Phase 3 m6 section (m6-005).
+
+- **m7 — substructural and effects cleanup** (5 issues, PRs #577–#582): S0902 linear let-shadow leak (m7-001); S0904 affine consumed twice across branches (m7-002 + #579 SARIF fix); S0905 ordered out of order in handler (m7-003); row-polymorphic scope subsumption — closes m7-004 D-row (m7-004); pq-trust-root.md §13 appendix update (m7-005).
+
+- **m8 — signature lifecycle** (3 issues closed + 1 intentionally open, PRs #583–#586): RFC 3161 timestamping client (m8-001 — synthetic-token scaffold); revocation list + verify --revocation-list / --ignore-revocation (m8-002); NIST ACVP test vectors for ML-DSA-65 (m8-003 — STAYS OPEN per its own AC; upstream tracking in tests/pq-corpus/ML_DSA_ACVP_STATUS.md); design/security/pq-trust-root.md Phase 3 m8 section (m8-004).
+
+- **m9 — documentation closure** (4 issues, PRs #587 + this PR): Phase 3 retrospective (m9-001); STATUS.md update (m9-002 / this PR); examples README refresh (m9-003); v0.3.0 tag + CHANGELOG (m9-004).
+
+## Workspace test totals
+
+- Phase 2 close (m11-006): ~1614 tests.
+- Phase 3 m9-002 (this PR): **1829 tests** across the workspace.
+
+The +215 delta covers: pointer-type tests (m1: +~50), IR payload schema + populate + opt-rewrite tests (m2/m3: +~70), LSP elaborator path tests (m4: +~25), HSM backends + revocation + timestamp (m6/m8: +~35), substructural-and-effects-cleanup walker tests (m7: +~15), plus regression-test scaffolding across milestones (m1-012, m2-005, m3-008, m6-004).
+
+## Where to look next
+
+- `design/toolchain/phase-transition-3.md` — Phase 3 retrospective.
+- `design/toolchain/phase-3-plan.md` — the plan all milestones derive from.
+- `docs/g4-prep.md` — G4 verification checklist (Phase 2 framework; Phase 4 will introduce G5).
+- `CHANGELOG.md` — release-notes view of Phase 3.
+
+Below is the original Phase 1 / Phase 2 history (decision gates G2 and G4) followed by per-milestone closure notes inserted in chronological order.
 
 # paideia-as phase-1 status (decision gate G2)
 
