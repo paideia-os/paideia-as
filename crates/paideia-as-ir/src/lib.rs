@@ -12,6 +12,7 @@ pub mod anf;
 mod arena;
 pub mod effect_rewrite;
 pub mod handler_value;
+pub mod load_store;
 pub mod modules;
 mod node;
 pub mod opt;
@@ -26,6 +27,9 @@ pub use effect_rewrite::{
     rewrite_with_save_restore,
 };
 pub use handler_value::{HandlerInfo, HandlerSideTable, pretty_handler};
+pub use load_store::{
+    LoadStoreInfo, LoadStoreSideTable, Signedness, Width, alloc_load, alloc_store,
+};
 pub use modules::{
     FieldKind, FunctorInfo, ModuleField, ModuleInfo, ModuleSideTable, pretty_module,
 };
