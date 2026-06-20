@@ -434,6 +434,15 @@ description = "Per OS-requirements §4 N1, a signing key is authorized for a spe
 since = "0.1.0"
 deprecated = false
 
+[diagnostic.Q0902]
+severity = "warning"
+category = "post-quantum"
+title = "HSM does not support post-quantum signing"
+brief = "the configured HSM (YubiHSM2 ≤ firmware 2.6) supports Ed25519 in hardware but not ML-DSA-65; the PQ leg falls back to soft-HSM"
+description = "Phase 3 m6-002 documents this as the canonical hybrid-fallback shape. Operator opt-in is required via --opt-in-hybrid-fallback. See design/security/pq-trust-root.md (phase-3 appendix m6-005)."
+since = "0.3.0"
+deprecated = false
+
 [diagnostic.T0511]
 severity = "warning"
 category = "type"

@@ -15,6 +15,12 @@ fn main() -> ExitCode {
         eprintln!("  hsm release <hsm> <artifact>            (sign artifact with soft-HSM)");
         eprintln!("  hsm pkcs11 init --module <path> --slot <id> --pin <pin>");
         eprintln!("                                          (initialize PKCS#11 session)");
+        eprintln!(
+            "  hsm yubihsm init --connector <url> --ed25519-key-id <id> [--opt-in-hybrid-fallback]"
+        );
+        eprintln!(
+            "                                          (initialize YubiHSM2 session with hybrid fallback)"
+        );
         return ExitCode::from(2);
     }
 
@@ -28,7 +34,7 @@ fn main() -> ExitCode {
         }
         "hsm" => {
             if args.len() < 3 {
-                eprintln!("usage: paideia-pq-sign hsm <init|release|pkcs11> [args...]");
+                eprintln!("usage: paideia-pq-sign hsm <init|release|pkcs11|yubihsm> [args...]");
                 return ExitCode::from(2);
             }
             match args[2].as_str() {
@@ -55,6 +61,19 @@ fn main() -> ExitCode {
                         "init" => run_pkcs11_init(&args[4..]),
                         _ => {
                             eprintln!("unknown pkcs11 subcommand: {}", args[3]);
+                            ExitCode::from(2)
+                        }
+                    }
+                }
+                "yubihsm" => {
+                    if args.len() < 4 {
+                        eprintln!("usage: paideia-pq-sign hsm yubihsm <init> [args...]");
+                        return ExitCode::from(2);
+                    }
+                    match args[3].as_str() {
+                        "init" => run_yubihsm_init(&args[4..]),
+                        _ => {
+                            eprintln!("unknown yubihsm subcommand: {}", args[3]);
                             ExitCode::from(2)
                         }
                     }
@@ -297,6 +316,103 @@ fn run_pkcs11_init(args: &[String]) -> ExitCode {
     println!("  Module: {}", signer.module_path());
     println!("  Slot: {}", signer.slot_id());
     println!("  Status: Phase-3 scaffold (real signing requires SoftHSM2 or hardware HSM)");
+
+    ExitCode::SUCCESS
+}
+
+fn run_yubihsm_init(args: &[String]) -> ExitCode {
+    // Parse args: --connector <url> --ed25519-key-id <id> [--opt-in-hybrid-fallback]
+    let mut connector: Option<&str> = None;
+    let mut ed25519_key_id: Option<u16> = None;
+    let mut opt_in_hybrid_fallback = false;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--connector" => {
+                if i + 1 < args.len() {
+                    connector = Some(&args[i + 1]);
+                    i += 2;
+                } else {
+                    eprintln!("--connector requires an argument");
+                    return ExitCode::from(2);
+                }
+            }
+            "--ed25519-key-id" => {
+                if i + 1 < args.len() {
+                    match args[i + 1].parse::<u16>() {
+                        Ok(id) => {
+                            ed25519_key_id = Some(id);
+                            i += 2;
+                        }
+                        Err(_) => {
+                            eprintln!("--ed25519-key-id requires a numeric argument (0-65535)");
+                            return ExitCode::from(2);
+                        }
+                    }
+                } else {
+                    eprintln!("--ed25519-key-id requires an argument");
+                    return ExitCode::from(2);
+                }
+            }
+            "--opt-in-hybrid-fallback" => {
+                opt_in_hybrid_fallback = true;
+                i += 1;
+            }
+            _ => {
+                eprintln!("unknown argument: {}", args[i]);
+                return ExitCode::from(2);
+            }
+        }
+    }
+
+    let connector = match connector {
+        Some(c) => c,
+        None => {
+            eprintln!("--connector is required");
+            return ExitCode::from(2);
+        }
+    };
+
+    let ed25519_key_id = match ed25519_key_id {
+        Some(id) => id,
+        None => {
+            eprintln!("--ed25519-key-id is required");
+            return ExitCode::from(2);
+        }
+    };
+
+    // Initialize YubiHSM2 signer with hybrid fallback
+    let signer = match paideia_pq_sign::hsm::YubiHsmSigner::new(
+        connector,
+        ed25519_key_id,
+        opt_in_hybrid_fallback,
+    ) {
+        Ok(s) => s,
+        Err(paideia_pq_sign::hsm::YubiHsmError::OptInRequired) => {
+            eprintln!(
+                "error (Q0902): YubiHSM2 backend requires explicit opt-in for hybrid fallback"
+            );
+            eprintln!("See design/security/pq-trust-root.md (phase-3 appendix m6-005)");
+            eprintln!("To proceed, add: --opt-in-hybrid-fallback");
+            return ExitCode::from(1);
+        }
+        Err(e) => {
+            eprintln!("YubiHSM2 initialization failed: {e}");
+            return ExitCode::from(1);
+        }
+    };
+
+    println!("YubiHSM2 signer initialized:");
+    println!("  Connector: {}", signer.connector_url());
+    println!("  Ed25519 key ID: {}", signer.ed25519_key_id());
+    println!("  Hybrid fallback: Ed25519 (hardware) + ML-DSA-65 (soft-HSM)");
+    println!(
+        "  Status: Phase-3 scaffold (real signing requires yubihsm crate and running YubiHSM2)"
+    );
+    println!();
+    println!("warning (Q0902): PQ leg (ML-DSA-65) uses soft-HSM fallback");
+    println!("  Operator has acknowledged this via --opt-in-hybrid-fallback");
 
     ExitCode::SUCCESS
 }
