@@ -22,7 +22,9 @@ pub use composition::{canonical_pass_order, dispatch_collecting_order};
 pub use dse::DsePass;
 pub use peephole::PeepholePass;
 pub use pool_constants::PoolConstantsPass;
-pub use schedule::{InstructionClass, InstructionSchedulingPass, schedule_block};
+pub use schedule::{
+    InstructionClass, InstructionSchedulingPass, schedule_block, schedule_block_impl,
+};
 pub use tailcall::TailCallPass;
 pub use unroll::UnrollPass;
 

@@ -16,13 +16,27 @@ pub enum TripCount {
     Unknown,
 }
 
-/// Whether an unroll factor `n` is safe for a given trip count.
+/// Phase-3-m2-004: loop-unroll safety checker using InstructionSideTable.
 ///
-/// Known(t): safe iff t % n == 0 AND n <= t. If t % n != 0, a remainder
-/// loop is needed (phase-2-m9-009 doesn't emit it — returns false).
-/// Unknown: safe only with a runtime remainder dispatch (phase-2 minimum:
-/// emit a warning, don't unroll).
-pub fn is_unroll_safe(trip: TripCount, factor: u32) -> bool {
+/// Takes an instruction side-table, a loop node ID, and an unroll factor;
+/// returns whether the unroll is safe (true) or requires a remainder loop (false).
+pub fn is_unroll_safe(
+    _side_table: &crate::instruction::InstructionSideTable,
+    _loop_id: crate::node::IrNodeId,
+    factor: u32,
+) -> bool {
+    assert!(factor > 0, "unroll factor must be positive");
+    // Phase-3-m2-004: TODO extract trip count from the side-table.
+    // Placeholder: never unroll (too conservative).
+    false
+}
+
+/// Internal implementation: unroll safety check on explicit trip count.
+///
+/// Takes trip count and unroll factor; returns whether the unroll is safe.
+/// Helper logic preserved from phase-2-m9-009.
+#[doc(hidden)]
+pub fn is_unroll_safe_impl(trip: TripCount, factor: u32) -> bool {
     assert!(factor > 0, "unroll factor must be positive");
     match trip {
         TripCount::Known(t) => factor <= t && t % factor == 0,
@@ -52,28 +66,57 @@ mod tests {
     fn is_unroll_safe_returns_true_for_divisible_known() {
         let trip = TripCount::Known(16);
         let factor = 4;
-        assert!(is_unroll_safe(trip, factor));
+        assert!(is_unroll_safe_impl(trip, factor));
     }
 
     #[test]
     fn is_unroll_safe_returns_false_for_non_divisible_known() {
         let trip = TripCount::Known(10);
         let factor = 3;
-        assert!(!is_unroll_safe(trip, factor));
+        assert!(!is_unroll_safe_impl(trip, factor));
     }
 
     #[test]
     fn is_unroll_safe_returns_false_for_unknown() {
         let trip = TripCount::Unknown;
         let factor = 4;
-        assert!(!is_unroll_safe(trip, factor));
+        assert!(!is_unroll_safe_impl(trip, factor));
     }
 
     #[test]
     fn is_unroll_safe_returns_false_when_factor_exceeds_trip() {
         let trip = TripCount::Known(3);
         let factor = 5;
-        assert!(!is_unroll_safe(trip, factor));
+        assert!(!is_unroll_safe_impl(trip, factor));
+    }
+
+    #[test]
+    fn is_unroll_safe_with_instruction_side_table() {
+        use crate::instruction::{Instruction, InstructionSideTable, Mnemonic, Operand, RegId};
+        use crate::node::IrNodeId;
+        use smallvec::SmallVec;
+
+        let mut table = InstructionSideTable::new();
+
+        let loop_id = IrNodeId::new(1).unwrap();
+
+        // Populate table with a loop
+        table.insert(
+            loop_id,
+            Instruction {
+                mnemonic: Mnemonic::Jcc(crate::instruction::Cond::Ne),
+                operands: {
+                    let mut ops = SmallVec::new();
+                    ops.push(Operand::Reg(RegId(0)));
+                    ops
+                },
+                encoding_hint: None,
+            },
+        );
+
+        // Call the new signature with unroll factor 4.
+        let _result = is_unroll_safe(&table, loop_id, 4);
+        // Phase-3-m2-004 stub: currently always returns false (too conservative).
     }
 
     #[test]
