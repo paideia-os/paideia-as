@@ -1,0 +1,3 @@
+module BorrowMutInParam = structure {
+    let mut_ref: &mut u64 = null
+}

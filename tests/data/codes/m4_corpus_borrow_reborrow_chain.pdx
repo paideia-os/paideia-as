@@ -1,0 +1,3 @@
+module BorrowReborrowChain = structure {
+    let reborrow_chain: &u8 = null
+}

@@ -1,0 +1,2 @@
+# Mutable reference in function parameter
+# Should parse without errors

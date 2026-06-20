@@ -1,0 +1,4 @@
+module BorrowMutVar = structure {
+    let x = 100
+    let r: &mut u64 = null
+}

@@ -1,0 +1,4 @@
+module BorrowImmutVar = structure {
+    let x = 42
+    let r: &u8 = null
+}

@@ -1,0 +1,3 @@
+module BorrowStaticLifetime = structure {
+    let static_ref: &u8 = null
+}

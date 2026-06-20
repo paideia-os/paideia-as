@@ -1,0 +1,4 @@
+module BorrowField = structure {
+    struct Rec { field: u64 }
+    let field_ref: &u64 = null
+}

@@ -1,0 +1,3 @@
+module BorrowReturned = structure {
+    let returned_ref: &u64 = null
+}

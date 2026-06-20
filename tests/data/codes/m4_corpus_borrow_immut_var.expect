@@ -1,0 +1,2 @@
+# Simple immutable borrow with explicit type
+# Should parse without errors
