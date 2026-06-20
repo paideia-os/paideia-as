@@ -51,6 +51,8 @@ pub enum NodeKind {
     Struct,
     /// Enum type declaration.
     Enum,
+    /// Trait declaration.
+    Trait,
     /// Unsafe block.
     UnsafeBlock,
     /// Macro declaration.

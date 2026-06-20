@@ -188,3 +188,82 @@ fn test_example_11_unsafe_block() {
         "example_11_unsafe_block.pdx should parse cleanly with no error diagnostics"
     );
 }
+
+#[test]
+fn test_trait_simple() {
+    let (_arena, _err, diags) = parse_source("trait Eq { fn eq(a: T, b: T) -> bool; }");
+    let errors: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code().severity() == Severity::Error)
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "should parse simple trait declaration without errors"
+    );
+}
+
+#[test]
+fn test_trait_generic() {
+    let (_arena, _err, diags) = parse_source("trait Eq<T> { fn eq(a: T, b: T) -> bool; }");
+    let errors: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code().severity() == Severity::Error)
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "should parse trait with generic parameter without errors"
+    );
+}
+
+#[test]
+fn test_trait_multi_method() {
+    let (_arena, _err, diags) =
+        parse_source("trait Eq<T> { fn eq(a: T, b: T) -> bool; fn ne(a: T, b: T) -> bool; }");
+    let errors: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code().severity() == Severity::Error)
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "should parse trait with multiple methods without errors"
+    );
+}
+
+#[test]
+fn test_trait_default_body() {
+    let (_arena, _err, diags) = parse_source("trait Eq<T> { fn eq(a: T, b: T) -> bool { true } }");
+    let errors: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code().severity() == Severity::Error)
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "should parse trait method with default body without errors"
+    );
+}
+
+#[test]
+fn test_trait_bounded_generic() {
+    let (_arena, _err, diags) = parse_source("trait Eq<T: Show> { fn eq(a: T, b: T) -> bool; }");
+    let errors: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code().severity() == Severity::Error)
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "should parse trait with bounded generic parameter without errors"
+    );
+}
+
+#[test]
+fn test_trait_with_effects() {
+    let (_arena, _err, diags) = parse_source("trait Read { fn read() -> u8 !{ Io }; }");
+    let errors: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code().severity() == Severity::Error)
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "should parse trait method with effect annotation without errors"
+    );
+}

@@ -4,7 +4,31 @@
 //! (Module, Signature, Let, Effect, etc.). Each variant holds `NodeId`
 //! references to child nodes that will be filled in by the parser.
 
-use crate::NodeId;
+use crate::{NodeId, exprs::GenericParam};
+
+/// Trait method declaration within a trait.
+///
+/// `TraitMethod` represents a single method signature (and optional default body)
+/// within a trait declaration.
+#[derive(Clone, Debug)]
+pub struct TraitMethod {
+    /// Name of the method (Ident node).
+    pub name: NodeId,
+    /// Generic parameters (type parameters with optional bounds).
+    pub generic_params: Vec<GenericParam>,
+    /// Method parameters: (name, type) pairs.
+    pub params: Vec<(NodeId, NodeId)>,
+    /// Return type (Type node).
+    pub return_type: NodeId,
+    /// Optional effect set constraint.
+    pub effects: Option<NodeId>,
+    /// Optional capability set constraint.
+    pub capabilities: Option<NodeId>,
+    /// Optional default body implementation (Expr node).
+    /// When `None`, the method is abstract (ends with `;`).
+    /// When `Some`, the method has a default body (ends with `{ expr }`).
+    pub default_body: Option<NodeId>,
+}
 
 /// Structured payload for item nodes.
 ///
@@ -132,6 +156,18 @@ pub enum ItemData {
         generic_params: Vec<crate::exprs::GenericParam>,
         /// Enum variants.
         variants: Vec<NodeId>,
+        /// Optional documentation comment.
+        doc: Option<NodeId>,
+    },
+
+    /// Trait declaration: `trait Name<T> { method_sig; ... }`
+    Trait {
+        /// Name of the trait (Ident node).
+        name: NodeId,
+        /// Generic parameters (type parameters with optional bounds).
+        generic_params: Vec<crate::exprs::GenericParam>,
+        /// Trait methods (signatures and optional default bodies).
+        methods: Vec<TraitMethod>,
         /// Optional documentation comment.
         doc: Option<NodeId>,
     },

@@ -1,5 +1,6 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
+assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -516,6 +517,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "Refutable pattern in let binding",
               "shortDescription": {
                 "text": "this pattern may not match all values of the scrutinee's type; use match instead"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "A trait declaration must have the form: trait Name<T, U, ...> { method_sig; ... }. The trait keyword must be followed by an identifier, optionally followed by generic parameters enclosed in angle brackets, and a body enclosed in braces containing method signatures."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0201",
+              "id": "P0201",
+              "name": "Malformed trait declaration",
+              "shortDescription": {
+                "text": "expected trait name followed by optional generic parameters and a body"
               }
             },
             {

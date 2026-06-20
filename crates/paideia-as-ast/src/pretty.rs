@@ -166,6 +166,29 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 doc
             )
         }
+        ItemData::Trait {
+            name,
+            generic_params,
+            methods,
+            doc,
+        } => {
+            let methods_str = methods
+                .iter()
+                .map(|m| format!("method(name: {}, params: {})", m.name, m.params.len()))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "Trait {{ name: {}, generic_params: [{}], methods: [{}], doc: {:?} }}",
+                name,
+                generic_params
+                    .iter()
+                    .map(|p| format!("{}", p.name))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                methods_str,
+                doc
+            )
+        }
         ItemData::UnsafeBlock {
             effects,
             capabilities,

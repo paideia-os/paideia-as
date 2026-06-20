@@ -28,6 +28,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// - `KwCapability` → `parse_capability_decl`
     /// - `KwStruct` → `parse_struct_decl`
     /// - `KwEnum` → `parse_enum_decl`
+    /// - `KwTrait` → `parse_trait_decl`
     /// - `KwUnsafe` → `parse_unsafe` (existing parser, wrapped as an expression)
     /// - `Ident` with lexeme "macro" → `parse_macro_decl` (contextual keyword)
     /// - Anything else → emit P0100 and return Err
@@ -42,6 +43,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             Some(TokenKind::KwCapability) => self.parse_capability_decl(),
             Some(TokenKind::KwStruct) => self.parse_struct_decl(),
             Some(TokenKind::KwEnum) => self.parse_enum_decl(),
+            Some(TokenKind::KwTrait) => self.parse_trait_decl(),
             Some(TokenKind::KwUnsafe) => {
                 // Unsafe blocks are parsed as expressions but must be wrapped as item-level constructs.
                 // Per the spec, UnsafeBlock is an ItemData variant, so we allocate it here.
@@ -65,7 +67,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 let code = DiagnosticCode::new(Category::P, Severity::Error, 100)
                     .expect("valid P0100 code");
                 let diag = Diagnostic::error(code)
-                    .message("expected item (module, signature, let, effect, capability, struct, enum, macro, or unsafe)")
+                    .message("expected item (module, signature, let, effect, capability, struct, enum, trait, macro, or unsafe)")
                     .with_span(span)
                     .finish();
                 self.emit_diagnostic(diag);
@@ -79,7 +81,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 let code = DiagnosticCode::new(Category::P, Severity::Error, 100)
                     .expect("valid P0100 code");
                 let diag = Diagnostic::error(code)
-                    .message("expected item (module, signature, let, effect, capability, struct, enum, macro, or unsafe)")
+                    .message("expected item (module, signature, let, effect, capability, struct, enum, trait, macro, or unsafe)")
                     .with_span(span)
                     .finish();
                 self.emit_diagnostic(diag);
@@ -728,6 +730,464 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         Ok(item)
     }
 
+    /// Parse a trait type declaration: `trait <Ident> <GenericParams>? { TraitMethod* }`
+    ///
+    /// **Grammar:**
+    /// ```text
+    /// TraitDecl ::= 'trait' Ident GenericParams? '{' TraitMethod* '}'
+    /// TraitMethod ::= 'fn' Ident GenericParams? '(' (Ident ':' Type)* ')' '->' Type EffectRow? CapRow? (';' | '{' Expr '}')
+    /// ```
+    ///
+    /// When a method ends with `;` → no default body. When method ends with `{ expr }` → default body.
+    ///
+    /// For phase-1 (m9-003), trait method bodies are parsed as skeleton (matching braces only).
+    /// Emits P0201 if trait declaration is malformed.
+    fn parse_trait_decl(&mut self) -> Result<NodeId, ParseError> {
+        let trait_tok = self.expect(TokenKind::KwTrait)?;
+        let span_start = trait_tok.span;
+
+        // Parse trait name
+        let name_tok = match self.expect(TokenKind::Ident) {
+            Ok(tok) => tok,
+            Err(_) => {
+                let span = self.peek().map(|t| t.span).unwrap_or(span_start);
+                let code = DiagnosticCode::new(Category::P, Severity::Error, 201)
+                    .expect("valid P0201 code");
+                let diag = Diagnostic::error(code)
+                    .message("malformed trait declaration: expected trait name")
+                    .with_span(span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                return Err(ParseError);
+            }
+        };
+        let name_id = self.arena_mut().alloc(NodeKind::Ident, name_tok.span);
+
+        // Optional generic parameters: `< T, U: Trait >`
+        let generic_params = if self.at(TokenKind::Lt) {
+            match self.parse_generic_params() {
+                Ok(params) => params,
+                Err(_) => {
+                    let span = self.peek().map(|t| t.span).unwrap_or(span_start);
+                    let code = DiagnosticCode::new(Category::P, Severity::Error, 201)
+                        .expect("valid P0201 code");
+                    let diag = Diagnostic::error(code)
+                        .message("malformed trait declaration: invalid generic parameters")
+                        .with_span(span)
+                        .finish();
+                    self.emit_diagnostic(diag);
+                    return Err(ParseError);
+                }
+            }
+        } else {
+            Vec::new()
+        };
+
+        // Expect `{` and parse trait methods
+        if !self.at(TokenKind::LBrace) {
+            let span = self.peek().map(|t| t.span).unwrap_or(span_start);
+            let code =
+                DiagnosticCode::new(Category::P, Severity::Error, 201).expect("valid P0201 code");
+            let diag = Diagnostic::error(code)
+                .message("malformed trait declaration: expected opening brace")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+        self.bump(); // consume `{`
+
+        let mut methods = Vec::new();
+        while !self.at(TokenKind::RBrace) && !self.at_eof() {
+            match self.parse_trait_method() {
+                Ok(method) => methods.push(method),
+                Err(_) => {
+                    // Skip to next method or closing brace
+                    while !self.at(TokenKind::Semicolon)
+                        && !self.at(TokenKind::LBrace)
+                        && !self.at(TokenKind::RBrace)
+                        && !self.at_eof()
+                    {
+                        self.bump();
+                    }
+                    // If we hit `{`, skip to matching `}`
+                    if self.at(TokenKind::LBrace) {
+                        let mut depth = 1;
+                        self.bump();
+                        while !self.at_eof() && depth > 0 {
+                            if self.at(TokenKind::LBrace) {
+                                depth += 1;
+                            } else if self.at(TokenKind::RBrace) {
+                                depth -= 1;
+                            }
+                            self.bump();
+                        }
+                    } else if self.at(TokenKind::Semicolon) {
+                        self.bump();
+                    }
+                }
+            }
+        }
+
+        if !self.at(TokenKind::RBrace) {
+            let span = self.peek().map(|t| t.span).unwrap_or(span_start);
+            let code =
+                DiagnosticCode::new(Category::P, Severity::Error, 201).expect("valid P0201 code");
+            let diag = Diagnostic::error(code)
+                .message("malformed trait declaration: expected closing brace")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+        let rbrace_span = self.peek().map(|t| t.span).unwrap_or(span_start);
+        self.bump(); // consume `}`
+
+        let span = Span::new(
+            span_start.file(),
+            span_start.byte_start(),
+            rbrace_span.byte_start() + rbrace_span.byte_len() - span_start.byte_start(),
+        );
+
+        let item = self.arena_mut().alloc_item(
+            NodeKind::Trait,
+            span,
+            ItemData::Trait {
+                name: name_id,
+                generic_params,
+                methods,
+                doc: None,
+            },
+        );
+        Ok(item)
+    }
+
+    /// Parse a single trait method: `fn Name<T>(...) -> Type !(effects)? @(caps)? (;  | { ... })`
+    ///
+    /// Returns a `TraitMethod` struct. Emits P0201 if malformed.
+    fn parse_trait_method(&mut self) -> Result<paideia_as_ast::TraitMethod, ParseError> {
+        // Expect `fn` keyword
+        if !self.at(TokenKind::KwFn) {
+            let span = self
+                .peek()
+                .map(|t| t.span)
+                .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+            let code =
+                DiagnosticCode::new(Category::P, Severity::Error, 201).expect("valid P0201 code");
+            let diag = Diagnostic::error(code)
+                .message("malformed trait method: expected 'fn' keyword")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+        self.bump(); // consume `fn`
+
+        // Parse method name
+        let name_tok = match self.expect(TokenKind::Ident) {
+            Ok(tok) => tok,
+            Err(_) => {
+                let span = self
+                    .peek()
+                    .map(|t| t.span)
+                    .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+                let code = DiagnosticCode::new(Category::P, Severity::Error, 201)
+                    .expect("valid P0201 code");
+                let diag = Diagnostic::error(code)
+                    .message("malformed trait method: expected method name")
+                    .with_span(span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                return Err(ParseError);
+            }
+        };
+        let name_id = self.arena_mut().alloc(NodeKind::Ident, name_tok.span);
+
+        // Optional generic parameters: `< T, U: Trait >`
+        let generic_params = if self.at(TokenKind::Lt) {
+            match self.parse_generic_params() {
+                Ok(params) => params,
+                Err(_) => {
+                    let span = self
+                        .peek()
+                        .map(|t| t.span)
+                        .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+                    let code = DiagnosticCode::new(Category::P, Severity::Error, 201)
+                        .expect("valid P0201 code");
+                    let diag = Diagnostic::error(code)
+                        .message("malformed trait method: invalid generic parameters")
+                        .with_span(span)
+                        .finish();
+                    self.emit_diagnostic(diag);
+                    return Err(ParseError);
+                }
+            }
+        } else {
+            Vec::new()
+        };
+
+        // Parse parameters: (Ident: Type)*
+        if !self.at(TokenKind::LParen) {
+            let span = self
+                .peek()
+                .map(|t| t.span)
+                .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+            let code =
+                DiagnosticCode::new(Category::P, Severity::Error, 201).expect("valid P0201 code");
+            let diag = Diagnostic::error(code)
+                .message("malformed trait method: expected parameter list")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+        self.bump(); // consume `(`
+
+        let mut params = Vec::new();
+        while !self.at(TokenKind::RParen) && !self.at_eof() {
+            // Parse parameter name
+            let param_name_tok = match self.expect(TokenKind::Ident) {
+                Ok(tok) => tok,
+                Err(_) => {
+                    // Skip to closing paren or semicolon
+                    while !self.at(TokenKind::RParen)
+                        && !self.at(TokenKind::Semicolon)
+                        && !self.at(TokenKind::LBrace)
+                        && !self.at_eof()
+                    {
+                        self.bump();
+                    }
+                    return Err(ParseError);
+                }
+            };
+            let param_name_id = self.arena_mut().alloc(NodeKind::Ident, param_name_tok.span);
+
+            // Expect `:`
+            if !self.at(TokenKind::Colon) {
+                let span = self
+                    .peek()
+                    .map(|t| t.span)
+                    .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+                let code = DiagnosticCode::new(Category::P, Severity::Error, 201)
+                    .expect("valid P0201 code");
+                let diag = Diagnostic::error(code)
+                    .message("malformed trait method: expected ':' after parameter name")
+                    .with_span(span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                return Err(ParseError);
+            }
+            self.bump(); // consume `:`
+
+            // Parse type (for now, allocate a placeholder)
+            let type_tok = self
+                .peek()
+                .map(|t| t.span)
+                .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+            let type_id = self.arena_mut().alloc(NodeKind::Placeholder, type_tok);
+
+            // Skip type tokens until we hit `,`, `)`, or other expected token
+            while !self.at(TokenKind::Comma) && !self.at(TokenKind::RParen) && !self.at_eof() {
+                self.bump();
+            }
+
+            params.push((param_name_id, type_id));
+
+            // Handle comma
+            if self.at(TokenKind::Comma) {
+                self.bump();
+            } else if !self.at(TokenKind::RParen) {
+                let span = self
+                    .peek()
+                    .map(|t| t.span)
+                    .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+                let code = DiagnosticCode::new(Category::P, Severity::Error, 201)
+                    .expect("valid P0201 code");
+                let diag = Diagnostic::error(code)
+                    .message("malformed trait method: expected ',' or ')' in parameter list")
+                    .with_span(span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                return Err(ParseError);
+            }
+        }
+
+        if !self.at(TokenKind::RParen) {
+            let span = self
+                .peek()
+                .map(|t| t.span)
+                .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+            let code =
+                DiagnosticCode::new(Category::P, Severity::Error, 201).expect("valid P0201 code");
+            let diag = Diagnostic::error(code)
+                .message("malformed trait method: expected closing parenthesis")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+        self.bump(); // consume `)`
+
+        // Expect `->`
+        if !self.at(TokenKind::Arrow) {
+            let span = self
+                .peek()
+                .map(|t| t.span)
+                .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+            let code =
+                DiagnosticCode::new(Category::P, Severity::Error, 201).expect("valid P0201 code");
+            let diag = Diagnostic::error(code)
+                .message("malformed trait method: expected '->' before return type")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+        self.bump(); // consume `->`
+
+        // Parse return type (for now, allocate a placeholder)
+        let return_type_span = self
+            .peek()
+            .map(|t| t.span)
+            .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+        let return_type_id = self
+            .arena_mut()
+            .alloc(NodeKind::Placeholder, return_type_span);
+
+        // Skip return type tokens until we hit effect/capability brackets or `;`/`{`
+        while !self.at(TokenKind::Bang)
+            && !self.at(TokenKind::At)
+            && !self.at(TokenKind::Semicolon)
+            && !self.at(TokenKind::LBrace)
+            && !self.at_eof()
+        {
+            self.bump();
+        }
+
+        // Parse optional effect set: !{ ... }
+        let effects = if self.at(TokenKind::Bang) {
+            self.bump(); // consume `!`
+            if !self.at(TokenKind::LBrace) {
+                let span = self
+                    .peek()
+                    .map(|t| t.span)
+                    .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+                let code = DiagnosticCode::new(Category::P, Severity::Error, 201)
+                    .expect("valid P0201 code");
+                let diag = Diagnostic::error(code)
+                    .message("malformed trait method: expected '{' after '!'")
+                    .with_span(span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                return Err(ParseError);
+            }
+            let eff_span = self
+                .peek()
+                .map(|t| t.span)
+                .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+            let eff_id = self.arena_mut().alloc(NodeKind::Placeholder, eff_span);
+            // Skip to matching `}`
+            let mut depth = 1;
+            self.bump();
+            while !self.at_eof() && depth > 0 {
+                if self.at(TokenKind::LBrace) {
+                    depth += 1;
+                } else if self.at(TokenKind::RBrace) {
+                    depth -= 1;
+                }
+                self.bump();
+            }
+            Some(eff_id)
+        } else {
+            None
+        };
+
+        // Parse optional capability set: @{ ... }
+        let capabilities = if self.at(TokenKind::At) {
+            self.bump(); // consume `@`
+            if !self.at(TokenKind::LBrace) {
+                let span = self
+                    .peek()
+                    .map(|t| t.span)
+                    .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+                let code = DiagnosticCode::new(Category::P, Severity::Error, 201)
+                    .expect("valid P0201 code");
+                let diag = Diagnostic::error(code)
+                    .message("malformed trait method: expected '{' after '@'")
+                    .with_span(span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                return Err(ParseError);
+            }
+            let cap_span = self
+                .peek()
+                .map(|t| t.span)
+                .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+            let cap_id = self.arena_mut().alloc(NodeKind::Placeholder, cap_span);
+            // Skip to matching `}`
+            let mut depth = 1;
+            self.bump();
+            while !self.at_eof() && depth > 0 {
+                if self.at(TokenKind::LBrace) {
+                    depth += 1;
+                } else if self.at(TokenKind::RBrace) {
+                    depth -= 1;
+                }
+                self.bump();
+            }
+            Some(cap_id)
+        } else {
+            None
+        };
+
+        // Parse method body: either `;` (abstract) or `{ ... }` (default)
+        let default_body = if self.at(TokenKind::Semicolon) {
+            self.bump(); // consume `;`
+            None
+        } else if self.at(TokenKind::LBrace) {
+            let body_span = self
+                .peek()
+                .map(|t| t.span)
+                .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+            let body_id = self.arena_mut().alloc(NodeKind::Placeholder, body_span);
+            // Skip to matching `}`
+            let mut depth = 1;
+            self.bump();
+            while !self.at_eof() && depth > 0 {
+                if self.at(TokenKind::LBrace) {
+                    depth += 1;
+                } else if self.at(TokenKind::RBrace) {
+                    depth -= 1;
+                }
+                self.bump();
+            }
+            Some(body_id)
+        } else {
+            let span = self
+                .peek()
+                .map(|t| t.span)
+                .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+            let code =
+                DiagnosticCode::new(Category::P, Severity::Error, 201).expect("valid P0201 code");
+            let diag = Diagnostic::error(code)
+                .message("malformed trait method: expected ';' or '{' after method signature")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        };
+
+        Ok(paideia_as_ast::TraitMethod {
+            name: name_id,
+            generic_params,
+            params,
+            return_type: return_type_id,
+            effects,
+            capabilities,
+            default_body,
+        })
+    }
+
     /// Parse an unsafe block at item level.
     ///
     /// Delegates to the existing `parse_unsafe` (which parses as an expression),
@@ -1049,5 +1509,64 @@ mod tests {
             .filter(|d| d.code().severity() == Severity::Error)
             .collect();
         assert!(errors.is_empty(), "should have no parse errors");
+    }
+
+    #[test]
+    fn parse_trait_decl_simple() {
+        let (_arena, result, diags) = parse_source_str("trait Eq { fn eq(a: T, b: T) -> bool; }");
+        assert!(result.is_ok(), "should parse successfully");
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "should have no parse errors");
+    }
+
+    #[test]
+    fn parse_trait_decl_with_generic_param() {
+        let (_arena, result, diags) =
+            parse_source_str("trait Eq<T> { fn eq(a: T, b: T) -> bool; }");
+        assert!(result.is_ok(), "should parse successfully");
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "should have no parse errors");
+    }
+
+    #[test]
+    fn parse_trait_decl_multi_methods() {
+        let (_arena, result, diags) = parse_source_str(
+            "trait Eq<T> { fn eq(a: T, b: T) -> bool; fn ne(a: T, b: T) -> bool; }",
+        );
+        assert!(result.is_ok(), "should parse successfully");
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "should have no parse errors");
+    }
+
+    #[test]
+    fn parse_trait_decl_with_default_body() {
+        let (_arena, result, diags) =
+            parse_source_str("trait Eq<T> { fn eq(a: T, b: T) -> bool { true } }");
+        assert!(result.is_ok(), "should parse successfully");
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "should have no parse errors");
+    }
+
+    #[test]
+    fn parse_trait_decl_p0201_malformed() {
+        let (_arena, result, diags) = parse_source_str("trait Eq");
+        // Parser should emit error for malformed trait (no braces)
+        let p0201_diags: Vec<_> = diags.iter().filter(|d| d.code().number() == 201).collect();
+        assert!(
+            !p0201_diags.is_empty(),
+            "should emit at least one P0201 diagnostic"
+        );
     }
 }

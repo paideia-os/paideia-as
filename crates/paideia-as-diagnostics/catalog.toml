@@ -335,6 +335,15 @@ description = "A let binding uses a refutable pattern (such as an enum variant o
 since = "0.4.0"
 deprecated = false
 
+[diagnostic.P0201]
+severity = "error"
+category = "parser"
+title = "Malformed trait declaration"
+brief = "expected trait name followed by optional generic parameters and a body"
+description = "A trait declaration must have the form: trait Name<T, U, ...> { method_sig; ... }. The trait keyword must be followed by an identifier, optionally followed by generic parameters enclosed in angle brackets, and a body enclosed in braces containing method signatures."
+since = "0.7.0"
+deprecated = false
+
 [diagnostic.O1500]
 severity = "note"
 category = "optimization"
