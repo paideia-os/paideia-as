@@ -1792,6 +1792,13 @@ name = "paideia-stdlib"
 version = "0.0.1"
 
 [[package]]
+name = "paideia-stdlib-smoke"
+version = "0.0.1"
+dependencies = [
+ "paideia-stdlib",
+]
+
+[[package]]
 name = "paideia-uefi-smoke"
 version = "0.0.1"
 dependencies = [
