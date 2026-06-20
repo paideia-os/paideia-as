@@ -1571,6 +1571,7 @@ name = "paideia-as-emitter-pax"
 version = "0.0.1"
 dependencies = [
  "blake3",
+ "paideia-as-ir",
  "static_assertions",
 ]
 
@@ -1848,6 +1849,16 @@ name = "paste"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
+
+[[package]]
+name = "pax-introspect"
+version = "0.0.1"
+dependencies = [
+ "clap",
+ "paideia-as-emitter-pax",
+ "paideia-as-ir",
+ "thiserror",
+]
 
 [[package]]
 name = "pax-load-smoke"

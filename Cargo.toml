@@ -46,6 +46,7 @@ members = [
     "tests/uefi-smoke",
     "tests/cross-build",
     "tools/ddc",
+    "tools/pax-introspect",
 ]
 
 [workspace.package]

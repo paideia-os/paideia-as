@@ -1,0 +1,18 @@
+[package]
+name = "pax-introspect"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "pax-introspect"
+path = "src/main.rs"
+
+[dependencies]
+paideia-as-emitter-pax = { path = "../../crates/paideia-as-emitter-pax" }
+paideia-as-ir = { path = "../../crates/paideia-as-ir" }
+clap = { workspace = true, features = ["derive"] }
+thiserror = { workspace = true }
