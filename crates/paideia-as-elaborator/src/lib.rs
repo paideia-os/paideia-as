@@ -38,6 +38,7 @@ pub mod macro_expand;
 pub mod macro_match;
 pub mod modules;
 pub mod name_resolution;
+pub mod name_resolution_walker;
 pub mod pack;
 pub mod pattern_lower;
 mod placeholder_emit;
@@ -103,6 +104,9 @@ pub use modules::{
     FieldBinding, S_LINEAR_FIELD_OVERUSED, TypedValue, ValueRef, elaborate_structure,
 };
 pub use name_resolution::{NameResolutionTable, Span};
+pub use name_resolution_walker::{
+    NameResolutionPassState, NameResolutionTableWriter, NameResolutionWalker,
+};
 pub use pack::{
     M_UNPACK_NOT_PACKED, PackedValue, elaborate_let_module, elaborate_pack, elaborate_unpack,
 };
