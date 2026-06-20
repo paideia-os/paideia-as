@@ -1,0 +1,5 @@
+// Simple recursion test fixture - eligible for TCO
+// #[tailcall]
+// fn factorial(n: u32, acc: u32) -> u32 {
+//     if n == 0 { acc } else { factorial(n - 1, n * acc) }
+// }

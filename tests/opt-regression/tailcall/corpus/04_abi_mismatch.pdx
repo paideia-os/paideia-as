@@ -1,0 +1,5 @@
+// ABI mismatch test fixture - TCO blocked by calling convention difference
+// #[tailcall]
+// fn abi_mismatch() -> u32 {
+//     foreign_call()  // blocked: ABI mismatch (SysV → MS-x64)
+// }

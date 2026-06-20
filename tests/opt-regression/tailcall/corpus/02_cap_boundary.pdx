@@ -1,0 +1,5 @@
+// Capability boundary test fixture - TCO blocked by capability frontier
+// #[tailcall]
+// fn cross_cap() -> u32 {
+//     call_across_capability_boundary()  // blocked: capability boundary
+// }

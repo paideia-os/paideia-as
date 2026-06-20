@@ -1,0 +1,5 @@
+// Effect handler installation test fixture - TCO blocked by handler
+// #[tailcall]
+// fn install_handler() -> u32 {
+//     with_handler(|| call_target())  // blocked: installs handler
+// }

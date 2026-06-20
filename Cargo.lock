@@ -1675,6 +1675,10 @@ name = "paideia-opt-schedule"
 version = "0.0.1"
 
 [[package]]
+name = "paideia-opt-tailcall"
+version = "0.0.1"
+
+[[package]]
 name = "paideia-pq-sign"
 version = "0.0.1"
 dependencies = [

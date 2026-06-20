@@ -688,6 +688,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
             },
             {
               "defaultConfiguration": {
+                "level": "note"
+              },
+              "fullDescription": {
+                "text": "Per OS-requirements §6 design-clarification 5: TCO ships in Phase 2 to support the kernel's exception-unwinder path. Capability boundaries, effect-handler installations, and ABI mismatches suppress TCO."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/O1510",
+              "id": "O1510",
+              "name": "Tail-call eliminated",
+              "shortDescription": {
+                "text": "final call + ret sequence rewritten as a jmp"
+              }
+            },
+            {
+              "defaultConfiguration": {
                 "level": "error"
               },
               "fullDescription": {

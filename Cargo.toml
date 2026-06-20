@@ -33,6 +33,7 @@ members = [
     "tests/opt-regression/peephole",
     "tests/opt-regression/pool-constants",
     "tests/opt-regression/schedule",
+    "tests/opt-regression/tailcall",
     "tests/reflection-corpus",
     "tests/pax-load-smoke",
     "tests/pq-corpus",
