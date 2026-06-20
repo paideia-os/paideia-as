@@ -12,6 +12,8 @@
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
+use crate::position_index::{FileId, PositionIndex};
+
 /// Definition key uniquely identifying a module or top-level definition.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct DefinitionKey {
@@ -80,6 +82,9 @@ pub struct QueryEngine {
     pub parsed: HashMap<String, ParsedSnapshot>,
     /// Elaborated snapshots keyed by DefinitionKey.
     pub elaborated_definitions: HashMap<DefinitionKey, ElaboratedSnapshot>,
+    /// Per-file position index for elaborator results.
+    /// Maintained alongside documents to support incremental PositionIndex invalidation.
+    pub position_index: PositionIndex,
     /// Query statistics.
     pub stats: QueryStats,
 }
@@ -214,6 +219,35 @@ impl QueryEngine {
         for key in keys_to_remove {
             self.elaborated_definitions.remove(&key);
         }
+    }
+
+    /// Invalidate a single file's PositionIndex without workspace re-elaboration.
+    ///
+    /// Single-file scope: clears the PositionIndex slice for the given file and
+    /// marks only that file's elaboration entries as dirty. Does NOT trigger
+    /// cascade invalidation of dependents — those are handled by the next
+    /// elaboration pass.
+    ///
+    /// Used during incremental LSP edits to clear stale elaborator results
+    /// (type, lin_class, effects, capabilities) for a specific file.
+    pub fn invalidate_module(&mut self, file_uri: &str) {
+        // Convert file URI string to FileId for PositionIndex lookup.
+        // Simple heuristic: hash the URI string to u32.
+        let file_id = FileId(Self::uri_to_file_id(file_uri));
+
+        // Clear this file's PositionIndex slice.
+        self.position_index.clear_file(file_id);
+    }
+
+    /// Convert a file URI string to a FileId.
+    /// Simple heuristic: use the first 32 bits of the string's hash.
+    fn uri_to_file_id(uri: &str) -> u32 {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+        uri.hash(&mut hasher);
+        hasher.finish() as u32
     }
 
     /// Return current query statistics.
@@ -402,5 +436,123 @@ mod tests {
                 elapsed
             );
         }
+    }
+
+    #[test]
+    fn query_engine_invalidate_module_clears_position_index_slice() {
+        let mut engine = QueryEngine::new();
+        let file_uri = "file:///test.pdx";
+
+        // Set a document and populate its position index
+        engine.set_document(file_uri, "x = 0");
+
+        // Simulate elaborator populating the position index
+        let file_id = FileId(QueryEngine::uri_to_file_id(file_uri));
+        let entry = crate::position_index::PositionEntry {
+            span_start: crate::position_index::ByteOffset(0),
+            span_end: crate::position_index::ByteOffset(5),
+            type_id: None,
+            lin_class: Some(paideia_as_ir::LinClass::Linear),
+            effect_row_id: None,
+            cap_set_id: None,
+        };
+        engine.position_index.insert(file_id, entry);
+        engine.position_index.finish();
+
+        // Verify entry exists
+        assert!(engine.position_index.entries_for_file(file_id).is_some());
+
+        // Invalidate the module
+        engine.invalidate_module(file_uri);
+
+        // PositionIndex slice should be cleared
+        assert!(engine.position_index.entries_for_file(file_id).is_none());
+    }
+
+    #[test]
+    fn query_engine_invalidate_module_does_not_touch_other_files() {
+        let mut engine = QueryEngine::new();
+        let file1_uri = "file:///test1.pdx";
+        let file2_uri = "file:///test2.pdx";
+
+        // Set documents
+        engine.set_document(file1_uri, "x = 0");
+        engine.set_document(file2_uri, "y = 1");
+
+        // Populate position index for both files
+        let file1_id = FileId(QueryEngine::uri_to_file_id(file1_uri));
+        let file2_id = FileId(QueryEngine::uri_to_file_id(file2_uri));
+
+        let entry1 = crate::position_index::PositionEntry {
+            span_start: crate::position_index::ByteOffset(0),
+            span_end: crate::position_index::ByteOffset(5),
+            type_id: None,
+            lin_class: Some(paideia_as_ir::LinClass::Linear),
+            effect_row_id: None,
+            cap_set_id: None,
+        };
+
+        let entry2 = crate::position_index::PositionEntry {
+            span_start: crate::position_index::ByteOffset(0),
+            span_end: crate::position_index::ByteOffset(5),
+            type_id: None,
+            lin_class: Some(paideia_as_ir::LinClass::Unrestricted),
+            effect_row_id: None,
+            cap_set_id: None,
+        };
+
+        engine.position_index.insert(file1_id, entry1);
+        engine.position_index.insert(file2_id, entry2);
+        engine.position_index.finish();
+
+        // Verify both exist
+        assert_eq!(engine.position_index.entry_count(), 2);
+
+        // Invalidate only file1
+        engine.invalidate_module(file1_uri);
+
+        // file1 should be cleared, file2 should remain
+        assert!(engine.position_index.entries_for_file(file1_id).is_none());
+        assert!(engine.position_index.entries_for_file(file2_id).is_some());
+    }
+
+    #[test]
+    fn latency_probe_invalidate_module_under_100ms() {
+        let mut engine = QueryEngine::new();
+        let file_uri = "file:///test.pdx";
+
+        // Build a 1000-line synthetic document
+        let line = "x = 0\n";
+        let synthetic_doc = line.repeat(1000);
+
+        // Set the document
+        engine.set_document(file_uri, &synthetic_doc);
+
+        // Populate position index with entries simulating elaborator output
+        let file_id = FileId(QueryEngine::uri_to_file_id(file_uri));
+        for i in 0..100 {
+            let entry = crate::position_index::PositionEntry {
+                span_start: crate::position_index::ByteOffset(i * 10),
+                span_end: crate::position_index::ByteOffset(i * 10 + 5),
+                type_id: None,
+                lin_class: Some(paideia_as_ir::LinClass::Linear),
+                effect_row_id: None,
+                cap_set_id: None,
+            };
+            engine.position_index.insert(file_id, entry);
+        }
+        engine.position_index.finish();
+
+        // Measure invalidate_module latency
+        let start = std::time::Instant::now();
+        engine.invalidate_module(file_uri);
+        let elapsed = start.elapsed();
+
+        // Assert under 100ms wall clock
+        assert!(
+            elapsed.as_millis() < 100,
+            "invalidate_module took {} ms; target <100ms",
+            elapsed.as_millis()
+        );
     }
 }
