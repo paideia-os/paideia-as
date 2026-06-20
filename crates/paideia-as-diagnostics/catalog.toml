@@ -299,6 +299,15 @@ description = "A let-module binding `let module N = unpack v in <expr>` is synta
 since = "0.1.0"
 deprecated = false
 
+[diagnostic.P0195]
+severity = "error"
+category = "parser"
+title = "Malformed pointer type"
+brief = "malformed pointer type: expected a type after `*`"
+description = "A pointer type `*T` is syntactically incomplete: a type is required after the `*` prefix. Check that a valid type follows the `*` token."
+since = "0.1.0"
+deprecated = false
+
 [diagnostic.O1500]
 severity = "note"
 category = "optimization"

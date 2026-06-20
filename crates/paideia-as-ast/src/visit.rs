@@ -206,6 +206,8 @@ pub trait TypeVisitor {
     fn visit_type_linear_class(&mut self, _arena: &AstArena, _id: NodeId) {}
     /// Visit an EffectRow type.
     fn visit_type_effect_row(&mut self, _arena: &AstArena, _id: NodeId) {}
+    /// Visit a Ptr type.
+    fn visit_type_ptr(&mut self, _arena: &AstArena, _id: NodeId) {}
 }
 
 /// Dispatch visitor call by node kind for types.
@@ -221,6 +223,7 @@ pub fn walk_type<V: TypeVisitor>(visitor: &mut V, arena: &AstArena, id: NodeId) 
         NodeKind::TypeTuple => visitor.visit_type_tuple(arena, id),
         NodeKind::TypeLinearClass => visitor.visit_type_linear_class(arena, id),
         NodeKind::TypeEffectRow => visitor.visit_type_effect_row(arena, id),
+        NodeKind::TypePtr => visitor.visit_type_ptr(arena, id),
         _ => {}
     }
 }

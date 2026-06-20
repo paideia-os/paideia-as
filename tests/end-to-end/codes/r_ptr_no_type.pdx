@@ -1,0 +1,3 @@
+module M = structure {
+  let f = fn (p: *) -> u32 = 0
+}
