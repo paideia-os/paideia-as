@@ -1,0 +1,18 @@
+[package]
+name = "paideia-ir-payload-tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dev-dependencies]
+paideia-as-ir = { path = "../../crates/paideia-as-ir" }
+paideia-as-elaborator = { path = "../../crates/paideia-as-elaborator" }
+paideia-as-diagnostics = { path = "../../crates/paideia-as-diagnostics" }
+smallvec = "1"

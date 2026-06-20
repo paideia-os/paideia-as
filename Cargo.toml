@@ -22,6 +22,7 @@ members = [
     "tests/e2e",
     "tests/end-to-end",
     "tests/effects-corpus",
+    "tests/ir-payload",
     "tests/linearity-regression",
     "tests/lsp-harness",
     "tests/migration-smoke/cap",
