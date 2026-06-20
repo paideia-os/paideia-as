@@ -72,7 +72,36 @@ Q-codes live under `Category::Q` (post-quantum, 0900–0999). Added to `paideia-
 - **Row-polymorphic scope subsumption**: row variables in `.paideia.effects` (m3 row-poly) are ignored at scope-check time. A strict implementation would treat any open row as "unbounded scope required" and reject; the lenient implementation here trusts the elaborator's signature check.
 - **Signature timestamping / revocation**: not in scope for m7. Phase 3 may add an in-band timestamp section + revocation registry.
 
-## Phase 3 m6 appendix: hybrid composition
+## Phase 3 m6: Hardware HSM landing
+
+This section consolidates the Phase 3 m6 milestone deliverables: the two hardware backends (m6-001 PKCS#11, m6-002 YubiHSM2), the composition rule (m6-003 HybridSigner), and the `Q0902 hsm-no-pq-support` diagnostic.
+
+### Backends
+
+| Backend          | Crate path                              | Ed25519       | ML-DSA-65     | is_hardware | Phase 3 issue |
+|------------------|-----------------------------------------|---------------|---------------|-------------|---------------|
+| `SoftHsm`        | `paideia-pq-sign::soft_hsm`             | software      | software      | false       | (m7-006)      |
+| `Pkcs11Signer`   | `paideia-pq-sign::hsm::pkcs11`          | HSM (cryptoki)| HSM (cryptoki)| true        | m6-001        |
+| `YubiHsmSigner`  | `paideia-pq-sign::hsm::yubihsm`         | YubiHSM2 fw   | (soft fallback) | true      | m6-002        |
+| `HybridSigner<H,S>` | `paideia-pq-sign::hsm::hybrid`       | hardware (H)  | soft (S)      | H.is_hardware() | m6-003   |
+
+The `HybridSigner<H, S>` is the canonical composer for the YubiHSM2 case where ML-DSA-65 isn't supported in firmware. Operator opt-in via `--opt-in-hybrid-fallback` is required (see `Q0902` below).
+
+PKCS#11 ships ML-DSA-65 in hardware **when the underlying token supports it** (e.g., post-quantum-capable HSMs). SoftHSM2 (the test backend) does not — same fallback story; explicitly noted in the cryptoki integration.
+
+### Q0902 — `hsm-no-pq-support`
+
+Severity: warning. Category: `Q` (post-quantum trust).
+
+Fires at HSM init time when the configured backend doesn't support ML-DSA-65 in hardware AND the operator hasn't passed `--opt-in-hybrid-fallback`. Without the opt-in, the init fails with exit 1 and the diagnostic surfaces the rationale: the operator must explicitly acknowledge that the PQ leg is software-protected.
+
+The diagnostic carries a reference to this section so operators can verify the hybrid contract before opting in.
+
+### Hardware-lane test corpus (m6-004)
+
+`tests/pq-corpus/tests/hardware_lane.rs` ships 4 `#[ignore]`'d tests, one per backend init / opt-in path. Manual reactivation (with env vars per `docs/release-signing.md` "Hardware HSM backends (Phase 3 m6)" section) exercises the hardware path against SoftHSM2 (for the PKCS#11 lane) or a real YubiHSM2 device (for the YubiHSM2 lane).
+
+### Composition rule (m6-003)
 
 paideia-as composes signers through the `HsmSigner` trait. For the
 common YubiHSM2 case where ML-DSA-65 isn't supported in firmware,
