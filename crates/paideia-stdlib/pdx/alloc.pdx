@@ -1,0 +1,20 @@
+// Phase 4 m10-001: Allocator trait.
+//
+// The kernel's memory-management entry point. Every allocator
+// (bump, arena, system-malloc wrapper) implements this trait.
+//
+// Note: Full trait method signatures with self parameters (`self: &mut Self`)
+// are Phase 4 m4-m6 territory; today the parser accepts parameter lists but
+// `self` as an identifier requires borrowing infrastructure not yet in place.
+// Phase 4 m10 ships the trait shape; per-allocator impls (m10-002..004)
+// will use explicit allocator instance parameters.
+
+struct Layout {
+  size: u64,
+  align: u64,
+}
+
+trait Allocator {
+  fn alloc() -> *u8;
+  fn dealloc() -> ();
+}

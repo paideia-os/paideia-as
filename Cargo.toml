@@ -19,6 +19,7 @@ members = [
     "crates/paideia-lsp",
     "crates/paideia-fmt",
     "crates/paideia-pq-sign",
+    "crates/paideia-stdlib",
     "tests/e2e",
     "tests/end-to-end",
     "tests/effects-corpus",
