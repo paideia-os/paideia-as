@@ -433,3 +433,12 @@ brief = "the signing key's scope does not subsume the artifact's effect set"
 description = "Per OS-requirements §4 N1, a signing key is authorized for a specific set of effects (its scope). When signing a PAX, the PAX's effect set (from .paideia.effects section) must be a subset of the key's authorized scope. This error indicates a scope mismatch: the key cannot sign this artifact because it lacks authorization for some required effects. Check the key's scope and the artifact's effect declarations."
 since = "0.1.0"
 deprecated = false
+
+[diagnostic.T0511]
+severity = "warning"
+category = "type"
+title = "Borrowed-reference type not yet supported"
+brief = "&T / &mut T are reserved for a future region-calculus extension"
+description = "Phase 3 ships raw pointers (*T) only. Borrowed references &T / &mut T are reserved for a future phase that requires a region calculus + borrow-checker pass; see design/toolchain/phase-3-plan.md §15 open question."
+since = "0.1.0"
+deprecated = false

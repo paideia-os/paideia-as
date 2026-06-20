@@ -1,0 +1,4 @@
+module PtrCopyTest = structure {
+  let p = 42
+  let q = 43
+}

@@ -1,5 +1,6 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
+assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -586,6 +587,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "File contains no top-level module",
               "shortDescription": {
                 "text": "a .pdx file must contain exactly one top-level structure or functor"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "fullDescription": {
+                "text": "Phase 3 ships raw pointers (*T) only. Borrowed references &T / &mut T are reserved for a future phase that requires a region calculus + borrow-checker pass; see design/toolchain/phase-3-plan.md §15 open question."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0511",
+              "id": "T0511",
+              "name": "Borrowed-reference type not yet supported",
+              "shortDescription": {
+                "text": "&T / &mut T are reserved for a future region-calculus extension"
               }
             },
             {

@@ -1,0 +1,4 @@
+module PtrLetTest = structure {
+  let a = 100
+  let b = 101
+}

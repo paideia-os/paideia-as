@@ -25,6 +25,7 @@ pub mod file_module;
 pub mod functor_apply;
 pub mod hygiene;
 pub mod incremental;
+pub mod kind;
 pub mod linearity_ctx;
 mod lower;
 pub mod macro_expand;
@@ -67,6 +68,7 @@ pub use file_module::{
 };
 pub use functor_apply::{ApplyKey, apply_functor, elaborate_functor_body};
 pub use hygiene::{HygieneCache, HygienicName, MacroId};
+pub use kind::type_kind;
 pub use linearity_ctx::{Binding, LinearityCtx};
 pub use lower::{LoweringResult, lower_ast_to_ir};
 pub use macro_expand::{
