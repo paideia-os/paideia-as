@@ -1,0 +1,30 @@
+// Fixture: iterator_collect
+// Tests that Iterator::collect(self) -> Vec parses cleanly and requires RawMem.
+
+record Vec {
+  ptr: u64,
+  len: u64,
+  cap: u64,
+}
+
+record RangeIter {
+  start: u64,
+  end: u64,
+}
+
+trait Iterator {
+  type Item;
+  fn next(self: linear Self) -> Option !{} @{};
+  fn collect(self: linear Self) -> Vec !{RawMem} @{paideia.raw_mem} { vec_new() }
+}
+
+trait VecOps {
+  fn vec_new() -> Vec !{RawMem} @{paideia.raw_mem};
+}
+
+impl Iterator for RangeIter {
+  type Item = u64;
+  fn next(self: linear Self) -> Option {
+    None
+  }
+}

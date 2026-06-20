@@ -1,0 +1,29 @@
+// Fixture: iterator_vec_into_iter
+// Tests that Vec can be converted into an Iterator via into_iter.
+
+record Vec {
+  ptr: u64,
+  len: u64,
+  cap: u64,
+}
+
+record VecIntoIter {
+  vec: u64,  // placeholder for Vec
+  index: u64,
+}
+
+trait Iterator {
+  type Item;
+  fn next(self: linear Self) -> Option !{} @{};
+}
+
+trait VecOps {
+  fn vec_into_iter(v: linear Vec) -> VecIntoIter !{} @{};
+}
+
+impl Iterator for VecIntoIter {
+  type Item = u64;
+  fn next(self: linear Self) -> Option {
+    None
+  }
+}

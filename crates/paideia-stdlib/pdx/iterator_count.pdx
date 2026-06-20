@@ -1,0 +1,20 @@
+// Fixture: iterator_count
+// Tests that Iterator::count(self) -> u64 parses cleanly.
+
+record RangeIter {
+  start: u64,
+  end: u64,
+}
+
+trait Iterator {
+  type Item;
+  fn next(self: linear Self) -> Option !{} @{};
+  fn count(self: linear Self) -> u64 !{} @{} { 0 }
+}
+
+impl Iterator for RangeIter {
+  type Item = u64;
+  fn next(self: linear Self) -> Option {
+    None
+  }
+}

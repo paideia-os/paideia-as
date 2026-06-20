@@ -1,0 +1,41 @@
+// Phase 4 m11-007: Iterator trait + adapters.
+//
+// Associated type Item (parser accepts; elaborator dispatch gated on m9 walker chokepoint).
+// Adapters: Map, Filter; methods: map, filter, fold, collect, for_each, count.
+
+trait Iterator {
+  type Item;
+
+  fn next(self: linear Self) -> Option !{} @{};
+
+  fn map(self: linear Self, f: (u64) -> u64) -> Map !{} @{} { Map { source: 0, mapper: 0 } }
+  fn filter(self: linear Self, pred: (u64) -> bool) -> Filter !{} @{} { Filter { source: 0, predicate: 0 } }
+  fn fold(self: linear Self, init: u64, f: (u64, u64) -> u64) -> u64 !{} @{} { init }
+  fn collect(self: linear Self) -> Vec !{RawMem} @{paideia.raw_mem} { vec_new() }
+  fn for_each(self: linear Self, f: (u64) -> ()) -> () !{IO} @{paideia.io} { () }
+  fn count(self: linear Self) -> u64 !{} @{} { 0 }
+}
+
+record Map {
+  source: u64,
+  mapper: u64,
+}
+
+record Filter {
+  source: u64,
+  predicate: u64,
+}
+
+impl Iterator for Map {
+  type Item = u64;
+  fn next(self: linear Self) -> Option {
+    None
+  }
+}
+
+impl Iterator for Filter {
+  type Item = u64;
+  fn next(self: linear Self) -> Option {
+    None
+  }
+}

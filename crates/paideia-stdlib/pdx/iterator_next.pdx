@@ -1,0 +1,19 @@
+// Fixture: iterator_next
+// Tests that Iterator::next(self: linear Self) -> Option parses cleanly.
+
+record SimpleIter {
+  index: u64,
+  limit: u64,
+}
+
+trait Iterator {
+  type Item;
+  fn next(self: linear Self) -> Option !{} @{};
+}
+
+impl Iterator for SimpleIter {
+  type Item = u64;
+  fn next(self: linear Self) -> Option {
+    None
+  }
+}

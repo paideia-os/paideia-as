@@ -1,0 +1,26 @@
+// Fixture: iterator_default_method_impl
+// Tests that Iterator default method implementations are accepted by the parser.
+// (Elaborator dispatch gated on m9 walker; today parser accepts the syntax.)
+
+record SimpleIter {
+  index: u64,
+  limit: u64,
+}
+
+trait Iterator {
+  type Item;
+  fn next(self: linear Self) -> Option !{} @{};
+  fn count(self: linear Self) -> u64 !{} @{} { 0 }
+}
+
+impl Iterator for SimpleIter {
+  type Item = u64;
+  fn next(self: linear Self) -> Option {
+    None
+  }
+}
+
+fn test_uses_default_count() -> u64 {
+  let iter: SimpleIter = SimpleIter { index: 0, limit: 10 };
+  iter.count()
+}

@@ -1,0 +1,45 @@
+// Fixture: iterator_chained_adapters
+// Tests that Iterator adapters can be chained: iter.map(...).filter(...)
+
+record RangeIter {
+  start: u64,
+  end: u64,
+}
+
+record Map {
+  source: u64,
+  mapper: u64,
+}
+
+record Filter {
+  source: u64,
+  predicate: u64,
+}
+
+trait Iterator {
+  type Item;
+  fn next(self: linear Self) -> Option !{} @{};
+  fn map(self: linear Self, f: (u64) -> u64) -> Map !{} @{} { Map { source: 0, mapper: 0 } }
+  fn filter(self: linear Self, pred: (u64) -> bool) -> Filter !{} @{} { Filter { source: 0, predicate: 0 } }
+}
+
+impl Iterator for RangeIter {
+  type Item = u64;
+  fn next(self: linear Self) -> Option {
+    None
+  }
+}
+
+impl Iterator for Map {
+  type Item = u64;
+  fn next(self: linear Self) -> Option {
+    None
+  }
+}
+
+impl Iterator for Filter {
+  type Item = u64;
+  fn next(self: linear Self) -> Option {
+    None
+  }
+}

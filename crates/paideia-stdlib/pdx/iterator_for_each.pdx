@@ -1,0 +1,20 @@
+// Fixture: iterator_for_each
+// Tests that Iterator::for_each(self, f) -> () parses cleanly and requires IO effect.
+
+record RangeIter {
+  start: u64,
+  end: u64,
+}
+
+trait Iterator {
+  type Item;
+  fn next(self: linear Self) -> Option !{} @{};
+  fn for_each(self: linear Self, f: (u64) -> ()) -> () !{IO} @{paideia.io} { () }
+}
+
+impl Iterator for RangeIter {
+  type Item = u64;
+  fn next(self: linear Self) -> Option {
+    None
+  }
+}

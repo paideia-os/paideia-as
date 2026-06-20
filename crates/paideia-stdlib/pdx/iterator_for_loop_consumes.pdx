@@ -1,0 +1,24 @@
+// Fixture: iterator_for_loop_consumes
+// Tests that Iterator is consumed (linear discipline) by for_each.
+
+record RangeIter {
+  start: u64,
+  end: u64,
+}
+
+trait Iterator {
+  type Item;
+  fn next(self: linear Self) -> Option !{} @{};
+  fn for_each(self: linear Self, f: (u64) -> ()) -> () !{IO} @{paideia.io} { () }
+}
+
+impl Iterator for RangeIter {
+  type Item = u64;
+  fn next(self: linear Self) -> Option {
+    None
+  }
+}
+
+fn consume_iter(iter: linear RangeIter) -> () {
+  iter.for_each(fn(x: u64) -> () { })
+}

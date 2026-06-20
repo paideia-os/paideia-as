@@ -1,0 +1,32 @@
+// Fixture: iterator_filter
+// Tests that Iterator::filter(self, pred) -> Filter adapter parses cleanly.
+
+record RangeIter {
+  start: u64,
+  end: u64,
+}
+
+record Filter {
+  source: u64,
+  predicate: u64,
+}
+
+trait Iterator {
+  type Item;
+  fn next(self: linear Self) -> Option !{} @{};
+  fn filter(self: linear Self, pred: (u64) -> bool) -> Filter !{} @{} { Filter { source: 0, predicate: 0 } }
+}
+
+impl Iterator for RangeIter {
+  type Item = u64;
+  fn next(self: linear Self) -> Option {
+    None
+  }
+}
+
+impl Iterator for Filter {
+  type Item = u64;
+  fn next(self: linear Self) -> Option {
+    None
+  }
+}
