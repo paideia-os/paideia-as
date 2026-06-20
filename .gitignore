@@ -34,3 +34,6 @@ tests/reflection-corpus/corpus/reject/*.placeholder
 tests/effects-corpus/corpus/accept/*.placeholder
 tests/effects-corpus/corpus/reject/*.placeholder
 test_output.txt
+
+# DDC (diverse double compilation) runtime artifacts
+tools/ddc/out/
