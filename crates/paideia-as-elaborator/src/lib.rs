@@ -55,6 +55,7 @@ pub mod sharing;
 pub mod sig_match;
 pub mod splice;
 pub mod term_eval;
+pub mod two_phase;
 pub mod walker_pass_state;
 
 pub use borrow_walker::{BorrowKind, BorrowWalker};
@@ -131,4 +132,5 @@ pub use resolve::{HygienicEnv, ResolveValue};
 pub use sharing::{M_SHARING_VIOLATED, check_sharing_constraints};
 pub use sig_match::{M_SIG_KIND_MISMATCH, M_SIG_MISSING_DECL, match_signature};
 pub use splice::{splice, splice_with_hygiene, splice_with_type_check};
+pub use two_phase::{TwoPhaseReservation, activate_reservation, reserve_two_phase_borrow};
 pub use walker_pass_state::{PositionIndexWriter, WalkerPassState};

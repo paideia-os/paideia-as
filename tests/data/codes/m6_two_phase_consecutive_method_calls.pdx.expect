@@ -1,0 +1,3 @@
+# Two-phase borrows with consecutive method calls.
+# Each method call can immutably read the same binding during argument evaluation,
+# because the &mut reservation is not yet active.

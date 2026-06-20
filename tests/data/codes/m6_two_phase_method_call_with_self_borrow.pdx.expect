@@ -1,0 +1,3 @@
+# Two-phase borrow with method call receiver and complex argument.
+# The &mut self receiver is reserved, then the argument expression
+# can immutably borrow the same binding. On method call, the reservation activates.

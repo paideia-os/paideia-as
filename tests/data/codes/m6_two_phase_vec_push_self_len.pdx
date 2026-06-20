@@ -1,0 +1,25 @@
+; Two-phase borrow for vec.push(vec.len())
+; The receiver &mut vec is reserved before evaluating the argument vec.len(),
+; allowing the immutable read of vec. After argument evaluation completes,
+; the &mut borrow activates for the push call.
+; Should parse clean; semantic gates on m6 walker integration.
+
+struct Vec<T> {
+  data: u64,
+  len: u64
+}
+
+impl Vec<u64> {
+  fn push(&mut self, value: u64) -> unit {
+    unit
+  }
+
+  fn len(&self) -> u64 {
+    self.len
+  }
+}
+
+fn test_vec_push_self_len() -> unit {
+  let v: Vec<u64> = Vec { data: 0, len: 0 };
+  v.push(v.len())
+}

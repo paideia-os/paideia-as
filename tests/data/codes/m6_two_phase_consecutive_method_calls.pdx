@@ -1,0 +1,23 @@
+; Two-phase borrows with consecutive method calls.
+; Each method call can immutably read the same binding during argument evaluation,
+; because the &mut reservation is not yet active.
+
+struct Container {
+  data: u64
+}
+
+impl Container {
+  fn update(&mut self, val: u64) -> unit {
+    unit
+  }
+
+  fn get_data(&self) -> u64 {
+    self.data
+  }
+}
+
+fn test_consecutive_method_calls() -> unit {
+  let c: Container = Container { data: 5 };
+  c.update(c.get_data());
+  c.update(c.get_data())
+}

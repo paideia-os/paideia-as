@@ -1,0 +1,23 @@
+; Two-phase borrow with method call receiver and complex argument.
+; The &mut self receiver is reserved, then the argument expression
+; can immutably borrow the same binding. On method call, the reservation activates.
+
+struct List<T> {
+  head: u64,
+  tail: u64
+}
+
+impl List<u64> {
+  fn append(&mut self, item: u64) -> unit {
+    unit
+  }
+
+  fn head_value(&self) -> u64 {
+    self.head
+  }
+}
+
+fn test_method_call_with_self_borrow() -> unit {
+  let lst: List<u64> = List { head: 10, tail: 0 };
+  lst.append(lst.head_value())
+}
