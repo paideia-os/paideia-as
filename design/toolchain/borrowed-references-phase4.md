@@ -155,9 +155,56 @@ What still doesn't work (until m5 + m6):
 
 PaideiaOS kernel code can use borrowed references today for clarity (signature documentation), with the understanding that safety lands at m6.
 
-## 10. Forward links
+## 10. Region calculus (Phase 4 m5)
 
-- **m5 region calculus**: lifetime inference + scope tracking. Activates the lifetime field in Type::Ref.
+m5 ships the region calculus that backs the lifetime field in Type::Ref. The deliverables:
+
+### 10.1 RegionId + RegionGraph (m5-001)
+
+`paideia-as-types::regions::RegionId` is a u32-wrapping copyable id. `RegionId::STATIC = RegionId(0)` is reserved for `'static`. `RegionInterner` allocates fresh ids starting at 1.
+
+`RegionGraph` records outlives-relations: `outlives[a]` is the set of regions `a` outlives (a's scope ⊇ b's scope). The graph is reflexive (a outlives a), 'static-dominated (RegionId(0) outlives every other id), and transitively closed via `close_transitively()` (Floyd-Warshall style).
+
+### 10.2 Lexical region inference (m5-002)
+
+`RegionInferenceWalker` maintains a scope stack of RegionIds. `enter_scope()` allocates a fresh id and records the outer scope outlives it. `exit_scope()` pops. `let_borrow_region()` returns the current scope (let-bound borrows match their lexical scope). `param_borrow_region()` returns the outermost scope (function-parameter borrows live for the whole call).
+
+### 10.3 Lifetime-variable surface syntax (m5-003)
+
+`GenericParam` becomes an enum: `Type { name, bounds }` for ordinary type params; `Lifetime { name }` for `'a`-style. The lexer recognises `'ident` as a lifetime token. Parser-level binding lands; type-elaborator wiring to RegionId activates with m6.
+
+### 10.4 PositionIndex region metadata (m5-004)
+
+`PositionEntry` gains `region_id: Option<u32>`. `RegionInferenceWalker` inserts at borrow sites with the inferred region. LSP hover renders `region: 'r{N}` when present.
+
+### 10.5 Region elision rules (m5-005)
+
+Three Rust-style rules:
+
+1. **Input elision**: a function with exactly one input borrow whose lifetime isn't explicit gets a fresh region.
+2. **Output elision**: when there's exactly one input lifetime (explicit or elided) AND an output borrow with no explicit lifetime, the output inherits the input's lifetime.
+3. **Method elision**: `&self` / `&mut self` receivers dominate; all output borrows inherit the receiver's lifetime.
+
+When the rules can't pick a unique lifetime → `L2001 "Ambiguous lifetime elision"` (warning, lint category).
+
+### 10.6 What activates today vs. m6
+
+Activated:
+- RegionId + RegionGraph data structures.
+- RegionInferenceWalker scope stack.
+- Lifetime-variable surface syntax.
+- PositionIndex.region_id field + hover rendering.
+- Region elision rule decision function.
+
+Deferred to m6:
+- AST-side activation of region inference during type elaboration.
+- Outlives-relation checks between borrow lifetimes (the actual borrow checker).
+- Use-after-borrow detection.
+- Aliasing rule enforcement for `&mut T`.
+
+## 11. Forward links
+
+- **m5 region calculus**: shipped — see §10. Lifetime inference + scope tracking now active; AST-side activation lands with m6.
 - **m6 borrow checker**: alias analysis + mutability exclusivity. Activates the IR walker's borrow-check pass.
 - **m10 Allocator trait `&mut Self`**: the m10-001 scaffolded `self: &mut Self` form activates with m6.
 - **m11 stdlib `&mut`-method receivers**: Vec::push, String::push_str, HashMap::insert.
