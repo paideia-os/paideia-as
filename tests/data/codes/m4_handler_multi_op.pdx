@@ -1,0 +1,9 @@
+fn handler_with_multiple_ops() {
+    let mut value = 0;
+    handle Effect {
+        op read() -> i64 { value },
+        op write(v: i64) { value = v }
+    } {
+        value = value + 1
+    }
+}

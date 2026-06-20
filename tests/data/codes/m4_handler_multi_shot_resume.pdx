@@ -1,0 +1,14 @@
+fn handler_with_multi_shot_resume() {
+    let mut count = 0;
+    handle Effect {
+        op multi_read() -> i64 {
+            let result = count;
+            count = count + 1;
+            result
+        }
+    } {
+        let x = perform Effect.multi_read();
+        let y = perform Effect.multi_read();
+        count
+    }
+}

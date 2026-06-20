@@ -1,0 +1,8 @@
+fn handler_with_single_op() {
+    let mut value = 0;
+    handle Effect {
+        op read() -> i64 { value }
+    } {
+        value = value + 1
+    }
+}
