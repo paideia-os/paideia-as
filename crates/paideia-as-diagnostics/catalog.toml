@@ -308,6 +308,24 @@ description = "Per optimization-passes.md §1.2, peephole rewrites improve gener
 since = "0.1.0"
 deprecated = false
 
+[diagnostic.O1501]
+severity = "note"
+category = "optimization"
+title = "Reserved for future peephole sub-pass"
+brief = "reserved diagnostic slot"
+description = "Reserved for a future per-rewrite peephole diagnostic (currently O1500 covers the whole pass)."
+since = "0.1.0"
+deprecated = false
+
+[diagnostic.O1502]
+severity = "note"
+category = "optimization"
+title = "Reserved for future peephole sub-pass"
+brief = "reserved diagnostic slot"
+description = "Reserved for a future per-rewrite peephole diagnostic."
+since = "0.1.0"
+deprecated = false
+
 [diagnostic.O1503]
 severity = "note"
 category = "optimization"

@@ -593,6 +593,34 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "note"
               },
               "fullDescription": {
+                "text": "Reserved for a future per-rewrite peephole diagnostic (currently O1500 covers the whole pass)."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/O1501",
+              "id": "O1501",
+              "name": "Reserved for future peephole sub-pass",
+              "shortDescription": {
+                "text": "reserved diagnostic slot"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "fullDescription": {
+                "text": "Reserved for a future per-rewrite peephole diagnostic."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/O1502",
+              "id": "O1502",
+              "name": "Reserved for future peephole sub-pass",
+              "shortDescription": {
+                "text": "reserved diagnostic slot"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "fullDescription": {
                 "text": "Per optimization-passes.md §2, instruction scheduling exploits ILP within basic blocks by hoisting higher-latency operations earlier."
               },
               "helpUri": "https://paideia-os.org/diagnostics/O1503",
