@@ -39,7 +39,7 @@ fn yubihsm_connector_url() -> Option<String> {
 }
 
 #[test]
-#[ignore = "phase-4-m3-001: hardware lane — requires SoftHSM2 install + SOFTHSM2_AVAILABLE=1 + PKCS11_MODULE"]
+#[ignore = "phase-4-m3-005: env-gated; activates with SOFTHSM2_AVAILABLE=1 or hardware PKCS11 module"]
 fn pkcs11_init_with_softhsm2_returns_signer() {
     if std::env::var("SOFTHSM2_AVAILABLE").is_err() {
         eprintln!("SOFTHSM2_AVAILABLE not set; skipping");
@@ -68,7 +68,7 @@ fn pkcs11_init_with_softhsm2_returns_signer() {
 }
 
 #[test]
-#[ignore = "phase-4-m3-001: hardware lane — requires PKCS11_MODULE pointing at SoftHSM2"]
+#[ignore = "phase-4-m3-005: env-gated; activates with SOFTHSM2_AVAILABLE=1 or hardware PKCS11 module"]
 fn pkcs11_signer_reports_is_hardware_true() {
     if std::env::var("SOFTHSM2_AVAILABLE").is_err() {
         eprintln!("SOFTHSM2_AVAILABLE not set; skipping");
@@ -86,7 +86,7 @@ fn pkcs11_signer_reports_is_hardware_true() {
 }
 
 #[test]
-#[ignore = "phase-3-m6-004: hardware lane — requires YUBIHSM_CONNECTOR + YUBIHSM_ED25519_KEY_ID"]
+#[ignore = "phase-4-m3-005: env-gated; activates with YUBIHSM_CONNECTOR + YUBIHSM_ED25519_KEY_ID"]
 fn yubihsm_init_with_connector_returns_signer() {
     let connector = match yubihsm_connector_url() {
         Some(c) => c,
@@ -116,7 +116,7 @@ fn yubihsm_init_with_connector_returns_signer() {
 }
 
 #[test]
-#[ignore = "phase-3-m6-004: hardware lane — Q0902 opt-in contract verification"]
+#[ignore = "phase-4-m3-005: env-gated; activates with YUBIHSM_CONNECTOR + YUBIHSM_ED25519_KEY_ID"]
 fn yubihsm_without_opt_in_returns_q0902() {
     let connector = yubihsm_connector_url().unwrap_or_else(|| "http://127.0.0.1:12345".to_string());
     let result = YubiHsmSigner::new(&connector, 0x0001, /* opt_in */ false);

@@ -164,6 +164,87 @@ YubiHSM2 firmware (≤ 2.6) supports Ed25519 in hardware but **not** ML-DSA-65. 
 
 Operator opt-in is required via the `--opt-in-hybrid-fallback` CLI flag. Without it, `Q0902 hsm-no-pq-support` fires. See `design/security/pq-trust-root.md` Phase 3 m6 appendix for the trust-root analysis.
 
+## Hardware lane activation (Phase 4 m3-005)
+
+For PaideiaOS production release signing with hardware HSMs, the hardware-lane corpus tests activate uniformly via env-var early-return gates. Zero discovery cost on hosts without HSM hardware.
+
+### PKCS#11 (SoftHSM2 for development, vendor module for production)
+
+1. **Install SoftHSM2** (development):
+   ```bash
+   sudo apt install softhsm2
+   ```
+
+2. **Initialize a slot**:
+   ```bash
+   softhsm2-util --init-token --slot 0 --label paideia-release-key \
+       --pin 1234 --so-pin 1234
+   ```
+
+3. **Import or generate keys**:
+   ```bash
+   pkcs11-tool --module /usr/lib/softhsm/libsofthsm2.so \
+       --slot 0 --pin 1234 \
+       --keypairgen --key-type EC:edwards25519 \
+       --label paideia-ed25519
+   ```
+
+4. **Run hardware-lane corpus**:
+   ```bash
+   export SOFTHSM2_AVAILABLE=1
+   export SOFTHSM2_CONF=/etc/softhsm/softhsm2.conf
+   export PKCS11_MODULE=/usr/lib/softhsm/libsofthsm2.so
+   export PKCS11_SLOT=0
+   export PKCS11_PIN=1234
+   
+   cargo test --test hardware_lane -p paideia-pq-corpus -- --ignored pkcs11
+   ```
+
+### YubiHSM2
+
+1. **Plug in YubiHSM2** and verify connector availability.
+
+2. **Start connector** (if not already running):
+   ```bash
+   yubihsm-connector -d
+   ```
+
+3. **Generate or import Ed25519 key**:
+   ```bash
+   yubihsm-shell -p password -a generate-asymmetric-key \
+       --key-id 1 --algorithm ed25519
+   ```
+
+4. **Run hardware-lane corpus**:
+   ```bash
+   export YUBIHSM_CONNECTOR=http://127.0.0.1:12345
+   export YUBIHSM_ED25519_KEY_ID=0x0001
+   
+   cargo test --test hardware_lane -p paideia-pq-corpus -- --ignored yubihsm
+   ```
+
+5. **Opt-in for hybrid fallback** (required for production):
+   ```bash
+   paideia-pq-sign hsm yubihsm init \
+       --connector http://127.0.0.1:12345 \
+       --ed25519-key-id 0x0001 \
+       --opt-in-hybrid-fallback
+   ```
+   The `--opt-in-hybrid-fallback` flag is mandatory; without it, `Q0902 hsm-no-pq-support` fires (YubiHSM2 firmware ≤ 2.6 lacks ML-DSA-65 support).
+
+### Timestamping (TSA)
+
+For timestamped release artifacts:
+
+```bash
+# Generate TSA token
+paideia-pq-sign timestamp --tsa-url https://freetsa.org/tsr \
+    --input release.tar.gz > release.tsa-token
+
+# Verify with timestamp
+paideia-pq-sign verify --artifact release.tar.gz --tsa-token release.tsa-token
+```
+
 ## Future
 
 - **Production HSM integration** (AWS CloudHSM, Thales Luna, etc.) per pq-trust-root.md §5.1.
