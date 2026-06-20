@@ -1,0 +1,80 @@
+name: DDC
+
+# Diverse Double Compilation nightly verification.
+# Advisory on main: does not gate PRs.
+#
+# Phase-2-m10-005: workflow file shipped; activation pairs with the
+# GitHub Actions billing restoration. CURRENTLY DISABLED at the
+# org level (paideia-os).
+
+on:
+  schedule:
+    # Nightly at 06:00 UTC.
+    - cron: '0 6 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  ddc-nightly:
+    name: DDC dual-build + diff
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Workflow is advisory: failures don't gate `main`.
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+      
+      - name: Log toolchain versions
+        run: |
+          echo "=== STABLE ==="
+          cargo +stable --version
+          cargo +stable rustc -- --version 2>&1 | head -1
+          echo "=== NIGHTLY ==="
+          cargo +nightly --version
+          cargo +nightly rustc -- --version 2>&1 | head -1
+      
+      - name: Run DDC orchestrator
+        run: bash tools/ddc/run.sh
+        env:
+          SOURCE_DATE_EPOCH: "0"
+          PDX_PATH_PREFIX_MAP: "/=/build/"
+      
+      - name: Run byte-level differ
+        id: diff
+        run: |
+          cargo build --release -p ddc
+          ./target/release/ddc-diff \
+            tools/ddc/out/a/paideia-as \
+            tools/ddc/out/b/paideia-as \
+            tools/ddc/allowlist.toml \
+            > ddc-diff-report.json || true
+          echo "report=ddc-diff-report.json" >> "$GITHUB_OUTPUT"
+      
+      - name: Upload DDC artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ddc-nightly-${{ github.run_number }}
+          path: |
+            ddc-diff-report.json
+            tools/ddc/out/a/paideia-as
+            tools/ddc/out/b/paideia-as
+          retention-days: 30
+      
+      - name: Summarise result
+        if: always()
+        run: |
+          echo "## DDC Nightly Result" >> "$GITHUB_STEP_SUMMARY"
+          if [[ -f ddc-diff-report.json ]]; then
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            head -50 ddc-diff-report.json >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No diff report produced; orchestrator failed before differ ran." >> "$GITHUB_STEP_SUMMARY"
+          fi
