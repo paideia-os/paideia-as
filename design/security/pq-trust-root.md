@@ -59,7 +59,7 @@ Q-codes live under `Category::Q` (post-quantum, 0900–0999). Added to `paideia-
 
 ### §12 — Delegation scope check
 
-**Resolved:** `KeyScope` (BTreeSet<u32>) + `check_delegation_scope` reads the m4-004 `.paideia.effects` section, computes the union of every entry's `fixed_effects`, and verifies `pax_effects ⊆ key.scope`. Open row tails (row-polymorphic functions) are ignored at the scope-check layer — this is a phase-2-m7-004 simplification documented inline. Future PRs may extend to row-polymorphic scope.
+**Resolved:** `KeyScope` (BTreeSet<u32>) + `check_delegation_scope` reads the m4-004 `.paideia.effects` section, computes the union of every entry's `fixed_effects`, and verifies `pax_effects ⊆ key.scope`. Phase 3 m7-004 extended the check to row-polymorphic functions via `check_scope_subsumption_with_row_poly`: a function with an open row tail (`!{Io | e}`) is accepted under a strictly larger key scope, provided its fixed effects are a subset of the key's scope. See "Phase 3 m7 update" below for the full subsumption rule.
 
 ### §13 — Rank-5-elaborator-reflection use case
 
@@ -69,8 +69,35 @@ Q-codes live under `Category::Q` (post-quantum, 0900–0999). Added to `paideia-
 
 - **Hardware HSM**: deferred to a future track. The soft-HSM API is `pub trait`-shaped enough that a hardware backend can implement the same interface.
 - **NIST ACVP test vectors for ML-DSA**: the m7-001 KAT uses a deterministic-rnd vector instead of the full NIST ACVP test-vector set. Adequate for round-trip; the broader vector set should land when the ml-dsa crate ships them upstream.
-- **Row-polymorphic scope subsumption**: row variables in `.paideia.effects` (m3 row-poly) are ignored at scope-check time. A strict implementation would treat any open row as "unbounded scope required" and reject; the lenient implementation here trusts the elaborator's signature check.
+- ~~**Row-polymorphic scope subsumption**~~: **RESOLVED in Phase 3 m7-004 (PR #581).** See "Phase 3 m7 update" below.
 - **Signature timestamping / revocation**: not in scope for m7. Phase 3 may add an in-band timestamp section + revocation registry.
+
+## Phase 3 m7 update: row-polymorphic scope subsumption
+
+Phase 2 m7-004 deferred the row-polymorphic case (the "Row-polymorphic scope subsumption" D-row above). Phase 3 m7-004 (PR #581) discharges it.
+
+### The subsumption rule
+
+For a function with effect row `row_fn = !{fixed_fn | tail_fn?}` and a key with effect row `row_key = !{fixed_key | tail_key?}`, `row_fn ⊑ row_key` iff:
+
+1. `fixed_fn ⊆ fixed_key` — the function's fixed effects are a subset of the key's.
+2. If `tail_fn` is a fresh row variable (open tail), the key may have additional fixed effects beyond the function's fixed effects (the open tail "absorbs" them).
+3. If `tail_fn` is absent (closed row), `fixed_fn` must equal `fixed_key` exactly — the Phase 2 "exact match only" rule applies to this case alone.
+
+### Examples
+
+| `row_fn`             | `row_key`            | Accepted? | Reasoning                                             |
+|----------------------|----------------------|-----------|-------------------------------------------------------|
+| `!{Io \| e}`         | `@{Io.read, Mmio.write}` | yes       | Open tail; `{Io} ⊆ {Io.read, Mmio.write}` after resolving effect/cap.  |
+| `!{Io \| e}`         | `@{Io.read, Foo, Bar}` | yes       | Open tail absorbs `Foo, Bar`.                          |
+| `!{Io}`              | `@{Io.read, Mmio.write}` | NO        | Closed row; key carries `Mmio.write` not in `fixed_fn`. |
+| `!{Io, Mmio \| e}`   | `@{Io.read}`         | NO        | `fixed_fn = {Io, Mmio}` is not a subset of `{Io.read}`. |
+
+### Implementation
+
+`paideia-as-elaborator::check_handler::check_scope_subsumption_with_row_poly`. The function is called by the handler-installation check; it composes with the existing Q0901 emission so the resulting diagnostic gives the operator a precise reason.
+
+Phase 2's "exact match only" caveat in the §12 paragraph above is retired; the §12 entry now points at this section.
 
 ## Phase 3 m6: Hardware HSM landing
 
