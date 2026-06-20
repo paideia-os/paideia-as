@@ -95,6 +95,14 @@ impl EffectRowId {
 ///   Side-table entry in LoadStoreSideTable records width / signedness / alignment.
 /// - **Var** / **Literal** / **Placeholder**: no children.
 /// - **Resume**: reserved for future extension; no children yet.
+/// - **RecordCons**: allocate + populate a record. Children: [field_value_0, field_value_1, ...].
+///   Side-table: RecordLayoutTable maps this node to its TypeId (for layout).
+/// - **FieldAccess**: access a record field. Children: [record_value].
+///   Side-table: FieldAccessSideTable maps this node to (TypeId, field_index).
+/// - **EnumCons**: construct an enum variant. Children: [payload_value_0, ...] (empty for Unit).
+///   Side-table: EnumConsSideTable maps this node to (TypeId, variant_index).
+/// - **EnumDiscriminant**: extract the discriminant of an enum value. Children: [enum_value].
+///   Side-table: EnumDiscriminantSideTable maps this node to TypeId for the enum.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 #[repr(u8)]
 #[non_exhaustive]
@@ -129,6 +137,18 @@ pub enum IrKind {
     Store,
     /// Placeholder kind, used until elaborator (PR-29+) fills the real variant.
     Placeholder,
+    /// Allocate + populate a record. Children: [field_value_0, field_value_1, ...].
+    /// Side-table entry in RecordLayoutTable records the TypeId.
+    RecordCons,
+    /// Access a record field. Children: [record_value].
+    /// Side-table entry in FieldAccessSideTable records (TypeId, field_index).
+    FieldAccess,
+    /// Construct an enum variant. Children: [payload_value_0, ...] (empty for Unit).
+    /// Side-table entry in EnumConsSideTable records (TypeId, variant_index).
+    EnumCons,
+    /// Extract the discriminant of an enum value. Children: [enum_value].
+    /// Side-table entry in EnumDiscriminantSideTable records the TypeId.
+    EnumDiscriminant,
 }
 
 /// Per-node IR storage.

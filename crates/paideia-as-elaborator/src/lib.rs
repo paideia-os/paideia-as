@@ -36,6 +36,7 @@ pub mod macro_match;
 pub mod modules;
 pub mod name_resolution;
 pub mod pack;
+pub mod pattern_lower;
 mod placeholder_emit;
 pub mod populate;
 pub mod position_index;
@@ -97,6 +98,7 @@ pub use name_resolution::{NameResolutionTable, Span};
 pub use pack::{
     M_UNPACK_NOT_PACKED, PackedValue, elaborate_let_module, elaborate_pack, elaborate_unpack,
 };
+pub use pattern_lower::{lower_ident_pattern, lower_record_pattern, lower_tuple_pattern};
 pub use placeholder_emit::placeholder_for;
 pub use populate::{PopulateContext, populate_instruction_table};
 pub use position_index::{ByteOffset, FileId, PositionEntry, PositionIndex};

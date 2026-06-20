@@ -11,6 +11,7 @@
 pub mod anf;
 mod arena;
 pub mod effect_rewrite;
+pub mod enum_layout;
 pub mod handler_value;
 pub mod instruction;
 pub mod load_store;
@@ -18,6 +19,7 @@ pub mod modules;
 mod node;
 pub mod opt;
 pub mod pretty;
+pub mod record_layout;
 pub mod walker;
 pub mod walker_ctx;
 
@@ -27,6 +29,7 @@ pub use effect_rewrite::{
     HandlerTable, PerformRewrite, WithRewrite, rewrite_perform, rewrite_unsafe_passthrough,
     rewrite_with_save_restore,
 };
+pub use enum_layout::{EnumConsInfo, EnumConsSideTable, EnumDiscriminantSideTable, EnumTypeId};
 pub use handler_value::{HandlerInfo, HandlerSideTable, pretty_handler};
 pub use instruction::{
     Cond, EncodingHint, Instruction, InstructionSideTable, Mnemonic, Operand, RegId, Scale,
@@ -38,6 +41,7 @@ pub use modules::{
     FieldKind, FunctorInfo, ModuleField, ModuleInfo, ModuleSideTable, pretty_module,
 };
 pub use node::{EffectRowId, IrKind, IrNodeData, IrNodeId, LinClass};
+pub use record_layout::{FieldAccessInfo, FieldAccessSideTable, RecordLayoutTable, RecordTypeId};
 pub use walker::{IrWalker, walk};
 pub use walker_ctx::WalkerCtx;
 
