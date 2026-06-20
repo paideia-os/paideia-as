@@ -1,0 +1,117 @@
+// =============================================================================
+// 17_strlen.pdx — NUL-terminated string length, paideia-as equivalent
+// -----------------------------------------------------------------------------
+// status: parses cleanly
+// asm-reference: asm-reference/algorithms/strlen.asm
+// design-doc:
+//   design/toolchain/calling-convention.md §1.3 / §1.4,
+//   design/toolchain/custom-assembler.md §9 (Inline-assembly escape Q-A8),
+//   design/toolchain/syntax-reference.md §8 (UnsafeExpr / UnsafeFields),
+//   design/toolchain/optimization-passes.md (m9-008 #[tailcall]).
+// feature:
+//   - hybrid composition: the per-byte read goes through a one-instruction
+//     `unsafe { }` block; the scan loop is paideia-as tail recursion (the
+//     same idiom as 13_factorial / 14_fibonacci).
+//   - `MemRead` effect declares arbitrary-byte read; `read_byte_at(addr)`
+//     is the surface name for `mov al, byte [addr]`.
+// =============================================================================
+//
+// Hand-written NASM equivalent (asm-reference/algorithms/strlen.asm):
+//
+//     strlen:
+//         mov     rax, rdi                ; cursor = start
+//     .loop:
+//         cmp     byte [rax], 0
+//         je      .done
+//         inc     rax
+//         jmp     .loop
+//     .done:
+//         sub     rax, rdi                ; length = cursor - start
+//         ret
+//
+// The NASM version's loop is the canonical byte-at-a-time NUL scan. The
+// per-byte read `cmp byte [rax], 0` has no surface-language equivalent (the
+// type grammar doesn't yet expose `*u8`), so this paideia-as equivalent
+// uses a HYBRID composition:
+//
+// - The single-byte read is encapsulated in a one-instruction `unsafe { }`
+//   block (`read_byte_at`). The effect / capability / justification fields
+//   advertise the raw-memory access for the m4-005 audit log.
+//
+// - The scan loop is paideia-as tail recursion (same idiom as 13_factorial
+//   and 14_fibonacci). m9-008's TailCallPass lowers the recursive call to
+//   a `jmp`, so the emitted bytecode shape converges with the NASM loop
+//   above.
+//
+// The result: the scan logic stays in the typed surface; only the actual
+// memory poke escapes through `unsafe`. Phase 3 may extend the surface with
+// `*u8` + a typed `read_byte` primitive, at which point even the unsafe
+// wrapper goes away.
+//
+// =============================================================================
+
+module Strlen = structure {
+
+  // ---------------------------------------------------------------------------
+  // EFFECT DECLARATION
+  //
+  // `MemRead` declares "this operation may read arbitrary memory." It's the
+  // read-only sibling of `MemCopy` from 16_memcpy.pdx; a future PR may
+  // unify them under a `RawMem` effect family.
+  // ---------------------------------------------------------------------------
+  effect MemRead {
+    op read_byte : (u64) -> u8
+  }
+
+  // ---------------------------------------------------------------------------
+  // THE PRIMITIVE READ
+  //
+  // A single-byte read at the given absolute address. The body is a
+  // one-instruction `unsafe { }` block hosting the NASM byte read. The
+  // signature advertises the effect on the typed surface; the
+  // justification line surfaces in the m4-005 .paideia.unsafe audit
+  // section.
+  // ---------------------------------------------------------------------------
+  let read_byte_at : (u64) -> u8 !{MemRead} @{} =
+    fn (addr : u64) -> unsafe {
+      effects: { MemRead },
+      capabilities: { },
+      justification: "Byte-at-a-time NUL scan needs a typed read_byte primitive. Until *u8 ships in Phase 3, this one-instruction unsafe block carries the raw memory poke. The contract: addr points at a byte the caller has read access to. The block body is the marker raw_byte_load_rdi which the m4-005 audit catalog records; the actual lowering to `mov al, byte [rdi]` activates with the per-node IR work flagged in phase-transition-2.md.",
+      block: {
+        raw_byte_load_rdi
+      }
+    }
+
+  // ---------------------------------------------------------------------------
+  // THE SCAN LOOP (TAIL RECURSION)
+  //
+  // The recursive helper walks the cursor forward one byte at a time until
+  // it finds the NUL. The `start` argument is preserved across iterations
+  // so we can compute `cursor - start` at the end.
+  //
+  // Argument layout per §1.3:
+  //   - cursor  → RDI
+  //   - start   → RSI
+  //
+  // m9-008's TailCallPass lowers the recursive arm's call to a `jmp`. The
+  // resulting bytecode shape matches the NASM `.loop` block above.
+  // ---------------------------------------------------------------------------
+  let scan : (u64, u64) -> u64 !{MemRead} @{} =
+    fn (cursor : u64) (start : u64) -> match read_byte_at(cursor) {
+      0 => cursor - start,
+      _ => scan(cursor + 1, start)
+    }
+
+  // ---------------------------------------------------------------------------
+  // PUBLIC ENTRY POINT
+  //
+  // Matches the NASM `strlen` symbol's ABI exactly:
+  //   - s   → RDI (pointer to first byte; representation as u64).
+  //   - returns length (in RAX).
+  //
+  // The cursor and start both begin at `s`; the helper returns the
+  // difference between the NUL-position cursor and the start.
+  // ---------------------------------------------------------------------------
+  let strlen : (u64) -> u64 !{MemRead} @{} =
+    fn (s : u64) -> scan(s, s)
+}

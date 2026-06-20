@@ -1,0 +1,74 @@
+// =============================================================================
+// 14_fibonacci.pdx — iterative Fibonacci, paideia-as equivalent
+// -----------------------------------------------------------------------------
+// status: parses cleanly
+// asm-reference: asm-reference/algorithms/fibonacci.asm
+// design-doc:
+//   design/toolchain/calling-convention.md §1.3 / §1.4,
+//   design/toolchain/optimization-passes.md (m9-008 #[tailcall]).
+// feature:
+//   - two-accumulator tail-recursive pattern (a, b).
+//   - canonical Fibonacci sequence: fib(0) = 0, fib(1) = 1,
+//     fib(n) = fib(n-1) + fib(n-2).
+//   - the NASM version uses RAX and RCX as a/b with RDX as scratch;
+//     paideia-as expresses the same dataflow as a 3-arg tail call.
+// =============================================================================
+//
+// Hand-written NASM equivalent (asm-reference/algorithms/fibonacci.asm):
+//
+//     fibonacci:
+//         mov     rax, 0                  ; a = fib(0)
+//         mov     rcx, 1                  ; b = fib(1)
+//         test    rdi, rdi
+//         jz      .done
+//     .loop:
+//         mov     rdx, rax                ; tmp = a
+//         mov     rax, rcx                ; a = b
+//         add     rcx, rdx                ; b = tmp + b
+//         dec     rdi
+//         jnz     .loop
+//     .done:
+//         ret
+//
+// The state machine `(a, b) -> (b, a + b)` is well-known. NASM threads the
+// rotation through three registers (RAX, RCX, RDX). paideia-as expresses it
+// as three function parameters; after TCO + register allocation, the
+// emitted code shape collapses to the same register-only cycle.
+//
+// =============================================================================
+
+module Fibonacci = structure {
+
+  // ---------------------------------------------------------------------------
+  // The accumulator helper. Carries the (a, b) pair through each iteration.
+  //
+  // Arguments per §1.3:
+  //   - n     → RDI
+  //   - a     → RSI
+  //   - b     → RDX
+  //
+  // The rotation `(a, b) -> (b, a + b)` is expressed by the recursive
+  // call's argument list: pass the new `a` (which is the old `b`) and the
+  // new `b` (which is the old `a + b`).
+  //
+  // m9-008's TailCallPass lowers this to a `jmp` exactly as in the NASM
+  // loop — no stack growth, no register save/restore.
+  // ---------------------------------------------------------------------------
+  let fib_acc : (u64, u64, u64) -> u64 =
+    fn (n : u64) (a : u64) (b : u64) -> match n {
+      0 => a,
+      _ => fib_acc(n - 1, b, a + b)
+    }
+
+  // ---------------------------------------------------------------------------
+  // Public entry point matching the NASM `fibonacci` symbol's ABI:
+  //   - n in RDI
+  //   - return value in RAX
+  //
+  // Base cases:
+  //   - fib(0) = 0 (returned via the n = 0 arm of `fib_acc`).
+  //   - fib(1) = 1 (returned via the n = 1 arm after one iteration:
+  //     `fib_acc(0, 1, 1) = 1`).
+  // ---------------------------------------------------------------------------
+  let fibonacci : (u64) -> u64 = fn (n : u64) -> fib_acc(n, 0, 1)
+}

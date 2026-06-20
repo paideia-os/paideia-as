@@ -48,10 +48,42 @@ calls this out explicitly.
 | `10_pure_function.pdx`        | `!{}` empty effect row; what `!{}` forbids; local-handler escape | parses cleanly |
 | `11_unsafe_block.pdx`         | `unsafe { effects, capabilities, justification, block }` — all four mandatory | parses cleanly |
 | `12_calling_convention.pdx`   | RDI/RSI/RDX/RCX argument passing; R12 capability handle; R15-rooted handler table; functor declaration | parses cleanly |
+| `13_factorial.pdx`            | Tail-recursive accumulator factorial; paideia-as equivalent of `asm-reference/algorithms/factorial.asm`. m9-008 TCO lowers to the NASM loop | parses cleanly |
+| `14_fibonacci.pdx`            | Three-arg tail recursion threading `(a, b)` rotation; paideia-as equivalent of `asm-reference/algorithms/fibonacci.asm` | parses cleanly |
+| `15_sum_array.pdx`            | Indexed array walk via tail recursion + abstract `Array` type; paideia-as equivalent of `asm-reference/algorithms/sum_array.asm` | parses cleanly |
+| `16_memcpy.pdx`               | REP MOVSB bulk copy via `unsafe { }` escape; paideia-as equivalent of `asm-reference/algorithms/memcpy.asm` | parses cleanly |
+| `17_strlen.pdx`               | Hybrid: per-byte read via `unsafe`, scan loop as tail recursion; paideia-as equivalent of `asm-reference/algorithms/strlen.asm` | parses cleanly |
 
-All twelve files are accepted by `paideia-as check` at HEAD; the
+All seventeen files are accepted by `paideia-as check` at HEAD; the
 "language-intent" qualifications above flag constructs that the parser
 currently sidesteps via commentary.
+
+## asm-reference equivalence (files 13–17)
+
+The five algorithm examples 13–17 mirror the hand-written NASM programs
+under `asm-reference/algorithms/`. Each file calls out the specific
+`.asm` reference in its header and includes the NASM source verbatim as
+a comment block, so the equivalence is reviewable side-by-side.
+
+The mapping discipline:
+
+- **Pure-functional algorithms** (factorial, fibonacci) use tail-recursive
+  accumulator pattern; m9-008's `TailCallPass` lowers the recursive arm
+  to a `jmp`, so the emitted bytecode shape converges with the NASM
+  iterative loop.
+- **Indexed reads** (sum_array) use an abstract `Array` type with a
+  `read_index` primitive. The actual `mov rax, [rdi + rcx * 8]` lowering
+  activates with the per-node IR instruction-payload work flagged in
+  `design/toolchain/phase-transition-2.md` §2.
+- **Raw memory access** (memcpy, strlen) uses the `unsafe { }` escape
+  per `11_unsafe_block.pdx`. The block body is the canonical NASM
+  instruction sequence; effect rows like `!{MemCopy}` / `!{MemRead}`
+  advertise the raw-memory contract on the typed surface.
+
+The bootloader (`asm-reference/bootloader/boot.asm`) has no paideia-as
+equivalent: it's a 512-byte MBR running in 16-bit real mode under BIOS,
+while paideia-as targets x86_64 long mode. The 16-bit real-mode artifact
+is intentionally left as the NASM reference only.
 
 ## Running an example
 

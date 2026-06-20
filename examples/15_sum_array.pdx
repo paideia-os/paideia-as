@@ -1,0 +1,88 @@
+// =============================================================================
+// 15_sum_array.pdx — sum the first n u64s of an array, paideia-as equivalent
+// -----------------------------------------------------------------------------
+// status: parses cleanly
+// asm-reference: asm-reference/algorithms/sum_array.asm
+// design-doc:
+//   design/toolchain/calling-convention.md §1.3 / §1.4,
+//   design/toolchain/syntax-reference.md §8 (LambdaExpr, MatchExpr),
+//   design/toolchain/optimization-passes.md (m9-008 #[tailcall]).
+// feature:
+//   - tail-recursive index walk over an abstract array type.
+//   - matches the NASM ABI: array pointer in RDI, count in RSI, sum in RAX.
+//   - 64-bit unsigned addition with silent wrap on overflow (the NASM
+//     reference's documented behaviour).
+// =============================================================================
+//
+// Hand-written NASM equivalent (asm-reference/algorithms/sum_array.asm):
+//
+//     sum_array:
+//         xor     rax, rax                ; sum = 0
+//         xor     rcx, rcx                ; i = 0
+//     .loop:
+//         cmp     rcx, rsi
+//         jae     .done
+//         add     rax, [rdi + rcx * 8]
+//         inc     rcx
+//         jmp     .loop
+//     .done:
+//         ret
+//
+// The NASM version uses RAX (sum), RCX (index), and `[rdi + rcx * 8]` as the
+// indexed load — the canonical SIB-form addressing for u64-array element
+// access. paideia-as expresses the same loop as a tail-recursive helper
+// `sum_acc` that threads the running sum and the index through each call.
+//
+// The actual indexed read at the IR level is a built-in `index_u64` operation
+// on an `Array<u64>` value. Phase-2-m11 ships the surface; the per-node
+// lowering to `add rax, [rdi + rcx * 8]` activates with the per-node IR
+// instruction payload work (see design/toolchain/phase-transition-2.md §2).
+//
+// After m9-008's TailCallPass lowers the recursive call to a `jmp`, the
+// emitted bytecode reduces to the same indexed-load + accumulate + back-edge
+// shape as the NASM loop above.
+//
+// =============================================================================
+
+module SumArray = structure {
+
+  // ---------------------------------------------------------------------------
+  // The accumulator helper. Walks the array element by element.
+  //
+  // Arguments per §1.3:
+  //   - xs    → RDI (handle to the array; lowered to the array head pointer).
+  //   - n     → RSI (element count).
+  //   - i     → RDX (current index).
+  //   - acc   → RCX (running sum).
+  //
+  // The recursive arm reads `xs[i]` via the built-in indexed accessor and
+  // accumulates. After TCO the call becomes a tight loop equivalent to the
+  // NASM version: indexed load + add + increment + back-edge.
+  //
+  // The empty effect row `!{}` and capability row `@{}` on each line below
+  // are inferred today (no annotation needed because no effect / capability
+  // is performed).
+  // ---------------------------------------------------------------------------
+  let sum_acc : (Array, u64, u64, u64) -> u64 =
+    fn (xs : Array) (n : u64) (i : u64) (acc : u64) -> match i {
+      n => acc,
+      _ => sum_acc(xs, n, i + 1, acc + read_index(xs, i))
+    }
+
+  // ---------------------------------------------------------------------------
+  // The indexed read primitive. Phase-2-m11 minimum: this is a placeholder
+  // signature; the actual lowering to `mov rax, [rdi + rcx * 8]` waits for
+  // the per-node IR work flagged in design/toolchain/phase-transition-2.md
+  // §2 ("What didn't ship").
+  // ---------------------------------------------------------------------------
+  let read_index : (Array, u64) -> u64 = fn (xs : Array) (i : u64) -> 0
+
+  // ---------------------------------------------------------------------------
+  // Public entry point matching the NASM `sum_array` symbol's ABI:
+  //   - xs    → RDI
+  //   - n     → RSI
+  //   - return value (sum) in RAX
+  // ---------------------------------------------------------------------------
+  let sum_array : (Array, u64) -> u64 =
+    fn (xs : Array) (n : u64) -> sum_acc(xs, n, 0, 0)
+}
