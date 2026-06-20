@@ -10,9 +10,11 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         eprintln!("usage: paideia-pq-sign <subcommand> [args...]");
-        eprintln!("  release <path>              (deprecated: use hsm release)");
-        eprintln!("  hsm init <path>             (initialize soft-HSM at path)");
-        eprintln!("  hsm release <hsm> <artifact> (sign artifact with soft-HSM)");
+        eprintln!("  release <path>                          (deprecated: use hsm release)");
+        eprintln!("  hsm init <path>                         (initialize soft-HSM at path)");
+        eprintln!("  hsm release <hsm> <artifact>            (sign artifact with soft-HSM)");
+        eprintln!("  hsm pkcs11 init --module <path> --slot <id> --pin <pin>");
+        eprintln!("                                          (initialize PKCS#11 session)");
         return ExitCode::from(2);
     }
 
@@ -26,7 +28,7 @@ fn main() -> ExitCode {
         }
         "hsm" => {
             if args.len() < 3 {
-                eprintln!("usage: paideia-pq-sign hsm <init|release> [args...]");
+                eprintln!("usage: paideia-pq-sign hsm <init|release|pkcs11> [args...]");
                 return ExitCode::from(2);
             }
             match args[2].as_str() {
@@ -43,6 +45,19 @@ fn main() -> ExitCode {
                         return ExitCode::from(2);
                     }
                     run_hsm_release(&args[3], &args[4])
+                }
+                "pkcs11" => {
+                    if args.len() < 4 {
+                        eprintln!("usage: paideia-pq-sign hsm pkcs11 <init> [args...]");
+                        return ExitCode::from(2);
+                    }
+                    match args[3].as_str() {
+                        "init" => run_pkcs11_init(&args[4..]),
+                        _ => {
+                            eprintln!("unknown pkcs11 subcommand: {}", args[3]);
+                            ExitCode::from(2)
+                        }
+                    }
                 }
                 _ => {
                     eprintln!("unknown hsm subcommand: {}", args[2]);
@@ -191,5 +206,97 @@ fn run_hsm_release(hsm_path: &str, artifact_path: &str) -> ExitCode {
     }
 
     println!("Signed: {}.sig", artifact.display());
+    ExitCode::SUCCESS
+}
+
+fn run_pkcs11_init(args: &[String]) -> ExitCode {
+    // Parse args: --module <path> --slot <id> --pin <pin>
+    let mut module_path: Option<&str> = None;
+    let mut slot_id: Option<u64> = None;
+    let mut pin: Option<&str> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--module" => {
+                if i + 1 < args.len() {
+                    module_path = Some(&args[i + 1]);
+                    i += 2;
+                } else {
+                    eprintln!("--module requires an argument");
+                    return ExitCode::from(2);
+                }
+            }
+            "--slot" => {
+                if i + 1 < args.len() {
+                    match args[i + 1].parse::<u64>() {
+                        Ok(id) => {
+                            slot_id = Some(id);
+                            i += 2;
+                        }
+                        Err(_) => {
+                            eprintln!("--slot requires a numeric argument");
+                            return ExitCode::from(2);
+                        }
+                    }
+                } else {
+                    eprintln!("--slot requires an argument");
+                    return ExitCode::from(2);
+                }
+            }
+            "--pin" => {
+                if i + 1 < args.len() {
+                    pin = Some(&args[i + 1]);
+                    i += 2;
+                } else {
+                    eprintln!("--pin requires an argument");
+                    return ExitCode::from(2);
+                }
+            }
+            _ => {
+                eprintln!("unknown argument: {}", args[i]);
+                return ExitCode::from(2);
+            }
+        }
+    }
+
+    let module_path = match module_path {
+        Some(p) => p,
+        None => {
+            eprintln!("--module is required");
+            return ExitCode::from(2);
+        }
+    };
+
+    let slot_id = match slot_id {
+        Some(id) => id,
+        None => {
+            eprintln!("--slot is required");
+            return ExitCode::from(2);
+        }
+    };
+
+    let pin = match pin {
+        Some(p) => p,
+        None => {
+            eprintln!("--pin is required");
+            return ExitCode::from(2);
+        }
+    };
+
+    // Initialize PKCS#11 signer
+    let signer = match paideia_pq_sign::hsm::Pkcs11Signer::new(module_path, slot_id, pin) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("PKCS#11 initialization failed: {e}");
+            return ExitCode::from(1);
+        }
+    };
+
+    println!("PKCS#11 signer initialized:");
+    println!("  Module: {}", signer.module_path());
+    println!("  Slot: {}", signer.slot_id());
+    println!("  Status: Phase-3 scaffold (real signing requires SoftHSM2 or hardware HSM)");
+
     ExitCode::SUCCESS
 }

@@ -18,12 +18,15 @@ path = "src/bin/cli.rs"
 argon2        = "0.5"
 blake3        = { workspace = true }
 chacha20poly1305 = "0.10"
+cryptoki      = "0.7"
 ed25519-dalek = { workspace = true, features = ["rand_core"] }
 hex           = "0.4"
 ml-dsa        = { workspace = true, features = ["rand_core"] }
 rand_core     = { workspace = true }
 rand_chacha   = "0.3"
 signature     = { workspace = true }
+thiserror     = { workspace = true }
+toml          = { workspace = true }
 paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
 paideia-as-emitter-pax = { path = "../paideia-as-emitter-pax" }
 

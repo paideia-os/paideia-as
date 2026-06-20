@@ -7,6 +7,7 @@
 #![forbid(unsafe_code)]
 
 pub mod ed25519;
+pub mod hsm;
 pub mod hybrid;
 pub mod mldsa;
 pub mod pax;
