@@ -112,9 +112,61 @@ hpk         [u8; 1984] // unencrypted hybrid public key
 
 The soft-HSM is **not suitable for production**. It stores the secret key encrypted-at-rest but still resident in the filesystem. Production release signing uses hardware HSM via a separate implementation (§8 of pq-trust-root.md) with ≥2-of-3 quorum enforcement and physical isolation.
 
+## Hardware HSM backends (Phase 3 m6)
+
+Phase 3 m6-001/002/003 added the `Pkcs11Signer` (cryptoki backend) and `YubiHsmSigner` (YubiHSM2 backend) implementations of the `HsmSigner` trait, plus the `HybridSigner<H, S>` composer for mixed hardware/soft signing.
+
+### Hardware-lane test corpus
+
+`tests/pq-corpus/tests/hardware_lane.rs` ships 4 `#[ignore]`'d tests, one per backend init / opt-in path. These are deliberately gated because activating them requires either:
+
+- a SoftHSM2 install + PKCS#11 module path (for the PKCS#11 lane), or
+- a YubiHSM2 device + connector URL + key id (for the YubiHSM2 lane).
+
+#### Manual reactivation
+
+**PKCS#11 / SoftHSM2 lane:**
+
+```bash
+# Install SoftHSM2 (Debian/Ubuntu):
+sudo apt install softhsm2
+sudo softhsm2-util --init-token --slot 0 --label paideia-pq-sign-test \
+    --pin 1234 --so-pin 1234
+
+# Env vars:
+export SOFTHSM2_AVAILABLE=1
+export SOFTHSM2_CONF=/etc/softhsm/softhsm2.conf
+export PKCS11_MODULE=/usr/lib/softhsm/libsofthsm2.so
+export PKCS11_SLOT=0
+export PKCS11_PIN=1234
+
+# Run:
+cargo test --test hardware_lane -p paideia-pq-corpus -- --ignored pkcs11
+```
+
+**YubiHSM2 lane:**
+
+```bash
+# With a real YubiHSM2 attached + connector running:
+export YUBIHSM_CONNECTOR=http://127.0.0.1:12345
+export YUBIHSM_ED25519_KEY_ID=0x0001
+
+# Run:
+cargo test --test hardware_lane -p paideia-pq-corpus -- --ignored yubihsm
+```
+
+#### Hybrid-fallback contract (m6-002 / m6-003)
+
+YubiHSM2 firmware (≤ 2.6) supports Ed25519 in hardware but **not** ML-DSA-65. The hybrid composition is therefore:
+
+- Ed25519 leg: hardware-protected (YubiHSM2 firmware).
+- ML-DSA-65 leg: soft-protected (Argon2id + ChaCha20-Poly1305 wrapper).
+
+Operator opt-in is required via the `--opt-in-hybrid-fallback` CLI flag. Without it, `Q0902 hsm-no-pq-support` fires. See `design/security/pq-trust-root.md` Phase 3 m6 appendix for the trust-root analysis.
+
 ## Future
 
-- **Production HSM integration** (YubiHSM, AWS CloudHSM, Thales Luna, etc.) per pq-trust-root.md §5.1
+- **Production HSM integration** (AWS CloudHSM, Thales Luna, etc.) per pq-trust-root.md §5.1.
 - **git tag --sign analog**: Sign git tags directly.
 - **Verification CLI subcommand**: `paideia-pq-sign verify <artifact>`.
 - **Artifact manifest**: JSON manifest with checksums and signatures for multiple artifacts.
