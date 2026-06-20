@@ -12,4 +12,6 @@ name = "paideia_as_emitter_pe"
 
 [dependencies]
 paideia-as-encoder = { path = "../paideia-as-encoder" }
+paideia-as-ir = { path = "../paideia-as-ir" }
+smallvec = { workspace = true }
 static_assertions = { workspace = true }

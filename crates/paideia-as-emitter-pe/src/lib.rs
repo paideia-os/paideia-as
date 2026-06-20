@@ -9,6 +9,7 @@ pub mod header;
 pub mod imports;
 pub mod reloc;
 pub mod section;
+pub mod text_emitter;
 pub mod uefi_thunk;
 
 pub use header::{
@@ -40,4 +41,5 @@ pub use section::{
     SECTION_NAME_LEN, Section, SectionHeader, SectionTable, align_up,
 };
 
+pub use text_emitter::{TextEmitterError, emit_text_from_instructions};
 pub use uefi_thunk::{emit_uefi_thunk, emit_uefi_thunk_for_target};

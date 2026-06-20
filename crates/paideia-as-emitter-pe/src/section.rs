@@ -273,6 +273,20 @@ impl SectionTable {
         ));
     }
 
+    /// Get mutable reference to the text section if one exists, else create one.
+    /// Returns a mutable reference to the text section's content buffer.
+    pub fn text_section_mut(&mut self) -> &mut Vec<u8> {
+        // Check if .text section already exists
+        if self.sections.is_empty() || self.sections[0].header.name != *b".text\0\0\0" {
+            // Create a new empty .text section at the front
+            self.sections.insert(
+                0,
+                Section::new_named(b".text\0\0\0", CHARACTERISTICS_TEXT, Vec::new(), 0),
+            );
+        }
+        &mut self.sections[0].content
+    }
+
     /// Add a .data section (initialized data).
     pub fn add_data(&mut self, content: Vec<u8>) {
         let vsize = content.len() as u32;
