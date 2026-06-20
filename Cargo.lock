@@ -496,6 +496,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ddc"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml",
+]
+
+[[package]]
 name = "der"
 version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"

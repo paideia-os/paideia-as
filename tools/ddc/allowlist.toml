@@ -1,0 +1,14 @@
+# DDC non-determinism allowlist.
+#
+# Each rule documents a known source of non-determinism between two
+# diverse builds. The differ ignores byte differences in these ranges.
+
+[[rules]]
+name = "build-timestamp-elf-note"
+start = 0
+end = 0
+reason = "ELF .note.gnu.build-id can embed a timestamp; m10-003 eliminates this."
+
+# Phase-2-m10-002 ships an empty allowlist (start = end = 0 is a sentinel
+# that matches only offset 0; future entries will use real ranges from
+# m10-003's determinism-fix work).
