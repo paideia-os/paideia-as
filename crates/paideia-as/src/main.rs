@@ -11,6 +11,7 @@ mod cli;
 mod cmd_build;
 mod cmd_check;
 mod cmd_dump_ast;
+mod det;
 
 use std::process::ExitCode;
 
