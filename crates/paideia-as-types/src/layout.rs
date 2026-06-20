@@ -105,6 +105,10 @@ pub fn layout_of(interner: &TypeInterner, ty: TypeId) -> Layout {
             size: 8,
             alignment: 8,
         },
+        Type::Str => Layout {
+            size: 16,
+            alignment: 8,
+        },
         Type::Record { fields } => layout_of_record(interner, fields),
         Type::Enum { variants } => layout_of_enum(interner, variants),
         // Conservative defaults for types without explicit size info
@@ -479,5 +483,21 @@ mod tests {
             "Mixed enum should be 16 bytes (discriminant + max payload)"
         );
         assert_eq!(layout.alignment, 8, "Mixed enum should have alignment 8");
+    }
+
+    #[test]
+    fn layout_of_str_returns_16_bytes_align_8() {
+        let mut interner = TypeInterner::new();
+        let str_id = interner.str_ty();
+
+        let layout = layout_of(&interner, str_id);
+        assert_eq!(
+            layout.size, 16,
+            "Type::Str should have size 16 (8 bytes ptr + 8 bytes len)"
+        );
+        assert_eq!(
+            layout.alignment, 8,
+            "Type::Str should have alignment 8 (fat pointer)"
+        );
     }
 }

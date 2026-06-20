@@ -176,6 +176,12 @@ pub enum Type {
         /// Using SmallVec with inline capacity 4 for typical cases.
         variants: SmallVec<[(u32, EnumPayload); 4]>,
     },
+    /// String slice type `&str` — immutable UTF-8 byte slice.
+    ///
+    /// Conceptually `{ data: *u8, len: u64 }`. This is a fat pointer with
+    /// a data pointer and length. Layout: 16 bytes (8 data ptr + 8 len), 8-byte aligned.
+    /// Interns to a singleton (no fields → deterministic interning).
+    Str,
 }
 
 /// Payload shape for an enum variant.
@@ -362,5 +368,16 @@ mod tests {
             enum1, enum2,
             "Enums with different variant order should have different TypeIds"
         );
+    }
+
+    #[test]
+    fn type_str_interns_to_singleton() {
+        let mut interner = TypeInterner::new();
+
+        let str1 = interner.intern(Type::Str);
+        let str2 = interner.intern(Type::Str);
+
+        assert_eq!(str1, str2, "Type::Str should intern to the same TypeId");
+        assert_eq!(interner.len(), 1, "Only one type should be interned");
     }
 }

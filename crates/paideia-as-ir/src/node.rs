@@ -93,7 +93,7 @@ impl EffectRowId {
 ///   Side-table entry in LoadStoreSideTable records width / signedness / alignment.
 /// - **Store**: memory store. Children are [pointer, index, value].
 ///   Side-table entry in LoadStoreSideTable records width / signedness / alignment.
-/// - **Var** / **Literal** / **Placeholder**: no children.
+/// - **Var** / **Literal** / **StringLiteral** / **Placeholder**: no children.
 /// - **Resume**: reserved for future extension; no children yet.
 /// - **RecordCons**: allocate + populate a record. Children: [field_value_0, field_value_1, ...].
 ///   Side-table: RecordLayoutTable maps this node to its TypeId (for layout).
@@ -121,6 +121,9 @@ pub enum IrKind {
     Var,
     /// Literal (int / string / etc. — payload in side-table; out of scope here).
     Literal,
+    /// String literal — immutable UTF-8 byte slice in .rodata.
+    /// Side-table entry in StringLiteralTable records (rodata_offset: u64, len: u64).
+    StringLiteral,
     /// Effect operation (handler perform).
     Perform,
     /// With-handler installation.

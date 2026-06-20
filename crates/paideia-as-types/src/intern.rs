@@ -32,6 +32,8 @@ pub struct TypeInterner {
     cached_bot: Option<TypeId>,
     /// Fast path for term type.
     cached_term: Option<TypeId>,
+    /// Fast path for str type.
+    cached_str: Option<TypeId>,
 }
 
 impl TypeInterner {
@@ -46,6 +48,7 @@ impl TypeInterner {
             cached_top: None,
             cached_bot: None,
             cached_term: None,
+            cached_str: None,
         }
     }
 
@@ -151,6 +154,16 @@ impl TypeInterner {
         }
         let id = self.intern(Type::Term);
         self.cached_term = Some(id);
+        id
+    }
+
+    /// Intern the str type, with caching.
+    pub fn str_ty(&mut self) -> TypeId {
+        if let Some(id) = self.cached_str {
+            return id;
+        }
+        let id = self.intern(Type::Str);
+        self.cached_str = Some(id);
         id
     }
 
@@ -355,6 +368,15 @@ mod tests {
         let u32 = interner.uint(32);
         assert_ne!(u64_a, u32);
         assert_eq!(interner.len(), 2);
+    }
+
+    #[test]
+    fn str_type_is_cached() {
+        let mut interner = TypeInterner::new();
+        let id1 = interner.str_ty();
+        let id2 = interner.str_ty();
+        assert_eq!(id1, id2);
+        assert_eq!(interner.len(), 1);
     }
 
     #[test]
