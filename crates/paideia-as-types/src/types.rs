@@ -156,6 +156,20 @@ pub enum Type {
         /// Whether this is a mutable pointer (`*mut T`) or immutable (`*T`).
         mutable: bool,
     },
+    /// Reference type `&T` or `&mut T`.
+    ///
+    /// `mutable = false` represents `&T` (immutable reference).
+    /// `mutable = true` represents `&mut T` (mutable reference).
+    /// `lifetime` is the region-calculus lifetime id (0 = 'static; nonzero = m5 region id).
+    /// Under m4 flag, lifetime is ignored during unification; m5 will activate region checking.
+    Ref {
+        /// The type being referenced.
+        pointee: TypeId,
+        /// Whether this is a mutable reference (`&mut T`) or immutable (`&T`).
+        mutable: bool,
+        /// Lifetime identifier (0 = 'static; nonzero = m5 region-calculus lifetime id).
+        lifetime: u32,
+    },
     /// Record (struct) type with named fields.
     ///
     /// Fields are stored in order of declaration. Two records with the same
@@ -282,6 +296,65 @@ mod tests {
             ptr_immutable, ptr_mutable,
             "*u64 and *mut u64 should intern to different TypeIds"
         );
+    }
+
+    #[test]
+    fn ref_interns_same_pointee_mut_lifetime_to_same_id() {
+        let mut interner = TypeInterner::new();
+        let u64_id = interner.uint(64);
+
+        let ref1 = interner.intern(Type::Ref {
+            pointee: u64_id,
+            mutable: false,
+            lifetime: 0,
+        });
+        let ref2 = interner.intern(Type::Ref {
+            pointee: u64_id,
+            mutable: false,
+            lifetime: 0,
+        });
+
+        assert_eq!(ref1, ref2, "&u64 and &u64 should intern to the same TypeId");
+    }
+
+    #[test]
+    fn ref_interns_different_mutability_distinct() {
+        let mut interner = TypeInterner::new();
+        let u64_id = interner.uint(64);
+
+        let ref_immutable = interner.intern(Type::Ref {
+            pointee: u64_id,
+            mutable: false,
+            lifetime: 0,
+        });
+        let ref_mutable = interner.intern(Type::Ref {
+            pointee: u64_id,
+            mutable: true,
+            lifetime: 0,
+        });
+
+        assert_ne!(
+            ref_immutable, ref_mutable,
+            "&u64 and &mut u64 should intern to different TypeIds"
+        );
+    }
+
+    #[test]
+    fn ref_lifetime_static_is_zero() {
+        let mut interner = TypeInterner::new();
+        let u64_id = interner.uint(64);
+
+        let ref_static = interner.intern(Type::Ref {
+            pointee: u64_id,
+            mutable: false,
+            lifetime: 0,
+        });
+
+        if let Type::Ref { lifetime, .. } = interner.get(ref_static) {
+            assert_eq!(*lifetime, 0, "'static lifetime should be represented as 0");
+        } else {
+            panic!("Expected Ref type");
+        }
     }
 
     #[test]

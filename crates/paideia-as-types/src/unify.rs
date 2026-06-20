@@ -152,6 +152,28 @@ pub fn unify(
             }
             unify(interner, subst, p1, p2)
         }
+        // Reference types: unify if mutability matches, then unify pointees.
+        // Phase-4 m4 flag: lifetime is ignored; m5 will activate region checking.
+        (
+            Type::Ref {
+                pointee: p1,
+                mutable: m1,
+                lifetime: _,
+            },
+            Type::Ref {
+                pointee: p2,
+                mutable: m2,
+                lifetime: _,
+            },
+        ) => {
+            if m1 != m2 {
+                return Err(UnifyError::KindMismatch {
+                    a: format!("&{}", if m1 { "mut " } else { "" }),
+                    b: format!("&{}", if m2 { "mut " } else { "" }),
+                });
+            }
+            unify(interner, subst, p1, p2)
+        }
         // Record types: unify if field names and types match in order.
         (Type::Record { fields: f1 }, Type::Record { fields: f2 }) => {
             if f1.len() != f2.len() {
@@ -608,6 +630,54 @@ mod tests {
             Some(ptr_u64),
             "Var should be bound to Ptr type"
         );
+    }
+
+    #[test]
+    fn unify_ref_same_pointee_succeeds() {
+        let mut interner = TypeInterner::new();
+        let mut subst = Subst::new();
+        let u64_id = interner.uint(64);
+
+        let ref1 = interner.intern(Type::Ref {
+            pointee: u64_id,
+            mutable: false,
+            lifetime: 0,
+        });
+        let ref2 = interner.intern(Type::Ref {
+            pointee: u64_id,
+            mutable: false,
+            lifetime: 0,
+        });
+
+        let result = unify(&mut interner, &mut subst, ref1, ref2);
+        assert!(result.is_ok(), "&u64 should unify with &u64: {:?}", result);
+    }
+
+    #[test]
+    fn unify_ref_different_mutability_fails() {
+        let mut interner = TypeInterner::new();
+        let mut subst = Subst::new();
+        let u64_id = interner.uint(64);
+
+        let ref_immutable = interner.intern(Type::Ref {
+            pointee: u64_id,
+            mutable: false,
+            lifetime: 0,
+        });
+        let ref_mutable = interner.intern(Type::Ref {
+            pointee: u64_id,
+            mutable: true,
+            lifetime: 0,
+        });
+
+        let result = unify(&mut interner, &mut subst, ref_immutable, ref_mutable);
+        assert!(result.is_err(), "&u64 should not unify with &mut u64");
+
+        if let Err(UnifyError::KindMismatch { .. }) = result {
+            // Expected error type
+        } else {
+            panic!("Expected KindMismatch error");
+        }
     }
 
     #[test]
