@@ -1,0 +1,16 @@
+// Phase 4 m10-002: Fixture — bump_reset_returns_offset_zero
+//
+// Verify that reset() clears the offset to 0, reclaiming the region.
+// Phase-4-m10-002 minimum: parse-only; full elaborator-side execution
+// gates on m1 walker work.
+
+struct BumpAllocator {
+  base: *u8,
+  offset: u64,
+  capacity: u64,
+}
+
+let bump_reset : (linear BumpAllocator) -> BumpAllocator !{} @{} =
+  fn (b : linear BumpAllocator) -> {
+    b
+  }

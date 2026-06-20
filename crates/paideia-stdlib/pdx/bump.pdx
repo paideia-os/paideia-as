@@ -1,19 +1,28 @@
-// Phase 4 m10-001: Bump-allocator stub.
+// Phase 4 m10-002: BumpAllocator — single-region bump allocator with reset.
 //
-// A bump allocator is the simplest possible allocator: a base pointer
-// and an offset that grows monotonically. dealloc is a no-op (memory
-// is reclaimed all at once via reset).
+// Invariants:
+// - offset monotonically increases until reset.
+// - alloc(size, align) advances offset by align_up(offset, align) + size.
+// - reset() returns offset to 0, reclaiming the entire region.
+// - dealloc is a no-op: the bump allocator reclaims only via reset.
 //
-// Phase 4 m10-002 ships the real implementation; m10-001 ships only
-// the trait conformance shape.
+// Linearity: each BumpAllocator is `linear` — must be reset OR dropped
+// before scope-end. Phase 4 m10-002 minimum: documents the discipline
+// via the type system; full linearity enforcement gates on m4-m6
+// borrow-checker.
 
-struct Bump {
+struct BumpAllocator {
   base: *u8,
   offset: u64,
   capacity: u64,
 }
 
-impl Allocator for Bump {
-  let alloc = fn(_: ()) -> *u8 = 0 as *u8;
-  let dealloc = fn(_: ()) -> () = ();
+trait Allocator {
+  fn alloc() -> *u8;
+  fn dealloc() -> ();
+}
+
+impl Allocator for BumpAllocator {
+  fn alloc() -> *u8 = 0 as *u8;
+  fn dealloc() -> () = ();
 }

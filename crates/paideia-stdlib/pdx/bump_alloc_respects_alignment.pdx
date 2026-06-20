@@ -1,0 +1,27 @@
+// Phase 4 m10-002: Fixture — bump_alloc_respects_alignment
+//
+// Verify that allocation respects alignment requirements.
+// The offset is aligned up before advancing by size.
+// Phase-4-m10-002 minimum: parse-only; full elaborator-side execution
+// gates on m1 walker work.
+
+struct BumpAllocator {
+  base: *u8,
+  offset: u64,
+  capacity: u64,
+}
+
+struct Layout {
+  size: u64,
+  align: u64,
+}
+
+trait Allocator {
+  fn alloc() -> *u8;
+  fn dealloc() -> ();
+}
+
+impl Allocator for BumpAllocator {
+  fn alloc() -> *u8 = 0 as *u8;
+  fn dealloc() -> () = ();
+}

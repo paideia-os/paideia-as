@@ -1788,6 +1788,10 @@ name = "paideia-reflection-corpus"
 version = "0.0.1"
 
 [[package]]
+name = "paideia-stdlib"
+version = "0.0.1"
+
+[[package]]
 name = "paideia-uefi-smoke"
 version = "0.0.1"
 dependencies = [

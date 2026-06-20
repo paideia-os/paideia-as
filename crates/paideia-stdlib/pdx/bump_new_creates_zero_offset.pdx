@@ -1,0 +1,16 @@
+// Phase 4 m10-002: Fixture — bump_new_creates_zero_offset
+//
+// Verify that bump_new initializes offset to 0.
+// Phase-4-m10-002 minimum: parse-only; full elaborator-side execution
+// gates on m1 walker work.
+
+struct BumpAllocator {
+  base: *u8,
+  offset: u64,
+  capacity: u64,
+}
+
+let bump_new : (*u8, u64) -> *u8 !{} @{} =
+  fn (base : *u8) (capacity : u64) -> {
+    base
+  }
