@@ -63,7 +63,7 @@ All Phase 2 design docs gain a phase-2-outcome appendix:
 ## 5. Operational items
 
 - [ ] **CI activation** — `ci.yml` / `cross-build.yml` / `ddc.yml` / `release.yml` all disabled today behind the org's GitHub Actions billing block. Hand off to release lead for billing restoration. (Acknowledged limitation — not a G4 blocker because local `cargo test --workspace` is the gate.)
-- [ ] **Stage-0b (GNU as)** — the dual-stage-0 commitment in m10-007 requires a GAS-syntax entry-point source. Currently absent. Defer to Phase 3 OR add in m11 follow-up.
+- [x] **Stage-0b (GNU as)** — landed in Phase 3 m5-001 (PR #569) at `src/toolchain/stage-0/entrypoint.s`. m5-002 wires the byte-comparison into `tools/ddc/run.sh` and the existing `.github/workflows/ddc.yml`. Verified locally: stage-0a (NASM) and stage-0b (GAS) emit byte-identical `.text` (`48 8d 47 01 c3`).
 - [x] **`paideia-pq-sign hsm init`** — m7-006 ships dev soft-HSM. Production HSM integration is post-Phase-2.
 
 ## 6. G4 verdict

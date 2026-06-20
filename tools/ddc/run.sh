@@ -73,4 +73,28 @@ log "DDC dual-build complete"
 log "artifacts:"
 log "  A: ${OUT_DIR}/a/paideia-as"
 log "  B: ${OUT_DIR}/b/paideia-as"
+
+# Phase-3-m5-002: dual-stage-0 entry-point verification.
+# Assemble both stage-0 sources and compare the .text section bytes.
+# - Stage-0a: NASM at tools/cross-build/fixtures/uefi_loader/module.asm
+# - Stage-0b: GAS at src/toolchain/stage-0/entrypoint.s (m5-001)
+STAGE0A_NASM="${ROOT_DIR}/tools/cross-build/fixtures/uefi_loader/module.asm"
+STAGE0B_GAS="${ROOT_DIR}/src/toolchain/stage-0/entrypoint.s"
+
+if command -v nasm >/dev/null 2>&1 && command -v as >/dev/null 2>&1; then
+    log "stage-0 dual-source verification"
+    nasm -f elf64 "${STAGE0A_NASM}" -o "${OUT_DIR}/a/stage-0.o"
+    as --64 "${STAGE0B_GAS}" -o "${OUT_DIR}/b/stage-0.o"
+    objcopy -O binary --only-section=.text "${OUT_DIR}/a/stage-0.o" "${OUT_DIR}/a/stage-0.text"
+    objcopy -O binary --only-section=.text "${OUT_DIR}/b/stage-0.o" "${OUT_DIR}/b/stage-0.text"
+    if cmp -s "${OUT_DIR}/a/stage-0.text" "${OUT_DIR}/b/stage-0.text"; then
+        log "  stage-0a (NASM) == stage-0b (GAS): .text byte-identical"
+    else
+        log "  stage-0a vs stage-0b: .text DIFFERS — DDC FAIL"
+        exit 1
+    fi
+else
+    log "nasm or as not available; skipping stage-0 dual-source verification"
+fi
+
 exit 0
