@@ -1,0 +1,6 @@
+module CapabilityUse = structure {
+  capability RW {
+    op read() : string
+    op write(data : string) : unit
+  }
+}

@@ -1,0 +1,3 @@
+module SingleVal = structure {
+  val x : int
+}

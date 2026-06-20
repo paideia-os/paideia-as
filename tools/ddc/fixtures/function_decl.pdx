@@ -1,0 +1,3 @@
+module FunctionDecl = structure {
+  fun add(a : int, b : int) : int = a + b
+}
