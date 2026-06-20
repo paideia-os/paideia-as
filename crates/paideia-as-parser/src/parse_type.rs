@@ -131,20 +131,21 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
                 // Check for lifetime (parse-clean: consume but don't elaborate)
                 // A lifetime looks like: &'name Type
-                // We need to check if the current token is an Ident AND the next token after it
-                // is a type start. We can't just check current Ident because &u64 has Ident too.
+                // Phase 4 m5-003: If we see an Ident that looks like a lifetime (i.e., lexeme starts with ')
+                // consume it and continue to parse the actual type.
                 if self.at(TokenKind::Ident) {
-                    // This might be a lifetime. Peek at the token after the identifier.
-                    // To do this safely without consuming, we'd need to look further ahead,
-                    // which we can't do with single peek(). For now, treat any Ident after &
-                    // as potentially a lifetime and only consume it if followed by something
-                    // that looks like it starts a type. However, this is ambiguous with &T.
-                    // The conservative approach: assume it's a lifetime only if it looks like 'a
-                    // (i.e., starts with '). For phase 4 (parse-clean), we just consume single-char
-                    // lifetime variables and let the identifier be parsed as the type.
-                    // Actually, let's be simpler: don't try to parse lifetimes yet. Just parse
-                    // &Type directly. The syntax &'a Type will be handled in later phases.
-                    // For now, just leave the Ident to be parsed as TypeName.
+                    if let Some(tok) = self.peek() {
+                        let source = self.source();
+                        let start = tok.span.byte_start() as usize;
+                        let end = (tok.span.byte_start() + tok.span.byte_len()) as usize;
+                        if start < source.len() && end <= source.len() {
+                            let lexeme = &source[start..end];
+                            if lexeme.starts_with('\'') {
+                                // This is a lifetime token; consume it but don't elaborate
+                                self.bump();
+                            }
+                        }
+                    }
                 }
 
                 if !self.is_type_start(self.peek()) {

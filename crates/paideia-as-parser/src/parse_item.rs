@@ -1495,7 +1495,52 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 break;
             }
 
-            // Parse parameter name (Ident)
+            // Check for lifetime parameter (leading `'`)
+            // Lifetimes appear as identifier tokens with lexeme starting with `'`
+            let is_lifetime = if let Some(tok) = self.peek() {
+                if tok.kind == TokenKind::Ident {
+                    let lexeme = self.source_text_for_span(tok.span);
+                    lexeme.starts_with('\'')
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+
+            if is_lifetime {
+                // This is a lifetime parameter
+                if let Some(tok) = self.peek() {
+                    let lexeme = self.source_text_for_span(tok.span).to_string();
+                    self.bump(); // consume the lifetime token
+
+                    // Extract the lifetime name (remove leading `'`)
+                    let lifetime_name = if lexeme.len() > 1 {
+                        lexeme[1..].to_string()
+                    } else {
+                        // Malformed lifetime (just `'`), skip for now
+                        "".to_string()
+                    };
+
+                    params.push(GenericParam::Lifetime {
+                        name: lifetime_name,
+                    });
+
+                    // Check for separator or end
+                    if !self.eat(TokenKind::Comma) {
+                        break;
+                    }
+
+                    // Allow trailing comma before `>`
+                    if self.at(TokenKind::Gt) {
+                        break;
+                    }
+
+                    continue;
+                }
+            }
+
+            // Parse type parameter name (Ident)
             let param_name_tok = match self.peek() {
                 Some(tok) if tok.kind == TokenKind::Ident => {
                     self.bump();
@@ -1593,7 +1638,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 }
             }
 
-            params.push(GenericParam {
+            params.push(GenericParam::Type {
                 name: param_name,
                 bounds,
             });
@@ -2143,5 +2188,55 @@ mod tests {
             errors.is_empty(),
             "should parse bounded generic in let binding without errors"
         );
+    }
+
+    #[test]
+    fn parse_fn_with_lifetime_param() {
+        // Test: `let identity = fn<'a>(x: &'a u8) -> x`
+        // Lifetime parameter `'a` should parse cleanly as a Lifetime variant in GenericParam
+        let (_arena, result, diags) = parse_source_str("let identity = fn<'a>(x: &'a u8) -> x");
+        assert!(
+            result.is_ok(),
+            "should parse function with lifetime parameter successfully"
+        );
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "should have no parse errors");
+    }
+
+    #[test]
+    fn parse_fn_with_multiple_lifetimes() {
+        // Test: `let borrower = fn<'a, 'b>(x: &'a u8)(y: &'b u64) -> 0`
+        // Multiple lifetime parameters should parse cleanly
+        let (_arena, result, diags) =
+            parse_source_str("let borrower = fn<'a, 'b>(x: &'a u8)(y: &'b u64) -> 0");
+        assert!(
+            result.is_ok(),
+            "should parse function with multiple lifetime parameters successfully"
+        );
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "should have no parse errors");
+    }
+
+    #[test]
+    fn parse_fn_with_mixed_type_and_lifetime() {
+        // Test: `let generic_borrow = fn<'a, T>(x: &'a T) -> x`
+        // Mix of lifetime and type parameters should parse cleanly
+        let (_arena, result, diags) =
+            parse_source_str("let generic_borrow = fn<'a, T>(x: &'a T) -> x");
+        assert!(
+            result.is_ok(),
+            "should parse function with mixed type and lifetime parameters successfully"
+        );
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "should have no parse errors");
     }
 }

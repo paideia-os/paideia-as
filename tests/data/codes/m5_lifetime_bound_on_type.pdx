@@ -1,0 +1,1 @@
+let foo = fn<'a, T: Clone>(x: &'a T) -> 0

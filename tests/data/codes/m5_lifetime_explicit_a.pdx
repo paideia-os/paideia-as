@@ -1,0 +1,1 @@
+let identity = fn<'a>(x: &'a u8) -> x

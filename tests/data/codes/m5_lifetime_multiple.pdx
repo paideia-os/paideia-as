@@ -1,0 +1,1 @@
+let borrower = fn<'a, 'b>(x: &'a u8)(y: &'b u64) -> 0

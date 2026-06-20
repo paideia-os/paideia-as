@@ -5,7 +5,17 @@
 //! in the parser. Functions include [`print_item`], [`print_expr`], [`print_stmt`],
 //! [`print_type`], and [`print_pattern`].
 
-use crate::{AstArena, ExprData, HandlerArm, ItemData, NodeId, PatternData, StmtData, TypeData};
+use crate::{
+    AstArena, ExprData, GenericParam, HandlerArm, ItemData, NodeId, PatternData, StmtData, TypeData,
+};
+
+/// Format a single GenericParam for display.
+fn format_generic_param(p: &GenericParam) -> String {
+    match p {
+        GenericParam::Type { name, .. } => format!("{}", name),
+        GenericParam::Lifetime { name } => format!("'{}", name),
+    }
+}
 
 /// Pretty-print an item node as a structured indented dump.
 ///
@@ -112,7 +122,7 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 name,
                 generic_params
                     .iter()
-                    .map(|p| format!("{}", p.name))
+                    .map(format_generic_param)
                     .collect::<Vec<_>>()
                     .join(", "),
                 ty,
@@ -137,7 +147,7 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 name,
                 generic_params
                     .iter()
-                    .map(|p| format!("{}", p.name))
+                    .map(format_generic_param)
                     .collect::<Vec<_>>()
                     .join(", "),
                 fields_str,
@@ -162,7 +172,7 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 name,
                 generic_params
                     .iter()
-                    .map(|p| format!("{}", p.name))
+                    .map(format_generic_param)
                     .collect::<Vec<_>>()
                     .join(", "),
                 variants_str,
@@ -192,7 +202,7 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 name,
                 generic_params
                     .iter()
-                    .map(|p| format!("{}", p.name))
+                    .map(format_generic_param)
                     .collect::<Vec<_>>()
                     .join(", "),
                 assoc_types_str,
@@ -222,7 +232,7 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 impl_decl
                     .generic_params
                     .iter()
-                    .map(|p| format!("{}", p.name))
+                    .map(format_generic_param)
                     .collect::<Vec<_>>()
                     .join(", "),
                 trait_str,
@@ -358,7 +368,7 @@ fn print_expr_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 .join(", ");
             let gen_params_str = generic_params
                 .iter()
-                .map(|p| format!("{}", p.name))
+                .map(format_generic_param)
                 .collect::<Vec<_>>()
                 .join(", ");
             format!(

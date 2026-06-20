@@ -11,15 +11,29 @@ use paideia_as_diagnostics::Span;
 
 /// Generic parameter declaration.
 ///
-/// Represents a single type parameter in a generic function or type declaration.
-/// Example: `T` in `fn foo<T: Trait>(x: T)`, or `U: Clone` in `fn bar<U: Clone>`.
+/// Represents either a type parameter or lifetime parameter in a generic function
+/// or type declaration.
+///
+/// Examples:
+/// - `T` in `fn foo<T: Trait>(x: T)` (Type variant)
+/// - `U: Clone` in `fn bar<U: Clone>` (Type variant with bounds)
+/// - `'a` in `fn baz<'a>(x: &'a T)` (Lifetime variant)
 #[derive(Clone, Debug)]
-pub struct GenericParam {
-    /// Parameter name (Ident node).
-    pub name: NodeId,
-    /// Trait bounds (type-name/path nodes for trait bounds).
-    /// Empty if no bounds specified.
-    pub bounds: Vec<NodeId>,
+pub enum GenericParam {
+    /// Type parameter: `T` or `T: Bound1 + Bound2 + ...`
+    Type {
+        /// Parameter name (Ident node).
+        name: NodeId,
+        /// Trait bounds (type-name/path nodes for trait bounds).
+        /// Empty if no bounds specified.
+        bounds: Vec<NodeId>,
+    },
+    /// Lifetime parameter: `'a`, `'b`, etc.
+    /// The name is stored as a String (e.g., "a", "b") without the leading quote.
+    Lifetime {
+        /// Lifetime name as string (e.g., "a", "b", "static").
+        name: String,
+    },
 }
 
 /// Structured payload for expression nodes.

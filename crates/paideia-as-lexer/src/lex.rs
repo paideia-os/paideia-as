@@ -142,6 +142,38 @@ impl<'a> Lexer<'a> {
                 }
             }
 
+            // Try lifetime parameter (e.g., 'a, 'b) before character literals.
+            // A lifetime is `'` followed by an identifier-like sequence.
+            // We distinguish from character literals by checking if the next char
+            // is ASCII letter or underscore (potential identifier start).
+            if byte == b'\'' && cursor_usize + 1 < self.content.len() {
+                let next_byte = self.content.as_bytes()[cursor_usize + 1];
+                // Check if this might be a lifetime: ' followed by identifier-like char
+                if next_byte == b'_'
+                    || (next_byte >= b'a' && next_byte <= b'z')
+                    || (next_byte >= b'A' && next_byte <= b'Z')
+                {
+                    // Tentatively scan as a lifetime identifier
+                    let ident_start = (cursor_usize + 1) as u32;
+                    if ident_start < self.content.len() as u32 {
+                        let ident_scan = scan_identifier(self.file, self.content, ident_start);
+                        // A lifetime is only valid if followed by a non-identifier character
+                        // or at end of input (not by another quote, which would make it a char literal)
+                        let after_ident = cursor_usize + 1 + ident_scan.byte_len as usize;
+                        let looks_like_lifetime = after_ident >= self.content.len()
+                            || !matches!(self.content.as_bytes()[after_ident], b'\'');
+
+                        if looks_like_lifetime && ident_scan.kind == TokenKind::Ident {
+                            // This is a lifetime: scan the whole 'ident sequence
+                            let lifetime_len = 1 + ident_scan.byte_len; // 1 for ', rest for ident
+                            let span = Span::new(self.file, self.cursor, lifetime_len);
+                            self.cursor += lifetime_len;
+                            return Token::new(TokenKind::Ident, span); // Treat as Ident for now
+                        }
+                    }
+                }
+            }
+
             // Try character or byte literal.
             if byte == b'\'' {
                 let char_scan = scan_char(self.file, self.content, self.cursor);

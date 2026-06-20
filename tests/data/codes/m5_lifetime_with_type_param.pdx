@@ -1,0 +1,1 @@
+let generic_borrow = fn<'a, T>(x: &'a T) -> x
