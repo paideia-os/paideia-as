@@ -1,0 +1,20 @@
+// Phase 4 m11-003: Fixture — string_from_str
+//
+// Verify that String::from_str constructs a String from a Str slice.
+// Phase-4-m11-003 minimum: parse-only; full elaborator-side execution
+// gates on m1 walker work.
+
+struct String {
+  data: *u8,
+  len: u64,
+  cap: u64,
+}
+
+struct Str {
+  data: *u8,
+  len: u64,
+}
+
+trait StringFromStr {
+  fn string_from_str(s: Str) -> String;
+}

@@ -1,0 +1,20 @@
+// Phase 4 m11-003: Fixture — string_as_str
+//
+// Verify that as_str borrows a String as a Str slice.
+// Phase-4-m11-003 minimum: parse-only; full elaborator-side execution
+// gates on m1 walker work.
+
+struct String {
+  data: *u8,
+  len: u64,
+  cap: u64,
+}
+
+struct Str {
+  data: *u8,
+  len: u64,
+}
+
+trait StringAsStr {
+  fn string_as_str(s: String) -> Str;
+}

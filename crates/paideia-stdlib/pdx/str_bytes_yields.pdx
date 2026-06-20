@@ -1,0 +1,14 @@
+// Phase 4 m11-003: Fixture — str_bytes_yields
+//
+// Verify that str_bytes iterates over the bytes of a Str.
+// Phase-4-m11-003 minimum: parse-only; full elaborator-side execution
+// gates on m1 walker work.
+
+struct Str {
+  data: *u8,
+  len: u64,
+}
+
+trait StrBytes {
+  fn str_bytes(s: Str) -> Iterator<u8>;
+}

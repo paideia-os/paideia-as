@@ -1,0 +1,15 @@
+// Phase 4 m11-003: Fixture — string_len_op
+//
+// Verify that string_len returns the current length of a String.
+// Phase-4-m11-003 minimum: parse-only; full elaborator-side execution
+// gates on m1 walker work.
+
+struct String {
+  data: *u8,
+  len: u64,
+  cap: u64,
+}
+
+trait StringLen {
+  fn string_len(s: String) -> u64;
+}

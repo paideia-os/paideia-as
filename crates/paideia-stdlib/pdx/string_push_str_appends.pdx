@@ -1,0 +1,20 @@
+// Phase 4 m11-003: Fixture — string_push_str_appends
+//
+// Verify that push_str appends a Str suffix to a linear String.
+// Phase-4-m11-003 minimum: parse-only; full elaborator-side execution
+// gates on m1 walker work.
+
+struct String {
+  data: *u8,
+  len: u64,
+  cap: u64,
+}
+
+struct Str {
+  data: *u8,
+  len: u64,
+}
+
+trait StringPushStr {
+  fn string_push_str(s: linear String, suffix: Str) -> String;
+}

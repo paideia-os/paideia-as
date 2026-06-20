@@ -1,0 +1,29 @@
+// Phase 4 m11-003: String + Str operations (parser-only).
+//
+// String: heap-owned UTF-8.
+// Str: borrowed slice (becomes &str when m4 lands).
+//
+// Methods (parser-only; impl gates on m9 walker + m4-m6 borrow):
+// - String::new() -> String
+// - String::from_str(s: Str) -> String   (becomes from(&str) post-m4)
+// - push_str(s: linear String, suffix: Str) -> String
+// - push(s: linear String, ch: u8) -> String
+// - string_len(s: String) -> u64
+// - as_str(s: String) -> Str
+//
+// - str_chars(s: Str) -> Iterator<u8>    (becomes chars when char type lands)
+// - str_bytes(s: Str) -> Iterator<u8>
+// - str_split(s: Str, sep: u8) -> Iterator<Str>
+// - str_starts_with(s: Str, prefix: Str) -> bool
+
+// Parser-only declarations. Bodies stub-out per the m11 pattern.
+
+trait StringOpsExt {
+  fn string_push_str(s: linear String, suffix: Str) -> String !{RawMem} @{paideia.raw_mem};
+  fn string_as_str(s: String) -> Str !{} @{};
+}
+
+trait StrOps {
+  fn str_bytes_len(s: Str) -> u64 !{} @{};
+  fn str_starts_with(s: Str, prefix: Str) -> bool !{} @{};
+}

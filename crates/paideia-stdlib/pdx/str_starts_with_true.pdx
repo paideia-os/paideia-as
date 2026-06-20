@@ -1,0 +1,14 @@
+// Phase 4 m11-003: Fixture — str_starts_with_true
+//
+// Verify that str_starts_with returns true when a Str starts with a prefix.
+// Phase-4-m11-003 minimum: parse-only; full elaborator-side execution
+// gates on m1 walker work.
+
+struct Str {
+  data: *u8,
+  len: u64,
+}
+
+trait StrStartsWith {
+  fn str_starts_with(s: Str, prefix: Str) -> bool;
+}

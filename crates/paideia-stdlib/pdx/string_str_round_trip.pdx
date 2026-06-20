@@ -1,0 +1,22 @@
+// Phase 4 m11-003: Fixture — string_str_round_trip
+//
+// Verify that String and Str can round-trip: String -> Str -> String.
+// Phase-4-m11-003 minimum: parse-only; full elaborator-side execution
+// gates on m1 walker work.
+
+struct String {
+  data: *u8,
+  len: u64,
+  cap: u64,
+}
+
+struct Str {
+  data: *u8,
+  len: u64,
+}
+
+trait StringStrRoundTrip {
+  fn string_new() -> String;
+  fn string_as_str(s: String) -> Str;
+  fn string_from_str(s: Str) -> String;
+}

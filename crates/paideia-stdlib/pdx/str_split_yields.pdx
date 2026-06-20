@@ -1,0 +1,14 @@
+// Phase 4 m11-003: Fixture — str_split_yields
+//
+// Verify that str_split iterates over substrings separated by a delimiter byte.
+// Phase-4-m11-003 minimum: parse-only; full elaborator-side execution
+// gates on m1 walker work.
+
+struct Str {
+  data: *u8,
+  len: u64,
+}
+
+trait StrSplit {
+  fn str_split(s: Str, sep: u8) -> Iterator<Str>;
+}
