@@ -41,10 +41,10 @@ OS-requirements §6 and custom-assembler.md §15 collectively raised the design-
 | Remainder-loop generation for `#[unroll(n)]`      | m9-009           | D           | Future PR.                           |
 | Profile-guided opt-pass ordering                  | m9-010           | C           | Out of scope — catalog stays canonical. |
 | True NIST ACVP test vectors for ML-DSA            | m7-001           | D           | Future PR when ml-dsa crate ships vectors. |
-| Row-polymorphic scope subsumption                 | m7-004           | D           | Future PR.                           |
+| Row-polymorphic scope subsumption                 | m7-004           | R           | Phase 3 m7 #521 (row-poly subsumption check added to elaborator). |
 | Signature timestamping / revocation               | m7-008           | D           | Phase 3.                             |
 
-8 resolved, 7 deferred, 1 scope-changed.
+9 resolved, 6 deferred, 1 scope-changed.
 
 ## 2. What didn't ship (honest list)
 

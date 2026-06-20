@@ -1,0 +1,33 @@
+// Row-polymorphic function with fixed effects not subset rejects
+//
+// Function effect row: !{Io, Mmio | e} (open tail, but fixed not subset)
+// Handler scope: {Io} (missing Mmio)
+// Expected: reject because fn's fixed effects {Io, Mmio} are not a subset of {Io}
+//
+// Even with an open tail, subsumption requires the function's fixed effects
+// to be a subset of the handler's scope. Here, Mmio is in the function's fixed
+// part but not in the scope, so subsumption fails.
+
+module RowPolyFixedNotSubset = structure {
+  effect Io {
+    op read : (u16) -> u8
+  }
+
+  effect Mmio {
+    op mmio_read : (u32) -> u64
+  }
+
+  let poly_fn : (unit) -> u8 !{Io, Mmio | e} =
+    fn (_ : unit) -> 42
+
+  let result : (unit) -> u8 !{} =
+    fn (_ : unit) ->
+      with io_handler handle Io {
+        poly_fn(())
+      }
+
+  let io_handler : (unit) -> u8 !{Io | e} =
+    handler[e] {
+      op read[_] k -> k(0)
+    }
+}
