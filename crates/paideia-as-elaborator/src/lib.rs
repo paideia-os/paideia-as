@@ -34,6 +34,7 @@ pub mod macro_match;
 pub mod modules;
 pub mod pack;
 mod placeholder_emit;
+pub mod populate;
 pub mod reflect_api;
 pub mod resolve;
 pub mod sharing;
@@ -87,6 +88,7 @@ pub use pack::{
     M_UNPACK_NOT_PACKED, PackedValue, elaborate_let_module, elaborate_pack, elaborate_unpack,
 };
 pub use placeholder_emit::placeholder_for;
+pub use populate::{PopulateContext, populate_instruction_table};
 pub use reflect_api::{TypeCache, children, kind, span, type_of};
 pub use resolve::{HygienicEnv, ResolveValue};
 pub use sharing::{M_SHARING_VIOLATED, check_sharing_constraints};
