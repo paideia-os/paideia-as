@@ -7,7 +7,8 @@
 use paideia_as_diagnostics::FileId;
 use paideia_as_elaborator::populate::{PopulateContext, populate_instruction_table};
 use paideia_as_ir::{
-    InstructionSideTable, IrArena, IrKind, LoadStoreSideTable, Mnemonic, Operand, alloc_store,
+    CallSideTable, InstructionSideTable, IrArena, IrKind, LoadStoreSideTable, Mnemonic, Operand,
+    alloc_store,
 };
 
 fn span() -> paideia_as_diagnostics::Span {
@@ -42,9 +43,11 @@ fn leaf_store_node_populates_as_mov_with_opcode_0x89() {
 
     // Run populate.
     let mut table = InstructionSideTable::new();
+    let call_table = CallSideTable::new();
     let ctx = PopulateContext {
         arena: &arena,
         load_store: &ls_table,
+        call_table: &call_table,
     };
     let count = populate_instruction_table(&ctx, &mut table);
 
@@ -93,9 +96,11 @@ fn leaf_store_byte_width_uses_correct_operand_size() {
     );
 
     let mut table = InstructionSideTable::new();
+    let call_table = CallSideTable::new();
     let ctx = PopulateContext {
         arena: &arena,
         load_store: &ls_table,
+        call_table: &call_table,
     };
     populate_instruction_table(&ctx, &mut table);
 

@@ -11,19 +11,21 @@
 //! App) so opt passes can start consuming real per-node payloads.
 
 use paideia_as_ir::{
-    EncodingHint, Instruction, InstructionSideTable, IrArena, IrKind, IrNodeId, LoadStoreSideTable,
-    Mnemonic, Operand, RegId, Scale, SmallVec, Width as IrWidth,
+    CallSideTable, EncodingHint, Instruction, InstructionSideTable, IrArena, IrKind, IrNodeId,
+    LoadStoreSideTable, Mnemonic, Operand, RegId, Scale, SmallVec, Width as IrWidth,
 };
 
 /// Context for populating the instruction table.
 ///
-/// Holds references to the IR arena and the load/store side-table,
-/// which are needed to inspect Load/Store nodes and extract their metadata.
+/// Holds references to the IR arena, load/store side-table, and call side-table,
+/// which are needed to inspect Load/Store/App nodes and extract their metadata.
 pub struct PopulateContext<'a> {
     /// The IR arena containing all nodes.
     pub arena: &'a IrArena,
     /// The load/store side-table with width/signedness/alignment metadata.
     pub load_store: &'a LoadStoreSideTable,
+    /// The call side-table with callee name / intrinsic flag metadata.
+    pub call_table: &'a CallSideTable,
 }
 
 /// Populate the instruction side-table by walking every node in the arena
@@ -128,9 +130,18 @@ fn populate_one(ctx: &PopulateContext, id: IrNodeId, table: &mut InstructionSide
             table.insert(id, inst);
             true
         }
-        // Intrinsic App detection: would require Call-node introspection
-        // + name resolution. Phase-3-m2-003 deferred — populated only
-        // when the App lowering wires in m2-004.
+        IrKind::App => {
+            // Intrinsic App detection: check if this is an intrinsic call
+            // via the call side-table.
+            let meta = match ctx.call_table.get(id) {
+                Some(m) => m,
+                None => return false, // no metadata yet
+            };
+            if !meta.is_intrinsic {
+                return false; // not an intrinsic call
+            }
+            synthesise_intrinsic_instruction(ctx, id, meta, table)
+        }
         _ => false,
     }
 }
@@ -154,11 +165,113 @@ fn width_to_scale(w: IrWidth) -> Scale {
     }
 }
 
+/// Synthesise an instruction for an intrinsic call.
+///
+/// Phase-3-m1-001 honest scope: only index_u64, index_u64_set, and
+/// ptr_sub_bytes_u64 are properly implemented. Other intrinsics emit
+/// a stub Mov(RDI, RAX).
+fn synthesise_intrinsic_instruction(
+    ctx: &PopulateContext,
+    id: IrNodeId,
+    meta: &paideia_as_ir::CallMeta,
+    table: &mut InstructionSideTable,
+) -> bool {
+    let inst = match meta.callee_name.as_str() {
+        "index_u64" => {
+            // Children: [callee, ptr, index]
+            let children = ctx.arena.children(id);
+            if children.len() < 3 {
+                return false;
+            }
+            // index_u64 reads from memory: (ptr: *u64, index: u64) -> u64
+            // Synthesise: Mov RAX, [RDI + RSI*8]
+            let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            ops.push(Operand::Reg(RegId(0))); // RAX (result register)
+            ops.push(Operand::MemSib {
+                base: RegId(7),        // RDI (ptr)
+                index: Some(RegId(7)), // RSI (index) — placeholder for reg alloc
+                scale: Scale::X8,
+                disp: 0,
+            });
+            Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: ops,
+                encoding_hint: Some(EncodingHint {
+                    opcode: 0x8B,
+                    operand_size: 8,
+                }),
+            }
+        }
+        "index_u64_set" => {
+            // Children: [callee, ptr, index, value]
+            let children = ctx.arena.children(id);
+            if children.len() < 4 {
+                return false;
+            }
+            // index_u64_set writes to memory: (ptr: *u64, index: u64, value: u64) -> ()
+            // Synthesise: Mov [RDI + RSI*8], RAX
+            let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            ops.push(Operand::MemSib {
+                base: RegId(7),        // RDI (ptr)
+                index: Some(RegId(7)), // RSI (index) — placeholder for reg alloc
+                scale: Scale::X8,
+                disp: 0,
+            });
+            ops.push(Operand::Reg(RegId(0))); // RAX (value to write)
+            Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: ops,
+                encoding_hint: Some(EncodingHint {
+                    opcode: 0x89,
+                    operand_size: 8,
+                }),
+            }
+        }
+        "ptr_sub_bytes_u64" => {
+            // Children: [callee, ptr1, ptr2]
+            let children = ctx.arena.children(id);
+            if children.len() < 3 {
+                return false;
+            }
+            // ptr_sub_bytes_u64 computes byte distance: (ptr1: *u64, ptr2: *u64) -> u64
+            // Synthesise: Sub RAX, RDI
+            let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            ops.push(Operand::Reg(RegId(0))); // RAX
+            ops.push(Operand::Reg(RegId(7))); // RDI
+            Instruction {
+                mnemonic: Mnemonic::Sub,
+                operands: ops,
+                encoding_hint: Some(EncodingHint {
+                    opcode: 0x29,
+                    operand_size: 8,
+                }),
+            }
+        }
+        _ => {
+            // Other intrinsics: stub Mov(RDI, RAX)
+            let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            ops.push(Operand::Reg(RegId(0))); // RAX
+            ops.push(Operand::Reg(RegId(7))); // RDI
+            Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: ops,
+                encoding_hint: Some(EncodingHint {
+                    opcode: 0x89,
+                    operand_size: 8,
+                }),
+            }
+        }
+    };
+    table.insert(id, inst);
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use paideia_as_diagnostics::FileId;
     use paideia_as_ir::load_store::{LoadStoreInfo, Signedness, alloc_load, alloc_store};
+    use paideia_as_ir::{CallMeta, CallSideTable};
 
     fn span() -> paideia_as_diagnostics::Span {
         paideia_as_diagnostics::Span::new(FileId::new(1).unwrap(), 0, 1)
@@ -168,9 +281,11 @@ mod tests {
     fn populate_empty_arena_returns_zero() {
         let arena = IrArena::new();
         let load_store = LoadStoreSideTable::new();
+        let call_table = CallSideTable::new();
         let ctx = PopulateContext {
             arena: &arena,
             load_store: &load_store,
+            call_table: &call_table,
         };
         let mut table = InstructionSideTable::new();
         let populated = populate_instruction_table(&ctx, &mut table);
@@ -194,9 +309,11 @@ mod tests {
 
         let load_id = alloc_load(&mut arena, &mut load_store, ptr_id, idx_id, info, span());
 
+        let call_table = CallSideTable::new();
         let ctx = PopulateContext {
             arena: &arena,
             load_store: &load_store,
+            call_table: &call_table,
         };
         let mut table = InstructionSideTable::new();
         let populated = populate_instruction_table(&ctx, &mut table);
@@ -238,9 +355,11 @@ mod tests {
             span(),
         );
 
+        let call_table = CallSideTable::new();
         let ctx = PopulateContext {
             arena: &arena,
             load_store: &load_store,
+            call_table: &call_table,
         };
         let mut table = InstructionSideTable::new();
         let populated = populate_instruction_table(&ctx, &mut table);
@@ -275,9 +394,11 @@ mod tests {
         // Create a Placeholder node (not recognized)
         let _placeholder_id = arena.alloc(IrKind::Placeholder, span());
 
+        let call_table = CallSideTable::new();
         let ctx = PopulateContext {
             arena: &arena,
             load_store: &load_store,
+            call_table: &call_table,
         };
         let mut table = InstructionSideTable::new();
         let populated = populate_instruction_table(&ctx, &mut table);
@@ -298,9 +419,11 @@ mod tests {
         // Create Load node but don't insert into load_store
         let _load_id = arena.alloc_with_children(IrKind::Load, span(), [ptr_id, idx_id]);
 
+        let call_table = CallSideTable::new();
         let ctx = PopulateContext {
             arena: &arena,
             load_store: &load_store,
+            call_table: &call_table,
         };
         let mut table = InstructionSideTable::new();
         let populated = populate_instruction_table(&ctx, &mut table);
@@ -308,5 +431,216 @@ mod tests {
         // Load has no side-table entry, so it should be skipped
         assert_eq!(populated, 0);
         assert!(table.is_empty());
+    }
+
+    // ── Intrinsic call tests ────────────────────────────────────────
+
+    #[test]
+    fn call_side_table_insert_and_get() {
+        let mut table = CallSideTable::new();
+        let call_id = IrNodeId::new(1).unwrap();
+
+        let meta = CallMeta {
+            callee_name: "index_u64".to_string(),
+            arg_count: 2,
+            is_intrinsic: true,
+        };
+
+        table.insert(call_id, meta.clone());
+        let retrieved = table.get(call_id);
+
+        assert!(retrieved.is_some());
+        assert_eq!(retrieved.unwrap().callee_name, "index_u64");
+        assert_eq!(retrieved.unwrap().arg_count, 2);
+        assert!(retrieved.unwrap().is_intrinsic);
+    }
+
+    #[test]
+    fn call_side_table_intrinsic_call_ids_filters() {
+        let mut table = CallSideTable::new();
+
+        let intrinsic_id = IrNodeId::new(1).unwrap();
+        let user_id = IrNodeId::new(2).unwrap();
+
+        table.insert(
+            intrinsic_id,
+            CallMeta {
+                callee_name: "index_u64".to_string(),
+                arg_count: 2,
+                is_intrinsic: true,
+            },
+        );
+
+        table.insert(
+            user_id,
+            CallMeta {
+                callee_name: "my_func".to_string(),
+                arg_count: 1,
+                is_intrinsic: false,
+            },
+        );
+
+        let intrinsic_ids: Vec<_> = table.intrinsic_call_ids().collect();
+        assert_eq!(intrinsic_ids.len(), 1);
+        assert_eq!(intrinsic_ids[0], intrinsic_id);
+    }
+
+    #[test]
+    fn populate_recognises_intrinsic_call_index_u64() {
+        let mut arena = IrArena::new();
+        let load_store = LoadStoreSideTable::new();
+        let mut call_table = CallSideTable::new();
+
+        // Create an App node: [callee, ptr, index]
+        let callee_id = arena.alloc(IrKind::Var, span());
+        let ptr_id = arena.alloc(IrKind::Var, span());
+        let idx_id = arena.alloc(IrKind::Literal, span());
+
+        let app_id = arena.alloc_with_children(IrKind::App, span(), [callee_id, ptr_id, idx_id]);
+
+        // Register as intrinsic
+        call_table.insert(
+            app_id,
+            CallMeta {
+                callee_name: "index_u64".to_string(),
+                arg_count: 2,
+                is_intrinsic: true,
+            },
+        );
+
+        let ctx = PopulateContext {
+            arena: &arena,
+            load_store: &load_store,
+            call_table: &call_table,
+        };
+
+        let mut table = InstructionSideTable::new();
+        let populated = populate_instruction_table(&ctx, &mut table);
+
+        assert_eq!(populated, 1);
+        let inst = table.get(app_id).unwrap();
+        assert_eq!(inst.mnemonic, Mnemonic::Mov);
+        assert_eq!(inst.operands.len(), 2);
+    }
+
+    #[test]
+    fn populate_skips_non_intrinsic_user_call() {
+        let mut arena = IrArena::new();
+        let load_store = LoadStoreSideTable::new();
+        let mut call_table = CallSideTable::new();
+
+        // Create an App node
+        let callee_id = arena.alloc(IrKind::Var, span());
+        let arg_id = arena.alloc(IrKind::Literal, span());
+
+        let app_id = arena.alloc_with_children(IrKind::App, span(), [callee_id, arg_id]);
+
+        // Register as non-intrinsic user call
+        call_table.insert(
+            app_id,
+            CallMeta {
+                callee_name: "my_function".to_string(),
+                arg_count: 1,
+                is_intrinsic: false,
+            },
+        );
+
+        let ctx = PopulateContext {
+            arena: &arena,
+            load_store: &load_store,
+            call_table: &call_table,
+        };
+
+        let mut table = InstructionSideTable::new();
+        let populated = populate_instruction_table(&ctx, &mut table);
+
+        // Non-intrinsic calls should not populate instructions
+        assert_eq!(populated, 0);
+        assert!(table.is_empty());
+    }
+
+    #[test]
+    fn populate_synthesises_mov_for_index_u64() {
+        let mut arena = IrArena::new();
+        let load_store = LoadStoreSideTable::new();
+        let mut call_table = CallSideTable::new();
+
+        let callee_id = arena.alloc(IrKind::Var, span());
+        let ptr_id = arena.alloc(IrKind::Var, span());
+        let idx_id = arena.alloc(IrKind::Literal, span());
+
+        let app_id = arena.alloc_with_children(IrKind::App, span(), [callee_id, ptr_id, idx_id]);
+
+        call_table.insert(
+            app_id,
+            CallMeta {
+                callee_name: "index_u64".to_string(),
+                arg_count: 2,
+                is_intrinsic: true,
+            },
+        );
+
+        let ctx = PopulateContext {
+            arena: &arena,
+            load_store: &load_store,
+            call_table: &call_table,
+        };
+
+        let mut table = InstructionSideTable::new();
+        populate_instruction_table(&ctx, &mut table);
+
+        let inst = table.get(app_id).unwrap();
+        assert_eq!(inst.mnemonic, Mnemonic::Mov);
+        assert_eq!(inst.operands.len(), 2);
+        // First operand should be RAX
+        assert!(matches!(inst.operands[0], Operand::Reg(RegId(0))));
+        // Second operand should be MemSib with scale X8 (for u64)
+        match inst.operands[1] {
+            Operand::MemSib {
+                scale: Scale::X8, ..
+            } => {}
+            _ => panic!("Expected MemSib with X8 scale"),
+        }
+        assert_eq!(inst.encoding_hint.unwrap().opcode, 0x8B);
+        assert_eq!(inst.encoding_hint.unwrap().operand_size, 8);
+    }
+
+    #[test]
+    fn populate_synthesises_sub_for_ptr_sub_bytes() {
+        let mut arena = IrArena::new();
+        let load_store = LoadStoreSideTable::new();
+        let mut call_table = CallSideTable::new();
+
+        let callee_id = arena.alloc(IrKind::Var, span());
+        let ptr1_id = arena.alloc(IrKind::Var, span());
+        let ptr2_id = arena.alloc(IrKind::Var, span());
+
+        let app_id = arena.alloc_with_children(IrKind::App, span(), [callee_id, ptr1_id, ptr2_id]);
+
+        call_table.insert(
+            app_id,
+            CallMeta {
+                callee_name: "ptr_sub_bytes_u64".to_string(),
+                arg_count: 2,
+                is_intrinsic: true,
+            },
+        );
+
+        let ctx = PopulateContext {
+            arena: &arena,
+            load_store: &load_store,
+            call_table: &call_table,
+        };
+
+        let mut table = InstructionSideTable::new();
+        populate_instruction_table(&ctx, &mut table);
+
+        let inst = table.get(app_id).unwrap();
+        assert_eq!(inst.mnemonic, Mnemonic::Sub);
+        assert_eq!(inst.operands.len(), 2);
+        assert!(matches!(inst.operands[0], Operand::Reg(RegId(0)))); // RAX
+        assert!(matches!(inst.operands[1], Operand::Reg(RegId(7)))); // RDI
+        assert_eq!(inst.encoding_hint.unwrap().opcode, 0x29);
+        assert_eq!(inst.encoding_hint.unwrap().operand_size, 8);
     }
 }

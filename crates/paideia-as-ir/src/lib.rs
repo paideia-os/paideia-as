@@ -10,6 +10,7 @@
 
 pub mod anf;
 mod arena;
+pub mod call_meta;
 pub mod effect_rewrite;
 pub mod enum_layout;
 pub mod handler_value;
@@ -28,6 +29,7 @@ pub mod walker_ctx;
 
 pub use anf::{AnfRewrite, is_atomic, normalise_operands};
 pub use arena::IrArena;
+pub use call_meta::{CallMeta, CallSideTable};
 pub use effect_rewrite::{
     HandlerTable, PerformRewrite, WithRewrite, rewrite_perform, rewrite_unsafe_passthrough,
     rewrite_with_save_restore,
