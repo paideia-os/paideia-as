@@ -1,177 +1,156 @@
 # paideia-as
 
-`paideia-as` is the custom x86_64 assembler and surface-language compiler for [PaideiaOS](https://github.com/paideia-os/paideia-os). It compiles `.pdx` source through a typed elaborator into ELF64, PAX (PaideiaOS-native), or PE/COFF (UEFI) objects. The surface language combines a **substructural type lattice** (Ordered / Linear / Affine / Unrestricted), **row-polymorphic algebraic effects with handlers**, **capability-based discipline**, and **post-quantum hybrid signing** of release artifacts.
+A custom x86_64 assembler for [PaideiaOS](https://github.com/paideia-os/paideia-os) whose surface language is a small, statically-typed core with substructural types, algebraic effects, capability-based discipline, and post-quantum signing of build artifacts.
 
-## State of the world
+`paideia-as` compiles `.pdx` source through a typed elaborator into ELF64, PAX (PaideiaOS-native), or PE/COFF (UEFI) objects. The differentiated technical claim is that a typed surface — Ordered / Linear / Affine / Unrestricted classes (after Walker 2005), row-polymorphic effect rows, `@{...}` capability sets, typed raw pointers — lowers all the way down to the canonical x86_64 instruction sequence a hand-written assembler would emit, with the discipline preserved as DWARF vendor sections on the object. The target is x86_64 long mode; 16-bit real mode is out of scope.
 
-**Phase 2 substrate complete.** Eleven milestones (m1–m11) closed across PRs #347–#471, tagged `v0.2.0`. Approximately 1614 workspace tests across 26+ crates and 23+ test harnesses; `cargo test --workspace` runs in under a minute. The toolchain is ready for decision-gate **G4** stamping subject to the operational items in [`docs/g4-prep.md`](docs/g4-prep.md).
+## At a glance
 
-CI workflows (`ci.yml`, `cross-build.yml`, `ddc.yml`, `release.yml`) are shipped but currently disabled at the org level pending GitHub Actions billing restoration. Local `cargo test --workspace` is the gate today.
+- **Typed raw pointers** (`*u64`, `*u8`, …) with `index_*` / `ptr_sub*` intrinsics, gated on the `RawMem` effect and the `paideia.raw_mem` capability. `index_u64(xs, i)` lowers to `mov rax, [rdi + rcx * 8]` — the canonical SIB-form encoding `48 8b 04 cf`.
+- **Substructural type lattice** — `ordered`, `linear`, `affine`, `unrestricted` written as type-side class keywords; linearity violations surface as structured diagnostics (`S0902` / `S0904` / `S0905`).
+- **Row-polymorphic algebraic effects** — `forall e. (T) -> U !{Io | e}` signatures, `with ... handle` discharge, `perform` / `resume` / `finally`. Empty row `!{}` is a checkable purity claim.
+- **Capability-based discipline** — `@{paideia.raw_mem}` on signatures; capability handles live in R12 / R13 at runtime per the calling convention.
+- **Four object formats** — `placeholder`, `elf64` (kernel target), `pax` (PaideiaOS-native, BLAKE3-hashed, PQ-signature slot), `pe-coff` (UEFI, with a SysV ↔ MS-x64 thunk).
+- **Language server + editor recipes** — `paideia-as lsp` ships hover, definition, references, completion, code actions, formatting, semantic tokens, and inlay hints over LSP. Ready-to-use configs for **VS Code**, **Helix**, **Emacs**, and **Neovim** under [`tools/editor/`](tools/editor/).
+- **Post-quantum hybrid signing** — Ed25519 (RFC 8032) + ML-DSA-65 (FIPS-204) with AND-verification, RFC 3161 timestamping, and a JSON-lines revocation list. Hardware HSM backends (PKCS#11, YubiHSM2) with a hybrid-fallback rule.
+- **Deterministic dual-bootstrap** — NASM (stage-0a) and GNU `as` (stage-0b) entry-points compile to byte-identical `.text` sections (`48 8d 47 01 c3`). The DDC harness (Diverse Double Compilation, Wheeler 2005) byte-compares two independently bootstrapped builds.
+- **Optimisation pass catalogue** — eleven passes (`O1500`–`O1512`): peephole, instruction scheduling, macro fusion, DSE, REX/EVEX tightening, branch hints, alignment, pool constants, tail-call elimination, loop unrolling.
 
-See [`CHANGELOG.md`](CHANGELOG.md) for the full v0.2.0 release notes and [`STATUS.md`](STATUS.md) for per-milestone closure narratives.
+## Try it
 
-## What you get
-
-- **Four emit formats** (selected via `paideia-as build --emit <format>`):
-  - `placeholder` — pipeline smoke target; writes a BLAKE3 hash of the lowered IR.
-  - `elf64` — x86_64 SystemV ELF64 relocatable object (kernel-image target).
-  - `pax` — PaideiaOS Architectural Executable: 96-byte header, 64-byte section-table descriptors, twelve vendor section content types, BLAKE3 content hash, PQ-signature slot.
-  - `pe-coff` — Microsoft x64 / UEFI PE/COFF binary with `.reloc`, imports, and a SysV ↔ MS-x64 thunk.
-- **`paideia-link`** — four-phase linker (parse / resolve / relocate / emit) over PAX inputs, with capability-binding resolution and `B1700`/`B1701` diagnostics.
-- **`paideia-lsp`** — tower-lsp 0.20 server with eleven `textDocument/*` handlers: sync, diagnostics, hover, definition, references, completion, code actions, formatting, semantic tokens, inlay hints. Backed by an LRU parse cache and a hand-rolled Salsa-style query engine.
-- **Tree-sitter grammar + four editor recipes** — VS Code, Helix, Emacs, Neovim. See [`tools/editor/`](tools/editor/).
-- **`paideia-pq-sign`** — hybrid Ed25519 (RFC 8032 §7.1 KAT) + ML-DSA-65 (FIPS-204) signing with AND-verification semantics. 1984-byte public key, 3373-byte signature (≈ 3.4 KB). Includes a soft-HSM (Argon2id KDF + ChaCha20-Poly1305 AEAD; development-only).
-- **DDC harness** — Diverse Double Compilation per Wheeler 2005 as the trusting-trust mitigation. Byte-level differ, allowlist, format-gate corpus, and `SOURCE_DATE_EPOCH` + `PDX_PATH_PREFIX_MAP` determinism contract.
-- **Optimization pass catalog** — eleven passes (`O1500`–`O1512`): peephole, instruction scheduling, macro fusion, DSE, REX/EVEX tightening, branch hint, alignment, pool constants, tail-call elimination, loop unrolling, and catalog composition. See *Honesty about scaffolding* below.
-- **DWARF 5** with three PaideiaOS vendor sections — `.debug.paideia.caps`, `.debug.paideia.effects`, `.debug.paideia.sig` — registered under vendor ID `paideia`.
-
-## Quick start
+Build the CLI:
 
 ```sh
-# Build the CLI.
 cargo build --release -p paideia-as
+```
 
-# Parse-check an example.
+Parse-check a tutorial example:
+
+```sh
 ./target/release/paideia-as check examples/01_hello_module.pdx
-
-# Emit a PAX object.
-./target/release/paideia-as build --emit pax examples/01_hello_module.pdx -o /tmp/hello.pax
-
-# Inspect what was produced.
-./target/release/pax-introspect /tmp/hello.pax
 ```
 
-The four `--emit` values are `placeholder`, `elf64`, `pax`, and `pe-coff`. With no `--emit` flag, `paideia-as build` writes a `<stem>.placeholder` smoke artifact next to the input.
+Compile an array-sum to a relocatable ELF64 object:
 
-## Repository layout
-
-```
-crates/                       Workspace crates (18 in total)
-  paideia-as/                   CLI front end + build / check / sign dispatch
-  paideia-as-{lexer,parser,ast} Front end
-  paideia-as-{types,effects}    Substructural lattice + effect rows
-  paideia-as-elaborator         Typed elaborator (reflection + walkers)
-  paideia-as-ir                 Typed core IR + ANF + effect rewrite
-  paideia-as-encoder            Shared x86_64 instruction encoder
-  paideia-as-emitter-{elf,pax,pe}
-                                Three backend emitters
-  paideia-as-dwarf              DWARF 5 + vendor extensions
-  paideia-as-diagnostics        SARIF + human + LSP rendering, catalog
-  paideia-as-linker             paideia-link (PAX → executable PAX)
-  paideia-lsp                   Language server
-  paideia-fmt                   Minimum-viable formatter
-  paideia-pq-sign               Hybrid PQ signing CLI + library
-tests/                        Test harnesses (23+ workspace members)
-  end-to-end, linearity-regression, effects-corpus, reflection-corpus,
-  modules-multifile, pq-corpus, lsp-harness, pax-load-smoke, uefi-smoke,
-  cross-build, opt-regression/*, migration-smoke/cap, e2e
-tools/
-  cross-build/                  NASM ↔ paideia-as ABI-parity smoke
-  ddc/                          DDC orchestrator, differ, allowlist, fixtures
-  editor/                       VS Code / Helix / Emacs / Neovim configs +
-                                tree-sitter-paideia grammar
-examples/                     17 tutorial `.pdx` files (see below)
-asm-reference/                Hand-written NASM references for files 13–17
-design/
-  toolchain/                    Phase-2 outcome appendices (authoritative)
-  security/                     PQ trust-root spec + phase-2 outcome
-docs/                         Operational guides (DDC, determinism, signing, G4)
-scripts/gdb/                  GDB Python helper for PaideiaOS-native debug info
-.github/workflows/            CI workflows (currently disabled; see status above)
+```sh
+./target/release/paideia-as build examples/15_sum_array.pdx --emit elf64 -o /tmp/sum.o
 ```
 
-## Design documentation
+The source surface looks like this (excerpt from `examples/15_sum_array.pdx`):
 
-Phase-2 outcome appendices live in this repo and are now authoritative for the toolchain pieces owned by `paideia-as`. The upstream `paideia-os/paideia-os/design/toolchain/` documents remain the source of truth for the cross-cutting OS-level specifications.
+```paideia
+module SumArray = structure {
 
-Local (authoritative for paideia-as):
+  let sum_acc : (*u64, u64, u64, u64) -> u64 !{RawMem} @{paideia.raw_mem} =
+    fn (xs : *u64) (n : u64) (i : u64) (acc : u64) -> match i {
+      n => acc,
+      _ => sum_acc(xs, n, i + 1, acc + index_u64(xs, i))
+    }
 
-| Document | Scope |
-|---|---|
-| [`design/toolchain/abi.md`](design/toolchain/abi.md) | Calling convention, register-file partitioning, ABI version |
-| [`design/toolchain/bootstrap.md`](design/toolchain/bootstrap.md) | Dual stage-0 (NASM + GNU as) decision |
-| [`design/toolchain/calling-convention.md`](design/toolchain/calling-convention.md) | R15 handler table, R12/R13 caps, UEFI thunk |
-| [`design/toolchain/debug-info.md`](design/toolchain/debug-info.md) | DWARF 5 + `paideia` vendor sections |
-| [`design/toolchain/macros-phase1.md`](design/toolchain/macros-phase1.md) | Pattern macros (phase 1) + reflection bridge (phase 2 outcome) |
-| [`design/toolchain/optimization-passes.md`](design/toolchain/optimization-passes.md) | The 11-pass catalog (O1500–O1512) |
-| [`design/toolchain/paideia-link.md`](design/toolchain/paideia-link.md) | PAX format + linker contract |
-| [`design/toolchain/phase-transition-2.md`](design/toolchain/phase-transition-2.md) | Phase-2 retrospective + disposition table |
-| [`design/security/pq-trust-root.md`](design/security/pq-trust-root.md) | Hybrid PQ signing + delegation scope |
+  let sum_array : (*u64, u64) -> u64 !{RawMem} @{paideia.raw_mem} =
+    fn (xs : *u64) (n : u64) -> sum_acc(xs, n, 0, 0)
+}
+```
 
-Upstream (cross-OS source of truth):
+Three things are happening on the type side: `*u64` is a real raw pointer, `!{RawMem}` advertises that the function reads raw memory, and `@{paideia.raw_mem}` is the capability the caller must hold. On the code side, after tail-call lowering the recursive arm becomes a `jmp`, and `index_u64(xs, i)` emits the canonical indexed load:
 
-- [`paideia-os/design/toolchain/custom-assembler.md`](https://github.com/paideia-os/paideia-os/blob/main/design/toolchain/custom-assembler.md) — master spec
-- [`paideia-os/design/toolchain/syntax-reference.md`](https://github.com/paideia-os/paideia-os/blob/main/design/toolchain/syntax-reference.md) — normative lexical / grammar reference
-- [`paideia-os/design/toolchain/editor-support.md`](https://github.com/paideia-os/paideia-os/blob/main/design/toolchain/editor-support.md) — editor + LSP design
-- [`paideia-os/design/toolchain/milestones.md`](https://github.com/paideia-os/paideia-os/blob/main/design/toolchain/milestones.md) — milestone plan
+```text
+mov rax, [rdi + rcx * 8]      ; 48 8b 04 cf
+```
+
+— byte-for-byte the addressing form a hand-written NASM loop would use. The asm-reference equivalent is in [`asm-reference/algorithms/sum_array.asm`](asm-reference/algorithms/sum_array.asm).
+
+The four `--emit` values are `placeholder` (pipeline smoke), `elf64` (kernel-image target), `pax` (PaideiaOS-native), and `pe-coff` (UEFI / Microsoft x64). With no flag, `paideia-as build` writes a `<stem>.placeholder` smoke artifact next to the input.
+
+## The two-instruction leaf function
+
+The smallest non-trivial example. From `examples/02_functions.pdx`:
+
+```paideia
+let add_one : (u64) -> u64 = fn (x : u64) -> x + 1
+```
+
+The signature reads: "take a `u64`, perform no effects, return a `u64`". The body lowers to exactly:
+
+```text
+lea rax, [rdi + 1]
+ret
+```
+
+— the first integer argument arrives in `RDI` per the calling convention, the return value leaves in `RAX`, and `lea` computes the sum without touching flags. This is the canonical leaf-function shape and the bar every other example targets.
+
+## Diagnostics
+
+Diagnostics carry stable codes (`S0902` linear-shadow, `S0904` affine-consumed, `S0905` ordered-out-of-order, `B1700` / `B1701` linker, `O1500`–`O1512` optimiser, `Q0902` HSM-no-PQ-support, …) and are rendered three ways: human-readable for the CLI, SARIF for tooling (`<file>.pdx.sarif.json` next to each example), and LSP `PublishDiagnostics` for editors. Each code is forward-pointer-stable: a fix-it that worked once will keep working.
+
+## What's in the box
+
+```
+crates/
+  paideia-as/                       CLI front end (check / build / lsp)
+  paideia-as-{lexer,parser,ast}     Front end
+  paideia-as-{types,effects}        Substructural lattice + effect rows
+  paideia-as-elaborator             Typed elaborator + walkers
+  paideia-as-ir                     Typed core IR + per-node instruction payload
+  paideia-as-encoder                Shared x86_64 instruction encoder
+  paideia-as-emitter-{elf,pax,pe}   Three backend emitters
+  paideia-as-dwarf                  DWARF 5 + paideia vendor sections
+  paideia-as-diagnostics            SARIF + human + LSP rendering, catalog
+  paideia-as-linker                 paideia-link (PAX -> executable PAX)
+  paideia-lsp                       Language server (tower-lsp)
+  paideia-fmt                       Source formatter
+  paideia-pq-sign                   Hybrid PQ signing CLI + library
+examples/                           17 tutorial .pdx files; see examples/README.md
+asm-reference/                      Hand-written NASM references for files 13-17
+tools/editor/                       VS Code / Helix / Emacs / Neovim + tree-sitter
+tools/ddc/                          DDC orchestrator, differ, allowlist, fixtures
+design/                             Toolchain + security design documents
+docs/                               Operational guides (DDC, signing, determinism)
+```
+
+Companion binaries built by `cargo build --workspace --release`: `pax-introspect`, `paideia-link`, `paideia-lsp`, `paideia-fmt`, `paideia-pq-sign`, `ddc-diff`.
+
+## Editor support
+
+`paideia-as lsp` runs the language server. Drop-in configurations live under [`tools/editor/`](tools/editor/), one subdirectory per editor:
+
+- [`tools/editor/vscode/`](tools/editor/vscode/) — VS Code extension (`package.json`, `client/`, `language-configuration.json`).
+- [`tools/editor/helix/`](tools/editor/helix/) — `languages.toml` snippet + runtime queries.
+- [`tools/editor/emacs/`](tools/editor/emacs/) — `paideia-mode.el` major mode + runtime.
+- [`tools/editor/nvim/`](tools/editor/nvim/) — Neovim Lua config + runtime queries.
+
+All four share the tree-sitter grammar under [`tools/editor/tree-sitter-paideia/`](tools/editor/tree-sitter-paideia/). See each editor's `README.md` for installation.
 
 ## Examples
 
-[`examples/`](examples/) is a 17-file tutorial catalog. Each `.pdx` file isolates one feature and explains in the file itself what it is, why it exists, and how it lowers. Files 13–17 are paideia-as equivalents of the hand-written NASM algorithms under [`asm-reference/algorithms/`](asm-reference/algorithms/) (factorial, fibonacci, sum_array, memcpy, strlen) so the surface-language ↔ assembly mapping is reviewable side-by-side. See [`examples/README.md`](examples/README.md) for the full table.
+The 17 files in [`examples/`](examples/) are a tutorial sequence: each isolates one feature, explains in-source what it is and how it lowers, and (for files 13–17) sits next to its hand-written NASM equivalent under [`asm-reference/algorithms/`](asm-reference/algorithms/). Read [`examples/README.md`](examples/README.md) for the table and status legend.
 
-## Building, testing, and verification
+Highlights to start with:
 
-### Build
+- `01_hello_module.pdx` — module + structure + `let`.
+- `02_functions.pdx` — the canonical `fn x -> x + 1` → `lea rax, [rdi+1]; ret`.
+- `03_substructural_lattice.pdx` — the Ordered / Linear / Affine / Unrestricted classes.
+- `10_pure_function.pdx` — what `!{}` actually commits to.
+- `15_sum_array.pdx` — typed raw pointers + the SIB-form lowering shown above.
 
-```sh
-cargo build --release -p paideia-as
-```
+## Where to read next
 
-The CLI binary lands at `target/release/paideia-as`. Companion binaries (`pax-introspect`, `paideia-link`, `paideia-lsp`, `paideia-fmt`, `paideia-pq-sign`, `ddc-diff`) are built when the relevant crate is selected, or by `cargo build --workspace --release`.
-
-### Test
-
-```sh
-cargo test --workspace
-```
-
-Runs ~1614 tests across the crate suites and 23+ harness members. Several harness tests are `#[ignore]`d behind probe-detected host requirements (`nasm`, `objdump`, OVMF firmware, `qemu-system-x86_64`) or behind Phase-3 IR work; the active set is the gate.
-
-### DDC verification
-
-```sh
-bash tools/ddc/run.sh
-./target/release/ddc-diff \
-    tools/ddc/out/a/paideia-as \
-    tools/ddc/out/b/paideia-as \
-    tools/ddc/allowlist.toml
-```
-
-Exit codes: `0` match modulo allowlist, `1` unallowlisted divergence, `2` IO / usage error. The harness builds `paideia-as` twice under two host toolchain configurations, then byte-compares. See [`docs/ddc.md`](docs/ddc.md) for the operational guide and [`design/toolchain/bootstrap.md`](design/toolchain/bootstrap.md) for the dual stage-0 commitment.
-
-For build determinism inputs (`SOURCE_DATE_EPOCH`, `PDX_PATH_PREFIX_MAP`) see [`docs/build-determinism.md`](docs/build-determinism.md). For release-artifact signing see [`docs/release-signing.md`](docs/release-signing.md).
-
-## CI status
-
-Four GitHub Actions workflows are versioned in [`.github/workflows/`](.github/workflows/) and parseable today:
-
-| Workflow | Purpose | Activation |
-|---|---|---|
-| `ci.yml` | Push / PR fmt + clippy + test gate | disabled — billing |
-| `cross-build.yml` | NASM ↔ paideia-as ABI-parity smoke | disabled — billing |
-| `ddc.yml` | Nightly DDC, advisory, 30-day artifacts | disabled — billing |
-| `release.yml` | Tag-triggered DDC hard-fail + sign | disabled — billing |
-
-All four are disabled at the org level pending GitHub Actions billing restoration; they activate without code changes once billing is restored. Local `cargo test --workspace` is the gate today.
-
-## Honesty about scaffolding
-
-Several Phase 2 deliverables ship as architecturally complete scaffolds whose end-to-end activation depends on Phase 3 IR work:
-
-- **m9 optimization passes** emit "would-fire" markers. Per-pass helpers (`schedule_block`, `dse_block`, `tco_blocker`, `is_unroll_safe`, …) are callable and unit-tested today. Flipping each pass to a real rewrite is a single PR once the kind-only IR exposes per-node x86_64 mnemonics.
-- **m8 LSP semantics** (hover / definition / references / completion) currently use lexical stand-ins with `linear:` / `affine:` / `cap:` prefix recognition. The m8-008 query engine is in place; elaborator-driven per-position type queries land in Phase 3.
-- **m1 walker diagnostics** run on real `.pdx` source through the CLI but mostly stay silent because the lowered IR is still kind-only. Diagnostics light up as m2 / m3 / m5 thread structured payloads through the IR — most do today; a small set remains gated.
-
-Each scaffold carries a forward pointer in the source, in [`STATUS.md`](STATUS.md), and in [`design/toolchain/phase-transition-2.md`](design/toolchain/phase-transition-2.md) §2.
+- [`examples/README.md`](examples/README.md) — language surface tour, in tutorial order.
+- [`paideia-os/design/toolchain/custom-assembler.md`](https://github.com/paideia-os/paideia-os/blob/main/design/toolchain/custom-assembler.md) — the master surface-language specification.
+- [`paideia-os/design/toolchain/syntax-reference.md`](https://github.com/paideia-os/paideia-os/blob/main/design/toolchain/syntax-reference.md) — normative lexical / grammar reference.
+- [`design/toolchain/calling-convention.md`](design/toolchain/calling-convention.md) — register file, R15 handler table, R12 / R13 capability handles, UEFI thunk.
+- [`design/toolchain/paideia-link.md`](design/toolchain/paideia-link.md) — PAX format and the four-phase linker contract.
+- [`docs/release-signing.md`](docs/release-signing.md) — hybrid PQ signing operational guide.
+- [`docs/ddc.md`](docs/ddc.md) — Diverse Double Compilation operational guide.
+- [`CHANGELOG.md`](CHANGELOG.md) — per-release notes.
+- [`STATUS.md`](STATUS.md) — deep-dive on per-component status.
 
 ## Contributing
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) for PR discipline (one issue per PR, design-doc-first, sizing rules, pre-push hook activation). Phase 2 was driven primarily by an LLM-orchestrated autonomous loop (softarch → workerbee → debugger chain documented in `phase-transition-2.md` §3); Phase 3 is expected to mix manual and automated work.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for PR discipline: one issue per PR, design-doc-first, PR-sizing rules, the local pre-push hook activation, and the squash-merge convention.
+
+CI runs `cargo fmt`, `cargo clippy`, `cargo test --workspace`, plus a non-trivial post-commit DDC harness (`tools/ddc/run.sh` + `ddc-diff`) that builds the compiler twice under two host toolchain configurations and byte-compares the artefacts modulo an allowlist. Local `cargo test --workspace` runs the full test suite — currently around 1800 tests across the crate and harness workspace — in under a minute.
 
 ## License
 
-MIT. See [`LICENSE`](LICENSE). `paideia-as` is part of the [PaideiaOS](https://github.com/paideia-os) organisation.
-
-## What's next
-
-Phase 3 carries the deferrals catalogued in [`design/toolchain/phase-transition-2.md`](design/toolchain/phase-transition-2.md) §5: stage-0b GNU `as` entry-point source, per-node IR instruction payloads (to flip the m9 catalog from "would-fire" to real rewrites), elaborator-driven LSP semantics, hardware HSM integration, the PaideiaOS kernel link + QEMU boot test, NIST ACVP vectors for ML-DSA, row-polymorphic scope subsumption, per-rewrite peephole codes (`O1501` / `O1502` already reserved), remainder-loop generation for `#[unroll(n)]`, and signature timestamping / revocation.
+MIT. See [`LICENSE`](LICENSE). `paideia-as` is part of the [PaideiaOS](https://github.com/paideia-os) organisation; the cross-OS source of truth for the toolchain design lives in the [`paideia-os/paideia-os`](https://github.com/paideia-os/paideia-os) repository under `design/toolchain/`.
