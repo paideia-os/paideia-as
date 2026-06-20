@@ -1,0 +1,9 @@
+module M = structure {
+  let a = 1
+  let b = 2
+  with {
+    let handler = {
+      x = fn() -> b; a
+    }
+  }
+}

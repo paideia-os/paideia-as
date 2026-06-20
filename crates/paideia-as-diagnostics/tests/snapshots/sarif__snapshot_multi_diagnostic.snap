@@ -660,6 +660,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
             },
             {
               "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "An ordered binding declared in an enclosing scope is used out of declaration order within a handler body. Handler installations impose strict sequential-use constraints on ordered bindings: all uses must respect their declaration order. Reorder the uses in the handler body to match the order in which the bindings were declared."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/S0905",
+              "id": "S0905",
+              "name": "Ordered binding used out of order within handler",
+              "shortDescription": {
+                "text": "ordered resource used out of order across handler"
+              }
+            },
+            {
+              "defaultConfiguration": {
                 "level": "note"
               },
               "fullDescription": {

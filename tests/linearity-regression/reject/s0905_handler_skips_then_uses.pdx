@@ -1,0 +1,10 @@
+module M = structure {
+  let x = 1
+  let y = 2
+  let z = 3
+  with {
+    let handler = {
+      op = fn() -> z; y; x
+    }
+  }
+}
