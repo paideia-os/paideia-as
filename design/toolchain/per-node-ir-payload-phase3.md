@@ -164,3 +164,23 @@ m3 is "opt-pass real-rewrites." It ships:
 - Future expansion of the mnemonic catalog (PUSH / POP / XOR / TEST
   / SHL/SHR / MOVZX / MOVSX / IMUL / IDIV / CMOV / SETcc): a follow-
   up beyond Phase 3 m2.
+
+## 9. Phase-4 cross-link
+
+The per-mnemonic populate-path expansion deferred above lands at
+**Phase 4 m1-001..004** (walker hookups):
+
+- m1-001 — Call-node introspection (`CallSideTable` + intrinsic-call
+  recognition in the populate path).
+- m1-002 — Match arm walker surface (per-arm scope; S0904 fires).
+- m1-003 — Handle clause walker surface (HandlerSideTable populates).
+- m1-004 — Branch (if/else) walker surface (per-branch scope;
+  m3-005 recursion check gates lift).
+
+The 4-pass m3-007 would-fire flip (macro-fusion, branch-hint, align,
+pool-constants) lands at **Phase 4 m1-007..010**, leaving 9/10 m3
+passes as real-rewrite + 1 (unroll) awaiting m3-006 body-duplication
+closure.
+
+See `design/toolchain/walker-hookups-phase4.md` for the full Phase 4
+m1 closure narrative.
