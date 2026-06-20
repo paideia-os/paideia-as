@@ -6,10 +6,12 @@
 //! pass catalog in canonical order and invokes only the annotated
 //! passes.
 
+pub mod align;
 pub mod branch_hint;
 pub mod composition;
 pub mod dispatch;
 pub mod dse;
+pub mod macro_fusion;
 pub mod peephole;
 pub mod pool_constants;
 pub mod schedule;
@@ -17,9 +19,11 @@ pub mod tailcall;
 pub mod unroll;
 
 // Re-export canonical pass types.
+pub use align::AlignPass;
 pub use branch_hint::BranchHintPass;
 pub use composition::{canonical_pass_order, dispatch_collecting_order};
 pub use dse::DsePass;
+pub use macro_fusion::MacroFusionPass;
 pub use peephole::PeepholePass;
 pub use pool_constants::PoolConstantsPass;
 pub use schedule::{

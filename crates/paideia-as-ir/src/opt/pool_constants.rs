@@ -109,4 +109,33 @@ mod tests {
                 .contains("O1509 (would-fire): constant-pool emission dispatched")
         );
     }
+
+    #[test]
+    fn pool_constants_emits_no_diagnostic_for_unique_immediates() {
+        // Phase-3 minimum: if all immediates are unique (occurrence count = 1),
+        // no pooling candidates exist. The pass still emits the general O1509
+        // diagnostic; per-pool filtering is deferred to m4.
+        let constants = vec![1u64, 2u64, 3u64];
+        let counts = detect_repeated_constants(&constants);
+        let candidates = pool_candidates(&counts);
+
+        assert!(
+            candidates.is_empty(),
+            "unique immediates should produce no pool candidates"
+        );
+
+        let pass = PoolConstantsPass;
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+
+        let dummy_id = IrNodeId::new(1).unwrap();
+
+        let changed = pass.apply(&mut arena, dummy_id, &mut sink);
+
+        // The pass still emits O1509 in phase-3; filtering by candidate count
+        // is deferred to encoder integration.
+        assert!(!changed);
+        assert_eq!(sink.diagnostics.len(), 1);
+        assert!(sink.diagnostics[0].message.contains("O1509"));
+    }
 }
