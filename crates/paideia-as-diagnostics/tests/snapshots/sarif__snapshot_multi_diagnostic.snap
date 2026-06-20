@@ -1,6 +1,5 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
-assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -538,6 +537,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "An impl block must have the form: impl<T, U, ...> (TraitName)? for Type { items }. The impl keyword must be followed by optional generic parameters, optionally a trait name and 'for' keyword, a type, and a body enclosed in braces."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0202",
+              "id": "P0202",
+              "name": "Malformed impl block",
+              "shortDescription": {
+                "text": "expected impl block syntax"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "Signature ascription requires the structure to define a named type/val/module that is absent."
               },
               "helpUri": "https://paideia-os.org/diagnostics/M0301",
@@ -671,6 +684,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "Non-exhaustive match",
               "shortDescription": {
                 "text": "match arms do not cover every variant of the scrutinee's type"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase 4 m9-004: impl coherence check. Each (trait, type) pair may have at most one impl block. Remove the duplicate impl or distinguish the type to avoid the conflict."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0513",
+              "id": "T0513",
+              "name": "Duplicate impl for trait-type pair",
+              "shortDescription": {
+                "text": "an impl block for the same (trait, type) pair already exists"
               }
             },
             {
