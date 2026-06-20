@@ -4,18 +4,34 @@ use tower_lsp::lsp_types::{
     Hover, HoverContents, HoverParams, MarkupContent, MarkupKind, Position,
 };
 
-use crate::document::DocumentStore;
+use crate::document::{DocumentStore, position_to_offset};
+use paideia_as_elaborator::position_index::ByteOffset;
 
 /// Return hover information for the token at the cursor.
+///
+/// Consults PositionIndex to retrieve elaborator results (type, lin_class, effects, capabilities).
+/// Until walkers populate the index, returns None (no info available).
 pub fn hover_at(store: &DocumentStore, params: &HoverParams) -> Option<Hover> {
     let uri = &params.text_document_position_params.text_document.uri;
     let position = params.text_document_position_params.position;
     let doc = store.get(uri)?;
-    let token = identify_token_at(&doc.text, position)?;
+
+    // Convert LSP position to byte offset
+    let byte_offset = position_to_offset(&doc.text, position);
+
+    // Query the position index for elaborator results
+    let entry = doc.position_index.at(
+        paideia_as_elaborator::position_index::FileId(0), // FileId mapping is left to elaborator
+        ByteOffset(byte_offset as u32),
+    )?;
+
+    // Format hover response from the position entry
+    let markdown = format_hover_from_entry(entry);
+
     Some(Hover {
         contents: HoverContents::Markup(MarkupContent {
             kind: MarkupKind::Markdown,
-            value: format_hover_markdown(&token),
+            value: markdown,
         }),
         range: None,
     })
@@ -178,12 +194,51 @@ fn classify_kind(word: &str, _class: SubstructuralClass) -> TokenKind {
 }
 
 /// Format the hover markdown for a token.
+///
+/// Legacy format used during phase-2-m8-006 when PositionIndex was unavailable.
+/// Retained for backward compatibility; new code should use format_hover_from_entry.
 pub fn format_hover_markdown(token: &TokenInfo) -> String {
     format!(
         "**{name}**\n\n- kind: {kind:?}\n- class: {class:?}\n- type: _(elaboration deferred to m8-007)_\n- effects: _(deferred)_\n- capabilities: _(deferred)_",
         name = token.name,
         kind = token.kind,
         class = token.class,
+    )
+}
+
+/// Format hover markdown from an elaborator position index entry.
+///
+/// Renders type, linearity class, effect row, and capability set into markdown.
+/// Until walkers populate the index, entries contain None values; the function
+/// renders "no info available" for missing fields.
+pub fn format_hover_from_entry(
+    entry: &paideia_as_elaborator::position_index::PositionEntry,
+) -> String {
+    let type_str = if let Some(_type_id) = entry.type_id {
+        // TODO: format_type_id to get human-readable type name
+        "unknown type".to_string()
+    } else {
+        "no info available".to_string()
+    };
+
+    let class_str = entry
+        .lin_class
+        .map(|lc| format!("{:?}", lc))
+        .unwrap_or_else(|| "no info available".to_string());
+
+    let effects_str = entry
+        .effect_row_id
+        .map(|_id| "!{}".to_string())
+        .unwrap_or_else(|| "no info available".to_string());
+
+    let caps_str = entry
+        .cap_set_id
+        .map(|_id| "@{}".to_string())
+        .unwrap_or_else(|| "no info available".to_string());
+
+    format!(
+        "**Position**\n\n- type: {}\n- class: {}\n- effects: {}\n- capabilities: {}",
+        type_str, class_str, effects_str, caps_str
     )
 }
 
@@ -329,5 +384,83 @@ mod tests {
         };
         let result = identify_token_at(text, position);
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn hover_format_empty_position_returns_no_info() {
+        use paideia_as_elaborator::position_index::PositionEntry;
+
+        let entry = PositionEntry {
+            span_start: ByteOffset(0),
+            span_end: ByteOffset(10),
+            type_id: None,
+            lin_class: None,
+            effect_row_id: None,
+            cap_set_id: None,
+        };
+
+        let markdown = format_hover_from_entry(&entry);
+        assert!(markdown.contains("no info available"));
+    }
+
+    #[test]
+    fn hover_format_with_type_and_class_renders_4_line_string() {
+        use paideia_as_elaborator::position_index::PositionEntry;
+        use paideia_as_ir::LinClass;
+        use paideia_as_types::TypeId;
+
+        let entry = PositionEntry {
+            span_start: ByteOffset(0),
+            span_end: ByteOffset(10),
+            type_id: TypeId::new(1),
+            lin_class: Some(LinClass::Linear),
+            effect_row_id: None,
+            cap_set_id: None,
+        };
+
+        let markdown = format_hover_from_entry(&entry);
+        // Should contain all 4 fields: type, class, effects, capabilities
+        assert!(markdown.contains("- type:"));
+        assert!(markdown.contains("- class:"));
+        assert!(markdown.contains("- effects:"));
+        assert!(markdown.contains("- capabilities:"));
+        // Should contain the Linear class
+        assert!(markdown.contains("Linear"));
+    }
+
+    #[test]
+    fn hover_lookup_with_populated_index_returns_formatted_result() {
+        use paideia_as_elaborator::position_index::{FileId, PositionEntry};
+        use paideia_as_ir::LinClass;
+        use paideia_as_types::TypeId;
+
+        // Create a position index with a single entry
+        let mut index = paideia_as_elaborator::position_index::PositionIndex::new();
+        let entry = PositionEntry {
+            span_start: ByteOffset(0),
+            span_end: ByteOffset(10),
+            type_id: TypeId::new(42),
+            lin_class: Some(LinClass::Unrestricted),
+            effect_row_id: Some(1),
+            cap_set_id: Some(2),
+        };
+
+        index.insert(FileId(0), entry);
+        index.finish();
+
+        // Query at position 5 (within the span [0, 10))
+        let result = index.at(FileId(0), ByteOffset(5));
+        assert!(result.is_some());
+
+        let entry = result.unwrap();
+        let markdown = format_hover_from_entry(entry);
+
+        // Should contain all four fields
+        assert!(markdown.contains("- type:"));
+        assert!(markdown.contains("- class:"));
+        assert!(markdown.contains("- effects:"));
+        assert!(markdown.contains("- capabilities:"));
+        // Should contain the Unrestricted class
+        assert!(markdown.contains("Unrestricted"));
     }
 }

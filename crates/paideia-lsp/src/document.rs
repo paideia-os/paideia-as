@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::sync::RwLock;
 
+use paideia_as_elaborator::position_index::PositionIndex;
 use tower_lsp::lsp_types::{Position, TextDocumentContentChangeEvent, Url};
 
 /// A document in the store.
@@ -14,12 +15,20 @@ pub struct Document {
     pub version: i32,
     /// Document text content.
     pub text: String,
+    /// Per-document position index for elaborator results.
+    /// Populated by the elaborator as a side effect of elaboration.
+    pub position_index: PositionIndex,
 }
 
 impl Document {
     /// Create a new document.
     pub fn new(uri: Url, version: i32, text: String) -> Self {
-        Self { uri, version, text }
+        Self {
+            uri,
+            version,
+            text,
+            position_index: PositionIndex::new(),
+        }
     }
 
     /// Apply an incremental edit. If the range is None, the change.text

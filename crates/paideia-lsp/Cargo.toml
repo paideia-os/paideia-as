@@ -23,6 +23,8 @@ toml = { workspace = true }
 blake3 = { workspace = true }
 lru = "0.12"
 paideia-as-elaborator = { path = "../paideia-as-elaborator" }
+paideia-as-ir = { path = "../paideia-as-ir" }
+paideia-as-types = { path = "../paideia-as-types" }
 paideia-as-lexer = { path = "../paideia-as-lexer" }
 paideia-as-parser = { path = "../paideia-as-parser" }
 paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
