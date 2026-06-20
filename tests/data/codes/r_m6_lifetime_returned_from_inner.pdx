@@ -1,0 +1,8 @@
+; Returned from inner — borrow escapes inner block and is returned.
+; Should reject with S0908 — inner block's region does not outlive return region.
+fn test_returned_from_inner() -> &u64 {
+  {
+    let x: u64 = 42;
+    &x
+  }
+}

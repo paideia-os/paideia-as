@@ -33,6 +33,7 @@ pub mod hygiene;
 pub mod incremental;
 pub mod intrinsics;
 pub mod kind;
+pub mod lifetime_walker;
 pub mod linearity_ctx;
 mod lower;
 pub mod macro_expand;
@@ -95,6 +96,7 @@ pub use functor_apply::{ApplyKey, apply_functor, elaborate_functor_body};
 pub use hygiene::{HygieneCache, HygienicName, MacroId};
 pub use intrinsics::{IntrinsicSignature, TypeKind, all_intrinsics, lookup_intrinsic};
 pub use kind::type_kind;
+pub use lifetime_walker::LifetimeWalker;
 pub use linearity_ctx::{Binding, LinearityCtx};
 pub use lower::{LoweringResult, lower_ast_to_ir};
 pub use macro_expand::{

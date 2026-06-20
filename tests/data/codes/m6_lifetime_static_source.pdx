@@ -1,0 +1,8 @@
+; Static source — 'static outlives all lifetimes.
+; Should accept — borrow of a 'static lifetime can be used anywhere.
+static ANSWER: u64 = 42;
+
+fn test_static_borrow() -> u64 {
+  let r: &'static u64 = &ANSWER;
+  *r
+}

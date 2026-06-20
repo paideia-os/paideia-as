@@ -1,0 +1,8 @@
+; Same region — a region outlives itself.
+; Should accept — no lifetime violation when regions are identical.
+fn test_same_scope() -> u64 {
+  let x: u64 = 42;
+  let r: &x = &x;
+  let r2: &x = r;
+  *r2
+}

@@ -1,0 +1,11 @@
+; Parameter borrow returned — function parameter's lifetime outlives return.
+; Should accept — returned reference has the same lifetime as the parameter.
+fn identity<'a>(r: &'a u64) -> &'a u64 {
+  r
+}
+
+fn test_param_return() -> u64 {
+  let x: u64 = 42;
+  let r: &u64 = identity(&x);
+  *r
+}

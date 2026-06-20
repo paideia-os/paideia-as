@@ -569,6 +569,15 @@ description = "Phase 4 m6-001: a binding can have at most one active mutable bor
 since = "0.4.0"
 deprecated = false
 
+[diagnostic.S0908]
+severity = "error"
+category = "substructural"
+title = "Borrowed value does not live long enough"
+brief = "the source binding's lifetime is shorter than the borrow's lifetime"
+description = "Phase 4 m6-002: the borrow checker requires that any borrowed value lives at least as long as the borrow. If the source goes out of scope before the borrow does, fire S0908."
+since = "0.4.0"
+deprecated = false
+
 [diagnostic.T0512]
 severity = "error"
 category = "type"

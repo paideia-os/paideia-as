@@ -1,0 +1,3 @@
+# Temporary borrow — borrow of a temporary value with shorter lifetime.
+# Should reject with S0908 — temporary's lifetime does not outlive the stored borrow.
+S0908

@@ -1,0 +1,10 @@
+; Temporary borrow — borrow of a temporary value with shorter lifetime.
+; Should reject with S0908 — temporary's lifetime does not outlive the stored borrow.
+fn test_temporary_borrow() -> &u64 {
+  let x: u64 = 42;
+  &x
+}
+
+fn call_temp() -> u64 {
+  *test_temporary_borrow()
+}

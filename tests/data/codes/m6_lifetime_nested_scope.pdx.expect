@@ -1,0 +1,2 @@
+# Nested scope — inner scope within outer scope.
+# Should accept — outer binding's lifetime encompasses inner borrow.

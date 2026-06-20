@@ -1,0 +1,3 @@
+# Scope mismatch — trying to use a short-lived borrow in a long-lived context.
+# Should reject with S0908 — inner region does not outlive outer region.
+S0908

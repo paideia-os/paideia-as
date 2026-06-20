@@ -1,0 +1,2 @@
+# Explicit outlives constraint — two lifetimes where one explicitly outlives the other.
+# Should accept — constraint ensures source outlives borrow.

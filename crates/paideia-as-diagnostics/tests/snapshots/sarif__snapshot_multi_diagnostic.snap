@@ -829,6 +829,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
             },
             {
               "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase 4 m6-002: the borrow checker requires that any borrowed value lives at least as long as the borrow. If the source goes out of scope before the borrow does, fire S0908."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/S0908",
+              "id": "S0908",
+              "name": "Borrowed value does not live long enough",
+              "shortDescription": {
+                "text": "the source binding's lifetime is shorter than the borrow's lifetime"
+              }
+            },
+            {
+              "defaultConfiguration": {
                 "level": "note"
               },
               "fullDescription": {

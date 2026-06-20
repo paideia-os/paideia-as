@@ -1,0 +1,10 @@
+; Scope mismatch — trying to use a short-lived borrow in a long-lived context.
+; Should reject with S0908 — inner region does not outlive outer region.
+fn borrow_inner<'a>() -> &'a u64 {
+  let x: u64 = 42;
+  &x
+}
+
+fn test_scope_mismatch() -> u64 {
+  *borrow_inner()
+}

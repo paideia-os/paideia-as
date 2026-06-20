@@ -1,0 +1,3 @@
+# Inner scope borrow returned — borrow from inner scope returned to outer.
+# Should reject with S0908 — inner scope region does not outlive outer return region.
+S0908

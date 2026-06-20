@@ -1,0 +1,2 @@
+# Static source — 'static outlives all lifetimes.
+# Should accept — borrow of a 'static lifetime can be used anywhere.

@@ -1,0 +1,12 @@
+; Explicit outlives constraint — two lifetimes where one explicitly outlives the other.
+; Should accept — constraint ensures source outlives borrow.
+fn outlive_constraint<'a, 'b>(r_a: &'a u64, r_b: &'b u64) -> u64
+  where 'a: 'b
+{
+  *r_b
+}
+
+fn test_outlives() -> u64 {
+  let x: u64 = 42;
+  outlive_constraint(&x, &x)
+}

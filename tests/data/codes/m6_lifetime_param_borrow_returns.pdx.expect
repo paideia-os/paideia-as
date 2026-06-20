@@ -1,0 +1,2 @@
+# Parameter borrow returned — function parameter's lifetime outlives return.
+# Should accept — returned reference has the same lifetime as the parameter.

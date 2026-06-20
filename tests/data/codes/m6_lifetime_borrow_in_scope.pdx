@@ -1,0 +1,7 @@
+; Borrow within scope — source region outlives borrow region.
+; Should accept — borrow is used within the source's lifetime.
+fn test_borrow_in_scope() -> u64 {
+  let x: u64 = 40;
+  let r: &x = &x;
+  *r
+}

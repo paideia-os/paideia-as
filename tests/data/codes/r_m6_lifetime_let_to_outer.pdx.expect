@@ -1,0 +1,3 @@
+# Let binding to outer scope — trying to escape an inner let binding's lifetime.
+# Should reject with S0908 — inner scope's region does not outlive assignment target.
+S0908

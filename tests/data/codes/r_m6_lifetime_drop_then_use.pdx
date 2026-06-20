@@ -1,0 +1,8 @@
+; Drop then use — borrow used after source is dropped.
+; Should reject with S0908 — source drops before borrow is used.
+fn test_drop_then_use() -> u64 {
+  let x: u64 = 40;
+  let r: &x = &x;
+  drop(x);
+  *r
+}

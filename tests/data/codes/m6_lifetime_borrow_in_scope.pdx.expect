@@ -1,0 +1,2 @@
+# Borrow within scope — source region outlives borrow region.
+# Should accept — borrow is used within the source's lifetime.

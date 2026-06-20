@@ -1,0 +1,2 @@
+# Same region — a region outlives itself.
+# Should accept — no lifetime violation when regions are identical.

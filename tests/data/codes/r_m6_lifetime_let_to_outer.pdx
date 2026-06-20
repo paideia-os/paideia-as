@@ -1,0 +1,9 @@
+; Let binding to outer scope — trying to escape an inner let binding's lifetime.
+; Should reject with S0908 — inner scope's region does not outlive assignment target.
+fn test_let_to_outer() -> &u64 {
+  let inner: u64 = 42;
+  {
+    let outer_ref: &u64 = &inner;
+    outer_ref
+  }
+}

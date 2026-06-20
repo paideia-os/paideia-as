@@ -1,0 +1,3 @@
+# Drop then use — borrow used after source is dropped.
+# Should reject with S0908 — source drops before borrow is used.
+S0908
