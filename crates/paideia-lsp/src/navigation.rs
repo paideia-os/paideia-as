@@ -11,9 +11,9 @@ use tower_lsp::lsp_types::{
     GotoDefinitionParams, GotoDefinitionResponse, Location, Position, Range, ReferenceParams,
 };
 
-use paideia_as_elaborator::{NameResolutionTable, Span};
 #[cfg(test)]
 use paideia_as_elaborator::position_index::{ByteOffset, FileId};
+use paideia_as_elaborator::{NameResolutionTable, Span};
 
 use crate::document::DocumentStore;
 use crate::hover::identify_token_at;
