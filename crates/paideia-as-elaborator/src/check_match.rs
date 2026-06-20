@@ -15,7 +15,7 @@ use paideia_as_types::{Type, TypeId, TypeInterner};
 use std::collections::HashSet;
 
 /// Diagnostic code for non-exhaustive match.
-/// Uses M0400 (in the module/match category range 300-499).
+/// Uses M0900 (in the match-exhaustiveness category range 0900-0999).
 pub const M_MATCH_EXHAUSTIVENESS: u16 = 400;
 
 /// Result of a match-exhaustiveness check.

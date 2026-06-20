@@ -524,7 +524,7 @@ description = "An ordered binding declared in an enclosing scope is used out of 
 since = "0.3.0"
 deprecated = false
 
-[diagnostic.M0400]
+[diagnostic.M0900]
 severity = "error"
 category = "module"
 title = "Non-exhaustive match"
