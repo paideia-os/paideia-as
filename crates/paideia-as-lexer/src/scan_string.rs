@@ -411,6 +411,348 @@ fn parse_hex_digit(byte: u8) -> Option<u8> {
     }
 }
 
+/// Extract and process a string literal's content (without quotes or prefixes).
+/// Returns the decoded string or an error if escape processing fails.
+///
+/// This assumes the input is the raw source text of a string including quotes.
+/// For regular strings, processes escape sequences; for raw strings, returns as-is.
+pub fn extract_string_content(
+    content: &str,
+    byte_offset: u32,
+    is_raw: bool,
+    is_byte: bool,
+) -> Result<String, String> {
+    let start = byte_offset as usize;
+    assert!(start < content.len(), "byte_offset out of range");
+
+    let bytes = content.as_bytes();
+    let mut pos = start;
+
+    // Skip prefix: b? r? "#"* "
+    if bytes[pos] == b'b' {
+        pos += 1;
+    }
+    if pos < bytes.len() && bytes[pos] == b'r' {
+        pos += 1;
+    }
+
+    let mut hash_count = 0;
+    while pos < bytes.len() && bytes[pos] == b'#' {
+        hash_count += 1;
+        pos += 1;
+    }
+
+    // Skip opening quote
+    if pos >= bytes.len() || bytes[pos] != b'"' {
+        return Err("missing opening quote".to_string());
+    }
+    pos += 1;
+
+    if is_raw {
+        extract_raw_string_content(content, pos as u32, hash_count)
+    } else {
+        extract_regular_string_content(content, pos as u32, is_byte)
+    }
+}
+
+/// Extract raw string content (no escape processing).
+fn extract_raw_string_content(
+    content: &str,
+    start: u32,
+    num_hashes: usize,
+) -> Result<String, String> {
+    let start_usize = start as usize;
+    let bytes = content.as_bytes();
+    let mut pos = start_usize;
+
+    loop {
+        if pos >= bytes.len() {
+            return Err("unterminated raw string".to_string());
+        }
+
+        if bytes[pos] == b'"' && check_raw_closing(bytes, pos + 1, num_hashes) {
+            // Found closing
+            return Ok(content[start_usize..pos].to_string());
+        }
+
+        pos += 1;
+    }
+}
+
+/// Extract regular string content with escape processing.
+fn extract_regular_string_content(
+    content: &str,
+    start: u32,
+    is_byte: bool,
+) -> Result<String, String> {
+    let start_usize = start as usize;
+    let bytes = content.as_bytes();
+    let mut pos = start_usize;
+    let mut result = String::new();
+
+    loop {
+        if pos >= bytes.len() {
+            return Err("unterminated string".to_string());
+        }
+
+        match bytes[pos] {
+            b'"' => {
+                return Ok(result);
+            }
+            b'\\' => {
+                // Process escape sequence
+                if pos + 1 >= bytes.len() {
+                    return Err("unterminated string".to_string());
+                }
+
+                let (ch, advance) = process_string_escape(content, pos as u32, is_byte)?;
+                result.push(ch);
+                pos += advance;
+            }
+            b'\n' => {
+                return Err("unescaped newline in string".to_string());
+            }
+            _ => {
+                let ch = content[pos..].chars().next().unwrap_or('\0');
+                result.push(ch);
+                pos += ch.len_utf8();
+            }
+        }
+    }
+}
+
+/// Extract byte string content with escape processing.
+pub fn extract_byte_string_content(
+    content: &str,
+    byte_offset: u32,
+    is_raw: bool,
+) -> Result<Vec<u8>, String> {
+    let start = byte_offset as usize;
+    assert!(start < content.len(), "byte_offset out of range");
+
+    let bytes = content.as_bytes();
+    let mut pos = start;
+
+    // Skip prefix: b? r? "#"* "
+    if bytes[pos] == b'b' {
+        pos += 1;
+    }
+    if pos < bytes.len() && bytes[pos] == b'r' {
+        pos += 1;
+    }
+
+    let mut hash_count = 0;
+    while pos < bytes.len() && bytes[pos] == b'#' {
+        hash_count += 1;
+        pos += 1;
+    }
+
+    // Skip opening quote
+    if pos >= bytes.len() || bytes[pos] != b'"' {
+        return Err("missing opening quote".to_string());
+    }
+    pos += 1;
+
+    if is_raw {
+        extract_raw_byte_string_content(content, pos as u32, hash_count)
+    } else {
+        extract_regular_byte_string_content(content, pos as u32)
+    }
+}
+
+/// Extract raw byte string content (no escape processing).
+fn extract_raw_byte_string_content(
+    content: &str,
+    start: u32,
+    num_hashes: usize,
+) -> Result<Vec<u8>, String> {
+    let start_usize = start as usize;
+    let bytes = content.as_bytes();
+    let mut pos = start_usize;
+
+    loop {
+        if pos >= bytes.len() {
+            return Err("unterminated raw byte string".to_string());
+        }
+
+        if bytes[pos] == b'"' && check_raw_closing(bytes, pos + 1, num_hashes) {
+            // Found closing
+            return Ok(bytes[start_usize..pos].to_vec());
+        }
+
+        pos += 1;
+    }
+}
+
+/// Extract regular byte string content with escape processing.
+fn extract_regular_byte_string_content(content: &str, start: u32) -> Result<Vec<u8>, String> {
+    let start_usize = start as usize;
+    let bytes = content.as_bytes();
+    let mut pos = start_usize;
+    let mut result = Vec::new();
+
+    loop {
+        if pos >= bytes.len() {
+            return Err("unterminated byte string".to_string());
+        }
+
+        match bytes[pos] {
+            b'"' => {
+                return Ok(result);
+            }
+            b'\\' => {
+                // Process escape sequence
+                if pos + 1 >= bytes.len() {
+                    return Err("unterminated byte string".to_string());
+                }
+
+                let byte_val = process_byte_escape(content, pos as u32)?;
+                result.push(byte_val);
+
+                // Advance based on escape type
+                match bytes[pos + 1] {
+                    b'n' | b'r' | b't' | b'\\' | b'\'' | b'"' | b'0' => {
+                        pos += 2;
+                    }
+                    b'x' => {
+                        pos += 4;
+                    }
+                    _ => {
+                        pos += 2;
+                    }
+                }
+            }
+            b'\n' => {
+                return Err("unescaped newline in byte string".to_string());
+            }
+            b if b > 127 => {
+                return Err("non-ASCII byte in byte string (use escape)".to_string());
+            }
+            _ => {
+                result.push(bytes[pos]);
+                pos += 1;
+            }
+        }
+    }
+}
+
+/// Process a single escape sequence and return the resulting character + bytes to advance.
+fn process_string_escape(content: &str, pos: u32, is_byte: bool) -> Result<(char, usize), String> {
+    let pos_usize = pos as usize;
+    let bytes = content.as_bytes();
+
+    assert_eq!(bytes[pos_usize], b'\\', "expected backslash");
+
+    if pos_usize + 1 >= bytes.len() {
+        return Err("incomplete escape sequence".to_string());
+    }
+
+    match bytes[pos_usize + 1] {
+        b'n' => Ok(('\n', 2)),
+        b'r' => Ok(('\r', 2)),
+        b't' => Ok(('\t', 2)),
+        b'\\' => Ok(('\\', 2)),
+        b'\'' => Ok(('\'', 2)),
+        b'"' => Ok(('"', 2)),
+        b'0' => Ok(('\0', 2)),
+        b'x' => {
+            if pos_usize + 3 >= bytes.len() {
+                return Err("incomplete hex escape".to_string());
+            }
+            let d1 = parse_hex_digit(bytes[pos_usize + 2]).ok_or("invalid hex digit")?;
+            let d2 = parse_hex_digit(bytes[pos_usize + 3]).ok_or("invalid hex digit")?;
+            let byte_val = (d1 << 4) | d2;
+            if byte_val > 127 {
+                return Err("hex escape out of ASCII range in string".to_string());
+            }
+            Ok((byte_val as char, 4))
+        }
+        b'u' => {
+            if is_byte {
+                return Err("Unicode escape not allowed in byte string".to_string());
+            }
+            let (codepoint, advance) = parse_unicode_escape(content, pos)?;
+            match char::from_u32(codepoint) {
+                Some(ch) => Ok((ch, advance)),
+                None => Err("invalid Unicode codepoint".to_string()),
+            }
+        }
+        _ => Err("unknown escape sequence".to_string()),
+    }
+}
+
+/// Process a byte escape sequence and return the resulting byte.
+fn process_byte_escape(content: &str, pos: u32) -> Result<u8, String> {
+    let pos_usize = pos as usize;
+    let bytes = content.as_bytes();
+
+    assert_eq!(bytes[pos_usize], b'\\', "expected backslash");
+
+    if pos_usize + 1 >= bytes.len() {
+        return Err("incomplete escape sequence".to_string());
+    }
+
+    match bytes[pos_usize + 1] {
+        b'n' => Ok(b'\n'),
+        b'r' => Ok(b'\r'),
+        b't' => Ok(b'\t'),
+        b'\\' => Ok(b'\\'),
+        b'\'' => Ok(b'\''),
+        b'"' => Ok(b'"'),
+        b'0' => Ok(b'\0'),
+        b'x' => {
+            if pos_usize + 3 >= bytes.len() {
+                return Err("incomplete hex escape".to_string());
+            }
+            let d1 = parse_hex_digit(bytes[pos_usize + 2]).ok_or("invalid hex digit")?;
+            let d2 = parse_hex_digit(bytes[pos_usize + 3]).ok_or("invalid hex digit")?;
+            Ok((d1 << 4) | d2)
+        }
+        _ => Err("unknown escape sequence in byte string".to_string()),
+    }
+}
+
+/// Parse a Unicode escape sequence and return (codepoint, bytes_to_advance).
+fn parse_unicode_escape(content: &str, pos: u32) -> Result<(u32, usize), String> {
+    let pos_usize = pos as usize;
+    let bytes = content.as_bytes();
+
+    // Expect \u{...}
+    if pos_usize + 2 >= bytes.len() || bytes[pos_usize + 2] != b'{' {
+        return Err("incomplete Unicode escape".to_string());
+    }
+
+    // Find closing brace
+    let mut hex_end = pos_usize + 3;
+    while hex_end < bytes.len() && bytes[hex_end] != b'}' {
+        hex_end += 1;
+    }
+
+    if hex_end >= bytes.len() {
+        return Err("unclosed Unicode escape".to_string());
+    }
+
+    let hex_str = std::str::from_utf8(&bytes[pos_usize + 3..hex_end])
+        .map_err(|_| "invalid UTF-8 in Unicode escape".to_string())?;
+
+    if hex_str.is_empty() {
+        return Err("empty Unicode escape".to_string());
+    }
+
+    let codepoint = u32::from_str_radix(hex_str, 16)
+        .map_err(|_| "invalid hex in Unicode escape".to_string())?;
+
+    if codepoint > 0x10FFFF {
+        return Err("Unicode codepoint out of range".to_string());
+    }
+
+    if (0xD800..=0xDFFF).contains(&codepoint) {
+        return Err("surrogate codepoint not allowed".to_string());
+    }
+
+    Ok((codepoint, hex_end - pos_usize + 1))
+}
+
 fn e_code(n: u16) -> DiagnosticCode {
     DiagnosticCode::new(Category::E, Severity::Error, n).expect("valid E code")
 }

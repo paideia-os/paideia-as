@@ -27,7 +27,9 @@ pub use scan_comment::{CommentScan, scan_comment};
 pub use scan_ident::{IdentScan, scan_identifier};
 pub use scan_number::{NumberScan, scan_number};
 pub use scan_op::{AsciiMode, OpScan, scan_op};
-pub use scan_string::{StringScan, scan_string};
+pub use scan_string::{
+    StringScan, extract_byte_string_content, extract_string_content, scan_string,
+};
 pub use scan_ws::{WhitespaceScan, scan_whitespace};
 pub use source::SourceText;
 pub use token::{RESERVED_WORDS, Token, TokenKind, keyword_kind};

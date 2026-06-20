@@ -7,7 +7,7 @@
 
 use paideia_as_ast::{ExprData, NodeKind};
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
-use paideia_as_lexer::TokenKind;
+use paideia_as_lexer::{TokenKind, extract_byte_string_content, extract_string_content};
 
 use crate::parser::{ParseError, Parser};
 
@@ -75,12 +75,47 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
                     TokenKind::StringLit => {
                         self.bump();
-                        let lit_id = self.arena_mut().alloc(NodeKind::Placeholder, span_start);
-                        Ok(self.arena_mut().alloc_expr(
-                            NodeKind::ExprLiteral,
-                            span_start,
-                            ExprData::Literal { lit: lit_id },
-                        ))
+                        let source = self.source();
+
+                        // Extract the token's text from the source
+                        let start = span_start.byte_start() as usize;
+                        let end = (span_start.byte_start() + span_start.byte_len()) as usize;
+                        let token_text = if start <= source.len() && end <= source.len() {
+                            &source[start..end]
+                        } else {
+                            ""
+                        };
+
+                        // Determine if this is a raw string by checking the token text
+                        let is_raw = token_text.starts_with('r')
+                            || token_text.starts_with("br")
+                            || token_text.starts_with("rb");
+
+                        match extract_string_content(token_text, 0, is_raw, false) {
+                            Ok(content) => Ok(self.arena_mut().alloc_expr(
+                                NodeKind::ExprString,
+                                span_start,
+                                ExprData::StringLiteral(content),
+                            )),
+                            Err(_err) => {
+                                // Emit diagnostic and fall back to placeholder
+                                let diag = Diagnostic::error(
+                                    DiagnosticCode::new(Category::E, Severity::Error, 4)
+                                        .expect("valid E code"),
+                                )
+                                .message("invalid string literal")
+                                .with_span(span_start)
+                                .finish();
+                                self.emit_diagnostic(diag);
+                                let lit_id =
+                                    self.arena_mut().alloc(NodeKind::Placeholder, span_start);
+                                Ok(self.arena_mut().alloc_expr(
+                                    NodeKind::ExprLiteral,
+                                    span_start,
+                                    ExprData::Literal { lit: lit_id },
+                                ))
+                            }
+                        }
                     }
 
                     TokenKind::ByteLit => {
@@ -95,12 +130,45 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
                     TokenKind::ByteStringLit => {
                         self.bump();
-                        let lit_id = self.arena_mut().alloc(NodeKind::Placeholder, span_start);
-                        Ok(self.arena_mut().alloc_expr(
-                            NodeKind::ExprLiteral,
-                            span_start,
-                            ExprData::Literal { lit: lit_id },
-                        ))
+                        let source = self.source();
+
+                        // Extract the token's text from the source
+                        let start = span_start.byte_start() as usize;
+                        let end = (span_start.byte_start() + span_start.byte_len()) as usize;
+                        let token_text = if start <= source.len() && end <= source.len() {
+                            &source[start..end]
+                        } else {
+                            ""
+                        };
+
+                        // Check for 'br' or 'rb' prefix
+                        let is_raw = token_text.starts_with("br") || token_text.starts_with("rb");
+
+                        match extract_byte_string_content(token_text, 0, is_raw) {
+                            Ok(content) => Ok(self.arena_mut().alloc_expr(
+                                NodeKind::ExprByteString,
+                                span_start,
+                                ExprData::ByteStringLiteral(content),
+                            )),
+                            Err(_err) => {
+                                // Emit diagnostic and fall back to placeholder
+                                let diag = Diagnostic::error(
+                                    DiagnosticCode::new(Category::E, Severity::Error, 4)
+                                        .expect("valid E code"),
+                                )
+                                .message("invalid byte string literal")
+                                .with_span(span_start)
+                                .finish();
+                                self.emit_diagnostic(diag);
+                                let lit_id =
+                                    self.arena_mut().alloc(NodeKind::Placeholder, span_start);
+                                Ok(self.arena_mut().alloc_expr(
+                                    NodeKind::ExprLiteral,
+                                    span_start,
+                                    ExprData::Literal { lit: lit_id },
+                                ))
+                            }
+                        }
                     }
 
                     // Boolean and null constants
@@ -465,17 +533,32 @@ mod tests {
 
     #[test]
     fn parses_string_literal() {
-        let tokens = vec![tok(TokenKind::StringLit, 0, 5), tok(TokenKind::Eof, 5, 0)];
+        let source = "\"hello\"";
+        let tokens = vec![tok(TokenKind::StringLit, 0, 7), tok(TokenKind::Eof, 7, 0)];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
-        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+        let mut parser = Parser::new(
+            &tokens,
+            source,
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        );
 
         let result = parser.parse_primary();
         assert!(result.is_ok());
         let expr_id = result.unwrap();
 
         let node = arena.get(expr_id).unwrap();
-        assert_eq!(node.kind, NodeKind::ExprLiteral);
+        assert_eq!(node.kind, NodeKind::ExprString);
+
+        // Verify the string content was parsed
+        if let Some(expr_data) = arena.expr_data(expr_id) {
+            match expr_data {
+                ExprData::StringLiteral(s) => assert_eq!(s, "hello"),
+                _ => panic!("expected StringLiteral"),
+            }
+        }
     }
 
     #[test]

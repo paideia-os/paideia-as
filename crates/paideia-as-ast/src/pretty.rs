@@ -581,6 +581,12 @@ fn print_expr_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
         ExprData::FieldAccess { receiver, field } => {
             format!("FieldAccess {{ receiver: {}, field: {} }}", receiver, field)
         }
+        ExprData::StringLiteral(s) => {
+            format!("StringLiteral({:?})", s)
+        }
+        ExprData::ByteStringLiteral(b) => {
+            format!("ByteStringLiteral({:?})", b)
+        }
     };
 
     use std::fmt::Write;

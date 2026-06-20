@@ -330,6 +330,18 @@ pub enum ExprData {
         /// Field name (Ident node).
         field: NodeId,
     },
+
+    /// String literal `"..."`.
+    ///
+    /// A string literal with escape sequences fully processed. The string value
+    /// contains the decoded UTF-8 content after escape processing.
+    StringLiteral(String),
+
+    /// Byte string literal `b"..."`.
+    ///
+    /// A byte string literal with escape sequences fully processed. The bytes
+    /// contain the decoded content after escape processing (e.g., `\n` → byte 0x0A).
+    ByteStringLiteral(Vec<u8>),
 }
 
 /// A single arm in a match expression.

@@ -133,6 +133,10 @@ pub trait ExprVisitor {
     fn visit_expr_record_cons(&mut self, _arena: &AstArena, _id: NodeId) {}
     /// Visit a FieldAccess expression.
     fn visit_expr_field_access(&mut self, _arena: &AstArena, _id: NodeId) {}
+    /// Visit a String literal expression.
+    fn visit_expr_string(&mut self, _arena: &AstArena, _id: NodeId) {}
+    /// Visit a ByteString literal expression.
+    fn visit_expr_byte_string(&mut self, _arena: &AstArena, _id: NodeId) {}
 }
 
 /// Dispatch visitor call by node kind for expressions.
@@ -168,6 +172,8 @@ pub fn walk_expr<V: ExprVisitor>(visitor: &mut V, arena: &AstArena, id: NodeId) 
         NodeKind::ExprLetModule => visitor.visit_expr_let_module(arena, id),
         NodeKind::ExprRecordCons => visitor.visit_expr_record_cons(arena, id),
         NodeKind::ExprFieldAccess => visitor.visit_expr_field_access(arena, id),
+        NodeKind::ExprString => visitor.visit_expr_string(arena, id),
+        NodeKind::ExprByteString => visitor.visit_expr_byte_string(arena, id),
         _ => {}
     }
 }

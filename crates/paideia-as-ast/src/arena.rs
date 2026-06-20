@@ -111,6 +111,10 @@ pub enum NodeKind {
     ExprRecordCons,
     /// `receiver.field` (field access).
     ExprFieldAccess,
+    /// String literal `"..."`.
+    ExprString,
+    /// Byte string literal `b"..."`.
+    ExprByteString,
 
     // Statements (§8 Stmt: LetStmt | ExprStmt | InstructionStmt | ReturnStmt)
     /// `let name: ty? = expr;`.

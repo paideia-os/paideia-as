@@ -77,6 +77,10 @@ pub enum TermHead {
     RecordCons,
     /// `receiver.field` (field access).
     FieldAccess,
+    /// String literal `"..."`.
+    String,
+    /// Byte string literal `b"..."`.
+    ByteString,
     /// `record { field1: T1, ... }` (record type).
     TypeRecord,
 }
@@ -155,6 +159,8 @@ impl<'a> Term<'a> {
                 NodeKind::ExprLetModule => TermHead::LetModule,
                 NodeKind::ExprRecordCons => TermHead::RecordCons,
                 NodeKind::ExprFieldAccess => TermHead::FieldAccess,
+                NodeKind::ExprString => TermHead::String,
+                NodeKind::ExprByteString => TermHead::ByteString,
                 NodeKind::TypePtr => TermHead::TypePtr,
                 NodeKind::TypeRecord => TermHead::TypeRecord,
                 _ => {
@@ -378,6 +384,12 @@ impl<'a> Term<'a> {
                 ExprData::FieldAccess { receiver, field } => {
                     result.push(Term::new(self.arena, *receiver));
                     result.push(Term::new(self.arena, *field));
+                }
+                ExprData::StringLiteral(_) => {
+                    // No children for string literals
+                }
+                ExprData::ByteStringLiteral(_) => {
+                    // No children for byte string literals
                 }
             }
         }

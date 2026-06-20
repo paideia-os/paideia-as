@@ -206,10 +206,19 @@ mod tests {
         paideia_as_ast::NodeId,
         Vec<paideia_as_diagnostics::Diagnostic>,
     ) {
+        // Create a minimal source that covers all token positions
+        // For match_two_literal_arms test: "match x { 0 => "zero", _ => "other" }"
+        let source = "match x { 0 => \"zero\", _ => \"other\" }";
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
         let root = {
-            let mut p = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+            let mut p = Parser::new(
+                &tokens,
+                source,
+                FileId::new(1).unwrap(),
+                &mut arena,
+                &mut sink,
+            );
             p.parse_expr().expect("parse failed")
         };
         let diags = sink.diagnostics().to_vec();
