@@ -29,24 +29,36 @@ unroll                (m9-009, O1511/O1512)
 
 Two passes (`macro-fusion`, `encode-tight`, `align`) live in `paideia-as-emitter-elf::opt` because they're code-layout concerns. The rest live in `paideia-as-ir::opt`. Both crates use the same `OptPass` trait + `OptDiagSink` shapes, so the catalog dispatcher composes uniformly.
 
-## 2. Phase-2-m9 honesty
+## 2. Phase-3-m3 closure
 
-Each pass ships as a **scaffolded** OptPass whose `apply` method emits a "would-fire" diagnostic marker. None of them actually mutate the IR today — the kind-only IR (m1-002) doesn't carry per-node x86_64 mnemonics.
+Phase 3 m2 added the per-node `Instruction` payload + `InstructionSideTable` (m2-001..006) — the IR finally carries per-node x86_64 mnemonics. Phase 3 m3 (this section) flips every pass from "would-fire" markers to real rewrites that read and mutate that side-table.
 
-However, every pass also ships **already-callable helper functions** that encapsulate the rewrite logic:
+Per-pass status after m3 closure (PRs #553–#560):
 
-- `schedule_block(ops)` — reorders an explicit MemOp list.
-- `dse_block(ops)` — eliminates dead stores.
-- `pad_for_alignment(offset, n)` — alignment math.
-- `tco_blocker(...)` — TCO eligibility predicate.
-- `is_unroll_safe(trip, factor)` — unroll safety predicate.
-- `can_shorten_add_to_32bit(high_bits_used)` — encoding shortener.
-- `can_use_rel8(displacement)` — rel8 range check.
-- `pad_for_fusion(cmp_offset, cmp_len)` — fusion alignment.
-- `lay_unlikely_off_fall_through(hint)` — branch-hint layout.
-- `pool_candidates(counts)` — constant-pool filter.
+- **peephole** (m3-001 / PR #553) — REAL: 5/8 rewrites fully working; 3 stubbed pending Mnemonic enum expansion (StrengthReduceMul/Div, CombinePushPop need Mul/Div/Shl/Shr/Push/Pop in the m2-001 catalog).
+- **schedule** (m3-002 / PR #554) — REAL diagnostic emission (O1503 per non-trivial reorder). The arena-mutation (rearranging children of the parent block) is a TODO until the IR gains explicit basic-block structure.
+- **dse** (m3-003 / PR #555) — REAL: reads InstructionSideTable, extracts MemSib operands, delegates to the phase-2 `_impl`, removes dead stores from the table, emits O1505 per removal.
+- **encode-tight** (m3-004 / PR #556) — REAL: encoder consults `can_shorten_add_to_32bit` + `can_use_rel8` at emit time; `EncodeStats` tracks the tightening count for caller-side O1506 emission.
+- **tailcall** (m3-005 / PR #557) — REAL structural rewrite (Call followed by Ret → Jmp; emits O1510). Recursion detection (call target == enclosing function symbol) is a TODO pending the elaborator surfacing call-target symbols.
+- **unroll** (m3-006 / PR #558) — STUB with diagnostic emission (`would-fire` per loop-entry candidate, O1511). The body-duplication + remainder-loop generation is a TODO pending loop-entry markers from the elaborator. Retires the `phase-transition-2.md` §5 D-row "Remainder-loop generation for `#[unroll(n)]`".
+- **macro-fusion** (m3-007 / PR #559) — STUB: emits O1504 per (Cmp, Jcc) detection site. Real EncodingHint flagging is m4 encoder integration.
+- **branch-hint** (m3-007 / PR #559) — STUB: emits O1507 per Jcc. Real prefix emission (0x2E / 0x3E) is m4 encoder integration.
+- **align** (m3-007 / PR #559) — STUB: emits O1508 per alignment site. Real `.align 16` directive insertion is the m4 emit stage.
+- **pool-constants** (m3-007 / PR #559) — STUB: emits O1509 per repeated immediate. Real constant-pool section + RIP-relative loads land with m4 paideia-link integration.
 
-These are unit-tested directly. When the IR gains per-node instruction payloads (a future PR), the OptPass::apply implementations become one-line delegates to these helpers, and the "would-fire" diagnostics flip to "did-fire".
+m3-008 (PR #560) shipped `tests/opt-regression/` as a workspace member with 10 per-pass regression test files (19 active + 1 ignored for encode-tight's diagnostic-side wiring) that pin each pass's diagnostic shape. A real-rewrite landing in a future PR (e.g., loop-entry markers activating unroll's body duplication) breaks the regression test and forces an honest update.
+
+The **already-callable phase-2 helpers** are preserved as `*_impl` internal functions so their existing test coverage stays green:
+
+- `schedule_block_impl(ops)` — latency-aware scheduler over (idx, InstructionClass).
+- `dse_block_impl(ops)` — reverse-walk dead-store elimination over MemOp list.
+- `pad_for_alignment(offset, n)`, `pad_for_fusion(cmp_offset, cmp_len)`,
+  `lay_unlikely_off_fall_through(hint)`, `pool_candidates(counts)` — unchanged.
+- `tco_blocker_impl(...)` — 4-bool blocker predicate.
+- `is_unroll_safe_impl(trip, factor)` — trip-count-aware safety guard.
+- `can_shorten_add_to_32bit(high_bits_used)`, `can_use_rel8(displacement)` — encoding shorteners; consulted by m3-004's encode-time wiring.
+
+The phase-3-m3-closure pattern: the public API speaks the m2-001 vocabulary today; the analysis bodies port incrementally; the `*_impl` variants are reachable for tests and don't need to be renamed away.
 
 ## 3. Annotation grammar
 
