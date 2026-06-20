@@ -1,0 +1,8 @@
+// Phase 4 m11-001: Result<T, E> fixture — Ok construction.
+//
+// Phase 4 minimum: demonstrates enum-variant construction for Result<T, E>.
+// Parser does not yet support generic type params in definitions (m9 gate).
+
+trait ResultOkConstruct {
+  fn result_ok_construct() -> i32;
+}

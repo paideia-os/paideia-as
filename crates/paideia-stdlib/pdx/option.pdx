@@ -1,0 +1,25 @@
+// Phase 4 m11-001: Option<T> sum type + methods.
+//
+// Option<T> represents an optional value. Every Option<T> is either
+// Some(value) or None. Phase 4 m11-001 captures the enum definition and
+// the reserved method signatures.
+//
+// Phase 4 minimum: The parser does not yet support generic type parameters
+// in type definitions (m9 gate). This document specifies the signature;
+// fixtures test enum construction on concrete monomorphized types.
+// The elaborator gates on m9 walker support for polymorphic method dispatch
+// and monomorphisation (documented in m9-006 / m9-010).
+
+// Pseudo-code for Phase 4 design:
+// enum Option<T> {
+//   Some(T),
+//   None,
+// }
+//
+// impl<T> Option<T> {
+//   fn unwrap(self) -> T
+//   fn unwrap_or(self, default: T) -> T
+//   fn map<U>(self, f: (T) -> U) -> Option<U>
+//   fn and_then<U>(self, f: (T) -> Option<U>) -> Option<U>
+//   fn ok_or<E>(self, err: E) -> Result<T, E>
+// }

@@ -1,0 +1,8 @@
+// Phase 4 m11-001: Result<T, E> fixture — map_err transformation.
+//
+// Phase 4 minimum: demonstrates map_err behavior for Result<T, E>.
+// Parser does not yet support generic type params in definitions (m9 gate).
+
+trait ResultMapErr {
+  fn result_map_err() -> i32;
+}

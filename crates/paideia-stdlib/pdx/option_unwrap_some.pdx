@@ -1,0 +1,8 @@
+// Phase 4 m11-001: Option<T> fixture — unwrap on Some.
+//
+// Phase 4 minimum: demonstrates unwrap behavior on Some variant.
+// Parser does not yet support generic type params in definitions (m9 gate).
+
+trait OptionUnwrap {
+  fn option_unwrap_some() -> i32;
+}

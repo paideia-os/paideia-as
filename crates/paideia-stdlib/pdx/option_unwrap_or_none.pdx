@@ -1,0 +1,8 @@
+// Phase 4 m11-001: Option<T> fixture — unwrap_or on None.
+//
+// Phase 4 minimum: demonstrates unwrap_or behavior on None variant.
+// Parser does not yet support generic type params in definitions (m9 gate).
+
+trait OptionUnwrapOr {
+  fn option_unwrap_or_none() -> i32;
+}

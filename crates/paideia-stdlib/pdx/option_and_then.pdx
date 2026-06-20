@@ -1,0 +1,8 @@
+// Phase 4 m11-001: Option<T> fixture — monadic bind (and_then).
+//
+// Phase 4 minimum: demonstrates and_then chaining for Option<T>.
+// Parser does not yet support generic type params in definitions (m9 gate).
+
+trait OptionAndThen {
+  fn option_and_then() -> i32;
+}

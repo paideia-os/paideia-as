@@ -1,0 +1,8 @@
+// Phase 4 m11-001: Option<T> fixture — None construction.
+//
+// Phase 4 minimum: demonstrates enum-variant construction for Option<T>.
+// Parser does not yet support generic type params in definitions (m9 gate).
+
+trait OptionNoneConstruct {
+  fn option_none_construct() -> i32;
+}

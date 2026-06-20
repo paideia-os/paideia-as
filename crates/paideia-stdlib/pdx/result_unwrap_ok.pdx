@@ -1,0 +1,8 @@
+// Phase 4 m11-001: Result<T, E> fixture — unwrap on Ok.
+//
+// Phase 4 minimum: demonstrates unwrap behavior on Ok variant.
+// Parser does not yet support generic type params in definitions (m9 gate).
+
+trait ResultUnwrap {
+  fn result_unwrap_ok() -> i32;
+}

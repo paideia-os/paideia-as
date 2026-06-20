@@ -1,0 +1,8 @@
+// Phase 4 m11-001: Option<T> fixture — ok_or conversion.
+//
+// Phase 4 minimum: demonstrates ok_or conversion from Option<T> to Result<T, E>.
+// Parser does not yet support generic type params in definitions (m9 gate).
+
+trait OptionOkOr {
+  fn option_ok_or() -> i32;
+}
