@@ -1,6 +1,5 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
-assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -629,6 +628,62 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "Dead-store elimination applied",
               "shortDescription": {
                 "text": "stores to memory subsequently overwritten without intervening reads were removed"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "fullDescription": {
+                "text": "Per optimization-passes.md §6, picking the shortest legal encoding (32-bit ADD short form, Jcc rel8 over rel32) reduces code size and improves L1i density."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/O1506",
+              "id": "O1506",
+              "name": "REX/EVEX prefix tightening applied",
+              "shortDescription": {
+                "text": "instruction shortened to its smallest legal encoding"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "fullDescription": {
+                "text": "Per optimization-passes.md §7, branch hints direct the code layout pass to place unlikely branches away from the fall-through path, improving cache density and reducing misprediction penalties."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/O1507",
+              "id": "O1507",
+              "name": "Branch-hint code layout applied",
+              "shortDescription": {
+                "text": "unlikely branches moved off fall-through for better code density"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "fullDescription": {
+                "text": "Per optimization-passes.md §8, aligning function entries to cache-line boundaries (typically 64 bytes) reduces L1i cache conflicts and improves prefetching efficiency."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/O1508",
+              "id": "O1508",
+              "name": "Function-entry alignment applied",
+              "shortDescription": {
+                "text": "function entry aligned to improve L1i cache performance"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "fullDescription": {
+                "text": "Per optimization-passes.md §9, constants appearing multiple times in a function are factored into a read-only constant pool, reducing instruction encoding size and improving cache density."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/O1509",
+              "id": "O1509",
+              "name": "Constant-pool emission applied",
+              "shortDescription": {
+                "text": "repeated 64-bit immediates factored into a constant pool"
               }
             },
             {
