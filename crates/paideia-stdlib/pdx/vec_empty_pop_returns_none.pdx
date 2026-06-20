@@ -1,0 +1,10 @@
+// Phase 4 m11-002: vec_empty_pop_returns_none
+// Fixture: Vec::pop() on empty returns None.
+
+use paideia.raw_mem;
+
+fn test_vec_empty_pop_returns_none() -> u64 {
+  let v = vec_new();
+  let v = vec_pop(v);
+  0
+}

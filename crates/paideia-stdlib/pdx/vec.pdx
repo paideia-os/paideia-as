@@ -1,0 +1,28 @@
+// Phase 4 m11-002: Vec<T> dynamic array.
+//
+// struct Vec<T> { ptr: *T, len: u64, cap: u64 }
+//
+// Methods (parser-only today; full impl gates on m9 walker + m4-m6 borrow):
+// - new() -> Vec<T>
+// - with_capacity(cap: u64) -> Vec<T>
+// - push(self: &mut Self, value: T)
+// - pop(self: &mut Self) -> Option<T>
+// - get(self: &Self, idx: u64) -> Option<&T>
+// - get_mut(self: &mut Self, idx: u64) -> Option<&mut T>
+// - len(self: &Self) -> u64
+// - iter(self: &Self) -> Iter<T>
+// - into_iter(self) -> IntoIter<T>
+
+record Vec {
+  ptr: u64,  // placeholder for *T; will be `*T` once generics-in-records parse
+  len: u64,
+  cap: u64,
+}
+
+trait VecOps {
+  fn vec_new() -> Vec !{RawMem} @{paideia.raw_mem};
+  fn vec_with_capacity(cap: u64) -> Vec !{RawMem} @{paideia.raw_mem};
+  fn vec_push(v: Vec, value: u64) -> Vec !{RawMem} @{paideia.raw_mem};
+  fn vec_pop(v: Vec) -> Vec !{RawMem} @{paideia.raw_mem};
+  fn vec_len(v: Vec) -> u64 !{} @{};
+}

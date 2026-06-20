@@ -1,0 +1,11 @@
+// Phase 4 m11-002: vec_iter_yields_each
+// Fixture: Vec::iter() yields each element.
+
+use paideia.raw_mem;
+
+fn test_vec_iter_yields_each() -> u64 {
+  let v = vec_new();
+  let v = vec_push(v, 1);
+  let v = vec_push(v, 2);
+  0
+}

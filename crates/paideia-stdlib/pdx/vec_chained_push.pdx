@@ -1,0 +1,13 @@
+// Phase 4 m11-002: vec_chained_push
+// Fixture: Chained push operations.
+
+use paideia.raw_mem;
+
+fn test_vec_chained_push() -> u64 {
+  let v = vec_new();
+  let v = vec_push(v, 1);
+  let v = vec_push(v, 2);
+  let v = vec_push(v, 3);
+  let v = vec_push(v, 4);
+  vec_len(v)
+}

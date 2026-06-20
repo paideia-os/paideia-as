@@ -1,0 +1,9 @@
+// Phase 4 m11-002: vec_new_creates_empty
+// Fixture: Vec::new() creates an empty vector with len=0.
+
+use paideia.raw_mem;
+
+fn test_vec_new_creates_empty() -> u64 {
+  let v = vec_new();
+  vec_len(v)
+}

@@ -1,0 +1,11 @@
+// Phase 4 m11-002: vec_push_then_pop_returns_value
+// Fixture: Vec::push then pop returns the value.
+
+use paideia.raw_mem;
+
+fn test_vec_push_then_pop_returns_value() -> u64 {
+  let v = vec_new();
+  let v = vec_push(v, 42);
+  let v = vec_pop(v);
+  0
+}

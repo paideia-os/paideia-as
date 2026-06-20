@@ -1,0 +1,9 @@
+// Phase 4 m11-002: vec_with_capacity_preallocates
+// Fixture: Vec::with_capacity(cap) preallocates storage.
+
+use paideia.raw_mem;
+
+fn test_vec_with_capacity_preallocates() -> u64 {
+  let v = vec_with_capacity(10);
+  vec_len(v)
+}

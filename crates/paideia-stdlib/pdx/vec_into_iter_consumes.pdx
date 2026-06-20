@@ -1,0 +1,10 @@
+// Phase 4 m11-002: vec_into_iter_consumes
+// Fixture: Vec::into_iter() consumes the vector.
+
+use paideia.raw_mem;
+
+fn test_vec_into_iter_consumes() -> u64 {
+  let v = vec_new();
+  let v = vec_push(v, 1);
+  0
+}

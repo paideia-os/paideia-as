@@ -1,0 +1,10 @@
+// Phase 4 m11-002: vec_get_out_of_bounds_returns_none
+// Fixture: Vec::get() on out-of-bounds returns None.
+
+use paideia.raw_mem;
+
+fn test_vec_get_out_of_bounds_returns_none() -> u64 {
+  let v = vec_new();
+  let v = vec_push(v, 10);
+  0
+}

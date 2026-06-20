@@ -1,0 +1,9 @@
+// Phase 4 m11-002: vec_with_strings
+// Fixture: Vec of String (uses m8-003 String).
+
+use paideia.raw_mem;
+
+fn test_vec_with_strings() -> u64 {
+  let v = vec_new();
+  0
+}

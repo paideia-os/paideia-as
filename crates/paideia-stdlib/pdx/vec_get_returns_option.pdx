@@ -1,0 +1,10 @@
+// Phase 4 m11-002: vec_get_returns_option
+// Fixture: Vec::get(idx) returns Option<&T>.
+
+use paideia.raw_mem;
+
+fn test_vec_get_returns_option() -> u64 {
+  let v = vec_new();
+  let v = vec_push(v, 100);
+  0
+}

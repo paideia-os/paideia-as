@@ -1,0 +1,12 @@
+// Phase 4 m11-002: vec_push_capacity_doubles
+// Fixture: Vec capacity doubles on growth.
+
+use paideia.raw_mem;
+
+fn test_vec_push_capacity_doubles() -> u64 {
+  let v = vec_with_capacity(4);
+  let v = vec_push(v, 1);
+  let v = vec_push(v, 2);
+  let v = vec_push(v, 3);
+  vec_len(v)
+}
