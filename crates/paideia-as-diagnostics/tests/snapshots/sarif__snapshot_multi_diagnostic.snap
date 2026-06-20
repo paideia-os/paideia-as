@@ -1,6 +1,5 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
-assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -643,6 +642,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "Linear binding leaked via let shadowing",
               "shortDescription": {
                 "text": "linear binding shadowed by let without consumption"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "An affine binding may be used at most once, but the analysis detects that it could be consumed in two or more sibling match arms (or if/then/else branches). Although only one branch executes dynamically, the static analysis tracks 'may consume' (not 'must consume'), so this is flagged as a static error. Restructure the code so the affine binding is used in only one branch, or assign it to an unrestricted binding first."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/S0904",
+              "id": "S0904",
+              "name": "Affine binding consumed in multiple match arms",
+              "shortDescription": {
+                "text": "affine binding may be consumed across sibling branches"
               }
             },
             {
