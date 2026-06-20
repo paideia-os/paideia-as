@@ -1,0 +1,11 @@
+; Immutable borrow in outer scope, mutable borrow in overlapping inner scope.
+; Should reject with S0906 — scopes overlap, so borrows conflict.
+fn test_overlapping_scopes() -> u64 {
+  let x: u64 = 25;
+  let iref: &x = &x;
+  {
+    let mref: &mut x = &mut x;
+    *mref + 1
+  };
+  *iref
+}

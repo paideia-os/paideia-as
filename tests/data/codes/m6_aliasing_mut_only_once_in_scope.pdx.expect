@@ -1,0 +1,2 @@
+# Single mutable borrow in a scope.
+# Should accept — only one mutable borrow exists.

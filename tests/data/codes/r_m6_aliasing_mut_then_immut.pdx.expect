@@ -1,0 +1,3 @@
+# Mutable borrow followed by immutable borrow of the same binding.
+# Should reject with S0906 — immutable cannot coexist with mutable.
+S0906

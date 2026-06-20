@@ -1,0 +1,3 @@
+# Two mutable borrows of the same binding.
+# Should reject with S0907 — only one mutable borrow allowed at a time.
+S0907

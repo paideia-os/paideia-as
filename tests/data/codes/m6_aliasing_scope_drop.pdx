@@ -1,0 +1,15 @@
+; Borrows have region-limited scope; leaving the scope releases them.
+; Should accept — after the inner scope exits, the binding can be borrowed again.
+fn test_scope_drop() -> u64 {
+  let x: u64 = 30;
+  let result: u64;
+  {
+    let r: &x = &x;
+    result = *r + 1;
+  }
+  {
+    let r2: &mut x = &mut x;
+    *r2 = 99;
+  }
+  x
+}

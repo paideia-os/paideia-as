@@ -1,0 +1,8 @@
+; Immutable borrow followed by mutable borrow of the same binding.
+; Should reject with S0906 — mutable cannot coexist with immutable.
+fn test_immut_then_mut() -> u64 {
+  let x: u64 = 40;
+  let iref: &x = &x;
+  let mref: &mut x = &mut x;
+  *iref + *mref
+}

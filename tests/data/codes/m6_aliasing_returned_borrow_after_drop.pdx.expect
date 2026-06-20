@@ -1,0 +1,2 @@
+# A borrow is created, then used after the original binding is returned/dropped.
+# Should accept — the returned value carries the borrow.

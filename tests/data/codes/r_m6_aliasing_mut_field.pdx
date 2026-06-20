@@ -1,0 +1,13 @@
+; Mutable borrow of a struct field, then another mutable borrow of the same field.
+; Should reject with S0907 — two mutable borrows cannot coexist.
+struct Point {
+  x: u64,
+  y: u64
+}
+
+fn test_mut_field() -> u64 {
+  let p: Point = Point { x: 1, y: 2 };
+  let xmut1: &mut p.x = &mut p.x;
+  let xmut2: &mut p.x = &mut p.x;
+  *xmut1 + *xmut2
+}

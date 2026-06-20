@@ -6,6 +6,7 @@
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+pub mod borrow_walker;
 pub mod branch_merge;
 pub mod cap_infer;
 pub mod cap_walker;
@@ -54,6 +55,7 @@ pub mod splice;
 pub mod term_eval;
 pub mod walker_pass_state;
 
+pub use borrow_walker::{BorrowKind, BorrowWalker};
 pub use branch_merge::{S_BRANCH_MISMATCH, merge_branches};
 pub use cap_infer::{C_MISSING_CAP, check_capabilities, compose_caps};
 pub use cap_walker::CapWalker;

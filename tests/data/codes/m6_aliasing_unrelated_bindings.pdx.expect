@@ -1,0 +1,2 @@
+# Borrows of different bindings have independent tracking.
+# Should accept — each binding can be borrowed independently.

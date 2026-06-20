@@ -1,0 +1,2 @@
+# Two immutable borrows of the same binding in sequence.
+# Should accept — immutable borrows do not conflict.

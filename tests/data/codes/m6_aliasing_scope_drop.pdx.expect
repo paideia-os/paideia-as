@@ -1,0 +1,2 @@
+# Borrows have region-limited scope; leaving the scope releases them.
+# Should accept — after the inner scope exits, the binding can be borrowed again.

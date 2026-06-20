@@ -1,0 +1,2 @@
+# Passing an immutably borrowed binding to a function parameter.
+# Should accept — parameter passing respects borrow rules.

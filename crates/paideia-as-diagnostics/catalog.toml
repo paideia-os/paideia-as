@@ -551,6 +551,24 @@ description = "An ordered binding declared in an enclosing scope is used out of 
 since = "0.3.0"
 deprecated = false
 
+[diagnostic.S0906]
+severity = "error"
+category = "substructural"
+title = "Cannot borrow as mutable while also borrowed as immutable"
+brief = "a mutable borrow conflicts with an active immutable borrow"
+description = "Phase 4 m6-001: the borrow checker requires that a binding can be borrowed either as immutable (any number of times) or as mutable (exactly once), but not both simultaneously. This rule prevents data races and use-after-free patterns."
+since = "0.4.0"
+deprecated = false
+
+[diagnostic.S0907]
+severity = "error"
+category = "substructural"
+title = "Cannot borrow as mutable more than once"
+brief = "a mutable borrow conflicts with another active mutable borrow"
+description = "Phase 4 m6-001: a binding can have at most one active mutable borrow at a time. This prevents data races by guaranteeing exclusive access through the mutable reference."
+since = "0.4.0"
+deprecated = false
+
 [diagnostic.T0512]
 severity = "error"
 category = "type"

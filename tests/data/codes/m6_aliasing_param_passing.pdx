@@ -1,0 +1,12 @@
+; Passing an immutably borrowed binding to a function parameter.
+; Should accept — parameter passing respects borrow rules.
+fn consume_ref(r: &u64) -> u64 {
+  *r
+}
+
+fn test_param_passing() -> u64 {
+  let x: u64 = 100;
+  let r1: &x = &x;
+  let r2: &x = &x;
+  consume_ref(r1) + consume_ref(r2)
+}

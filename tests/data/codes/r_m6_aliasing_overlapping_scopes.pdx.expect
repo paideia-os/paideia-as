@@ -1,0 +1,3 @@
+# Immutable borrow in outer scope, mutable borrow in overlapping inner scope.
+# Should reject with S0906 — scopes overlap, so borrows conflict.
+S0906

@@ -801,6 +801,34 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
             },
             {
               "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase 4 m6-001: the borrow checker requires that a binding can be borrowed either as immutable (any number of times) or as mutable (exactly once), but not both simultaneously. This rule prevents data races and use-after-free patterns."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/S0906",
+              "id": "S0906",
+              "name": "Cannot borrow as mutable while also borrowed as immutable",
+              "shortDescription": {
+                "text": "a mutable borrow conflicts with an active immutable borrow"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase 4 m6-001: a binding can have at most one active mutable borrow at a time. This prevents data races by guaranteeing exclusive access through the mutable reference."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/S0907",
+              "id": "S0907",
+              "name": "Cannot borrow as mutable more than once",
+              "shortDescription": {
+                "text": "a mutable borrow conflicts with another active mutable borrow"
+              }
+            },
+            {
+              "defaultConfiguration": {
                 "level": "note"
               },
               "fullDescription": {

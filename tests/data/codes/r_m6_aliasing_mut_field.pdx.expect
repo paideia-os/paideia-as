@@ -1,0 +1,3 @@
+# Mutable borrow of a struct field, then another mutable borrow of the same field.
+# Should reject with S0907 — two mutable borrows cannot coexist.
+S0907

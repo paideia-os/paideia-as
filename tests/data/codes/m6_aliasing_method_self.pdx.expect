@@ -1,0 +1,2 @@
+# Method call with &self receiver (immutable borrow).
+# Should accept — method receivers follow normal borrow rules.

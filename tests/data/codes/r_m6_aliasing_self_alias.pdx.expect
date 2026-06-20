@@ -1,0 +1,3 @@
+# Mutable method receiver, then attempt to borrow the same object again.
+# Should reject with S0907 — self is mutably borrowed, so no other borrows allowed.
+S0907

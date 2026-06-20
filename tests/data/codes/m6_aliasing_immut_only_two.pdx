@@ -1,0 +1,8 @@
+; Two immutable borrows of the same binding in sequence.
+; Should accept — immutable borrows do not conflict.
+fn test_two_immut() -> u64 {
+  let x: u64 = 42;
+  let y: &x = &x;
+  let z: &x = &x;
+  *y + *z
+}

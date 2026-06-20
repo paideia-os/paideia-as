@@ -1,0 +1,9 @@
+; Borrows of different bindings have independent tracking.
+; Should accept — each binding can be borrowed independently.
+fn test_unrelated() -> u64 {
+  let x: u64 = 5;
+  let y: u64 = 10;
+  let xr: &x = &x;
+  let yr: &mut y = &mut y;
+  *xr + *yr
+}

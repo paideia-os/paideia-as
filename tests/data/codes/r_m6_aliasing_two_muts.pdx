@@ -1,0 +1,8 @@
+; Two mutable borrows of the same binding.
+; Should reject with S0907 — only one mutable borrow allowed at a time.
+fn test_two_muts() -> u64 {
+  let x: u64 = 60;
+  let mref1: &mut x = &mut x;
+  let mref2: &mut x = &mut x;
+  *mref1 + *mref2
+}

@@ -1,0 +1,12 @@
+; A borrow is created, then used after the original binding is returned/dropped.
+; Should accept — the returned value carries the borrow.
+fn get_borrow_then_drop() -> &u64 {
+  let x: u64 = 77;
+  let r: &x = &x;
+  r
+}
+
+fn test_returned_borrow() -> u64 {
+  let r: &u64 = get_borrow_then_drop();
+  *r
+}

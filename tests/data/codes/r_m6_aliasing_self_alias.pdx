@@ -1,0 +1,20 @@
+; Mutable method receiver, then attempt to borrow the same object again.
+; Should reject with S0907 — self is mutably borrowed, so no other borrows allowed.
+struct Node {
+  value: u64,
+  next: Option<&mut Node>
+}
+
+impl Node {
+  fn update_mutable(&mut self) -> u64 {
+    self.value
+  }
+}
+
+fn test_self_alias() -> u64 {
+  let mut n: Node = Node { value: 5, next: None };
+  let r: &mut Node = &mut n;
+  r.update_mutable();
+  let r2: &mut Node = &mut n;
+  r2.update_mutable()
+}

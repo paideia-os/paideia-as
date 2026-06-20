@@ -1,0 +1,14 @@
+; Immutable borrow in one scope, then dropped, then mutable borrow in another.
+; Should accept — the scopes do not overlap.
+fn test_drop_then_mut() -> u64 {
+  let x: u64 = 10;
+  {
+    let y: &x = &x;
+    x + *y
+  }
+  {
+    let z: &mut x = &mut x;
+    *z + 5
+  }
+  x
+}

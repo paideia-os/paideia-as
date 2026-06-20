@@ -1,0 +1,18 @@
+; Method call with &self receiver (immutable borrow).
+; Should accept — method receivers follow normal borrow rules.
+struct MyStruct {
+  value: u64
+}
+
+impl MyStruct {
+  fn read(&self) -> u64 {
+    self.value
+  }
+}
+
+fn test_method_self() -> u64 {
+  let obj: MyStruct = MyStruct { value: 42 };
+  let r1: &MyStruct = &obj;
+  let r2: &MyStruct = &obj;
+  r1.read() + r2.read()
+}
