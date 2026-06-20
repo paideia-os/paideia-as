@@ -93,9 +93,12 @@ impl IntrinsicSignature {
 
 /// Construct the list of all intrinsic signatures.
 ///
-/// Generates 20 intrinsics:
+/// Generates 40 intrinsics:
 /// - 10 width families (u8, u16, u32, u64, i8, i16, i32, i64, f32, f64).
-/// - Each family has `index_*` (2 params: ptr + index) and `index_*_set` (3 params: ptr + index + value).
+/// - Each family has:
+///   - `index_*` (2 params: ptr + index) and `index_*_set` (3 params: ptr + index + value).
+///   - `ptr_sub_*` (2 params: ptr + ptr) → element distance (u64).
+///   - `ptr_sub_bytes_*` (2 params: ptr + ptr) → byte distance (u64).
 #[must_use]
 pub fn all_intrinsics() -> Vec<IntrinsicSignature> {
     let width_configs = [
@@ -111,22 +114,42 @@ pub fn all_intrinsics() -> Vec<IntrinsicSignature> {
         ("f64", TypeKind::F64, TypeKind::PtrF64),
     ];
 
-    let mut out = Vec::with_capacity(width_configs.len() * 2);
+    let mut out = Vec::with_capacity(width_configs.len() * 4);
 
-    for (name, val_t, ptr_t) in &width_configs {
+    for (name, _val_t, ptr_t) in &width_configs {
         // index_* : (*T, u64) -> T
         out.push(IntrinsicSignature::canonical(
             format!("index_{name}"),
             vec![*ptr_t, TypeKind::UIndex],
-            *val_t,
+            *_val_t,
         ));
 
         // index_*_set : (*T, u64, T) -> ()
         out.push(IntrinsicSignature::canonical(
             format!("index_{name}_set"),
-            vec![*ptr_t, TypeKind::UIndex, *val_t],
+            vec![*ptr_t, TypeKind::UIndex, *_val_t],
             TypeKind::Unit,
         ));
+
+        // ptr_sub_* : (*T, *T) -> u64 (element distance)
+        // Effect-free: pointer subtraction is register-only.
+        out.push(IntrinsicSignature {
+            name: format!("ptr_sub_{name}"),
+            param_types: vec![*ptr_t, *ptr_t],
+            return_type: TypeKind::U64,
+            effect_row: String::new(),
+            capability_row: String::new(),
+        });
+
+        // ptr_sub_bytes_* : (*T, *T) -> u64 (byte distance)
+        // Effect-free: pointer subtraction is register-only.
+        out.push(IntrinsicSignature {
+            name: format!("ptr_sub_bytes_{name}"),
+            param_types: vec![*ptr_t, *ptr_t],
+            return_type: TypeKind::U64,
+            effect_row: String::new(),
+            capability_row: String::new(),
+        });
     }
 
     out
@@ -146,12 +169,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn all_intrinsics_returns_20_entries() {
+    fn all_intrinsics_returns_40_entries() {
         let intrinsics = all_intrinsics();
         assert_eq!(
             intrinsics.len(),
-            20,
-            "expected 10 widths × 2 (get + set) = 20 intrinsics"
+            40,
+            "expected 10 widths × 4 (get + set + ptr_sub + ptr_sub_bytes) = 40 intrinsics"
         );
     }
 
@@ -268,5 +291,47 @@ mod tests {
                 sig.name
             );
         }
+    }
+
+    #[test]
+    fn ptr_sub_signature_returns_u64() {
+        let sig = lookup_intrinsic("ptr_sub_u64").expect("ptr_sub_u64 should exist");
+        assert_eq!(sig.name, "ptr_sub_u64");
+        assert_eq!(sig.param_types.len(), 2);
+        assert_eq!(sig.param_types[0], TypeKind::PtrU64);
+        assert_eq!(sig.param_types[1], TypeKind::PtrU64);
+        assert_eq!(sig.return_type, TypeKind::U64);
+        assert_eq!(sig.effect_row, "");
+        assert_eq!(sig.capability_row, "");
+    }
+
+    #[test]
+    fn ptr_sub_bytes_signature_returns_u64() {
+        let sig = lookup_intrinsic("ptr_sub_bytes_u64").expect("ptr_sub_bytes_u64 should exist");
+        assert_eq!(sig.name, "ptr_sub_bytes_u64");
+        assert_eq!(sig.param_types.len(), 2);
+        assert_eq!(sig.param_types[0], TypeKind::PtrU64);
+        assert_eq!(sig.param_types[1], TypeKind::PtrU64);
+        assert_eq!(sig.return_type, TypeKind::U64);
+        assert_eq!(sig.effect_row, "");
+        assert_eq!(sig.capability_row, "");
+    }
+
+    #[test]
+    fn ptr_sub_count_is_20_entries() {
+        let all = all_intrinsics();
+        let ptr_sub_count = all.iter().filter(|s| s.name.contains("ptr_sub")).count();
+        assert_eq!(
+            ptr_sub_count, 20,
+            "expected 10 widths × (ptr_sub + ptr_sub_bytes) = 20 ptr_sub* entries"
+        );
+    }
+
+    #[test]
+    fn lookup_intrinsic_finds_ptr_sub_u64() {
+        let sig = lookup_intrinsic("ptr_sub_u64").expect("ptr_sub_u64 should exist");
+        assert_eq!(sig.name, "ptr_sub_u64");
+        assert_eq!(sig.return_type, TypeKind::U64);
+        assert_eq!(sig.param_types[0], TypeKind::PtrU64);
     }
 }
