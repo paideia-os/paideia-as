@@ -605,6 +605,48 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
             },
             {
               "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "A binding declared as Linear or Ordered in the substructural lattice must be used exactly once. This binding was never used. A Linear binding represents a unique resource that must be consumed; Ordered adds ordering constraints. Check that the binding is referenced exactly once in its scope."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/S0900",
+              "id": "S0900",
+              "name": "Linear or Ordered binding never used",
+              "shortDescription": {
+                "text": "binding is never used (requires exactly one use)"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "A binding declared as Linear or Ordered must be used exactly once. This binding was used multiple times. Linear bindings represent unique resources; Affine bindings may be used at most once; Unrestricted have no constraints."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/S0901",
+              "id": "S0901",
+              "name": "Linear or Ordered binding overused",
+              "shortDescription": {
+                "text": "binding used more than once (requires exactly one use)"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "A linear binding from an outer scope is shadowed by a new let binding with the same name before the outer binding has been consumed (used exactly once). This creates a resource leak: the outer linear binding is no longer accessible within the inner scope and cannot be consumed. Move the outer binding's use before the shadowing let, or use a different name for the inner binding."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/S0902",
+              "id": "S0902",
+              "name": "Linear binding leaked via let shadowing",
+              "shortDescription": {
+                "text": "linear binding shadowed by let without consumption"
+              }
+            },
+            {
+              "defaultConfiguration": {
                 "level": "note"
               },
               "fullDescription": {

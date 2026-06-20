@@ -1,3 +1,9 @@
+// Nested let shadow: deeper nesting of shadowed linear bindings.
 module M = structure {
-  let x = 1
+  let f : (linear int) -> unit = fn (x : linear int) -> {
+    {
+      let x = ();  // shadows x in outer lambda scope; leaks it
+      ()
+    }
+  }
 }

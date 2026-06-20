@@ -451,3 +451,30 @@ brief = "&T / &mut T are reserved for a future region-calculus extension"
 description = "Phase 3 ships raw pointers (*T) only. Borrowed references &T / &mut T are reserved for a future phase that requires a region calculus + borrow-checker pass; see design/toolchain/phase-3-plan.md §15 open question."
 since = "0.1.0"
 deprecated = false
+
+[diagnostic.S0900]
+severity = "error"
+category = "substructural"
+title = "Linear or Ordered binding never used"
+brief = "binding is never used (requires exactly one use)"
+description = "A binding declared as Linear or Ordered in the substructural lattice must be used exactly once. This binding was never used. A Linear binding represents a unique resource that must be consumed; Ordered adds ordering constraints. Check that the binding is referenced exactly once in its scope."
+since = "0.3.0"
+deprecated = false
+
+[diagnostic.S0901]
+severity = "error"
+category = "substructural"
+title = "Linear or Ordered binding overused"
+brief = "binding used more than once (requires exactly one use)"
+description = "A binding declared as Linear or Ordered must be used exactly once. This binding was used multiple times. Linear bindings represent unique resources; Affine bindings may be used at most once; Unrestricted have no constraints."
+since = "0.3.0"
+deprecated = false
+
+[diagnostic.S0902]
+severity = "error"
+category = "substructural"
+title = "Linear binding leaked via let shadowing"
+brief = "linear binding shadowed by let without consumption"
+description = "A linear binding from an outer scope is shadowed by a new let binding with the same name before the outer binding has been consumed (used exactly once). This creates a resource leak: the outer linear binding is no longer accessible within the inner scope and cannot be consumed. Move the outer binding's use before the shadowing let, or use a different name for the inner binding."
+since = "0.3.0"
+deprecated = false
