@@ -1,0 +1,4 @@
+# Expected output for m9_derive_on_record_nested.pdx
+# Should parse multiple structs with derives without errors
+exit_code=0
+errors=0

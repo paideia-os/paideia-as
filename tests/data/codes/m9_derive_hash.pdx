@@ -1,0 +1,9 @@
+module M9DeriveHash = structure {
+  // #[derive(Hash)] on a struct type
+  #[derive(Hash)]
+  struct Color {
+    r: u64,
+    g: u64,
+    b: u64
+  }
+}

@@ -1,0 +1,8 @@
+module M9DeriveEq = structure {
+  // #[derive(Eq)] on a struct type
+  #[derive(Eq)]
+  struct Point {
+    x: u64,
+    y: u64
+  }
+}

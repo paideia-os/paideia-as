@@ -11,7 +11,7 @@
 //! - Module body must be either `structure { items }` or `functor (params) -> structure { items }`.
 //! - Only one module per file (M0306 diagnostic emitted for the second module).
 
-use paideia_as_ast::{GenericParam, ItemData, NodeId, NodeKind};
+use paideia_as_ast::{GenericParam, ItemAttribute, ItemData, NodeId, NodeKind};
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
 use paideia_as_lexer::TokenKind;
 
@@ -36,6 +36,21 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     ///
     /// Returns the `NodeId` of the allocated item on success.
     pub fn parse_item(&mut self) -> Result<NodeId, ParseError> {
+        // Check for leading attributes (e.g., `#[derive(...)]`)
+        // If found, dispatch to the appropriate item parser which will consume them
+        if self.at(TokenKind::Hash) {
+            // Peek ahead to determine which item type follows
+            // We'll let the specific parser handle the attributes
+            // by checking the token after the closing `]`
+            match self.peek_beyond_attributes() {
+                Some(TokenKind::KwStruct) => return self.parse_struct_decl(),
+                Some(TokenKind::KwEnum) => return self.parse_enum_decl(),
+                _ => {
+                    // Unknown attribute or item type; fall through to error
+                }
+            }
+        }
+
         match self.peek().map(|t| t.kind) {
             Some(TokenKind::KwModule) => self.parse_module_decl(),
             Some(TokenKind::KwSignature) => self.parse_signature_decl(),
@@ -181,6 +196,44 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         } else {
             ""
         }
+    }
+
+    /// Peek ahead to find the token kind after any leading attributes.
+    ///
+    /// Scans forward over `#[...]` patterns to find the actual item keyword.
+    /// Returns None if we reach EOF or encounter a non-attribute pattern.
+    fn peek_beyond_attributes(&self) -> Option<TokenKind> {
+        let mut lookahead = 0;
+
+        // Skip any `#[...]` patterns
+        loop {
+            let tok = self.peek_at(lookahead)?;
+
+            if tok.kind != TokenKind::Hash {
+                break;
+            }
+
+            lookahead += 1;
+            let next = self.peek_at(lookahead)?;
+            if next.kind != TokenKind::LBracket {
+                break;
+            }
+
+            // Find the matching `]`
+            lookahead += 1;
+            let mut bracket_depth = 1;
+            while bracket_depth > 0 {
+                let tok = self.peek_at(lookahead)?;
+                if tok.kind == TokenKind::LBracket {
+                    bracket_depth += 1;
+                } else if tok.kind == TokenKind::RBracket {
+                    bracket_depth -= 1;
+                }
+                lookahead += 1;
+            }
+        }
+
+        self.peek_at(lookahead).map(|t| t.kind)
     }
 
     /// Parse a module declaration: `module <Ident> (: <SignatureRef>)? = <ModuleBody>`
@@ -630,10 +683,123 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         Ok(item)
     }
 
+    /// Parse item attributes (e.g., `#[derive(...)]`).
+    ///
+    /// Recognizes `#[derive(Trait1, Trait2, ...)]` syntax.
+    /// Each attribute must be followed by `]`.
+    ///
+    /// For phase-1, only `derive` attributes are recognized.
+    /// Other attributes emit P0203 and are skipped.
+    ///
+    /// # Returns
+    /// A vector of `ItemAttribute` instances (empty if no attributes found).
+    fn parse_attributes(&mut self) -> Result<Vec<ItemAttribute>, ParseError> {
+        let mut attributes = vec![];
+
+        while self.at(TokenKind::Hash) {
+            self.bump(); // consume `#`
+
+            if !self.at(TokenKind::LBracket) {
+                // Recover: skip malformed attribute
+                continue;
+            }
+            self.bump(); // consume `[`
+
+            // Check for `derive`
+            if self.at(TokenKind::Ident) {
+                let lexeme = if let Some(tok) = self.peek() {
+                    self.source_text_for_span(tok.span)
+                } else {
+                    ""
+                };
+
+                if lexeme == "derive" {
+                    self.bump(); // consume `derive`
+
+                    // Expect `(`
+                    self.expect(TokenKind::LParen)?;
+
+                    // Parse comma-separated list of trait names
+                    let mut trait_names = vec![];
+                    loop {
+                        if self.at(TokenKind::RParen) {
+                            break;
+                        }
+
+                        // Expect an identifier (trait name)
+                        if self.at(TokenKind::Ident) {
+                            let trait_tok = self.expect(TokenKind::Ident)?;
+                            let trait_id = self.arena_mut().alloc(NodeKind::Ident, trait_tok.span);
+                            trait_names.push(trait_id);
+
+                            // Check for comma
+                            if self.at(TokenKind::Comma) {
+                                self.bump();
+                            } else if !self.at(TokenKind::RParen) {
+                                // Error: expected comma or )
+                                let span = self
+                                    .peek()
+                                    .map(|t| t.span)
+                                    .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+                                let code = DiagnosticCode::new(Category::P, Severity::Error, 100)
+                                    .expect("valid P0100 code");
+                                let diag = Diagnostic::error(code)
+                                    .message("expected `,` or `)` in derive attribute")
+                                    .with_span(span)
+                                    .finish();
+                                self.emit_diagnostic(diag);
+                                return Err(ParseError);
+                            }
+                        } else {
+                            let span = self
+                                .peek()
+                                .map(|t| t.span)
+                                .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+                            let code = DiagnosticCode::new(Category::P, Severity::Error, 100)
+                                .expect("valid P0100 code");
+                            let diag = Diagnostic::error(code)
+                                .message("expected trait name in derive attribute")
+                                .with_span(span)
+                                .finish();
+                            self.emit_diagnostic(diag);
+                            return Err(ParseError);
+                        }
+                    }
+
+                    self.expect(TokenKind::RParen)?; // consume `)`
+                    self.expect(TokenKind::RBracket)?; // consume `]`
+
+                    attributes.push(ItemAttribute::Derive { trait_names });
+                } else {
+                    // Unknown attribute type; skip it
+                    // Consume up to the closing bracket
+                    let mut bracket_depth = 1;
+                    while !self.at_eof() && bracket_depth > 0 {
+                        if self.at(TokenKind::LBracket) {
+                            bracket_depth += 1;
+                        } else if self.at(TokenKind::RBracket) {
+                            bracket_depth -= 1;
+                        }
+                        self.bump();
+                    }
+                }
+            } else {
+                // Malformed attribute; skip
+                break;
+            }
+        }
+
+        Ok(attributes)
+    }
+
     /// Parse a struct type declaration: `struct <Ident> <GenericParams>? { ... }`
     ///
     /// For phase-1, the body is parsed as a skeleton (just match braces).
+    /// Attributes (e.g., `#[derive(...)]`) are parsed before the struct keyword.
     fn parse_struct_decl(&mut self) -> Result<NodeId, ParseError> {
+        // Parse leading attributes
+        let attributes = self.parse_attributes()?;
+
         let struct_tok = self.expect(TokenKind::KwStruct)?;
         let span_start = struct_tok.span;
 
@@ -675,6 +841,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 name: name_id,
                 generic_params,
                 fields: vec![],
+                attributes,
                 doc: None,
             },
         );
@@ -684,7 +851,11 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// Parse an enum type declaration: `enum <Ident> <GenericParams>? { ... }`
     ///
     /// For phase-1, the body is parsed as a skeleton (just match braces).
+    /// Attributes (e.g., `#[derive(...)]`) are parsed before the enum keyword.
     fn parse_enum_decl(&mut self) -> Result<NodeId, ParseError> {
+        // Parse leading attributes
+        let attributes = self.parse_attributes()?;
+
         let enum_tok = self.expect(TokenKind::KwEnum)?;
         let span_start = enum_tok.span;
 
@@ -726,6 +897,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 name: name_id,
                 generic_params,
                 variants: vec![],
+                attributes,
                 doc: None,
             },
         );

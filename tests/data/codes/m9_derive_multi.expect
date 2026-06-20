@@ -1,0 +1,4 @@
+# Expected output for m9_derive_multi.pdx
+# Should parse multiple derives on a single struct without errors
+exit_code=0
+errors=0

@@ -1,0 +1,4 @@
+# Expected output for m9_derive_debug.pdx
+# Should parse #[derive(Debug)] attribute on enum without errors
+exit_code=0
+errors=0

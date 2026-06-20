@@ -124,6 +124,7 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
             name,
             generic_params,
             fields,
+            attributes,
             doc,
         } => {
             let fields_str = fields
@@ -132,7 +133,7 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 .collect::<Vec<_>>()
                 .join(", ");
             format!(
-                "Struct {{ name: {}, generic_params: [{}], fields: [{}], doc: {:?} }}",
+                "Struct {{ name: {}, generic_params: [{}], fields: [{}], attributes: {}, doc: {:?} }}",
                 name,
                 generic_params
                     .iter()
@@ -140,6 +141,7 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                     .collect::<Vec<_>>()
                     .join(", "),
                 fields_str,
+                attributes.len(),
                 doc
             )
         }
@@ -147,6 +149,7 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
             name,
             generic_params,
             variants,
+            attributes,
             doc,
         } => {
             let variants_str = variants
@@ -155,7 +158,7 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 .collect::<Vec<_>>()
                 .join(", ");
             format!(
-                "Enum {{ name: {}, generic_params: [{}], variants: [{}], doc: {:?} }}",
+                "Enum {{ name: {}, generic_params: [{}], variants: [{}], attributes: {}, doc: {:?} }}",
                 name,
                 generic_params
                     .iter()
@@ -163,6 +166,7 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                     .collect::<Vec<_>>()
                     .join(", "),
                 variants_str,
+                attributes.len(),
                 doc
             )
         }

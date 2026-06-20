@@ -1,0 +1,4 @@
+# Expected output for m9_derive_on_enum.pdx
+# Should parse derives on enum with generic parameter without errors
+exit_code=0
+errors=0

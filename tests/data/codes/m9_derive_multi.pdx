@@ -1,0 +1,8 @@
+module M9DeriveMulti = structure {
+  // Multiple derives on a single struct type
+  #[derive(Eq, Hash, Debug)]
+  struct Complex {
+    real: u64,
+    imag: u64
+  }
+}

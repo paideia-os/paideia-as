@@ -1,0 +1,4 @@
+# Expected output for m9_derive_hash.pdx
+# Should parse #[derive(Hash)] attribute on struct without errors
+exit_code=0
+errors=0

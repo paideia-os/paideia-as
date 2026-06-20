@@ -1,0 +1,16 @@
+module M9DeriveOnRecordNested = structure {
+  // Derives on struct with multiple fields and complex types
+  #[derive(Eq, Debug)]
+  struct Nested {
+    id: u64,
+    name: u64,
+    value: u64
+  }
+
+  // Another struct with Eq derive
+  #[derive(Hash)]
+  struct Identifier {
+    namespace: u64,
+    index: u64
+  }
+}

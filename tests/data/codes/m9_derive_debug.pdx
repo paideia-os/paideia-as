@@ -1,0 +1,9 @@
+module M9DeriveDebug = structure {
+  // #[derive(Debug)] on an enum type
+  #[derive(Debug)]
+  enum Status {
+    Active,
+    Inactive,
+    Pending
+  }
+}

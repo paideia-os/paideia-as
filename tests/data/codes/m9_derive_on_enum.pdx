@@ -1,0 +1,8 @@
+module M9DeriveOnEnum = structure {
+  // Multiple derives on an enum with generic parameter
+  #[derive(Hash, Debug)]
+  enum Option<T> {
+    Some,
+    None
+  }
+}

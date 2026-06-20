@@ -20,6 +20,7 @@ pub mod check_match;
 pub mod check_ordered;
 pub mod check_pattern;
 pub mod check_pure;
+pub mod derive;
 pub mod effect_infer;
 pub mod effect_unify;
 pub mod effect_walker;
@@ -69,6 +70,7 @@ pub use check_match::{
 pub use check_ordered::{OrderedEntry, OrderedLog, S_OUT_OF_ORDER};
 pub use check_pattern::is_irrefutable;
 pub use check_pure::{F_PURE_VIOLATION, check_pure};
+pub use derive::{DeriveKind, SyntheticImpl, synthesise_derive};
 pub use effect_infer::{
     F_UNHANDLED_EFFECT, RowOutcome, call_row, check_no_unhandled, compose_rows, handle_row,
     perform_row,

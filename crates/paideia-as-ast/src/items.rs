@@ -6,6 +6,22 @@
 
 use crate::{NodeId, exprs::GenericParam};
 
+/// Attribute applied to an item (e.g., struct, enum, function).
+///
+/// Attributes customize the behavior of declarations, such as
+/// `#[derive(...)]` which synthesizes trait implementations.
+#[derive(Clone, Debug)]
+pub enum ItemAttribute {
+    /// Derive attribute: `#[derive(Trait1, Trait2, ...)]`
+    ///
+    /// Specifies traits whose implementations should be automatically
+    /// synthesized for the decorated type.
+    Derive {
+        /// List of trait names as Ident nodes referring to traits (e.g., Eq, Hash, Debug).
+        trait_names: Vec<NodeId>,
+    },
+}
+
 /// Impl block declaration.
 ///
 /// `ImplDecl` represents a single impl block that provides implementations for a type,
@@ -161,6 +177,8 @@ pub enum ItemData {
         generic_params: Vec<crate::exprs::GenericParam>,
         /// Struct fields.
         fields: Vec<NodeId>,
+        /// Attributes applied to this struct (e.g., `#[derive(...)]`).
+        attributes: Vec<ItemAttribute>,
         /// Optional documentation comment.
         doc: Option<NodeId>,
     },
@@ -174,6 +192,8 @@ pub enum ItemData {
         generic_params: Vec<crate::exprs::GenericParam>,
         /// Enum variants.
         variants: Vec<NodeId>,
+        /// Attributes applied to this enum (e.g., `#[derive(...)]`).
+        attributes: Vec<ItemAttribute>,
         /// Optional documentation comment.
         doc: Option<NodeId>,
     },

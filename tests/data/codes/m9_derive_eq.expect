@@ -1,0 +1,4 @@
+# Expected output for m9_derive_eq.pdx
+# Should parse #[derive(Eq)] attribute on struct without errors
+exit_code=0
+errors=0
