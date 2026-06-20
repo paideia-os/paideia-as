@@ -8,4 +8,4 @@
 pub mod encode;
 pub mod encode_instruction;
 pub use encode::*;
-pub use encode_instruction::{EncodeError, encode_instruction};
+pub use encode_instruction::{EncodeError, EncodeStats, encode_instruction};
