@@ -1,0 +1,4 @@
+fn borrow_immut() {
+    let x = 42;
+    let r = &x;
+}

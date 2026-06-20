@@ -363,6 +363,25 @@ pub enum ExprData {
     /// A byte string literal with escape sequences fully processed. The bytes
     /// contain the decoded content after escape processing (e.g., `\n` → byte 0x0A).
     ByteStringLiteral(Vec<u8>),
+
+    /// `&expr` or `&mut expr`.
+    ///
+    /// Borrow expression: creates a reference to the given expression.
+    /// The `mutable` flag distinguishes immutable (`&expr`) from mutable (`&mut expr`).
+    Borrow {
+        /// Expression being borrowed.
+        expr: NodeId,
+        /// Whether the borrow is mutable.
+        mutable: bool,
+    },
+
+    /// `*expr`.
+    ///
+    /// Dereference expression: dereferences a pointer or reference.
+    Deref {
+        /// Expression being dereferenced.
+        expr: NodeId,
+    },
 }
 
 /// A single arm in a match expression.

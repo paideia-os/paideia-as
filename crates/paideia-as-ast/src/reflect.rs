@@ -409,6 +409,12 @@ impl<'a> Term<'a> {
                 ExprData::ByteStringLiteral(_) => {
                     // No children for byte string literals
                 }
+                ExprData::Borrow { expr, .. } => {
+                    result.push(Term::new(self.arena, *expr));
+                }
+                ExprData::Deref { expr } => {
+                    result.push(Term::new(self.arena, *expr));
+                }
             }
         }
 

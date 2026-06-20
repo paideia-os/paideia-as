@@ -599,6 +599,12 @@ fn print_expr_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
         ExprData::ByteStringLiteral(b) => {
             format!("ByteStringLiteral({:?})", b)
         }
+        ExprData::Borrow { expr, mutable } => {
+            format!("Borrow {{ expr: {}, mutable: {} }}", expr, mutable)
+        }
+        ExprData::Deref { expr } => {
+            format!("Deref {{ expr: {} }}", expr)
+        }
     };
 
     use std::fmt::Write;

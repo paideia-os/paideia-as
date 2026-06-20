@@ -121,6 +121,10 @@ pub enum NodeKind {
     ExprString,
     /// Byte string literal `b"..."`.
     ExprByteString,
+    /// `&expr` or `&mut expr` (borrow expression).
+    ExprBorrow,
+    /// `*expr` (dereference expression).
+    ExprDeref,
 
     // Statements (§8 Stmt: LetStmt | ExprStmt | InstructionStmt | ReturnStmt)
     /// `let name: ty? = expr;`.

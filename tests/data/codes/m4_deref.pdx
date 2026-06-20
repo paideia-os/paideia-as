@@ -1,0 +1,4 @@
+fn deref_example() {
+    let r = get_ref();
+    let v = *r;
+}

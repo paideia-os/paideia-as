@@ -1,0 +1,4 @@
+fn reborrow_chain() {
+    let r = get_ref();
+    let rb = &*r;
+}
