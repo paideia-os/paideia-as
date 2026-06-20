@@ -36,6 +36,9 @@ pub const S_OVERUSED: u16 = 901;
 /// Diagnostic code for a linear binding leaked via let shadowing.
 pub const S_LEAKED_SHADOW: u16 = 902;
 
+/// Diagnostic code for an affine binding consumed in multiple match arms.
+pub const S_AFFINE_CONSUMED_TWICE: u16 = 904;
+
 /// Construct a DiagnosticCode in the S category.
 fn s_code(n: u16) -> DiagnosticCode {
     DiagnosticCode::new(Category::S, Severity::Error, n).expect("valid S code")
@@ -255,6 +258,57 @@ impl LinearityWalker {
             }
         }
     }
+
+    /// Check if an affine binding is consumed across multiple match arms.
+    ///
+    /// When a Match node's arms are walked, each arm gets its own sub-context.
+    /// After all arms walked, if more than one arm consumed the same affine binding
+    /// (used the name and consumed it), fire S0904.
+    ///
+    /// **Phase-3 Honest**: Match nodes are not yet in the IR (phase-3-m1 placeholder).
+    /// This method will be wired when Match elaboration is complete.
+    /// For now, it is a TODO stub that would be called from `pre_visit(Match)` and
+    /// `post_visit(Match)`.
+    #[allow(dead_code)]
+    fn check_multi_arm_consume(&self, arm_contexts: &[LinearityCtx], ctx: &mut WalkerCtx<'_>) {
+        // Collect all symbols used across all arms.
+        let mut symbol_arm_usage: HashMap<Symbol, Vec<usize>> = HashMap::new();
+
+        for (arm_idx, arm_ctx) in arm_contexts.iter().enumerate() {
+            if let Some(innermost) = arm_ctx.scopes_ref().last() {
+                for (sym, binding) in innermost.iter() {
+                    // Only track if the binding was consumed (uses > 0).
+                    if binding.uses > 0 {
+                        symbol_arm_usage.entry(*sym).or_default().push(arm_idx);
+                    }
+                }
+            }
+        }
+
+        // For each symbol consumed in more than one arm, emit S0904.
+        for (sym, arm_indices) in symbol_arm_usage.iter() {
+            if arm_indices.len() > 1 {
+                // Look up the binding from the first arm to get its span and class.
+                if let Some(first_arm_ctx) = arm_contexts.get(arm_indices[0]) {
+                    if let Some(innermost) = first_arm_ctx.scopes_ref().last() {
+                        if let Some(binding) = innermost.get(sym) {
+                            if matches!(binding.class, LinClass::Affine) {
+                                ctx.emit(
+                                    Diagnostic::error(s_code(S_AFFINE_CONSUMED_TWICE))
+                                        .message(format!(
+                                            "affine binding consumed in {} match arms; affine permits at most one use",
+                                            arm_indices.len()
+                                        ))
+                                        .with_span(binding.bind_span)
+                                        .finish(),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl Default for LinearityWalker {
@@ -315,6 +369,9 @@ impl IrWalker for LinearityWalker {
                 // Other scope-introducing nodes: enter a scope.
                 self.linearity_ctx.enter_scope();
             }
+            // TODO(phase-3-m7-002): IrKind::Match =>
+            // When Match elaboration is complete, snapshot the context here,
+            // enter a sub-context for each arm, and collect snapshots for post_visit.
             _ => {}
         }
     }
@@ -363,6 +420,9 @@ impl IrWalker for LinearityWalker {
                     ctx.emit(diag);
                 }
             }
+            // TODO(phase-3-m7-002): IrKind::Match =>
+            // Collect arm contexts from pre_visit snapshots, call check_multi_arm_consume(),
+            // and emit S0904 diagnostics for affine bindings consumed across multiple arms.
             _ => {}
         }
     }
@@ -1084,6 +1144,80 @@ mod tests {
         assert!(
             s0902_diags.is_empty(),
             "no S0902 expected when Unrestricted binding is shadowed"
+        );
+    }
+
+    #[test]
+    fn walker_emits_s0904_on_affine_consumed_in_two_match_arms() {
+        // Two arms both consume the same affine binding.
+        // S0904 should fire.
+        let walker = LinearityWalker::new();
+
+        // Create two arm contexts, each with a binding consumed.
+        let mut arm1_ctx = LinearityCtx::new();
+        let mut arm2_ctx = LinearityCtx::new();
+        let s = span(100);
+
+        // Arm 1: bind and consume affine symbol 5
+        arm1_ctx.bind(5, LinClass::Affine, s);
+        arm1_ctx.use_(5);
+
+        // Arm 2: bind and consume affine symbol 5
+        arm2_ctx.bind(5, LinClass::Affine, s);
+        arm2_ctx.use_(5);
+
+        let arm_contexts = vec![arm1_ctx, arm2_ctx];
+        let sm = paideia_as_diagnostics::SourceMap::new();
+        let mut sink = paideia_as_diagnostics::VecSink::new();
+        let mut ctx = WalkerCtx::new(&sm, &mut sink);
+
+        walker.check_multi_arm_consume(&arm_contexts, &mut ctx);
+
+        let diags = sink.diagnostics();
+        let s0904_diags: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().number() == S_AFFINE_CONSUMED_TWICE)
+            .collect();
+        assert_eq!(
+            s0904_diags.len(),
+            1,
+            "expected exactly one S0904 for affine consumed in two arms"
+        );
+    }
+
+    #[test]
+    fn walker_no_s0904_when_only_one_arm_consumes() {
+        // Only one arm consumes the affine binding; the other doesn't.
+        // No S0904 should fire.
+        let walker = LinearityWalker::new();
+
+        let mut arm1_ctx = LinearityCtx::new();
+        let mut arm2_ctx = LinearityCtx::new();
+        let s = span(100);
+
+        // Arm 1: bind and consume affine symbol 6
+        arm1_ctx.bind(6, LinClass::Affine, s);
+        arm1_ctx.use_(6);
+
+        // Arm 2: bind but do NOT consume affine symbol 6
+        arm2_ctx.bind(6, LinClass::Affine, s);
+        // (no use_ call)
+
+        let arm_contexts = vec![arm1_ctx, arm2_ctx];
+        let sm = paideia_as_diagnostics::SourceMap::new();
+        let mut sink = paideia_as_diagnostics::VecSink::new();
+        let mut ctx = WalkerCtx::new(&sm, &mut sink);
+
+        walker.check_multi_arm_consume(&arm_contexts, &mut ctx);
+
+        let diags = sink.diagnostics();
+        let s0904_diags: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().number() == S_AFFINE_CONSUMED_TWICE)
+            .collect();
+        assert!(
+            s0904_diags.is_empty(),
+            "no S0904 expected when only one arm consumes"
         );
     }
 }

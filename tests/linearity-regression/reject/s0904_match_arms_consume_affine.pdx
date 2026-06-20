@@ -1,0 +1,11 @@
+// S0904: affine binding consumed in multiple match arms.
+// Even though only one arm executes dynamically, the static analysis
+// tracks "may consume" (not "must consume"), so this is a static error.
+module M = structure {
+  let f : (affine int) -> unit = fn (x : affine int) -> {
+    match x {
+      0 => consume(x);
+      _ => consume(x);
+    }
+  }
+}
