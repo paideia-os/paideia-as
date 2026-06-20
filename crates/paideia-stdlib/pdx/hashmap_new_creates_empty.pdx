@@ -1,0 +1,9 @@
+// Phase 4 m11-004: hashmap_new_creates_empty
+// Fixture: HashMap::new() creates an empty hashmap with len=0.
+
+use paideia.raw_mem;
+
+fn test_hashmap_new_creates_empty() -> u64 {
+  let hm = hashmap_new();
+  hashmap_len(hm)
+}

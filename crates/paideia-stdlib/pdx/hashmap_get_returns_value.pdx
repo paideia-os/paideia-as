@@ -1,0 +1,10 @@
+// Phase 4 m11-004: hashmap_get_returns_value
+// Fixture: HashMap::get() returns the value for a present key.
+
+use paideia.raw_mem;
+
+fn test_hashmap_get_returns_value() -> u64 {
+  let hm = hashmap_new();
+  let hm = hashmap_insert(hm, 42, 100);
+  hashmap_get(hm, 42)
+}

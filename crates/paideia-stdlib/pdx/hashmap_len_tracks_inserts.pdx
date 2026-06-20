@@ -1,0 +1,12 @@
+// Phase 4 m11-004: hashmap_len_tracks_inserts
+// Fixture: HashMap::len() tracks the number of inserts.
+
+use paideia.raw_mem;
+
+fn test_hashmap_len_tracks_inserts() -> u64 {
+  let hm = hashmap_new();
+  let hm = hashmap_insert(hm, 42, 100);
+  let hm = hashmap_insert(hm, 43, 200);
+  let hm = hashmap_insert(hm, 44, 300);
+  hashmap_len(hm)
+}

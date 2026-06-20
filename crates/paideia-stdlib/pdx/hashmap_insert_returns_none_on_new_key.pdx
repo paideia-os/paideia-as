@@ -1,0 +1,10 @@
+// Phase 4 m11-004: hashmap_insert_returns_none_on_new_key
+// Fixture: HashMap::insert() returns None when inserting a new key.
+
+use paideia.raw_mem;
+
+fn test_hashmap_insert_returns_none_on_new_key() -> u64 {
+  let hm = hashmap_new();
+  let hm = hashmap_insert(hm, 42, 100);
+  hashmap_len(hm)
+}

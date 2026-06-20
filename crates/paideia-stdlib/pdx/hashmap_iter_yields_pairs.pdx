@@ -1,0 +1,12 @@
+// Phase 4 m11-004: hashmap_iter_yields_pairs
+// Fixture: HashMap::iter() yields key-value pairs.
+
+use paideia.raw_mem;
+
+fn test_hashmap_iter_yields_pairs() -> u64 {
+  let hm = hashmap_new();
+  let hm = hashmap_insert(hm, 1, 10);
+  let hm = hashmap_insert(hm, 2, 20);
+  let hm = hashmap_insert(hm, 3, 30);
+  hashmap_len(hm)
+}

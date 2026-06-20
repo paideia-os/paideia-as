@@ -1,0 +1,9 @@
+// Phase 4 m11-004: hashmap_with_capacity_preallocates
+// Fixture: HashMap::with_capacity(cap) preallocates storage.
+
+use paideia.raw_mem;
+
+fn test_hashmap_with_capacity_preallocates() -> u64 {
+  let hm = hashmap_with_capacity(16);
+  hashmap_len(hm)
+}

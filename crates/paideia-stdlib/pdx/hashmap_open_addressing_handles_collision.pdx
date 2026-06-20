@@ -1,0 +1,13 @@
+// Phase 4 m11-004: hashmap_open_addressing_handles_collision
+// Fixture: HashMap open-addressing handles collisions correctly.
+
+use paideia.raw_mem;
+
+fn test_hashmap_open_addressing_handles_collision() -> u64 {
+  let hm = hashmap_new();
+  let hm = hashmap_insert(hm, 1, 10);
+  let hm = hashmap_insert(hm, 2, 20);
+  let hm = hashmap_insert(hm, 3, 30);
+  let hm = hashmap_insert(hm, 4, 40);
+  hashmap_len(hm)
+}

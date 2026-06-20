@@ -1,0 +1,9 @@
+// Phase 4 m11-004: hashmap_get_missing_returns_none
+// Fixture: HashMap::get() returns None (0) for a missing key.
+
+use paideia.raw_mem;
+
+fn test_hashmap_get_missing_returns_none() -> u64 {
+  let hm = hashmap_new();
+  hashmap_get(hm, 42)
+}

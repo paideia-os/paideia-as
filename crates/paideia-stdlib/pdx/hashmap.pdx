@@ -1,0 +1,46 @@
+// Phase 4 m11-004: HashMap<K, V> open-addressing hash table.
+//
+// struct HashMap<K, V> {
+//   buckets: *Bucket<K, V>,
+//   len: u64,
+//   cap: u64,
+// }
+//
+// Methods (parser-only; impl gates on m9 walker + m4-m6 borrow):
+// - new() -> HashMap<K, V>
+// - with_capacity(cap: u64) -> HashMap<K, V>
+// - insert(self: &mut Self, key: K, value: V) -> Option<V>
+// - get(self: &Self, key: K) -> Option<&V>
+// - remove(self: &mut Self, key: K) -> Option<V>
+// - contains_key(self: &Self, key: K) -> bool
+// - len(self: &Self) -> u64
+// - iter(self: &Self) -> Iter<K, V>
+
+record Bucket {
+  key: u64,    // placeholder for K
+  value: u64,  // placeholder for V
+  hash: u64,
+  state: u8,   // 0 = empty, 1 = occupied, 2 = tombstone
+}
+
+record HashMap {
+  buckets: u64,  // placeholder for *Bucket<K, V>
+  len: u64,
+  cap: u64,
+}
+
+trait HashMapOps {
+  fn hashmap_new() -> HashMap !{RawMem} @{paideia.raw_mem};
+  fn hashmap_with_capacity(cap: u64) -> HashMap !{RawMem} @{paideia.raw_mem};
+  fn hashmap_insert(h: HashMap, key: u64, value: u64) -> HashMap !{RawMem} @{paideia.raw_mem};
+  fn hashmap_get(h: HashMap, key: u64) -> u64 !{RawMem} @{paideia.raw_mem};
+  fn hashmap_remove(h: HashMap, key: u64) -> HashMap !{RawMem} @{paideia.raw_mem};
+  fn hashmap_contains_key(h: HashMap, key: u64) -> bool !{} @{};
+  fn hashmap_len(h: HashMap) -> u64 !{} @{};
+}
+
+// Hasher uses BLAKE3-derived 64-bit hash (m11 minimum; SipHash future
+// follow-up if performance demands).
+trait Hasher {
+  fn hash_u64(key: u64) -> u64 !{} @{};
+}

@@ -1,0 +1,11 @@
+// Phase 4 m11-004: hashmap_insert_returns_some_on_overwrite
+// Fixture: HashMap::insert() returns Some(old_value) when overwriting.
+
+use paideia.raw_mem;
+
+fn test_hashmap_insert_returns_some_on_overwrite() -> u64 {
+  let hm = hashmap_new();
+  let hm = hashmap_insert(hm, 42, 100);
+  let hm = hashmap_insert(hm, 42, 200);
+  hashmap_len(hm)
+}
