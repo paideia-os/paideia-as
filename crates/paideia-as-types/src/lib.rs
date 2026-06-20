@@ -12,6 +12,7 @@ mod intern;
 mod kind_inference;
 mod kinds;
 mod layout;
+mod regions;
 mod subst;
 mod types;
 mod unify;
@@ -23,6 +24,7 @@ pub use kinds::{
     HrKind, Kind, ModuleKind, SigDeclKind, SignatureKind, kind_functor, kind_signature, type_kind,
 };
 pub use layout::{Layout, layout_of};
+pub use regions::{RegionGraph, RegionId, RegionInterner};
 pub use subst::Subst;
 pub use types::{CapSetId, EnumPayload, SIZE_WIDTH_SENTINEL, TyVar, Type, TypeId};
 pub use unify::{UnifyError, unify};
