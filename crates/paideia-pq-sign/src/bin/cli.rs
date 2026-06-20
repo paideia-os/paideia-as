@@ -25,10 +25,13 @@ fn main() -> ExitCode {
         eprintln!(
             "                                          (fetch RFC 3161 timestamp token for artifact)"
         );
-        eprintln!("  verify --artifact <path> [--revocation-list <path>] [--ignore-revocation]");
+        eprintln!(
+            "  verify --artifact <path> [--revocation-list <path>] [--ignore-revocation] [--tsa-token <path>]"
+        );
         eprintln!(
             "                                          (verify artifact signature and check revocation)"
         );
+        eprintln!("                                          (validate TSA token if provided)");
         return ExitCode::from(2);
     }
 
@@ -544,9 +547,10 @@ fn run_timestamp(args: &[String]) -> ExitCode {
 }
 
 fn run_verify(args: &[String]) -> ExitCode {
-    // Parse args: --artifact <path> [--revocation-list <path>] [--ignore-revocation]
+    // Parse args: --artifact <path> [--revocation-list <path>] [--ignore-revocation] [--tsa-token <path>]
     let mut artifact_path: Option<&str> = None;
     let mut revocation_list_path: Option<&str> = None;
+    let mut tsa_token_path: Option<&str> = None;
     let mut ignore_revocation = false;
 
     let mut i = 0;
@@ -567,6 +571,15 @@ fn run_verify(args: &[String]) -> ExitCode {
                     i += 2;
                 } else {
                     eprintln!("--revocation-list requires an argument");
+                    return ExitCode::from(2);
+                }
+            }
+            "--tsa-token" => {
+                if i + 1 < args.len() {
+                    tsa_token_path = Some(&args[i + 1]);
+                    i += 2;
+                } else {
+                    eprintln!("--tsa-token requires an argument");
                     return ExitCode::from(2);
                 }
             }
@@ -670,9 +683,57 @@ fn run_verify(args: &[String]) -> ExitCode {
         }
     }
 
+    // Verify TSA token if provided
+    let mut tsa_anchored = false;
+    if let Some(token_path) = tsa_token_path {
+        let token_file = std::path::Path::new(token_path);
+        if !token_file.exists() {
+            eprintln!("TSA token file not found: {}", token_path);
+            return ExitCode::from(2);
+        }
+
+        let token_data = match std::fs::read(token_file) {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("Failed to read TSA token: {e}");
+                return ExitCode::from(1);
+            }
+        };
+
+        // Deserialize the timestamp token
+        match paideia_pq_sign::timestamp::TimestampToken::from_bytes(&token_data) {
+            Some(token) => {
+                // Compute artifact hash to cross-check message imprint
+                let artifact_hash = blake3::hash(&_artifact_data);
+                let artifact_imprint = artifact_hash.as_bytes()[..32].to_vec();
+
+                if token.message_imprint == artifact_imprint {
+                    tsa_anchored = true;
+                    println!("  TSA validation: passed");
+                    println!("    TSA: {}", token.tsa_name);
+                    println!("    Timestamp (UTC): {}", token.gen_time_seconds);
+                    println!("    Serial: {}", token.serial_number);
+                } else {
+                    eprintln!("TSA validation failed: message imprint mismatch");
+                    eprintln!("  Expected (artifact): {}", hex::encode(&artifact_imprint));
+                    eprintln!("  Got (token): {}", hex::encode(&token.message_imprint));
+                    return ExitCode::from(1);
+                }
+            }
+            None => {
+                eprintln!("Failed to deserialize TSA token from bytes");
+                return ExitCode::from(1);
+            }
+        }
+    }
+
     println!("Verification succeeded:");
     println!("  Artifact: {}", artifact_path);
     println!("  Signature length: {} bytes", sig_data.len());
+    println!(
+        "  TSA-anchored: {}",
+        if tsa_anchored { "yes" } else { "no" }
+    );
     if revocation_list_path.is_some() && !ignore_revocation {
         println!("  Revocation check: passed");
     }
