@@ -826,6 +826,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "shortDescription": {
                 "text": "the signing key's scope does not subsume the artifact's effect set"
               }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "fullDescription": {
+                "text": "Phase 3 m6-002 documents this as the canonical hybrid-fallback shape. Operator opt-in is required via --opt-in-hybrid-fallback. See design/security/pq-trust-root.md (phase-3 appendix m6-005)."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/Q0902",
+              "id": "Q0902",
+              "name": "HSM does not support post-quantum signing",
+              "shortDescription": {
+                "text": "the configured HSM (YubiHSM2 ≤ firmware 2.6) supports Ed25519 in hardware but not ML-DSA-65; the PQ leg falls back to soft-HSM"
+              }
             }
           ],
           "semanticVersion": "0.0.1",
