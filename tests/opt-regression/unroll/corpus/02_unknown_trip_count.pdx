@@ -1,0 +1,7 @@
+// Unroll test fixture: unknown trip count (warning case)
+// #[unroll(8)]
+// fn loop_unknown_trip(n: u32) {
+//     for i in 0..n {
+//         do_work(i);
+//     }
+// }

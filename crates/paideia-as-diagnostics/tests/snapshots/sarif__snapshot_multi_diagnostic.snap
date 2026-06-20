@@ -702,6 +702,34 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
             },
             {
               "defaultConfiguration": {
+                "level": "note"
+              },
+              "fullDescription": {
+                "text": "Per optimization-passes.md §10, loop unrolling replicates loop body by a compile-time constant factor to reduce branch penalties and improve ILP. Phase-2-m9-009 supports only known trip counts with divisible factors; remainder loops are deferred to phase-2-m9-010."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/O1511",
+              "id": "O1511",
+              "name": "Loop unrolling applied",
+              "shortDescription": {
+                "text": "loop unrolled by explicit factor"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "fullDescription": {
+                "text": "Loop unrolling with #[unroll(n)] requires a known trip count divisible by n. This loop's trip count is symbolic or unknown, preventing safe unrolling. Remainder-loop dispatch to handle unknown trip counts is deferred to phase-2-m9-010. Provide a constant trip count or remove the #[unroll(n)] directive."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/O1512",
+              "id": "O1512",
+              "name": "Loop unrolling requested on unknown trip count",
+              "shortDescription": {
+                "text": "unroll directive ignored due to symbolic or unknown iteration count"
+              }
+            },
+            {
+              "defaultConfiguration": {
                 "level": "error"
               },
               "fullDescription": {
