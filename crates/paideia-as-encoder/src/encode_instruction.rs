@@ -8,6 +8,47 @@
 use crate::encode::*;
 use paideia_as_ir::{Cond as IrCond, Instruction, Mnemonic, Operand, RegId, Scale};
 
+/// Whether a 64-bit ADD with the given operand can be shortened to 32-bit.
+///
+/// True when the high 32 bits are known to be zero/unused (e.g., the
+/// 32-bit form clears the high bits implicitly).
+fn can_shorten_add_to_32bit(high_bits_used: bool) -> bool {
+    !high_bits_used
+}
+
+/// Whether a Jcc rel32 can be shortened to rel8.
+///
+/// rel8 range: -128..=127 from the byte AFTER the jcc.
+fn can_use_rel8(displacement: i64) -> bool {
+    (-128..=127).contains(&displacement)
+}
+
+/// Statistics about instruction encoding, tracking tightening opportunities.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct EncodeStats {
+    /// Number of instructions tightened (used shorter encoding form).
+    pub tightened: usize,
+    /// Total number of instructions encoded.
+    pub total: usize,
+}
+
+impl EncodeStats {
+    /// Create a new empty stats structure.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Add a tightening event.
+    pub fn record_tightening(&mut self) {
+        self.tightened += 1;
+    }
+
+    /// Increment total instruction count.
+    pub fn record_instruction(&mut self) {
+        self.total += 1;
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 /// Errors that can occur during instruction encoding.
 pub enum EncodeError {
@@ -81,13 +122,20 @@ fn cond_from(ir_cond: IrCond) -> Result<Cond, EncodeError> {
 }
 
 /// Dispatch an Instruction to its mnemonic-specific encoder.
-pub fn encode_instruction(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+///
+/// Returns `Ok(stats)` with encoding statistics on success, or an error if encoding fails.
+pub fn encode_instruction(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+    stats: &mut EncodeStats,
+) -> Result<(), EncodeError> {
+    stats.record_instruction();
     match &inst.mnemonic {
         Mnemonic::Mov => encode_mov(inst, buf),
-        Mnemonic::Add => encode_add(inst, buf),
+        Mnemonic::Add => encode_add(inst, buf, stats),
         Mnemonic::Sub => encode_sub(inst, buf),
         Mnemonic::Cmp => encode_cmp(inst, buf),
-        Mnemonic::Jcc(cond) => encode_jcc(*cond, inst, buf),
+        Mnemonic::Jcc(cond) => encode_jcc(*cond, inst, buf, stats),
         Mnemonic::Jmp => encode_jmp(inst, buf),
         Mnemonic::Call => encode_call(inst, buf),
         Mnemonic::Ret => encode_ret(inst, buf),
@@ -134,11 +182,45 @@ fn encode_mov(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeErro
     }
 }
 
-fn encode_add(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+fn encode_add(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+    stats: &mut EncodeStats,
+) -> Result<(), EncodeError> {
     match inst.operands.as_slice() {
         [Operand::Reg(dest), Operand::Reg(src)] => {
             // add r64, r64 → 48 01 <ModR/M>
             add_reg64_reg64(buf, reg64_from(*dest)?, reg64_from(*src)?);
+            Ok(())
+        }
+        [Operand::Reg(dest), Operand::Imm64(imm)] => {
+            let dest_reg = reg64_from(*dest)?;
+            let imm_i64 = *imm;
+
+            // Consult can_shorten_add_to_32bit: if the high 32 bits are zero/unused,
+            // use 32-bit immediate form instead of 64-bit
+            if can_shorten_add_to_32bit(false)
+                && imm_i64 >= i32::MIN as i64
+                && imm_i64 <= i32::MAX as i64
+            {
+                // High bits are not used and value fits in i32: use 32-bit form
+                let imm_i32 = imm_i64 as i32;
+
+                // Further tighten: if imm fits in i8, use 8-bit form for even shorter encoding
+                if (-128..=127).contains(&imm_i32) {
+                    add_reg64_imm8(buf, dest_reg, imm_i32 as i8);
+                    stats.record_tightening();
+                } else {
+                    add_reg64_imm32(buf, dest_reg, imm_i32);
+                    stats.record_tightening();
+                }
+            } else {
+                // Value requires full 64-bit immediate: use mov + add pattern
+                // For now, return unsupported as phase-3-m2-002 doesn't have this
+                return Err(EncodeError::Unsupported(
+                    "64-bit immediate add not yet supported",
+                ));
+            }
             Ok(())
         }
         _ => Err(EncodeError::Unsupported(
@@ -177,12 +259,23 @@ fn encode_jcc(
     ir_cond: IrCond,
     inst: &Instruction,
     buf: &mut CodeBuffer,
+    stats: &mut EncodeStats,
 ) -> Result<(), EncodeError> {
     match inst.operands.as_slice() {
         [Operand::Imm64(rel)] => {
-            // jcc rel32 → 0F 8X <rel32>
+            // jcc can be encoded as rel32 or rel8 depending on displacement
             let cond = cond_from(ir_cond)?;
-            jcc_rel32(buf, cond, *rel as i32);
+            let disp = *rel;
+
+            // Consult can_use_rel8: if displacement fits in signed byte, use shorter encoding
+            if can_use_rel8(disp) {
+                // Use rel8 form (saves 4 bytes: 0x0F 0x8X <rel32> → 0x7X <rel8>)
+                jcc_rel8(buf, cond, disp as i8);
+                stats.record_tightening();
+            } else {
+                // Use rel32 form (standard 6-byte encoding)
+                jcc_rel32(buf, cond, disp as i32);
+            }
             Ok(())
         }
         _ => Err(EncodeError::Unsupported(
@@ -301,7 +394,8 @@ mod tests {
             encoding_hint: None,
         };
 
-        encode_instruction(&inst, &mut buf).expect("encoding failed");
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
 
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
@@ -322,7 +416,8 @@ mod tests {
             encoding_hint: None,
         };
 
-        encode_instruction(&inst, &mut buf).expect("encoding failed");
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
 
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
@@ -340,7 +435,8 @@ mod tests {
             encoding_hint: None,
         };
 
-        encode_instruction(&inst, &mut buf).expect("encoding failed");
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
 
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
@@ -358,7 +454,8 @@ mod tests {
             encoding_hint: None,
         };
 
-        encode_instruction(&inst, &mut buf).expect("encoding failed");
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
 
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
@@ -376,7 +473,8 @@ mod tests {
             encoding_hint: None,
         };
 
-        encode_instruction(&inst, &mut buf).expect("encoding failed");
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
 
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
@@ -394,7 +492,8 @@ mod tests {
             encoding_hint: None,
         };
 
-        encode_instruction(&inst, &mut buf).expect("encoding failed");
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
 
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
@@ -420,7 +519,8 @@ mod tests {
             encoding_hint: None,
         };
 
-        encode_instruction(&inst, &mut buf).expect("encoding failed");
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
 
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
@@ -439,11 +539,126 @@ mod tests {
             encoding_hint: None,
         };
 
-        let result = encode_instruction(&inst, &mut buf);
+        let mut stats = EncodeStats::new();
+        let result = encode_instruction(&inst, &mut buf, &mut stats);
         assert!(result.is_err());
         match result {
             Err(EncodeError::Unsupported(_)) => {}
             _ => panic!("expected Unsupported error"),
         }
+    }
+
+    // ── Tightened instruction encoding tests ────────────────────
+
+    #[test]
+    fn encode_add_with_small_imm_uses_8bit_form() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Add,
+            operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Imm64(42)],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Should use 8-bit immediate form (4 bytes: REX.W 83 /0 imm8)
+        assert_eq!(buf.len(), 4);
+        assert_eq!(stats.tightened, 1, "Expected one tightening for small imm8");
+
+        // Verify with iced
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Add);
+    }
+
+    #[test]
+    fn encode_add_with_imm_fitting_in_i32_uses_32bit_form() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Add,
+            operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Imm64(0x1000)],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Should use 32-bit immediate form (7 bytes: REX.W 81 /0 imm32)
+        assert_eq!(buf.len(), 7);
+        assert_eq!(stats.tightened, 1, "Expected one tightening for i32 imm");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Add);
+    }
+
+    #[test]
+    fn encode_jcc_with_rel8_disp_uses_rel8_form() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jcc(paideia_as_ir::Cond::Eq),
+            operands: smallvec::smallvec![Operand::Imm64(50)],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Should use rel8 form (2 bytes: 0x74 disp8)
+        assert_eq!(buf.len(), 2);
+        assert_eq!(stats.tightened, 1, "Expected one tightening for rel8 Jcc");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Je);
+    }
+
+    #[test]
+    fn encode_jcc_with_large_disp_uses_rel32_form() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jcc(paideia_as_ir::Cond::Ne),
+            operands: smallvec::smallvec![Operand::Imm64(0x1000)],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Should use rel32 form (6 bytes: 0x0F 0x85 disp32)
+        assert_eq!(buf.len(), 6);
+        assert_eq!(stats.tightened, 0, "Expected no tightening for large disp");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Jne);
+    }
+
+    #[test]
+    fn encode_stats_counts_tightening() {
+        let mut stats = EncodeStats::new();
+        assert_eq!(stats.tightened, 0);
+        assert_eq!(stats.total, 0);
+
+        stats.record_instruction();
+        assert_eq!(stats.total, 1);
+        assert_eq!(stats.tightened, 0);
+
+        stats.record_tightening();
+        assert_eq!(stats.tightened, 1);
+        assert_eq!(stats.total, 1);
+
+        stats.record_instruction();
+        assert_eq!(stats.total, 2);
+        assert_eq!(stats.tightened, 1);
     }
 }

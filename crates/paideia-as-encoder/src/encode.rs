@@ -336,6 +336,54 @@ pub fn jcc_rel32(buf: &mut CodeBuffer, cond: Cond, rel: i32) {
     buf.bytes.extend(rel.to_le_bytes());
 }
 
+/// Encode conditional jump `jcc rel8` (short form).
+///
+/// Instruction: 7X cb (where X is the condition code, displacement is relative to end of instruction)
+/// Total size: 2 bytes
+///
+/// Only valid when displacement fits in i8 (-128..=127).
+pub fn jcc_rel8(buf: &mut CodeBuffer, cond: Cond, rel: i8) {
+    // Convert Cond to rel8 opcode (0x70 + condition code)
+    let rel8_opcode = match cond {
+        Cond::Eq => 0x74,
+        Cond::Neq => 0x75,
+        Cond::Lt => 0x7C,
+        Cond::Ge => 0x7D,
+        Cond::Le => 0x7E,
+        Cond::Gt => 0x7F,
+    };
+    buf.bytes.push(rel8_opcode);
+    buf.bytes.push(rel as u8);
+}
+
+/// Encode `add reg64, imm8` (8-bit immediate, sign-extended to 64-bit).
+///
+/// Instruction: REX.W 83 /0 ib
+/// ModR/M: 0xC0 | reg
+/// Bytes: `48 83 (0xC0 | reg) imm8`
+pub fn add_reg64_imm8(buf: &mut CodeBuffer, dst: Reg64, imm: i8) {
+    let reg_id = dst as u8;
+    let rex_byte = rex(true, false, false, (reg_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x83);
+    buf.bytes.push(0xC0 | (reg_id & 7));
+    buf.bytes.push(imm as u8);
+}
+
+/// Encode `add reg64, imm32` (32-bit immediate, sign-extended to 64-bit).
+///
+/// Instruction: REX.W 81 /0 id
+/// ModR/M: 0xC0 | reg
+/// Bytes: `48 81 (0xC0 | reg) imm32_le`
+pub fn add_reg64_imm32(buf: &mut CodeBuffer, dst: Reg64, imm: i32) {
+    let reg_id = dst as u8;
+    let rex_byte = rex(true, false, false, (reg_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x81);
+    buf.bytes.push(0xC0 | (reg_id & 7));
+    buf.bytes.extend(imm.to_le_bytes());
+}
+
 /// Encode `call rel32` (near call).
 ///
 /// Instruction: E8 cd (displacement is relative to end of instruction)
@@ -990,5 +1038,100 @@ mod tests {
         sub_reg64_reg64(&mut buf, Reg64::Rax, Reg64::Rdi);
         assert_eq!(buf.as_slice(), &[0x48, 0x29, 0xf8]);
         // Width 1 requires no shift; the byte count is element count.
+    }
+
+    // ── Tightened encoding tests ────────────────────────────────
+
+    #[test]
+    fn add_reg64_imm8_small_value() {
+        let mut buf = CodeBuffer::new();
+        add_reg64_imm8(&mut buf, Reg64::Rax, 5);
+        // REX.W=1: 0x48
+        // Opcode: 0x83 (immediate-to-reg with sign-extended imm8)
+        // ModR/M: 0xC0 | 0 = 0xc0 (RAX is id 0, /0 for add)
+        // Immediate: 0x05
+        assert_eq!(buf.as_slice(), &[0x48, 0x83, 0xc0, 0x05]);
+    }
+
+    #[test]
+    fn add_reg64_imm8_negative_value() {
+        let mut buf = CodeBuffer::new();
+        add_reg64_imm8(&mut buf, Reg64::Rcx, -10);
+        // REX.W=1: 0x48
+        // Opcode: 0x83
+        // ModR/M: 0xC0 | 1 = 0xc1 (RCX is id 1, /0 for add)
+        // Immediate: -10 as u8 = 0xf6
+        assert_eq!(buf.as_slice(), &[0x48, 0x83, 0xc1, 0xf6]);
+    }
+
+    #[test]
+    fn add_reg64_imm32_fitting_value() {
+        let mut buf = CodeBuffer::new();
+        add_reg64_imm32(&mut buf, Reg64::Rax, 0x1234);
+        // REX.W=1: 0x48
+        // Opcode: 0x81 (immediate-to-reg with imm32)
+        // ModR/M: 0xC0 | 0 = 0xc0 (RAX is id 0, /0 for add)
+        // Immediate: 0x1234 in little-endian = 0x34, 0x12, 0x00, 0x00
+        assert_eq!(buf.as_slice(), &[0x48, 0x81, 0xc0, 0x34, 0x12, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn add_reg64_imm32_with_high_register() {
+        let mut buf = CodeBuffer::new();
+        add_reg64_imm32(&mut buf, Reg64::R12, 0x5000);
+        // REX.W=1, B=1 (R12 is id 12 > 7): 0x49
+        // Opcode: 0x81
+        // ModR/M: 0xC0 | 4 = 0xc4 (R12 is id 12, id&7=4, /0 for add)
+        // Immediate: 0x5000 in little-endian = 0x00, 0x50, 0x00, 0x00
+        assert_eq!(buf.as_slice(), &[0x49, 0x81, 0xc4, 0x00, 0x50, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn jcc_rel8_within_range() {
+        let mut buf = CodeBuffer::new();
+        jcc_rel8(&mut buf, Cond::Eq, 50);
+        // Opcode for JE rel8: 0x74
+        // Displacement: 0x32 (50 in decimal)
+        assert_eq!(buf.as_slice(), &[0x74, 0x32]);
+    }
+
+    #[test]
+    fn jcc_rel8_negative_displacement() {
+        let mut buf = CodeBuffer::new();
+        jcc_rel8(&mut buf, Cond::Neq, -10);
+        // Opcode for JNE rel8: 0x75
+        // Displacement: -10 as u8 = 0xf6
+        assert_eq!(buf.as_slice(), &[0x75, 0xf6]);
+    }
+
+    #[test]
+    fn jcc_rel8_boundary_values() {
+        let mut buf = CodeBuffer::new();
+        jcc_rel8(&mut buf, Cond::Lt, 127);
+        assert_eq!(buf.as_slice(), &[0x7c, 0x7f]);
+
+        buf.bytes.clear();
+        jcc_rel8(&mut buf, Cond::Ge, -128);
+        assert_eq!(buf.as_slice(), &[0x7d, 0x80]);
+    }
+
+    #[test]
+    fn jcc_rel8_all_conditions() {
+        // Test all condition codes map to correct rel8 opcodes
+        let test_cases = vec![
+            (Cond::Eq, 0x74),
+            (Cond::Neq, 0x75),
+            (Cond::Lt, 0x7C),
+            (Cond::Ge, 0x7D),
+            (Cond::Le, 0x7E),
+            (Cond::Gt, 0x7F),
+        ];
+
+        for (cond, expected_opcode) in test_cases {
+            let mut buf = CodeBuffer::new();
+            jcc_rel8(&mut buf, cond, 5);
+            assert_eq!(buf.as_slice()[0], expected_opcode, "cond: {:?}", cond);
+            assert_eq!(buf.as_slice()[1], 0x05);
+        }
     }
 }
