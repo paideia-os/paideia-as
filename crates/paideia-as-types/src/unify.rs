@@ -11,7 +11,7 @@ use thiserror::Error;
 
 use crate::intern::TypeInterner;
 use crate::subst::Subst;
-use crate::types::{TyVar, Type, TypeId};
+use crate::types::{EnumPayload, TyVar, Type, TypeId};
 
 /// Error type for unification failures.
 ///
@@ -167,6 +167,22 @@ pub fn unify(
             }
             Ok(())
         }
+        // Enum types: unify if variant names and payload shapes/types match in order.
+        (Type::Enum { variants: v1 }, Type::Enum { variants: v2 }) => {
+            if v1.len() != v2.len() {
+                return Err(UnifyError::ArityMismatch);
+            }
+            for ((n1, p1), (n2, p2)) in v1.iter().zip(v2.iter()) {
+                if n1 != n2 {
+                    return Err(UnifyError::KindMismatch {
+                        a: format!("variant with symbol {}", n1),
+                        b: format!("variant with symbol {}", n2),
+                    });
+                }
+                unify_payload(interner, subst, p1, p2)?;
+            }
+            Ok(())
+        }
         // Default: kind mismatch.
         (ta, tb) => Err(UnifyError::KindMismatch {
             a: format!("{ta:?}"),
@@ -201,6 +217,53 @@ fn bind(
     }
     subst.insert(v, t_id);
     Ok(())
+}
+
+/// Unify two enum variant payloads.
+///
+/// Both must have the same shape (Unit, Tuple, or Record) and if they have
+/// types, those types must unify component-wise.
+fn unify_payload(
+    interner: &mut TypeInterner,
+    subst: &mut Subst,
+    p1: &EnumPayload,
+    p2: &EnumPayload,
+) -> Result<(), UnifyError> {
+    match (p1, p2) {
+        // Both unit: unify succeeds
+        (EnumPayload::Unit, EnumPayload::Unit) => Ok(()),
+        // Both tuples: unify component-wise
+        (EnumPayload::Tuple(t1), EnumPayload::Tuple(t2)) => {
+            if t1.len() != t2.len() {
+                return Err(UnifyError::ArityMismatch);
+            }
+            for (ty1, ty2) in t1.iter().zip(t2.iter()) {
+                unify(interner, subst, *ty1, *ty2)?;
+            }
+            Ok(())
+        }
+        // Both records: unify field-wise
+        (EnumPayload::Record(f1), EnumPayload::Record(f2)) => {
+            if f1.len() != f2.len() {
+                return Err(UnifyError::ArityMismatch);
+            }
+            for ((n1, t1), (n2, t2)) in f1.iter().zip(f2.iter()) {
+                if n1 != n2 {
+                    return Err(UnifyError::KindMismatch {
+                        a: format!("record field with symbol {}", n1),
+                        b: format!("record field with symbol {}", n2),
+                    });
+                }
+                unify(interner, subst, *t1, *t2)?;
+            }
+            Ok(())
+        }
+        // Payload shape mismatch
+        (p1, p2) => Err(UnifyError::KindMismatch {
+            a: format!("{p1:?}"),
+            b: format!("{p2:?}"),
+        }),
+    }
 }
 
 #[cfg(test)]
@@ -577,6 +640,85 @@ mod tests {
             // Expected error type
         } else {
             panic!("Expected ArityMismatch error, got {:?}", result);
+        }
+    }
+
+    #[test]
+    fn unify_enum_same_variants_succeeds() {
+        let mut interner = TypeInterner::new();
+        let mut subst = Subst::new();
+        let u64_id = interner.uint(64);
+
+        let enum1 = interner.intern(Type::Enum {
+            variants: smallvec::smallvec![
+                (1, EnumPayload::Unit),
+                (2, EnumPayload::Tuple(smallvec::smallvec![u64_id])),
+            ],
+        });
+        let enum2 = interner.intern(Type::Enum {
+            variants: smallvec::smallvec![
+                (1, EnumPayload::Unit),
+                (2, EnumPayload::Tuple(smallvec::smallvec![u64_id])),
+            ],
+        });
+
+        let result = unify(&mut interner, &mut subst, enum1, enum2);
+        assert!(
+            result.is_ok(),
+            "Enums with same variants should unify: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn unify_enum_different_variant_name_fails() {
+        let mut interner = TypeInterner::new();
+        let mut subst = Subst::new();
+        let u64_id = interner.uint(64);
+
+        let enum1 = interner.intern(Type::Enum {
+            variants: smallvec::smallvec![(1, EnumPayload::Unit), (2, EnumPayload::Unit)],
+        });
+        let enum2 = interner.intern(Type::Enum {
+            variants: smallvec::smallvec![(1, EnumPayload::Unit), (3, EnumPayload::Unit)],
+        });
+
+        let result = unify(&mut interner, &mut subst, enum1, enum2);
+        assert!(
+            result.is_err(),
+            "Enums with different variant names should not unify"
+        );
+
+        if let Err(UnifyError::KindMismatch { .. }) = result {
+            // Expected error type
+        } else {
+            panic!("Expected KindMismatch error, got {:?}", result);
+        }
+    }
+
+    #[test]
+    fn unify_enum_different_payload_fails() {
+        let mut interner = TypeInterner::new();
+        let mut subst = Subst::new();
+        let u64_id = interner.uint(64);
+
+        let enum1 = interner.intern(Type::Enum {
+            variants: smallvec::smallvec![(1, EnumPayload::Unit)],
+        });
+        let enum2 = interner.intern(Type::Enum {
+            variants: smallvec::smallvec![(1, EnumPayload::Tuple(smallvec::smallvec![u64_id]))],
+        });
+
+        let result = unify(&mut interner, &mut subst, enum1, enum2);
+        assert!(
+            result.is_err(),
+            "Enums with different payload shapes should not unify"
+        );
+
+        if let Err(UnifyError::KindMismatch { .. }) = result {
+            // Expected error type
+        } else {
+            panic!("Expected KindMismatch error, got {:?}", result);
         }
     }
 }

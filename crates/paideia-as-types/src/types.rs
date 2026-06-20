@@ -156,6 +156,30 @@ pub enum Type {
         /// Using SmallVec with inline capacity 4 for typical cases.
         fields: SmallVec<[(u32, TypeId); 4]>,
     },
+    /// Enum (tagged union) type with named variants.
+    ///
+    /// Variants are stored in order of declaration. Each variant has a name
+    /// (interned symbol) and a payload (Unit, Tuple, or Record).
+    /// Two enums with the same variants (in the same order) intern to the same TypeId.
+    Enum {
+        /// Variant names (interned symbols) and their payloads, in declaration order.
+        /// Using SmallVec with inline capacity 4 for typical cases.
+        variants: SmallVec<[(u32, EnumPayload); 4]>,
+    },
+}
+
+/// Payload shape for an enum variant.
+///
+/// Each enum variant carries either no data, a tuple of types, or a record
+/// of named fields.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum EnumPayload {
+    /// Unit variant (no associated data).
+    Unit,
+    /// Tuple variant: `Variant(T1, T2, ...)`.
+    Tuple(SmallVec<[TypeId; 4]>),
+    /// Record variant: `Variant { field1: T1, field2: T2, ... }`.
+    Record(SmallVec<[(u32, TypeId); 4]>),
 }
 
 /// Sentinel value for "size word" (`usize`/`isize`): stored as the
@@ -279,6 +303,54 @@ mod tests {
         assert_ne!(
             record1, record2,
             "Records with different field order should have different TypeIds"
+        );
+    }
+
+    #[test]
+    fn enum_interns_same_variants_to_same_id() {
+        let mut interner = TypeInterner::new();
+        let u64_id = interner.uint(64);
+
+        let enum1 = interner.intern(Type::Enum {
+            variants: smallvec::smallvec![
+                (1, EnumPayload::Unit),
+                (2, EnumPayload::Tuple(smallvec::smallvec![u64_id])),
+            ],
+        });
+        let enum2 = interner.intern(Type::Enum {
+            variants: smallvec::smallvec![
+                (1, EnumPayload::Unit),
+                (2, EnumPayload::Tuple(smallvec::smallvec![u64_id])),
+            ],
+        });
+
+        assert_eq!(
+            enum1, enum2,
+            "Enums with same variants should intern to same TypeId"
+        );
+    }
+
+    #[test]
+    fn enum_interns_different_variant_order_distinct() {
+        let mut interner = TypeInterner::new();
+        let u64_id = interner.uint(64);
+
+        let enum1 = interner.intern(Type::Enum {
+            variants: smallvec::smallvec![
+                (1, EnumPayload::Unit),
+                (2, EnumPayload::Tuple(smallvec::smallvec![u64_id])),
+            ],
+        });
+        let enum2 = interner.intern(Type::Enum {
+            variants: smallvec::smallvec![
+                (2, EnumPayload::Tuple(smallvec::smallvec![u64_id])),
+                (1, EnumPayload::Unit),
+            ],
+        });
+
+        assert_ne!(
+            enum1, enum2,
+            "Enums with different variant order should have different TypeIds"
         );
     }
 }
