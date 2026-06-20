@@ -72,6 +72,60 @@ Q-codes live under `Category::Q` (post-quantum, 0900–0999). Added to `paideia-
 - **Row-polymorphic scope subsumption**: row variables in `.paideia.effects` (m3 row-poly) are ignored at scope-check time. A strict implementation would treat any open row as "unbounded scope required" and reject; the lenient implementation here trusts the elaborator's signature check.
 - **Signature timestamping / revocation**: not in scope for m7. Phase 3 may add an in-band timestamp section + revocation registry.
 
+## Phase 3 m6 appendix: hybrid composition
+
+paideia-as composes signers through the `HsmSigner` trait. For the
+common YubiHSM2 case where ML-DSA-65 isn't supported in firmware,
+the canonical composition is:
+
+```rust
+HybridSigner {
+    hardware: YubiHsmSigner,   // Ed25519 in firmware
+    soft: SoftHsm,              // ML-DSA-65 wrapped with
+                                // Argon2id + ChaCha20-Poly1305
+}
+```
+
+The hybrid signature validates ONLY if both Ed25519 and ML-DSA-65
+verify. The trust root carries:
+- Hardware-rooted Ed25519 key (YubiHSM2 firmware).
+- Software-protected ML-DSA-65 key (passphrase-derived encryption
+  under the operator's control).
+
+Forging a hybrid signature requires compromising BOTH legs. The
+attacker would need to (a) exfiltrate the soft-HSM-protected
+ML-DSA-65 key AND (b) extract the YubiHSM2-protected Ed25519 key,
+the latter being the highest-assurance defense.
+
+The `is_hardware()` predicate reports the Ed25519 leg's status only;
+ML-DSA-65 is implicitly soft in the hybrid composition.
+
+Operator opt-in is required via `--opt-in-hybrid-fallback` per
+the Q0902 contract from m6-002.
+
+### Phase 3 m6 HSM trait additions
+
+The `HsmSigner` trait now includes:
+
+```rust
+pub trait HsmSigner: Send + Sync {
+    fn sign_ed25519(&self, msg: &[u8]) -> Result<Vec<u8>, HsmSignerError>;
+    fn sign_mldsa65(&self, msg: &[u8]) -> Result<Vec<u8>, HsmSignerError>;
+    
+    /// Returns true if Ed25519 keys are protected by hardware (HSM,
+    /// TPM, or YubiHSM2 firmware). Phase-3 m6-003: ML-DSA-65 is
+    /// always soft today; this returns the Ed25519-leg's hardware
+    /// status only.
+    fn is_hardware(&self) -> bool;
+}
+```
+
+Implementations:
+- **SoftHsm**: `is_hardware()` → false (Argon2id + ChaCha20-Poly1305)
+- **Pkcs11Signer**: `is_hardware()` → true (PKCS#11 backend for HSMs)
+- **YubiHsmSigner**: `is_hardware()` → true (YubiHSM2 firmware Ed25519)
+- **HybridSigner<H, S>**: `is_hardware()` → H.is_hardware() (delegates to hardware leg)
+
 ## 6. References
 
 - `docs/release-signing.md` — operational guide for `paideia-pq-sign release` / `hsm init` / `hsm release`.

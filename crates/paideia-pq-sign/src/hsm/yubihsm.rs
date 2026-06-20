@@ -18,6 +18,7 @@
 //! The Q0902 diagnostic ("hsm-no-pq-support") fires at init time
 //! unless the operator passed --opt-in-hybrid-fallback to acknowledge.
 
+use super::{HsmSigner, HsmSignerError};
 use thiserror::Error;
 
 /// YubiHSM2 error types.
@@ -143,6 +144,21 @@ impl YubiHsmSigner {
     }
 }
 
+impl HsmSigner for YubiHsmSigner {
+    fn sign_ed25519(&self, msg: &[u8]) -> Result<Vec<u8>, HsmSignerError> {
+        self.sign_ed25519(msg).map_err(HsmSignerError::YubiHsm)
+    }
+
+    fn sign_mldsa65(&self, msg: &[u8]) -> Result<Vec<u8>, HsmSignerError> {
+        self.sign_mldsa65(msg).map_err(HsmSignerError::YubiHsm)
+    }
+
+    fn is_hardware(&self) -> bool {
+        // YubiHSM2 provides hardware-backed Ed25519 signing.
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -227,6 +243,16 @@ mod tests {
         assert!(
             err_string.contains("Q0902"),
             "OptInRequired error should reference Q0902 diagnostic"
+        );
+    }
+
+    #[test]
+    fn signer_trait_is_hardware_true_for_yubihsm() {
+        let signer =
+            YubiHsmSigner::new("http://localhost:12345", 42, true).expect("Should create signer");
+        assert!(
+            signer.is_hardware(),
+            "YubiHSM signer should report hardware=true"
         );
     }
 }

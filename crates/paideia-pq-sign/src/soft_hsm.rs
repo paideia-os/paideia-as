@@ -19,7 +19,8 @@
 //! ```
 
 use crate::Signer;
-use crate::hybrid::{HYBRID_PK_LEN, HybridPublicKey, HybridSecretKey};
+use crate::hsm::{HsmSigner, HsmSignerError};
+use crate::hybrid::{HYBRID_PK_LEN, Hybrid, HybridPublicKey, HybridSecretKey};
 use chacha20poly1305::{
     ChaCha20Poly1305, Nonce,
     aead::{Aead, KeyInit, Payload},
@@ -234,6 +235,66 @@ impl SoftHsmFile {
     }
 }
 
+/// SoftHsm: an HsmSigner wrapper around SoftHsmFile with unlocked keys.
+///
+/// This struct implements the HsmSigner trait by wrapping a SoftHsmFile
+/// and its unlocked hybrid secret key. It provides development-only signing
+/// backed by Argon2id-derived encryption.
+///
+/// DEVELOPMENT-ONLY: Production HSM signing uses hardware backends only.
+#[derive(Clone)]
+pub struct SoftHsm {
+    /// Public key from the soft-HSM file.
+    pub_key: HybridPublicKey,
+    /// Unlocked secret key (decrypted from the soft-HSM file).
+    sec_key: HybridSecretKey,
+}
+
+impl SoftHsm {
+    /// Create a new SoftHsm signer by unlocking a SoftHsmFile with a password.
+    ///
+    /// # Arguments
+    ///
+    /// * `hsm_file` - The SoftHsmFile to unlock
+    /// * `password` - The password used to encrypt the soft-HSM file
+    ///
+    /// # Returns
+    ///
+    /// Some(SoftHsm) if the password is correct, None otherwise.
+    pub fn unlock(hsm_file: &SoftHsmFile, password: &[u8]) -> Option<Self> {
+        let sec_key = hsm_file.unlock(password)?;
+        Some(SoftHsm {
+            pub_key: hsm_file.public_key.clone(),
+            sec_key,
+        })
+    }
+
+    /// Get the public key.
+    pub fn public_key(&self) -> &HybridPublicKey {
+        &self.pub_key
+    }
+
+    /// Get the secret key.
+    pub fn secret_key(&self) -> &HybridSecretKey {
+        &self.sec_key
+    }
+}
+
+impl HsmSigner for SoftHsm {
+    fn sign_ed25519(&self, msg: &[u8]) -> Result<Vec<u8>, HsmSignerError> {
+        Ok(Hybrid::sign(&self.sec_key, msg).as_ref().to_vec())
+    }
+
+    fn sign_mldsa65(&self, msg: &[u8]) -> Result<Vec<u8>, HsmSignerError> {
+        Ok(Hybrid::sign(&self.sec_key, msg).as_ref().to_vec())
+    }
+
+    fn is_hardware(&self) -> bool {
+        // Soft-HSM is software-based, not hardware.
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -337,5 +398,33 @@ mod tests {
         let bad_bytes = vec![0u8; 100];
         let result = SoftHsmFile::from_bytes(&bad_bytes);
         assert!(result.is_none(), "Should reject bytes with bad magic");
+    }
+
+    #[test]
+    fn signer_trait_is_hardware_false_for_soft_hsm() {
+        let password = b"test_password";
+        let hsm_file = SoftHsmFile::generate(&mut OsRng, password);
+        let soft_signer = SoftHsm::unlock(&hsm_file, password).expect("Should unlock");
+        assert!(
+            !soft_signer.is_hardware(),
+            "Soft-HSM should report hardware=false"
+        );
+    }
+
+    #[test]
+    fn soft_hsm_unlock_with_correct_password_succeeds() {
+        let password = b"correct_password";
+        let hsm_file = SoftHsmFile::generate(&mut OsRng, password);
+
+        let soft_signer = SoftHsm::unlock(&hsm_file, password);
+        assert!(soft_signer.is_some(), "Should unlock with correct password");
+    }
+
+    #[test]
+    fn soft_hsm_unlock_with_wrong_password_fails() {
+        let hsm_file = SoftHsmFile::generate(&mut OsRng, b"correct_password");
+
+        let result = SoftHsm::unlock(&hsm_file, b"wrong_password");
+        assert!(result.is_none(), "Wrong password should return None");
     }
 }
