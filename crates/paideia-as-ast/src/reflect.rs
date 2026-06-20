@@ -8,7 +8,7 @@
 //! The [`SerializedTerm`] struct supports round-tripping of AST subtrees to JSON
 //! via `serde`, enabling external tools and metaprogramming use cases.
 
-use crate::{AstArena, ExprData, NodeId, NodeKind};
+use crate::{AstArena, ExprData, NodeId, NodeKind, TypeData};
 use smallvec::SmallVec;
 
 /// Discriminant for a term's top-level variant.
@@ -71,6 +71,8 @@ pub enum TermHead {
     Unpack,
     /// `let module N = unpack v in <expr>` (let-module binding).
     LetModule,
+    /// `*T` (pointer type).
+    TypePtr,
 }
 
 /// A typed handle to an AST expression node.
@@ -145,6 +147,7 @@ impl<'a> Term<'a> {
                 NodeKind::ExprPack => TermHead::Pack,
                 NodeKind::ExprUnpack => TermHead::Unpack,
                 NodeKind::ExprLetModule => TermHead::LetModule,
+                NodeKind::TypePtr => TermHead::TypePtr,
                 _ => {
                     // Non-expression kinds: this term does not represent an expression.
                     // Return a placeholder; Phase 2 will add dedicated handling for
@@ -164,6 +167,19 @@ impl<'a> Term<'a> {
     #[must_use]
     pub fn children(&self) -> SmallVec<[Term<'a>; 4]> {
         let mut result = SmallVec::new();
+
+        // Dispatch type nodes via type_data.
+        if let Some(ty) = self.arena.type_data(self.id) {
+            match ty {
+                TypeData::Ptr { pointee } => {
+                    result.push(Term::new(self.arena, *pointee));
+                }
+                // Other type variants either have no meaningful child terms
+                // (e.g. Name, EffectRow) or are handled elsewhere.
+                _ => {}
+            }
+            return result;
+        }
 
         if let Some(expr) = self.arena.expr_data(self.id) {
             match expr {

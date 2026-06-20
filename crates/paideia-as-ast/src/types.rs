@@ -63,6 +63,14 @@ pub enum TypeData {
         /// Optional rest variable.
         rest: Option<NodeId>,
     },
+
+    /// `*T`.
+    ///
+    /// Pointer type: a type prefixed by `*`.
+    Ptr {
+        /// Pointed-to type.
+        pointee: NodeId,
+    },
 }
 
 /// Substructural type class.

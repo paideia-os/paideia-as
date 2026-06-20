@@ -131,6 +131,8 @@ pub enum NodeKind {
     TypeLinearClass,
     /// `eff1, eff2 | rest` or `ε`.
     TypeEffectRow,
+    /// `*T`.
+    TypePtr,
 
     // Patterns (§8 Pattern)
     /// `_` (wildcard).

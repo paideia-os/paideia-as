@@ -96,17 +96,33 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             }
         }
 
-        // Step 2: Handle primary type forms (LParen, Ident, EffectOpen, CapOpen)
-        if let Some(tok) = self.peek() {
-            match tok.kind {
-                TokenKind::LParen => self.parse_type_paren(),
-                TokenKind::Ident => self.parse_type_name(),
-                TokenKind::EffectOpen => self.parse_effect_row(),
-                TokenKind::CapOpen => self.parse_cap_set(),
-                _ => self.error_expected_type(),
+        // Step 2: Handle pointer type prefix `*` or primary type forms
+        match self.peek().map(|t| t.kind) {
+            Some(TokenKind::Star) => {
+                let star_tok = self.bump().unwrap();
+                if !self.is_type_start(self.peek()) {
+                    return self.error_malformed_ptr(star_tok.span);
+                }
+                let pointee = self.parse_type_unquantified()?;
+                let span_end = self
+                    .arena()
+                    .get(pointee)
+                    .map(|nd| nd.span)
+                    .unwrap_or(star_tok.span);
+                let span = Span::new(
+                    star_tok.span.file(),
+                    star_tok.span.byte_start(),
+                    span_end.byte_start() + span_end.byte_len() - star_tok.span.byte_start(),
+                );
+                Ok(self
+                    .arena_mut()
+                    .alloc_type(NodeKind::TypePtr, span, TypeData::Ptr { pointee }))
             }
-        } else {
-            self.error_expected_type()
+            Some(TokenKind::LParen) => self.parse_type_paren(),
+            Some(TokenKind::Ident) => self.parse_type_name(),
+            Some(TokenKind::EffectOpen) => self.parse_effect_row(),
+            Some(TokenKind::CapOpen) => self.parse_cap_set(),
+            _ => self.error_expected_type(),
         }
     }
 
@@ -599,6 +615,28 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         ))
     }
 
+    /// Check if the next token can start a type.
+    fn is_type_start(&self, opt_tok: Option<&paideia_as_lexer::Token>) -> bool {
+        if let Some(tok) = opt_tok {
+            matches!(
+                tok.kind,
+                TokenKind::Ident
+                    | TokenKind::LParen
+                    | TokenKind::EffectOpen
+                    | TokenKind::CapOpen
+                    | TokenKind::Star
+                    | TokenKind::KwOrdered
+                    | TokenKind::KwLinear
+                    | TokenKind::KwAffine
+                    | TokenKind::KwUnrestricted
+                    | TokenKind::LinearMark
+                    | TokenKind::AffineMark
+            )
+        } else {
+            false
+        }
+    }
+
     /// Emit a P0100 ("expected type") diagnostic and return Err.
     fn error_expected_type(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
         let span = if let Some(tok) = self.peek() {
@@ -615,6 +653,26 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             .unwrap(),
         )
         .message("expected type".to_string())
+        .with_span(span)
+        .finish();
+        self.emit_diagnostic(diag);
+        Err(ParseError)
+    }
+
+    /// Emit a P0195 ("malformed pointer type") diagnostic and return Err.
+    fn error_malformed_ptr(
+        &mut self,
+        span: paideia_as_diagnostics::Span,
+    ) -> Result<paideia_as_ast::NodeId, ParseError> {
+        let diag = paideia_as_diagnostics::Diagnostic::error(
+            paideia_as_diagnostics::DiagnosticCode::new(
+                paideia_as_diagnostics::Category::P,
+                paideia_as_diagnostics::Severity::Error,
+                195,
+            )
+            .unwrap(),
+        )
+        .message("expected type after '*'".to_string())
         .with_span(span)
         .finish();
         self.emit_diagnostic(diag);
@@ -1187,6 +1245,290 @@ mod tests {
             assert_eq!(param_node.kind, NodeKind::TypeArrow);
         } else {
             panic!("expected outer TypeArrow");
+        }
+    }
+
+    // === Pointer type tests ===
+
+    #[test]
+    fn parse_ptr_simple() {
+        // `*u64` → Star Ident Eof
+        let tokens = vec![
+            tok(TokenKind::Star, 0),
+            tok(TokenKind::Ident, 1),
+            tok(TokenKind::Eof, 5),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected");
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypePtr);
+        if let Some(TypeData::Ptr { pointee }) = arena.type_data(ty_id) {
+            let pointee_node = arena.get(*pointee).unwrap();
+            assert_eq!(pointee_node.kind, NodeKind::TypeName);
+        } else {
+            panic!("expected TypePtr");
+        }
+    }
+
+    #[test]
+    fn parse_ptr_nested() {
+        // `**u8` → Star Star Ident Eof
+        let tokens = vec![
+            tok(TokenKind::Star, 0),
+            tok(TokenKind::Star, 1),
+            tok(TokenKind::Ident, 2),
+            tok(TokenKind::Eof, 4),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected");
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypePtr);
+        if let Some(TypeData::Ptr { pointee }) = arena.type_data(ty_id) {
+            let inner_node = arena.get(*pointee).unwrap();
+            assert_eq!(inner_node.kind, NodeKind::TypePtr);
+        } else {
+            panic!("expected outer TypePtr");
+        }
+    }
+
+    #[test]
+    fn parse_ptr_tuple() {
+        // `*(u8, u64)` → Star LParen Ident Comma Ident RParen Eof
+        let tokens = vec![
+            tok(TokenKind::Star, 0),
+            tok(TokenKind::LParen, 1),
+            tok(TokenKind::Ident, 2),
+            tok(TokenKind::Comma, 4),
+            tok(TokenKind::Ident, 6),
+            tok(TokenKind::RParen, 9),
+            tok(TokenKind::Eof, 10),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected");
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypePtr);
+        if let Some(TypeData::Ptr { pointee }) = arena.type_data(ty_id) {
+            let tuple_node = arena.get(*pointee).unwrap();
+            assert_eq!(tuple_node.kind, NodeKind::TypeTuple);
+        } else {
+            panic!("expected TypePtr");
+        }
+    }
+
+    #[test]
+    fn parse_ptr_fn() {
+        // `*((u64) -> u64)` → Star LParen LParen Ident RParen Arrow Ident RParen Eof
+        let tokens = vec![
+            tok(TokenKind::Star, 0),
+            tok(TokenKind::LParen, 1),
+            tok(TokenKind::LParen, 2),
+            tok(TokenKind::Ident, 3),
+            tok(TokenKind::RParen, 6),
+            tok(TokenKind::Arrow, 8),
+            tok(TokenKind::Ident, 11),
+            tok(TokenKind::RParen, 14),
+            tok(TokenKind::Eof, 15),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected");
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypePtr);
+        if let Some(TypeData::Ptr { pointee }) = arena.type_data(ty_id) {
+            let fn_node = arena.get(*pointee).unwrap();
+            assert_eq!(fn_node.kind, NodeKind::TypeArrow);
+        } else {
+            panic!("expected TypePtr");
+        }
+    }
+
+    #[test]
+    fn parse_ptr_in_arrow_param() {
+        // `(*u8) -> u64` → LParen Star Ident RParen Arrow Ident Eof
+        let tokens = vec![
+            tok(TokenKind::LParen, 0),
+            tok(TokenKind::Star, 1),
+            tok(TokenKind::Ident, 2),
+            tok(TokenKind::RParen, 4),
+            tok(TokenKind::Arrow, 6),
+            tok(TokenKind::Ident, 9),
+            tok(TokenKind::Eof, 12),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected");
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypeArrow);
+        if let Some(TypeData::Arrow { params, .. }) = arena.type_data(ty_id) {
+            assert_eq!(params.len(), 1, "expected 1 parameter");
+            let param_node = arena.get(params[0]).unwrap();
+            assert_eq!(param_node.kind, NodeKind::TypePtr);
+        } else {
+            panic!("expected TypeArrow");
+        }
+    }
+
+    #[test]
+    fn parse_ptr_in_arrow_ret() {
+        // `(u64) -> *u8` → LParen Ident RParen Arrow Star Ident Eof
+        let tokens = vec![
+            tok(TokenKind::LParen, 0),
+            tok(TokenKind::Ident, 1),
+            tok(TokenKind::RParen, 4),
+            tok(TokenKind::Arrow, 6),
+            tok(TokenKind::Star, 9),
+            tok(TokenKind::Ident, 10),
+            tok(TokenKind::Eof, 12),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected");
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypeArrow);
+        if let Some(TypeData::Arrow { ret, .. }) = arena.type_data(ty_id) {
+            let ret_node = arena.get(*ret).unwrap();
+            assert_eq!(ret_node.kind, NodeKind::TypePtr);
+        } else {
+            panic!("expected TypeArrow");
+        }
+    }
+
+    #[test]
+    fn parse_ptr_p0195_no_operand() {
+        // `*` Eof → expect P0195 diagnostic
+        let tokens = vec![tok(TokenKind::Star, 0), tok(TokenKind::Eof, 1)];
+        let (_arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 1, "expected 1 diagnostic");
+        let diag = &diags[0];
+        assert_eq!(diag.code().number(), 195, "expected P0195");
+        assert!(result.is_err(), "expected parse error");
+    }
+
+    #[test]
+    fn parse_ptr_p0195_before_arrow() {
+        // `*` Arrow Ident Eof → expect P0195 diagnostic
+        let tokens = vec![
+            tok(TokenKind::Star, 0),
+            tok(TokenKind::Arrow, 1),
+            tok(TokenKind::Ident, 4),
+            tok(TokenKind::Eof, 7),
+        ];
+        let (_arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 1, "expected 1 diagnostic");
+        let diag = &diags[0];
+        assert_eq!(diag.code().number(), 195, "expected P0195");
+        assert!(result.is_err(), "expected parse error");
+    }
+
+    // === Round-trip tests (parse + print_type) ===
+
+    #[test]
+    fn roundtrip_ptr_simple() {
+        // `*u8` parsed and printed should remain `*u8`
+        let tokens = vec![
+            tok(TokenKind::Star, 0),
+            tok(TokenKind::Ident, 1),
+            tok(TokenKind::Eof, 3),
+        ];
+        let (arena, result, _diags) = parse_t(tokens);
+
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let printed = paideia_as_ast::pretty::print_type(&arena, ty_id);
+        assert!(printed.contains("Ptr"));
+    }
+
+    #[test]
+    fn roundtrip_ptr_nested() {
+        // `**u8` parsed should have nested TypePtr nodes
+        let tokens = vec![
+            tok(TokenKind::Star, 0),
+            tok(TokenKind::Star, 1),
+            tok(TokenKind::Ident, 2),
+            tok(TokenKind::Eof, 4),
+        ];
+        let (arena, result, _diags) = parse_t(tokens);
+
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let printed = paideia_as_ast::pretty::print_type(&arena, ty_id);
+        // Should have outer Ptr wrapping inner Ptr
+        assert!(printed.contains("Ptr"));
+    }
+
+    #[test]
+    fn roundtrip_ptr_in_tuple() {
+        // `*(u8, u64)` parsed should have Ptr wrapping Tuple
+        let tokens = vec![
+            tok(TokenKind::Star, 0),
+            tok(TokenKind::LParen, 1),
+            tok(TokenKind::Ident, 2),
+            tok(TokenKind::Comma, 4),
+            tok(TokenKind::Ident, 6),
+            tok(TokenKind::RParen, 9),
+            tok(TokenKind::Eof, 10),
+        ];
+        let (arena, result, _diags) = parse_t(tokens);
+
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypePtr);
+        if let Some(TypeData::Ptr { pointee }) = arena.type_data(ty_id) {
+            let inner_node = arena.get(*pointee).unwrap();
+            assert_eq!(inner_node.kind, NodeKind::TypeTuple);
+        } else {
+            panic!("expected TypePtr");
+        }
+    }
+
+    #[test]
+    fn roundtrip_ptr_in_arrow() {
+        // `(*u8) -> *u64` parsed should have Ptr in both params and return
+        // Tokens: LParen Star Ident RParen Arrow Star Ident Eof
+        let tokens = vec![
+            tok(TokenKind::LParen, 0),
+            tok(TokenKind::Star, 1),
+            tok(TokenKind::Ident, 2),
+            tok(TokenKind::RParen, 4),
+            tok(TokenKind::Arrow, 6),
+            tok(TokenKind::Star, 9),
+            tok(TokenKind::Ident, 10),
+            tok(TokenKind::Eof, 12),
+        ];
+        let (arena, result, _diags) = parse_t(tokens);
+
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypeArrow);
+        if let Some(TypeData::Arrow { params, ret, .. }) = arena.type_data(ty_id) {
+            // First param should be *u8
+            assert_eq!(params.len(), 1);
+            let param_node = arena.get(params[0]).unwrap();
+            assert_eq!(param_node.kind, NodeKind::TypePtr);
+            // Return type should be *u64
+            let ret_node = arena.get(*ret).unwrap();
+            assert_eq!(ret_node.kind, NodeKind::TypePtr);
+        } else {
+            panic!("expected TypeArrow");
         }
     }
 }

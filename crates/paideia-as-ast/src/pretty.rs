@@ -576,6 +576,9 @@ fn print_type_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 .join(", ");
             format!("EffectRow {{ items: [{}], rest: {:?} }}", items_str, rest)
         }
+        TypeData::Ptr { pointee } => {
+            format!("Ptr {{ pointee: {} }}", pointee)
+        }
     };
 
     use std::fmt::Write;
