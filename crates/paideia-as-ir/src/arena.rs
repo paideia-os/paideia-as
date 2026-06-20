@@ -6,6 +6,7 @@ use paideia_as_diagnostics::Span;
 use smallvec::SmallVec;
 use std::ops::Index;
 
+use crate::constant_pool::ConstantPoolTable;
 use crate::instruction::InstructionSideTable;
 use crate::loop_meta::LoopMetaTable;
 use crate::node::{IrKind, IrNodeData, IrNodeId};
@@ -27,6 +28,8 @@ pub struct IrArena {
     instruction_table: InstructionSideTable,
     /// Side-table: loop metadata (entry/exit labels) indexed by Loop node ID.
     loop_meta_table: LoopMetaTable,
+    /// Side-table: constant pool for repeated 64-bit immediates (m1-010 pool-constants pass).
+    constant_pool_table: ConstantPoolTable,
 }
 
 impl IrArena {
@@ -44,6 +47,7 @@ impl IrArena {
             children_table: Vec::with_capacity(n),
             instruction_table: InstructionSideTable::new(),
             loop_meta_table: LoopMetaTable::new(),
+            constant_pool_table: ConstantPoolTable::new(),
         }
     }
 
@@ -146,6 +150,17 @@ impl IrArena {
     /// Borrow the loop metadata side-table (mutable).
     pub fn loop_meta_mut(&mut self) -> &mut LoopMetaTable {
         &mut self.loop_meta_table
+    }
+
+    /// Borrow the constant pool side-table (read-only).
+    #[must_use]
+    pub fn constant_pool(&self) -> &ConstantPoolTable {
+        &self.constant_pool_table
+    }
+
+    /// Borrow the constant pool side-table (mutable).
+    pub fn constant_pool_mut(&mut self) -> &mut ConstantPoolTable {
+        &mut self.constant_pool_table
     }
 }
 

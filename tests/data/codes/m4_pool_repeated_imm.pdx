@@ -1,0 +1,8 @@
+fn pool_with_repeated_large_immediates() {
+    let x = 0xdeadbeefcafebabe;
+    let y = 42;
+    let z = x + y;
+    let a = 0xdeadbeefcafebabe;
+    let b = a + 1;
+    b
+}
