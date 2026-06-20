@@ -1,0 +1,5 @@
+# Expected output for m9_bound_accept_3.pdx
+# Should compile without T0514 errors
+# Generic parameter T is properly bound to both Display and Clone traits
+exit_code=0
+errors=0

@@ -1,0 +1,8 @@
+module M9BoundAccept4 = structure {
+  // Inherent impl (no trait)
+  impl u64 {
+    let add : (u64, u64) -> u64 = fn (x : u64, y : u64) -> { x }
+  }
+
+  let test : (u64, u64) -> u64 = fn (x : u64, y : u64) -> { x }
+}

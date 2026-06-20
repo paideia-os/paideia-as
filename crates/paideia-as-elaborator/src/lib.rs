@@ -10,6 +10,7 @@ pub mod branch_merge;
 pub mod cap_infer;
 pub mod cap_walker;
 pub mod capture;
+pub mod check_bounds;
 pub mod check_coherence;
 pub mod check_expr;
 pub mod check_handler;
@@ -52,6 +53,9 @@ pub use branch_merge::{S_BRANCH_MISMATCH, merge_branches};
 pub use cap_infer::{C_MISSING_CAP, check_capabilities, compose_caps};
 pub use cap_walker::CapWalker;
 pub use capture::{CaptureKind, CapturedBinding, analyze_captures};
+pub use check_bounds::{
+    BoundCache, BoundResolution, T_UNSATISFIED_BOUND, resolve_bound, unsatisfied_bound_diagnostic,
+};
 pub use check_expr::{InferOutcome, check_annotation, infer_node};
 pub use check_handler::{F_HANDLER_MISMATCH, HandlerImpl, check_handler, check_resume};
 pub use check_lambda::{S_ILLEGAL_CAPTURE, check_lambda};

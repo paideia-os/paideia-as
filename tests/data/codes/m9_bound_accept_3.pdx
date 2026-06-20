@@ -1,0 +1,5 @@
+module M9BoundAccept3 = structure {
+  // Multiple trait bounds on a single parameter
+  let test : forall [T: Display + Clone] . (T) -> u64 =
+    fn [T: Display + Clone] (x : T) -> { 0u64 }
+}

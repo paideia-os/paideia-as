@@ -1,0 +1,8 @@
+module M9BoundReject2 = structure {
+  // Type parameter T bound to Display, but used in context requiring Clone
+  let test : forall [T: Display] . (T) -> u64 =
+    fn [T: Display] (x : T) -> { 0u64 }
+
+  let use_test_with_clone : forall [U: Clone] . (U) -> u64 =
+    fn [U: Clone] (x : U) -> { test (x) }
+}

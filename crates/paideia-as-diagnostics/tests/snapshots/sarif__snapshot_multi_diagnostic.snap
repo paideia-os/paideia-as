@@ -705,6 +705,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "Phase 4 m9-005: trait-bound resolution. At this call site, a method requires its type argument to implement a specific trait, but neither a generic-parameter bound nor a concrete impl satisfies this requirement. Either bind the type parameter to the required trait in the enclosing generic-parameter list, or provide a concrete impl for the type."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0514",
+              "id": "T0514",
+              "name": "Unsatisfied trait bound",
+              "shortDescription": {
+                "text": "no impl found for trait X on type Y at this call site"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "A binding declared as Linear or Ordered in the substructural lattice must be used exactly once. This binding was never used. A Linear binding represents a unique resource that must be consumed; Ordered adds ordering constraints. Check that the binding is referenced exactly once in its scope."
               },
               "helpUri": "https://paideia-os.org/diagnostics/S0900",

@@ -559,3 +559,12 @@ brief = "an impl block for the same (trait, type) pair already exists"
 description = "Phase 4 m9-004: impl coherence check. Each (trait, type) pair may have at most one impl block. Remove the duplicate impl or distinguish the type to avoid the conflict."
 since = "0.7.0"
 deprecated = false
+
+[diagnostic.T0514]
+severity = "error"
+category = "type"
+title = "Unsatisfied trait bound"
+brief = "no impl found for trait X on type Y at this call site"
+description = "Phase 4 m9-005: trait-bound resolution. At this call site, a method requires its type argument to implement a specific trait, but neither a generic-parameter bound nor a concrete impl satisfies this requirement. Either bind the type parameter to the required trait in the enclosing generic-parameter list, or provide a concrete impl for the type."
+since = "0.7.0"
+deprecated = false

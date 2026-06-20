@@ -1,0 +1,5 @@
+module M9BoundAccept5 = structure {
+  // Multiple generic parameters with different bounds
+  let test : forall [A: Display, B: Clone] . (A, B) -> u64 =
+    fn [A: Display, B: Clone] (x : A, y : B) -> { 0u64 }
+}

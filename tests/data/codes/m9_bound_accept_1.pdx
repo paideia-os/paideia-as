@@ -1,0 +1,5 @@
+module M9BoundAccept1 = structure {
+  // Generic parameter with trait bound succeeds
+  let test : forall [T: Display] . (T) -> u64 =
+    fn [T: Display] (x : T) -> { 0u64 }
+}

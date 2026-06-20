@@ -1,0 +1,8 @@
+module M9BoundReject1 = structure {
+  // Type u32 used but Display trait not bound and no concrete impl exists
+  impl Clone for u64 {
+    let clone : (u64) -> u64 = fn (x : u64) -> { x }
+  }
+
+  let test : (u32) -> u64 = fn (x : u32) -> { 0u64 }
+}

@@ -1,0 +1,5 @@
+# Expected output for m9_bound_accept_5.pdx
+# Should compile without T0514 errors
+# Multiple parameters A and B have their required bounds properly specified
+exit_code=0
+errors=0

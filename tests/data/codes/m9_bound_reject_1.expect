@@ -1,0 +1,5 @@
+# Expected output for m9_bound_reject_1.pdx
+# Should fail with T0514 error for missing Display impl on u32
+exit_code=1
+errors=T0514
+message_contains=Display,u32

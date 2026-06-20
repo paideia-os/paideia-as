@@ -1,0 +1,9 @@
+module M9BoundAccept2 = structure {
+  // Concrete impl for a type satisfies bound
+  impl Clone for u64 {
+    let clone : (u64) -> u64 = fn (x : u64) -> { x }
+  }
+
+  let use_clone : (u64) -> u64 =
+    fn (x : u64) -> { x }
+}
