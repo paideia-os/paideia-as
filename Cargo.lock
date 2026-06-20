@@ -1631,6 +1631,16 @@ name = "paideia-fmt"
 version = "0.0.1"
 
 [[package]]
+name = "paideia-ir-payload-tests"
+version = "0.0.1"
+dependencies = [
+ "paideia-as-diagnostics",
+ "paideia-as-elaborator",
+ "paideia-as-ir",
+ "smallvec",
+]
+
+[[package]]
 name = "paideia-linearity-regression"
 version = "0.0.1"
 dependencies = [
