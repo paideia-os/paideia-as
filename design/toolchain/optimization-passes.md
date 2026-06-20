@@ -48,6 +48,43 @@ Per-pass status after m3 closure (PRs #553–#560):
 
 m3-008 (PR #560) shipped `tests/opt-regression/` as a workspace member with 10 per-pass regression test files (19 active + 1 ignored for encode-tight's diagnostic-side wiring) that pin each pass's diagnostic shape. A real-rewrite landing in a future PR (e.g., loop-entry markers activating unroll's body duplication) breaks the regression test and forces an honest update.
 
+## 2.1 Phase 4 m1 — would-fire flip closure
+
+Phase 4 m1-007..010 closed the 4 would-fire passes from Phase 3 m3-007:
+
+| Pass            | Activated at        | Diagnostic | What flipped                                      |
+|-----------------|---------------------|------------|---------------------------------------------------|
+| macro-fusion    | m1-007              | O1504      | Detects adjacent (Cmp, Jcc) pairs; sets fusion EncodingHint flag on the Cmp. |
+| branch-hint     | m1-008              | O1507      | Sets branch-hint prefix flag (0x3E taken / 0x2E not-taken) on Jcc. |
+| align           | m1-009              | O1508      | Reads m8-006 LoopMetaTable; marks loop-entry for alignment. |
+| pool-constants  | m1-010              | O1509      | Detects repeated Imm64 (≥2 occurrences); interns into new `ConstantPoolTable`. |
+
+After m1, **9/10 m3 passes ship real rewrites**. Only `unroll` (O1511) remains as would-fire — body duplication is m3-006 closure follow-up gated on full Loop-node lowering inside the IR arena.
+
+## 2.2 Phase 4 m2 — multi-emit parity
+
+Phase 4 m2 closes the chain that started at Phase 2 m9-002's "Phase-2-m9 honesty" disclaimer. The disclaimer chain officially closes here.
+
+m2-001..004 wire the post-rewrite `InstructionSideTable` through every emitter:
+
+- **ELF64** (m2-001 ancestor; Phase 3 already wired): emits post-rewrite `.text` from the side-table.
+- **PE/COFF** (m2-001): `emit_text_from_instructions()` reads from `InstructionSideTable`; PE/COFF output matches ELF64 modulo header + ABI bridge. m3 rewrites visible in PE/COFF.
+- **DWARF** (m2-002): `.debug_line` rows match post-rewrite instruction offsets via the offset_map returned by `emit_text_from_instructions`. `.debug_info` references post-rewrite `.text` ranges.
+- **PAX** (m2-003): new `.paideia.opt-passes` section records per-function rewrite counts emitted by each pass; `.paideia.caps` / `.paideia.effects` reference post-rewrite ranges; `pax-introspect` displays per-pass counts.
+
+m2-004 wires a per-emit DDC fixture: `tools/ddc/fixtures/m2-004-passes.pdx` runs through ELF64 / PE/COFF / PAX twice each via `tools/ddc/run.sh`; `cmp -s` confirms byte-identical post-rewrite output per format. Combined with the m10 `SOURCE_DATE_EPOCH` determinism gate from Phase 2, this is a hard contract that opt-pass output is reproducible.
+
+The "Phase-2-m9 honesty" disclaimer ("Each pass ships as a scaffolded OptPass whose `apply` method emits a 'would-fire' diagnostic marker. None of them actually mutate the IR today...") is now historically accurate **only for unroll**. Every other pass in the catalog ships real rewrites that:
+
+1. Read from `InstructionSideTable` (m2-001 schema, m1-001..004 walker population).
+2. Mutate the table or emit EncodingHint flags (m1-007..010 for the m3-007 passes).
+3. Surface in ELF64 + PE/COFF + DWARF + PAX outputs identically (m2-001..003).
+4. Verify byte-identical across runs (m2-004 DDC fixture).
+
+The disclaimer chain closes here.
+
+
+
 The **already-callable phase-2 helpers** are preserved as `*_impl` internal functions so their existing test coverage stays green:
 
 - `schedule_block_impl(ops)` — latency-aware scheduler over (idx, InstructionClass).
