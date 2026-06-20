@@ -593,6 +593,195 @@ pub fn emit_indexed_store(
     }
 }
 
+/// Record construction: emit a sequence of `mov [base + offset], src` stores.
+///
+/// Stores each field value from the provided register to the record memory
+/// at the specified offset. This is the core operation for struct initialization.
+///
+/// # Arguments
+/// - `buf`: code buffer to append instructions to
+/// - `base`: destination pointer (typically a struct address in a register)
+/// - `field_stores`: slice of (offset, src_register, width) tuples for each field
+///
+/// Each store uses the smallest form possible:
+/// - If offset fits in i8 and is not 0: mod=01, disp8 (2 bytes for disp)
+/// - If offset is 0: use disp8=0 (mod=01 with disp8=0)
+/// - Otherwise: mod=10, disp32 (4 bytes for disp)
+///
+/// Example: `mov [rdi + 8], rsi` (store qword):
+/// - REX.W = 0x48, opcode = 0x89
+/// - ModR/M = 0x77 (mod=01 [disp8], reg=110 [RSI], rm=111 [RDI])
+/// - disp8 = 0x08
+/// - Total: `48 89 77 08`
+pub fn emit_record_cons(buf: &mut CodeBuffer, base: Reg64, field_stores: &[(i32, Reg64, u32)]) {
+    let base_id = base as u8;
+
+    for (offset, src, width) in field_stores {
+        let src_id = *src as u8;
+
+        match width {
+            8 => {
+                // mov [base + offset], src (qword)
+                // REX.W=1
+                let rex_byte = rex(true, (src_id >> 3) != 0, false, (base_id >> 3) != 0);
+                buf.bytes.push(rex_byte);
+                // Opcode: 0x89 (MOV r/m64, r64)
+                buf.bytes.push(0x89);
+
+                if (-128..=127).contains(offset) {
+                    // Use mod=01, disp8
+                    buf.bytes.push(0x40 | ((src_id & 7) << 3) | (base_id & 7));
+                    buf.bytes.push(*offset as u8);
+                } else {
+                    // Use mod=10, disp32
+                    buf.bytes.push(0x80 | ((src_id & 7) << 3) | (base_id & 7));
+                    buf.bytes.extend(offset.to_le_bytes());
+                }
+            }
+            _ => panic!("emit_record_cons: unsupported width {}", width),
+        }
+    }
+}
+
+/// Field access: emit `mov dest, [base + offset]` for a struct field.
+///
+/// Loads a field value from memory at base + offset into the destination register.
+/// This is the core operation for field extraction from a struct.
+///
+/// # Arguments
+/// - `buf`: code buffer to append instructions to
+/// - `dest`: destination register
+/// - `base`: source pointer (struct address)
+/// - `offset`: field offset from base
+/// - `width`: field width in bytes (8 for qword in phase-4 minimum)
+///
+/// Uses the smallest addressing form possible (same logic as `emit_record_cons`).
+///
+/// Example: `mov rax, [rdi + 8]` (load qword from offset 8):
+/// - REX.W = 0x48, opcode = 0x8B
+/// - ModR/M = 0x47 (mod=01 [disp8], reg=000 [RAX], rm=111 [RDI])
+/// - disp8 = 0x08
+/// - Total: `48 8b 47 08`
+pub fn emit_field_access(buf: &mut CodeBuffer, dest: Reg64, base: Reg64, offset: i32, width: u32) {
+    let dest_id = dest as u8;
+    let base_id = base as u8;
+
+    match width {
+        8 => {
+            // mov dest, [base + offset] (qword)
+            // REX.W=1
+            let rex_byte = rex(true, (dest_id >> 3) != 0, false, (base_id >> 3) != 0);
+            buf.bytes.push(rex_byte);
+            // Opcode: 0x8B (MOV r64, r/m64)
+            buf.bytes.push(0x8B);
+
+            if (-128..=127).contains(&offset) {
+                // Use mod=01, disp8
+                buf.bytes.push(0x40 | ((dest_id & 7) << 3) | (base_id & 7));
+                buf.bytes.push(offset as u8);
+            } else {
+                // Use mod=10, disp32
+                buf.bytes.push(0x80 | ((dest_id & 7) << 3) | (base_id & 7));
+                buf.bytes.extend(offset.to_le_bytes());
+            }
+        }
+        _ => panic!("emit_field_access: unsupported width {}", width),
+    }
+}
+
+/// Enum construction: emit discriminant store + payload stores.
+///
+/// Phase-4 minimum: 8-byte discriminant at offset 0; payload at offset 8.
+/// First stores the discriminant (variant index), then each payload field.
+///
+/// # Arguments
+/// - `buf`: code buffer to append instructions to
+/// - `base`: destination pointer (enum address)
+/// - `discriminant`: variant index (u64)
+/// - `payload_stores`: slice of (offset, src_register, width) tuples for payload fields
+///
+/// First emits: `mov [base + 0], rax` with discriminant value loaded into rax.
+/// Then emits each payload store using emit_record_cons logic.
+pub fn emit_enum_cons(
+    buf: &mut CodeBuffer,
+    base: Reg64,
+    discriminant: u64,
+    payload_stores: &[(i32, Reg64, u32)],
+) {
+    // Store discriminant at offset 0 using RAX as temp
+    let base_id = base as u8;
+    mov_reg64_imm64(buf, Reg64::Rax, discriminant);
+
+    // mov [base + 0], rax
+    let rex_byte = rex(true, false, false, (base_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x89);
+    // ModR/M: mod=00, reg=0 (RAX), rm=7 (base register)
+    buf.bytes.push(base_id & 7);
+
+    // Store payload fields
+    emit_record_cons(buf, base, payload_stores);
+}
+
+/// Enum discriminant extraction: `mov dest, [base + 0]` (8-byte load).
+///
+/// Loads the discriminant (variant index) from an enum value.
+/// Phase-4: always loads 8 bytes from offset 0.
+///
+/// # Arguments
+/// - `buf`: code buffer to append instructions to
+/// - `dest`: destination register for the discriminant
+/// - `base`: source enum pointer
+///
+/// Emits: `mov dest, [base + 0]`
+pub fn emit_enum_discriminant(buf: &mut CodeBuffer, dest: Reg64, base: Reg64) {
+    emit_field_access(buf, dest, base, 0, 8);
+}
+
+/// Match-on-enum: emit `cmp dest, imm; jcc target`. Returns the rel32-patch
+/// offset that the linker will fix up.
+///
+/// # Arguments
+/// - `buf`: code buffer to append instructions to
+/// - `dest`: register holding discriminant
+/// - `expected_variant`: discriminant value to compare against
+/// - `cond`: condition code for the branch (typically Neq for "skip this arm")
+///
+/// Returns: the buffer offset of the rel32 displacement bytes (for linker patching).
+///
+/// Emits:
+/// 1. `cmp dest, expected_variant` (8-byte comparison with sign-extended imm32)
+/// 2. `jcc rel32` (conditional near jump)
+///
+/// Phase-4 minimum: linear cmp+jcc chain (no jump table optimization).
+pub fn emit_match_arm_branch(
+    buf: &mut CodeBuffer,
+    dest: Reg64,
+    expected_variant: u64,
+    cond: Cond,
+) -> usize {
+    let dest_id = dest as u8;
+
+    // Emit cmp dest, expected_variant
+    // Use cmp with imm32 (0x81) for phase-4 simplicity
+    let rex_byte = rex(true, false, false, (dest_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x81);
+    // ModR/M: mod=11, reg=7 (cmp opcode /7), rm=dest
+    buf.bytes.push(0xF8 | (dest_id & 7));
+    // Immediate: sign-extended from 32-bit
+    buf.bytes.extend((expected_variant as i32).to_le_bytes());
+
+    // Emit jcc rel32; return offset for linker patching
+    // After pushing 0x0F and cond, rel32 will start at buf.len() + 2
+    let patch_offset = buf.bytes.len() + 2; // +2 for two-byte opcode
+    buf.bytes.push(0x0F);
+    buf.bytes.push(cond as u8);
+    buf.bytes.extend([0, 0, 0, 0]); // Placeholder for rel32
+
+    patch_offset
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1133,5 +1322,151 @@ mod tests {
             assert_eq!(buf.as_slice()[0], expected_opcode, "cond: {:?}", cond);
             assert_eq!(buf.as_slice()[1], 0x05);
         }
+    }
+
+    // ── Record construction tests ───────────────────────────────
+
+    #[test]
+    fn emit_field_access_offset_8_emits_48_8b_47_08() {
+        let mut buf = CodeBuffer::new();
+        emit_field_access(&mut buf, Reg64::Rax, Reg64::Rdi, 8, 8);
+        // mov rax, [rdi + 8]
+        // REX.W=1: 0x48
+        // Opcode: 0x8B
+        // ModR/M: 0x40 | (0<<3) | 7 = 0x47 (RAX reg=0, RDI rm=7, mod=01 for disp8)
+        // disp8: 0x08
+        assert_eq!(buf.as_slice(), &[0x48, 0x8b, 0x47, 0x08]);
+    }
+
+    #[test]
+    fn emit_field_access_offset_0_uses_mod_00_no_disp() {
+        let mut buf = CodeBuffer::new();
+        emit_field_access(&mut buf, Reg64::Rax, Reg64::Rdi, 0, 8);
+        // mov rax, [rdi + 0]
+        // REX.W=1: 0x48
+        // Opcode: 0x8B
+        // ModR/M: 0x40 | (0<<3) | 7 = 0x47 (with disp8=0 for offset 0)
+        // disp8: 0x00
+        assert_eq!(buf.as_slice(), &[0x48, 0x8b, 0x47, 0x00]);
+    }
+
+    #[test]
+    fn emit_field_access_large_offset_uses_disp32() {
+        let mut buf = CodeBuffer::new();
+        emit_field_access(&mut buf, Reg64::Rsi, Reg64::Rbx, 1000, 8);
+        // mov rsi, [rbx + 1000]
+        // REX.W=1: 0x48
+        // Opcode: 0x8B
+        // ModR/M: 0x80 | (6<<3) | 3 = 0xb3 (RSI reg=6, RBX rm=3, mod=10 for disp32)
+        // disp32: 1000 = 0xe8 0x03 0x00 0x00
+        assert_eq!(buf.as_slice(), &[0x48, 0x8b, 0xb3, 0xe8, 0x03, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn emit_record_cons_emits_n_stores() {
+        let mut buf = CodeBuffer::new();
+        // Emit two field stores: offset 0 with RSI, offset 8 with RDX
+        let field_stores = &[(0, Reg64::Rsi, 8), (8, Reg64::Rdx, 8)];
+        emit_record_cons(&mut buf, Reg64::Rdi, field_stores);
+
+        // First store: mov [rdi + 0], rsi
+        // REX.W: 0x48
+        // Opcode: 0x89
+        // ModR/M: 0x40 | (6<<3) | 7 = 0x77
+        // disp8: 0x00
+        // Expected: 48 89 77 00
+
+        // Second store: mov [rdi + 8], rdx
+        // REX.W: 0x48
+        // Opcode: 0x89
+        // ModR/M: 0x40 | (2<<3) | 7 = 0x57
+        // disp8: 0x08
+        // Expected: 48 89 57 08
+
+        assert_eq!(
+            buf.as_slice(),
+            &[0x48, 0x89, 0x77, 0x00, 0x48, 0x89, 0x57, 0x08]
+        );
+    }
+
+    // ── Enum construction tests ─────────────────────────────────
+
+    #[test]
+    fn emit_enum_cons_emits_discriminant_then_payload_stores() {
+        let mut buf = CodeBuffer::new();
+        // Enum with discriminant 2, one payload field at offset 8 in RSI
+        let payload_stores = &[(8, Reg64::Rsi, 8)];
+        emit_enum_cons(&mut buf, Reg64::Rdi, 2, payload_stores);
+
+        // Expected:
+        // 1. mov rax, 2 (discriminant)
+        //    REX.W: 0x48, opcode: 0xb8, imm64: 0x02 0x00 0x00 0x00 0x00 0x00 0x00 0x00
+        // 2. mov [rdi + 0], rax
+        //    REX.W: 0x48, opcode: 0x89, ModR/M: 0x07 (mod=00, reg=0, rm=7)
+        // 3. mov [rdi + 8], rsi
+        //    REX.W: 0x48, opcode: 0x89, ModR/M: 0x77, disp8: 0x08
+
+        let expected = [
+            0x48, 0xb8, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // mov rax, 2
+            0x48, 0x89, 0x07, // mov [rdi], rax
+            0x48, 0x89, 0x77, 0x08, // mov [rdi + 8], rsi
+        ];
+        assert_eq!(buf.as_slice(), &expected);
+    }
+
+    #[test]
+    fn emit_enum_discriminant_loads_offset_0() {
+        let mut buf = CodeBuffer::new();
+        emit_enum_discriminant(&mut buf, Reg64::Rcx, Reg64::Rsi);
+        // mov rcx, [rsi + 0]
+        // REX.W: 0x48
+        // Opcode: 0x8B
+        // ModR/M: 0x40 | (1<<3) | 6 = 0x4e (RCX reg=1, RSI rm=6, mod=01 disp8)
+        // disp8: 0x00
+        assert_eq!(buf.as_slice(), &[0x48, 0x8b, 0x4e, 0x00]);
+    }
+
+    #[test]
+    fn emit_match_arm_branch_compares_then_jccs() {
+        let mut buf = CodeBuffer::new();
+        let patch_offset = emit_match_arm_branch(&mut buf, Reg64::Rax, 3, Cond::Neq);
+
+        // Expected:
+        // cmp rax, 3
+        //   REX.W: 0x48, opcode: 0x81, ModR/M: 0xf8, imm32: 0x03 0x00 0x00 0x00
+        // jne rel32
+        //   opcode: 0x0f, 0x85, rel32: 0x00 0x00 0x00 0x00 (placeholder)
+
+        let bytes = buf.as_slice();
+        assert_eq!(bytes[0], 0x48); // REX.W
+        assert_eq!(bytes[1], 0x81); // cmp opcode
+        assert_eq!(bytes[2], 0xf8); // ModR/M
+        assert_eq!(bytes[3..7], [0x03, 0x00, 0x00, 0x00]); // imm32
+        assert_eq!(bytes[7], 0x0f); // jcc opcode high
+        assert_eq!(bytes[8], 0x85); // jne condition
+        // patch_offset should point to the rel32 bytes (offset 9)
+        assert_eq!(patch_offset, 9);
+    }
+
+    #[test]
+    fn emit_record_cons_with_8byte_fields_alignment_correct() {
+        let mut buf = CodeBuffer::new();
+        // Record with 3 fields at natural 8-byte boundaries
+        let field_stores = &[
+            (0, Reg64::Rsi, 8),  // field 0 @ offset 0
+            (8, Reg64::Rdx, 8),  // field 1 @ offset 8
+            (16, Reg64::Rcx, 8), // field 2 @ offset 16
+        ];
+        emit_record_cons(&mut buf, Reg64::Rdi, field_stores);
+
+        // Should emit 3 stores, each 4 bytes (REX.W + opcode + modrm + disp8)
+        assert_eq!(buf.len(), 12);
+
+        // Verify first store: mov [rdi + 0], rsi
+        assert_eq!(&buf.as_slice()[0..4], &[0x48, 0x89, 0x77, 0x00]);
+        // Verify second store: mov [rdi + 8], rdx
+        assert_eq!(&buf.as_slice()[4..8], &[0x48, 0x89, 0x57, 0x08]);
+        // Verify third store: mov [rdi + 16], rcx
+        assert_eq!(&buf.as_slice()[8..12], &[0x48, 0x89, 0x4f, 0x10]);
     }
 }
