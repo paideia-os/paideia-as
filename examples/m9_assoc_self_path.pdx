@@ -1,0 +1,8 @@
+// Phase 4 m9-007: Self-qualified paths to associated types
+// Acceptance test: should parse Self::Item syntax without errors
+
+trait Iterator<T> {
+  type Item;
+  fn next(self) -> Self::Item;
+  fn collect(self) -> T;
+}

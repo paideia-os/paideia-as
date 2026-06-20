@@ -121,6 +121,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             Some(TokenKind::KwRecord) => self.parse_type_record(),
             Some(TokenKind::KwEnum) => self.parse_type_enum(),
             Some(TokenKind::LParen) => self.parse_type_paren(),
+            Some(TokenKind::KwSelfType) => self.parse_self_qualified_path(),
             Some(TokenKind::Ident) => self.parse_type_name(),
             Some(TokenKind::EffectOpen) => self.parse_effect_row(),
             Some(TokenKind::CapOpen) => self.parse_cap_set(),
@@ -430,6 +431,46 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 name: name_id,
                 args,
             },
+        ))
+    }
+
+    /// Parse a Self-qualified path: `Self::Item`
+    ///
+    /// This recognizes the syntax for referencing an associated type within a trait context.
+    /// Phase 4 minimum: parse-only; resolver will validate that `item` refers to a valid
+    /// associated type on the trait.
+    ///
+    /// Returns a TypeSelfQualifiedPath node with the associated type name.
+    fn parse_self_qualified_path(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
+        let self_tok = self.expect(TokenKind::KwSelfType)?;
+        let span_start = self_tok.span;
+
+        // Expect `::`
+        if !self.at(TokenKind::ColonColon) {
+            return self.error_expected_type();
+        }
+        self.bump(); // consume `::`
+
+        // Parse the associated type name
+        let assoc_type_tok = match self.expect(TokenKind::Ident) {
+            Ok(tok) => tok,
+            Err(_) => {
+                return self.error_expected_type();
+            }
+        };
+        let item_id = self.arena_mut().alloc(NodeKind::Ident, assoc_type_tok.span);
+
+        let span = Span::new(
+            span_start.file(),
+            span_start.byte_start(),
+            assoc_type_tok.span.byte_start() + assoc_type_tok.span.byte_len()
+                - span_start.byte_start(),
+        );
+
+        Ok(self.arena_mut().alloc_type(
+            NodeKind::TypeSelfQualifiedPath,
+            span,
+            TypeData::SelfQualifiedPath { item: item_id },
         ))
     }
 

@@ -1,0 +1,12 @@
+// Phase 4 m9-007: Nested Self-qualified paths and complex trait definitions
+// Acceptance test: should parse nested associated type references without errors
+
+trait Fn<T> {
+  type Output;
+  fn call(self, arg: T) -> Self::Output;
+}
+
+trait Applicative<F> {
+  type Applied;
+  fn apply<G: Fn<In = F, Out = u32>>(self, f: G) -> u32;
+}

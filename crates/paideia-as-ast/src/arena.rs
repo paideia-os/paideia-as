@@ -147,6 +147,8 @@ pub enum NodeKind {
     TypeRecord,
     /// `enum { Variant1, Variant2(T1, T2), Variant3 { f1: T1 }, ... }` (enum type).
     TypeEnum,
+    /// `Self::Item` (self-qualified path to associated type).
+    TypeSelfQualifiedPath,
 
     // Patterns (§8 Pattern)
     /// `_` (wildcard).

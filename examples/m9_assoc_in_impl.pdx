@@ -1,0 +1,12 @@
+// Phase 4 m9-007: Associated types in trait implementations
+// Acceptance test: should parse impl with trait supplying type
+// Resolver will validate that supplied types match associated type declarations
+
+trait Container<T> {
+  type Item;
+  fn get(self) -> Self::Item;
+}
+
+impl Container<u32> {
+  fn get(self) -> u32 { self }
+}

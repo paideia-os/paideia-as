@@ -169,22 +169,29 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
         ItemData::Trait {
             name,
             generic_params,
+            associated_types,
             methods,
             doc,
         } => {
+            let assoc_types_str = associated_types
+                .iter()
+                .map(|t| format!("{}", t))
+                .collect::<Vec<_>>()
+                .join(", ");
             let methods_str = methods
                 .iter()
                 .map(|m| format!("method(name: {}, params: {})", m.name, m.params.len()))
                 .collect::<Vec<_>>()
                 .join(", ");
             format!(
-                "Trait {{ name: {}, generic_params: [{}], methods: [{}], doc: {:?} }}",
+                "Trait {{ name: {}, generic_params: [{}], associated_types: [{}], methods: [{}], doc: {:?} }}",
                 name,
                 generic_params
                     .iter()
                     .map(|p| format!("{}", p.name))
                     .collect::<Vec<_>>()
                     .join(", "),
+                assoc_types_str,
                 methods_str,
                 doc
             )
@@ -715,6 +722,9 @@ fn print_type_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("Enum {{ variants: [{}] }}", variants_str)
+        }
+        TypeData::SelfQualifiedPath { item } => {
+            format!("SelfQualifiedPath {{ item: {} }}", item)
         }
     };
 

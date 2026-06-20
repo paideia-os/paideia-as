@@ -1,0 +1,10 @@
+// Phase 4 m9-007: Trait with multiple associated types
+// Acceptance test: should parse without errors
+
+trait Map<K, V> {
+  type Key;
+  type Value;
+  type Iterator;
+  fn insert(self, k: K, v: V);
+  fn iter(self) -> V;
+}

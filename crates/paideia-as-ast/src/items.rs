@@ -178,12 +178,15 @@ pub enum ItemData {
         doc: Option<NodeId>,
     },
 
-    /// Trait declaration: `trait Name<T> { method_sig; ... }`
+    /// Trait declaration: `trait Name<T> { type Item; method_sig; ... }`
     Trait {
         /// Name of the trait (Ident node).
         name: NodeId,
         /// Generic parameters (type parameters with optional bounds).
         generic_params: Vec<crate::exprs::GenericParam>,
+        /// Associated type declarations (Ident nodes for type names).
+        /// Each represents a `type Ident;` slot that concrete implementations must provide.
+        associated_types: Vec<NodeId>,
         /// Trait methods (signatures and optional default bodies).
         methods: Vec<TraitMethod>,
         /// Optional documentation comment.

@@ -87,6 +87,16 @@ pub enum TypeData {
         /// Enum variants: each can be unit-shaped, tuple-shaped, or record-shaped.
         variants: Vec<EnumVariant>,
     },
+
+    /// `Self::Item` — Self-qualified type reference.
+    ///
+    /// Represents a path to an associated type on Self within a trait context.
+    /// In phase 4, this is parse-only; the resolver will validate that `item`
+    /// refers to a valid associated type on the trait.
+    SelfQualifiedPath {
+        /// Name of the associated type (Ident node).
+        item: NodeId,
+    },
 }
 
 /// One variant of an enum type.
