@@ -7,6 +7,7 @@
 //! passes.
 
 pub mod branch_hint;
+pub mod composition;
 pub mod dispatch;
 pub mod dse;
 pub mod peephole;
@@ -17,6 +18,7 @@ pub mod unroll;
 
 // Re-export canonical pass types.
 pub use branch_hint::BranchHintPass;
+pub use composition::{canonical_pass_order, dispatch_collecting_order};
 pub use dse::DsePass;
 pub use peephole::PeepholePass;
 pub use pool_constants::PoolConstantsPass;
