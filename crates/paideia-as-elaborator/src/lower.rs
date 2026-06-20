@@ -196,6 +196,13 @@ fn map_node_kind(kind: NodeKind) -> IrKind {
         // Placeholders and unknown nodes
         NodeKind::Placeholder => IrKind::Placeholder,
 
+        // TODO: phase-4-m4-005 — Borrow / BorrowMut / Deref:
+        // When AST types ExprBorrow and ExprBorrowMut are added (phase-4-m5 or later),
+        // lower ExprBorrow → IrKind::Borrow with BorrowSideTable.insert(id, BorrowMeta { ... }).
+        // Lower ExprBorrowMut → IrKind::BorrowMut with BorrowSideTable.insert(id, BorrowMeta { ... }).
+        // Lower ExprDeref → IrKind::Deref.
+        // Real wiring with borrow checker activates in phase-4-m6.
+
         // Operands (OperandRegister, OperandImmediate, OperandMemoryRef)
         // These do not appear as top-level nodes in phase-1, but map to Var
         // as a conservative default.

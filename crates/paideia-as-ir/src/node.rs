@@ -176,6 +176,16 @@ pub enum IrKind {
     /// Each arm is visited with per-arm scope hooks to track linearity and effects
     /// independently within each branch.
     Branch,
+    /// Borrow: create an immutable reference. Children = [source].
+    /// Side-table entry in BorrowSideTable records (source_binding, lifetime_id, mutable=false).
+    Borrow,
+    /// BorrowMut: create a mutable reference. Children = [source].
+    /// Variant of Borrow with mutable=true (kept distinct for opt-pass dispatch).
+    /// Side-table entry in BorrowSideTable records (source_binding, lifetime_id, mutable=true).
+    BorrowMut,
+    /// Deref: dereference a reference. Children = [reference].
+    /// No side-table needed today.
+    Deref,
 }
 
 /// Per-node IR storage.
