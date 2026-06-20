@@ -18,10 +18,10 @@ pub mod sysv_bridge;
 mod writer;
 
 pub use encode::{
-    CodeBuffer, Cond, Reg32, Reg64, add_reg64_reg64, call_rel32, cmp_reg64_reg64, jcc_rel32,
-    jmp_rel8, jmp_rel32, mov_mem_rbp_disp_reg64, mov_reg64_imm32, mov_reg64_imm64,
-    mov_reg64_mem_rbp_disp, mov_reg64_reg64, pop_reg64, push_reg64, ret, sub_reg64_reg64,
-    test_reg64_reg64, xor_reg64_reg64,
+    CodeBuffer, Cond, Reg32, Reg64, add_reg64_reg64, call_rel32, cmp_reg64_reg64,
+    emit_indexed_load, emit_indexed_store, jcc_rel32, jmp_rel8, jmp_rel32, mov_mem_rbp_disp_reg64,
+    mov_reg64_imm32, mov_reg64_imm64, mov_reg64_mem_rbp_disp, mov_reg64_reg64, pop_reg64,
+    push_reg64, ret, sub_reg64_reg64, test_reg64_reg64, xor_reg64_reg64,
 };
 pub use handler::{emit_handler_chain, emit_handler_close, emit_handler_open};
 pub use lower::{
