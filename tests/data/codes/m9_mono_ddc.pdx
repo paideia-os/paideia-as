@@ -1,0 +1,12 @@
+module M9MonoDDC = structure {
+  // Generic function with monomorphisation points
+  let identity : forall [T] . (T) -> T =
+    fn [T] (x : T) -> { x }
+
+  // Multiple instantiations of the same generic function
+  let test_i64 : u64 -> u64 =
+    fn (x : u64) -> { identity[u64](x) }
+
+  let test_u32 : u32 -> u32 =
+    fn (x : u32) -> { identity[u32](x) }
+}

@@ -16,6 +16,7 @@ pub mod handler_value;
 pub mod instruction;
 pub mod load_store;
 pub mod modules;
+pub mod monomorphisation;
 mod node;
 pub mod opt;
 pub mod pretty;
@@ -40,6 +41,7 @@ pub use load_store::{
 pub use modules::{
     FieldKind, FunctorInfo, ModuleField, ModuleInfo, ModuleSideTable, pretty_module,
 };
+pub use monomorphisation::{MonoKey, MonomorphisationTable};
 pub use node::{EffectRowId, IrKind, IrNodeData, IrNodeId, LinClass};
 pub use record_layout::{FieldAccessInfo, FieldAccessSideTable, RecordLayoutTable, RecordTypeId};
 pub use walker::{IrWalker, walk};
