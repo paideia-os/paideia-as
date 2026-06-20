@@ -12,6 +12,7 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use crate::det;
 use paideia_as_ast::AstArena;
 use paideia_as_diagnostics::{
     Catalog, DiagnosticSink, HumanRenderer, HumanSink, Severity, SourceMap, VecSink,
@@ -403,6 +404,8 @@ fn build_pe_object() -> Vec<u8> {
 
     // 2. CoffFileHeader::new_efi_amd64() with number_of_sections set later.
     let mut coff = CoffFileHeader::new_efi_amd64();
+    // Set the timestamp for build determinism (SOURCE_DATE_EPOCH).
+    coff.time_date_stamp = det::build_timestamp();
 
     // 3. OptionalHeaderPe32Plus::new_efi_amd64().
     let mut opt = OptionalHeaderPe32Plus::new_efi_amd64();
