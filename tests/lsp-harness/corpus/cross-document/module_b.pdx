@@ -1,0 +1,7 @@
+module ModuleB
+
+import ModuleA
+
+pub fn bar() {
+  ModuleA.foo()
+}

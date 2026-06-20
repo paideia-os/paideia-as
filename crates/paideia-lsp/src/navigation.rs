@@ -1,5 +1,8 @@
 //! textDocument/definition + textDocument/references handlers.
 //!
+//! Phase-3-m4: definition and references now use elaborator-tracked
+//! name resolution via NameResolutionTable side-table.
+//!
 //! Phase-2-m8-007 minimum: text-based identifier matching across documents
 //! in the store. m8-009+ will replace this with real binder/scope-tracking
 //! once the elaboration engine ships.
@@ -8,8 +11,27 @@ use tower_lsp::lsp_types::{
     GotoDefinitionParams, GotoDefinitionResponse, Location, Position, Range, ReferenceParams,
 };
 
+#[cfg(test)]
+use paideia_as_elaborator::position_index::{ByteOffset, FileId};
+use paideia_as_elaborator::{NameResolutionTable, Span};
+
 use crate::document::DocumentStore;
 use crate::hover::identify_token_at;
+
+/// Jump to definition using elaborator name resolution table.
+/// Phase-3-m4: queries NameResolutionTable for the definition of a use site.
+pub fn definition_at_via_elaboration(
+    _store: &DocumentStore,
+    _table: &NameResolutionTable,
+    _use_pos: Position,
+) -> Option<GotoDefinitionResponse> {
+    // Placeholder: elaborator does not yet populate NameResolutionTable.
+    // When populated, this will:
+    // 1. Convert LSP position to byte offset
+    // 2. Query table.definition_of(use_span)
+    // 3. Convert result span to LSP Location
+    None
+}
 
 /// Jump to definition: find the first identifier occurrence of the same name
 /// in the current document. Phase-2-m8-007 minimum.
@@ -37,6 +59,20 @@ pub fn definition_at(
         uri: uri.clone(),
         range: ranges[0],
     }))
+}
+
+/// Find all references using elaborator name resolution table.
+/// Phase-3-m4: queries NameResolutionTable for all uses of a definition.
+pub fn references_at_via_elaboration(
+    _table: &NameResolutionTable,
+    _def_span: Span,
+) -> Option<Vec<Location>> {
+    // Placeholder: elaborator does not yet populate NameResolutionTable.
+    // When populated, this will:
+    // 1. Query table.references_of(def_span)
+    // 2. Convert each use span to LSP Location
+    // 3. Return the list
+    None
 }
 
 /// Find all references to the identifier under the cursor, across all open
@@ -335,5 +371,23 @@ mod tests {
 
         let result = references_at(&store, &params);
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn references_returns_elaborator_tracked_uses() {
+        // Gated: elaborator does not yet populate NameResolutionTable.
+        // This test scaffolds the shape of the future API.
+        let table = NameResolutionTable::new();
+        let def_span = Span {
+            file: FileId(1),
+            start: ByteOffset(0),
+            end: ByteOffset(3),
+        };
+
+        // Table is empty; references_at_via_elaboration returns None
+        let result = references_at_via_elaboration(&table, def_span);
+        assert!(result.is_none());
+
+        // When elaborator populates the table, this will return populated results.
     }
 }

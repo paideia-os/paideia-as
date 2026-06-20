@@ -1,0 +1,5 @@
+module ModuleA
+
+pub fn foo() {
+  ()
+}

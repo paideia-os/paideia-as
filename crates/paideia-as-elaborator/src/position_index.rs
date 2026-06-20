@@ -20,7 +20,7 @@ use paideia_as_types::TypeId;
 pub struct FileId(pub u32);
 
 /// Byte offset within a source file.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ByteOffset(pub u32);
 
 /// A single position index entry: stores elaborator results for a span.

@@ -32,6 +32,7 @@ mod lower;
 pub mod macro_expand;
 pub mod macro_match;
 pub mod modules;
+pub mod name_resolution;
 pub mod pack;
 mod placeholder_emit;
 pub mod populate;
@@ -85,6 +86,7 @@ pub use macro_match::{
 pub use modules::{
     FieldBinding, S_LINEAR_FIELD_OVERUSED, TypedValue, ValueRef, elaborate_structure,
 };
+pub use name_resolution::{NameResolutionTable, Span};
 pub use pack::{
     M_UNPACK_NOT_PACKED, PackedValue, elaborate_let_module, elaborate_pack, elaborate_unpack,
 };
