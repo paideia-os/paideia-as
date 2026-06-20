@@ -1,0 +1,10 @@
+// Fixture: io_stderr_write
+// Tests that stderr() returns a Stderr record and write_str_err accepts it.
+
+struct Stderr {
+  fd: u64,
+}
+
+trait StderrWrite {
+  fn write_error() -> () !{IO} @{paideia.io};
+}

@@ -35,6 +35,13 @@ module Abi = structure {
     // No explicit operations; intrinsics implicitly perform this effect.
   }
 
+  effect IO {
+    // Built-in effect for I/O operations (stdin, stdout, stderr).
+    // Operations: read_line, write_str, write_str_err (paired with Stdin/Stdout/Stderr records).
+    // Per phase-4-m11-005: registered at the language level so user code can
+    // write !{IO} in effect rows.
+  }
+
   // ═════════════════════════════════════════════════════════════════════════
   // § 1. Semantic version (per design/toolchain/abi.md §0)
   // ═════════════════════════════════════════════════════════════════════════

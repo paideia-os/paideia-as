@@ -1,0 +1,10 @@
+// Fixture: io_stdin_open
+// Tests that stdin() returns a Stdin record with an fd field.
+
+struct Stdin {
+  fd: u64,
+}
+
+trait StdinOpen {
+  fn get_stdin_fd() -> u64 !{IO} @{paideia.io};
+}

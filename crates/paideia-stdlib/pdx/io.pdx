@@ -1,0 +1,24 @@
+// Phase 4 m11-005: basic I/O — Stdin, Stdout, Stderr wrappers.
+//
+// Effect: !{IO}, capability: @{paideia.io}.
+
+struct Stdin {
+  fd: u64,
+}
+
+struct Stdout {
+  fd: u64,
+}
+
+struct Stderr {
+  fd: u64,
+}
+
+trait IoOps {
+  fn stdin() -> Stdin !{IO} @{paideia.io};
+  fn stdout() -> Stdout !{IO} @{paideia.io};
+  fn stderr() -> Stderr !{IO} @{paideia.io};
+  fn write_str(s: Stdout, msg: Str) -> () !{IO} @{paideia.io};
+  fn write_str_err(s: Stderr, msg: Str) -> () !{IO} @{paideia.io};
+  fn read_line(s: Stdin) -> String !{IO} @{paideia.io};
+}

@@ -1,0 +1,10 @@
+// Fixture: io_println_macro_stub
+// Parser-only: macro expansion gates on m9 elaborator.
+// Tests that println! macro stub concept parses.
+//
+// Note: Actual macro expansion for println!(fmt, args...) is Phase 4 m9-008 territory.
+// This fixture demonstrates the trait signature that would be called after macro expansion.
+
+trait PrintlnMacroStub {
+  fn println_impl(msg: Str) -> () !{IO} @{paideia.io};
+}

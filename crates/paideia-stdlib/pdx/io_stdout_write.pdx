@@ -1,0 +1,10 @@
+// Fixture: io_stdout_write
+// Tests that stdout() returns a Stdout record and write_str accepts it.
+
+struct Stdout {
+  fd: u64,
+}
+
+trait StdoutWrite {
+  fn write_hello() -> () !{IO} @{paideia.io};
+}

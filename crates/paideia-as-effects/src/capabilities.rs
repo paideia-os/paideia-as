@@ -11,7 +11,7 @@
 ///
 /// Each entry is a dotted capability name that can be used in user code
 /// without explicit declaration.
-pub const BUILTIN_CAPABILITIES: &[&str] = &["paideia.raw_mem"];
+pub const BUILTIN_CAPABILITIES: &[&str] = &["paideia.raw_mem", "paideia.io"];
 
 /// Check whether a capability name is a built-in capability.
 ///
@@ -45,6 +45,11 @@ mod tests {
     }
 
     #[test]
+    fn is_builtin_capability_accepts_paideia_io() {
+        assert!(is_builtin_capability("paideia.io"));
+    }
+
+    #[test]
     fn is_builtin_capability_rejects_unknown() {
         assert!(!is_builtin_capability("paideia.unknown"));
         assert!(!is_builtin_capability("io.read_cap"));
@@ -55,6 +60,8 @@ mod tests {
     fn builtin_capability_index_returns_correct_position() {
         let idx = builtin_capability_index("paideia.raw_mem").expect("should find index");
         assert_eq!(idx, 0);
+        let idx_io = builtin_capability_index("paideia.io").expect("should find index");
+        assert_eq!(idx_io, 1);
     }
 
     #[test]
