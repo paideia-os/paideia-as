@@ -1,4 +1,11 @@
 //! Loop unrolling with explicit unroll factor.
+//!
+//! **Phase-4-m8-006 integration note**: The Loop, Break, and Continue IR kinds
+//! (see `crate::loop_meta`) now give unroll a direct handle to identify loop
+//! structures in the IR, rather than relying on tail-recursion + TCO substitutes.
+//! A future upgrade to this unroll body (m3-006 follow-up) will consume the Loop
+//! node directly to extract trip-count information and perform the unroll
+//! transformation on the IR before encoding.
 
 use super::{OptDiagSink, OptPass};
 use crate::IrArena;

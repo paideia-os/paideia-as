@@ -15,6 +15,7 @@ pub mod enum_layout;
 pub mod handler_value;
 pub mod instruction;
 pub mod load_store;
+pub mod loop_meta;
 pub mod modules;
 pub mod monomorphisation;
 mod node;
@@ -39,6 +40,7 @@ pub use instruction::{
 pub use load_store::{
     LoadStoreInfo, LoadStoreSideTable, Signedness, Width, alloc_load, alloc_store,
 };
+pub use loop_meta::{LoopMeta, LoopMetaTable};
 pub use modules::{
     FieldKind, FunctorInfo, ModuleField, ModuleInfo, ModuleSideTable, pretty_module,
 };

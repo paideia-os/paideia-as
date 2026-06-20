@@ -103,6 +103,10 @@ impl EffectRowId {
 ///   Side-table: EnumConsSideTable maps this node to (TypeId, variant_index).
 /// - **EnumDiscriminant**: extract the discriminant of an enum value. Children: [enum_value].
 ///   Side-table: EnumDiscriminantSideTable maps this node to TypeId for the enum.
+/// - **Loop**: loop block. Children: [body]. Side-table: LoopMetaTable records
+///   (entry_label, exit_label) for the encoder.
+/// - **Break**: break out of the enclosing loop. No children.
+/// - **Continue**: continue to the next iteration of the enclosing loop. No children.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 #[repr(u8)]
 #[non_exhaustive]
@@ -152,6 +156,13 @@ pub enum IrKind {
     /// Extract the discriminant of an enum value. Children: [enum_value].
     /// Side-table entry in EnumDiscriminantSideTable records the TypeId.
     EnumDiscriminant,
+    /// Loop block. Children: [body].
+    /// Side-table: LoopMetaTable records (entry_label, exit_label) for the encoder.
+    Loop,
+    /// Break out of the enclosing loop. No children.
+    Break,
+    /// Continue to the next iteration of the enclosing loop. No children.
+    Continue,
 }
 
 /// Per-node IR storage.
