@@ -1,0 +1,6 @@
+// m7_enum_construct_tuple.pdx — tuple variant construction
+module M = structure {
+  let some_val = Some(42)
+  let some_zero = Some(0)
+  let none_val = None
+}

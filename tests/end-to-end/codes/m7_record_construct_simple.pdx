@@ -1,0 +1,4 @@
+// m7_record_construct_simple.pdx — record construction
+module M = structure {
+  let p = Point { x: 30, y: 1 }
+}

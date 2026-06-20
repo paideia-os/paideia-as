@@ -1,0 +1,8 @@
+// m7_enum_match_exhaustive.pdx — enum match
+module M = structure {
+  let check = fn (s: enum { First, Second, Third }) -> match s {
+    First => 0
+    Second => 1
+    Third => 2
+  }
+}

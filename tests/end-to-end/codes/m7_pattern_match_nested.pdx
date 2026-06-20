@@ -1,0 +1,4 @@
+// m7_pattern_match_nested.pdx — nested record access
+module M = structure {
+  let extract = fn (o: record { inner: record { value: i32 } }) -> o.inner.value
+}

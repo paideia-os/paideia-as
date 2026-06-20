@@ -1,0 +1,5 @@
+// m7_pattern_let_record.pdx — record destructuring
+module M = structure {
+  let Point { x: x, y: y } = Point { x: 5, y: 10 }
+  let res = x + y
+}

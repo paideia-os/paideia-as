@@ -1,0 +1,4 @@
+// m7_record_field_chain.pdx — chained field access
+module M = structure {
+  let deep = fn (o: record { inner: record { value: i32 } }) -> o.inner.value
+}

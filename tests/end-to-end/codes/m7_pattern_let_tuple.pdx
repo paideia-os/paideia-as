@@ -1,0 +1,5 @@
+// m7_pattern_let_tuple.pdx — tuple destructuring
+module M = structure {
+  let (x, y) = (10, 20)
+  let sum = x + y
+}

@@ -1,0 +1,8 @@
+// m7_pattern_match_enum_variants.pdx — enum match patterns
+module M = structure {
+  let tag = fn (e: enum { A, B, C }) -> match e {
+    A => 0
+    B => 1
+    C => 2
+  }
+}

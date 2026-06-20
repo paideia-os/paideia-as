@@ -1,0 +1,4 @@
+// m7_record_with_ptr.pdx — record with pointer field
+module M = structure {
+  let id = fn (r: record { x: i32 }) -> r.x
+}

@@ -1,0 +1,4 @@
+// m7_record_nested.pdx — nested record type
+module M = structure {
+  let inner = fn (o: record { inner: record { value: i32 } }) -> o.inner.value
+}

@@ -1,0 +1,7 @@
+// m7_pattern_match_with_wildcard.pdx — match with wildcards
+module M = structure {
+  let code = fn (e: enum { A, B, C }) -> match e {
+    A => 0
+    _ => 1
+  }
+}

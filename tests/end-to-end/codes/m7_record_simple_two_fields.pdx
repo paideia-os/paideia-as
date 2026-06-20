@@ -1,0 +1,4 @@
+// m7_record_simple_two_fields.pdx — record type with two fields
+module M = structure {
+  let get_x = fn (p: record { x: i32, y: i32 }) -> p.x
+}

@@ -1,0 +1,4 @@
+// m7_record_empty.pdx — empty record type
+module M = structure {
+  let id = fn (x: record { }) -> x
+}

@@ -1,0 +1,6 @@
+// m7_enum_mixed_variants.pdx — mixed variant types
+module M = structure {
+  let idle = Idle
+  let running = Running(42)
+  let stopped = Stopped { code: 0 }
+}

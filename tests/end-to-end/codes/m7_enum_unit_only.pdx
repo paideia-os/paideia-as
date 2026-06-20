@@ -1,0 +1,7 @@
+// m7_enum_unit_only.pdx — unit enum variants
+module M = structure {
+  let north = North
+  let south = South
+  let east = East
+  let west = West
+}

@@ -1,0 +1,5 @@
+// m7_enum_record_payload.pdx — record payload variants
+module M = structure {
+  let ok = Success { value: 100, code: 0 }
+  let err = Failure { error: 404, retries: 3 }
+}

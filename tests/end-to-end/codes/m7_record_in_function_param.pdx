@@ -1,0 +1,4 @@
+// m7_record_in_function_param.pdx — record in function param
+module M = structure {
+  let sum = fn (p: record { x: i32, y: i32 }) -> p.x + p.y
+}

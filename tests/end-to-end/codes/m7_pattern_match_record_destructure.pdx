@@ -1,0 +1,4 @@
+// m7_pattern_match_record_destructure.pdx — function with record param
+module M = structure {
+  let sum = fn (p: record { x: i32, y: i32 }) -> p.x + p.y
+}

@@ -1,0 +1,7 @@
+// m7_enum_match_wildcard.pdx — match with wildcard
+module M = structure {
+  let classify = fn (s: enum { First, Second, Third }) -> match s {
+    First => 0
+    _ => 1
+  }
+}

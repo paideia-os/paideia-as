@@ -1,0 +1,7 @@
+// m7_enum_construct_unit.pdx — unit variant construction
+module M = structure {
+  let s1 = Start
+  let s2 = Pause
+  let s3 = Resume
+  let s4 = Stop
+}

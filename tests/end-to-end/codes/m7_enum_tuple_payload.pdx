@@ -1,0 +1,6 @@
+// m7_enum_tuple_payload.pdx — tuple payload variants
+module M = structure {
+  let ok = Ok(42)
+  let err = Err(1)
+  let opt = Some(0)
+}

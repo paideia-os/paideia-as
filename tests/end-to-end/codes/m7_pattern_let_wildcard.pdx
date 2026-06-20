@@ -1,0 +1,5 @@
+// m7_pattern_let_wildcard.pdx — wildcard pattern
+module M = structure {
+  let (_, y) = (100, 200)
+  let res = y + 50
+}
