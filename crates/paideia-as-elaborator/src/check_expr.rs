@@ -43,8 +43,11 @@ static NEXT_VAR: AtomicU32 = AtomicU32::new(1);
 /// variables and is ready for unification.
 fn fresh_var(types: &mut TypeInterner) -> TypeId {
     let id = NEXT_VAR.fetch_add(1, Ordering::Relaxed);
-    let v = TyVar::new(id).expect("counter wraps only after 2^32 calls");
-    types.intern(Type::Var(v))
+    let _v = TyVar::new(id).expect("counter wraps only after 2^32 calls");
+    types.intern(Type::Var {
+        name: id,
+        kind: paideia_as_types::HrKind::star(),
+    })
 }
 
 /// Construct a diagnostic code in the T (Type) category.
@@ -172,7 +175,7 @@ fn describe_type(types: &TypeInterner, t: TypeId) -> String {
         Type::Float(w) => format!("f{}", w),
         Type::Top => "Top".to_string(),
         Type::Bot => "Bot".to_string(),
-        Type::Var(v) => format!("α{}", v.get()),
+        Type::Var { name, .. } => format!("α{}", name),
         Type::Fn { .. } => "(args) -> ret".to_string(),
         Type::Tuple(_) => "(elts,)".to_string(),
         Type::Named { .. } => "?".to_string(),

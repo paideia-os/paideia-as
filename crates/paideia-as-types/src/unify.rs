@@ -10,6 +10,7 @@ use paideia_as_diagnostics::{Category, DiagnosticCode, Severity};
 use thiserror::Error;
 
 use crate::intern::TypeInterner;
+use crate::kinds::HrKind;
 use crate::subst::Subst;
 use crate::types::{EnumPayload, TyVar, Type, TypeId};
 
@@ -78,8 +79,8 @@ pub fn unify(
     let b_ty = interner.get(b).clone();
     match (a_ty, b_ty) {
         // Variable cases: bind the variable.
-        (Type::Var(v), other) => bind(interner, subst, v, b, &other),
-        (other, Type::Var(v)) => bind(interner, subst, v, a, &other),
+        (Type::Var { name, kind }, other) => bind(interner, subst, name, kind, b, &other),
+        (other, Type::Var { name, kind }) => bind(interner, subst, name, kind, a, &other),
         // Primitive types: succeed if identical.
         (Type::Unit, Type::Unit)
         | (Type::Bool, Type::Bool)
@@ -194,21 +195,39 @@ pub fn unify(
 /// Attempt to bind a type variable.
 ///
 /// If the variable is already bound to itself, this is a no-op (α ~ α).
-/// Otherwise, performs an occurs check and inserts the binding.
+/// Otherwise, performs a kind check (m9-002), an occurs check, and inserts the binding.
+///
+/// **Kind checking (m9-002):** Two type variables can only unify if they have
+/// the same kind. For example, a variable declared with kind `*` can bind to
+/// a concrete type or another `*`-kinded variable, but NOT to a `* -> *` constructor.
 fn bind(
     interner: &mut TypeInterner,
     subst: &mut Subst,
-    v: TyVar,
+    var_name: u32,
+    var_kind: HrKind,
     t_id: TypeId,
     t_view: &Type,
 ) -> Result<(), UnifyError> {
     // α ~ α: no-op.
-    if let Type::Var(other_v) = t_view
-        && *other_v == v
+    if let Type::Var {
+        name: other_name,
+        kind: other_kind,
+    } = t_view
     {
-        return Ok(());
+        if *other_name == var_name {
+            return Ok(());
+        }
+        // m9-002: Two type variables unify only if they have the same kind.
+        if var_kind != *other_kind {
+            return Err(UnifyError::KindMismatch {
+                a: format!("type variable α{} with kind {:?}", var_name, var_kind),
+                b: format!("type variable α{} with kind {:?}", other_name, other_kind),
+            });
+        }
     }
+
     // Occurs check.
+    let v = TyVar::new(var_name).expect("var_name should be non-zero");
     if subst.occurs_in(v, t_id, interner) {
         return Err(UnifyError::OccursCheck {
             var: v,
@@ -269,6 +288,7 @@ fn unify_payload(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kinds::HrKind;
     use crate::types::CapSetId;
     use paideia_as_ir::EffectRowId;
 
@@ -279,7 +299,10 @@ mod tests {
         let alpha = TyVar::new(1).unwrap();
         let u64_id = interner.uint(64);
 
-        let alpha_id = interner.intern(Type::Var(alpha));
+        let alpha_id = interner.intern(Type::Var {
+            name: alpha.get(),
+            kind: HrKind::star(),
+        });
         let result = unify(&mut interner, &mut subst, alpha_id, u64_id);
 
         assert!(result.is_ok());
@@ -292,7 +315,10 @@ mod tests {
         let mut subst = Subst::new();
         let alpha = TyVar::new(1).unwrap();
 
-        let alpha_id = interner.intern(Type::Var(alpha));
+        let alpha_id = interner.intern(Type::Var {
+            name: alpha.get(),
+            kind: HrKind::star(),
+        });
         let result = unify(&mut interner, &mut subst, alpha_id, alpha_id);
 
         assert!(result.is_ok());
@@ -342,7 +368,10 @@ mod tests {
         let alpha = TyVar::new(1).unwrap();
         let u64_id = interner.uint(64);
 
-        let alpha_id = interner.intern(Type::Var(alpha));
+        let alpha_id = interner.intern(Type::Var {
+            name: alpha.get(),
+            kind: HrKind::star(),
+        });
         let tuple_type = interner.intern(Type::Tuple(vec![alpha_id, u64_id]));
 
         let result = unify(&mut interner, &mut subst, alpha_id, tuple_type);
@@ -402,8 +431,14 @@ mod tests {
         let alpha = TyVar::new(1).unwrap();
         let beta = TyVar::new(2).unwrap();
 
-        let alpha_id = interner.intern(Type::Var(alpha));
-        let beta_id = interner.intern(Type::Var(beta));
+        let alpha_id = interner.intern(Type::Var {
+            name: alpha.get(),
+            kind: HrKind::star(),
+        });
+        let beta_id = interner.intern(Type::Var {
+            name: beta.get(),
+            kind: HrKind::star(),
+        });
 
         let tuple1 = interner.intern(Type::Tuple(vec![alpha_id, u64_id]));
         let tuple2 = interner.intern(Type::Tuple(vec![bool_id, beta_id]));
@@ -423,7 +458,10 @@ mod tests {
         let bool_id = interner.bool_ty();
 
         let alpha = TyVar::new(1).unwrap();
-        let alpha_id = interner.intern(Type::Var(alpha));
+        let alpha_id = interner.intern(Type::Var {
+            name: alpha.get(),
+            kind: HrKind::star(),
+        });
 
         let fn1 = interner.intern(Type::Fn {
             params: vec![alpha_id],
@@ -452,8 +490,10 @@ mod tests {
         let beta = TyVar::new(2).unwrap();
         let u64_id = interner.uint(64);
 
-        let alpha_id = interner.intern(Type::Var(alpha));
-        let _beta_id = interner.intern(Type::Var(beta));
+        let alpha_id = interner.intern(Type::Var {
+            name: alpha.get(),
+            kind: HrKind::star(),
+        });
 
         // Bind beta to Tuple[alpha, u64]
         let tuple_id = interner.intern(Type::Tuple(vec![alpha_id, u64_id]));
@@ -552,7 +592,10 @@ mod tests {
         let alpha = TyVar::new(1).unwrap();
         let u64_id = interner.uint(64);
 
-        let alpha_id = interner.intern(Type::Var(alpha));
+        let alpha_id = interner.intern(Type::Var {
+            name: alpha.get(),
+            kind: HrKind::star(),
+        });
         let ptr_u64 = interner.intern(Type::Ptr {
             pointee: u64_id,
             mutable: false,
@@ -674,7 +717,7 @@ mod tests {
     fn unify_enum_different_variant_name_fails() {
         let mut interner = TypeInterner::new();
         let mut subst = Subst::new();
-        let u64_id = interner.uint(64);
+        let _u64_id = interner.uint(64);
 
         let enum1 = interner.intern(Type::Enum {
             variants: smallvec::smallvec![(1, EnumPayload::Unit), (2, EnumPayload::Unit)],
@@ -713,6 +756,87 @@ mod tests {
         assert!(
             result.is_err(),
             "Enums with different payload shapes should not unify"
+        );
+
+        if let Err(UnifyError::KindMismatch { .. }) = result {
+            // Expected error type
+        } else {
+            panic!("Expected KindMismatch error, got {:?}", result);
+        }
+    }
+
+    // m9-002 Higher-rank kind checking tests
+
+    #[test]
+    fn type_var_unifies_with_concrete_type() {
+        let mut interner = TypeInterner::new();
+        let mut subst = Subst::new();
+        let alpha = TyVar::new(1).unwrap();
+        let u64_id = interner.uint(64);
+
+        let alpha_id = interner.intern(Type::Var {
+            name: alpha.get(),
+            kind: HrKind::star(),
+        });
+        let result = unify(&mut interner, &mut subst, alpha_id, u64_id);
+
+        assert!(
+            result.is_ok(),
+            "Type variable with kind * should unify with concrete type: {:?}",
+            result
+        );
+        assert_eq!(subst.get(alpha), Some(u64_id));
+    }
+
+    #[test]
+    fn two_type_vars_with_same_kind_unify() {
+        let mut interner = TypeInterner::new();
+        let mut subst = Subst::new();
+        let alpha = TyVar::new(1).unwrap();
+        let beta = TyVar::new(2).unwrap();
+
+        let alpha_id = interner.intern(Type::Var {
+            name: alpha.get(),
+            kind: HrKind::star(),
+        });
+        let beta_id = interner.intern(Type::Var {
+            name: beta.get(),
+            kind: HrKind::star(),
+        });
+
+        let result = unify(&mut interner, &mut subst, alpha_id, beta_id);
+
+        assert!(
+            result.is_ok(),
+            "Two type variables with the same kind should unify: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn two_type_vars_with_different_kinds_fail() {
+        let mut interner = TypeInterner::new();
+        let mut subst = Subst::new();
+        let alpha = TyVar::new(1).unwrap();
+        let beta = TyVar::new(2).unwrap();
+
+        // alpha has kind * (Star)
+        let alpha_id = interner.intern(Type::Var {
+            name: alpha.get(),
+            kind: HrKind::star(),
+        });
+
+        // beta has kind * -> * (Arrow)
+        let beta_id = interner.intern(Type::Var {
+            name: beta.get(),
+            kind: HrKind::arrow(HrKind::star(), HrKind::star()),
+        });
+
+        let result = unify(&mut interner, &mut subst, alpha_id, beta_id);
+
+        assert!(
+            result.is_err(),
+            "Two type variables with different kinds should not unify"
         );
 
         if let Err(UnifyError::KindMismatch { .. }) = result {

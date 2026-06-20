@@ -26,7 +26,7 @@ use paideia_as_types::{Type, TypeId, TypeInterner};
 pub fn type_kind(interner: &TypeInterner, ty: TypeId) -> LinClass {
     match interner.get(ty) {
         Type::Ptr { .. } => LinClass::Unrestricted,
-        Type::Var(_) => LinClass::Unrestricted,
+        Type::Var { .. } => LinClass::Unrestricted,
         // All other types default to Unrestricted for phase-3.
         _ => LinClass::Unrestricted,
     }

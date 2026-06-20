@@ -4,6 +4,10 @@
 //! affinity, etc. This module types those properties and computes the kind
 //! of any interned type via structural examination.
 //!
+//! **m9-002 Higher-rank kinds:** Additionally tracks higher-rank type constructors
+//! via the `HrKind` enum. Distinct from `LinClass` (linearity); `HrKind` captures
+//! the rank of a type constructor (e.g., `*`, `* -> *`, `* -> * -> *`).
+//!
 //! Module-level kinds capture the structure of module types (signatures)
 //! and functor types (Π-kinds over signatures).
 
@@ -18,6 +22,53 @@ use crate::types::{Type, TypeId};
 /// here so future type-level refinements (e.g., kinds beyond linearity)
 /// don't drag the IR crate. Phase-1 uses only `Unrestricted` and `Linear`.
 pub type Kind = LinClass;
+
+/// Higher-rank kind for type constructors.
+///
+/// Phase-4 m9-002: Tracks the arity of type constructors via explicit kind structure.
+/// - `Star` is the kind of monomorphic types (u8, *u8, record {...}, etc.).
+/// - `Arrow { from, to }` is the kind of type constructors (Vec, Option, etc.).
+///
+/// Example kinds:
+/// - `u8` has kind `Star`.
+/// - `Vec` (expecting one type argument) has kind `Star -> Star`.
+/// - `HashMap` (expecting two arguments) has kind `Star -> Star -> Star`.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum HrKind {
+    /// `*` — the kind of monomorphic types.
+    Star,
+    /// `A -> B` — kind of a type constructor.
+    Arrow(Box<HrKind>, Box<HrKind>),
+}
+
+impl HrKind {
+    /// Construct the `Star` kind.
+    pub fn star() -> Self {
+        HrKind::Star
+    }
+
+    /// Construct an arrow kind `from -> to`.
+    pub fn arrow(from: HrKind, to: HrKind) -> Self {
+        HrKind::Arrow(Box::new(from), Box::new(to))
+    }
+
+    /// Compute the arity (number of arguments) of this kind.
+    ///
+    /// - `Star` has arity 0.
+    /// - `* -> *` has arity 1.
+    /// - `* -> * -> *` has arity 2.
+    pub fn arity(&self) -> usize {
+        match self {
+            HrKind::Star => 0,
+            HrKind::Arrow(_, ret) => 1 + ret.arity(),
+        }
+    }
+
+    /// Check if this kind is the base kind `Star`.
+    pub fn is_star(&self) -> bool {
+        matches!(self, HrKind::Star)
+    }
+}
 
 /// The kind of a module's type — either a structure's signature
 /// (concrete kind) or a functor's Π-kind.
@@ -90,7 +141,7 @@ pub enum SigDeclKind {
 pub fn type_kind(_type_id: TypeId, ty: &Type) -> Kind {
     match ty {
         Type::Named { name: 1, .. } => Kind::Linear,
-        Type::Var(_) => Kind::Unrestricted,
+        Type::Var { .. } => Kind::Unrestricted,
         _ => Kind::Unrestricted,
     }
 }
@@ -279,7 +330,10 @@ mod tests {
 
     #[test]
     fn type_var_is_unrestricted() {
-        let ty_var = Type::Var(crate::types::TyVar::new(1).unwrap());
+        let ty_var = Type::Var {
+            name: 1,
+            kind: HrKind::star(),
+        };
 
         assert_eq!(
             type_kind(TypeId::new(1).unwrap(), &ty_var),
@@ -617,5 +671,40 @@ mod tests {
         let cloned = module_kind.clone();
 
         assert_eq!(module_kind, cloned);
+    }
+
+    // m9-002 Higher-rank kind tests
+
+    #[test]
+    fn hr_kind_star_arity_is_zero() {
+        let star = HrKind::star();
+        assert_eq!(star.arity(), 0);
+    }
+
+    #[test]
+    fn hr_kind_arrow_arity_is_one() {
+        let arrow = HrKind::arrow(HrKind::star(), HrKind::star());
+        assert_eq!(arrow.arity(), 1);
+    }
+
+    #[test]
+    fn hr_kind_higher_arrow_arity_grows() {
+        let arrow2 = HrKind::arrow(
+            HrKind::star(),
+            HrKind::arrow(HrKind::star(), HrKind::star()),
+        );
+        assert_eq!(arrow2.arity(), 2);
+    }
+
+    #[test]
+    fn hr_kind_star_is_star() {
+        let star = HrKind::star();
+        assert!(star.is_star());
+    }
+
+    #[test]
+    fn hr_kind_arrow_is_not_star() {
+        let arrow = HrKind::arrow(HrKind::star(), HrKind::star());
+        assert!(!arrow.is_star());
     }
 }

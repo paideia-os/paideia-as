@@ -49,12 +49,12 @@ impl Subst {
     pub fn occurs_in(&self, v: TyVar, t: TypeId, interner: &TypeInterner) -> bool {
         let ty = interner.get(t);
         match ty {
-            Type::Var(w) => {
-                if *w == v {
+            Type::Var { name, .. } => {
+                if *name == v.get() {
                     return true;
                 }
                 // Follow substitution chains.
-                if let Some(target) = self.get(*w) {
+                if let Some(target) = self.get(v) {
                     return self.occurs_in(v, target, interner);
                 }
                 false
@@ -79,7 +79,8 @@ impl Subst {
     pub fn apply(&self, interner: &mut TypeInterner, t: TypeId) -> TypeId {
         let ty = interner.get(t).clone();
         match ty {
-            Type::Var(v) => {
+            Type::Var { name, .. } => {
+                let v = TyVar::new(name).expect("name should be non-zero");
                 if let Some(target) = self.get(v) {
                     self.apply(interner, target)
                 } else {
@@ -137,6 +138,7 @@ impl Default for Subst {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kinds::HrKind;
 
     #[test]
     fn apply_resolves_var_to_concrete() {
@@ -147,7 +149,10 @@ mod tests {
         let mut subst = Subst::new();
         subst.insert(alpha, u64_id);
 
-        let var_type_id = interner.intern(Type::Var(alpha));
+        let var_type_id = interner.intern(Type::Var {
+            name: alpha.get(),
+            kind: HrKind::star(),
+        });
         let resolved = subst.apply(&mut interner, var_type_id);
 
         assert_eq!(resolved, u64_id);
@@ -165,8 +170,14 @@ mod tests {
         subst.insert(alpha, u64_id);
         subst.insert(beta, bool_id);
 
-        let alpha_id = interner.intern(Type::Var(alpha));
-        let beta_id = interner.intern(Type::Var(beta));
+        let alpha_id = interner.intern(Type::Var {
+            name: alpha.get(),
+            kind: HrKind::star(),
+        });
+        let beta_id = interner.intern(Type::Var {
+            name: beta.get(),
+            kind: HrKind::star(),
+        });
         let tuple_id = interner.intern(Type::Tuple(vec![alpha_id, beta_id]));
 
         let resolved = subst.apply(&mut interner, tuple_id);
@@ -199,7 +210,10 @@ mod tests {
         let alpha = TyVar::new(1).unwrap();
         let subst = Subst::new();
 
-        let alpha_id = interner.intern(Type::Var(alpha));
+        let alpha_id = interner.intern(Type::Var {
+            name: alpha.get(),
+            kind: HrKind::star(),
+        });
         assert!(subst.occurs_in(alpha, alpha_id, &interner));
     }
 
@@ -209,7 +223,10 @@ mod tests {
         let u64_id = interner.uint(64);
         let alpha = TyVar::new(1).unwrap();
 
-        let alpha_id = interner.intern(Type::Var(alpha));
+        let alpha_id = interner.intern(Type::Var {
+            name: alpha.get(),
+            kind: HrKind::star(),
+        });
         let tuple_id = interner.intern(Type::Tuple(vec![alpha_id, u64_id]));
 
         let subst = Subst::new();
@@ -224,7 +241,10 @@ mod tests {
         let beta = TyVar::new(2).unwrap();
 
         // Bind beta to Tuple[alpha, u64]
-        let alpha_id = interner.intern(Type::Var(alpha));
+        let alpha_id = interner.intern(Type::Var {
+            name: alpha.get(),
+            kind: HrKind::star(),
+        });
         let tuple_id = interner.intern(Type::Tuple(vec![alpha_id, u64_id]));
 
         let mut subst = Subst::new();

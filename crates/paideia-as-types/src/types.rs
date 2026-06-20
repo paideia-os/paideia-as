@@ -128,7 +128,17 @@ pub enum Type {
         args: Vec<TypeId>,
     },
     /// Type variable awaiting unification.
-    Var(TyVar),
+    ///
+    /// Phase-4 m9-002: Type variables now carry their kind (higher-rank kind
+    /// for type constructors). The `name` is the unique identifier (same as TyVar),
+    /// and `kind` tracks the arity of type construction (e.g., `*` for concrete,
+    /// `* -> *` for unary constructors).
+    Var {
+        /// Unique identifier for this type variable.
+        name: u32,
+        /// Higher-rank kind of this type variable (m9-002).
+        kind: crate::kinds::HrKind,
+    },
     /// Reflective syntactic term (introduced by `quote`, eliminated by `~`).
     ///
     /// The typer doesn't yet refine `Term` by the shape of what's quoted;
