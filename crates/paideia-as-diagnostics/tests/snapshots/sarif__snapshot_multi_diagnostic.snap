@@ -1,6 +1,5 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
-assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -633,20 +632,6 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
             },
             {
               "defaultConfiguration": {
-                "level": "error"
-              },
-              "fullDescription": {
-                "text": "Phase 4 m7-006: match expressions on enum types must cover every variant. Either add the missing variant arms or use a wildcard pattern `_` to catch the remainder."
-              },
-              "helpUri": "https://paideia-os.org/diagnostics/M0400",
-              "id": "M0400",
-              "name": "Non-exhaustive match",
-              "shortDescription": {
-                "text": "match arms do not cover every variant of the scrutinee's type"
-              }
-            },
-            {
-              "defaultConfiguration": {
                 "level": "warning"
               },
               "fullDescription": {
@@ -657,6 +642,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "Borrowed-reference type not yet supported",
               "shortDescription": {
                 "text": "&T / &mut T are reserved for a future region-calculus extension"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase 4 m7-006: match expressions on enum types must cover every variant. Either add the missing variant arms or use a wildcard pattern `_` to catch the remainder. Diagnostic code lands in the type-system pattern region (0500-0899) — the issue spec's M0900 was out of M's reserved range (0300-0499); T0512 follows m1-003's T0511 reservation for the future borrowed-reference codepath."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0512",
+              "id": "T0512",
+              "name": "Non-exhaustive match",
+              "shortDescription": {
+                "text": "match arms do not cover every variant of the scrutinee's type"
               }
             },
             {

@@ -1,4 +1,4 @@
-//! Match-exhaustiveness check (M0900).
+//! Match-exhaustiveness check (T0512).
 //!
 //! For a match expression with scrutinee of type `enum { A, B(T), C { x: T } }`,
 //! verify the arm-pattern set covers every variant. A wildcard `_` satisfies
@@ -15,7 +15,7 @@ use paideia_as_types::{Type, TypeId, TypeInterner};
 use std::collections::HashSet;
 
 /// Diagnostic code for non-exhaustive match.
-/// Uses M0900 (in the match-exhaustiveness category range 0900-0999).
+/// Uses T0512 (in the type-system pattern category range 0500-0899).
 pub const M_MATCH_EXHAUSTIVENESS: u16 = 400;
 
 /// Result of a match-exhaustiveness check.
@@ -23,7 +23,7 @@ pub const M_MATCH_EXHAUSTIVENESS: u16 = 400;
 pub enum ExhaustivenessResult {
     /// Every variant covered.
     Exhaustive,
-    /// Missing variants — emit M0900 listing them.
+    /// Missing variants — emit T0512 listing them.
     MissingVariants(Vec<String>),
 }
 
@@ -155,7 +155,7 @@ pub fn exhaustiveness_diagnostic(missing: Vec<String>, span: Span) -> Diagnostic
 /// Helper to produce a DiagnosticCode from an M-series code number.
 fn m_code(code: u16) -> DiagnosticCode {
     DiagnosticCode::new(Category::M, Severity::Error, code)
-        .expect("M0900 is in valid range for category M")
+        .expect("T0512 is in valid range for category T")
 }
 
 #[cfg(test)]

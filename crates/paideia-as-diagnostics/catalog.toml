@@ -524,11 +524,11 @@ description = "An ordered binding declared in an enclosing scope is used out of 
 since = "0.3.0"
 deprecated = false
 
-[diagnostic.M0900]
+[diagnostic.T0512]
 severity = "error"
-category = "module"
+category = "type"
 title = "Non-exhaustive match"
 brief = "match arms do not cover every variant of the scrutinee's type"
-description = "Phase 4 m7-006: match expressions on enum types must cover every variant. Either add the missing variant arms or use a wildcard pattern `_` to catch the remainder."
+description = "Phase 4 m7-006: match expressions on enum types must cover every variant. Either add the missing variant arms or use a wildcard pattern `_` to catch the remainder. Diagnostic code lands in the type-system pattern region (0500-0899) — the issue spec's M0900 was out of M's reserved range (0300-0499); T0512 follows m1-003's T0511 reservation for the future borrowed-reference codepath."
 since = "0.4.0"
 deprecated = false
