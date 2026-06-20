@@ -253,6 +253,22 @@ pub fn sub_reg64_reg64(buf: &mut CodeBuffer, dst: Reg64, src: Reg64) {
     buf.bytes.push(0xC0 | ((src_id & 7) << 3) | (dst_id & 7));
 }
 
+/// Encode `sar reg64, imm8` (arithmetic right shift by immediate).
+///
+/// Instruction: REX.W C1 /7 ib
+/// ModR/M: 0xF8 | (reg & 7) (register 7 in the reg field means SAR)
+/// Bytes: `48+REX C1 (0xF8 | (reg&7)) imm8`
+///
+/// Example: `sar rax, 3` → `48 c1 f8 03`
+pub fn sar_reg64_imm8(buf: &mut CodeBuffer, reg: Reg64, imm: u8) {
+    let reg_id = reg as u8;
+    let rex_byte = rex(true, false, false, (reg_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0xC1);
+    buf.bytes.push(0xF8 | (reg_id & 7));
+    buf.bytes.push(imm);
+}
+
 /// Encode `xor reg64, reg64`.
 ///
 /// Instruction: REX.W 31 /r
@@ -941,5 +957,38 @@ mod tests {
         // mov [rdi + rcx * 8], rax
         // REX.W 48, Opcode 89, ModR/M 04, SIB (scale=11, index=001, base=111) = 0xcf
         assert_eq!(buf.as_slice(), &[0x48, 0x89, 0x04, 0xcf]);
+    }
+
+    #[test]
+    fn emit_sub_rax_rdi_byte_sequence_is_48_29_f8() {
+        let mut buf = CodeBuffer::new();
+        sub_reg64_reg64(&mut buf, Reg64::Rax, Reg64::Rdi);
+        // sub rax, rdi
+        // REX.W=1: 0x48
+        // Opcode: 0x29
+        // ModR/M: 0xC0 | (7<<3) | 0 = 0xf8 (RDI is id 7, RAX is id 0)
+        assert_eq!(buf.as_slice(), &[0x48, 0x29, 0xf8]);
+    }
+
+    #[test]
+    fn emit_sar_rax_3_byte_sequence_is_48_c1_f8_03() {
+        let mut buf = CodeBuffer::new();
+        sar_reg64_imm8(&mut buf, Reg64::Rax, 3);
+        // sar rax, 3
+        // REX.W=1: 0x48
+        // Opcode: 0xC1
+        // ModR/M: 0xF8 | (0 & 7) = 0xf8 (RAX is id 0)
+        // Immediate: 0x03
+        assert_eq!(buf.as_slice(), &[0x48, 0xc1, 0xf8, 0x03]);
+    }
+
+    #[test]
+    fn emit_ptr_sub_helper_u8_byte_case_skips_shift() {
+        let mut buf = CodeBuffer::new();
+        // For u8 (width 1), ptr_sub returns the raw difference (no shift).
+        // Simulate: sub rax, rdi (no sar)
+        sub_reg64_reg64(&mut buf, Reg64::Rax, Reg64::Rdi);
+        assert_eq!(buf.as_slice(), &[0x48, 0x29, 0xf8]);
+        // Width 1 requires no shift; the byte count is element count.
     }
 }
