@@ -45,8 +45,8 @@ fn yubihsm_connector_url() -> Option<String> {
 #[test]
 #[ignore = "phase-3-m6-004: hardware lane — requires SoftHSM2 install + SOFTHSM2_AVAILABLE=1 + PKCS11_MODULE"]
 fn pkcs11_init_with_softhsm2_returns_signer() {
-    let module = pkcs11_module_path()
-        .unwrap_or_else(|| "/usr/lib/softhsm/libsofthsm2.so".to_string());
+    let module =
+        pkcs11_module_path().unwrap_or_else(|| "/usr/lib/softhsm/libsofthsm2.so".to_string());
     let slot_id: u64 = std::env::var("PKCS11_SLOT")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -69,8 +69,8 @@ fn pkcs11_init_with_softhsm2_returns_signer() {
 #[test]
 #[ignore = "phase-3-m6-004: hardware lane — requires PKCS11_MODULE pointing at SoftHSM2"]
 fn pkcs11_signer_reports_is_hardware_true() {
-    let module = pkcs11_module_path()
-        .unwrap_or_else(|| "/usr/lib/softhsm/libsofthsm2.so".to_string());
+    let module =
+        pkcs11_module_path().unwrap_or_else(|| "/usr/lib/softhsm/libsofthsm2.so".to_string());
     if let Ok(signer) = Pkcs11Signer::new(&module, 0, "1234") {
         use paideia_pq_sign::hsm::HsmSigner;
         assert!(signer.is_hardware(), "PKCS#11 signer must report hardware");
@@ -112,11 +112,13 @@ fn yubihsm_init_with_connector_returns_signer() {
 #[test]
 #[ignore = "phase-3-m6-004: hardware lane — Q0902 opt-in contract verification"]
 fn yubihsm_without_opt_in_returns_q0902() {
-    let connector = yubihsm_connector_url()
-        .unwrap_or_else(|| "http://127.0.0.1:12345".to_string());
+    let connector = yubihsm_connector_url().unwrap_or_else(|| "http://127.0.0.1:12345".to_string());
     let result = YubiHsmSigner::new(&connector, 0x0001, /* opt_in */ false);
     assert!(
-        matches!(result, Err(paideia_pq_sign::hsm::yubihsm::YubiHsmError::OptInRequired)),
+        matches!(
+            result,
+            Err(paideia_pq_sign::hsm::yubihsm::YubiHsmError::OptInRequired)
+        ),
         "YubiHSM2 must fire Q0902 (OptInRequired) when --opt-in-hybrid-fallback absent"
     );
 }

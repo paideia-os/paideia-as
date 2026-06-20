@@ -97,6 +97,11 @@ impl LinearityCtx {
     pub fn innermost(&self) -> &HashMap<Symbol, Binding> {
         self.scopes.last().expect("non-empty scope stack")
     }
+
+    /// Borrow all scopes (for debugging or shadowing analysis).
+    pub fn scopes_ref(&self) -> &[HashMap<Symbol, Binding>] {
+        &self.scopes
+    }
 }
 
 #[cfg(test)]
