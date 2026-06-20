@@ -1,0 +1,8 @@
+fn branch_hint_likely_path() {
+    let x = 100;
+    if x > 50 {
+        x + 1
+    } else {
+        x - 1
+    }
+}
