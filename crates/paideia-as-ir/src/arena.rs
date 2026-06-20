@@ -6,6 +6,7 @@ use paideia_as_diagnostics::Span;
 use smallvec::SmallVec;
 use std::ops::Index;
 
+use crate::instruction::InstructionSideTable;
 use crate::node::{IrKind, IrNodeData, IrNodeId};
 
 /// Slab-allocated IR storage for one source file.
@@ -21,6 +22,8 @@ pub struct IrArena {
     /// Side-table: children_table[node.index()] = SmallVec of child IrNodeIds.
     /// The common case (≤4 children) is inline; spill to heap for larger nodes.
     children_table: Vec<SmallVec<[IrNodeId; 4]>>,
+    /// Side-table: per-node instruction payloads (m9 opt passes).
+    instruction_table: InstructionSideTable,
 }
 
 impl IrArena {
@@ -36,6 +39,7 @@ impl IrArena {
         Self {
             nodes: Vec::with_capacity(n),
             children_table: Vec::with_capacity(n),
+            instruction_table: InstructionSideTable::new(),
         }
     }
 
@@ -116,6 +120,17 @@ impl IrArena {
     /// Allows builders to populate children after node creation.
     pub fn children_mut(&mut self, id: IrNodeId) -> Option<&mut SmallVec<[IrNodeId; 4]>> {
         self.children_table.get_mut(id.index())
+    }
+
+    /// Borrow the instruction side-table (read-only).
+    #[must_use]
+    pub fn instructions(&self) -> &InstructionSideTable {
+        &self.instruction_table
+    }
+
+    /// Borrow the instruction side-table (mutable).
+    pub fn instructions_mut(&mut self) -> &mut InstructionSideTable {
+        &mut self.instruction_table
     }
 }
 

@@ -230,6 +230,12 @@ impl InstructionSideTable {
     pub fn remove(&mut self, id: IrNodeId) -> Option<Instruction> {
         self.entries.remove(&id)
     }
+
+    /// Borrow the underlying HashMap (read-only).
+    #[must_use]
+    pub fn entries(&self) -> &std::collections::HashMap<IrNodeId, Instruction> {
+        &self.entries
+    }
 }
 
 #[cfg(test)]
