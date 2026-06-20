@@ -170,14 +170,11 @@ impl<'a> Term<'a> {
 
         // Dispatch type nodes via type_data.
         if let Some(ty) = self.arena.type_data(self.id) {
-            match ty {
-                TypeData::Ptr { pointee } => {
-                    result.push(Term::new(self.arena, *pointee));
-                }
-                // Other type variants either have no meaningful child terms
-                // (e.g. Name, EffectRow) or are handled elsewhere.
-                _ => {}
+            if let TypeData::Ptr { pointee } = ty {
+                result.push(Term::new(self.arena, *pointee));
             }
+            // Other type variants either have no meaningful child terms
+            // (e.g. Name, EffectRow) or are handled elsewhere.
             return result;
         }
 
