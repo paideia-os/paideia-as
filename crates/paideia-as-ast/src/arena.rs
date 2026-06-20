@@ -153,6 +153,8 @@ pub enum NodeKind {
     TypeEffectRow,
     /// `*T`.
     TypePtr,
+    /// `&T` or `&mut T` (reference type).
+    TypeRef,
     /// `record { field1: T1, ... }` (record type).
     TypeRecord,
     /// `enum { Variant1, Variant2(T1, T2), Variant3 { f1: T1 }, ... }` (enum type).

@@ -1,0 +1,2 @@
+# Reference type with trailing garbage (parser should accept &u64, leaving >> for next stmt)
+# This should parse without errors at the type level

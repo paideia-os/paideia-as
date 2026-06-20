@@ -1,0 +1,3 @@
+# Reference type with &mut but no type following
+# Should emit P0196 (malformed reference type)
+P0196

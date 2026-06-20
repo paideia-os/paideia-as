@@ -1,0 +1,5 @@
+fn ref_ret() {
+    fn f() -> &u8 {
+        null
+    }
+}

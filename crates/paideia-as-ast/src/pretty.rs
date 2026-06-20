@@ -711,6 +711,9 @@ fn print_type_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
         TypeData::Ptr { pointee } => {
             format!("Ptr {{ pointee: {} }}", pointee)
         }
+        TypeData::Ref { pointee, mutable } => {
+            format!("Ref {{ pointee: {}, mutable: {} }}", pointee, mutable)
+        }
         TypeData::Record { fields } => {
             let fields_str = fields
                 .iter()

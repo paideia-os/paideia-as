@@ -1,0 +1,3 @@
+fn ref_lifetime() {
+    let x: &'a u64 = null;
+}

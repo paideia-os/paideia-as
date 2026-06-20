@@ -1,0 +1,3 @@
+fn ref_record() {
+    let x: &record { a: u8 } = null;
+}

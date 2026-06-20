@@ -72,6 +72,16 @@ pub enum TypeData {
         pointee: NodeId,
     },
 
+    /// `&T` or `&mut T`.
+    ///
+    /// Reference type: a type prefixed by `&` or `&mut`.
+    Ref {
+        /// Referenced type.
+        pointee: NodeId,
+        /// Whether the reference is mutable.
+        mutable: bool,
+    },
+
     /// `record { field1: T1, field2: T2, ... }`.
     ///
     /// Record type: a named product type with labeled fields.

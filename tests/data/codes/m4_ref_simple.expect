@@ -1,0 +1,2 @@
+# Reference type: &T (immutable reference)
+# Should parse without errors

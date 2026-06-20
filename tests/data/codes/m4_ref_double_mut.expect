@@ -1,0 +1,2 @@
+# Reference type: nested mutable references (&mut &mut T)
+# Should parse without errors

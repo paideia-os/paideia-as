@@ -1,0 +1,3 @@
+fn ref_nested() {
+    let x: &&u8 = null;
+}

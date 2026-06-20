@@ -1,0 +1,3 @@
+fn ref_mut_no_type() {
+    let x: &mut = null;
+}

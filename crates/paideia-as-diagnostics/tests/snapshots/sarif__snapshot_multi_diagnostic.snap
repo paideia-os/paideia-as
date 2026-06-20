@@ -1,5 +1,6 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
+assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -474,6 +475,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "Malformed pointer type",
               "shortDescription": {
                 "text": "malformed pointer type: expected a type after `*`"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "A reference type `&T` is syntactically incomplete: a type is required after the `&` prefix. Check that a valid type follows the `&` token."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0196",
+              "id": "P0196",
+              "name": "Malformed reference type",
+              "shortDescription": {
+                "text": "malformed reference type: expected a type after `&`"
               }
             },
             {

@@ -308,6 +308,15 @@ description = "A pointer type `*T` is syntactically incomplete: a type is requir
 since = "0.1.0"
 deprecated = false
 
+[diagnostic.P0196]
+severity = "error"
+category = "parser"
+title = "Malformed reference type"
+brief = "malformed reference type: expected a type after `&`"
+description = "A reference type `&T` is syntactically incomplete: a type is required after the `&` prefix. Check that a valid type follows the `&` token."
+since = "0.1.0"
+deprecated = false
+
 [diagnostic.P0197]
 severity = "error"
 category = "parser"

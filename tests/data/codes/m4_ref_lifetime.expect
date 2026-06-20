@@ -1,0 +1,2 @@
+# Reference type with lifetime (parse-clean, not elaborated)
+# Should parse without errors

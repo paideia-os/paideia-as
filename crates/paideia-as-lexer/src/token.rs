@@ -162,6 +162,8 @@ pub enum TokenKind {
     KwDrop,
     /// `own`
     KwOwn,
+    /// `mut`
+    KwMut,
 
     // ── Reserved words: literals and constants ──────────────────────────
     /// `true`
@@ -421,6 +423,7 @@ pub fn keyword_kind(text: &str) -> Option<TokenKind> {
         "consume" => TokenKind::KwConsume,
         "drop" => TokenKind::KwDrop,
         "own" => TokenKind::KwOwn,
+        "mut" => TokenKind::KwMut,
         // Literals and constants
         "true" => TokenKind::KwTrue,
         "false" => TokenKind::KwFalse,
@@ -452,7 +455,7 @@ pub fn keyword_kind(text: &str) -> Option<TokenKind> {
     })
 }
 
-/// All 68 reserved-word spellings from §3.4, in declaration order.
+/// All 69 reserved-word spellings from §3.4, in declaration order.
 ///
 /// Used by tests and tools (e.g., a `paideia-as` `--list-keywords` flag
 /// in a later PR). Updates here must stay in sync with `keyword_kind`
@@ -505,13 +508,14 @@ pub const RESERVED_WORDS: &[&str] = &[
     "perform",
     "resume",
     "finally",
-    // Substructural / unsafe (6)
+    // Substructural / unsafe (7)
     "unsafe",
     "move",
     "borrow",
     "consume",
     "drop",
     "own",
+    "mut",
     // Literals and constants (5)
     "true",
     "false",
@@ -565,9 +569,9 @@ mod tests {
 
     #[test]
     fn reserved_words_list_length() {
-        // 12 + 13 + 1 + 12 + 4 + 6 + 5 + 4 + 3 + 11 = 71
-        // (action moved to effect system section after control flow, record and impl added to type system)
-        assert_eq!(RESERVED_WORDS.len(), 71);
+        // 12 + 13 + 1 + 12 + 4 + 7 + 5 + 4 + 3 + 11 = 72
+        // (action moved to effect system section after control flow, record and impl added to type system, mut added to substructural)
+        assert_eq!(RESERVED_WORDS.len(), 72);
     }
 
     #[test]

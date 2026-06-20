@@ -1,0 +1,3 @@
+fn ref_trailing_garbage() {
+    let x: &u64 >> = null;
+}

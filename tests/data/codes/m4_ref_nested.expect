@@ -1,0 +1,2 @@
+# Reference type: nested references (&&T)
+# Should parse without errors
