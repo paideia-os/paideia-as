@@ -1,0 +1,5 @@
+# Expected output for m9_trait_impl_generic.pdx
+# Should compile without errors
+# Trait implementation for generic type compiles successfully
+exit_code=0
+errors=0

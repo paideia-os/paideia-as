@@ -1,0 +1,5 @@
+# Expected output for m9_trait_multiple_methods.pdx
+# Should compile without errors
+# Trait with multiple methods compiles successfully
+exit_code=0
+errors=0

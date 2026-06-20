@@ -1,0 +1,9 @@
+// m9_trait_inheritance_via_bounds.pdx — trait inheritance via bounds
+trait Base {
+  fn base_method() -> u64;
+}
+
+trait Derived {
+  fn base_method() -> u64;
+  fn derived_method() -> u64;
+}

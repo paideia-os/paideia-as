@@ -1,0 +1,4 @@
+// m9_trait_default_method.pdx — trait with default method
+trait WithDefault {
+  fn get_default() -> u64 { 42u64 }
+}

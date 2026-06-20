@@ -1,0 +1,8 @@
+// m9_trait_derive_eq.pdx — derive Eq trait
+#[derive(Eq)]
+struct Pair {
+  a: u64,
+  b: u64
+}
+
+let check_eq = fn(x: Pair)(y: Pair) -> x == y

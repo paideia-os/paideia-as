@@ -1,0 +1,5 @@
+# Expected output for m9_trait_default_method.pdx
+# Should compile without errors
+# Trait with default method compiles successfully
+exit_code=0
+errors=0

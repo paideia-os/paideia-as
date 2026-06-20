@@ -1,0 +1,6 @@
+// m9_generic_bounded_call.pdx — call T::method via trait bound
+trait HasMethod {
+  fn get_value() -> u64;
+}
+
+let call_method<T: HasMethod> = fn(x: T) -> T::get_value()

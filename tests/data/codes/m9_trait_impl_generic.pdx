@@ -1,0 +1,12 @@
+// m9_trait_impl_generic.pdx — trait impl for generic type
+struct Container<T> {
+  value: u64
+}
+
+trait Into {
+  fn into() -> u64;
+}
+
+impl<T> Into for (Container (T)) {
+  let into = fn(x: ()) -> u64 = 0u64
+}

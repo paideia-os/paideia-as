@@ -1,0 +1,7 @@
+// m9_generic_assoc_projection.pdx — associated type projection
+trait Container {
+  type Elem;
+  fn get() -> Self::Elem;
+}
+
+let extract<T: Container> = fn(x: T) -> T::Elem

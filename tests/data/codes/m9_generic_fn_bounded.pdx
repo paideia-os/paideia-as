@@ -1,0 +1,2 @@
+// m9_generic_fn_bounded.pdx — generic function with trait bound
+let use_display<T: Display> = fn(x: T) -> 0

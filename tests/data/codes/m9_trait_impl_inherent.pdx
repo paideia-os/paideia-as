@@ -1,0 +1,8 @@
+// m9_trait_impl_inherent.pdx — inherent impl for a struct
+struct Foo {
+  value: u64
+}
+
+impl Foo {
+  let new = fn(x: ()) -> Foo = Foo { value: 0u64 }
+}

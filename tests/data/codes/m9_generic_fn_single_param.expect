@@ -1,0 +1,5 @@
+# Expected output for m9_generic_fn_single_param.pdx
+# Should compile without errors
+# Generic function with single type parameter compiles successfully
+exit_code=0
+errors=0

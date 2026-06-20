@@ -1,0 +1,6 @@
+// m9_trait_multiple_methods.pdx — trait with multiple methods
+trait Multi {
+  fn first() -> u64;
+  fn second() -> u64;
+  fn third() -> u64;
+}

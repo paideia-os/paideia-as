@@ -1,0 +1,8 @@
+// m9_generic_monomorphisation_target.pdx — uses Vec<u64> and Vec<u8>
+struct Vec<T> {
+  data: u64,
+  len: u64
+}
+
+let make_u64_vec = fn(x: ()) -> (Vec (u64)) = Vec(0u64, 0u64)
+let make_u8_vec = fn(x: ()) -> (Vec (u8)) = Vec(0u64, 0u64)

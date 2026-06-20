@@ -1,0 +1,2 @@
+// m9_generic_fn_single_param.pdx — simple generic function with single type parameter
+let identity<T> = fn(x: T) -> x

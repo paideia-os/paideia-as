@@ -1,0 +1,5 @@
+# Expected output for m9_trait_impl_for_record.pdx
+# Should compile without errors
+# Trait implementation for a record compiles successfully
+exit_code=0
+errors=0

@@ -1,0 +1,7 @@
+// m9_trait_derive_multi.pdx — derive multiple traits
+#[derive(Eq, Clone, Debug)]
+struct Value {
+  x: u64
+}
+
+let check = fn(a: Value)(b: Value) -> a == b

@@ -1,0 +1,5 @@
+# Expected output for m9_trait_with_assoc_type.pdx
+# Should compile without errors
+# Trait with associated type compiles successfully
+exit_code=0
+errors=0

@@ -1,0 +1,5 @@
+# Expected output for m9_trait_simple.pdx
+# Should compile without errors
+# Simple trait definition compiles successfully
+exit_code=0
+errors=0

@@ -1,0 +1,5 @@
+# Expected output for m9_generic_fn_bounded.pdx
+# Should compile without errors
+# Generic function with trait bound compiles successfully
+exit_code=0
+errors=0

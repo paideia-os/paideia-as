@@ -1,0 +1,5 @@
+// m9_generic_enum_result_t_e.pdx — generic enum Result<T, E>
+enum Result<T, E> {
+  Ok(T),
+  Err(E)
+}

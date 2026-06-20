@@ -1,0 +1,5 @@
+// m9_generic_record_two_params.pdx — generic record with two type parameters
+struct Pair<T, U> {
+  first: T,
+  second: U
+}

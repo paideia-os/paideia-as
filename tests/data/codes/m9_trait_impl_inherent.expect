@@ -1,0 +1,5 @@
+# Expected output for m9_trait_impl_inherent.pdx
+# Should compile without errors
+# Inherent implementation for a struct compiles successfully
+exit_code=0
+errors=0

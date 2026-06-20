@@ -1,0 +1,2 @@
+// m9_generic_fn_two_params.pdx — generic function with two type parameters
+let swap<T, U> = fn(x: T)(y: U) -> (y, x)

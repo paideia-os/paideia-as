@@ -1,0 +1,4 @@
+// m9_trait_simple.pdx — simple trait definition
+trait Simple {
+  fn do_thing() -> u64;
+}

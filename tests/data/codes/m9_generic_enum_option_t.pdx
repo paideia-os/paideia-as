@@ -1,0 +1,5 @@
+// m9_generic_enum_option_t.pdx — generic enum Option<T>-style
+enum Option<T> {
+  Some(T),
+  None
+}

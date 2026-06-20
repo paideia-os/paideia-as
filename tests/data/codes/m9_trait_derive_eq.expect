@@ -1,0 +1,5 @@
+# Expected output for m9_trait_derive_eq.pdx
+# Should compile without errors
+# Derive Eq trait compiles successfully
+exit_code=0
+errors=0

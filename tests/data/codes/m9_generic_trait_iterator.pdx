@@ -1,0 +1,9 @@
+// m9_generic_trait_iterator.pdx — Iterator trait with Item associated type
+trait Iterator<Item> {
+  fn next() -> (Option (Item));
+}
+
+enum Option<T> {
+  Some(T),
+  None
+}

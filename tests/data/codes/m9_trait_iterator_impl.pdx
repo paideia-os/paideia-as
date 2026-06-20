@@ -1,0 +1,19 @@
+// m9_trait_iterator_impl.pdx — iterator trait implementation
+enum Option<T> {
+  Some(T),
+  None
+}
+
+trait Iterator {
+  type Item;
+  fn next() -> u64;
+}
+
+struct VecIter<T> {
+  index: u64
+}
+
+impl Iterator for VecIter {
+  type Item = u64;
+  let next = fn(x: ()) -> u64 = 0u64
+}

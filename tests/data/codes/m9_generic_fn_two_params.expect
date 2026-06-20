@@ -1,0 +1,5 @@
+# Expected output for m9_generic_fn_two_params.pdx
+# Should compile without errors
+# Generic function with two type parameters compiles successfully
+exit_code=0
+errors=0

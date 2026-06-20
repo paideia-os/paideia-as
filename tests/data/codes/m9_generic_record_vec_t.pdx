@@ -1,0 +1,5 @@
+// m9_generic_record_vec_t.pdx — generic record Vec<T>-style
+struct Vec<T> {
+  data: u64,
+  len: u64
+}

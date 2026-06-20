@@ -1,0 +1,5 @@
+# Expected output for m9_trait_iterator_impl.pdx
+# Should compile without errors
+# Iterator trait implementation compiles successfully
+exit_code=0
+errors=0

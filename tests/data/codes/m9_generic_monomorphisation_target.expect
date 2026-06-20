@@ -1,0 +1,5 @@
+# Expected output for m9_generic_monomorphisation_target.pdx
+# Should compile without errors
+# Monomorphisation targets Vec<u64> and Vec<u8> compile successfully
+exit_code=0
+errors=0

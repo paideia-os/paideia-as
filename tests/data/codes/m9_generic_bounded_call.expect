@@ -1,0 +1,5 @@
+# Expected output for m9_generic_bounded_call.pdx
+# Should compile without errors
+# Generic function calling T::method via trait bound compiles successfully
+exit_code=0
+errors=0

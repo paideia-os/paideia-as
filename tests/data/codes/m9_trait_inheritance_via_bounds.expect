@@ -1,0 +1,5 @@
+# Expected output for m9_trait_inheritance_via_bounds.pdx
+# Should compile without errors
+# Trait inheritance via bounds compiles successfully
+exit_code=0
+errors=0

@@ -1,0 +1,18 @@
+// m9_generic_impl_iterator_for_vec.pdx — generic Iterator impl for Vec<T>
+struct Vec<T> {
+  data: u64,
+  len: u64
+}
+
+trait Iterator {
+  fn next() -> u64;
+}
+
+enum Option<T> {
+  Some(T),
+  None
+}
+
+impl Iterator for Vec {
+  let next = fn(x: ()) -> u64 = 0u64
+}

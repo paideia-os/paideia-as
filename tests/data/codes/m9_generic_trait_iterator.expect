@@ -1,0 +1,5 @@
+# Expected output for m9_generic_trait_iterator.pdx
+# Should compile without errors
+# Iterator trait with Item associated type compiles successfully
+exit_code=0
+errors=0

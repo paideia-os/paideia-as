@@ -1,0 +1,5 @@
+// m9_trait_with_assoc_type.pdx — trait with associated type
+trait Iterator {
+  type Item;
+  fn next() -> (Self::Item);
+}

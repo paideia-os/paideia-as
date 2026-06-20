@@ -1,0 +1,5 @@
+# Expected output for m9_generic_enum_result_t_e.pdx
+# Should compile without errors
+# Generic enum Result<T, E> compiles successfully
+exit_code=0
+errors=0
