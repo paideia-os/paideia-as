@@ -1,0 +1,9 @@
+fn loop_until_break() {
+    let mut flag = false;
+    loop {
+        flag = true;
+        if flag {
+            break
+        }
+    }
+}

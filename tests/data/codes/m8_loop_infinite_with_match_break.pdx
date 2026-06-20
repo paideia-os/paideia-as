@@ -1,0 +1,10 @@
+fn loop_with_match_break() {
+    let mut value = 0;
+    loop {
+        value = value + 1;
+        match value {
+            10 => break,
+            _ => value
+        }
+    }
+}

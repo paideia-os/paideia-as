@@ -320,6 +320,12 @@ impl<'a> Term<'a> {
                     result.push(Term::new(self.arena, *iterable));
                     result.push(Term::new(self.arena, *body));
                 }
+                ExprData::Break => {
+                    // No children for break
+                }
+                ExprData::Continue => {
+                    // No children for continue
+                }
                 ExprData::OperandRegister { reg } => {
                     result.push(Term::new(self.arena, *reg));
                 }

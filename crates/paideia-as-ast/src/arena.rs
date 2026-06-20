@@ -91,6 +91,10 @@ pub enum NodeKind {
     ExprLoop,
     /// `for pat in iter { body }`.
     ExprFor,
+    /// `break`.
+    ExprBreak,
+    /// `continue`.
+    ExprContinue,
     /// `perform Effect::op(args)`.
     ExprPerform,
     /// `resume value`.

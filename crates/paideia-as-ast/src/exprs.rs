@@ -206,6 +206,16 @@ pub enum ExprData {
         body: NodeId,
     },
 
+    /// `break`.
+    ///
+    /// Break expression: exit the current loop.
+    Break,
+
+    /// `continue`.
+    ///
+    /// Continue expression: skip to the next iteration of the current loop.
+    Continue,
+
     /// Register operand (for assembly).
     ///
     /// Represents a register name (e.g., `rax`, `r8`).
@@ -528,5 +538,27 @@ mod tests {
     fn loop_kind_variants_exist() {
         let _loop_kind = LoopKind::Loop;
         let _while_kind = LoopKind::While;
+    }
+
+    #[test]
+    fn expr_break_constructs() {
+        let expr = ExprData::Break;
+        match expr {
+            ExprData::Break => {
+                // Successfully matched Break
+            }
+            _ => panic!("expected Break variant"),
+        }
+    }
+
+    #[test]
+    fn expr_continue_constructs() {
+        let expr = ExprData::Continue;
+        match expr {
+            ExprData::Continue => {
+                // Successfully matched Continue
+            }
+            _ => panic!("expected Continue variant"),
+        }
     }
 }

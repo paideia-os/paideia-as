@@ -234,6 +234,25 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                     // Parenthesized expressions and tuples
                     TokenKind::LParen => self.parse_paren_expr(),
 
+                    // Break and continue expressions
+                    TokenKind::KwBreak => {
+                        self.bump();
+                        Ok(self.arena_mut().alloc_expr(
+                            NodeKind::ExprBreak,
+                            span_start,
+                            ExprData::Break,
+                        ))
+                    }
+
+                    TokenKind::KwContinue => {
+                        self.bump();
+                        Ok(self.arena_mut().alloc_expr(
+                            NodeKind::ExprContinue,
+                            span_start,
+                            ExprData::Continue,
+                        ))
+                    }
+
                     // Anything else is an error
                     // (Block expressions are handled in parse_expr_bp Step 0)
                     _ => self.error_expected_expression(),

@@ -488,6 +488,8 @@ fn print_expr_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 pattern, iterable, body
             )
         }
+        ExprData::Break => "Break".to_string(),
+        ExprData::Continue => "Continue".to_string(),
         ExprData::OperandRegister { reg } => {
             format!("OperandRegister {{ reg: {} }}", reg)
         }
