@@ -1,7 +1,7 @@
 // =============================================================================
 // 15_sum_array.pdx — sum the first n u64s of an array, paideia-as equivalent
 // -----------------------------------------------------------------------------
-// status: parses cleanly (compiles-end-to-end pending phase3-m1 closure;
+// status: compiles end-to-end (m1-008 / m1-012 retired the parses-cleanly gate;
 //   the elaborator's intrinsic-call lowering chokepoint is the last hop —
 //   m1-009 wires examples/15 through the full pipeline as the m1 closure
 //   smoke).

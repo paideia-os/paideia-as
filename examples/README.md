@@ -99,15 +99,17 @@ For files headed `compiles end-to-end`, the build invocation is:
 paideia-as build examples/<file>.pdx --emit elf64 -o /tmp/<file>.o
 ```
 
-No example currently carries `compiles end-to-end` status: phase-1
-deliverable 8 (the ELF64 emitter, per `STATUS.md`) is wired through the CLI
-but the elaborator's downstream passes for effects, substructural classes,
-and capability sets are not yet driven end-to-end for every file in this
-directory. The recommended path is via the project's wrapper scripts
-(`./tools/dev/build`, `./tools/dev/test`) per
-`02-development-environment.md` §7.4.
+**Phase 3 m1 update**: examples 15 / 16 / 17 (the asm-reference equivalents — sum_array, memcpy, strlen) shipped their **language-side compiles-end-to-end** status as of m1-008 / m1-009 / m1-010. The source surface for each is now expressive enough to write the algorithm using typed `*T` raw pointers + `index_*` / `ptr_sub*` intrinsics + the RawMem effect — no `unsafe { }` wrapper required (16_memcpy retains a 1-instruction `unsafe { rep movsb }` block because REP MOVSB has no typed-surface equivalent today). The full `paideia-as build --emit elf64` path runs through the parser + elaborator + IR populate chokepoint (m2-003) + InstructionSideTable (m2-001) + SIB-form encoder (m1-007). The regression test `tests/end-to-end/tests/examples_compile.rs` (m1-012) pins the build for these three files.
 
-## Phase-1 deferrals
+Per-walker population for the LSP semantics (m4) is gated separately — that's the elaborator-side feature work tracked in `design/toolchain/lsp-phase3.md` §6. The compiler pipeline (parse → elaborate → IR → emit) is complete for 15 / 16 / 17.
+
+## Phase-3 status legend (post-m1)
+
+- **compiles end-to-end** — the file round-trips through `paideia-as build --emit elf64` to a valid ELF64 object. Examples 15 / 16 / 17 now carry this status.
+- **parses cleanly** — the file is accepted by `paideia-as check`; downstream passes may scaffold their work pending Phase 4 closure activity (see `design/toolchain/phase-transition-3.md` §2 "What didn't ship").
+- **language-intent only** — the file uses canonical syntax from the design corpus but exercises constructs whose semantic passes are not yet wired through the lex → parse → lower pipeline. The file shows what the language is *for*; it is not yet a build artifact.
+
+## Phase-1 deferrals (retained for historical reference; some discharged by Phase 2 / Phase 3)
 
 A `language-intent only` status means the file uses syntax that the design
 corpus prescribes but that depends on parser or semantic-pass work whose
