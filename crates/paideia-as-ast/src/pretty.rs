@@ -467,6 +467,20 @@ fn print_expr_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 name, body, rest
             )
         }
+        ExprData::RecordCons { type_name, fields } => {
+            let fields_str = fields
+                .iter()
+                .map(|(name, expr)| format!("{}: {}", name, expr))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "RecordCons {{ type_name: {}, fields: [{}] }}",
+                type_name, fields_str
+            )
+        }
+        ExprData::FieldAccess { receiver, field } => {
+            format!("FieldAccess {{ receiver: {}, field: {} }}", receiver, field)
+        }
     };
 
     use std::fmt::Write;
@@ -578,6 +592,14 @@ fn print_type_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
         }
         TypeData::Ptr { pointee } => {
             format!("Ptr {{ pointee: {} }}", pointee)
+        }
+        TypeData::Record { fields } => {
+            let fields_str = fields
+                .iter()
+                .map(|(name, ty)| format!("{}: {}", name, ty))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("Record {{ fields: [{}] }}", fields_str)
         }
     };
 

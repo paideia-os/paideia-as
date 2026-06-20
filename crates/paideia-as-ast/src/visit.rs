@@ -129,6 +129,10 @@ pub trait ExprVisitor {
     fn visit_expr_unpack(&mut self, _arena: &AstArena, _id: NodeId) {}
     /// Visit a LetModule expression.
     fn visit_expr_let_module(&mut self, _arena: &AstArena, _id: NodeId) {}
+    /// Visit a RecordCons expression.
+    fn visit_expr_record_cons(&mut self, _arena: &AstArena, _id: NodeId) {}
+    /// Visit a FieldAccess expression.
+    fn visit_expr_field_access(&mut self, _arena: &AstArena, _id: NodeId) {}
 }
 
 /// Dispatch visitor call by node kind for expressions.
@@ -162,6 +166,8 @@ pub fn walk_expr<V: ExprVisitor>(visitor: &mut V, arena: &AstArena, id: NodeId) 
         NodeKind::ExprPack => visitor.visit_expr_pack(arena, id),
         NodeKind::ExprUnpack => visitor.visit_expr_unpack(arena, id),
         NodeKind::ExprLetModule => visitor.visit_expr_let_module(arena, id),
+        NodeKind::ExprRecordCons => visitor.visit_expr_record_cons(arena, id),
+        NodeKind::ExprFieldAccess => visitor.visit_expr_field_access(arena, id),
         _ => {}
     }
 }
@@ -208,6 +214,8 @@ pub trait TypeVisitor {
     fn visit_type_effect_row(&mut self, _arena: &AstArena, _id: NodeId) {}
     /// Visit a Ptr type.
     fn visit_type_ptr(&mut self, _arena: &AstArena, _id: NodeId) {}
+    /// Visit a Record type.
+    fn visit_type_record(&mut self, _arena: &AstArena, _id: NodeId) {}
 }
 
 /// Dispatch visitor call by node kind for types.
@@ -224,6 +232,7 @@ pub fn walk_type<V: TypeVisitor>(visitor: &mut V, arena: &AstArena, id: NodeId) 
         NodeKind::TypeLinearClass => visitor.visit_type_linear_class(arena, id),
         NodeKind::TypeEffectRow => visitor.visit_type_effect_row(arena, id),
         NodeKind::TypePtr => visitor.visit_type_ptr(arena, id),
+        NodeKind::TypeRecord => visitor.visit_type_record(arena, id),
         _ => {}
     }
 }

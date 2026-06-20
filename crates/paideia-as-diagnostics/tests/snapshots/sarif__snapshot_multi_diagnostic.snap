@@ -481,6 +481,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "A record type or constructor expression is syntactically incomplete. Ensure all fields follow the pattern `name: type` (in types) or `name: expr` (in constructors), separated by commas, with proper opening and closing braces."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0197",
+              "id": "P0197",
+              "name": "Malformed record type or constructor",
+              "shortDescription": {
+                "text": "malformed record: expected field name, colon, type/value, or closing brace"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "Signature ascription requires the structure to define a named type/val/module that is absent."
               },
               "helpUri": "https://paideia-os.org/diagnostics/M0301",

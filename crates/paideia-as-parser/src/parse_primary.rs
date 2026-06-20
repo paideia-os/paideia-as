@@ -424,6 +424,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
         Err(ParseError)
     }
+
 }
 
 /// Construct a P-category diagnostic code at the given number, returning

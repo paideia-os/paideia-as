@@ -135,6 +135,9 @@ pub fn prefix_bp(kind: TokenKind) -> Option<u8> {
 ///
 /// Tier 1 (postfix operators): left-bp = 140.
 /// This ensures postfix operators bind tightest of all.
+///
+/// NOTE: LBrace is conditionally postfix (only for bare Ident paths as record constructors).
+/// It is NOT included here; parse_postfix checks for it explicitly and validates context.
 pub fn postfix_bp(kind: TokenKind) -> Option<u8> {
     use TokenKind::*;
     match kind {

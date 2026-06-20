@@ -21,6 +21,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// - **LParen**: parse function call `f(args)`, return ExprCall.
     /// - **LBracket**: parse indexing `arr[i]`, return ExprCall (phase-1 modeling).
     /// - **Dot**: parse field access `obj.field`, or method call `obj.foo(args)`.
+    /// - **LBrace**: if lhs is a bare Ident-path, parse record constructor `Type { ... }`.
     /// - **Question**: parse postfix `?`, return ExprPostfix.
     ///
     /// For all cases, the resulting node's span covers from `lhs.span.start`
@@ -32,10 +33,113 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 TokenKind::LParen => self.parse_call(lhs),
                 TokenKind::LBracket => self.parse_index(lhs),
                 TokenKind::Dot => self.parse_field_or_method(lhs),
+                TokenKind::LBrace => self.parse_record_cons_or_err(lhs),
                 TokenKind::Question => self.parse_question_postfix(lhs),
                 _ => Err(ParseError), // Shouldn't happen if called from postfix_bp
             },
         }
+    }
+
+    /// Try to parse a record constructor `Type { ... }` if lhs is a bare Ident path.
+    /// Otherwise, return an error (since `{` is not a valid postfix operator for
+    /// other expression types in phase-1).
+    fn parse_record_cons_or_err(&mut self, lhs: NodeId) -> Result<NodeId, ParseError> {
+        // Check if lhs is an ExprPath with a single segment (bare Ident).
+        if let Some(lhs_data) = self.arena().expr_data(lhs) {
+            if let ExprData::Path { segments } = lhs_data {
+                if segments.len() == 1 {
+                    // This is a bare Ident; try to parse as record constructor.
+                    let type_name_id = segments[0];
+                    let lhs_span = self
+                        .arena()
+                        .get(lhs)
+                        .map(|nd| nd.span)
+                        .unwrap_or_else(|| {
+                            self.peek().map(|t| t.span).unwrap_or_else(|| {
+                                Span::new(self.file(), 0, 0)
+                            })
+                        });
+                    return self.parse_record_cons_fields(type_name_id, lhs_span);
+                }
+            }
+        }
+
+        // Not a bare Ident; this is a parse error.
+        Err(ParseError)
+    }
+
+    /// Parse the fields of a record constructor: `{ field1: expr1, ... }`.
+    /// Called after confirming lhs is a bare Ident.
+    pub(crate) fn parse_record_cons_fields(
+        &mut self,
+        type_name: NodeId,
+        span_start: Span,
+    ) -> Result<NodeId, ParseError> {
+        // Expect opening brace
+        if !self.at(TokenKind::LBrace) {
+            return Err(ParseError);
+        }
+        self.bump(); // consume {
+
+        let mut fields = Vec::new();
+
+        // Parse fields: name : expr, name : expr, ...
+        loop {
+            // Check for closing brace
+            if self.at(TokenKind::RBrace) {
+                break;
+            }
+
+            // Expect field name (Ident)
+            let field_name_tok = self.expect(TokenKind::Ident)?;
+            let field_name_id = self
+                .arena_mut()
+                .alloc(NodeKind::Ident, field_name_tok.span);
+
+            // Expect colon
+            if !self.at(TokenKind::Colon) {
+                return Err(ParseError);
+            }
+            self.bump(); // consume :
+
+            // Parse field value expression (full expression with operators)
+            let field_value = self.parse_expr()?;
+
+            fields.push((field_name_id, field_value));
+
+            // Check for comma or closing brace
+            if !self.at(TokenKind::Comma) {
+                break;
+            }
+            self.bump(); // consume comma
+
+            // Allow trailing comma before closing brace
+            if self.at(TokenKind::RBrace) {
+                break;
+            }
+        }
+
+        // Expect closing brace
+        if !self.at(TokenKind::RBrace) {
+            return Err(ParseError);
+        }
+        let rbrace_tok = self.bump().unwrap();
+
+        // Compute span
+        let span = Span::new(
+            span_start.file(),
+            span_start.byte_start(),
+            rbrace_tok.span.byte_start() + rbrace_tok.span.byte_len() - span_start.byte_start(),
+        );
+
+        Ok(self.arena_mut().alloc_expr(
+            NodeKind::ExprRecordCons,
+            span,
+            ExprData::RecordCons {
+                type_name,
+                fields,
+            },
+        ))
     }
 
     /// Parse a function call: `f(args)` → ExprCall.
@@ -185,13 +289,13 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             ident_span.byte_start() + ident_span.byte_len() - lhs_span.byte_start(),
         );
 
-        // Allocate the field-access ExprPostfix
+        // Allocate the field-access ExprFieldAccess
         let field_access = self.arena_mut().alloc_expr(
-            NodeKind::ExprPostfix,
+            NodeKind::ExprFieldAccess,
             field_access_span,
-            ExprData::Postfix {
-                expr: lhs,
-                op: field_ident,
+            ExprData::FieldAccess {
+                receiver: lhs,
+                field: field_ident,
             },
         );
 
@@ -394,7 +498,7 @@ mod tests {
         let node = arena.get(root).unwrap();
         assert_eq!(
             node.kind,
-            NodeKind::ExprPostfix,
+            NodeKind::ExprFieldAccess,
             "outer is field access (Dot)"
         );
     }
@@ -414,7 +518,7 @@ mod tests {
         assert!(result.is_ok());
         let root = result.unwrap();
         let node = arena.get(root).unwrap();
-        assert_eq!(node.kind, NodeKind::ExprPostfix);
+        assert_eq!(node.kind, NodeKind::ExprFieldAccess);
     }
 
     #[test]

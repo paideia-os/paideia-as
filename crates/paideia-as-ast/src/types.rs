@@ -71,6 +71,14 @@ pub enum TypeData {
         /// Pointed-to type.
         pointee: NodeId,
     },
+
+    /// `record { field1: T1, field2: T2, ... }`.
+    ///
+    /// Record type: a named product type with labeled fields.
+    Record {
+        /// Record fields: each is (field_name_node, field_type_node).
+        fields: Vec<(NodeId, NodeId)>,
+    },
 }
 
 /// Substructural type class.

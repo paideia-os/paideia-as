@@ -73,6 +73,12 @@ pub enum TermHead {
     LetModule,
     /// `*T` (pointer type).
     TypePtr,
+    /// `TypeName { field1: expr1, ... }` (record constructor).
+    RecordCons,
+    /// `receiver.field` (field access).
+    FieldAccess,
+    /// `record { field1: T1, ... }` (record type).
+    TypeRecord,
 }
 
 /// A typed handle to an AST expression node.
@@ -147,7 +153,10 @@ impl<'a> Term<'a> {
                 NodeKind::ExprPack => TermHead::Pack,
                 NodeKind::ExprUnpack => TermHead::Unpack,
                 NodeKind::ExprLetModule => TermHead::LetModule,
+                NodeKind::ExprRecordCons => TermHead::RecordCons,
+                NodeKind::ExprFieldAccess => TermHead::FieldAccess,
                 NodeKind::TypePtr => TermHead::TypePtr,
+                NodeKind::TypeRecord => TermHead::TypeRecord,
                 _ => {
                     // Non-expression kinds: this term does not represent an expression.
                     // Return a placeholder; Phase 2 will add dedicated handling for
@@ -359,7 +368,27 @@ impl<'a> Term<'a> {
                     result.push(Term::new(self.arena, *body));
                     result.push(Term::new(self.arena, *rest));
                 }
+                ExprData::RecordCons { type_name, fields } => {
+                    result.push(Term::new(self.arena, *type_name));
+                    for (name, expr) in fields {
+                        result.push(Term::new(self.arena, *name));
+                        result.push(Term::new(self.arena, *expr));
+                    }
+                }
+                ExprData::FieldAccess { receiver, field } => {
+                    result.push(Term::new(self.arena, *receiver));
+                    result.push(Term::new(self.arena, *field));
+                }
             }
+        }
+
+        // Handle TypeRecord
+        if let Some(TypeData::Record { fields }) = self.arena.type_data(self.id) {
+            for (name, ty_node) in fields {
+                result.push(Term::new(self.arena, *name));
+                result.push(Term::new(self.arena, *ty_node));
+            }
+            return result;
         }
 
         result

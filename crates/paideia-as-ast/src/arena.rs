@@ -101,6 +101,10 @@ pub enum NodeKind {
     ExprUnpack,
     /// `let module N = unpack v in <expr>` (let-module binding).
     ExprLetModule,
+    /// `TypeName { field1: expr1, ... }` (record constructor).
+    ExprRecordCons,
+    /// `receiver.field` (field access).
+    ExprFieldAccess,
 
     // Statements (§8 Stmt: LetStmt | ExprStmt | InstructionStmt | ReturnStmt)
     /// `let name: ty? = expr;`.
@@ -133,6 +137,8 @@ pub enum NodeKind {
     TypeEffectRow,
     /// `*T`.
     TypePtr,
+    /// `record { field1: T1, ... }` (record type).
+    TypeRecord,
 
     // Patterns (§8 Pattern)
     /// `_` (wildcard).

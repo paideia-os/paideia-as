@@ -293,6 +293,26 @@ pub enum ExprData {
         /// Continuation `in <expr>` — the rest expression.
         rest: NodeId,
     },
+
+    /// `TypeName { field1: expr1, field2: expr2, ... }`.
+    ///
+    /// Record constructor expression: instantiates a record type with field values.
+    RecordCons {
+        /// Type name (Ident node).
+        type_name: NodeId,
+        /// Record fields: each is (field_name_node, field_value_node).
+        fields: Vec<(NodeId, NodeId)>,
+    },
+
+    /// `receiver.field`.
+    ///
+    /// Field access expression: accesses a named field of a record or struct.
+    FieldAccess {
+        /// Receiver expression.
+        receiver: NodeId,
+        /// Field name (Ident node).
+        field: NodeId,
+    },
 }
 
 /// A single arm in a match expression.

@@ -118,6 +118,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                     .arena_mut()
                     .alloc_type(NodeKind::TypePtr, span, TypeData::Ptr { pointee }))
             }
+            Some(TokenKind::KwRecord) => self.parse_type_record(),
             Some(TokenKind::LParen) => self.parse_type_paren(),
             Some(TokenKind::Ident) => self.parse_type_name(),
             Some(TokenKind::EffectOpen) => self.parse_effect_row(),
@@ -673,6 +674,105 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             .unwrap(),
         )
         .message("expected type after '*'".to_string())
+        .with_span(span)
+        .finish();
+        self.emit_diagnostic(diag);
+        Err(ParseError)
+    }
+
+    /// Parse a record type: `record { field1: Type1, field2: Type2, ... }`.
+    ///
+    /// Consumes `record` keyword, expects LBrace, parses field declarations
+    /// (Ident : Type pairs separated by commas, trailing comma allowed),
+    /// and closes with RBrace.
+    fn parse_type_record(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
+        let record_tok = self.expect(TokenKind::KwRecord)?;
+        let record_span = record_tok.span;
+
+        // Expect opening brace
+        if !self.at(TokenKind::LBrace) {
+            return self.error_malformed_record(
+                self.peek().map(|t| t.span).unwrap_or(record_span),
+                "expected '{' after 'record'",
+            );
+        }
+        self.bump(); // consume {
+
+        let mut fields = Vec::new();
+
+        // Parse fields: name : type, name : type, ...
+        loop {
+            // Check for closing brace
+            if self.at(TokenKind::RBrace) {
+                break;
+            }
+
+            // Expect field name (Ident)
+            let field_name_tok = self.expect(TokenKind::Ident)?;
+            let field_name_id = self.arena_mut().alloc(NodeKind::Ident, field_name_tok.span);
+
+            // Expect colon
+            if !self.at(TokenKind::Colon) {
+                return self.error_malformed_record(
+                    self.peek().map(|t| t.span).unwrap_or(field_name_tok.span),
+                    "expected ':' after field name",
+                );
+            }
+            self.bump(); // consume :
+
+            // Parse field type
+            let field_type = self.parse_type_unquantified()?;
+
+            fields.push((field_name_id, field_type));
+
+            // Check for comma or closing brace
+            if !self.at(TokenKind::Comma) {
+                break;
+            }
+            self.bump(); // consume comma
+
+            // Allow trailing comma before closing brace
+            if self.at(TokenKind::RBrace) {
+                break;
+            }
+        }
+
+        // Expect closing brace
+        if !self.at(TokenKind::RBrace) {
+            return self.error_malformed_record(
+                self.peek().map(|t| t.span).unwrap_or(record_span),
+                "expected '}' to close record type",
+            );
+        }
+        let rbrace_tok = self.bump().unwrap();
+
+        // Compute span
+        let span = Span::new(
+            record_span.file(),
+            record_span.byte_start(),
+            rbrace_tok.span.byte_start() + rbrace_tok.span.byte_len() - record_span.byte_start(),
+        );
+
+        Ok(self
+            .arena_mut()
+            .alloc_type(NodeKind::TypeRecord, span, TypeData::Record { fields }))
+    }
+
+    /// Emit a P0197 ("malformed record type") diagnostic and return Err.
+    fn error_malformed_record(
+        &mut self,
+        span: paideia_as_diagnostics::Span,
+        reason: &str,
+    ) -> Result<paideia_as_ast::NodeId, ParseError> {
+        let diag = paideia_as_diagnostics::Diagnostic::error(
+            paideia_as_diagnostics::DiagnosticCode::new(
+                paideia_as_diagnostics::Category::P,
+                paideia_as_diagnostics::Severity::Error,
+                197,
+            )
+            .unwrap(),
+        )
+        .message(format!("malformed record type: {}", reason))
         .with_span(span)
         .finish();
         self.emit_diagnostic(diag);

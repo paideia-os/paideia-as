@@ -308,6 +308,15 @@ description = "A pointer type `*T` is syntactically incomplete: a type is requir
 since = "0.1.0"
 deprecated = false
 
+[diagnostic.P0197]
+severity = "error"
+category = "parser"
+title = "Malformed record type or constructor"
+brief = "malformed record: expected field name, colon, type/value, or closing brace"
+description = "A record type or constructor expression is syntactically incomplete. Ensure all fields follow the pattern `name: type` (in types) or `name: expr` (in constructors), separated by commas, with proper opening and closing braces."
+since = "0.1.0"
+deprecated = false
+
 [diagnostic.O1500]
 severity = "note"
 category = "optimization"

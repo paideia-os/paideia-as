@@ -6,11 +6,30 @@
 
 use paideia_as_ast::{ExprData, NodeId, NodeKind};
 use paideia_as_diagnostics::Span;
+use paideia_as_lexer::TokenKind;
 
 use crate::parser::{ParseError, Parser};
 use crate::precedence::{infix_bp, postfix_bp, prefix_bp};
 
 impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
+    /// Check if the current position looks like a record constructor: `{ Ident : ...`.
+    /// Assumes the current token is `{`.
+    fn is_likely_record_cons(&self) -> bool {
+        // Peek one token ahead into the brace to see if it looks like a field name.
+        // If we see `}` immediately, it's an empty record (valid).
+        // If we see `Ident :`, it's definitely a record.
+        // Otherwise, it's likely not a record (e.g., a match arm block).
+
+        match self.peek_at(1).map(|t| t.kind) {
+            Some(TokenKind::RBrace) => true, // empty record `{}`
+            Some(TokenKind::Ident) => {
+                // Next is Ident; check if it's followed by `:`
+                matches!(self.peek_at(2).map(|t| t.kind), Some(TokenKind::Colon))
+            }
+            _ => false,
+        }
+    }
+
     /// Parse an expression at the top level.
     ///
     /// Entry point: calls `parse_expr_bp(0)` to parse a full expression
@@ -134,6 +153,33 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
             // Neither postfix nor infix at this binding power: done.
             break;
+        }
+
+        // Check for record constructor: `Ident { field: expr, ... }`
+        // Only attempt if lhs is a bare Ident path (single-segment ExprPath).
+        // Disambiguate by peeking ahead after `{`: if we see `Ident :`, it's likely a record constructor.
+        if self.at(TokenKind::LBrace) {
+            if let Some(ExprData::Path { segments }) = self.arena().expr_data(lhs) {
+                if segments.len() == 1
+                    && self.is_likely_record_cons()
+                {
+                    // This looks like a record constructor; parse it.
+                    let type_name_id = segments[0];
+                    let lhs_span = self
+                        .arena()
+                        .get(lhs)
+                        .map(|nd| nd.span)
+                        .unwrap_or_else(|| {
+                            self.peek().map(|t| t.span).unwrap_or_else(|| {
+                                Span::new(self.file(), 0, 0)
+                            })
+                        });
+                    if let Ok(record_cons_expr) = self.parse_record_cons_fields(type_name_id, lhs_span)
+                    {
+                        lhs = record_cons_expr;
+                    }
+                }
+            }
         }
 
         Ok(lhs)
