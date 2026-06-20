@@ -1,0 +1,8 @@
+fn branch_with_tail_call_in_then() {
+    let n = 10;
+    if n > 0 {
+        branch_with_tail_call_in_then(n - 1)
+    } else {
+        0
+    }
+}

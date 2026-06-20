@@ -28,7 +28,7 @@
 //! | ExprBlock | Action | Block is a sequence of statements (action) |
 //! | ExprLambda | Lambda | Lambda abstraction |
 //! | ExprMatch | Match | Match expression with pattern arms (phase-4-m1-002) |
-//! | ExprIf | Action | If-else placeholder; future phase |
+//! | ExprIf | Branch | If-then-else conditional (phase-4-m1-004) |
 //! | ExprLoop | Action | Loop placeholder; phase-1 does not model loop in IR |
 //! | ExprActionBlock | Action | Action-marked block |
 //! | ExprPerform | Perform | Effect operation invocation |
@@ -165,11 +165,12 @@ fn map_node_kind(kind: NodeKind) -> IrKind {
         | NodeKind::StmtExpr
         | NodeKind::StmtInstruction => IrKind::Action,
 
-        // Control flow: phase-4-m1-002 adds Match to IR; If and Loop in later phases
+        // Control flow: phase-4-m1-002 adds Match to IR; phase-4-m1-004 adds Branch
         NodeKind::ExprMatch => IrKind::Match,
+        NodeKind::ExprIf => IrKind::Branch,
 
         // Control flow placeholders (phase-1 does not model these in IR yet)
-        NodeKind::ExprIf | NodeKind::ExprLoop | NodeKind::StmtReturn => IrKind::Action,
+        NodeKind::ExprLoop | NodeKind::StmtReturn => IrKind::Action,
 
         // Let bindings
         NodeKind::StmtLet | NodeKind::Let => IrKind::Let,

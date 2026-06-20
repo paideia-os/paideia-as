@@ -134,6 +134,64 @@ pub trait IrWalker {
     ///
     /// No-op (the underscore pattern prevents unused-variable warnings).
     fn exit_handler_clause(&mut self, _clause_index: usize, _ctx: &mut WalkerCtx<'_>) {}
+
+    /// Called before visiting a branch's then-arm body.
+    ///
+    /// Implementors may use this hook to enter arm-local scope for linearity
+    /// tracking or effect-row tracking. The default no-op is appropriate for
+    /// walkers that do not need per-arm context.
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx` - Walker context providing source map and diagnostic sink.
+    ///
+    /// # Default
+    ///
+    /// No-op (the underscore pattern prevents unused-variable warnings).
+    fn enter_branch_then(&mut self, _ctx: &mut WalkerCtx<'_>) {}
+
+    /// Called after visiting a branch's then-arm body.
+    ///
+    /// Implementors may use this hook to exit arm-local scope and record snapshots
+    /// for cross-arm conflict detection (e.g., linearity or effect-row state).
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx` - Walker context providing source map and diagnostic sink.
+    ///
+    /// # Default
+    ///
+    /// No-op (the underscore pattern prevents unused-variable warnings).
+    fn exit_branch_then(&mut self, _ctx: &mut WalkerCtx<'_>) {}
+
+    /// Called before visiting a branch's else-arm body (if present).
+    ///
+    /// Implementors may use this hook to enter arm-local scope for linearity
+    /// tracking or effect-row tracking. The default no-op is appropriate for
+    /// walkers that do not need per-arm context.
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx` - Walker context providing source map and diagnostic sink.
+    ///
+    /// # Default
+    ///
+    /// No-op (the underscore pattern prevents unused-variable warnings).
+    fn enter_branch_else(&mut self, _ctx: &mut WalkerCtx<'_>) {}
+
+    /// Called after visiting a branch's else-arm body.
+    ///
+    /// Implementors may use this hook to exit arm-local scope and record
+    /// effect-row state for the else-arm.
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx` - Walker context providing source map and diagnostic sink.
+    ///
+    /// # Default
+    ///
+    /// No-op (the underscore pattern prevents unused-variable warnings).
+    fn exit_branch_else(&mut self, _ctx: &mut WalkerCtx<'_>) {}
 }
 
 /// Drive a pre-order traversal over an IR tree rooted at `root`.
@@ -235,8 +293,30 @@ pub fn walk<W: IrWalker>(walker: &mut W, arena: &IrArena, root: IrNodeId, ctx: &
             // TODO: phase-4-m1-003 will wire HandlerSideTable population here.
             // For now, the pattern is established for future clause iteration.
         }
+    } else if arena[root].kind == IrKind::Branch {
+        // Special handling for Branch nodes: walk condition normally, then walk
+        // then-arm and else-arm with enter/exit_branch_then/else hooks to enable
+        // per-arm scope tracking for linearity and effect-row analysis.
+        if !children.is_empty() {
+            // First child is the condition; walk it normally.
+            walk(walker, arena, children[0], ctx);
+
+            // Second child is the then-arm; walk it with then-arm hooks.
+            if children.len() > 1 {
+                walker.enter_branch_then(ctx);
+                walk(walker, arena, children[1], ctx);
+                walker.exit_branch_then(ctx);
+            }
+
+            // Third child is the else-arm (if present); walk it with else-arm hooks.
+            if children.len() > 2 {
+                walker.enter_branch_else(ctx);
+                walk(walker, arena, children[2], ctx);
+                walker.exit_branch_else(ctx);
+            }
+        }
     } else {
-        // For non-Match, non-Handle nodes, walk children normally.
+        // For non-Match, non-Handle, non-Branch nodes, walk children normally.
         for child in children {
             walk(walker, arena, child, ctx);
         }
@@ -725,5 +805,146 @@ mod tests {
         assert_eq!(walker.visits[3], (VisitPhase::Pre, IrKind::Action)); // body
         assert_eq!(walker.visits[4], (VisitPhase::Post, IrKind::Action));
         assert_eq!(walker.visits[5], (VisitPhase::Post, IrKind::Handle));
+    }
+
+    #[test]
+    fn ir_walker_visits_branch_then_else_with_per_arm_scope() {
+        // Test that enter_branch_then/exit_branch_then and enter_branch_else/exit_branch_else
+        // hooks are called for each branch arm.
+        struct BranchArmTracker {
+            then_enters: usize,
+            then_exits: usize,
+            else_enters: usize,
+            else_exits: usize,
+        }
+
+        impl IrWalker for BranchArmTracker {
+            fn enter_branch_then(&mut self, _ctx: &mut WalkerCtx<'_>) {
+                self.then_enters += 1;
+            }
+
+            fn exit_branch_then(&mut self, _ctx: &mut WalkerCtx<'_>) {
+                self.then_exits += 1;
+            }
+
+            fn enter_branch_else(&mut self, _ctx: &mut WalkerCtx<'_>) {
+                self.else_enters += 1;
+            }
+
+            fn exit_branch_else(&mut self, _ctx: &mut WalkerCtx<'_>) {
+                self.else_exits += 1;
+            }
+        }
+
+        let mut arena = IrArena::new();
+        // Build: Branch with condition, then-arm, and else-arm
+        let cond_id = arena.alloc(IrKind::Var, span());
+        let then_id = arena.alloc(IrKind::Literal, span());
+        let else_id = arena.alloc(IrKind::Literal, span());
+        let branch_id =
+            arena.alloc_with_children(IrKind::Branch, span(), [cond_id, then_id, else_id]);
+
+        let mut walker = BranchArmTracker {
+            then_enters: 0,
+            then_exits: 0,
+            else_enters: 0,
+            else_exits: 0,
+        };
+        let sm = SourceMap::new();
+        let mut sink = VecSink::new();
+        let mut ctx = WalkerCtx::new(&sm, &mut sink);
+
+        walk(&mut walker, &arena, branch_id, &mut ctx);
+
+        assert_eq!(walker.then_enters, 1, "should enter then-arm exactly once");
+        assert_eq!(walker.then_exits, 1, "should exit then-arm exactly once");
+        assert_eq!(walker.else_enters, 1, "should enter else-arm exactly once");
+        assert_eq!(walker.else_exits, 1, "should exit else-arm exactly once");
+    }
+
+    #[test]
+    fn branch_walker_enters_then_before_else() {
+        // Verify that the then-arm is visited before the else-arm.
+        let mut arena = IrArena::new();
+        let cond_id = arena.alloc(IrKind::Var, span());
+        let then_id = arena.alloc(IrKind::Literal, span());
+        let else_id = arena.alloc(IrKind::Literal, span());
+        let branch_id =
+            arena.alloc_with_children(IrKind::Branch, span(), [cond_id, then_id, else_id]);
+
+        let mut walker = RecordingWalker::new();
+        let sm = SourceMap::new();
+        let mut sink = VecSink::new();
+        let mut ctx = WalkerCtx::new(&sm, &mut sink);
+
+        walk(&mut walker, &arena, branch_id, &mut ctx);
+
+        // Expected order: Pre(Branch), Pre(Var), Post(Var), Pre(Literal), Post(Literal), Pre(Literal), Post(Literal), Post(Branch)
+        assert_eq!(walker.visits[0], (VisitPhase::Pre, IrKind::Branch));
+        assert_eq!(walker.visits[1], (VisitPhase::Pre, IrKind::Var)); // condition
+        assert_eq!(walker.visits[2], (VisitPhase::Post, IrKind::Var));
+        assert_eq!(walker.visits[3], (VisitPhase::Pre, IrKind::Literal)); // then-arm
+        assert_eq!(walker.visits[4], (VisitPhase::Post, IrKind::Literal));
+        assert_eq!(walker.visits[5], (VisitPhase::Pre, IrKind::Literal)); // else-arm
+        assert_eq!(walker.visits[6], (VisitPhase::Post, IrKind::Literal));
+        assert_eq!(walker.visits[7], (VisitPhase::Post, IrKind::Branch));
+    }
+
+    #[test]
+    fn ir_walker_visits_branch_without_else_arm() {
+        // Test that a branch without an else-arm (only condition + then) is handled correctly.
+        struct BranchArmTracker {
+            then_enters: usize,
+            then_exits: usize,
+            else_enters: usize,
+            else_exits: usize,
+        }
+
+        impl IrWalker for BranchArmTracker {
+            fn enter_branch_then(&mut self, _ctx: &mut WalkerCtx<'_>) {
+                self.then_enters += 1;
+            }
+
+            fn exit_branch_then(&mut self, _ctx: &mut WalkerCtx<'_>) {
+                self.then_exits += 1;
+            }
+
+            fn enter_branch_else(&mut self, _ctx: &mut WalkerCtx<'_>) {
+                self.else_enters += 1;
+            }
+
+            fn exit_branch_else(&mut self, _ctx: &mut WalkerCtx<'_>) {
+                self.else_exits += 1;
+            }
+        }
+
+        let mut arena = IrArena::new();
+        // Build: Branch with condition and then-arm only
+        let cond_id = arena.alloc(IrKind::Var, span());
+        let then_id = arena.alloc(IrKind::Literal, span());
+        let branch_id = arena.alloc_with_children(IrKind::Branch, span(), [cond_id, then_id]);
+
+        let mut walker = BranchArmTracker {
+            then_enters: 0,
+            then_exits: 0,
+            else_enters: 0,
+            else_exits: 0,
+        };
+        let sm = SourceMap::new();
+        let mut sink = VecSink::new();
+        let mut ctx = WalkerCtx::new(&sm, &mut sink);
+
+        walk(&mut walker, &arena, branch_id, &mut ctx);
+
+        assert_eq!(walker.then_enters, 1, "should enter then-arm exactly once");
+        assert_eq!(walker.then_exits, 1, "should exit then-arm exactly once");
+        assert_eq!(
+            walker.else_enters, 0,
+            "should not enter else-arm when it's absent"
+        );
+        assert_eq!(
+            walker.else_exits, 0,
+            "should not exit else-arm when it's absent"
+        );
     }
 }

@@ -29,6 +29,10 @@ pub enum TcoBlocker {
 /// Phase-3-m3-005: Minimum implementation checks structural preconditions.
 /// Recursion detection (call target == enclosing function symbol) is TODO
 /// pending elaborator chokepoint that surfaces call-target symbol in IR.
+///
+/// Phase-4-m1-004: Per-branch walker visibility is now in place via Branch walker
+/// support. Recursion checks can now properly account for conditional branches
+/// where recursion occurs only in specific arms (then-arm or else-arm).
 pub fn tco_blocker(
     _side_table: &crate::instruction::InstructionSideTable,
     _call_id: crate::node::IrNodeId,
@@ -36,6 +40,7 @@ pub fn tco_blocker(
     // Phase-3-m3-005: TODO extract capability boundary, handler install,
     // ABI mismatch, and frame layout info from the side-table and call site.
     // For now: always eligible (None), placeholder for blockers.
+    // Phase-4-m1-004: Recursion detection gate is lifting; branch-aware analysis pending.
     None
 }
 

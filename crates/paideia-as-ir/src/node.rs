@@ -109,6 +109,8 @@ impl EffectRowId {
 /// - **Continue**: continue to the next iteration of the enclosing loop. No children.
 /// - **Match**: match expression with pattern arms. Children: [scrutinee, arm0, arm1, ...].
 ///   Each arm is its own subtree containing pattern and body expressions.
+/// - **Branch**: if-then-else conditional. Children = [condition, then_body, else_body (optional)].
+///   The then-body and else-body have separate scopes for linearity/effect-row tracking.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 #[repr(u8)]
 #[non_exhaustive]
@@ -169,6 +171,11 @@ pub enum IrKind {
     /// Children = [scrutinee, arm0, arm1, ...].
     /// Each arm is its own subtree with pattern + body.
     Match,
+    /// Branch (if-then-else): conditional expression with then and else arms.
+    /// Children = [condition, then_body, else_body (optional)].
+    /// Each arm is visited with per-arm scope hooks to track linearity and effects
+    /// independently within each branch.
+    Branch,
 }
 
 /// Per-node IR storage.

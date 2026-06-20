@@ -482,6 +482,48 @@ impl IrWalker for LinearityWalker {
             }
         }
     }
+
+    fn enter_branch_then(&mut self, _ctx: &mut WalkerCtx<'_>) {
+        // When entering a branch's then-arm, snapshot the current linearity context.
+        // This captures the state of bindings available to this arm (e.g., from outer scopes).
+        // Phase-4-m1-004: enables per-branch-arm linearity tracking.
+        let snapshot = self.linearity_ctx.clone();
+        if let Some(arm_list) = self.match_arm_snapshots.last_mut() {
+            arm_list.push(snapshot);
+        }
+    }
+
+    fn exit_branch_then(&mut self, _ctx: &mut WalkerCtx<'_>) {
+        // When exiting a branch's then-arm, update the snapshot to reflect
+        // the state after walking the then-arm body.
+        // Phase-4-m1-004: enables per-branch-arm linearity tracking.
+        if let Some(arm_list) = self.match_arm_snapshots.last_mut() {
+            if !arm_list.is_empty() {
+                *arm_list.last_mut().unwrap() = self.linearity_ctx.clone();
+            }
+        }
+    }
+
+    fn enter_branch_else(&mut self, _ctx: &mut WalkerCtx<'_>) {
+        // When entering a branch's else-arm, snapshot the current linearity context.
+        // This captures the state of bindings available to this arm.
+        // Phase-4-m1-004: enables per-branch-arm linearity tracking.
+        let snapshot = self.linearity_ctx.clone();
+        if let Some(arm_list) = self.match_arm_snapshots.last_mut() {
+            arm_list.push(snapshot);
+        }
+    }
+
+    fn exit_branch_else(&mut self, _ctx: &mut WalkerCtx<'_>) {
+        // When exiting a branch's else-arm, update the snapshot to reflect
+        // the state after walking the else-arm body.
+        // Phase-4-m1-004: enables per-branch-arm linearity tracking.
+        if let Some(arm_list) = self.match_arm_snapshots.last_mut() {
+            if !arm_list.is_empty() {
+                *arm_list.last_mut().unwrap() = self.linearity_ctx.clone();
+            }
+        }
+    }
 }
 
 #[cfg(test)]
