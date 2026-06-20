@@ -89,6 +89,10 @@ impl EffectRowId {
 ///   in source order.
 /// - **Unsafe**: statement sequence (any number). Children appear
 ///   in source order.
+/// - **Load**: memory load. Children are [pointer, index].
+///   Side-table entry in LoadStoreSideTable records width / signedness / alignment.
+/// - **Store**: memory store. Children are [pointer, index, value].
+///   Side-table entry in LoadStoreSideTable records width / signedness / alignment.
 /// - **Var** / **Literal** / **Placeholder**: no children.
 /// - **Resume**: reserved for future extension; no children yet.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
@@ -117,6 +121,12 @@ pub enum IrKind {
     Action,
     /// Unsafe-block escape hatch.
     Unsafe,
+    /// Load: children = [pointer, index].
+    /// Side-table entry in LoadStoreSideTable records width / signedness / alignment.
+    Load,
+    /// Store: children = [pointer, index, value].
+    /// Side-table entry in LoadStoreSideTable records width / signedness / alignment.
+    Store,
     /// Placeholder kind, used until elaborator (PR-29+) fills the real variant.
     Placeholder,
 }
