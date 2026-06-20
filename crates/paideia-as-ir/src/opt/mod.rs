@@ -12,6 +12,7 @@ pub mod dse;
 pub mod peephole;
 pub mod pool_constants;
 pub mod schedule;
+pub mod tailcall;
 
 // Re-export canonical pass types.
 pub use branch_hint::BranchHintPass;
@@ -19,6 +20,7 @@ pub use dse::DsePass;
 pub use peephole::PeepholePass;
 pub use pool_constants::PoolConstantsPass;
 pub use schedule::{InstructionClass, InstructionSchedulingPass, schedule_block};
+pub use tailcall::TailCallPass;
 
 use crate::IrArena;
 use crate::node::IrNodeId;

@@ -371,6 +371,15 @@ description = "Per optimization-passes.md §9, constants appearing multiple time
 since = "0.1.0"
 deprecated = false
 
+[diagnostic.O1510]
+severity = "note"
+category = "optimization"
+title = "Tail-call eliminated"
+brief = "final call + ret sequence rewritten as a jmp"
+description = "Per OS-requirements §6 design-clarification 5: TCO ships in Phase 2 to support the kernel's exception-unwinder path. Capability boundaries, effect-handler installations, and ABI mismatches suppress TCO."
+since = "0.1.0"
+deprecated = false
+
 [diagnostic.Q0901]
 severity = "error"
 category = "post-quantum"
