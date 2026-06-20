@@ -10,6 +10,7 @@ mod builder;
 mod catalog;
 mod code;
 mod diagnostic;
+mod extended;
 mod render_human;
 mod sarif;
 mod sink;
@@ -20,6 +21,7 @@ pub use builder::DiagnosticBuilder;
 pub use catalog::{Catalog, CatalogEntry, CatalogError};
 pub use code::{Category, CodeParseError, DiagnosticCode, Severity};
 pub use diagnostic::{Diagnostic, SecondarySpan, SuggestedFix};
+pub use extended::ExtendedBorrowDiagnostic;
 pub use render_human::HumanRenderer;
 pub use sarif::SarifEmitter;
 pub use sink::{
