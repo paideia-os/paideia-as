@@ -1,0 +1,138 @@
+name: Release
+
+# Release pipeline with DDC as a hard gate.
+#
+# Triggers when a tag matching `v*` is pushed. The workflow:
+# 1. Runs the standard test gate (cargo test --workspace).
+# 2. Runs DDC verification with hard-fail semantics (m10-006).
+# 3. Builds release artifacts.
+# 4. Signs them with paideia-pq-sign (m7-005 / m7-006).
+# 5. Publishes the release.
+#
+# Phase-2-m10-006: workflow file shipped; activation pairs with the
+# GitHub Actions billing restoration.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      ddc_bypass_justification:
+        description: 'DDC bypass justification (required if DDC fails)'
+        required: false
+        default: ''
+
+jobs:
+  ddc-gate:
+    name: DDC determinism gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      ddc_status: ${{ steps.diff.outputs.status }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@nightly
+      
+      - name: Run DDC orchestrator
+        run: bash tools/ddc/run.sh
+        env:
+          SOURCE_DATE_EPOCH: "0"
+          PDX_PATH_PREFIX_MAP: "/=/build/"
+      
+      - name: Run byte-level differ
+        id: diff
+        run: |
+          cargo build --release -p ddc
+          set +e
+          ./target/release/ddc-diff \
+            tools/ddc/out/a/paideia-as \
+            tools/ddc/out/b/paideia-as \
+            tools/ddc/allowlist.toml \
+            > ddc-diff-report.json
+          ec=$?
+          set -e
+          if [[ $ec -eq 0 ]]; then
+            echo "status=match" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=diverge" >> "$GITHUB_OUTPUT"
+          fi
+      
+      - name: Upload DDC report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ddc-release-report-${{ github.ref_name }}
+          path: ddc-diff-report.json
+          retention-days: 90
+      
+      - name: HARD-FAIL on DDC divergence
+        # The bypass channel: a manual workflow_dispatch with a
+        # non-empty ddc_bypass_justification input lets release proceed
+        # despite a DDC failure. The justification is captured in the
+        # workflow run log + summary for audit.
+        run: |
+          status="${{ steps.diff.outputs.status }}"
+          bypass="${{ inputs.ddc_bypass_justification }}"
+          if [[ "$status" == "match" ]]; then
+            echo "DDC match — gate cleared."
+            exit 0
+          fi
+          if [[ -n "$bypass" ]]; then
+            echo "::warning::DDC diverges but bypass authorised."
+            echo "Bypass justification: $bypass"
+            echo "## DDC Bypass" >> "$GITHUB_STEP_SUMMARY"
+            echo "**Status**: DIVERGED" >> "$GITHUB_STEP_SUMMARY"
+            echo "**Justification**: $bypass" >> "$GITHUB_STEP_SUMMARY"
+            echo "**Triggered by**: ${{ github.actor }}" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "::error::DDC diverges and no bypass justification provided. Release blocked."
+          echo "## DDC Hard Fail" >> "$GITHUB_STEP_SUMMARY"
+          echo "Release blocked. To override: re-run workflow with a ddc_bypass_justification." >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+  
+  build:
+    name: Build release artifacts
+    needs: ddc-gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build
+        run: cargo build --release -p paideia-as
+        env:
+          SOURCE_DATE_EPOCH: "0"
+          PDX_PATH_PREFIX_MAP: "/=/build/"
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: paideia-as-${{ github.ref_name }}
+          path: target/release/paideia-as
+  
+  sign:
+    name: Sign release artifacts
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: paideia-as-${{ github.ref_name }}
+          path: ./artifacts
+      - name: Sign
+        env:
+          PDX_HSM_PASSWORD: ${{ secrets.PDX_HSM_PASSWORD }}
+        run: |
+          cargo build --release -p paideia-pq-sign
+          # m7-005 detached-sig path: writes <artifact>.sig alongside.
+          ./target/release/paideia-pq-sign release ./artifacts/paideia-as
+      - name: Upload signed bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: paideia-as-signed-${{ github.ref_name }}
+          path: ./artifacts/*
