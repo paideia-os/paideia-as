@@ -633,6 +633,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
             },
             {
               "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase 4 m7-006: match expressions on enum types must cover every variant. Either add the missing variant arms or use a wildcard pattern `_` to catch the remainder."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/M0400",
+              "id": "M0400",
+              "name": "Non-exhaustive match",
+              "shortDescription": {
+                "text": "match arms do not cover every variant of the scrutinee's type"
+              }
+            },
+            {
+              "defaultConfiguration": {
                 "level": "warning"
               },
               "fullDescription": {

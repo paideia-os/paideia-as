@@ -523,3 +523,12 @@ brief = "ordered resource used out of order across handler"
 description = "An ordered binding declared in an enclosing scope is used out of declaration order within a handler body. Handler installations impose strict sequential-use constraints on ordered bindings: all uses must respect their declaration order. Reorder the uses in the handler body to match the order in which the bindings were declared."
 since = "0.3.0"
 deprecated = false
+
+[diagnostic.M0400]
+severity = "error"
+category = "module"
+title = "Non-exhaustive match"
+brief = "match arms do not cover every variant of the scrutinee's type"
+description = "Phase 4 m7-006: match expressions on enum types must cover every variant. Either add the missing variant arms or use a wildcard pattern `_` to catch the remainder."
+since = "0.4.0"
+deprecated = false

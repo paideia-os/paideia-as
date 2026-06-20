@@ -22,5 +22,5 @@ pub use kinds::{
 };
 pub use layout::{Layout, layout_of};
 pub use subst::Subst;
-pub use types::{CapSetId, SIZE_WIDTH_SENTINEL, TyVar, Type, TypeId};
+pub use types::{CapSetId, EnumPayload, SIZE_WIDTH_SENTINEL, TyVar, Type, TypeId};
 pub use unify::{UnifyError, unify};

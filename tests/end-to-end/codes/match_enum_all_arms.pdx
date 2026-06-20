@@ -1,0 +1,11 @@
+module M = structure {
+  type Status = enum {
+    Ok(u32)
+    Err(u8)
+  }
+
+  let process = fn s: Status -> match s {
+    Ok(x) => x
+    Err(e) => u32(e)
+  }
+}

@@ -14,6 +14,7 @@ pub mod check_expr;
 pub mod check_handler;
 pub mod check_lambda;
 pub mod check_linearity;
+pub mod check_match;
 pub mod check_ordered;
 pub mod check_pattern;
 pub mod check_pure;
@@ -54,6 +55,10 @@ pub use check_handler::{F_HANDLER_MISMATCH, HandlerImpl, check_handler, check_re
 pub use check_lambda::{S_ILLEGAL_CAPTURE, check_lambda};
 pub use check_linearity::{
     LinearityWalker, S_NEVER_USED, S_OVERUSED, validate_scope, walk_expr_for_scope,
+};
+pub use check_match::{
+    ArmPattern, ExhaustivenessResult, M_MATCH_EXHAUSTIVENESS, check_exhaustiveness,
+    exhaustiveness_diagnostic,
 };
 pub use check_ordered::{OrderedEntry, OrderedLog, S_OUT_OF_ORDER};
 pub use check_pattern::is_irrefutable;
