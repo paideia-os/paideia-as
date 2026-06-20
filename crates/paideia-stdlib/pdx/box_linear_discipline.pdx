@@ -1,0 +1,15 @@
+// Phase 4 m10-005: Fixture — box_linear_discipline
+//
+// Verify that Box respects linear discipline by requiring explicit
+// box_drop or move before scope-end. This test demonstrates the type annotation
+// (linear) and function signature accepting a linear Box.
+// Phase-4-m10-005 minimum: parse-only; full elaborator-side execution
+// gates on m1 walker work.
+
+struct Box {
+  ptr: *u8,
+}
+
+trait BoxLinear {
+  fn box_drop() -> ();
+}

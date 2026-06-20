@@ -1,0 +1,14 @@
+// Phase 4 m10-005: Fixture — box_drop_releases_pointer
+//
+// Verify that box_drop consumes the Box and releases the underlying
+// pointer. The linear modifier ensures correctness at the type level.
+// Phase-4-m10-005 minimum: parse-only; full elaborator-side execution
+// gates on m1 walker work.
+
+struct Box {
+  ptr: *u8,
+}
+
+trait BoxDrop {
+  fn box_drop() -> ();
+}

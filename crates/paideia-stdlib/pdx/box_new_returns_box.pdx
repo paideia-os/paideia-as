@@ -1,0 +1,13 @@
+// Phase 4 m10-005: Fixture — box_new_returns_box
+//
+// Verify that box_new constructs a Box wrapping the given value.
+// Phase-4-m10-005 minimum: parse-only; full elaborator-side execution
+// gates on m1 walker work.
+
+struct Box {
+  ptr: *u8,
+}
+
+trait BoxNew {
+  fn box_new() -> Box;
+}

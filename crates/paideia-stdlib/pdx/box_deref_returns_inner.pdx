@@ -1,0 +1,13 @@
+// Phase 4 m10-005: Fixture — box_deref_returns_inner
+//
+// Verify that box_deref dereferences a Box to retrieve the inner value.
+// Phase-4-m10-005 minimum: parse-only; full elaborator-side execution
+// gates on m1 walker work.
+
+struct Box {
+  ptr: *u8,
+}
+
+trait BoxDeref {
+  fn box_deref() -> u8;
+}

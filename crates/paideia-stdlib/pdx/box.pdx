@@ -1,0 +1,20 @@
+// Phase 4 m10-005: Box — owned heap pointer with linear discipline.
+//
+// Box wraps a pointer to a single value on the heap. The wrapper
+// is `linear` — must be either dropped (which dealloc's the underlying
+// pointer) or moved before scope-end.
+//
+// Phase 4 minimum: declares the type + box_new / box_deref / box_drop
+// helper functions. The `box value` keyword sugar + `*b` deref sugar
+// are parser-level conveniences (m10-005 honest minimum: ship the type
+// + helpers; sugar gates on the m9 walker / parser-extension chokepoint).
+
+struct Box {
+  ptr: *u8,
+}
+
+trait BoxOps {
+  fn box_new() -> Box;
+  fn box_deref() -> u8;
+  fn box_drop() -> ();
+}
