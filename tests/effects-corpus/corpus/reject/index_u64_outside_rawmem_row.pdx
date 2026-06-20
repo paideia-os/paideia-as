@@ -1,0 +1,12 @@
+// RawMem effect NOT in function signature (phase-3-m1-005)
+// This function declares !{} (pure), so calling index_u64 would violate the effect row.
+// Phase-3-m1-005: F1100 enforcement gates on m1-006 call-resolution dispatch.
+// This fixture is #[ignore]'d until the call-resolution path lands.
+
+module IndexOutsideRawMem = structure {
+  let read_u64_pure: (*u64, u64) -!{}-> u64 =
+    fn (xs: *u64, idx: u64) ->
+      // index_u64(xs, idx)  // ERROR: would fire F1100 when m1-006 lands
+      // TODO: actual call requires m1-006 call-resolution dispatch path
+      0
+}
