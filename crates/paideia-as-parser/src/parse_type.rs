@@ -3,7 +3,7 @@
 //! Implements §8 Type grammar: function arrows, effect rows, capability sets,
 //! linear classes, and quantified types.
 
-use paideia_as_ast::{LinClass, NodeKind, TypeData};
+use paideia_as_ast::{EnumVariant, LinClass, NodeKind, TypeData};
 use paideia_as_diagnostics::Span;
 use paideia_as_lexer::TokenKind;
 
@@ -119,6 +119,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                     .alloc_type(NodeKind::TypePtr, span, TypeData::Ptr { pointee }))
             }
             Some(TokenKind::KwRecord) => self.parse_type_record(),
+            Some(TokenKind::KwEnum) => self.parse_type_enum(),
             Some(TokenKind::LParen) => self.parse_type_paren(),
             Some(TokenKind::Ident) => self.parse_type_name(),
             Some(TokenKind::EffectOpen) => self.parse_effect_row(),
@@ -773,6 +774,193 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             .unwrap(),
         )
         .message(format!("malformed record type: {}", reason))
+        .with_span(span)
+        .finish();
+        self.emit_diagnostic(diag);
+        Err(ParseError)
+    }
+
+    /// Parse an enum type: `enum { Variant1, Variant2(T1, T2), Variant3 { f1: T1 }, ... }`.
+    ///
+    /// Consumes `enum` keyword, expects LBrace, parses variants (unit, tuple, or record payload),
+    /// separated by Comma (trailing OK), closes RBrace.
+    fn parse_type_enum(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
+        let enum_tok = self.expect(TokenKind::KwEnum)?;
+        let enum_span = enum_tok.span;
+
+        // Expect opening brace
+        if !self.at(TokenKind::LBrace) {
+            return self.error_malformed_enum(
+                self.peek().map(|t| t.span).unwrap_or(enum_span),
+                "expected '{' after 'enum'",
+            );
+        }
+        self.bump(); // consume {
+
+        let mut variants = Vec::new();
+
+        // Parse variants
+        loop {
+            // Check for closing brace
+            if self.at(TokenKind::RBrace) {
+                break;
+            }
+
+            // Expect variant name (Ident)
+            let variant_name_tok = self.expect(TokenKind::Ident)?;
+            let variant_name_id = self
+                .arena_mut()
+                .alloc(NodeKind::Ident, variant_name_tok.span);
+
+            // Peek ahead to determine variant shape: unit, tuple, or record
+            let variant = if self.at(TokenKind::LParen) {
+                // Tuple variant: Ident ( Type (, Type)* (,)? )
+                self.bump(); // consume (
+
+                let mut payload = Vec::new();
+
+                // Parse tuple payload
+                loop {
+                    if self.at(TokenKind::RParen) {
+                        break;
+                    }
+
+                    let ty = self.parse_type_unquantified()?;
+                    payload.push(ty);
+
+                    if !self.at(TokenKind::Comma) {
+                        break;
+                    }
+                    self.bump(); // consume comma
+
+                    // Allow trailing comma before closing paren
+                    if self.at(TokenKind::RParen) {
+                        break;
+                    }
+                }
+
+                // Expect closing paren
+                if !self.at(TokenKind::RParen) {
+                    return self.error_malformed_enum(
+                        self.peek().map(|t| t.span).unwrap_or(variant_name_tok.span),
+                        "expected ')' to close tuple variant",
+                    );
+                }
+                self.bump(); // consume )
+
+                EnumVariant::Tuple {
+                    name: variant_name_id,
+                    payload,
+                }
+            } else if self.at(TokenKind::LBrace) {
+                // Record variant: Ident { Ident : Type (, ...)* (,)? }
+                self.bump(); // consume {
+
+                let mut fields = Vec::new();
+
+                // Parse record payload
+                loop {
+                    if self.at(TokenKind::RBrace) {
+                        break;
+                    }
+
+                    let field_name_tok = self.expect(TokenKind::Ident)?;
+                    let field_name_id =
+                        self.arena_mut().alloc(NodeKind::Ident, field_name_tok.span);
+
+                    // Expect colon
+                    if !self.at(TokenKind::Colon) {
+                        return self.error_malformed_enum(
+                            self.peek().map(|t| t.span).unwrap_or(field_name_tok.span),
+                            "expected ':' after field name in record variant",
+                        );
+                    }
+                    self.bump(); // consume :
+
+                    let field_type = self.parse_type_unquantified()?;
+                    fields.push((field_name_id, field_type));
+
+                    if !self.at(TokenKind::Comma) {
+                        break;
+                    }
+                    self.bump(); // consume comma
+
+                    // Allow trailing comma before closing brace
+                    if self.at(TokenKind::RBrace) {
+                        break;
+                    }
+                }
+
+                // Expect closing brace for record variant
+                if !self.at(TokenKind::RBrace) {
+                    return self.error_malformed_enum(
+                        self.peek().map(|t| t.span).unwrap_or(variant_name_tok.span),
+                        "expected '}' to close record variant",
+                    );
+                }
+                self.bump(); // consume }
+
+                EnumVariant::Record {
+                    name: variant_name_id,
+                    fields,
+                }
+            } else {
+                // Unit variant: just Ident
+                EnumVariant::Unit {
+                    name: variant_name_id,
+                }
+            };
+
+            variants.push(variant);
+
+            // Check for comma or closing brace
+            if !self.at(TokenKind::Comma) {
+                break;
+            }
+            self.bump(); // consume comma
+
+            // Allow trailing comma before closing brace
+            if self.at(TokenKind::RBrace) {
+                break;
+            }
+        }
+
+        // Expect closing brace
+        if !self.at(TokenKind::RBrace) {
+            return self.error_malformed_enum(
+                self.peek().map(|t| t.span).unwrap_or(enum_span),
+                "expected '}' to close enum type",
+            );
+        }
+        let rbrace_tok = self.bump().unwrap();
+
+        // Compute span
+        let span = Span::new(
+            enum_span.file(),
+            enum_span.byte_start(),
+            rbrace_tok.span.byte_start() + rbrace_tok.span.byte_len() - enum_span.byte_start(),
+        );
+
+        Ok(self
+            .arena_mut()
+            .alloc_type(NodeKind::TypeEnum, span, TypeData::Enum { variants }))
+    }
+
+    /// Emit a P0198 ("malformed enum type") diagnostic and return Err.
+    fn error_malformed_enum(
+        &mut self,
+        span: paideia_as_diagnostics::Span,
+        reason: &str,
+    ) -> Result<paideia_as_ast::NodeId, ParseError> {
+        let diag = paideia_as_diagnostics::Diagnostic::error(
+            paideia_as_diagnostics::DiagnosticCode::new(
+                paideia_as_diagnostics::Category::P,
+                paideia_as_diagnostics::Severity::Error,
+                198,
+            )
+            .unwrap(),
+        )
+        .message(format!("malformed enum type: {}", reason))
         .with_span(span)
         .finish();
         self.emit_diagnostic(diag);
@@ -1630,5 +1818,246 @@ mod tests {
         } else {
             panic!("expected TypeArrow");
         }
+    }
+
+    #[test]
+    fn parse_enum_unit_variants_only() {
+        // `enum { A, B, C }` → KwEnum LBrace Ident Comma Ident Comma Ident RBrace Eof
+        let tokens = vec![
+            tok(TokenKind::KwEnum, 0),
+            tok(TokenKind::LBrace, 5),
+            tok(TokenKind::Ident, 7), // A
+            tok(TokenKind::Comma, 8),
+            tok(TokenKind::Ident, 10), // B
+            tok(TokenKind::Comma, 11),
+            tok(TokenKind::Ident, 13), // C
+            tok(TokenKind::RBrace, 14),
+            tok(TokenKind::Eof, 15),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypeEnum);
+        if let Some(TypeData::Enum { variants }) = arena.type_data(ty_id) {
+            assert_eq!(variants.len(), 3);
+            // All should be unit variants
+            for var in variants {
+                if let paideia_as_ast::EnumVariant::Unit { .. } = var {
+                    // OK
+                } else {
+                    panic!("expected unit variant");
+                }
+            }
+        } else {
+            panic!("expected TypeEnum");
+        }
+    }
+
+    #[test]
+    fn parse_enum_tuple_variants() {
+        // `enum { Some(u64), None }` → KwEnum LBrace Ident LParen Ident RParen Comma Ident RBrace Eof
+        let tokens = vec![
+            tok(TokenKind::KwEnum, 0),
+            tok(TokenKind::LBrace, 5),
+            tok(TokenKind::Ident, 7), // Some
+            tok(TokenKind::LParen, 11),
+            tok(TokenKind::Ident, 12), // u64
+            tok(TokenKind::RParen, 15),
+            tok(TokenKind::Comma, 16),
+            tok(TokenKind::Ident, 18), // None
+            tok(TokenKind::RBrace, 22),
+            tok(TokenKind::Eof, 23),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        if let Some(TypeData::Enum { variants }) = arena.type_data(ty_id) {
+            assert_eq!(variants.len(), 2);
+            // First should be tuple variant
+            if let paideia_as_ast::EnumVariant::Tuple { payload, .. } = &variants[0] {
+                assert_eq!(payload.len(), 1);
+            } else {
+                panic!("expected tuple variant");
+            }
+            // Second should be unit variant
+            if let paideia_as_ast::EnumVariant::Unit { .. } = &variants[1] {
+                // OK
+            } else {
+                panic!("expected unit variant");
+            }
+        } else {
+            panic!("expected TypeEnum");
+        }
+    }
+
+    #[test]
+    fn parse_enum_record_variants() {
+        // `enum { Pair { a: u8, b: u8 } }`
+        let tokens = vec![
+            tok(TokenKind::KwEnum, 0),
+            tok(TokenKind::LBrace, 5),
+            tok(TokenKind::Ident, 7), // Pair
+            tok(TokenKind::LBrace, 12),
+            tok(TokenKind::Ident, 14), // a
+            tok(TokenKind::Colon, 15),
+            tok(TokenKind::Ident, 17), // u8
+            tok(TokenKind::Comma, 19),
+            tok(TokenKind::Ident, 21), // b
+            tok(TokenKind::Colon, 22),
+            tok(TokenKind::Ident, 24), // u8
+            tok(TokenKind::RBrace, 26),
+            tok(TokenKind::RBrace, 27),
+            tok(TokenKind::Eof, 28),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        if let Some(TypeData::Enum { variants }) = arena.type_data(ty_id) {
+            assert_eq!(variants.len(), 1);
+            if let paideia_as_ast::EnumVariant::Record { fields, .. } = &variants[0] {
+                assert_eq!(fields.len(), 2);
+            } else {
+                panic!("expected record variant");
+            }
+        } else {
+            panic!("expected TypeEnum");
+        }
+    }
+
+    #[test]
+    fn parse_enum_mixed_variants() {
+        // `enum { Unit, T(u8), R { x: u8 } }`
+        let tokens = vec![
+            tok(TokenKind::KwEnum, 0),
+            tok(TokenKind::LBrace, 5),
+            tok(TokenKind::Ident, 7), // Unit
+            tok(TokenKind::Comma, 11),
+            tok(TokenKind::Ident, 13), // T
+            tok(TokenKind::LParen, 14),
+            tok(TokenKind::Ident, 15), // u8
+            tok(TokenKind::RParen, 17),
+            tok(TokenKind::Comma, 18),
+            tok(TokenKind::Ident, 20), // R
+            tok(TokenKind::LBrace, 22),
+            tok(TokenKind::Ident, 24), // x
+            tok(TokenKind::Colon, 25),
+            tok(TokenKind::Ident, 27), // u8
+            tok(TokenKind::RBrace, 29),
+            tok(TokenKind::RBrace, 30),
+            tok(TokenKind::Eof, 31),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        if let Some(TypeData::Enum { variants }) = arena.type_data(ty_id) {
+            assert_eq!(variants.len(), 3);
+            // First unit
+            assert!(matches!(
+                variants[0],
+                paideia_as_ast::EnumVariant::Unit { .. }
+            ));
+            // Second tuple
+            assert!(matches!(
+                variants[1],
+                paideia_as_ast::EnumVariant::Tuple { .. }
+            ));
+            // Third record
+            assert!(matches!(
+                variants[2],
+                paideia_as_ast::EnumVariant::Record { .. }
+            ));
+        } else {
+            panic!("expected TypeEnum");
+        }
+    }
+
+    #[test]
+    fn parse_enum_trailing_comma() {
+        // `enum { A, B, }` → KwEnum LBrace Ident Comma Ident Comma RBrace Eof
+        let tokens = vec![
+            tok(TokenKind::KwEnum, 0),
+            tok(TokenKind::LBrace, 5),
+            tok(TokenKind::Ident, 7), // A
+            tok(TokenKind::Comma, 8),
+            tok(TokenKind::Ident, 10), // B
+            tok(TokenKind::Comma, 11),
+            tok(TokenKind::RBrace, 12),
+            tok(TokenKind::Eof, 13),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        if let Some(TypeData::Enum { variants }) = arena.type_data(ty_id) {
+            assert_eq!(variants.len(), 2);
+        } else {
+            panic!("expected TypeEnum");
+        }
+    }
+
+    #[test]
+    fn parse_enum_p0198_missing_lbrace() {
+        // `enum (` → missing { after enum
+        let tokens = vec![
+            tok(TokenKind::KwEnum, 0),
+            tok(TokenKind::LParen, 5),
+            tok(TokenKind::Eof, 6),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        // Should error with P0198 (malformed enum)
+        assert!(result.is_err());
+        assert!(diags.len() > 0);
+        // The diagnostic code should be 198 for malformed enum
+        assert!(diags.iter().any(|d| d.code().number() == 198));
+    }
+
+    #[test]
+    fn parse_enum_p0198_missing_rparen() {
+        // `enum { Some(u64 }` → missing ) in tuple variant
+        let tokens = vec![
+            tok(TokenKind::KwEnum, 0),
+            tok(TokenKind::LBrace, 5),
+            tok(TokenKind::Ident, 7), // Some
+            tok(TokenKind::LParen, 11),
+            tok(TokenKind::Ident, 12), // u64
+            tok(TokenKind::RBrace, 16),
+            tok(TokenKind::Eof, 17),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        // Should error with P0198
+        assert!(result.is_err());
+        assert!(diags.len() > 0);
+        assert_eq!(diags[0].code().number(), 198);
+    }
+
+    #[test]
+    fn parse_enum_p0198_missing_rbrace() {
+        // `enum { A, B` → missing closing }
+        let tokens = vec![
+            tok(TokenKind::KwEnum, 0),
+            tok(TokenKind::LBrace, 5),
+            tok(TokenKind::Ident, 7), // A
+            tok(TokenKind::Comma, 8),
+            tok(TokenKind::Ident, 10), // B
+            tok(TokenKind::Eof, 11),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        // Should error with P0198
+        assert!(result.is_err());
+        assert!(diags.len() > 0);
+        assert_eq!(diags[0].code().number(), 198);
     }
 }

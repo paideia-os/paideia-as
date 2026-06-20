@@ -50,15 +50,11 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 if segments.len() == 1 {
                     // This is a bare Ident; try to parse as record constructor.
                     let type_name_id = segments[0];
-                    let lhs_span = self
-                        .arena()
-                        .get(lhs)
-                        .map(|nd| nd.span)
-                        .unwrap_or_else(|| {
-                            self.peek().map(|t| t.span).unwrap_or_else(|| {
-                                Span::new(self.file(), 0, 0)
-                            })
-                        });
+                    let lhs_span = self.arena().get(lhs).map(|nd| nd.span).unwrap_or_else(|| {
+                        self.peek()
+                            .map(|t| t.span)
+                            .unwrap_or_else(|| Span::new(self.file(), 0, 0))
+                    });
                     return self.parse_record_cons_fields(type_name_id, lhs_span);
                 }
             }
@@ -92,9 +88,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
             // Expect field name (Ident)
             let field_name_tok = self.expect(TokenKind::Ident)?;
-            let field_name_id = self
-                .arena_mut()
-                .alloc(NodeKind::Ident, field_name_tok.span);
+            let field_name_id = self.arena_mut().alloc(NodeKind::Ident, field_name_tok.span);
 
             // Expect colon
             if !self.at(TokenKind::Colon) {
@@ -135,10 +129,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         Ok(self.arena_mut().alloc_expr(
             NodeKind::ExprRecordCons,
             span,
-            ExprData::RecordCons {
-                type_name,
-                fields,
-            },
+            ExprData::RecordCons { type_name, fields },
         ))
     }
 

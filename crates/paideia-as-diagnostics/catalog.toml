@@ -317,6 +317,15 @@ description = "A record type or constructor expression is syntactically incomple
 since = "0.1.0"
 deprecated = false
 
+[diagnostic.P0198]
+severity = "error"
+category = "parser"
+title = "Malformed enum type"
+brief = "malformed enum: expected variant name, payload, or closing brace"
+description = "An enum type definition is syntactically incomplete. Ensure all variants follow one of these patterns: `Name` (unit), `Name(Type1, Type2)` (tuple), or `Name { field1: Type1 }` (record), separated by commas, with proper opening and closing braces."
+since = "0.1.0"
+deprecated = false
+
 [diagnostic.O1500]
 severity = "note"
 category = "optimization"

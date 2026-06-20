@@ -391,6 +391,31 @@ impl<'a> Term<'a> {
             return result;
         }
 
+        // Handle TypeEnum
+        if let Some(TypeData::Enum { variants }) = self.arena.type_data(self.id) {
+            for variant in variants {
+                match variant {
+                    crate::EnumVariant::Unit { name } => {
+                        result.push(Term::new(self.arena, *name));
+                    }
+                    crate::EnumVariant::Tuple { name, payload } => {
+                        result.push(Term::new(self.arena, *name));
+                        for ty_node in payload {
+                            result.push(Term::new(self.arena, *ty_node));
+                        }
+                    }
+                    crate::EnumVariant::Record { name, fields } => {
+                        result.push(Term::new(self.arena, *name));
+                        for (field_name, field_ty) in fields {
+                            result.push(Term::new(self.arena, *field_name));
+                            result.push(Term::new(self.arena, *field_ty));
+                        }
+                    }
+                }
+            }
+            return result;
+        }
+
         result
     }
 }

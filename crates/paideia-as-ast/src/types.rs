@@ -79,6 +79,41 @@ pub enum TypeData {
         /// Record fields: each is (field_name_node, field_type_node).
         fields: Vec<(NodeId, NodeId)>,
     },
+
+    /// `enum { Variant1, Variant2(T1, T2), Variant3 { f1: T1, f2: T2 }, ... }`.
+    ///
+    /// Enum type: a sum type with variants that can be unit, tuple-payload, or record-payload.
+    Enum {
+        /// Enum variants: each can be unit-shaped, tuple-shaped, or record-shaped.
+        variants: Vec<EnumVariant>,
+    },
+}
+
+/// One variant of an enum type.
+///
+/// Variants come in three shapes: unit (no payload), tuple (positional payload),
+/// or record (labeled payload).
+#[derive(Clone, Debug)]
+pub enum EnumVariant {
+    /// Unit variant with no payload.
+    Unit {
+        /// Variant name (Ident node).
+        name: NodeId,
+    },
+    /// Tuple variant with positional payload.
+    Tuple {
+        /// Variant name (Ident node).
+        name: NodeId,
+        /// Payload type nodes.
+        payload: Vec<NodeId>,
+    },
+    /// Record variant with labeled payload.
+    Record {
+        /// Variant name (Ident node).
+        name: NodeId,
+        /// Payload fields: each is (field_name_node, field_type_node).
+        fields: Vec<(NodeId, NodeId)>,
+    },
 }
 
 /// Substructural type class.

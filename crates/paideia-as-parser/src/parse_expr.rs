@@ -160,21 +160,16 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         // Disambiguate by peeking ahead after `{`: if we see `Ident :`, it's likely a record constructor.
         if self.at(TokenKind::LBrace) {
             if let Some(ExprData::Path { segments }) = self.arena().expr_data(lhs) {
-                if segments.len() == 1
-                    && self.is_likely_record_cons()
-                {
+                if segments.len() == 1 && self.is_likely_record_cons() {
                     // This looks like a record constructor; parse it.
                     let type_name_id = segments[0];
-                    let lhs_span = self
-                        .arena()
-                        .get(lhs)
-                        .map(|nd| nd.span)
-                        .unwrap_or_else(|| {
-                            self.peek().map(|t| t.span).unwrap_or_else(|| {
-                                Span::new(self.file(), 0, 0)
-                            })
-                        });
-                    if let Ok(record_cons_expr) = self.parse_record_cons_fields(type_name_id, lhs_span)
+                    let lhs_span = self.arena().get(lhs).map(|nd| nd.span).unwrap_or_else(|| {
+                        self.peek()
+                            .map(|t| t.span)
+                            .unwrap_or_else(|| Span::new(self.file(), 0, 0))
+                    });
+                    if let Ok(record_cons_expr) =
+                        self.parse_record_cons_fields(type_name_id, lhs_span)
                     {
                         lhs = record_cons_expr;
                     }

@@ -216,6 +216,8 @@ pub trait TypeVisitor {
     fn visit_type_ptr(&mut self, _arena: &AstArena, _id: NodeId) {}
     /// Visit a Record type.
     fn visit_type_record(&mut self, _arena: &AstArena, _id: NodeId) {}
+    /// Visit an Enum type.
+    fn visit_type_enum(&mut self, _arena: &AstArena, _id: NodeId) {}
 }
 
 /// Dispatch visitor call by node kind for types.
@@ -233,6 +235,7 @@ pub fn walk_type<V: TypeVisitor>(visitor: &mut V, arena: &AstArena, id: NodeId) 
         NodeKind::TypeEffectRow => visitor.visit_type_effect_row(arena, id),
         NodeKind::TypePtr => visitor.visit_type_ptr(arena, id),
         NodeKind::TypeRecord => visitor.visit_type_record(arena, id),
+        NodeKind::TypeEnum => visitor.visit_type_enum(arena, id),
         _ => {}
     }
 }

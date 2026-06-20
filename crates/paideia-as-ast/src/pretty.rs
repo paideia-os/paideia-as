@@ -601,6 +601,32 @@ fn print_type_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 .join(", ");
             format!("Record {{ fields: [{}] }}", fields_str)
         }
+        TypeData::Enum { variants } => {
+            let variants_str = variants
+                .iter()
+                .map(|v| match v {
+                    crate::EnumVariant::Unit { name } => format!("{}", name),
+                    crate::EnumVariant::Tuple { name, payload } => {
+                        let payload_str = payload
+                            .iter()
+                            .map(|p| format!("{}", p))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        format!("{}({})", name, payload_str)
+                    }
+                    crate::EnumVariant::Record { name, fields } => {
+                        let fields_str = fields
+                            .iter()
+                            .map(|(fname, fty)| format!("{}: {}", fname, fty))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        format!("{} {{ {} }}", name, fields_str)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("Enum {{ variants: [{}] }}", variants_str)
+        }
     };
 
     use std::fmt::Write;

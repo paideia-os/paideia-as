@@ -33,7 +33,7 @@ pub use node_id::NodeId;
 pub use patterns::{PatField, PatternData};
 pub use reflect::{SerializedSpan, SerializedTerm, Term, TermHead};
 pub use stmts::StmtData;
-pub use types::{LinClass, TypeData};
+pub use types::{EnumVariant, LinClass, TypeData};
 pub use visit::{
     ExprVisitor, ItemVisitor, PatternVisitor, StmtVisitor, TypeVisitor, walk_expr, walk_item,
     walk_pattern, walk_stmt, walk_type,
