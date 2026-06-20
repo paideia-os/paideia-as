@@ -7,6 +7,7 @@ use smallvec::SmallVec;
 use std::ops::Index;
 
 use crate::instruction::InstructionSideTable;
+use crate::loop_meta::LoopMetaTable;
 use crate::node::{IrKind, IrNodeData, IrNodeId};
 
 /// Slab-allocated IR storage for one source file.
@@ -24,6 +25,8 @@ pub struct IrArena {
     children_table: Vec<SmallVec<[IrNodeId; 4]>>,
     /// Side-table: per-node instruction payloads (m9 opt passes).
     instruction_table: InstructionSideTable,
+    /// Side-table: loop metadata (entry/exit labels) indexed by Loop node ID.
+    loop_meta_table: LoopMetaTable,
 }
 
 impl IrArena {
@@ -40,6 +43,7 @@ impl IrArena {
             nodes: Vec::with_capacity(n),
             children_table: Vec::with_capacity(n),
             instruction_table: InstructionSideTable::new(),
+            loop_meta_table: LoopMetaTable::new(),
         }
     }
 
@@ -131,6 +135,17 @@ impl IrArena {
     /// Borrow the instruction side-table (mutable).
     pub fn instructions_mut(&mut self) -> &mut InstructionSideTable {
         &mut self.instruction_table
+    }
+
+    /// Borrow the loop metadata side-table (read-only).
+    #[must_use]
+    pub fn loop_meta(&self) -> &LoopMetaTable {
+        &self.loop_meta_table
+    }
+
+    /// Borrow the loop metadata side-table (mutable).
+    pub fn loop_meta_mut(&mut self) -> &mut LoopMetaTable {
+        &mut self.loop_meta_table
     }
 }
 

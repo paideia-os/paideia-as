@@ -1,0 +1,13 @@
+// Alignment test fixture for loop-entry alignment detection
+// Phase-4-m1-009: loop sum_array example with #[align] annotation
+// #[align]
+// fn sum_array(arr: &[u64], len: usize) -> u64 {
+//     let mut sum: u64 = 0;
+//     loop {
+//         if len == 0 { break; }
+//         sum += *arr;
+//         arr += 8;
+//         len -= 1;
+//     }
+//     sum
+// }
