@@ -182,15 +182,26 @@ pub enum ExprData {
         else_block: Option<NodeId>,
     },
 
-    /// `loop block` or `while cond block` or `for pat in iter block`.
+    /// `loop block` or `while cond block`.
     ///
-    /// Loop expression. The kind disambiguates between infinite, conditional,
-    /// and iterative loops.
+    /// Loop expression. The kind disambiguates between infinite and conditional loops.
     Loop {
-        /// Loop kind (Loop, While, For).
+        /// Loop kind (Loop, While).
         kind: LoopKind,
-        /// Optional header (condition for While, or pattern+iter for For).
+        /// Optional header (condition for While).
         header: Option<NodeId>,
+        /// Loop body.
+        body: NodeId,
+    },
+
+    /// `for pat in iter { body }`.
+    ///
+    /// Iterative for-loop with pattern binding and iterable.
+    For {
+        /// Pattern binding the loop variable(s).
+        pattern: NodeId,
+        /// Expression evaluating to an iterable.
+        iterable: NodeId,
         /// Loop body.
         body: NodeId,
     },
@@ -397,8 +408,6 @@ pub enum LoopKind {
     Loop,
     /// Conditional loop: `while cond block`.
     While,
-    /// Iterative loop: `for pat in iter block`.
-    For,
 }
 
 #[cfg(test)]
@@ -519,6 +528,5 @@ mod tests {
     fn loop_kind_variants_exist() {
         let _loop_kind = LoopKind::Loop;
         let _while_kind = LoopKind::While;
-        let _for_kind = LoopKind::For;
     }
 }

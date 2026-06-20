@@ -87,8 +87,10 @@ pub enum NodeKind {
     ExprMatch,
     /// `if cond then else?`.
     ExprIf,
-    /// `loop block` or `while cond block` or `for pat in iter block`.
+    /// `loop block` or `while cond block`.
     ExprLoop,
+    /// `for pat in iter { body }`.
+    ExprFor,
     /// `perform Effect::op(args)`.
     ExprPerform,
     /// `resume value`.

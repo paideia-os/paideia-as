@@ -1,0 +1,8 @@
+fn nested_loops() {
+    let matrix = [[1, 2], [3, 4]];
+    for row in matrix {
+        for col in row {
+            col
+        }
+    }
+}

@@ -1,0 +1,6 @@
+fn iterate_method() {
+    let v = vec(1, 2, 3);
+    for item in v.iter() {
+        item
+    }
+}

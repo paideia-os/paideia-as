@@ -1,0 +1,11 @@
+fn for_with_control() {
+    for i in 0..10 {
+        if i == 5 {
+            break
+        };
+        if i == 3 {
+            continue
+        };
+        i
+    }
+}

@@ -45,8 +45,10 @@ pub enum TermHead {
     Match,
     /// `if cond then else?`.
     If,
-    /// `loop block` or `while cond block` or `for pat in iter block`.
+    /// `loop block` or `while cond block`.
     Loop,
+    /// `for pat in iter { body }`.
+    For,
     /// Register operand (e.g., `rax`, `r8`).
     OperandRegister,
     /// Immediate operand.
@@ -145,6 +147,7 @@ impl<'a> Term<'a> {
                 NodeKind::ExprMatch => TermHead::Match,
                 NodeKind::ExprIf => TermHead::If,
                 NodeKind::ExprLoop => TermHead::Loop,
+                NodeKind::ExprFor => TermHead::For,
                 NodeKind::OperandRegister => TermHead::OperandRegister,
                 NodeKind::OperandImmediate => TermHead::OperandImmediate,
                 NodeKind::OperandMemoryRef => TermHead::OperandMemoryRef,
@@ -306,6 +309,15 @@ impl<'a> Term<'a> {
                     if let Some(h) = header {
                         result.push(Term::new(self.arena, *h));
                     }
+                    result.push(Term::new(self.arena, *body));
+                }
+                ExprData::For {
+                    pattern,
+                    iterable,
+                    body,
+                } => {
+                    result.push(Term::new(self.arena, *pattern));
+                    result.push(Term::new(self.arena, *iterable));
                     result.push(Term::new(self.arena, *body));
                 }
                 ExprData::OperandRegister { reg } => {

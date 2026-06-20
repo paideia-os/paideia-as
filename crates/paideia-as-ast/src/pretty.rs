@@ -478,6 +478,16 @@ fn print_expr_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 kind, header, body
             )
         }
+        ExprData::For {
+            pattern,
+            iterable,
+            body,
+        } => {
+            format!(
+                "For {{ pattern: {}, iterable: {}, body: {} }}",
+                pattern, iterable, body
+            )
+        }
         ExprData::OperandRegister { reg } => {
             format!("OperandRegister {{ reg: {} }}", reg)
         }

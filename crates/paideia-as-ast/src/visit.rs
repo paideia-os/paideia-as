@@ -111,6 +111,8 @@ pub trait ExprVisitor {
     fn visit_expr_if(&mut self, _arena: &AstArena, _id: NodeId) {}
     /// Visit a Loop expression.
     fn visit_expr_loop(&mut self, _arena: &AstArena, _id: NodeId) {}
+    /// Visit a For expression.
+    fn visit_expr_for(&mut self, _arena: &AstArena, _id: NodeId) {}
     /// Visit a Perform expression.
     fn visit_expr_perform(&mut self, _arena: &AstArena, _id: NodeId) {}
     /// Visit a Resume expression.
@@ -161,6 +163,7 @@ pub fn walk_expr<V: ExprVisitor>(visitor: &mut V, arena: &AstArena, id: NodeId) 
         NodeKind::ExprMatch => visitor.visit_expr_match(arena, id),
         NodeKind::ExprIf => visitor.visit_expr_if(arena, id),
         NodeKind::ExprLoop => visitor.visit_expr_loop(arena, id),
+        NodeKind::ExprFor => visitor.visit_expr_for(arena, id),
         NodeKind::ExprPerform => visitor.visit_expr_perform(arena, id),
         NodeKind::ExprResume => visitor.visit_expr_resume(arena, id),
         NodeKind::ExprHandlerValue => visitor.visit_expr_handler_value(arena, id),

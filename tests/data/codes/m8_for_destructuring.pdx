@@ -1,0 +1,6 @@
+fn iterate_with_destructure() {
+    let pairs = [(1, 2), (3, 4)];
+    for (x, y) in pairs {
+        x + y
+    }
+}

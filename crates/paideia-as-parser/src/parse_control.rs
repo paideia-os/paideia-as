@@ -147,40 +147,37 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
     /// Parse iterative loop: `for pat in iter { body }`.
     ///
-    /// **TODO (phase-2)**: Currently only the iterator expression is parsed and stored.
-    /// The pattern is parsed but not attached to the loop node. A future PR will
-    /// extend the Loop variant to carry the pattern separately or wrap it in header.
+    /// Parses the pattern, `in` keyword, iterable expression, and body block.
+    /// Returns a `NodeKind::ExprFor` with pattern, iterable, and body stored.
     fn parse_loop_for(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
         let for_tok = self.expect(TokenKind::KwFor)?;
         let for_span = for_tok.span;
 
-        // Parse pattern (currently discarded in phase-1)
-        let _pattern = self.parse_for_pattern()?;
+        // Parse pattern
+        let pattern = self.parse_for_pattern()?;
 
         // Expect `in`
         self.expect(TokenKind::KwIn)?;
 
         // Parse iterator expression
-        let iter_expr = self.parse_expr()?;
+        let iterable = self.parse_expr()?;
 
         // Parse body
         let body = self.parse_block()?;
 
         let body_span = self.arena().get(body).map(|nd| nd.span).unwrap_or(for_span);
-        let loop_span_full = Span::new(
+        let for_span_full = Span::new(
             for_span.file(),
             for_span.byte_start(),
             body_span.byte_start() + body_span.byte_len() - for_span.byte_start(),
         );
 
-        // For now, store the iterator as the header. The pattern is parsed but
-        // discarded. A future PR will properly attach the pattern.
         Ok(self.arena_mut().alloc_expr(
-            NodeKind::ExprLoop,
-            loop_span_full,
-            ExprData::Loop {
-                kind: LoopKind::For,
-                header: Some(iter_expr),
+            NodeKind::ExprFor,
+            for_span_full,
+            ExprData::For {
+                pattern,
+                iterable,
                 body,
             },
         ))
@@ -487,6 +484,40 @@ mod tests {
                 assert!(header.is_some());
             } else {
                 panic!("expected ExprLoop");
+            }
+        }
+    }
+
+    #[test]
+    fn for_simple() {
+        let tokens = vec![
+            tok(TokenKind::KwFor, 0, 3), // for
+            tok(TokenKind::Ident, 4, 1), // x
+            tok(TokenKind::KwIn, 6, 2),  // in
+            tok(TokenKind::Ident, 9, 4), // list
+            tok(TokenKind::LBrace, 14, 1),
+            tok(TokenKind::IntLit, 16, 1), // 1
+            tok(TokenKind::RBrace, 17, 1),
+            tok(TokenKind::Eof, 18, 0),
+        ];
+        let (arena, root, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected");
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprFor);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::For {
+                pattern,
+                iterable,
+                body,
+            } = expr_data
+            {
+                // All three fields should be valid NodeIds
+                let _pattern = pattern;
+                let _iterable = iterable;
+                let _body = body;
+            } else {
+                panic!("expected ExprFor");
             }
         }
     }
