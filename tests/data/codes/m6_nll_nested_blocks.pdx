@@ -1,0 +1,12 @@
+; Nested blocks with borrows that last-use at different depths.
+; NLL handles overlapping block scopes with precise last-use tracking.
+fn test_nll_nested_blocks() -> u64 {
+  let x: u64 = 20;
+  let r1: &x = &x;
+  let v1: u64 = *r1;
+  {
+    let r2: &x = &x;
+    let v2: u64 = *r2;
+    v1 + v2
+  }
+}

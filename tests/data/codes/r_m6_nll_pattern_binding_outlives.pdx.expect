@@ -1,0 +1,3 @@
+# Pattern binding outlives mutable borrow in the same scope.
+# Should reject with S0906 — pattern binding holds immutable reference.
+S0906

@@ -1,0 +1,2 @@
+# Borrow, print (use), then mutable borrow.
+# Demonstrates classic NLL pattern from the spec.

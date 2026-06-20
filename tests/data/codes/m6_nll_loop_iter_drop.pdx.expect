@@ -1,0 +1,2 @@
+# Iterator borrow with last-use in loop body.
+# NLL enables reuse after iterator is consumed.

@@ -1,0 +1,8 @@
+; Pattern binding outlives mutable borrow in the same scope.
+; Should reject with S0906 — pattern binding holds immutable reference.
+fn test_nll_pattern_binding_outlives() -> u64 {
+  let x: u64 = 60;
+  let r: &x = &x;
+  let m: &mut x = &mut x;
+  *r + *m
+}

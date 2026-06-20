@@ -1,0 +1,2 @@
+# Immutable borrow, last use, then mutable borrow.
+# Should accept with NLL — immutable borrow's scope ends at its last use.

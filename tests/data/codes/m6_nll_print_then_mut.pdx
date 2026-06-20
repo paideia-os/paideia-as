@@ -1,0 +1,9 @@
+; Borrow, print (use), then mutable borrow.
+; Demonstrates classic NLL pattern from the spec.
+fn test_nll_print_then_mut() -> u64 {
+  let v: u64 = 10;
+  let r: &v = &v;
+  let val: u64 = *r;
+  let r2: &mut v = &mut v;
+  *r2 + val
+}

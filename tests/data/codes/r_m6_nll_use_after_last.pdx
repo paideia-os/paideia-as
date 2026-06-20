@@ -1,0 +1,10 @@
+; Use after last-use of immutable borrow (data access uses binding).
+; Should reject with S0908 — use after borrowing constraints violated.
+; NLL doesn't help here because the immutable borrow is still live (not last-used).
+fn test_nll_use_after_last() -> u64 {
+  let x: u64 = 30;
+  let r: &x = &x;
+  let v1: u64 = *r;
+  let r2: &mut x = &mut x;
+  *r + v1
+}

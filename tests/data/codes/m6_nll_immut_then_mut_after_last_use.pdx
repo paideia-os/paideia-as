@@ -1,0 +1,9 @@
+; Immutable borrow, last use, then mutable borrow.
+; Should accept with NLL — immutable borrow's scope ends at its last use (print(iref)).
+fn test_nll_immut_then_mut() -> u64 {
+  let x: u64 = 42;
+  let iref: &x = &x;
+  let result: u64 = *iref;
+  let mref: &mut x = &mut x;
+  *mref + result
+}

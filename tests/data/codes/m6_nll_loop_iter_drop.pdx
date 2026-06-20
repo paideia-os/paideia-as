@@ -1,0 +1,9 @@
+; Iterator borrow with last-use in loop body.
+; NLL enables reuse after iterator is consumed.
+fn test_nll_loop_iter_drop() -> u64 {
+  let x: u64 = 5;
+  let xref: &x = &x;
+  let val: u64 = *xref;
+  let y: &mut x = &mut x;
+  *y + val
+}

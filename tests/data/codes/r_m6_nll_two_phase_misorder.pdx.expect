@@ -1,0 +1,3 @@
+# Two-phase borrow misordered: mutable before immutable in same scope.
+# Should reject with S0907 — cannot borrow mutable more than once.
+S0907

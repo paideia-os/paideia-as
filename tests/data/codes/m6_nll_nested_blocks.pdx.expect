@@ -1,0 +1,2 @@
+# Nested blocks with borrows that last-use at different depths.
+# NLL handles overlapping block scopes with precise last-use tracking.

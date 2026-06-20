@@ -1,0 +1,9 @@
+; Two-phase borrow misordered: mutable before immutable in same scope.
+; Should reject with S0907 — cannot borrow mutable more than once.
+; (or S0906 if we track immutable+mutable more strictly).
+fn test_nll_two_phase_misorder() -> u64 {
+  let x: u64 = 50;
+  let m1: &mut x = &mut x;
+  let i1: &x = &x;
+  *m1 + *i1
+}

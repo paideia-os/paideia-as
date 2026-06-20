@@ -101,6 +101,26 @@ impl BorrowWalker {
         }
     }
 
+    /// Mark the last-use point of a borrow (NLL semantics).
+    ///
+    /// After this call, the borrow identified by `(binding, region)` is no longer
+    /// "live" and won't conflict with new borrows. This implements Non-Lexical
+    /// Lifetimes (NLL) where borrows end at their last-use point rather than
+    /// at the enclosing scope's end.
+    ///
+    /// # Phase 4 m6-005 note
+    /// This method enables precise drop semantics, allowing patterns like:
+    /// ```ignore
+    /// let r = &v;
+    /// print(r);        // last use of r
+    /// let r2 = &mut v; // OK with NLL — r's scope is done
+    /// ```
+    pub fn mark_last_use(&mut self, binding: u32, region: u32) {
+        if let Some(borrows) = self.active.get_mut(&binding) {
+            borrows.retain(|(_, r)| *r != region);
+        }
+    }
+
     /// Returns all accumulated diagnostic messages.
     #[must_use]
     pub fn diagnostics(&self) -> &[String] {
@@ -213,5 +233,33 @@ mod tests {
         let err = result.unwrap_err();
         assert!(err.contains("S0906"));
         assert_eq!(walker.diagnostics().len(), 1);
+    }
+
+    #[test]
+    fn borrow_walker_mark_last_use_releases_region() {
+        let mut walker = BorrowWalker::new();
+        assert!(walker.borrow_immutable(1, 100).is_ok());
+        assert_eq!(walker.active_borrows(1).unwrap().len(), 1);
+
+        walker.mark_last_use(1, 100);
+        assert!(walker.active_borrows(1).unwrap().is_empty());
+    }
+
+    #[test]
+    fn borrow_walker_immut_then_last_use_then_mut_succeeds_with_nll() {
+        let mut walker = BorrowWalker::new();
+        // First immutable borrow
+        assert!(walker.borrow_immutable(1, 100).is_ok());
+        assert_eq!(walker.active_borrows(1).unwrap().len(), 1);
+
+        // Mark it as last-used (NLL semantics)
+        walker.mark_last_use(1, 100);
+        assert!(walker.active_borrows(1).unwrap().is_empty());
+
+        // Now mutable borrow should succeed (no active immutable borrow)
+        assert!(walker.borrow_mutable(1, 101).is_ok());
+        assert_eq!(walker.active_borrows(1).unwrap().len(), 1);
+        let active = walker.active_borrows(1).unwrap();
+        assert!(active.iter().all(|(k, _)| matches!(k, BorrowKind::Mutable)));
     }
 }

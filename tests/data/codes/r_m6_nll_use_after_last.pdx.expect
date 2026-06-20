@@ -1,0 +1,3 @@
+# Use after last-use of immutable borrow (data access uses binding).
+# Should reject with S0908 — use after borrowing constraints violated.
+S0908

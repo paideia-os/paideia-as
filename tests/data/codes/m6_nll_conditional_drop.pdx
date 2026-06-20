@@ -1,0 +1,13 @@
+; Conditional borrow with last-use before alternative branch.
+; NLL allows reuse after last use in conditional flow.
+fn test_nll_conditional_drop(flag: bool) -> u64 {
+  let x: u64 = 100;
+  let r: &x = &x;
+  let val: u64 = *r;
+  if flag {
+    val
+  } else {
+    let r2: &mut x = &mut x;
+    *r2
+  }
+}
