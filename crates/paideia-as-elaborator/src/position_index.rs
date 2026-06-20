@@ -134,6 +134,15 @@ impl PositionIndex {
     pub fn entries_for_file(&self, file: FileId) -> Option<&[PositionEntry]> {
         self.files.get(&file).map(|v| v.as_slice())
     }
+
+    /// Clear all entries for a specific file.
+    ///
+    /// Used during incremental invalidation to remove stale elaborator results
+    /// when a file is edited. Call after updating a file to reset its PositionIndex
+    /// slice; the elaborator will repopulate on the next elaboration pass.
+    pub fn clear_file(&mut self, file: FileId) {
+        self.files.remove(&file);
+    }
 }
 
 impl Default for PositionIndex {
@@ -334,5 +343,49 @@ mod tests {
         assert_eq!(entries[0].span_start, ByteOffset(0));
         assert_eq!(entries[1].span_start, ByteOffset(10));
         assert_eq!(entries[2].span_start, ByteOffset(20));
+    }
+
+    #[test]
+    fn position_index_clear_file_removes_only_that_file() {
+        let file1 = FileId(1);
+        let file2 = FileId(2);
+        let mut index = PositionIndex::new();
+
+        // Add entries to both files
+        index.insert(
+            file1,
+            PositionEntry {
+                span_start: ByteOffset(0),
+                span_end: ByteOffset(10),
+                type_id: None,
+                lin_class: Some(LinClass::Linear),
+                effect_row_id: None,
+                cap_set_id: None,
+            },
+        );
+
+        index.insert(
+            file2,
+            PositionEntry {
+                span_start: ByteOffset(0),
+                span_end: ByteOffset(5),
+                type_id: None,
+                lin_class: Some(LinClass::Unrestricted),
+                effect_row_id: None,
+                cap_set_id: None,
+            },
+        );
+
+        index.finish();
+        assert_eq!(index.entry_count(), 2);
+
+        // Clear file1
+        index.clear_file(file1);
+
+        // file1 should be gone, file2 should remain
+        assert_eq!(index.entry_count(), 1);
+        assert!(index.entries_for_file(file1).is_none());
+        assert!(index.entries_for_file(file2).is_some());
+        assert_eq!(index.entries_for_file(file2).unwrap().len(), 1);
     }
 }

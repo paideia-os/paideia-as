@@ -163,10 +163,12 @@ fn correctness_references_returns_all_occurrences_across_documents() {
 
 /// Latency probe: single-character change on a 1000-line synthetic document.
 ///
-/// #[ignore] because debug builds may exceed 100ms budget.
-/// Enable in release CI with `cargo test --release`.
+/// Phase-3 honest scaffold: with incremental invalidate_module wired,
+/// this probe measures end-to-end latency of a single-character change.
+/// Until elaborator-side population fires (m4 phase gap), the PositionIndex
+/// is not populated and the latency is near-zero. The <100ms assertion holds
+/// trivially today; it gains meaning when elaboration integration is complete.
 #[test]
-#[ignore]
 fn latency_single_char_change_under_100ms() {
     let uri = test_url("latency_test.pax");
 
