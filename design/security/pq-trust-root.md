@@ -72,6 +72,46 @@ Q-codes live under `Category::Q` (post-quantum, 0900–0999). Added to `paideia-
 - ~~**Row-polymorphic scope subsumption**~~: **RESOLVED in Phase 3 m7-004 (PR #581).** See "Phase 3 m7 update" below.
 - **Signature timestamping / revocation**: not in scope for m7. Phase 3 may add an in-band timestamp section + revocation registry.
 
+## Phase 3 m8: Signature lifecycle
+
+This section consolidates the Phase 3 m8 deliverables: RFC 3161 timestamping (m8-001), revocation list format + check (m8-002), and the NIST ACVP test-vector status (m8-003 — staying open per its own AC).
+
+### RFC 3161 timestamping (m8-001 / PR #583)
+
+`paideia-pq-sign::timestamp` adds the client side:
+
+- `TimestampRequest` carries a message imprint (BLAKE3-hashed in the phase-3 minimum; SHA-256/384/512 OIDs documented).
+- `TimestampToken` carries (tsa_name, gen_time_seconds, serial_number, message_imprint, signature).
+- `build_request(data, algo)` hashes input.
+- `fetch_token(request, tsa_url)` — phase-3 scaffold returns a synthetic empty token until reqwest integration lands in a follow-up. The CLI subcommand `paideia-pq-sign timestamp --tsa-url --input` exposes the scaffold today.
+
+The token is intended to attach to `.paideia.sig` as an additional sub-record so verifiers can replay the TSA → release-artifact chain. The PAX-section attachment landing is m8-005 closure work.
+
+### Revocation list (m8-002 / PR #584)
+
+`paideia-pq-sign::revocation` adds JSON-lines-format revocation:
+
+- `RevocationEntry { key_id, revoked_at (ISO 8601), reason }`.
+- `RevocationList`: HashMap-keyed, O(1) lookup, line-number-aware parser.
+- CLI: `paideia-pq-sign verify --artifact --revocation-list [--ignore-revocation]`.
+- key_id computation: BLAKE3 of the hybrid public key, hex prefix.
+
+When the artifact's signing-key key_id is in the revocation list and the operator hasn't passed `--ignore-revocation`, verification rejects the artifact.
+
+### NIST ACVP test vectors (m8-003 / PR #585) — STAYS OPEN
+
+The `ml-dsa` Rust crate (FIPS-204 ML-DSA-65 implementation) does not yet ship the NIST ACVP test-vector corpus. Per the m8-003 issue's AC bullet 2 ("If upstream hasn't shipped by the m8 cut, document the upstream issue link; task stays open."), m8-003 documents the deferral in `tests/pq-corpus/ML_DSA_ACVP_STATUS.md` and leaves the GitHub issue OPEN. Phase-3 m8 closes with this one issue intentionally open — it activates with the upstream landing.
+
+Existing KAT coverage: `happy_mldsa65_keygen_sign_verify_roundtrip` (generative) + the hybrid path in `happy_hybrid_keygen_sign_verify_roundtrip`. Adequate for catching regressions; ACVP coverage is gold-standard and complementary.
+
+### Operational impact summary
+
+Per the m8 closure:
+
+- Signing pipelines may optionally fetch an RFC 3161 timestamp during the m7-005 `release` flow.
+- Verifiers may optionally consult a revocation list at verify time.
+- The ACVP coverage gap stays as the single Phase-3 deferral inside m8; the phase-2 KAT remains the operational baseline.
+
 ## Phase 3 m7 update: row-polymorphic scope subsumption
 
 Phase 2 m7-004 deferred the row-polymorphic case (the "Row-polymorphic scope subsumption" D-row above). Phase 3 m7-004 (PR #581) discharges it.
