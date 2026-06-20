@@ -1,3 +1,9 @@
+# paideia-as Phase 2 status (decision gate G4-ready)
+
+**Phase 2 substrate complete as of m11-004.** The 11 milestones m1–m10 are closed (PRs #347–#465). m11 is in progress (closes via the v0.2.0 tag at m11-006). See `docs/g4-prep.md` for the G4 verification checklist.
+
+Below is the original phase-1 history (decision gate G2) followed by per-milestone Phase 2 closure notes inserted in chronological order.
+
 # paideia-as phase-1 status (decision gate G2)
 
 This document tracks phase-1 completion against the eleven deliverables
