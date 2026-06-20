@@ -24,6 +24,7 @@ members = [
     "tests/effects-corpus",
     "tests/linearity-regression",
     "tests/lsp-harness",
+    "tests/migration-smoke/cap",
     "tests/modules-multifile",
     "tests/opt-regression/align",
     "tests/opt-regression/branch-hint",
