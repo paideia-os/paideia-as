@@ -24,6 +24,7 @@ hex           = "0.4"
 ml-dsa        = { workspace = true, features = ["rand_core"] }
 rand_core     = { workspace = true }
 rand_chacha   = "0.3"
+reqwest       = { version = "0.12", features = ["blocking"] }
 serde         = { workspace = true, features = ["derive"] }
 serde_json    = { workspace = true }
 signature     = { workspace = true }
@@ -34,7 +35,9 @@ paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
 paideia-as-emitter-pax = { path = "../paideia-as-emitter-pax" }
 
 [dev-dependencies]
-hex = "0.4"
-rand_core = { workspace = true, features = ["getrandom"] }
-tempfile = "3"
+axum           = { version = "0.7", features = ["macros"] }
+hex            = "0.4"
+rand_core      = { workspace = true, features = ["getrandom"] }
+tempfile       = "3"
+tokio          = { version = "1", features = ["full"] }
 paideia-as-emitter-pax = { path = "../paideia-as-emitter-pax" }
