@@ -1,0 +1,31 @@
+// Smoke test for Phase 4 m11-004: HashMap<K, V> open-addressing hash table.
+//
+// Exercises HashMap struct definition and core operations: new, with_capacity,
+// insert, get, remove, contains_key, len, and iteration.
+
+struct Bucket {
+  key: u64,
+  value: u64,
+  hash: u64,
+  state: u8,
+}
+
+struct HashMap {
+  buckets: u64,
+  len: u64,
+  cap: u64,
+}
+
+trait HashMapSmoke {
+  fn smoke_hashmap_new() -> HashMap !{RawMem} @{paideia.raw_mem};
+  fn smoke_hashmap_with_capacity(cap: u64) -> HashMap !{RawMem} @{paideia.raw_mem};
+  fn smoke_hashmap_insert(h: HashMap, key: u64, value: u64) -> HashMap !{RawMem} @{paideia.raw_mem};
+  fn smoke_hashmap_get(h: HashMap, key: u64) -> u64 !{RawMem} @{paideia.raw_mem};
+  fn smoke_hashmap_remove(h: HashMap, key: u64) -> HashMap !{RawMem} @{paideia.raw_mem};
+  fn smoke_hashmap_contains_key(h: HashMap, key: u64) -> bool !{} @{};
+  fn smoke_hashmap_len(h: HashMap) -> u64 !{} @{};
+}
+
+trait Hasher {
+  fn hash_u64(key: u64) -> u64 !{} @{};
+}

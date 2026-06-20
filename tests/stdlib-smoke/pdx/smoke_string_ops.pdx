@@ -1,0 +1,23 @@
+// Smoke test for Phase 4 m11-003: String + Str operations.
+//
+// Exercises String heap type with operations: new, with_capacity,
+// len, push, and conversions from static Str slices.
+
+struct String {
+  data: *u8,
+  len: u64,
+  cap: u64,
+}
+
+struct Str {
+  data: *u8,
+  len: u64,
+}
+
+trait StringSmoke {
+  fn smoke_string_new() -> String;
+  fn smoke_string_with_capacity(cap: u64) -> String;
+  fn smoke_string_len(s: String) -> u64;
+  fn smoke_string_push(s: String, ch: u8) -> String;
+  fn smoke_string_from_str(s: Str) -> String;
+}

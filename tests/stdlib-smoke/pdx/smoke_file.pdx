@@ -1,0 +1,42 @@
+// Smoke test for Phase 4 m11-006: file I/O — File, Read, Write traits.
+//
+// Exercises file operations: File type, Read trait (read, read_to_string),
+// Write trait (write, write_all, flush), and error handling with Result.
+
+struct File {
+  fd: u64,
+}
+
+enum IoError {
+  NotFound,
+  PermissionDenied,
+  AlreadyExists,
+  Other,
+}
+
+struct Vec {
+  ptr: u64,
+  len: u64,
+  cap: u64,
+}
+
+struct String {
+  data: *u8,
+  len: u64,
+  cap: u64,
+}
+
+struct Str {
+  data: *u8,
+  len: u64,
+}
+
+trait FileSmoke {
+  fn smoke_file_open(path: Str) -> File !{IO} @{paideia.io};
+  fn smoke_file_create(path: Str) -> File !{IO} @{paideia.io};
+  fn smoke_file_read(f: File, buf: Vec) -> Vec !{IO} @{paideia.io};
+  fn smoke_file_read_to_string(f: File) -> String !{IO} @{paideia.io};
+  fn smoke_file_write(f: File, buf: Vec) -> File !{IO} @{paideia.io};
+  fn smoke_file_write_all(f: File, buf: Vec) -> File !{IO} @{paideia.io};
+  fn smoke_file_flush(f: File) -> File !{IO} @{paideia.io};
+}

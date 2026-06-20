@@ -1,0 +1,21 @@
+// Smoke test for Phase 4 m11-001: Option<T> + Result<T, E> sum types.
+//
+// This exercises the basic Option and Result enum definitions and
+// demonstrates the intended minimal AST and type structure.
+
+enum Option {
+  Some,
+  None,
+}
+
+enum Result {
+  Ok,
+  Err,
+}
+
+trait OptionResultSmoke {
+  fn smoke_option_construction() -> Option;
+  fn smoke_result_construction() -> Result;
+  fn smoke_option_methods() -> () !{} @{};
+  fn smoke_result_methods() -> () !{} @{};
+}

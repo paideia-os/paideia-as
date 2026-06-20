@@ -42,6 +42,7 @@ members = [
     "tests/reflection-corpus",
     "tests/pax-load-smoke",
     "tests/pq-corpus",
+    "tests/stdlib-smoke",
     "tests/uefi-smoke",
     "tests/cross-build",
     "tools/ddc",

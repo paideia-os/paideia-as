@@ -1,0 +1,36 @@
+// Smoke test for Phase 4 m11-005: basic I/O — Stdin, Stdout, Stderr.
+//
+// Exercises I/O types and operations with effect tracking: stdin(),
+// stdout(), stderr(), write to streams, and read from stdin.
+
+struct Stdin {
+  fd: u64,
+}
+
+struct Stdout {
+  fd: u64,
+}
+
+struct Stderr {
+  fd: u64,
+}
+
+struct Str {
+  data: *u8,
+  len: u64,
+}
+
+struct String {
+  data: *u8,
+  len: u64,
+  cap: u64,
+}
+
+trait IoSmoke {
+  fn smoke_stdin() -> Stdin !{IO} @{paideia.io};
+  fn smoke_stdout() -> Stdout !{IO} @{paideia.io};
+  fn smoke_stderr() -> Stderr !{IO} @{paideia.io};
+  fn smoke_write_stdout(s: Stdout, msg: Str) -> () !{IO} @{paideia.io};
+  fn smoke_write_stderr(s: Stderr, msg: Str) -> () !{IO} @{paideia.io};
+  fn smoke_read_stdin(s: Stdin) -> String !{IO} @{paideia.io};
+}

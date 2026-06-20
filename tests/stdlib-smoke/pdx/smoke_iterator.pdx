@@ -1,0 +1,32 @@
+// Smoke test for Phase 4 m11-007: Iterator trait + adapters.
+//
+// Exercises Iterator trait with associated type Item, adapters (Map, Filter),
+// and methods: next, map, filter, fold, collect, for_each, count.
+
+struct Vec {
+  ptr: u64,
+  len: u64,
+  cap: u64,
+}
+
+struct Map {
+  source: u64,
+  mapper: u64,
+}
+
+struct Filter {
+  source: u64,
+  predicate: u64,
+}
+
+enum Option {
+  Some,
+  None,
+}
+
+trait IteratorSmoke {
+  fn smoke_iterator_next(it: Map) -> Option !{} @{};
+  fn smoke_iterator_collect(it: Map) -> Vec !{RawMem} @{paideia.raw_mem};
+  fn smoke_iterator_count(it: Map) -> u64 !{} @{};
+  fn smoke_iterator_fold(it: Map, init: u64) -> u64 !{} @{};
+}

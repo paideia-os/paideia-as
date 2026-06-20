@@ -1,0 +1,18 @@
+// Smoke test for Phase 4 m11-002: Vec<T> dynamic array with push/pop/len.
+//
+// Exercises Vec struct definition and operations: new, with_capacity,
+// push, pop, len on a homogeneous dynamic array.
+
+struct Vec {
+  ptr: u64,
+  len: u64,
+  cap: u64,
+}
+
+trait VecSmoke {
+  fn smoke_vec_new() -> Vec !{RawMem} @{paideia.raw_mem};
+  fn smoke_vec_with_capacity(cap: u64) -> Vec !{RawMem} @{paideia.raw_mem};
+  fn smoke_vec_push(v: Vec, value: u64) -> Vec !{RawMem} @{paideia.raw_mem};
+  fn smoke_vec_pop(v: Vec) -> Vec !{RawMem} @{paideia.raw_mem};
+  fn smoke_vec_len(v: Vec) -> u64 !{} @{};
+}

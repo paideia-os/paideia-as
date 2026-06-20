@@ -1,0 +1,135 @@
+// Smoke test for Phase 4 m11-008: kitchen sink composing Vec + HashMap + String + IO.
+//
+// This comprehensive smoke test demonstrates usage of multiple stdlib modules
+// in a cohesive program. The scenario: read lines from a file into Vec<String>,
+// group lines by first-byte hash into HashMap<u8, Vec<String>>, then print results.
+//
+// Phase 4 m11-008 minimum: parser-only; full elaborator-side execution gates
+// on m1 walker + m9 monomorphisation + m4-m6 borrow checker infrastructure.
+
+// Basic types
+
+struct Vec {
+  ptr: u64,
+  len: u64,
+  cap: u64,
+}
+
+struct String {
+  data: *u8,
+  len: u64,
+  cap: u64,
+}
+
+struct Str {
+  data: *u8,
+  len: u64,
+}
+
+struct File {
+  fd: u64,
+}
+
+struct Stdin {
+  fd: u64,
+}
+
+struct Stdout {
+  fd: u64,
+}
+
+struct Bucket {
+  key: u64,
+  value: u64,
+  hash: u64,
+  state: u8,
+}
+
+struct HashMap {
+  buckets: u64,
+  len: u64,
+  cap: u64,
+}
+
+// Enums
+
+enum IoError {
+  NotFound,
+  PermissionDenied,
+  AlreadyExists,
+  Other,
+}
+
+enum Option {
+  Some,
+  None,
+}
+
+// Traits for Vec operations
+
+trait VecOps {
+  fn vec_new() -> Vec !{RawMem} @{paideia.raw_mem};
+  fn vec_push(v: Vec, value: String) -> Vec !{RawMem} @{paideia.raw_mem};
+  fn vec_pop(v: Vec) -> Vec !{RawMem} @{paideia.raw_mem};
+  fn vec_len(v: Vec) -> u64 !{} @{};
+  fn vec_iter(v: Vec) -> Vec !{} @{};
+}
+
+// Traits for String operations
+
+trait StringOps {
+  fn string_new() -> String;
+  fn string_with_capacity(cap: u64) -> String;
+  fn string_len(s: String) -> u64;
+  fn string_push(s: String, ch: u8) -> String;
+  fn string_from_str(s: Str) -> String;
+}
+
+// Traits for HashMap operations
+
+trait HashMapOps {
+  fn hashmap_new() -> HashMap !{RawMem} @{paideia.raw_mem};
+  fn hashmap_with_capacity(cap: u64) -> HashMap !{RawMem} @{paideia.raw_mem};
+  fn hashmap_insert(h: HashMap, key: u64, value: Vec) -> HashMap !{RawMem} @{paideia.raw_mem};
+  fn hashmap_get(h: HashMap, key: u64) -> Vec !{RawMem} @{paideia.raw_mem};
+  fn hashmap_len(h: HashMap) -> u64 !{} @{};
+  fn hashmap_iter(h: HashMap) -> HashMap !{} @{};
+}
+
+trait Hasher {
+  fn hash_u64(key: u64) -> u64 !{} @{};
+  fn hash_u8(key: u8) -> u64 !{} @{};
+}
+
+// Traits for File I/O
+
+trait FileOps {
+  fn file_open(path: Str) -> File !{IO} @{paideia.io};
+  fn file_create(path: Str) -> File !{IO} @{paideia.io};
+}
+
+// Traits for I/O streams
+
+trait IoOps {
+  fn stdout() -> Stdout !{IO} @{paideia.io};
+  fn write_str(s: Stdout, msg: Str) -> () !{IO} @{paideia.io};
+}
+
+// Main workflow: read lines, group by first-byte hash, print results
+
+trait KitchenSink {
+  // Read file into Vec<String>
+  fn load_lines(path: Str) -> Vec !{IO, RawMem} @{paideia.io, paideia.raw_mem};
+
+  // Group lines by first-byte hash into HashMap<u8, Vec<String>>
+  fn group_by_first_byte(lines: Vec) -> HashMap !{RawMem} @{paideia.raw_mem};
+
+  // Extract first byte of a string
+  fn first_byte(s: String) -> u8 !{} @{};
+
+  // Print grouped results
+  fn print_groups(groups: HashMap) -> () !{IO} @{paideia.io};
+
+  // Main entry point: orchestrates the workflow
+  fn main() -> () !{IO, RawMem} @{paideia.io, paideia.raw_mem};
+}

@@ -1,0 +1,18 @@
+[package]
+name = "paideia-stdlib-smoke"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+# This crate is a smoke test harness for stdlib modules.
+# It contains .pdx programs exercising each m11-* stdlib milestone
+# and validates they parse cleanly via paideia-as check.
+
+[lib]
+path = "src/lib.rs"
+
+[dev-dependencies]
+paideia-stdlib = { path = "../../crates/paideia-stdlib" }
