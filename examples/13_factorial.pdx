@@ -1,0 +1,74 @@
+// =============================================================================
+// 13_factorial.pdx — iterative factorial, paideia-as equivalent
+// -----------------------------------------------------------------------------
+// status: parses cleanly
+// asm-reference: asm-reference/algorithms/factorial.asm
+// design-doc:
+//   design/toolchain/calling-convention.md §1.3 / §1.4 (RDI in, RAX out),
+//   design/toolchain/optimization-passes.md (m9-008 #[tailcall]),
+//   design/toolchain/syntax-reference.md §8 (LambdaExpr, MatchExpr).
+// feature:
+//   - tail-recursive accumulator pattern — the functional idiom for the
+//     hand-written NASM iterative loop.
+//   - paideia-as's m9-008 TailCallPass (#[tailcall]) lowers a tail call
+//     back to a `jmp` so the emitted bytecode matches the NASM loop.
+//   - integer argument in RDI, return value in RAX (§1.4 of
+//     calling-convention.md).
+// =============================================================================
+//
+// Hand-written NASM equivalent (asm-reference/algorithms/factorial.asm):
+//
+//     factorial:
+//         mov     rax, 1                  ; acc = 1
+//         mov     rcx, rdi                ; counter = n
+//         test    rcx, rcx
+//         jz      .done                   ; 0! = 1
+//     .loop:
+//         mul     rcx                     ; RAX = RAX * RCX
+//         loop    .loop                   ; --RCX; jne .loop
+//     .done:
+//         ret
+//
+// The NASM version uses RAX as the accumulator and RCX as the loop counter,
+// updating both in place. paideia-as expresses the same algorithm as a
+// tail-recursive accumulator pass: `factorial_acc(n, acc)` calls itself with
+// `(n - 1, acc * n)` until `n` reaches 0, then returns `acc`.
+//
+// The m9-008 TailCallPass lowers the recursive tail call to a `jmp` (since
+// no capability boundary, handler installation, or ABI mismatch suppresses
+// it — see TcoBlocker in opt::tailcall). After TCO, the emitted bytecode is
+// equivalent to the NASM loop above: both reduce to a tight register-only
+// multiply-and-decrement cycle with no stack growth.
+//
+// =============================================================================
+
+module Factorial = structure {
+
+  // ---------------------------------------------------------------------------
+  // The accumulator helper. Per §1.3 of calling-convention.md:
+  //   - n     → RDI
+  //   - acc   → RSI
+  // Per §1.4, the return value lives in RAX.
+  //
+  // `match` is the canonical conditional form in paideia-as (no `if`-arm
+  // without braces). The pattern `0 => acc` binds the base case and the
+  // wildcard `_` covers every positive count.
+  //
+  // The `n * acc` in the recursive arm uses 64-bit unsigned multiplication
+  // (`mul` in NASM); it silently wraps on overflow for n ≥ 21 (matching the
+  // NASM behaviour documented in the reference file).
+  // ---------------------------------------------------------------------------
+  let factorial_acc : (u64, u64) -> u64 =
+    fn (n : u64) (acc : u64) -> match n {
+      0 => acc,
+      _ => factorial_acc(n - 1, n * acc)
+    }
+
+  // ---------------------------------------------------------------------------
+  // The public entry point. Matches the NASM `factorial` symbol's ABI
+  // exactly: n in RDI, result in RAX. n = 0 yields 1 (the empty product).
+  //
+  // The `0! = 1` base case is implicit in `factorial_acc(0, 1)`.
+  // ---------------------------------------------------------------------------
+  let factorial : (u64) -> u64 = fn (n : u64) -> factorial_acc(n, 1)
+}
