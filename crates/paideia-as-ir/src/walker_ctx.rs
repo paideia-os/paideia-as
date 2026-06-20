@@ -16,10 +16,13 @@ use paideia_as_diagnostics::{Diagnostic, DiagnosticSink, SourceMap};
 ///
 /// Per-pass implementations access their state via accessors so the struct
 /// can grow without touching every pass. Exposes the shared infrastructure
-/// every pass needs: source map and diagnostic sink.
+/// every pass needs: source map and diagnostic sink. Phase-4-m1 adds an
+/// opaque pass_state slot that walkers can use to stash elaborator state
+/// like PositionIndex or the current FileId.
 pub struct WalkerCtx<'a> {
     source_map: &'a SourceMap,
     sink: &'a mut dyn DiagnosticSink,
+    pass_state: Option<&'a mut dyn std::any::Any>,
 }
 
 impl<'a> WalkerCtx<'a> {
@@ -30,7 +33,30 @@ impl<'a> WalkerCtx<'a> {
     /// * `source_map` - Reference to the source map for the compilation unit.
     /// * `sink` - Mutable reference to the diagnostic sink.
     pub fn new(source_map: &'a SourceMap, sink: &'a mut dyn DiagnosticSink) -> Self {
-        Self { source_map, sink }
+        Self {
+            source_map,
+            sink,
+            pass_state: None,
+        }
+    }
+
+    /// Creates a new walker context with pass_state (for phase-4-m1+ walkers).
+    ///
+    /// # Arguments
+    ///
+    /// * `source_map` - Reference to the source map for the compilation unit.
+    /// * `sink` - Mutable reference to the diagnostic sink.
+    /// * `pass_state` - Opaque pass state (e.g., PositionIndex) that walkers can access.
+    pub fn with_pass_state(
+        source_map: &'a SourceMap,
+        sink: &'a mut dyn DiagnosticSink,
+        pass_state: &'a mut dyn std::any::Any,
+    ) -> Self {
+        Self {
+            source_map,
+            sink,
+            pass_state: Some(pass_state),
+        }
     }
 
     /// Returns a reference to the source map.
@@ -46,6 +72,13 @@ impl<'a> WalkerCtx<'a> {
     /// Emits a diagnostic to the sink.
     pub fn emit(&mut self, d: Diagnostic) {
         let _ = self.sink.emit(d);
+    }
+
+    /// Returns a mutable reference to the pass state, downcasted to type S.
+    ///
+    /// Returns None if no pass_state was provided or if the downcast fails.
+    pub fn pass_state<S: std::any::Any>(&mut self) -> Option<&mut S> {
+        self.pass_state.as_mut().and_then(|s| s.downcast_mut::<S>())
     }
 }
 

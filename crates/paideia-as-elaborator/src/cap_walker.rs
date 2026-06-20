@@ -18,7 +18,11 @@ use std::collections::HashMap;
 use paideia_as_ir::{IrArena, IrKind, IrNodeData, IrNodeId, IrWalker, WalkerCtx};
 use paideia_as_types::CapSet;
 
-use crate::cap_infer::{check_capabilities, compose_caps};
+use crate::{
+    cap_infer::{check_capabilities, compose_caps},
+    position_index::{ByteOffset, PositionEntry},
+    walker_pass_state::PositionIndexWriter,
+};
 
 /// IrWalker that tracks the required capability set and runs
 /// check_capabilities at Lambda boundaries.
@@ -98,6 +102,31 @@ impl IrWalker for CapWalker {
         _arena: &IrArena,
         ctx: &mut WalkerCtx<'_>,
     ) {
+        // Phase-4-m1-005: Insert PositionEntry for this node into the position index.
+        // CapWalker populates cap_set_id on post_visit, allowing the capability set
+        // to be computed before recording it.
+        if let Some(writer) = ctx.pass_state::<crate::WalkerPassState>() {
+            // Create an entry with the current capability set ID. For phase-4-m1, we use
+            // a placeholder based on the node ID: cap_set_id = node_id.get().
+            // Real cap set ID formalization arrives when the capability system gains
+            // top-level CapSetId definitions.
+            let cap_set_id = if !self.current_required.is_empty() {
+                Some(id.get())
+            } else {
+                None
+            };
+
+            let entry = PositionEntry {
+                span_start: ByteOffset(node.span.byte_start()),
+                span_end: ByteOffset(node.span.byte_end()),
+                type_id: None,
+                lin_class: None,
+                effect_row_id: None,
+                cap_set_id,
+            };
+            writer.insert_entry(entry);
+        }
+
         match node.kind {
             IrKind::Lambda => {
                 // Exiting a Lambda scope: check that the Lambda's declared capabilities
@@ -318,5 +347,42 @@ mod tests {
 
         // No diagnostics for an empty module.
         assert_eq!(sink.count(), 0, "no diagnostics for empty module");
+    }
+
+    #[test]
+    fn capability_walker_inserts_into_position_index() {
+        // Phase-4-m1-005: CapWalker should populate position index
+        // with cap_set_id information for each node visited.
+        let mut arena = paideia_as_ir::IrArena::new();
+        let s = span(0);
+
+        // Build IR: Module → Lambda → App
+        let app_id = arena.alloc(paideia_as_ir::IrKind::App, s);
+        let lambda_id = arena.alloc_with_children(paideia_as_ir::IrKind::Lambda, s, [app_id]);
+        let module_id = arena.alloc_with_children(paideia_as_ir::IrKind::Module, s, [lambda_id]);
+
+        let mut walker = CapWalker::new();
+        walker.inject_lambda_declared(lambda_id, caps(&[1]));
+        walker.inject_app_required(app_id, caps(&[1]));
+
+        // Create position index and walker pass state
+        let mut pass_state = crate::WalkerPassState::new(crate::position_index::FileId(1));
+
+        let sm = SourceMap::new();
+        let mut sink = VecSink::new();
+        let mut ctx = paideia_as_ir::WalkerCtx::with_pass_state(&sm, &mut sink, &mut pass_state);
+
+        walk(&mut walker, &arena, module_id, &mut ctx);
+
+        // Extract the finalized position index
+        let final_index = pass_state.into_position_index();
+        let mut final_index_mut = final_index;
+        final_index_mut.finish();
+
+        // Verify entries were inserted
+        assert!(
+            final_index_mut.entry_count() > 0,
+            "position index should have entries after walker"
+        );
     }
 }

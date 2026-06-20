@@ -30,7 +30,10 @@ use paideia_as_ir::{IrArena, IrKind, IrNodeData, IrNodeId, IrWalker, WalkerCtx};
 
 use crate::{
     HandlerImpl, check_handler, check_handler_order, check_no_unhandled, check_pure, compose_rows,
-    handle_row, instantiate_fresh_tail, unify_call_row,
+    handle_row, instantiate_fresh_tail,
+    position_index::{ByteOffset, PositionEntry},
+    unify_call_row,
+    walker_pass_state::PositionIndexWriter,
 };
 
 /// IrWalker that tracks effect rows and runs unification at call sites.
@@ -187,6 +190,31 @@ impl IrWalker for EffectRowWalker {
         _arena: &IrArena,
         ctx: &mut WalkerCtx<'_>,
     ) {
+        // Phase-4-m1-005: Insert PositionEntry for this node into the position index.
+        // EffectRowWalker populates effect_row_id on post_visit, allowing the effect row
+        // to be computed before recording it.
+        if let Some(writer) = ctx.pass_state::<crate::WalkerPassState>() {
+            // Create an entry with the current effect row ID. For phase-4-m1, we use
+            // a placeholder based on the node ID: effect_row_id = node_id.get().
+            // Real row ID formalization arrives when the effect system gains
+            // top-level RowId definitions (planned for phase-4-m2).
+            let effect_row_id = if !self.current_row.is_empty() {
+                Some(id.get())
+            } else {
+                None
+            };
+
+            let entry = PositionEntry {
+                span_start: ByteOffset(node.span.byte_start()),
+                span_end: ByteOffset(node.span.byte_end()),
+                type_id: None,
+                lin_class: None,
+                effect_row_id,
+                cap_set_id: None,
+            };
+            writer.insert_entry(entry);
+        }
+
         match node.kind {
             IrKind::Handle => {
                 // Check handler well-typedness (F1101) before subtracting the effect.
@@ -869,6 +897,41 @@ mod tests {
         assert!(
             unhandled_effects > 0,
             "multi-shot perform should show unhandled effects"
+        );
+    }
+
+    #[test]
+    fn effect_walker_inserts_into_position_index() {
+        // Phase-4-m1-005: EffectRowWalker should populate position index
+        // with effect_row_id information for each node visited.
+        let mut arena = paideia_as_ir::IrArena::new();
+        let s = span(0);
+
+        // Build IR: Module → Perform
+        let perform_id = arena.alloc(IrKind::Perform, s);
+        let module_id = arena.alloc_with_children(IrKind::Module, s, [perform_id]);
+
+        let mut walker = EffectRowWalker::new();
+        walker.inject_perform(perform_id, "Io".to_string(), "read".to_string());
+
+        // Create position index and walker pass state
+        let mut pass_state = crate::WalkerPassState::new(crate::position_index::FileId(1));
+
+        let sm = SourceMap::new();
+        let mut sink = VecSink::new();
+        let mut ctx = paideia_as_ir::WalkerCtx::with_pass_state(&sm, &mut sink, &mut pass_state);
+
+        walk(&mut walker, &arena, module_id, &mut ctx);
+
+        // Extract the finalized position index
+        let final_index = pass_state.into_position_index();
+        let mut final_index_mut = final_index;
+        final_index_mut.finish();
+
+        // Verify entries were inserted
+        assert!(
+            final_index_mut.entry_count() > 0,
+            "position index should have entries after walker"
         );
     }
 }

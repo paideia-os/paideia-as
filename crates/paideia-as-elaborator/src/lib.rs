@@ -49,6 +49,7 @@ pub mod sharing;
 pub mod sig_match;
 pub mod splice;
 pub mod term_eval;
+pub mod walker_pass_state;
 
 pub use branch_merge::{S_BRANCH_MISMATCH, merge_branches};
 pub use cap_infer::{C_MISSING_CAP, check_capabilities, compose_caps};
@@ -114,3 +115,4 @@ pub use resolve::{HygienicEnv, ResolveValue};
 pub use sharing::{M_SHARING_VIOLATED, check_sharing_constraints};
 pub use sig_match::{M_SIG_KIND_MISMATCH, M_SIG_MISSING_DECL, match_signature};
 pub use splice::{splice, splice_with_hygiene, splice_with_type_check};
+pub use walker_pass_state::{PositionIndexWriter, WalkerPassState};

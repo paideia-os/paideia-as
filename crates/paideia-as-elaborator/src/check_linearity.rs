@@ -26,6 +26,8 @@ use crate::check_lambda;
 use crate::check_ordered::OrderedLog;
 use crate::env::Symbol;
 use crate::linearity_ctx::{Binding, LinearityCtx};
+use crate::position_index::{ByteOffset, PositionEntry};
+use crate::walker_pass_state::PositionIndexWriter;
 
 /// Diagnostic code for a Linear or Ordered binding that is never used (use-count = 0).
 pub const S_NEVER_USED: u16 = 900;
@@ -183,6 +185,16 @@ pub fn walk_expr_for_scope(arena: &AstArena, ctx: &mut LinearityCtx, expr_id: No
 /// 1. Pre-visit: snapshot the outer scope's bindings before entering the lambda's scope.
 /// 2. Post-visit: pop the lambda's scope, analyze captures via `analyze_captures`,
 ///    validate captures via `check_lambda`, and emit S0907 diagnostics for illegal captures.
+///
+/// ## PositionIndex Population (Phase-4-m1-005)
+///
+/// For each node visited, insert a PositionEntry into the position index with:
+/// - `lin_class`: the node's linearity class (from pre_visit)
+/// - `type_id`: None (to be filled by type walker)
+/// - `effect_row_id`: None (to be filled by effect walker)
+/// - `cap_set_id`: None (to be filled by cap walker)
+///
+/// The PositionIndex is accessed via `ctx.pass_state::<WalkerPassState>()`.
 ///
 /// ## Branch-Merge Handling
 ///
@@ -348,6 +360,19 @@ impl IrWalker for LinearityWalker {
         _arena: &IrArena,
         ctx: &mut WalkerCtx<'_>,
     ) {
+        // Phase-4-m1-005: Insert PositionEntry for this node into the position index.
+        if let Some(writer) = ctx.pass_state::<crate::WalkerPassState>() {
+            let entry = PositionEntry {
+                span_start: ByteOffset(node.span.byte_start()),
+                span_end: ByteOffset(node.span.byte_end()),
+                type_id: None,
+                lin_class: Some(node.lin_class),
+                effect_row_id: None,
+                cap_set_id: None,
+            };
+            writer.insert_entry(entry);
+        }
+
         match node.kind {
             IrKind::Let => {
                 // Derive the symbol from the node ID (phase-2-m1 proxy).
@@ -1447,6 +1472,50 @@ mod tests {
         assert!(
             out_of_order_diags.is_empty(),
             "in-order handler use should not emit out-of-order diagnostics"
+        );
+    }
+
+    #[test]
+    fn linearity_walker_inserts_into_position_index() {
+        // Phase-4-m1-005: LinearityWalker should populate position index
+        // with lin_class information for each node visited.
+        let mut walker = LinearityWalker::new();
+        let mut arena = paideia_as_ir::IrArena::new();
+        let s = Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 0, 10);
+
+        // Create a simple IR: Module -> Let -> Var
+        let var_id = arena.alloc(IrKind::Var, s);
+        let let_id = arena.alloc(IrKind::Let, s);
+        let module_id = arena.alloc_with_children(IrKind::Module, s, [let_id, var_id]);
+
+        // Create walker pass state
+        let mut pass_state = crate::WalkerPassState::new(crate::position_index::FileId(1));
+
+        // Walk the IR with position index context
+        let sm = paideia_as_diagnostics::SourceMap::new();
+        let mut sink = paideia_as_diagnostics::VecSink::new();
+        let mut ctx = WalkerCtx::with_pass_state(&sm, &mut sink, &mut pass_state);
+
+        paideia_as_ir::walk(&mut walker, &arena, module_id, &mut ctx);
+
+        // Extract the finalized position index
+        let mut final_index = pass_state.into_position_index();
+        final_index.finish();
+
+        // Verify entries were inserted
+        assert!(
+            final_index.entry_count() > 0,
+            "position index should have entries after walker"
+        );
+
+        // Verify entries exist for visited nodes
+        let module_entry = final_index.at(
+            crate::position_index::FileId(1),
+            crate::position_index::ByteOffset(0),
+        );
+        assert!(
+            module_entry.is_some(),
+            "position index should have entry at span start"
         );
     }
 }
