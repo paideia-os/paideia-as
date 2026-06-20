@@ -843,6 +843,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
             },
             {
               "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase 4 m6-003: prevents mutation-through-borrow races. While a borrow is active, the source binding may not be assigned a new value."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/S0909",
+              "id": "S0909",
+              "name": "Cannot assign to value while borrowed",
+              "shortDescription": {
+                "text": "the binding is currently borrowed; assignment is forbidden until all borrows expire"
+              }
+            },
+            {
+              "defaultConfiguration": {
                 "level": "note"
               },
               "fullDescription": {

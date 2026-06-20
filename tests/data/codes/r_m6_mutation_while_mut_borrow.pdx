@@ -1,0 +1,8 @@
+; Assigning to a binding while a mutable borrow is active.
+; Should reject with S0909.
+fn test_assign_while_mut_borrow() -> u64 {
+  let x: u64 = 40;
+  let mref: &mut x = &mut x;
+  let x: u64 = 50;
+  *mref + x
+}

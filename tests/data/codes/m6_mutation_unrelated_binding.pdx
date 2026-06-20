@@ -1,0 +1,9 @@
+; Assigning to a different binding while another is borrowed.
+; Should accept.
+fn test_unrelated_binding() -> u64 {
+  let x: u64 = 40;
+  let y: u64 = 50;
+  let iref: &x = &x;
+  let y: u64 = 60;
+  *iref + y
+}

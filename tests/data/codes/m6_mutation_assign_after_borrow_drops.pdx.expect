@@ -1,0 +1,2 @@
+# Assigning to a binding after all borrows have been dropped.
+# Should accept.

@@ -1,0 +1,3 @@
+# Assigning to a field-accessed binding while a borrow is active on the parent.
+# Should reject with S0909.
+S0909

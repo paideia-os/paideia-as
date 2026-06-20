@@ -1,0 +1,10 @@
+; Assigning to a binding inside a loop while a borrow persists.
+; Should reject with S0909.
+fn test_assign_in_loop() -> u64 {
+  let x: u64 = 40;
+  let iref: &x = &x;
+  loop {
+    let x: u64 = 50;
+    *iref
+  }
+}

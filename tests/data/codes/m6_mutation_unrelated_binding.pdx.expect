@@ -1,0 +1,2 @@
+# Assigning to a different binding while another is borrowed.
+# Should accept.

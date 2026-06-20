@@ -112,6 +112,15 @@ impl BorrowWalker {
     pub fn active_borrows(&self, binding: u32) -> Option<&[(BorrowKind, u32)]> {
         self.active.get(&binding).map(|v| v.as_slice())
     }
+
+    /// Checks whether a binding currently has any active borrows.
+    ///
+    /// Returns `true` if the binding has at least one active borrow
+    /// (either immutable or mutable), `false` otherwise.
+    #[must_use]
+    pub fn is_borrowed(&self, binding: u32) -> bool {
+        self.active.get(&binding).is_some_and(|v| !v.is_empty())
+    }
 }
 
 /// Constructs the S0906 diagnostic message (immutable + mutable conflict).

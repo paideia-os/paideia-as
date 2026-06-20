@@ -1,0 +1,7 @@
+; Assigning to a binding when no borrow is active.
+; Should accept.
+fn test_assign_no_borrow() -> u64 {
+  let x: u64 = 40;
+  let x: u64 = 50;
+  x
+}

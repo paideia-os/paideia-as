@@ -1,0 +1,3 @@
+# Assigning to a binding while an immutable borrow is active.
+# Should reject with S0909.
+S0909

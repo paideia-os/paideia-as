@@ -39,6 +39,7 @@ mod lower;
 pub mod macro_expand;
 pub mod macro_match;
 pub mod modules;
+pub mod mutation_walker;
 pub mod name_resolution;
 pub mod name_resolution_walker;
 pub mod pack;
@@ -109,6 +110,7 @@ pub use macro_match::{
 pub use modules::{
     FieldBinding, S_LINEAR_FIELD_OVERUSED, TypedValue, ValueRef, elaborate_structure,
 };
+pub use mutation_walker::MutationWalker;
 pub use name_resolution::{NameResolutionTable, Span};
 pub use name_resolution_walker::{
     NameResolutionPassState, NameResolutionTableWriter, NameResolutionWalker,

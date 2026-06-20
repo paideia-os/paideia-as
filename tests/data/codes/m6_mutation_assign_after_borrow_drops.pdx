@@ -1,0 +1,9 @@
+; Assigning to a binding after all borrows have been dropped.
+; Should accept.
+fn test_assign_after_borrow_drops() -> u64 {
+  let x: u64 = 40;
+  let iref: &x = &x;
+  let y: u64 = *iref;
+  let x: u64 = 60;
+  x
+}

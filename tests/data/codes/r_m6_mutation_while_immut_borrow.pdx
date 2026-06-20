@@ -1,0 +1,8 @@
+; Assigning to a binding while an immutable borrow is active.
+; Should reject with S0909.
+fn test_assign_while_immut_borrow() -> u64 {
+  let x: u64 = 40;
+  let iref: &x = &x;
+  let x: u64 = 50;
+  *iref + x
+}

@@ -1,0 +1,11 @@
+; Assigning to a binding in an inner block where borrow has no scope.
+; Should accept.
+fn test_inner_block() -> u64 {
+  let x: u64 = 40;
+  {
+    let iref: &x = &x;
+    let y: u64 = *iref;
+  }
+  let x: u64 = 50;
+  x
+}

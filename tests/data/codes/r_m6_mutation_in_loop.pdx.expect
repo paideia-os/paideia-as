@@ -1,0 +1,3 @@
+# Assigning to a binding inside a loop while a borrow persists.
+# Should reject with S0909.
+S0909

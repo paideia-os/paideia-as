@@ -1,0 +1,8 @@
+; Assigning to a field-accessed binding while a borrow is active on the parent.
+; Should reject with S0909.
+fn test_assign_field_while_borrow() -> u64 {
+  let rec: {x: u64} = {x: 40};
+  let ref_rec: &rec = &rec;
+  let rec: {x: u64} = {x: 50};
+  ref_rec.x
+}

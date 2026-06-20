@@ -578,6 +578,15 @@ description = "Phase 4 m6-002: the borrow checker requires that any borrowed val
 since = "0.4.0"
 deprecated = false
 
+[diagnostic.S0909]
+severity = "error"
+category = "substructural"
+title = "Cannot assign to value while borrowed"
+brief = "the binding is currently borrowed; assignment is forbidden until all borrows expire"
+description = "Phase 4 m6-003: prevents mutation-through-borrow races. While a borrow is active, the source binding may not be assigned a new value."
+since = "0.4.0"
+deprecated = false
+
 [diagnostic.T0512]
 severity = "error"
 category = "type"

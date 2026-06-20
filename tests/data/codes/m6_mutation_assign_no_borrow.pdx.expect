@@ -1,0 +1,2 @@
+# Assigning to a binding when no borrow is active.
+# Should accept.
