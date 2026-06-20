@@ -151,6 +151,22 @@ pub fn unify(
             }
             unify(interner, subst, p1, p2)
         }
+        // Record types: unify if field names and types match in order.
+        (Type::Record { fields: f1 }, Type::Record { fields: f2 }) => {
+            if f1.len() != f2.len() {
+                return Err(UnifyError::ArityMismatch);
+            }
+            for ((n1, t1), (n2, t2)) in f1.iter().zip(f2.iter()) {
+                if n1 != n2 {
+                    return Err(UnifyError::KindMismatch {
+                        a: format!("field with symbol {}", n1),
+                        b: format!("field with symbol {}", n2),
+                    });
+                }
+                unify(interner, subst, *t1, *t2)?;
+            }
+            Ok(())
+        }
         // Default: kind mismatch.
         (ta, tb) => Err(UnifyError::KindMismatch {
             a: format!("{ta:?}"),
@@ -486,5 +502,81 @@ mod tests {
             Some(ptr_u64),
             "Var should be bound to Ptr type"
         );
+    }
+
+    #[test]
+    fn unify_record_same_fields_succeeds() {
+        let mut interner = TypeInterner::new();
+        let mut subst = Subst::new();
+        let u64_id = interner.uint(64);
+        let bool_id = interner.bool_ty();
+
+        let record1 = interner.intern(Type::Record {
+            fields: smallvec::smallvec![(1, u64_id), (2, bool_id)],
+        });
+        let record2 = interner.intern(Type::Record {
+            fields: smallvec::smallvec![(1, u64_id), (2, bool_id)],
+        });
+
+        let result = unify(&mut interner, &mut subst, record1, record2);
+        assert!(
+            result.is_ok(),
+            "Records with same fields should unify: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn unify_record_different_field_name_fails() {
+        let mut interner = TypeInterner::new();
+        let mut subst = Subst::new();
+        let u64_id = interner.uint(64);
+        let bool_id = interner.bool_ty();
+
+        let record1 = interner.intern(Type::Record {
+            fields: smallvec::smallvec![(1, u64_id), (2, bool_id)],
+        });
+        let record2 = interner.intern(Type::Record {
+            fields: smallvec::smallvec![(1, u64_id), (3, bool_id)],
+        });
+
+        let result = unify(&mut interner, &mut subst, record1, record2);
+        assert!(
+            result.is_err(),
+            "Records with different field names should not unify"
+        );
+
+        if let Err(UnifyError::KindMismatch { .. }) = result {
+            // Expected error type
+        } else {
+            panic!("Expected KindMismatch error, got {:?}", result);
+        }
+    }
+
+    #[test]
+    fn unify_record_different_arity_fails() {
+        let mut interner = TypeInterner::new();
+        let mut subst = Subst::new();
+        let u64_id = interner.uint(64);
+        let bool_id = interner.bool_ty();
+
+        let record1 = interner.intern(Type::Record {
+            fields: smallvec::smallvec![(1, u64_id)],
+        });
+        let record2 = interner.intern(Type::Record {
+            fields: smallvec::smallvec![(1, u64_id), (2, bool_id)],
+        });
+
+        let result = unify(&mut interner, &mut subst, record1, record2);
+        assert!(
+            result.is_err(),
+            "Records with different field counts should not unify"
+        );
+
+        if let Err(UnifyError::ArityMismatch) = result {
+            // Expected error type
+        } else {
+            panic!("Expected ArityMismatch error, got {:?}", result);
+        }
     }
 }

@@ -6,6 +6,7 @@
 
 use core::num::NonZeroU32;
 use paideia_as_ir::EffectRowId;
+use smallvec::SmallVec;
 
 /// Type variable for unification. Used during HM type inference.
 /// `Option<TyVar>` is 4 bytes via niche optimization.
@@ -145,6 +146,16 @@ pub enum Type {
         /// Whether this is a mutable pointer (`*mut T`) or immutable (`*T`).
         mutable: bool,
     },
+    /// Record (struct) type with named fields.
+    ///
+    /// Fields are stored in order of declaration. Two records with the same
+    /// field names and types (in the same order) intern to the same TypeId
+    /// via hash-consing.
+    Record {
+        /// Field names (interned symbols) and their types, in declaration order.
+        /// Using SmallVec with inline capacity 4 for typical cases.
+        fields: SmallVec<[(u32, TypeId); 4]>,
+    },
 }
 
 /// Sentinel value for "size word" (`usize`/`isize`): stored as the
@@ -230,6 +241,44 @@ mod tests {
         assert_ne!(
             ptr_immutable, ptr_mutable,
             "*u64 and *mut u64 should intern to different TypeIds"
+        );
+    }
+
+    #[test]
+    fn record_interns_same_fields_to_same_id() {
+        let mut interner = TypeInterner::new();
+        let u64_id = interner.uint(64);
+        let bool_id = interner.bool_ty();
+
+        let record1 = interner.intern(Type::Record {
+            fields: smallvec::smallvec![(1, u64_id), (2, bool_id)],
+        });
+        let record2 = interner.intern(Type::Record {
+            fields: smallvec::smallvec![(1, u64_id), (2, bool_id)],
+        });
+
+        assert_eq!(
+            record1, record2,
+            "Records with same fields should intern to same TypeId"
+        );
+    }
+
+    #[test]
+    fn record_interns_different_field_order_distinct() {
+        let mut interner = TypeInterner::new();
+        let u64_id = interner.uint(64);
+        let bool_id = interner.bool_ty();
+
+        let record1 = interner.intern(Type::Record {
+            fields: smallvec::smallvec![(1, u64_id), (2, bool_id)],
+        });
+        let record2 = interner.intern(Type::Record {
+            fields: smallvec::smallvec![(2, bool_id), (1, u64_id)],
+        });
+
+        assert_ne!(
+            record1, record2,
+            "Records with different field order should have different TypeIds"
         );
     }
 }

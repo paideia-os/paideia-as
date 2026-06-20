@@ -1636,6 +1636,7 @@ dependencies = [
  "paideia-as-diagnostics",
  "paideia-as-ir",
  "proptest",
+ "smallvec",
  "static_assertions",
  "thiserror",
 ]

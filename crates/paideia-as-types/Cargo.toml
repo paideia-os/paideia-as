@@ -16,6 +16,7 @@ paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
 paideia-as-ast = { path = "../paideia-as-ast" }
 static_assertions = { workspace = true }
 thiserror = { workspace = true }
+smallvec = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
