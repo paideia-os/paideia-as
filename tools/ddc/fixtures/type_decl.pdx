@@ -1,0 +1,6 @@
+module TypeDecl = structure {
+  type Point = record {
+    x : int
+    y : int
+  }
+}

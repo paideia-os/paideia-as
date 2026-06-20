@@ -1,0 +1,4 @@
+module TwoVals = structure {
+  val x : int
+  val y : string
+}

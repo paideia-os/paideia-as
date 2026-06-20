@@ -1,0 +1,5 @@
+module ModuleWithInner = structure {
+  module Inner = structure {
+    val z : int
+  }
+}

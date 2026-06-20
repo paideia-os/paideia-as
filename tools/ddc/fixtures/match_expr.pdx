@@ -1,0 +1,8 @@
+module MatchExpr = structure {
+  fun classify(n : int) : string =
+    match n {
+      case 0 => "zero"
+      case 1 => "one"
+      case _ => "many"
+    }
+}

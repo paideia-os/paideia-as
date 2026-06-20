@@ -1,0 +1,4 @@
+module LetBinding = structure {
+  let x = 42
+  val y : int
+}

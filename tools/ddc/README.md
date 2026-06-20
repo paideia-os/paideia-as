@@ -88,10 +88,20 @@ if report.match_modulo_allowlist {
 - Documented non-determinism rules (sentinel at m10-002; real ranges from m10-003).
 - Comprehensive tests (lib + CLI).
 
+## Phase-2-m10-004: Format Gate Corpus
+
+This phase introduces:
+
+- **Determinism gate fixtures**: 10 small `.pdx` modules covering common language constructs (empty module, single/multiple values, type declarations, nested structures, let bindings, function declarations, match expressions, capability declarations, handler declarations).
+- **Format gate tests** (`tests/format_gates.rs`): Corpus-based determinism validation — each fixture builds twice and asserts byte-identical output for each emit format (PE-COFF, ELF64, PAX).
+- **Fixture count validation**: Active test that pins the 10-module corpus requirement.
+
+The format-gate-per-emit tests are marked `#[ignore]` because they require a pre-built paideia-as binary. The fixture-count test is active and runs in all CI/test scenarios.
+
+Location: `tools/ddc/fixtures/`
+
 ## Future Enhancements
 
-- **m10-003**: Determinism fixes + expanded allowlist.
-- **m10-004**: Attestation + signature verification — cryptographic binding.
 - **m10-005**: Real toolchain diversity — GCC-built rustc, distro rustc, etc.
 - **m10-006**: CI integration — wire into GitHub Actions workflow.
 - **m10-007**: Reporting dashboard — track divergence rates over time.
@@ -102,3 +112,4 @@ if report.match_modulo_allowlist {
 - The script is designed to be safe for CI environments and workstations alike.
 - Real diverse-toolchain configurations activate in m10-005 when CI orchestration is complete.
 - The allowlist design is "positive" (allow known divergences) so that unknown divergences fail fast.
+- Format gate fixtures are small, parseable modules designed to exercise diverse language features with minimal complexity.
