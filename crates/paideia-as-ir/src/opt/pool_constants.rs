@@ -5,9 +5,9 @@
 //! emission is deferred to m2 encode stage.
 
 use super::{OptDiagSink, OptPass};
-use crate::node::IrNodeId;
 use crate::IrArena;
 use crate::instruction::Operand;
+use crate::node::IrNodeId;
 use std::collections::HashMap;
 
 /// The constant-pool optimization pass.
