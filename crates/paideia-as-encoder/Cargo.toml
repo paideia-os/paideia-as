@@ -4,6 +4,14 @@ version.workspace = true
 edition.workspace = true
 publish = false
 
+[dependencies]
+paideia-as-ir = { path = "../paideia-as-ir" }
+thiserror.workspace = true
+smallvec.workspace = true
+
+[dev-dependencies]
+iced-x86.workspace = true
+
 [lib]
 name = "paideia_as_encoder"
 path = "src/lib.rs"
