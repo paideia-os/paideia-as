@@ -23,6 +23,19 @@
 module Abi = structure {
 
   // ═════════════════════════════════════════════════════════════════════════
+  // § 0. Built-in effects (canonical prelude)
+  // ═════════════════════════════════════════════════════════════════════════
+  // RawMem is the built-in effect carried by *T dereferences. No explicit
+  // operations; intrinsic functions (index_*, etc.) implicitly perform RawMem.
+  // Per phase-3-m1-005: registered at the language level so user code can
+  // write !{RawMem} in effect rows.
+
+  effect RawMem {
+    // Built-in effect for raw memory access via pointer dereference.
+    // No explicit operations; intrinsics implicitly perform this effect.
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════
   // § 1. Semantic version (per design/toolchain/abi.md §0)
   // ═════════════════════════════════════════════════════════════════════════
   // The ABI version must be incremented when the ABI contract changes.

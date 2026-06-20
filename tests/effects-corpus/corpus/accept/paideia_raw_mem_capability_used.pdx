@@ -1,0 +1,9 @@
+// Built-in paideia.raw_mem capability in use (phase-3-m1-005)
+// This function declares @{paideia.raw_mem} in its capability set.
+// The parser and elaborator should accept the built-in capability reference.
+
+module RawMemCapabilityUsed = structure {
+  let access_with_cap: (*u64, u64) -!{} @{paideia.raw_mem}-> u64 =
+    fn (xs: *u64, idx: u64) ->
+      0
+}

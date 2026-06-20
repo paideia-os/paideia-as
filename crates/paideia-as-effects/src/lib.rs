@@ -13,6 +13,8 @@ mod registry;
 mod row;
 mod unify;
 
+pub mod capabilities;
+
 pub use intern::EffectInterner;
 pub use registry::{EffectRegistry, F_REDECL_MISMATCH, Operation, SignatureId};
 pub use row::{EffectId, EffectRow, RowVarId};
