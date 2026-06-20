@@ -15,6 +15,7 @@ pub mod check_handler;
 pub mod check_lambda;
 pub mod check_linearity;
 pub mod check_ordered;
+pub mod check_pattern;
 pub mod check_pure;
 pub mod effect_infer;
 pub mod effect_unify;
@@ -55,6 +56,7 @@ pub use check_linearity::{
     LinearityWalker, S_NEVER_USED, S_OVERUSED, validate_scope, walk_expr_for_scope,
 };
 pub use check_ordered::{OrderedEntry, OrderedLog, S_OUT_OF_ORDER};
+pub use check_pattern::is_irrefutable;
 pub use check_pure::{F_PURE_VIOLATION, check_pure};
 pub use effect_infer::{
     F_UNHANDLED_EFFECT, RowOutcome, call_row, check_no_unhandled, compose_rows, handle_row,

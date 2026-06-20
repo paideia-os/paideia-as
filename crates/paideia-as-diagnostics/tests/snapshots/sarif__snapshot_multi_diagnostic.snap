@@ -1,5 +1,6 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
+assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -502,6 +503,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "Malformed enum type",
               "shortDescription": {
                 "text": "malformed enum: expected variant name, payload, or closing brace"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "A let binding uses a refutable pattern (such as an enum variant or literal) that may not match all possible values of the value expression's type. Refutable patterns are only legal in match arms. Either use a wildcard or identifier pattern in the let binding, or use a match expression instead."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0199",
+              "id": "P0199",
+              "name": "Refutable pattern in let binding",
+              "shortDescription": {
+                "text": "this pattern may not match all values of the scrutinee's type; use match instead"
               }
             },
             {

@@ -326,6 +326,15 @@ description = "An enum type definition is syntactically incomplete. Ensure all v
 since = "0.1.0"
 deprecated = false
 
+[diagnostic.P0199]
+severity = "error"
+category = "parser"
+title = "Refutable pattern in let binding"
+brief = "this pattern may not match all values of the scrutinee's type; use match instead"
+description = "A let binding uses a refutable pattern (such as an enum variant or literal) that may not match all possible values of the value expression's type. Refutable patterns are only legal in match arms. Either use a wildcard or identifier pattern in the let binding, or use a match expression instead."
+since = "0.4.0"
+deprecated = false
+
 [diagnostic.O1500]
 severity = "note"
 category = "optimization"

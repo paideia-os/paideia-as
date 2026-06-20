@@ -19,6 +19,7 @@ mod parse_lambda;
 mod parse_macro;
 mod parse_match;
 mod parse_memref;
+mod parse_pattern;
 mod parse_postfix;
 mod parse_prefix;
 mod parse_primary;

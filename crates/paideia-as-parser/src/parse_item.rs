@@ -404,9 +404,44 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         let let_tok = self.expect(TokenKind::KwLet)?;
         let span_start = let_tok.span;
 
-        // Parse identifier
-        let name_tok = self.expect(TokenKind::Ident)?;
-        let name_id = self.arena_mut().alloc(NodeKind::Ident, name_tok.span);
+        // Try to parse a pattern first (could be a tuple, struct, enum variant, etc.)
+        // If that fails, fall back to parsing a simple identifier.
+        // Peek ahead to see if we have a pattern or just a name.
+        let mut pattern_or_name = None;
+
+        // Check if the next token looks like a pattern start
+        if let Some(tok) = self.peek() {
+            match tok.kind {
+                // These are pattern starters
+                TokenKind::LParen => {
+                    // This is a pattern
+                    pattern_or_name = Some(self.parse_pattern()?);
+                }
+                TokenKind::Ident => {
+                    // Could be a pattern or just an identifier name.
+                    // Peek at the next token to disambiguate.
+                    if let Some(next_tok) = self.peek_at(1) {
+                        match next_tok.kind {
+                            // These indicate a pattern
+                            TokenKind::ColonColon | TokenKind::LBrace => {
+                                pattern_or_name = Some(self.parse_pattern()?);
+                            }
+                            // Otherwise just an identifier
+                            _ => {}
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // If we didn't parse a pattern, just parse a simple identifier
+        let name_id = if let Some(pat) = pattern_or_name {
+            pat
+        } else {
+            let name_tok = self.expect(TokenKind::Ident)?;
+            self.arena_mut().alloc(NodeKind::Ident, name_tok.span)
+        };
 
         // Optional type annotation
         let ty = if self.eat(TokenKind::Colon) {
