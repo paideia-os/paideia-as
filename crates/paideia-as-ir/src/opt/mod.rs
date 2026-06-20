@@ -6,14 +6,18 @@
 //! pass catalog in canonical order and invokes only the annotated
 //! passes.
 
+pub mod branch_hint;
 pub mod dispatch;
 pub mod dse;
 pub mod peephole;
+pub mod pool_constants;
 pub mod schedule;
 
 // Re-export canonical pass types.
+pub use branch_hint::BranchHintPass;
 pub use dse::DsePass;
 pub use peephole::PeepholePass;
+pub use pool_constants::PoolConstantsPass;
 pub use schedule::{InstructionClass, InstructionSchedulingPass, schedule_block};
 
 use crate::IrArena;

@@ -1643,6 +1643,14 @@ name = "paideia-modules-multifile"
 version = "0.0.1"
 
 [[package]]
+name = "paideia-opt-align"
+version = "0.0.1"
+
+[[package]]
+name = "paideia-opt-branch-hint"
+version = "0.0.1"
+
+[[package]]
 name = "paideia-opt-dse"
 version = "0.0.1"
 
@@ -1656,6 +1664,10 @@ version = "0.0.1"
 
 [[package]]
 name = "paideia-opt-peephole"
+version = "0.0.1"
+
+[[package]]
+name = "paideia-opt-pool-constants"
 version = "0.0.1"
 
 [[package]]

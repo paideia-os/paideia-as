@@ -1,0 +1,5 @@
+// Branch-hint test fixture
+// #[branch-hint]
+// fn test() -> u32 {
+//     if likely_condition() { 0 } else { 1 }
+// }

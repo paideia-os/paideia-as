@@ -1,0 +1,5 @@
+// Alignment test fixture for 64-byte function entry alignment
+// #[align]
+// fn test() -> u64 {
+//     42
+// }

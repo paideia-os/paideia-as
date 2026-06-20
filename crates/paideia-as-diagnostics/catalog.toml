@@ -1,6 +1,6 @@
 [catalog]
 version = "0.1.0"
-last_updated = "2026-06-18"
+last_updated = "2026-06-19"
 
 [diagnostic.E0001]
 severity = "error"
@@ -341,6 +341,33 @@ category = "optimization"
 title = "REX/EVEX prefix tightening applied"
 brief = "instruction shortened to its smallest legal encoding"
 description = "Per optimization-passes.md §6, picking the shortest legal encoding (32-bit ADD short form, Jcc rel8 over rel32) reduces code size and improves L1i density."
+since = "0.1.0"
+deprecated = false
+
+[diagnostic.O1507]
+severity = "note"
+category = "optimization"
+title = "Branch-hint code layout applied"
+brief = "unlikely branches moved off fall-through for better code density"
+description = "Per optimization-passes.md §7, branch hints direct the code layout pass to place unlikely branches away from the fall-through path, improving cache density and reducing misprediction penalties."
+since = "0.1.0"
+deprecated = false
+
+[diagnostic.O1508]
+severity = "note"
+category = "optimization"
+title = "Function-entry alignment applied"
+brief = "function entry aligned to improve L1i cache performance"
+description = "Per optimization-passes.md §8, aligning function entries to cache-line boundaries (typically 64 bytes) reduces L1i cache conflicts and improves prefetching efficiency."
+since = "0.1.0"
+deprecated = false
+
+[diagnostic.O1509]
+severity = "note"
+category = "optimization"
+title = "Constant-pool emission applied"
+brief = "repeated 64-bit immediates factored into a constant pool"
+description = "Per optimization-passes.md §9, constants appearing multiple times in a function are factored into a read-only constant pool, reducing instruction encoding size and improving cache density."
 since = "0.1.0"
 deprecated = false
 
