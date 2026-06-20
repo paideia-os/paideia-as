@@ -100,6 +100,100 @@ Per `milestones.md` §2.3 + §2.5 and the project-vision constraints:
 - **Optimization passes** — phase 1 ships zero opt passes.
 - **Full DWARF vendor-extension population** — phase 1 emits empty stubs (PR 57); phase 2 populates `.debug.paideia.caps` / `.debug.paideia.effects` / `.debug.paideia.sig`.
 
+## Phase 2 m10 closure (DDC bring-up)
+
+Diverse Double Compilation infrastructure is in place. The m10
+series (PRs #458–#465) implements:
+
+- **DDC harness scaffold (m10-001)** — `tools/ddc/run.sh`
+  orchestrator that builds paideia-as twice (stable + nightly
+  toolchains, falling back to a second stable build if nightly
+  is unavailable). Logs toolchain versions. Drops both binaries
+  at `tools/ddc/out/{a,b}/paideia-as`.
+- **Byte-level differ + allowlist (m10-002)** — `tools/ddc/`
+  promoted to workspace member with `ddc` lib + `ddc-diff` CLI.
+  `Divergence` / `DiffReport` JSON output. `Allowlist`
+  (start..=end + reason) TOML schema. Exit codes 0 (match modulo
+  allowlist), 1 (unallowlisted divergence), 2 (error).
+- **Build determinism env contract (m10-003)** — `det.rs` adds
+  `build_timestamp` (honours `SOURCE_DATE_EPOCH`) +
+  `map_path` (honours `PDX_PATH_PREFIX_MAP="OLD=NEW"`).
+  `build_pe_object` threads `det::build_timestamp()` into the
+  COFF `time_date_stamp`. `docs/build-determinism.md` documents
+  the contract.
+- **Format-gate corpus (m10-004)** — `tools/ddc/fixtures/` with
+  10 .pdx fixtures + `tools/ddc/tests/format_gates.rs` that
+  builds each fixture twice and asserts byte-identical output
+  per emit format (pe-coff / elf64 / pax). Per-emit tests
+  `#[ignore]`'d; fixture-count test active.
+- **Nightly CI workflow (m10-005)** — `.github/workflows/ddc.yml`
+  with cron schedule + workflow_dispatch + artifact upload.
+  Advisory (continue-on-error). 30-day artifact retention.
+- **Release-pipeline gate (m10-006)** — `.github/workflows/
+  release.yml` with hard-fail ddc-gate job + audited bypass
+  via `workflow_dispatch.ddc_bypass_justification`. Downstream
+  build + sign jobs gated on DDC pass.
+- **Operational docs (m10-007)** —
+  `design/toolchain/bootstrap.md` records the **dual-stage-0
+  decision** (NASM + GNU as) resolving OS-requirements §6
+  design-clarification 1; single-stage-0 explicitly rejected
+  as weakening Wheeler's argument. `docs/ddc.md` is the
+  operational guide (8 sections: verification, local
+  invocation, format-gate corpus, allowlist policy, CI
+  integration, incident response, env-var contract,
+  references).
+
+Phase-2-m10 honesty:
+- The infrastructure is in place; activation pairs with the
+  GitHub Actions billing restoration. Both workflow files
+  (ddc.yml, release.yml) are parseable + ready.
+- The AC bullet "DDC running advisory on main ≥7 nights with
+  no false positives" can't be met today because the nightly
+  workflow has never run. m11 / Phase 3 carries the activation
+  obligation.
+- Stage-0b (GNU as) entry-point source is **not yet written**.
+  The dual-stage-0 commitment is documented; the GAS-syntax
+  source is m11 / Phase 3 work.
+
+## Phase 2 m9 closure (optimization pass catalog)
+
+The opt-in optimization catalog is in place. The m9 series
+(PRs #446–#457) ships 11 passes:
+
+- **Pass infrastructure (m9-001)** — `OptPass` trait,
+  `OptDiagSink`, annotation parser, canonical-catalog
+  dispatcher.
+- **Peephole (m9-002)** — 8 canonical x86_64 rewrites. O1500.
+- **Instruction scheduling (m9-003)** — latency table +
+  `schedule_block`. O1503.
+- **Macro fusion (m9-004)** — CMP+Jcc 16-byte fetch-window
+  alignment. O1504.
+- **DSE (m9-005)** — basic-block reverse-sweep dead-store
+  elimination. O1505.
+- **REX/EVEX tightening (m9-006)** — `can_shorten_add_to_32bit`
+  + `can_use_rel8` + savings table. O1506.
+- **Branch hint + align + pool-constants (m9-007)** — three
+  small passes. O1507 / O1508 / O1509.
+- **Tail-call elimination (m9-008)** — `TcoBlocker` enum;
+  resolves OS-requirements §6 design-clarification 5. O1510.
+- **Loop unrolling (m9-009)** — `TripCount` + `is_unroll_safe`.
+  O1511 / O1512 (warning).
+- **Catalog composition (m9-010)** —
+  `dispatch_collecting_order` + proptest pins catalog-order
+  invariance.
+- **Diagnostic codes (m9-011)** — fills O1501 / O1502 reserved
+  slots + regression test.
+
+Phase-2-m9 honesty: each pass ships as a scaffolded "would-
+fire" emitter. Helper functions (`schedule_block`, `dse_block`,
+`pad_for_alignment`, `tco_blocker`, `is_unroll_safe`, etc.) ARE
+callable today and unit-tested. The kind-only IR (m1-002)
+doesn't expose per-node x86_64 mnemonics; flipping to real
+rewrites is a single PR once that lands.
+
+`design/toolchain/optimization-passes.md` is the canonical
+phase-2 outcome appendix.
+
 ## IR walker wiring (Phase 2 m1: complete)
 
 The substructural lattice, effect-row inference, and capability checks
