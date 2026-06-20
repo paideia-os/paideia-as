@@ -487,3 +487,12 @@ brief = "affine binding may be consumed across sibling branches"
 description = "An affine binding may be used at most once, but the analysis detects that it could be consumed in two or more sibling match arms (or if/then/else branches). Although only one branch executes dynamically, the static analysis tracks 'may consume' (not 'must consume'), so this is flagged as a static error. Restructure the code so the affine binding is used in only one branch, or assign it to an unrestricted binding first."
 since = "0.3.0"
 deprecated = false
+
+[diagnostic.S0905]
+severity = "error"
+category = "substructural"
+title = "Ordered binding used out of order within handler"
+brief = "ordered resource used out of order across handler"
+description = "An ordered binding declared in an enclosing scope is used out of declaration order within a handler body. Handler installations impose strict sequential-use constraints on ordered bindings: all uses must respect their declaration order. Reorder the uses in the handler body to match the order in which the bindings were declared."
+since = "0.3.0"
+deprecated = false
