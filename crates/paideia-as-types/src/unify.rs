@@ -132,6 +132,25 @@ pub fn unify(
             }
             Ok(())
         }
+        // Pointer types: unify if mutability matches, then unify pointees.
+        (
+            Type::Ptr {
+                pointee: p1,
+                mutable: m1,
+            },
+            Type::Ptr {
+                pointee: p2,
+                mutable: m2,
+            },
+        ) => {
+            if m1 != m2 {
+                return Err(UnifyError::KindMismatch {
+                    a: format!("*{}", if m1 { "mut " } else { "" }),
+                    b: format!("*{}", if m2 { "mut " } else { "" }),
+                });
+            }
+            unify(interner, subst, p1, p2)
+        }
         // Default: kind mismatch.
         (ta, tb) => Err(UnifyError::KindMismatch {
             a: format!("{ta:?}"),
@@ -401,5 +420,71 @@ mod tests {
 
         let result = unify(&mut interner, &mut subst, named1, named2);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn unify_ptr_same_pointee_succeeds() {
+        let mut interner = TypeInterner::new();
+        let mut subst = Subst::new();
+        let u64_id = interner.uint(64);
+
+        let ptr1 = interner.intern(Type::Ptr {
+            pointee: u64_id,
+            mutable: false,
+        });
+        let ptr2 = interner.intern(Type::Ptr {
+            pointee: u64_id,
+            mutable: false,
+        });
+
+        let result = unify(&mut interner, &mut subst, ptr1, ptr2);
+        assert!(result.is_ok(), "*u64 should unify with *u64: {:?}", result);
+    }
+
+    #[test]
+    fn unify_ptr_different_mutability_fails() {
+        let mut interner = TypeInterner::new();
+        let mut subst = Subst::new();
+        let u64_id = interner.uint(64);
+
+        let ptr_immutable = interner.intern(Type::Ptr {
+            pointee: u64_id,
+            mutable: false,
+        });
+        let ptr_mutable = interner.intern(Type::Ptr {
+            pointee: u64_id,
+            mutable: true,
+        });
+
+        let result = unify(&mut interner, &mut subst, ptr_immutable, ptr_mutable);
+        assert!(result.is_err(), "*u64 should not unify with *mut u64");
+
+        if let Err(UnifyError::KindMismatch { .. }) = result {
+            // Expected error type
+        } else {
+            panic!("Expected KindMismatch error");
+        }
+    }
+
+    #[test]
+    fn unify_var_with_ptr_binds_var() {
+        let mut interner = TypeInterner::new();
+        let mut subst = Subst::new();
+        let alpha = TyVar::new(1).unwrap();
+        let u64_id = interner.uint(64);
+
+        let alpha_id = interner.intern(Type::Var(alpha));
+        let ptr_u64 = interner.intern(Type::Ptr {
+            pointee: u64_id,
+            mutable: false,
+        });
+
+        let result = unify(&mut interner, &mut subst, alpha_id, ptr_u64);
+        assert!(result.is_ok(), "Var should unify with Ptr: {:?}", result);
+        assert_eq!(
+            subst.get(alpha),
+            Some(ptr_u64),
+            "Var should be bound to Ptr type"
+        );
     }
 }

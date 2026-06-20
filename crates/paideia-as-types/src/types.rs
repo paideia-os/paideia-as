@@ -134,6 +134,17 @@ pub enum Type {
     /// m2-003+ may add `Term<expr>` / `Term<type>` variants. Phase-1 treats
     /// all `quote` and `~` forms as producing/expecting `Term`.
     Term,
+    /// Raw pointer type `*T` or `*mut T`.
+    ///
+    /// `mutable = false` represents `*T` (immutable raw pointer).
+    /// `mutable = true` represents `*mut T` (mutable raw pointer; reserved for future parser extension).
+    /// Phase3-m1-002 ships only `*T` (mutable = false) from the parser.
+    Ptr {
+        /// The type being pointed to.
+        pointee: TypeId,
+        /// Whether this is a mutable pointer (`*mut T`) or immutable (`*T`).
+        mutable: bool,
+    },
 }
 
 /// Sentinel value for "size word" (`usize`/`isize`): stored as the
@@ -156,5 +167,69 @@ impl Type {
     /// Build a `Type::Float` with width 32 or 64.
     pub fn float(bits: u16) -> Self {
         Self::Float(bits)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::intern::TypeInterner;
+
+    #[test]
+    fn ptr_interns_same_pointee_to_same_id() {
+        let mut interner = TypeInterner::new();
+        let u64_id = interner.uint(64);
+
+        let ptr1 = interner.intern(Type::Ptr {
+            pointee: u64_id,
+            mutable: false,
+        });
+        let ptr2 = interner.intern(Type::Ptr {
+            pointee: u64_id,
+            mutable: false,
+        });
+
+        assert_eq!(ptr1, ptr2, "*u64 and *u64 should intern to the same TypeId");
+    }
+
+    #[test]
+    fn ptr_with_different_pointee_interns_distinct() {
+        let mut interner = TypeInterner::new();
+        let u64_id = interner.uint(64);
+        let u8_id = interner.uint(8);
+
+        let ptr_u64 = interner.intern(Type::Ptr {
+            pointee: u64_id,
+            mutable: false,
+        });
+        let ptr_u8 = interner.intern(Type::Ptr {
+            pointee: u8_id,
+            mutable: false,
+        });
+
+        assert_ne!(
+            ptr_u64, ptr_u8,
+            "*u64 and *u8 should intern to different TypeIds"
+        );
+    }
+
+    #[test]
+    fn ptr_mutable_and_immutable_distinct() {
+        let mut interner = TypeInterner::new();
+        let u64_id = interner.uint(64);
+
+        let ptr_immutable = interner.intern(Type::Ptr {
+            pointee: u64_id,
+            mutable: false,
+        });
+        let ptr_mutable = interner.intern(Type::Ptr {
+            pointee: u64_id,
+            mutable: true,
+        });
+
+        assert_ne!(
+            ptr_immutable, ptr_mutable,
+            "*u64 and *mut u64 should intern to different TypeIds"
+        );
     }
 }
