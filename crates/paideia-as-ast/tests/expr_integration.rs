@@ -115,6 +115,7 @@ fn build_and_walk_simple_expression_tree() {
         NodeKind::ExprLambda,
         span(),
         ExprData::Lambda {
+            generic_params: vec![],
             params: vec![],
             body: block_id,
             pipe_form: false,

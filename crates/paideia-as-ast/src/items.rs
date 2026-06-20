@@ -95,10 +95,13 @@ pub enum ItemData {
         doc: Option<NodeId>,
     },
 
-    /// Let binding: `let Name (: Type)? = Expr`
+    /// Let binding: `let Name <T> (: Type)? = Expr`
     Let {
         /// Name of the binding (Ident node).
         name: NodeId,
+        /// Generic parameters (type parameters with optional bounds).
+        /// Empty for non-generic bindings.
+        generic_params: Vec<crate::exprs::GenericParam>,
         /// Optional type annotation (Type node).
         ty: Option<NodeId>,
         /// Value expression (Expr node).
@@ -111,6 +114,9 @@ pub enum ItemData {
     Struct {
         /// Name of the struct (Ident node).
         name: NodeId,
+        /// Generic parameters (type parameters with optional bounds).
+        /// Empty for non-generic structs.
+        generic_params: Vec<crate::exprs::GenericParam>,
         /// Struct fields.
         fields: Vec<NodeId>,
         /// Optional documentation comment.
@@ -121,6 +127,9 @@ pub enum ItemData {
     Enum {
         /// Name of the enum (Ident node).
         name: NodeId,
+        /// Generic parameters (type parameters with optional bounds).
+        /// Empty for non-generic enums.
+        generic_params: Vec<crate::exprs::GenericParam>,
         /// Enum variants.
         variants: Vec<NodeId>,
         /// Optional documentation comment.
@@ -184,6 +193,7 @@ mod tests {
         let value = NodeId::new(3).unwrap();
         let item = ItemData::Let {
             name,
+            generic_params: vec![],
             ty: Some(ty),
             value,
             doc: None,
@@ -191,11 +201,13 @@ mod tests {
         match item {
             ItemData::Let {
                 name: n,
+                generic_params,
                 ty: t,
                 value: v,
                 doc: d,
             } => {
                 assert_eq!(n, name);
+                assert!(generic_params.is_empty());
                 assert_eq!(t, Some(ty));
                 assert_eq!(v, value);
                 assert!(d.is_none());

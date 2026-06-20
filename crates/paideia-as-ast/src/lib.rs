@@ -22,7 +22,7 @@ mod types;
 mod visit;
 
 pub use arena::{AstArena, NodeData, NodeKind};
-pub use exprs::{ExprData, HandlerArm, LoopKind, MatchArm, SharingConstraint};
+pub use exprs::{ExprData, GenericParam, HandlerArm, LoopKind, MatchArm, SharingConstraint};
 pub use items::ItemData;
 pub use macros::{MacroDeclData, MacroFragment, MacroFragmentKind, MacroRule};
 pub use modules::{

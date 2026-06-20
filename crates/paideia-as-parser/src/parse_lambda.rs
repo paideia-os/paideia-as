@@ -13,15 +13,23 @@ use crate::parser::{ParseError, Parser};
 impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// Parse a lambda expression with `fn` keyword style.
     ///
-    /// Form: `fn (p1: T1) (p2: T2) -> expr`.
+    /// Form: `fn <T, U> (p1: T1) (p2: T2) -> expr`.
     /// Returns a `NodeKind::ExprLambda` with `pipe_form: false`.
     ///
     /// For phase-1:
     /// - Patterns inside `(... : T)` are treated as Ident patterns.
     /// - Types after `:` are parsed using the full type parser (PR-24).
+    /// - Generic parameters are optional (added in phase-4 m9-001).
     pub(crate) fn parse_lambda_fn(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
         let fn_tok = self.expect(TokenKind::KwFn)?;
         let fn_span = fn_tok.span;
+
+        // Optional generic parameters: `< T, U: Trait >`
+        let generic_params = if self.at(TokenKind::Lt) {
+            self.parse_generic_params()?
+        } else {
+            Vec::new()
+        };
 
         let mut params = Vec::new();
 
@@ -67,6 +75,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             NodeKind::ExprLambda,
             lambda_span,
             ExprData::Lambda {
+                generic_params,
                 params,
                 body,
                 pipe_form: false,
@@ -82,6 +91,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// For phase-1:
     /// - Parameters are comma-separated identifiers (no type annotations).
     /// - Each identifier is parsed as an Ident pattern.
+    /// - Generic parameters are NOT supported in pipe-form (always empty).
     pub(crate) fn parse_lambda_pipe(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
         let open_bar = self.expect(TokenKind::Pipe)?;
         let open_bar_span = open_bar.span;
@@ -126,6 +136,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             NodeKind::ExprLambda,
             lambda_span,
             ExprData::Lambda {
+                generic_params: Vec::new(), // Pipe-form lambdas don't support generic params
                 params,
                 body,
                 pipe_form: true,
@@ -236,9 +247,13 @@ mod tests {
         assert_eq!(node.kind, NodeKind::ExprLambda);
         if let Some(expr_data) = arena.expr_data(root) {
             if let ExprData::Lambda {
-                params, pipe_form, ..
+                generic_params,
+                params,
+                pipe_form,
+                ..
             } = expr_data
             {
+                assert!(generic_params.is_empty());
                 assert_eq!(params.len(), 1);
                 assert!(!pipe_form);
             } else {
@@ -273,7 +288,12 @@ mod tests {
         let node = arena.get(root).unwrap();
         assert_eq!(node.kind, NodeKind::ExprLambda);
         if let Some(expr_data) = arena.expr_data(root) {
-            if let ExprData::Lambda { params, .. } = expr_data {
+            if let ExprData::Lambda {
+                generic_params: _,
+                params,
+                ..
+            } = expr_data
+            {
                 assert_eq!(params.len(), 2);
             } else {
                 panic!("expected ExprLambda");
@@ -297,7 +317,10 @@ mod tests {
         assert_eq!(node.kind, NodeKind::ExprLambda);
         if let Some(expr_data) = arena.expr_data(root) {
             if let ExprData::Lambda {
-                params, pipe_form, ..
+                generic_params: _,
+                params,
+                pipe_form,
+                ..
             } = expr_data
             {
                 assert_eq!(params.len(), 1);
@@ -328,7 +351,10 @@ mod tests {
         assert_eq!(node.kind, NodeKind::ExprLambda);
         if let Some(expr_data) = arena.expr_data(root) {
             if let ExprData::Lambda {
-                params, pipe_form, ..
+                generic_params: _,
+                params,
+                pipe_form,
+                ..
             } = expr_data
             {
                 assert_eq!(params.len(), 2);

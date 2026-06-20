@@ -1,0 +1,1 @@
+let foo<T, U,> = fn (x: T) (y: U) -> x

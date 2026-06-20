@@ -37,6 +37,8 @@ pub enum NodeKind {
     Functor,
     /// Functor parameter.
     FunctorParam,
+    /// Generic parameter (type parameter with optional bounds).
+    GenericParam,
     /// Effect declaration.
     Effect,
     /// Operation signature within an effect.
@@ -693,6 +695,7 @@ mod tests {
             span(),
             ItemData::Let {
                 name: NodeId::new(1).unwrap(),
+                generic_params: vec![],
                 ty: None,
                 value: NodeId::new(2).unwrap(),
                 doc: None,

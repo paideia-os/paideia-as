@@ -1,0 +1,1 @@
+let foo<T: Clone, U: Eq> = fn (x: T) (y: U) -> x

@@ -32,6 +32,7 @@ fn build_and_walk_full_module_tree() {
         span(),
         ItemData::Let {
             name: let_x_name,
+            generic_params: vec![],
             ty: None,
             value: expr_x,
             doc: None,
@@ -43,6 +44,7 @@ fn build_and_walk_full_module_tree() {
         span(),
         ItemData::Let {
             name: let_y_name,
+            generic_params: vec![],
             ty: None,
             value: expr_y,
             doc: None,

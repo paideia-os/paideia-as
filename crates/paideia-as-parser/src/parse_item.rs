@@ -11,7 +11,7 @@
 //! - Module body must be either `structure { items }` or `functor (params) -> structure { items }`.
 //! - Only one module per file (M0306 diagnostic emitted for the second module).
 
-use paideia_as_ast::{ItemData, NodeId, NodeKind};
+use paideia_as_ast::{GenericParam, ItemData, NodeId, NodeKind};
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
 use paideia_as_lexer::TokenKind;
 
@@ -399,7 +399,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         Ok(item)
     }
 
-    /// Parse a top-level let declaration: `let <Ident> (: Type)? = Expr`
+    /// Parse a top-level let declaration: `let <Ident> <GenericParams>? (: Type)? = Expr`
     fn parse_let_decl(&mut self) -> Result<NodeId, ParseError> {
         let let_tok = self.expect(TokenKind::KwLet)?;
         let span_start = let_tok.span;
@@ -443,6 +443,13 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             self.arena_mut().alloc(NodeKind::Ident, name_tok.span)
         };
 
+        // Optional generic parameters: `< T, U: Trait >`
+        let generic_params = if self.at(TokenKind::Lt) {
+            self.parse_generic_params()?
+        } else {
+            Vec::new()
+        };
+
         // Optional type annotation
         let ty = if self.eat(TokenKind::Colon) {
             Some(self.parse_type()?)
@@ -476,6 +483,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             span,
             ItemData::Let {
                 name: name_id,
+                generic_params,
                 ty,
                 value,
                 doc: None,
@@ -618,7 +626,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         Ok(item)
     }
 
-    /// Parse a struct type declaration: `struct <Ident> { ... }`
+    /// Parse a struct type declaration: `struct <Ident> <GenericParams>? { ... }`
     ///
     /// For phase-1, the body is parsed as a skeleton (just match braces).
     fn parse_struct_decl(&mut self) -> Result<NodeId, ParseError> {
@@ -628,6 +636,13 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         // Parse struct name
         let name_tok = self.expect(TokenKind::Ident)?;
         let name_id = self.arena_mut().alloc(NodeKind::Ident, name_tok.span);
+
+        // Optional generic parameters: `< T, U: Trait >`
+        let generic_params = if self.at(TokenKind::Lt) {
+            self.parse_generic_params()?
+        } else {
+            Vec::new()
+        };
 
         // Expect `{` and skip to matching `}`
         self.expect(TokenKind::LBrace)?;
@@ -654,6 +669,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             span,
             ItemData::Struct {
                 name: name_id,
+                generic_params,
                 fields: vec![],
                 doc: None,
             },
@@ -661,7 +677,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         Ok(item)
     }
 
-    /// Parse an enum type declaration: `enum <Ident> { ... }`
+    /// Parse an enum type declaration: `enum <Ident> <GenericParams>? { ... }`
     ///
     /// For phase-1, the body is parsed as a skeleton (just match braces).
     fn parse_enum_decl(&mut self) -> Result<NodeId, ParseError> {
@@ -671,6 +687,13 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         // Parse enum name
         let name_tok = self.expect(TokenKind::Ident)?;
         let name_id = self.arena_mut().alloc(NodeKind::Ident, name_tok.span);
+
+        // Optional generic parameters: `< T, U: Trait >`
+        let generic_params = if self.at(TokenKind::Lt) {
+            self.parse_generic_params()?
+        } else {
+            Vec::new()
+        };
 
         // Expect `{` and skip to matching `}`
         self.expect(TokenKind::LBrace)?;
@@ -697,6 +720,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             span,
             ItemData::Enum {
                 name: name_id,
+                generic_params,
                 variants: vec![],
                 doc: None,
             },
@@ -734,6 +758,193 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             },
         );
         Ok(item)
+    }
+
+    /// Parse generic parameters: `< GenericParam (',' GenericParam)* (',')? >`.
+    ///
+    /// **Grammar:**
+    /// ```text
+    /// GenericParams ::= '<' GenericParam (',' GenericParam)* (',')? '>'
+    /// GenericParam ::= Ident (':' Path (',' Path)* )?
+    /// ```
+    ///
+    /// Returns `Vec<GenericParam>` representing the generic parameters.
+    /// Returns `P0200` if any part of the generic parameter list is malformed.
+    ///
+    /// For phase-1 (m9-001), this is only called from function declarations
+    /// and does not attempt to parse generic-args at use sites.
+    pub(crate) fn parse_generic_params(&mut self) -> Result<Vec<GenericParam>, ParseError> {
+        // Expect opening `<`
+        let _lt_tok = self.expect(TokenKind::Lt)?;
+        let mut params = Vec::new();
+
+        // Loop: parse comma-separated generic parameters
+        loop {
+            // Check for closing `>`
+            if self.at(TokenKind::Gt) {
+                break;
+            }
+
+            // Parse parameter name (Ident)
+            let param_name_tok = match self.peek() {
+                Some(tok) if tok.kind == TokenKind::Ident => {
+                    self.bump();
+                    tok
+                }
+                _ => {
+                    // Missing or malformed parameter name
+                    let span = self
+                        .peek()
+                        .map(|t| t.span)
+                        .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+                    let code = DiagnosticCode::new(Category::P, Severity::Error, 200)
+                        .expect("valid P0200 code");
+                    let diag = Diagnostic::error(code)
+                        .message("expected generic parameter name in generic parameter list")
+                        .with_span(span)
+                        .finish();
+                    self.emit_diagnostic(diag);
+                    return Err(ParseError);
+                }
+            };
+
+            let param_name = self.arena_mut().alloc(NodeKind::Ident, param_name_tok.span);
+
+            // Parse optional bounds: `:` followed by comma-separated trait names
+            let mut bounds = Vec::new();
+            if self.eat(TokenKind::Colon) {
+                loop {
+                    // Parse trait name as a path
+                    let trait_name = self.parse_type_name_path()?;
+                    bounds.push(trait_name);
+
+                    // Check for comma (more bounds) or end of bounds
+                    if !self.eat(TokenKind::Comma) {
+                        break;
+                    }
+
+                    // Check if the next token is `>` or `,` (trailing comma)
+                    if self.at(TokenKind::Gt) {
+                        break;
+                    }
+                }
+            }
+
+            params.push(GenericParam {
+                name: param_name,
+                bounds,
+            });
+
+            // Check for separator or end
+            if !self.eat(TokenKind::Comma) {
+                break;
+            }
+
+            // Allow trailing comma before `>`
+            if self.at(TokenKind::Gt) {
+                break;
+            }
+        }
+
+        // Expect closing `>`
+        if !self.eat(TokenKind::Gt) {
+            let span = self
+                .peek()
+                .map(|t| t.span)
+                .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+            let code =
+                DiagnosticCode::new(Category::P, Severity::Error, 200).expect("valid P0200 code");
+            let diag = Diagnostic::error(code)
+                .message("expected '>' to close generic parameter list")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        Ok(params)
+    }
+
+    /// Parse a type name as a path for use in generic bounds.
+    ///
+    /// For phase-1 (m9-001), this parses a simple identifier or qualified path
+    /// like `Trait` or `Module::Trait`.
+    fn parse_type_name_path(&mut self) -> Result<NodeId, ParseError> {
+        if let Some(tok) = self.peek() {
+            if tok.kind == TokenKind::Ident {
+                self.bump();
+                let id = self.arena_mut().alloc(NodeKind::Ident, tok.span);
+
+                // Handle qualified paths: `Ident :: Ident`
+                let mut segments = vec![id];
+                while self.eat(TokenKind::ColonColon) {
+                    if let Some(next_tok) = self.peek() {
+                        if next_tok.kind == TokenKind::Ident {
+                            self.bump();
+                            let segment = self.arena_mut().alloc(NodeKind::Ident, next_tok.span);
+                            segments.push(segment);
+                        } else {
+                            // Error: expected Ident after `::`
+                            let span = next_tok.span;
+                            let code = DiagnosticCode::new(Category::P, Severity::Error, 200)
+                                .expect("valid P0200 code");
+                            let diag = Diagnostic::error(code)
+                                .message("expected identifier after '::' in trait bound path")
+                                .with_span(span)
+                                .finish();
+                            self.emit_diagnostic(diag);
+                            return Err(ParseError);
+                        }
+                    } else {
+                        break;
+                    }
+                }
+
+                // Allocate an ExprPath to represent the trait name
+                // Use the first segment's span as the start
+                let span_start = self
+                    .arena()
+                    .get(segments[0])
+                    .map(|n| n.span)
+                    .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+                let span_end = self
+                    .arena()
+                    .get(segments[segments.len() - 1])
+                    .map(|n| n.span)
+                    .unwrap_or(span_start);
+                let span = Span::new(
+                    span_start.file(),
+                    span_start.byte_start(),
+                    span_end.byte_start() + span_end.byte_len() - span_start.byte_start(),
+                );
+
+                Ok(self.arena_mut().alloc_expr(
+                    NodeKind::ExprPath,
+                    span,
+                    paideia_as_ast::ExprData::Path { segments },
+                ))
+            } else {
+                let span = tok.span;
+                let code = DiagnosticCode::new(Category::P, Severity::Error, 200)
+                    .expect("valid P0200 code");
+                let diag = Diagnostic::error(code)
+                    .message("expected trait name in generic parameter bound")
+                    .with_span(span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                Err(ParseError)
+            }
+        } else {
+            let span = Span::new(self.file(), 0, 0);
+            let code =
+                DiagnosticCode::new(Category::P, Severity::Error, 200).expect("valid P0200 code");
+            let diag = Diagnostic::error(code)
+                .message("expected trait name in generic parameter bound")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            Err(ParseError)
+        }
     }
 }
 

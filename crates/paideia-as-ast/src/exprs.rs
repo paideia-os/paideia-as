@@ -9,6 +9,19 @@
 use crate::NodeId;
 use paideia_as_diagnostics::Span;
 
+/// Generic parameter declaration.
+///
+/// Represents a single type parameter in a generic function or type declaration.
+/// Example: `T` in `fn foo<T: Trait>(x: T)`, or `U: Clone` in `fn bar<U: Clone>`.
+#[derive(Clone, Debug)]
+pub struct GenericParam {
+    /// Parameter name (Ident node).
+    pub name: NodeId,
+    /// Trait bounds (type-name/path nodes for trait bounds).
+    /// Empty if no bounds specified.
+    pub bounds: Vec<NodeId>,
+}
+
 /// Structured payload for expression nodes.
 ///
 /// Each variant corresponds to a top-level expression kind as specified in
@@ -16,11 +29,15 @@ use paideia_as_diagnostics::Span;
 /// in the arena.
 #[derive(Clone, Debug)]
 pub enum ExprData {
-    /// `fn/λ params -> body` or `|x, y| body`.
+    /// `fn/λ <T, U> params -> body` or `|x, y| body`.
     ///
     /// A lambda expression. The `pipe_form` flag distinguishes between
     /// `fn` / `λ` style (false) and `|...|` style (true).
+    /// Generic parameters are only valid in `fn` style (phase 4).
     Lambda {
+        /// Generic parameters (type parameters with optional bounds).
+        /// Empty for pipe-form and non-generic functions.
+        generic_params: Vec<GenericParam>,
         /// Parameter nodes (Pattern : Type pairs).
         params: Vec<NodeId>,
         /// Body expression.
@@ -381,16 +398,19 @@ mod tests {
         let param = NodeId::new(1).unwrap();
         let body = NodeId::new(2).unwrap();
         let expr = ExprData::Lambda {
+            generic_params: vec![],
             params: vec![param],
             body,
             pipe_form: false,
         };
         match expr {
             ExprData::Lambda {
+                generic_params,
                 params,
                 body: b,
                 pipe_form,
             } => {
+                assert!(generic_params.is_empty());
                 assert_eq!(params.len(), 1);
                 assert_eq!(params[0], param);
                 assert_eq!(b, body);

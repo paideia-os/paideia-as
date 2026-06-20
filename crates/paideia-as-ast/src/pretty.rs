@@ -102,28 +102,50 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
         }
         ItemData::Let {
             name,
+            generic_params,
             ty,
             value,
             doc,
         } => {
             format!(
-                "Let {{ name: {}, ty: {:?}, value: {}, doc: {:?} }}",
-                name, ty, value, doc
+                "Let {{ name: {}, generic_params: [{}], ty: {:?}, value: {}, doc: {:?} }}",
+                name,
+                generic_params
+                    .iter()
+                    .map(|p| format!("{}", p.name))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                ty,
+                value,
+                doc
             )
         }
-        ItemData::Struct { name, fields, doc } => {
+        ItemData::Struct {
+            name,
+            generic_params,
+            fields,
+            doc,
+        } => {
             let fields_str = fields
                 .iter()
                 .map(|id| id.to_string())
                 .collect::<Vec<_>>()
                 .join(", ");
             format!(
-                "Struct {{ name: {}, fields: [{}], doc: {:?} }}",
-                name, fields_str, doc
+                "Struct {{ name: {}, generic_params: [{}], fields: [{}], doc: {:?} }}",
+                name,
+                generic_params
+                    .iter()
+                    .map(|p| format!("{}", p.name))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                fields_str,
+                doc
             )
         }
         ItemData::Enum {
             name,
+            generic_params,
             variants,
             doc,
         } => {
@@ -133,8 +155,15 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 .collect::<Vec<_>>()
                 .join(", ");
             format!(
-                "Enum {{ name: {}, variants: [{}], doc: {:?} }}",
-                name, variants_str, doc
+                "Enum {{ name: {}, generic_params: [{}], variants: [{}], doc: {:?} }}",
+                name,
+                generic_params
+                    .iter()
+                    .map(|p| format!("{}", p.name))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                variants_str,
+                doc
             )
         }
         ItemData::UnsafeBlock {
@@ -252,6 +281,7 @@ fn print_expr_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
 
     let line = match expr {
         ExprData::Lambda {
+            generic_params,
             params,
             body,
             pipe_form,
@@ -261,9 +291,14 @@ fn print_expr_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 .map(|id| id.to_string())
                 .collect::<Vec<_>>()
                 .join(", ");
+            let gen_params_str = generic_params
+                .iter()
+                .map(|p| format!("{}", p.name))
+                .collect::<Vec<_>>()
+                .join(", ");
             format!(
-                "Lambda {{ params: [{}], body: {}, pipe_form: {} }}",
-                params_str, body, pipe_form
+                "Lambda {{ generic_params: [{}], params: [{}], body: {}, pipe_form: {} }}",
+                gen_params_str, params_str, body, pipe_form
             )
         }
         ExprData::ActionBlock {
@@ -753,6 +788,7 @@ mod tests {
             span(),
             ItemData::Let {
                 name: let_name,
+                generic_params: vec![],
                 ty: None,
                 value: let_value,
                 doc: None,
