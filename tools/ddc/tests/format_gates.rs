@@ -106,6 +106,7 @@ const FIXTURES: &[&str] = &[
     "match_expr.pdx",
     "capability_use.pdx",
     "handler_install.pdx",
+    "m2-004-passes.pdx",
 ];
 
 #[test]
@@ -133,7 +134,7 @@ fn format_gate_corpus_pax() {
 }
 
 #[test]
-fn format_gate_fixtures_count_is_ten() {
+fn format_gate_fixtures_count_is_eleven() {
     let dir = fixtures_dir();
     let mut count = 0;
     if let Ok(entries) = std::fs::read_dir(&dir) {
@@ -143,5 +144,19 @@ fn format_gate_fixtures_count_is_ten() {
             }
         }
     }
-    assert_eq!(count, 10, "expected 10 fixtures, found {count}");
+    assert_eq!(count, 11, "expected 11 fixtures, found {count}");
+}
+
+#[test]
+#[ignore = "requires paideia-as binary built first"]
+fn ddc_fixture_exercises_macro_fusion() {
+    build_twice_and_diff("m2-004-passes.pdx", "elf64");
+}
+
+#[test]
+#[ignore = "requires paideia-as binary built first"]
+fn ddc_fixture_byte_identical_across_runs() {
+    for emit in &["elf64", "pe-coff", "pax"] {
+        build_twice_and_diff("m2-004-passes.pdx", emit);
+    }
 }

@@ -67,9 +67,9 @@ fn pax_offset_map_remapping_for_caps_effects() {
     let mut offset_map: HashMap<IrNodeId, u64> = HashMap::new();
 
     // Simulate pre-rewrite IR nodes and their post-rewrite bytecode offsets
-    offset_map.insert(IrNodeId::new(1).unwrap(), 0x0000u64);   // func1 at offset 0
-    offset_map.insert(IrNodeId::new(2).unwrap(), 0x0100u64);   // func2 at offset 256
-    offset_map.insert(IrNodeId::new(3).unwrap(), 0x0250u64);   // func3 at offset 592
+    offset_map.insert(IrNodeId::new(1).unwrap(), 0x0000u64); // func1 at offset 0
+    offset_map.insert(IrNodeId::new(2).unwrap(), 0x0100u64); // func2 at offset 256
+    offset_map.insert(IrNodeId::new(3).unwrap(), 0x0250u64); // func3 at offset 592
     offset_map.insert(IrNodeId::new(100).unwrap(), 0x0400u64); // param at offset 1024
 
     // Verify that caps/effects sections can use these offsets
@@ -80,7 +80,10 @@ fn pax_offset_map_remapping_for_caps_effects() {
     assert_eq!(offset_map.get(&IrNodeId::new(1).unwrap()), Some(&0x0000u64));
     assert_eq!(offset_map.get(&IrNodeId::new(2).unwrap()), Some(&0x0100u64));
     assert_eq!(offset_map.get(&IrNodeId::new(3).unwrap()), Some(&0x0250u64));
-    assert_eq!(offset_map.get(&IrNodeId::new(100).unwrap()), Some(&0x0400u64));
+    assert_eq!(
+        offset_map.get(&IrNodeId::new(100).unwrap()),
+        Some(&0x0400u64)
+    );
 
     // Verify that non-existent nodes gracefully return None
     assert_eq!(offset_map.get(&IrNodeId::new(999).unwrap()), None);
@@ -149,21 +152,9 @@ fn pax_opt_passes_section_supports_multiple_passes_per_function() {
     let func_id = IrNodeId::new(1).unwrap();
 
     // Same function optimized by multiple passes
-    section.push(OptPassRecord::new(
-        "peephole".to_string(),
-        func_id,
-        3,
-    ));
-    section.push(OptPassRecord::new(
-        "dse".to_string(),
-        func_id,
-        2,
-    ));
-    section.push(OptPassRecord::new(
-        "const-fold".to_string(),
-        func_id,
-        1,
-    ));
+    section.push(OptPassRecord::new("peephole".to_string(), func_id, 3));
+    section.push(OptPassRecord::new("dse".to_string(), func_id, 2));
+    section.push(OptPassRecord::new("const-fold".to_string(), func_id, 1));
 
     // Verify we can distinguish and aggregate per-pass
     let peephole_count: u32 = section

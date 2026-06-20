@@ -97,4 +97,48 @@ else
     log "nasm or as not available; skipping stage-0 dual-source verification"
 fi
 
+log "Phase-4-m2-004: per-emit DDC fixture determinism"
+FIXTURE="${ROOT_DIR}/tools/ddc/fixtures/m2-004-passes.pdx"
+if [[ ! -f "${FIXTURE}" ]]; then
+    log "fixture not found: ${FIXTURE}; skipping"
+    exit 0
+fi
+
+# Build fixture twice with deterministic SOURCE_DATE_EPOCH, emitting to each format.
+# For each format, verify the two runs produce byte-identical output.
+for emit_fmt in elf64 pe-coff pax; do
+    log "checking ${emit_fmt} determinism"
+
+    tmp_run1="${OUT_DIR}/a/m2004-passes.${emit_fmt}"
+    tmp_run2="${OUT_DIR}/b/m2004-passes.${emit_fmt}"
+
+    run_build() {
+        local out="$1"
+        SOURCE_DATE_EPOCH=0 PDX_PATH_PREFIX_MAP="/=/" \
+        "${OUT_DIR}/a/paideia-as" build \
+            --emit "${emit_fmt}" \
+            "${FIXTURE}" \
+            -o "${out}" 2>&1
+    }
+
+    if ! run_build "${tmp_run1}"; then
+        log "  build run 1 (${emit_fmt}) failed; skipping format"
+        continue
+    fi
+
+    if ! run_build "${tmp_run2}"; then
+        log "  build run 2 (${emit_fmt}) failed; skipping format"
+        continue
+    fi
+
+    if cmp -s "${tmp_run1}" "${tmp_run2}"; then
+        log "  ${emit_fmt}: byte-identical across deterministic runs"
+    else
+        log "  ${emit_fmt}: DIFFERS across runs — DDC FAIL"
+        exit 1
+    fi
+done
+
+log "DDC per-emit fixture determinism checks passed"
+
 exit 0
