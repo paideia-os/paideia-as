@@ -1,0 +1,21 @@
+// Fixture: file_read_to_string
+// Tests that read_to_string(self: linear Self) returns String.
+
+record File {
+  fd: u64,
+}
+
+record String {
+  ptr: u64,
+  len: u64,
+}
+
+trait Read {
+  fn read_to_string(self: linear Self) -> String !{IO} @{paideia.io};
+}
+
+impl Read for File {
+  fn read_to_string(self: linear Self) -> String !{IO} @{paideia.io} {
+    string_new()
+  }
+}

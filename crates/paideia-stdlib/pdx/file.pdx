@@ -1,0 +1,52 @@
+// Phase 4 m11-006: file I/O — File, Read, Write traits.
+
+record File {
+  fd: u64,
+}
+
+enum IoError {
+  NotFound,
+  PermissionDenied,
+  AlreadyExists,
+  Other,
+}
+
+trait Read {
+  fn read(self: linear Self, buf: Vec) -> Vec !{IO} @{paideia.io};
+  fn read_to_string(self: linear Self) -> String !{IO} @{paideia.io};
+}
+
+trait Write {
+  fn write(self: linear Self, buf: Vec) -> Self !{IO} @{paideia.io};
+  fn write_all(self: linear Self, buf: Vec) -> Self !{IO} @{paideia.io};
+  fn flush(self: linear Self) -> Self !{IO} @{paideia.io};
+}
+
+trait FileOps {
+  fn file_open(path: Str) -> Result !{IO} @{paideia.io};
+  fn file_create(path: Str) -> Result !{IO} @{paideia.io};
+}
+
+impl Read for File {
+  fn read(self: linear Self, buf: Vec) -> Vec !{IO} @{paideia.io} {
+    buf  // Phase-4-m11-006 stub.
+  }
+
+  fn read_to_string(self: linear Self) -> String !{IO} @{paideia.io} {
+    string_new()
+  }
+}
+
+impl Write for File {
+  fn write(self: linear Self, buf: Vec) -> Self !{IO} @{paideia.io} {
+    self
+  }
+
+  fn write_all(self: linear Self, buf: Vec) -> Self !{IO} @{paideia.io} {
+    self
+  }
+
+  fn flush(self: linear Self) -> Self !{IO} @{paideia.io} {
+    self
+  }
+}

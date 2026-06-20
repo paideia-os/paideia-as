@@ -1,0 +1,22 @@
+// Fixture: file_read_into_buf
+// Tests that read(self: linear Self, buf: Vec) returns Vec.
+
+record File {
+  fd: u64,
+}
+
+record Vec {
+  ptr: u64,
+  len: u64,
+  cap: u64,
+}
+
+trait Read {
+  fn read(self: linear Self, buf: Vec) -> Vec !{IO} @{paideia.io};
+}
+
+impl Read for File {
+  fn read(self: linear Self, buf: Vec) -> Vec !{IO} @{paideia.io} {
+    buf
+  }
+}

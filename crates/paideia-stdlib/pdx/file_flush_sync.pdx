@@ -1,0 +1,16 @@
+// Fixture: file_flush_sync
+// Tests that flush(self: linear Self) returns Self.
+
+record File {
+  fd: u64,
+}
+
+trait Write {
+  fn flush(self: linear Self) -> Self !{IO} @{paideia.io};
+}
+
+impl Write for File {
+  fn flush(self: linear Self) -> Self !{IO} @{paideia.io} {
+    self
+  }
+}

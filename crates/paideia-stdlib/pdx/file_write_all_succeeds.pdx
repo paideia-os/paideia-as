@@ -1,0 +1,22 @@
+// Fixture: file_write_all_succeeds
+// Tests that write_all(self: linear Self, buf: Vec) returns Self.
+
+record File {
+  fd: u64,
+}
+
+record Vec {
+  ptr: u64,
+  len: u64,
+  cap: u64,
+}
+
+trait Write {
+  fn write_all(self: linear Self, buf: Vec) -> Self !{IO} @{paideia.io};
+}
+
+impl Write for File {
+  fn write_all(self: linear Self, buf: Vec) -> Self !{IO} @{paideia.io} {
+    self
+  }
+}

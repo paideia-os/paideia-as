@@ -1,0 +1,17 @@
+// Fixture: file_create_returns_result
+// Tests that file_create(path: Str) returns a Result.
+
+record File {
+  fd: u64,
+}
+
+enum IoError {
+  NotFound,
+  PermissionDenied,
+  AlreadyExists,
+  Other,
+}
+
+trait FileOps {
+  fn file_create(path: Str) -> Result !{IO} @{paideia.io};
+}

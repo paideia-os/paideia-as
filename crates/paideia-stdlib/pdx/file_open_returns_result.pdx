@@ -1,0 +1,17 @@
+// Fixture: file_open_returns_result
+// Tests that file_open(path: Str) returns a Result.
+
+record File {
+  fd: u64,
+}
+
+enum IoError {
+  NotFound,
+  PermissionDenied,
+  AlreadyExists,
+  Other,
+}
+
+trait FileOps {
+  fn file_open(path: Str) -> Result !{IO} @{paideia.io};
+}
