@@ -1,0 +1,2 @@
+# Accept: single input borrow (Rule 1)
+# Output is not a borrow, so no elision needed

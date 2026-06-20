@@ -1,0 +1,2 @@
+# Accept: single input borrow, output borrow (Rule 2)
+# Output lifetime is inferred from single input lifetime

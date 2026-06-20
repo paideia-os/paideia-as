@@ -1,0 +1,2 @@
+# Accept: method with &mut self, elided mutable output (Rule 3)
+# Output lifetime is inferred from receiver lifetime

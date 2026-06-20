@@ -1011,6 +1011,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
             },
             {
               "defaultConfiguration": {
+                "level": "warning"
+              },
+              "fullDescription": {
+                "text": "Phase 4 m5-005: region (lifetime) elision. When a function's output borrow lacks an explicit lifetime, the elision rules attempt to infer it from input lifetimes: (1) if a single input borrow has an elided lifetime, use it; (2) if a single input lifetime exists (explicit or elided), assign it to all elided outputs; (3) for methods, all output lifetimes take the receiver's lifetime. This warning fires when the rules encounter an ambiguous situation: either multiple input lifetimes (ambiguous which to choose) or zero input lifetimes but an elided output (nothing to infer from). Resolve by explicitly annotating the output lifetime with the desired region."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/L2001",
+              "id": "L2001",
+              "name": "Ambiguous lifetime elision",
+              "shortDescription": {
+                "text": "elision rules cannot determine output lifetime from input lifetimes"
+              }
+            },
+            {
+              "defaultConfiguration": {
                 "level": "error"
               },
               "fullDescription": {

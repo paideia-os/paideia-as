@@ -1,0 +1,4 @@
+record Foo { x: u8, y: u8 }
+let impl_foo = impl for Foo {
+  fn get_both(self: &Foo, other: &Foo) -> &u8 { &self.x }
+}

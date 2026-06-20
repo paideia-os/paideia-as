@@ -1,0 +1,4 @@
+record Foo { x: u8 }
+let impl_foo = impl for Foo {
+  fn borrow_mut(self: &mut Foo) -> &mut u8 { &mut self.x }
+}

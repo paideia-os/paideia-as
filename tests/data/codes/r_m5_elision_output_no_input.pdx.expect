@@ -1,0 +1,3 @@
+# Reject: no input borrows, but elided output borrow (nothing to infer from)
+# Should emit L2001 (ambiguous lifetime elision)
+L2001

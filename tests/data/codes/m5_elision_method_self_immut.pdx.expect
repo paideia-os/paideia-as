@@ -1,0 +1,2 @@
+# Accept: method with &self, elided output (Rule 3)
+# Output lifetime is inferred from receiver lifetime

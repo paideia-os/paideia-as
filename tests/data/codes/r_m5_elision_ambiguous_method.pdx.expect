@@ -1,0 +1,4 @@
+# Reject: method with &self and another input borrow, elided output (ambiguous)
+# Even with Rule 3, having two lifetimes (receiver + other) is ambiguous
+# Should emit L2001 (ambiguous lifetime elision)
+L2001

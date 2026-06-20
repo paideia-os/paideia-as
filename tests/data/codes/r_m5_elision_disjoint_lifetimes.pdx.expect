@@ -1,0 +1,4 @@
+# Reject: explicit input lifetime but elided output lifetime (disjoint)
+# Should emit L2001 (ambiguous lifetime elision)
+# This tests that elision doesn't apply when there's mismatch in explicitness
+L2001

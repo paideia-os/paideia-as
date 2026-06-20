@@ -1,0 +1,4 @@
+record Foo { x: u8 }
+let impl_foo = impl for Foo {
+  fn borrow(self: &Foo) -> &u8 { &self.x }
+}

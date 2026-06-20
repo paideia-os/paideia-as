@@ -1,0 +1,2 @@
+# Accept: multiple input borrows but no output borrows
+# Elision not needed since output is not a borrow

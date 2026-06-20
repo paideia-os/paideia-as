@@ -45,6 +45,7 @@ mod placeholder_emit;
 pub mod populate;
 pub mod position_index;
 pub mod reflect_api;
+pub mod region_elision;
 pub mod region_inference;
 pub mod resolve;
 pub mod sharing;
@@ -116,6 +117,9 @@ pub use placeholder_emit::placeholder_for;
 pub use populate::{PopulateContext, populate_instruction_table};
 pub use position_index::{ByteOffset, FileId, PositionEntry, PositionIndex};
 pub use reflect_api::{TypeCache, children, kind, span, type_of};
+pub use region_elision::{
+    ElisionResult, L_AMBIGUOUS_LIFETIME_ELISION, ambiguous_elision_diagnostic, elide_lifetimes,
+};
 pub use region_inference::RegionInferenceWalker;
 pub use resolve::{HygienicEnv, ResolveValue};
 pub use sharing::{M_SHARING_VIOLATED, check_sharing_constraints};

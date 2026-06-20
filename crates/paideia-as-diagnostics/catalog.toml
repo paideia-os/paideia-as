@@ -577,3 +577,12 @@ brief = "no impl found for trait X on type Y at this call site"
 description = "Phase 4 m9-005: trait-bound resolution. At this call site, a method requires its type argument to implement a specific trait, but neither a generic-parameter bound nor a concrete impl satisfies this requirement. Either bind the type parameter to the required trait in the enclosing generic-parameter list, or provide a concrete impl for the type."
 since = "0.7.0"
 deprecated = false
+
+[diagnostic.L2001]
+severity = "warning"
+category = "lint"
+title = "Ambiguous lifetime elision"
+brief = "elision rules cannot determine output lifetime from input lifetimes"
+description = "Phase 4 m5-005: region (lifetime) elision. When a function's output borrow lacks an explicit lifetime, the elision rules attempt to infer it from input lifetimes: (1) if a single input borrow has an elided lifetime, use it; (2) if a single input lifetime exists (explicit or elided), assign it to all elided outputs; (3) for methods, all output lifetimes take the receiver's lifetime. This warning fires when the rules encounter an ambiguous situation: either multiple input lifetimes (ambiguous which to choose) or zero input lifetimes but an elided output (nothing to infer from). Resolve by explicitly annotating the output lifetime with the desired region."
+since = "0.7.0"
+deprecated = false
