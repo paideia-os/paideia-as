@@ -1,6 +1,6 @@
 //! Tail-call elimination.
 
-use super::{OptPass, OptDiagSink};
+use super::{OptDiagSink, OptPass};
 use crate::IrArena;
 use crate::node::IrNodeId;
 
@@ -28,18 +28,31 @@ pub fn tco_blocker(
     abi_mismatch: bool,
     frame_has_callee_saves: bool,
 ) -> Option<TcoBlocker> {
-    if crosses_cap_boundary { return Some(TcoBlocker::CapabilityBoundary); }
-    if installs_handler { return Some(TcoBlocker::EffectHandlerInstalling); }
-    if abi_mismatch { return Some(TcoBlocker::DifferentCallConvention); }
-    if frame_has_callee_saves { return Some(TcoBlocker::FrameRequiresEpilogue); }
+    if crosses_cap_boundary {
+        return Some(TcoBlocker::CapabilityBoundary);
+    }
+    if installs_handler {
+        return Some(TcoBlocker::EffectHandlerInstalling);
+    }
+    if abi_mismatch {
+        return Some(TcoBlocker::DifferentCallConvention);
+    }
+    if frame_has_callee_saves {
+        return Some(TcoBlocker::FrameRequiresEpilogue);
+    }
     None
 }
 
 impl OptPass for TailCallPass {
-    fn name(&self) -> &'static str { "tailcall" }
+    fn name(&self) -> &'static str {
+        "tailcall"
+    }
 
     fn apply(&self, _arena: &mut IrArena, _root: IrNodeId, sink: &mut OptDiagSink) -> bool {
-        sink.emit("tailcall", "O1510 (would-fire): tail-call elimination dispatched".to_string());
+        sink.emit(
+            "tailcall",
+            "O1510 (would-fire): tail-call elimination dispatched".to_string(),
+        );
         false
     }
 }

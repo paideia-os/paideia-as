@@ -1,0 +1,18 @@
+[package]
+name = "paideia-opt-unroll"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+# This crate is *only* a test harness — it contains no library code or
+# binaries, just the integration tests in `tests/runner.rs` that walk
+# the corpus directory and validate loop unrolling pass diagnostics (O-category:
+# O1511 and O1512).
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]

@@ -1,0 +1,7 @@
+// Unroll test fixture: known trip count 8 with unroll(8)
+// #[unroll(8)]
+// fn loop_known_8() {
+//     for i in 0..8 {
+//         do_work(i);
+//     }
+// }
