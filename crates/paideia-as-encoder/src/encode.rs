@@ -364,6 +364,171 @@ pub fn pop_reg64(buf: &mut CodeBuffer, reg: Reg64) {
     }
 }
 
+/// Encode `mov <dest>, [<base> + <index> * <scale>]` for width = 1, 2, 4, 8.
+///
+/// The width parameter specifies the AMD64 effective operand size:
+/// - 1 byte: mov al, byte ptr [base + index]
+/// - 2 bytes: mov ax, word ptr [base + index * 2]
+/// - 4 bytes: mov eax, dword ptr [base + index * 4]
+/// - 8 bytes: mov rax, qword ptr [base + index * 8]
+///
+/// Phase-3-m1-007: emits to 64-bit-dest form for all widths using the canonically-sized
+/// destination register (RAX for 8, EAX for 4, AX for 2, AL for 1). Narrower loads
+/// are zero-extended (implicit for 32-bit dest in x86-64). The signedness parameter
+/// is accepted for API compatibility but phase-1 uses zero-extension only.
+///
+/// Instruction pattern:
+/// - [PREFIX if needed] OPCODE [REX] [SIB]
+/// - Opcode: 0x8A (MOV r8, r/m8), 0x8B (MOV r16/32/64, r/m16/32/64)
+/// - ModR/M: 0x04 (mod=00, reg=dest_id, rm=100 which triggers SIB)
+/// - SIB: (scale<<6) | (index_id<<3) | base_id
+///
+/// Scale encoding:
+/// - width 1: scale=00 (×1)
+/// - width 2: scale=01 (×2)
+/// - width 4: scale=10 (×4)
+/// - width 8: scale=11 (×8)
+pub fn emit_indexed_load(
+    buf: &mut CodeBuffer,
+    _dest: Reg64,
+    base: Reg64,
+    index: Reg64,
+    width: u32,
+    _signed: bool,
+) {
+    let base_id = base as u8;
+    let index_id = index as u8;
+
+    match width {
+        1 => {
+            // mov al, [base + index]
+            // Opcode 8A (no prefix/rex needed for AL)
+            buf.bytes.push(0x8A);
+            // ModR/M: mod=00, reg=0 (AL), rm=100 (SIB follows)
+            buf.bytes.push(0x04);
+            // SIB: scale=00 (×1), index, base
+            let sib = ((index_id & 7) << 3) | (base_id & 7);
+            buf.bytes.push(sib);
+        }
+        2 => {
+            // mov ax, [base + index * 2]
+            // Operand-size prefix 0x66
+            buf.bytes.push(0x66);
+            // Opcode 8B
+            buf.bytes.push(0x8B);
+            // ModR/M: mod=00, reg=0 (AX), rm=100 (SIB follows)
+            buf.bytes.push(0x04);
+            // SIB: scale=01 (×2), index, base
+            let sib = (1 << 6) | ((index_id & 7) << 3) | (base_id & 7);
+            buf.bytes.push(sib);
+        }
+        4 => {
+            // mov eax, [base + index * 4]
+            // No prefix, opcode 8B
+            buf.bytes.push(0x8B);
+            // ModR/M: mod=00, reg=0 (EAX), rm=100 (SIB follows)
+            buf.bytes.push(0x04);
+            // SIB: scale=10 (×4), index, base
+            let sib = (2 << 6) | ((index_id & 7) << 3) | (base_id & 7);
+            buf.bytes.push(sib);
+        }
+        8 => {
+            // mov rax, [base + index * 8]
+            // REX.W=1
+            buf.bytes.push(0x48);
+            // Opcode 8B
+            buf.bytes.push(0x8B);
+            // ModR/M: mod=00, reg=0 (RAX), rm=100 (SIB follows)
+            buf.bytes.push(0x04);
+            // SIB: scale=11 (×8), index, base
+            let sib = (3 << 6) | ((index_id & 7) << 3) | (base_id & 7);
+            buf.bytes.push(sib);
+        }
+        _ => panic!(
+            "invalid width {} for emit_indexed_load; must be 1, 2, 4, or 8",
+            width
+        ),
+    }
+}
+
+/// Encode `mov [<base> + <index> * <scale>], <src>` for width = 1, 2, 4, 8.
+///
+/// The width parameter specifies the AMD64 effective operand size:
+/// - 1 byte: mov byte ptr [base + index], src_byte
+/// - 2 bytes: mov word ptr [base + index * 2], src_word
+/// - 4 bytes: mov dword ptr [base + index * 4], src_dword
+/// - 8 bytes: mov qword ptr [base + index * 8], src
+///
+/// Instruction pattern similar to emit_indexed_load but with opcode 0x88/0x89
+/// (store, not load) and using the canonically-sized source register.
+///
+/// Scale encoding (same as emit_indexed_load):
+/// - width 1: scale=00 (×1)
+/// - width 2: scale=01 (×2)
+/// - width 4: scale=10 (×4)
+/// - width 8: scale=11 (×8)
+pub fn emit_indexed_store(
+    buf: &mut CodeBuffer,
+    base: Reg64,
+    index: Reg64,
+    _src: Reg64,
+    width: u32,
+) {
+    let base_id = base as u8;
+    let index_id = index as u8;
+
+    match width {
+        1 => {
+            // mov [base + index], al
+            // Opcode 88 (no prefix/rex needed for AL)
+            buf.bytes.push(0x88);
+            // ModR/M: mod=00, reg=0 (AL), rm=100 (SIB follows)
+            buf.bytes.push(0x04);
+            // SIB: scale=00 (×1), index, base
+            let sib = ((index_id & 7) << 3) | (base_id & 7);
+            buf.bytes.push(sib);
+        }
+        2 => {
+            // mov [base + index * 2], ax
+            // Operand-size prefix 0x66
+            buf.bytes.push(0x66);
+            // Opcode 89
+            buf.bytes.push(0x89);
+            // ModR/M: mod=00, reg=0 (AX), rm=100 (SIB follows)
+            buf.bytes.push(0x04);
+            // SIB: scale=01 (×2), index, base
+            let sib = (1 << 6) | ((index_id & 7) << 3) | (base_id & 7);
+            buf.bytes.push(sib);
+        }
+        4 => {
+            // mov [base + index * 4], eax
+            // No prefix, opcode 89
+            buf.bytes.push(0x89);
+            // ModR/M: mod=00, reg=0 (EAX), rm=100 (SIB follows)
+            buf.bytes.push(0x04);
+            // SIB: scale=10 (×4), index, base
+            let sib = (2 << 6) | ((index_id & 7) << 3) | (base_id & 7);
+            buf.bytes.push(sib);
+        }
+        8 => {
+            // mov [base + index * 8], rax
+            // REX.W=1
+            buf.bytes.push(0x48);
+            // Opcode 89
+            buf.bytes.push(0x89);
+            // ModR/M: mod=00, reg=0 (RAX), rm=100 (SIB follows)
+            buf.bytes.push(0x04);
+            // SIB: scale=11 (×8), index, base
+            let sib = (3 << 6) | ((index_id & 7) << 3) | (base_id & 7);
+            buf.bytes.push(sib);
+        }
+        _ => panic!(
+            "invalid width {} for emit_indexed_store; must be 1, 2, 4, or 8",
+            width
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -700,5 +865,81 @@ mod tests {
         mov_reg64_imm32(&mut buf, Reg64::Rax, 0);
         assert_eq!(buf.len(), 7);
         assert!(!buf.is_empty());
+    }
+
+    // ── Indexed load tests ──────────────────────────────────────
+
+    #[test]
+    fn emit_indexed_load_width_1_rax_rdi_rcx() {
+        let mut buf = CodeBuffer::new();
+        emit_indexed_load(&mut buf, Reg64::Rax, Reg64::Rdi, Reg64::Rcx, 1, false);
+        // mov al, [rdi + rcx]
+        // Opcode 8A, ModR/M 04, SIB (scale=00, index=001, base=111) = 0x0f
+        assert_eq!(buf.as_slice(), &[0x8a, 0x04, 0x0f]);
+    }
+
+    #[test]
+    fn emit_indexed_load_width_2_rax_rdi_rcx() {
+        let mut buf = CodeBuffer::new();
+        emit_indexed_load(&mut buf, Reg64::Rax, Reg64::Rdi, Reg64::Rcx, 2, false);
+        // mov ax, [rdi + rcx * 2]
+        // Prefix 66, Opcode 8B, ModR/M 04, SIB (scale=01, index=001, base=111) = 0x4f
+        assert_eq!(buf.as_slice(), &[0x66, 0x8b, 0x04, 0x4f]);
+    }
+
+    #[test]
+    fn emit_indexed_load_width_4_rax_rdi_rcx() {
+        let mut buf = CodeBuffer::new();
+        emit_indexed_load(&mut buf, Reg64::Rax, Reg64::Rdi, Reg64::Rcx, 4, false);
+        // mov eax, [rdi + rcx * 4]
+        // Opcode 8B, ModR/M 04, SIB (scale=10, index=001, base=111) = 0x8f
+        assert_eq!(buf.as_slice(), &[0x8b, 0x04, 0x8f]);
+    }
+
+    #[test]
+    fn emit_indexed_load_width_8_rax_rdi_rcx() {
+        let mut buf = CodeBuffer::new();
+        emit_indexed_load(&mut buf, Reg64::Rax, Reg64::Rdi, Reg64::Rcx, 8, false);
+        // mov rax, [rdi + rcx * 8]
+        // REX.W 48, Opcode 8B, ModR/M 04, SIB (scale=11, index=001, base=111) = 0xcf
+        assert_eq!(buf.as_slice(), &[0x48, 0x8b, 0x04, 0xcf]);
+    }
+
+    // ── Indexed store tests ─────────────────────────────────────
+
+    #[test]
+    fn emit_indexed_store_width_1_rax_rdi_rcx() {
+        let mut buf = CodeBuffer::new();
+        emit_indexed_store(&mut buf, Reg64::Rdi, Reg64::Rcx, Reg64::Rax, 1);
+        // mov [rdi + rcx], al
+        // Opcode 88, ModR/M 04, SIB (scale=00, index=001, base=111) = 0x0f
+        assert_eq!(buf.as_slice(), &[0x88, 0x04, 0x0f]);
+    }
+
+    #[test]
+    fn emit_indexed_store_width_2_rax_rdi_rcx() {
+        let mut buf = CodeBuffer::new();
+        emit_indexed_store(&mut buf, Reg64::Rdi, Reg64::Rcx, Reg64::Rax, 2);
+        // mov [rdi + rcx * 2], ax
+        // Prefix 66, Opcode 89, ModR/M 04, SIB (scale=01, index=001, base=111) = 0x4f
+        assert_eq!(buf.as_slice(), &[0x66, 0x89, 0x04, 0x4f]);
+    }
+
+    #[test]
+    fn emit_indexed_store_width_4_rax_rdi_rcx() {
+        let mut buf = CodeBuffer::new();
+        emit_indexed_store(&mut buf, Reg64::Rdi, Reg64::Rcx, Reg64::Rax, 4);
+        // mov [rdi + rcx * 4], eax
+        // Opcode 89, ModR/M 04, SIB (scale=10, index=001, base=111) = 0x8f
+        assert_eq!(buf.as_slice(), &[0x89, 0x04, 0x8f]);
+    }
+
+    #[test]
+    fn emit_indexed_store_width_8_rax_rdi_rcx() {
+        let mut buf = CodeBuffer::new();
+        emit_indexed_store(&mut buf, Reg64::Rdi, Reg64::Rcx, Reg64::Rax, 8);
+        // mov [rdi + rcx * 8], rax
+        // REX.W 48, Opcode 89, ModR/M 04, SIB (scale=11, index=001, base=111) = 0xcf
+        assert_eq!(buf.as_slice(), &[0x48, 0x89, 0x04, 0xcf]);
     }
 }
