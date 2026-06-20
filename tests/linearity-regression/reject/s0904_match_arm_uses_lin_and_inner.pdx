@@ -1,0 +1,13 @@
+// S0904: deeper case with affine binding and nested let.
+// The affine binding y is consumed in multiple arms.
+module M = structure {
+  let f : (affine int, int) -> unit = fn (y : affine int, z : int) -> {
+    match z {
+      0 => {
+        let tmp = y;  // inner binding shadows y
+        consume(tmp);
+      }
+      _ => consume(y);  // y consumed again in different arm
+    }
+  }
+}

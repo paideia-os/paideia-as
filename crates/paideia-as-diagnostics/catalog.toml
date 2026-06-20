@@ -478,3 +478,12 @@ brief = "linear binding shadowed by let without consumption"
 description = "A linear binding from an outer scope is shadowed by a new let binding with the same name before the outer binding has been consumed (used exactly once). This creates a resource leak: the outer linear binding is no longer accessible within the inner scope and cannot be consumed. Move the outer binding's use before the shadowing let, or use a different name for the inner binding."
 since = "0.3.0"
 deprecated = false
+
+[diagnostic.S0904]
+severity = "error"
+category = "substructural"
+title = "Affine binding consumed in multiple match arms"
+brief = "affine binding may be consumed across sibling branches"
+description = "An affine binding may be used at most once, but the analysis detects that it could be consumed in two or more sibling match arms (or if/then/else branches). Although only one branch executes dynamically, the static analysis tracks 'may consume' (not 'must consume'), so this is flagged as a static error. Restructure the code so the affine binding is used in only one branch, or assign it to an unrestricted binding first."
+since = "0.3.0"
+deprecated = false

@@ -1,0 +1,2 @@
+error[S0904]: affine binding consumed in 2 match arms; affine permits at most one use
+    at s0904_match_arms_consume_affine.pdx:6:14
