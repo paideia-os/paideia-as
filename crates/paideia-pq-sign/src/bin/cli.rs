@@ -21,6 +21,8 @@ fn main() -> ExitCode {
         eprintln!(
             "                                          (initialize YubiHSM2 session with hybrid fallback)"
         );
+        eprintln!("  timestamp --tsa-url <url> --input <artifact>");
+        eprintln!("                                          (fetch RFC 3161 timestamp token for artifact)");
         return ExitCode::from(2);
     }
 
@@ -83,6 +85,13 @@ fn main() -> ExitCode {
                     ExitCode::from(2)
                 }
             }
+        }
+        "timestamp" => {
+            if args.len() < 3 {
+                eprintln!("usage: paideia-pq-sign timestamp --tsa-url <url> --input <artifact>");
+                return ExitCode::from(2);
+            }
+            run_timestamp(&args[2..])
         }
         _ => {
             eprintln!("unknown subcommand: {}", args[1]);
@@ -413,6 +422,103 @@ fn run_yubihsm_init(args: &[String]) -> ExitCode {
     println!();
     println!("warning (Q0902): PQ leg (ML-DSA-65) uses soft-HSM fallback");
     println!("  Operator has acknowledged this via --opt-in-hybrid-fallback");
+
+    ExitCode::SUCCESS
+}
+
+fn run_timestamp(args: &[String]) -> ExitCode {
+    // Parse args: --tsa-url <url> --input <artifact>
+    let mut tsa_url: Option<&str> = None;
+    let mut input_path: Option<&str> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--tsa-url" => {
+                if i + 1 < args.len() {
+                    tsa_url = Some(&args[i + 1]);
+                    i += 2;
+                } else {
+                    eprintln!("--tsa-url requires an argument");
+                    return ExitCode::from(2);
+                }
+            }
+            "--input" => {
+                if i + 1 < args.len() {
+                    input_path = Some(&args[i + 1]);
+                    i += 2;
+                } else {
+                    eprintln!("--input requires an argument");
+                    return ExitCode::from(2);
+                }
+            }
+            _ => {
+                eprintln!("unknown argument: {}", args[i]);
+                return ExitCode::from(2);
+            }
+        }
+    }
+
+    let tsa_url = match tsa_url {
+        Some(url) => url,
+        None => {
+            eprintln!("--tsa-url is required");
+            eprintln!("usage: paideia-pq-sign timestamp --tsa-url <url> --input <artifact>");
+            return ExitCode::from(2);
+        }
+    };
+
+    let input_path = match input_path {
+        Some(path) => path,
+        None => {
+            eprintln!("--input is required");
+            eprintln!("usage: paideia-pq-sign timestamp --tsa-url <url> --input <artifact>");
+            return ExitCode::from(2);
+        }
+    };
+
+    let artifact = std::path::Path::new(input_path);
+    if !artifact.exists() {
+        eprintln!("artifact not found: {}", input_path);
+        return ExitCode::from(2);
+    }
+
+    // Read the artifact
+    let data = match std::fs::read(artifact) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("Failed to read artifact: {e}");
+            return ExitCode::from(1);
+        }
+    };
+
+    // Build timestamp request
+    let req = paideia_pq_sign::timestamp::build_request(&data, paideia_pq_sign::timestamp::HashAlgo::Sha256);
+
+    // Fetch token
+    let token = match paideia_pq_sign::timestamp::fetch_token(&req, Some(tsa_url)) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("Timestamp error: {e}");
+            return ExitCode::from(1);
+        }
+    };
+
+    // Print token info
+    println!("Timestamp token generated:");
+    println!("  TSA: {}", token.tsa_name);
+    println!("  Generation time (UTC): {}", token.gen_time_seconds);
+    println!("  Serial number: {}", token.serial_number);
+    println!("  Message imprint (hex): {}", hex::encode(&token.message_imprint));
+    println!(
+        "  Signature length: {} bytes",
+        token.signature.len()
+    );
+
+    if token.signature.is_empty() {
+        println!();
+        println!("Note: Phase-3 m8-001 scaffold — signature is empty until real TSA HTTP integration.");
+    }
 
     ExitCode::SUCCESS
 }
