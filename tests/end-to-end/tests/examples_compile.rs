@@ -94,10 +94,7 @@ fn every_compiles_end_to_end_example_builds_to_elf64() {
     let tmp = std::env::temp_dir().join(format!("examples-compile-{}", std::process::id()));
     std::fs::create_dir_all(&tmp).expect("tmp dir");
     for ex in &examples {
-        let out_path = tmp.join(format!(
-            "{}.o",
-            ex.file_stem().unwrap().to_string_lossy()
-        ));
+        let out_path = tmp.join(format!("{}.o", ex.file_stem().unwrap().to_string_lossy()));
         let result = Command::new(&bin)
             .args([
                 "build",
@@ -125,7 +122,12 @@ fn every_compiles_end_to_end_example_builds_to_elf64() {
             ex.display()
         );
         // ELF64 magic: 7f 45 4c 46 02 ...
-        assert_eq!(&bytes[0..4], b"\x7fELF", "ELF magic missing for {}", ex.display());
+        assert_eq!(
+            &bytes[0..4],
+            b"\x7fELF",
+            "ELF magic missing for {}",
+            ex.display()
+        );
         assert_eq!(bytes[4], 2, "ELF64 class missing for {}", ex.display());
         // The .text-non-empty assertion currently only reaches us once the
         // elaborator chokepoint is wired; full objdump-d cross-check
