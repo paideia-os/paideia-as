@@ -1551,6 +1551,12 @@ dependencies = [
 [[package]]
 name = "paideia-as-encoder"
 version = "0.0.1"
+dependencies = [
+ "iced-x86",
+ "paideia-as-ir",
+ "smallvec",
+ "thiserror",
+]
 
 [[package]]
 name = "paideia-as-ir"
