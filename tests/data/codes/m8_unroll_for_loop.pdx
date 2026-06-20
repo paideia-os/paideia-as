@@ -1,0 +1,9 @@
+fn loop_with_counter() {
+    let mut i = 0;
+    loop {
+        if i >= 10 {
+            break
+        }
+        i = i + 1
+    }
+}
