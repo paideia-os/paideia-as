@@ -6,13 +6,14 @@
 // design-doc:
 //   design/toolchain/calling-convention.md §1.3 / §1.4,
 //   design/toolchain/custom-assembler.md §9 (Inline-assembly escape Q-A8),
-//   design/toolchain/syntax-reference.md §8 (UnsafeExpr / UnsafeFields).
+//   design/toolchain/syntax-reference.md §8 (UnsafeExpr / UnsafeFields),
+//   design/toolchain/phase-3-plan.md §m1-009 (this file's shrink).
 // feature:
-//   - `unsafe { ... }` escape hatch (see 11_unsafe_block.pdx for full
-//     contract): the surface language can't model raw `[rdi]`-form memory
-//     accesses, so REP MOVSB lives inside `block:` with declared effects.
-//   - the effect `MemCopy` declares "this block reads / writes arbitrary
-//     bytes"; the audit log records the justification.
+//   - dst / src / count typed as `*u8 / *u8 / u64` (m1-001 raw pointers).
+//   - prelude-level `RawMem` effect + `paideia.raw_mem` capability
+//     (m1-005), no per-file effect declaration needed.
+//   - `unsafe { }` block reduced to a single instruction — `rep movsb` —
+//     the only piece that has no typed-surface equivalent.
 // =============================================================================
 //
 // Hand-written NASM equivalent (asm-reference/algorithms/memcpy.asm):
@@ -23,68 +24,45 @@
 //         rep movsb                       ; [RDI++] = [RSI++], RCX times
 //         ret
 //
-// REP MOVSB is the canonical x86_64 bulk-byte-copy primitive: it copies RCX
-// bytes from [RSI] to [RDI], incrementing both pointers (DF=0 is the ABI
-// guarantee). The surface language can't express this directly — there is
-// no `*u8` type in the type grammar today — so we use the `unsafe { }`
-// escape hatch (custom-assembler.md §9) the way `11_unsafe_block.pdx`
-// documents.
-//
-// The contract for an `unsafe` block has four required fields, in order
-// (parse_unsafe.rs: "Fields must appear in the order declared in §8"):
-//
-//   effects:        declared effect row.
-//   capabilities:   declared capability set.
-//   justification:  free-form audit string.
-//   block:          the raw-instruction body.
-//
-// The block runs against the declared effects / capabilities — the type
-// system *believes* the declaration; the audit catalog (m4-005's
-// .paideia.unsafe section) records every block for review.
+// Phase 2 had to wrap the entire body in `unsafe { }` because the type
+// grammar didn't expose raw pointers. Phase 3 m1 changes that: `*u8`
+// is a real type, intrinsic calls can do typed loads/stores, and the
+// shared RawMem effect is registered at the prelude. The unsafe escape
+// shrinks to the one instruction that genuinely has no typed equivalent
+// — REP MOVSB — because its semantics (decrement RCX, increment RSI/RDI,
+// bulk-copy under the LOCK-like rep prefix) aren't representable as a
+// typed `index_u8_set` loop. m9-005's DSE-and-friends + future autovec
+// would be required to recover the same throughput from a typed loop.
 //
 // =============================================================================
 
 module Memcpy = structure {
 
   // ---------------------------------------------------------------------------
-  // EFFECT DECLARATION
-  //
-  // `MemCopy` declares "this operation may read arbitrary memory and write
-  // arbitrary memory." A real implementation would split this into separate
-  // read / write effects; for the paideia-as equivalent of the NASM
-  // reference, one effect suffices.
-  // ---------------------------------------------------------------------------
-  effect MemCopy {
-    op copy_bytes : (u64, u64, u64) -> u64
-  }
-
-  // ---------------------------------------------------------------------------
   // THE MEMCPY ENTRY POINT
   //
-  // Signature matches the NASM symbol's ABI exactly:
-  //   - dst  → RDI.
-  //   - src  → RSI.
-  //   - n    → RDX.
-  //   - returns dst (in RAX).
+  // Signature matches the NASM symbol's ABI:
+  //   - dst   → RDI (*u8)
+  //   - src   → RSI (*u8)
+  //   - count → RDX (u64)
+  //   - returns dst (in RAX)
   //
-  // The effect row `!{MemCopy}` advertises the raw-memory access; the
-  // capability row `@{}` is empty because this is an unconditionally-
-  // available primitive (any caller can copy bytes between owned buffers).
+  // The effect row !{RawMem} and capability row @{paideia.raw_mem} come
+  // from the prelude (src/toolchain/abi/abi.pdx) — no per-file effect
+  // declaration needed.
   //
-  // The body's single `unsafe { }` block hosts the three NASM instructions.
-  // The justification line is what surfaces in the m4-005 .paideia.unsafe
-  // audit section after compilation.
+  // The body's `unsafe { }` block is now a single `rep movsb` instruction.
+  // dst / src / count are typed parameters; the typed surface threads
+  // them into the unsafe block, which the audit catalog (m4-005
+  // .paideia.unsafe section) records.
   // ---------------------------------------------------------------------------
-  let memcpy : (u64, u64, u64) -> u64 !{MemCopy} @{} =
-    fn (dst : u64) (src : u64) (n : u64) -> unsafe {
-      effects: { MemCopy },
-      capabilities: { },
-      justification: "REP MOVSB has no surface-language equivalent; the elaborator's bulk-copy lowering ships in Phase 3. The contract: dst and src are caller-owned, non-overlapping byte ranges of length n.",
+  let memcpy : (*u8, *u8, u64) -> *u8 !{RawMem} @{paideia.raw_mem} =
+    fn (dst : *u8) (src : *u8) (count : u64) -> unsafe {
+      effects: { RawMem },
+      capabilities: { paideia.raw_mem },
+      justification: "REP MOVSB has no typed-surface equivalent: its bulk-copy semantics (decrement RCX, increment RSI/RDI, copy under the rep prefix's microarchitectural optimisation path) aren't representable as a typed index_u8_set loop. m9-005's DSE + future autovec would be required to recover the same throughput from a typed loop; phase 3 m1 keeps the rep movsb escape as the canonical paideia-as way to express bulk byte copy.",
       block: {
-        mov     rax, rdi
-        mov     rcx, rdx
         rep movsb
-        ret
       }
     }
 }
