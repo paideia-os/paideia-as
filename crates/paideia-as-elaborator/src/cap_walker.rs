@@ -123,6 +123,7 @@ impl IrWalker for CapWalker {
                 lin_class: None,
                 effect_row_id: None,
                 cap_set_id,
+                region_id: None,
             };
             writer.insert_entry(entry);
         }

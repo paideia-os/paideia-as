@@ -40,6 +40,9 @@ pub struct PositionEntry {
     /// Capability set reference, if available.
     /// (Placeholder u32 pending CapSetId formalization.)
     pub cap_set_id: Option<u32>,
+    /// Region ID for borrow expressions, if available.
+    /// Matches m5-001 RegionId.0; used for LSP region hover display.
+    pub region_id: Option<u32>,
 }
 
 /// Per-source-position elaborator result store.
@@ -174,6 +177,7 @@ mod tests {
             lin_class: Some(LinClass::Unrestricted),
             effect_row_id: None,
             cap_set_id: None,
+            region_id: None,
         };
 
         index.insert(file, entry);
@@ -198,6 +202,7 @@ mod tests {
             lin_class: Some(LinClass::Linear),
             effect_row_id: None,
             cap_set_id: None,
+            region_id: None,
         };
 
         index.insert(file, entry);
@@ -227,6 +232,7 @@ mod tests {
                 lin_class: Some(LinClass::Unrestricted),
                 effect_row_id: None,
                 cap_set_id: None,
+                region_id: None,
             },
         );
 
@@ -240,6 +246,7 @@ mod tests {
                 lin_class: Some(LinClass::Linear),
                 effect_row_id: None,
                 cap_set_id: None,
+                region_id: None,
             },
         );
 
@@ -267,6 +274,7 @@ mod tests {
             lin_class: Some(LinClass::Unrestricted),
             effect_row_id: None,
             cap_set_id: None,
+            region_id: None,
         };
 
         let entry2 = PositionEntry {
@@ -276,6 +284,7 @@ mod tests {
             lin_class: Some(LinClass::Affine),
             effect_row_id: None,
             cap_set_id: None,
+            region_id: None,
         };
 
         index.insert(file1, entry1);
@@ -310,6 +319,7 @@ mod tests {
                 lin_class: Some(LinClass::Ordered),
                 effect_row_id: None,
                 cap_set_id: None,
+                region_id: None,
             },
         );
 
@@ -322,6 +332,7 @@ mod tests {
                 lin_class: Some(LinClass::Linear),
                 effect_row_id: None,
                 cap_set_id: None,
+                region_id: None,
             },
         );
 
@@ -334,6 +345,7 @@ mod tests {
                 lin_class: Some(LinClass::Unrestricted),
                 effect_row_id: None,
                 cap_set_id: None,
+                region_id: None,
             },
         );
 
@@ -361,6 +373,7 @@ mod tests {
                 lin_class: Some(LinClass::Linear),
                 effect_row_id: None,
                 cap_set_id: None,
+                region_id: None,
             },
         );
 
@@ -373,6 +386,7 @@ mod tests {
                 lin_class: Some(LinClass::Unrestricted),
                 effect_row_id: None,
                 cap_set_id: None,
+                region_id: None,
             },
         );
 
@@ -387,5 +401,102 @@ mod tests {
         assert!(index.entries_for_file(file1).is_none());
         assert!(index.entries_for_file(file2).is_some());
         assert_eq!(index.entries_for_file(file2).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn position_entry_carries_optional_region_id() {
+        let entry = PositionEntry {
+            span_start: ByteOffset(0),
+            span_end: ByteOffset(10),
+            type_id: None,
+            lin_class: Some(LinClass::Linear),
+            effect_row_id: None,
+            cap_set_id: None,
+            region_id: Some(1),
+        };
+
+        assert_eq!(entry.region_id, Some(1));
+
+        let entry_no_region = PositionEntry {
+            span_start: ByteOffset(0),
+            span_end: ByteOffset(10),
+            type_id: None,
+            lin_class: Some(LinClass::Linear),
+            effect_row_id: None,
+            cap_set_id: None,
+            region_id: None,
+        };
+
+        assert_eq!(entry_no_region.region_id, None);
+    }
+
+    #[test]
+    fn position_index_at_returns_region_when_populated() {
+        let file = FileId(1);
+        let mut index = PositionIndex::new();
+
+        let entry_with_region = PositionEntry {
+            span_start: ByteOffset(0),
+            span_end: ByteOffset(20),
+            type_id: None,
+            lin_class: Some(LinClass::Linear),
+            effect_row_id: None,
+            cap_set_id: None,
+            region_id: Some(3),
+        };
+
+        index.insert(file, entry_with_region);
+        index.finish();
+
+        let result = index.at(file, ByteOffset(10));
+        assert!(result.is_some());
+        let retrieved = result.unwrap();
+        assert_eq!(retrieved.region_id, Some(3));
+    }
+
+    #[test]
+    fn position_index_distinguishes_regions_in_overlapping_spans() {
+        let file = FileId(1);
+        let mut index = PositionIndex::new();
+
+        // Outer span with region 1
+        index.insert(
+            file,
+            PositionEntry {
+                span_start: ByteOffset(0),
+                span_end: ByteOffset(30),
+                type_id: None,
+                lin_class: Some(LinClass::Unrestricted),
+                effect_row_id: None,
+                cap_set_id: None,
+                region_id: Some(1),
+            },
+        );
+
+        // Inner span with region 2 (should be returned as innermost)
+        index.insert(
+            file,
+            PositionEntry {
+                span_start: ByteOffset(10),
+                span_end: ByteOffset(20),
+                type_id: None,
+                lin_class: Some(LinClass::Linear),
+                effect_row_id: None,
+                cap_set_id: None,
+                region_id: Some(2),
+            },
+        );
+
+        index.finish();
+
+        // Lookup within inner span should return region 2
+        let result = index.at(file, ByteOffset(15));
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().region_id, Some(2));
+
+        // Lookup in outer span only should return region 1
+        let result = index.at(file, ByteOffset(5));
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().region_id, Some(1));
     }
 }

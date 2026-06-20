@@ -211,6 +211,7 @@ impl IrWalker for EffectRowWalker {
                 lin_class: None,
                 effect_row_id,
                 cap_set_id: None,
+                region_id: None,
             };
             writer.insert_entry(entry);
         }

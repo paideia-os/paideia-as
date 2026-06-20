@@ -189,6 +189,7 @@ mod tests {
                 lin_class: None,
                 effect_row_id: None,
                 cap_set_id: None,
+                region_id: None,
             },
         );
         index.finish();

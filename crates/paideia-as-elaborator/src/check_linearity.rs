@@ -369,6 +369,7 @@ impl IrWalker for LinearityWalker {
                 lin_class: Some(node.lin_class),
                 effect_row_id: None,
                 cap_set_id: None,
+                region_id: None,
             };
             writer.insert_entry(entry);
         }

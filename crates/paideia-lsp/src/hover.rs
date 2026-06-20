@@ -208,7 +208,7 @@ pub fn format_hover_markdown(token: &TokenInfo) -> String {
 
 /// Format hover markdown from an elaborator position index entry.
 ///
-/// Renders type, linearity class, effect row, and capability set into markdown.
+/// Renders type, linearity class, effect row, capability set, and region into markdown.
 /// Until walkers populate the index, entries contain None values; the function
 /// renders "no info available" for missing fields.
 pub fn format_hover_from_entry(
@@ -236,9 +236,14 @@ pub fn format_hover_from_entry(
         .map(|_id| "@{}".to_string())
         .unwrap_or_else(|| "no info available".to_string());
 
+    let region_str = entry
+        .region_id
+        .map(|id| format!("'r{}", id))
+        .unwrap_or_else(|| "no info available".to_string());
+
     format!(
-        "**Position**\n\n- type: {}\n- class: {}\n- effects: {}\n- capabilities: {}",
-        type_str, class_str, effects_str, caps_str
+        "**Position**\n\n- type: {}\n- class: {}\n- effects: {}\n- capabilities: {}\n- region: {}",
+        type_str, class_str, effects_str, caps_str, region_str
     )
 }
 
@@ -397,6 +402,7 @@ mod tests {
             lin_class: None,
             effect_row_id: None,
             cap_set_id: None,
+            region_id: None,
         };
 
         let markdown = format_hover_from_entry(&entry);
@@ -404,7 +410,7 @@ mod tests {
     }
 
     #[test]
-    fn hover_format_with_type_and_class_renders_4_line_string() {
+    fn hover_format_with_type_and_class_renders_5_line_string() {
         use paideia_as_elaborator::position_index::PositionEntry;
         use paideia_as_ir::LinClass;
         use paideia_as_types::TypeId;
@@ -416,14 +422,16 @@ mod tests {
             lin_class: Some(LinClass::Linear),
             effect_row_id: None,
             cap_set_id: None,
+            region_id: None,
         };
 
         let markdown = format_hover_from_entry(&entry);
-        // Should contain all 4 fields: type, class, effects, capabilities
+        // Should contain all 5 fields: type, class, effects, capabilities, region
         assert!(markdown.contains("- type:"));
         assert!(markdown.contains("- class:"));
         assert!(markdown.contains("- effects:"));
         assert!(markdown.contains("- capabilities:"));
+        assert!(markdown.contains("- region:"));
         // Should contain the Linear class
         assert!(markdown.contains("Linear"));
     }
@@ -443,6 +451,7 @@ mod tests {
             lin_class: Some(LinClass::Unrestricted),
             effect_row_id: Some(1),
             cap_set_id: Some(2),
+            region_id: None,
         };
 
         index.insert(FileId(0), entry);
@@ -455,12 +464,33 @@ mod tests {
         let entry = result.unwrap();
         let markdown = format_hover_from_entry(entry);
 
-        // Should contain all four fields
+        // Should contain all five fields
         assert!(markdown.contains("- type:"));
         assert!(markdown.contains("- class:"));
         assert!(markdown.contains("- effects:"));
         assert!(markdown.contains("- capabilities:"));
+        assert!(markdown.contains("- region:"));
         // Should contain the Unrestricted class
         assert!(markdown.contains("Unrestricted"));
+    }
+
+    #[test]
+    fn hover_renders_region_id_when_present() {
+        use paideia_as_elaborator::position_index::PositionEntry;
+        use paideia_as_ir::LinClass;
+
+        let entry = PositionEntry {
+            span_start: ByteOffset(0),
+            span_end: ByteOffset(10),
+            type_id: None,
+            lin_class: Some(LinClass::Linear),
+            effect_row_id: None,
+            cap_set_id: None,
+            region_id: Some(3),
+        };
+
+        let markdown = format_hover_from_entry(&entry);
+        // Should render "region: 'r3"
+        assert!(markdown.contains("region: 'r3"));
     }
 }

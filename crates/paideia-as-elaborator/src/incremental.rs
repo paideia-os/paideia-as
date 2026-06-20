@@ -455,6 +455,7 @@ mod tests {
             lin_class: Some(paideia_as_ir::LinClass::Linear),
             effect_row_id: None,
             cap_set_id: None,
+            region_id: None,
         };
         engine.position_index.insert(file_id, entry);
         engine.position_index.finish();
@@ -490,6 +491,7 @@ mod tests {
             lin_class: Some(paideia_as_ir::LinClass::Linear),
             effect_row_id: None,
             cap_set_id: None,
+            region_id: None,
         };
 
         let entry2 = crate::position_index::PositionEntry {
@@ -499,6 +501,7 @@ mod tests {
             lin_class: Some(paideia_as_ir::LinClass::Unrestricted),
             effect_row_id: None,
             cap_set_id: None,
+            region_id: None,
         };
 
         engine.position_index.insert(file1_id, entry1);
@@ -538,6 +541,7 @@ mod tests {
                 lin_class: Some(paideia_as_ir::LinClass::Linear),
                 effect_row_id: None,
                 cap_set_id: None,
+                region_id: None,
             };
             engine.position_index.insert(file_id, entry);
         }

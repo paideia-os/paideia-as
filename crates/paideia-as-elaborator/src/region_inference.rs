@@ -6,8 +6,15 @@
 //! Phase-4-m5-002 minimum: ship the walker + the region assignment.
 //! The actual outlives-relation seeding into the RegionGraph activates
 //! with m6 borrow checker; today the walker emits debug-dump style.
+//!
+//! Phase-4-m5-004: RegionInferenceWalker integrates with PositionIndex to
+//! record region_id at borrow expression sites during elaboration.
 
+use paideia_as_ir::{IrArena, IrKind, IrNodeData, IrNodeId, IrWalker, WalkerCtx};
 use paideia_as_types::{RegionGraph, RegionId, RegionInterner};
+
+use crate::position_index::{ByteOffset, PositionEntry};
+use crate::walker_pass_state::PositionIndexWriter;
 
 /// Walks lexical scopes and assigns regions to borrows.
 ///
@@ -90,6 +97,67 @@ impl RegionInferenceWalker {
 impl Default for RegionInferenceWalker {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Phase-4-m5-004: Insert region_id into PositionIndex at borrow sites.
+///
+/// When visiting IR nodes that represent borrow expressions (Borrow, BorrowMut),
+/// this walker inserts a PositionEntry with the current region_id into
+/// the position index so LSP can render "region: 'r{n}" on hover.
+impl IrWalker for RegionInferenceWalker {
+    fn pre_visit(
+        &mut self,
+        _id: IrNodeId,
+        node: &IrNodeData,
+        _arena: &IrArena,
+        ctx: &mut WalkerCtx<'_>,
+    ) {
+        // Phase-4-m5-004: Insert PositionEntry with region_id for borrow sites.
+        // We check if this is a borrow expression (Borrow/BorrowMut) and record its region.
+        if let Some(writer) = ctx.pass_state::<crate::WalkerPassState>() {
+            // Determine if this node is a borrow site that should get a region.
+            // In Phase 4 minimum, we conservatively mark Borrow and BorrowMut nodes.
+            let region_id_opt = match node.kind {
+                IrKind::Borrow | IrKind::BorrowMut => {
+                    // Let-bound borrow: use current lexical scope.
+                    Some(self.let_borrow_region().0)
+                }
+                _ => None,
+            };
+
+            if region_id_opt.is_some() {
+                let entry = PositionEntry {
+                    span_start: ByteOffset(node.span.byte_start()),
+                    span_end: ByteOffset(node.span.byte_end()),
+                    type_id: None,
+                    lin_class: None,
+                    effect_row_id: None,
+                    cap_set_id: None,
+                    region_id: region_id_opt,
+                };
+                writer.insert_entry(entry);
+            }
+        }
+
+        // Update scope stack as we traverse.
+        // Entering a Lambda opens a new scope.
+        if matches!(node.kind, IrKind::Lambda) {
+            self.enter_scope();
+        }
+    }
+
+    fn post_visit(
+        &mut self,
+        _id: IrNodeId,
+        node: &IrNodeData,
+        _arena: &IrArena,
+        _ctx: &mut WalkerCtx<'_>,
+    ) {
+        // Exiting a Lambda closes its scope.
+        if matches!(node.kind, IrKind::Lambda) {
+            self.exit_scope();
+        }
     }
 }
 
