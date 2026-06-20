@@ -228,7 +228,8 @@ mod tests {
         // Should have a 32-byte imprint (blake3 truncated to SHA256 size)
         assert_eq!(req.message_imprint.len(), 32, "Imprint should be 32 bytes");
         assert_eq!(
-            req.hash_algo, HashAlgo::Sha256,
+            req.hash_algo,
+            HashAlgo::Sha256,
             "Hash algo should be Sha256"
         );
     }
@@ -252,12 +253,15 @@ mod tests {
         let data = b"test data";
         let req = build_request(data, HashAlgo::Sha256);
 
-        let token = fetch_token(&req, Some("http://tsa.example.com"))
-            .expect("Should succeed with TSA URL");
+        let token =
+            fetch_token(&req, Some("http://tsa.example.com")).expect("Should succeed with TSA URL");
 
         assert_eq!(token.tsa_name, "http://tsa.example.com");
         assert_eq!(token.message_imprint, req.message_imprint);
-        assert!(token.signature.is_empty(), "Scaffold token should have empty signature");
+        assert!(
+            token.signature.is_empty(),
+            "Scaffold token should have empty signature"
+        );
         assert!(
             token.gen_time_seconds > 0 || token.gen_time_seconds == 0,
             "gen_time_seconds should be set"
@@ -275,8 +279,8 @@ mod tests {
         };
 
         let bytes = original.to_bytes();
-        let recovered = TimestampToken::from_bytes(&bytes)
-            .expect("Should deserialize successfully");
+        let recovered =
+            TimestampToken::from_bytes(&bytes).expect("Should deserialize successfully");
 
         assert_eq!(
             original, recovered,

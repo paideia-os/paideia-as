@@ -12,6 +12,7 @@ pub mod hybrid;
 pub mod mldsa;
 pub mod pax;
 pub mod release;
+pub mod revocation;
 pub mod scope_check;
 pub mod soft_hsm;
 pub mod timestamp;
@@ -20,6 +21,7 @@ pub use ed25519::Ed25519;
 pub use hybrid::{Hybrid, HybridPublicKey, HybridSecretKey, HybridSignature};
 pub use mldsa::MlDsa65Marker;
 pub use pax::{sign_pax_hash, verify_pax_hash};
+pub use revocation::{RevocationEntry, RevocationError, RevocationList};
 pub use scope_check::{
     KeyScope, Q_SCOPE_INSUFFICIENT, check_delegation_scope, pax_effects_required,
 };
