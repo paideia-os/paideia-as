@@ -1,0 +1,22 @@
+// Phase 4 m8-003: String heap type.
+//
+// String wraps a pointer to a dynamically-allocated byte buffer on the heap.
+// The String type carries len (current length) and cap (capacity) for growth tracking.
+//
+// Phase 4 m8-003 minimum: declares the type + string_new / string_with_capacity /
+// string_len / string_push / string_from_str helper functions. Real allocator
+// integration gates on m10 chokepoint. UTF-8 validation deferred to future stdlib pass.
+
+struct String {
+  data: *u8,
+  len: u64,
+  cap: u64,
+}
+
+trait StringOps {
+  fn string_new() -> String;
+  fn string_with_capacity() -> String;
+  fn string_len() -> u64;
+  fn string_push() -> String;
+  fn string_from_str() -> String;
+}

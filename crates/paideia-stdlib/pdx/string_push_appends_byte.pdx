@@ -1,0 +1,15 @@
+// Phase 4 m8-003: Fixture — string_push_appends_byte
+//
+// Verify that string_push appends a byte and increments the length.
+// Phase-4-m8-003 minimum: parse-only; full elaborator-side execution
+// gates on m1 walker work.
+
+struct String {
+  data: *u8,
+  len: u64,
+  cap: u64,
+}
+
+trait StringPush {
+  fn string_push() -> String;
+}

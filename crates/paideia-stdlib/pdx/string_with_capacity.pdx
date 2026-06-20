@@ -1,0 +1,15 @@
+// Phase 4 m8-003: Fixture — string_with_capacity
+//
+// Verify that string_with_capacity constructs a String with pre-allocated capacity.
+// Phase-4-m8-003 minimum: parse-only; full elaborator-side execution
+// gates on m1 walker work.
+
+struct String {
+  data: *u8,
+  len: u64,
+  cap: u64,
+}
+
+trait StringWithCapacity {
+  fn string_with_capacity() -> String;
+}
