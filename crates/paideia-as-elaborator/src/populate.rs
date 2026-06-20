@@ -11,8 +11,8 @@
 //! App) so opt passes can start consuming real per-node payloads.
 
 use paideia_as_ir::{
-    EncodingHint, Instruction, InstructionSideTable, IrArena, IrKind, IrNodeId,
-    LoadStoreSideTable, Mnemonic, Operand, RegId, Scale, SmallVec, Width as IrWidth,
+    EncodingHint, Instruction, InstructionSideTable, IrArena, IrKind, IrNodeId, LoadStoreSideTable,
+    Mnemonic, Operand, RegId, Scale, SmallVec, Width as IrWidth,
 };
 
 /// Context for populating the instruction table.
@@ -47,7 +47,8 @@ pub fn populate_instruction_table(
     // Walk all nodes in the arena by index.
     for i in 0..ctx.arena.len() {
         // Convert 0-based index to 1-based IrNodeId.
-        if let Some(node_id) = IrNodeId::new((i + 1) as u32) && populate_one(ctx, node_id, table)
+        if let Some(node_id) = IrNodeId::new((i + 1) as u32)
+            && populate_one(ctx, node_id, table)
         {
             populated += 1;
         }
@@ -157,7 +158,7 @@ fn width_to_scale(w: IrWidth) -> Scale {
 mod tests {
     use super::*;
     use paideia_as_diagnostics::FileId;
-    use paideia_as_ir::load_store::{alloc_load, alloc_store, LoadStoreInfo, Signedness};
+    use paideia_as_ir::load_store::{LoadStoreInfo, Signedness, alloc_load, alloc_store};
 
     fn span() -> paideia_as_diagnostics::Span {
         paideia_as_diagnostics::Span::new(FileId::new(1).unwrap(), 0, 1)

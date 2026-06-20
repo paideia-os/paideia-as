@@ -20,9 +20,26 @@ pub enum TcoBlocker {
     FrameRequiresEpilogue,
 }
 
-/// Whether the call site is eligible for TCO. Returns the blocker
-/// (Some) or None (eligible).
+/// Phase-3-m2-004: tail-call eligibility checker using InstructionSideTable.
+///
+/// Takes an instruction side-table and a call site node ID;
+/// returns whether the call is eligible for TCO (None), or the blocker (Some).
 pub fn tco_blocker(
+    _side_table: &crate::instruction::InstructionSideTable,
+    _call_id: crate::node::IrNodeId,
+) -> Option<TcoBlocker> {
+    // Phase-3-m2-004: TODO extract capability boundary, handler install,
+    // ABI mismatch, and frame layout info from the side-table and call site.
+    // Placeholder: always eligible (None).
+    None
+}
+
+/// Internal implementation: TCO eligibility check on explicit boolean flags.
+///
+/// Takes 4 boolean conditions; returns the blocker (Some) or None (eligible).
+/// Helper logic preserved from phase-2-m9-008.
+#[doc(hidden)]
+pub fn tco_blocker_impl(
     crosses_cap_boundary: bool,
     installs_handler: bool,
     abi_mismatch: bool,
@@ -63,32 +80,61 @@ mod tests {
 
     #[test]
     fn tco_blocker_returns_none_when_eligible() {
-        let result = tco_blocker(false, false, false, false);
+        let result = tco_blocker_impl(false, false, false, false);
         assert_eq!(result, None);
     }
 
     #[test]
     fn tco_blocker_returns_capability_boundary() {
-        let result = tco_blocker(true, false, false, false);
+        let result = tco_blocker_impl(true, false, false, false);
         assert_eq!(result, Some(TcoBlocker::CapabilityBoundary));
     }
 
     #[test]
     fn tco_blocker_returns_effect_handler_installing() {
-        let result = tco_blocker(false, true, false, false);
+        let result = tco_blocker_impl(false, true, false, false);
         assert_eq!(result, Some(TcoBlocker::EffectHandlerInstalling));
     }
 
     #[test]
     fn tco_blocker_returns_different_call_convention() {
-        let result = tco_blocker(false, false, true, false);
+        let result = tco_blocker_impl(false, false, true, false);
         assert_eq!(result, Some(TcoBlocker::DifferentCallConvention));
     }
 
     #[test]
     fn tco_blocker_returns_frame_requires_epilogue() {
-        let result = tco_blocker(false, false, false, true);
+        let result = tco_blocker_impl(false, false, false, true);
         assert_eq!(result, Some(TcoBlocker::FrameRequiresEpilogue));
+    }
+
+    #[test]
+    fn tco_blocker_with_instruction_side_table() {
+        use crate::instruction::{Instruction, InstructionSideTable, Mnemonic, Operand, RegId};
+        use crate::node::IrNodeId;
+        use smallvec::SmallVec;
+
+        let mut table = InstructionSideTable::new();
+
+        let call_id = IrNodeId::new(1).unwrap();
+
+        // Populate table with a call instruction
+        table.insert(
+            call_id,
+            Instruction {
+                mnemonic: Mnemonic::Call,
+                operands: {
+                    let mut ops = SmallVec::new();
+                    ops.push(Operand::Reg(RegId(0)));
+                    ops
+                },
+                encoding_hint: None,
+            },
+        );
+
+        // Call the new signature; verify it accepts the table.
+        let _result = tco_blocker(&table, call_id);
+        // Phase-3-m2-004 stub: currently always returns None (eligible).
     }
 
     #[test]

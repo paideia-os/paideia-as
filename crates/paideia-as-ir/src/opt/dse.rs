@@ -39,13 +39,30 @@ pub enum MemOp {
     Barrier,
 }
 
-/// Eliminate dead stores in a basic block. Returns the indices of
-/// preserved operations.
+/// Phase-3-m2-004: dead-store elimination on an InstructionSideTable.
+///
+/// Takes an instruction side-table and a sequence of node IDs;
+/// returns the indices of preserved operations (nodes that are not dead stores).
 ///
 /// Algorithm: Walk in reverse; track which addresses have been "covered" by a
 /// later store. If a store's address is already covered, it's dead.
 /// Barriers and loads break coverage.
-pub fn dse_block(ops: &[MemOp]) -> Vec<usize> {
+pub fn dse_block(
+    _side_table: &crate::instruction::InstructionSideTable,
+    nodes: &[crate::node::IrNodeId],
+) -> Vec<usize> {
+    // Phase-3-m2-004: For now, construct synthetic memory operations
+    // from instruction data. TODO: extract MemOp from Instruction payload.
+    // Placeholder: no elimination yet (preserve all nodes).
+    (0..nodes.len()).collect()
+}
+
+/// Internal implementation: DSE logic on explicit memory operations.
+///
+/// Takes a list of memory operations and returns preserved indices.
+/// Helper logic preserved from phase-2-m9-005.
+#[doc(hidden)]
+pub fn dse_block_impl(ops: &[MemOp]) -> Vec<usize> {
     let mut keep = vec![true; ops.len()];
     let mut covered: std::collections::HashSet<u64> = std::collections::HashSet::new();
 
@@ -122,7 +139,7 @@ mod tests {
                 mmio: false,
             }),
         ];
-        let preserved = dse_block(&ops);
+        let preserved = dse_block_impl(&ops);
         assert_eq!(preserved, vec![1], "Only the second store should be kept");
     }
 
@@ -141,7 +158,7 @@ mod tests {
                 mmio: false,
             }),
         ];
-        let preserved = dse_block(&ops);
+        let preserved = dse_block_impl(&ops);
         assert_eq!(
             preserved,
             vec![0, 1],
@@ -168,7 +185,7 @@ mod tests {
                 mmio: false,
             }),
         ];
-        let preserved = dse_block(&ops);
+        let preserved = dse_block_impl(&ops);
         assert_eq!(
             preserved,
             vec![0, 1, 2],
@@ -192,15 +209,61 @@ mod tests {
                 mmio: false,
             }),
         ];
-        let preserved = dse_block(&ops);
+        let preserved = dse_block_impl(&ops);
         assert_eq!(preserved, vec![0, 1, 2], "Barrier prevents DSE across");
     }
 
     #[test]
     fn dse_block_handles_empty_input() {
         let ops: Vec<MemOp> = vec![];
-        let preserved = dse_block(&ops);
+        let preserved = dse_block_impl(&ops);
         assert!(preserved.is_empty());
+    }
+
+    #[test]
+    fn dse_block_with_instruction_side_table() {
+        use crate::instruction::{Instruction, InstructionSideTable, Mnemonic, Operand, RegId};
+        use crate::node::IrNodeId;
+        use smallvec::SmallVec;
+
+        let mut table = InstructionSideTable::new();
+
+        let n0 = IrNodeId::new(1).unwrap();
+        let n1 = IrNodeId::new(2).unwrap();
+
+        // n0: mov r0, r1
+        table.insert(
+            n0,
+            Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: {
+                    let mut ops = SmallVec::new();
+                    ops.push(Operand::Reg(RegId(0)));
+                    ops.push(Operand::Reg(RegId(1)));
+                    ops
+                },
+                encoding_hint: None,
+            },
+        );
+
+        // n1: add r0, 1
+        table.insert(
+            n1,
+            Instruction {
+                mnemonic: Mnemonic::Add,
+                operands: {
+                    let mut ops = SmallVec::new();
+                    ops.push(Operand::Reg(RegId(0)));
+                    ops.push(Operand::Imm64(1));
+                    ops
+                },
+                encoding_hint: None,
+            },
+        );
+
+        // Call the new signature; verify it accepts the table.
+        let _result = dse_block(&table, &[n0, n1]);
+        // Phase-3-m2-004 stub: currently returns identity permutation.
     }
 
     #[test]

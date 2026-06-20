@@ -70,17 +70,37 @@ impl OptPass for InstructionSchedulingPass {
     }
 }
 
-/// Phase-2-m9-003: a simplified scheduler operating on an explicit
-/// instruction list (for tests + future integration).
+/// Phase-3-m2-004: instruction scheduling helper operating on an
+/// InstructionSideTable with a sequence of node IDs.
 ///
-/// Takes a list of (instruction_index, InstructionClass) tuples;
-/// returns a reordered list. Reordering rules:
+/// Takes an instruction side-table and an ordered list of IrNodeIds;
+/// returns a reordered list of indices into the input sequence. Reordering rules:
 /// 1. Loads can move EARLIER (toward the start) to hide latency.
 /// 2. Instructions can move past non-barrier independent ones.
 /// 3. Reordering stops at any barrier (AtomicLocked, Branch).
 ///
-/// Returns the new ordering (a permutation of the input indices).
-pub fn schedule_block(instructions: &[(usize, InstructionClass)]) -> Vec<usize> {
+/// Returns a permutation of indices [0..len(nodes)).
+pub fn schedule_block(
+    _side_table: &crate::instruction::InstructionSideTable,
+    nodes: &[crate::node::IrNodeId],
+) -> Vec<usize> {
+    // Phase-3-m2-004: For now, construct synthetic instruction list
+    // from mnemonic data in the side-table. Future PRs may optimize
+    // this by walking the side-table directly.
+    //
+    // TODO(phase-3-m3): Extract InstructionClass from Mnemonic and operands,
+    // then apply the scheduling heuristic below.
+
+    // Placeholder: no reordering yet (just return original order).
+    (0..nodes.len()).collect()
+}
+
+/// Internal implementation: scheduling heuristic on explicit instruction classes.
+///
+/// Takes a list of (instruction_index, InstructionClass) tuples;
+/// returns a reordered list. Helper logic preserved from phase-2-m9-003.
+#[doc(hidden)]
+pub fn schedule_block_impl(instructions: &[(usize, InstructionClass)]) -> Vec<usize> {
     let mut result: Vec<usize> = Vec::with_capacity(instructions.len());
     let mut i = 0;
     while i < instructions.len() {
@@ -151,7 +171,7 @@ mod tests {
             (0, InstructionClass::AluReg),
             (1, InstructionClass::LoadHigher),
         ];
-        let output = schedule_block(&input);
+        let output = schedule_block_impl(&input);
         assert_eq!(output, vec![1, 0]);
     }
 
@@ -164,10 +184,63 @@ mod tests {
             (1, InstructionClass::AtomicLocked),
             (2, InstructionClass::LoadHigher),
         ];
-        let output = schedule_block(&input);
+        let output = schedule_block_impl(&input);
         // The barrier at position 1 should prevent reordering across it.
         // We should get 0, 1, 2 in order.
         assert_eq!(output, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn schedule_block_with_instruction_side_table() {
+        use crate::instruction::{Instruction, InstructionSideTable, Mnemonic, Operand, RegId};
+        use crate::node::IrNodeId;
+        use smallvec::SmallVec;
+
+        // Create a synthetic instruction side-table with latency-bearing instructions.
+        let mut table = InstructionSideTable::new();
+
+        let n0 = IrNodeId::new(1).unwrap();
+        let n1 = IrNodeId::new(2).unwrap();
+
+        // n0: mov r0, r1 (AluReg latency)
+        table.insert(
+            n0,
+            Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: {
+                    let mut ops = SmallVec::new();
+                    ops.push(Operand::Reg(RegId(0)));
+                    ops.push(Operand::Reg(RegId(1)));
+                    ops
+                },
+                encoding_hint: None,
+            },
+        );
+
+        // n1: lea r2, [rax + rbx*4 + 8] (LoadL1 latency)
+        table.insert(
+            n1,
+            Instruction {
+                mnemonic: Mnemonic::Lea,
+                operands: {
+                    let mut ops = SmallVec::new();
+                    ops.push(Operand::Reg(RegId(2)));
+                    ops.push(Operand::MemSib {
+                        base: RegId(0),
+                        index: Some(RegId(3)),
+                        scale: crate::instruction::Scale::X4,
+                        disp: 8,
+                    });
+                    ops
+                },
+                encoding_hint: None,
+            },
+        );
+
+        // Call the new signature; verify it accepts the table.
+        let _result = schedule_block(&table, &[n0, n1]);
+        // Phase-3-m2-004 stub: currently returns identity permutation.
+        // Real reordering logic activates in phase-3-m3.
     }
 
     #[test]
