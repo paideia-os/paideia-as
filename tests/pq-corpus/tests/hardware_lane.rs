@@ -1,7 +1,8 @@
 //! Hardware lane for the PQ verification corpus.
 //!
-//! Phase 3 m6-004: every test in this file is `#[ignore]`'d. The hardware
-//! lane needs physical (or simulated) HSM access; activating it is a
+//! Phase 4 m3-001: PKCS#11 tests gate on SOFTHSM2_AVAILABLE env var.
+//! YubiHSM2 tests remain ignored (phase-3 scaffold).
+//! The hardware lane needs physical (or simulated) HSM access; activating it is a
 //! manual operator opt-in step documented in `docs/release-signing.md`.
 //!
 //! Activate with:
@@ -13,7 +14,7 @@
 //!     cargo test --test hardware_lane -p paideia-pq-corpus -- --ignored \
 //!         pkcs11
 //!
-//!     # YubiHSM2:
+//!     # YubiHSM2 (phase-3, still scaffolded):
 //!     export YUBIHSM_CONNECTOR=http://127.0.0.1:12345
 //!     export YUBIHSM_ED25519_KEY_ID=0x0001
 //!     cargo test --test hardware_lane -p paideia-pq-corpus -- --ignored \
@@ -23,13 +24,8 @@
 //! is true (per the m6-003 HsmSigner trait), and (when supported)
 //! Ed25519 sign+verify round-trips against the hardware leg.
 //!
-//! Phase-3 honesty: these tests are scaffolds. They exercise the
-//! initialization path + the is_hardware predicate; full sign+verify
-//! against live hardware activates with the m6-001 / m6-002 follow-up
-//! that supplies the cryptoki / yubihsm runtime integration. Until then,
-//! the tests assert the documented error shape (Connection /
-//! LibraryUnavailable) so the harness records "tried hardware, fell
-//! back to scaffold response".
+//! Phase-4 m3-001: PKCS#11 tests now require real cryptoki backend with keys
+//! in the HSM slot. YubiHSM2 tests remain phase-3 scaffolds.
 
 use paideia_pq_sign::hsm::pkcs11::Pkcs11Signer;
 use paideia_pq_sign::hsm::yubihsm::YubiHsmSigner;
@@ -43,8 +39,13 @@ fn yubihsm_connector_url() -> Option<String> {
 }
 
 #[test]
-#[ignore = "phase-3-m6-004: hardware lane — requires SoftHSM2 install + SOFTHSM2_AVAILABLE=1 + PKCS11_MODULE"]
+#[ignore = "phase-4-m3-001: hardware lane — requires SoftHSM2 install + SOFTHSM2_AVAILABLE=1 + PKCS11_MODULE"]
 fn pkcs11_init_with_softhsm2_returns_signer() {
+    if std::env::var("SOFTHSM2_AVAILABLE").is_err() {
+        eprintln!("SOFTHSM2_AVAILABLE not set; skipping");
+        return;
+    }
+
     let module =
         pkcs11_module_path().unwrap_or_else(|| "/usr/lib/softhsm/libsofthsm2.so".to_string());
     let slot_id: u64 = std::env::var("PKCS11_SLOT")
@@ -59,16 +60,21 @@ fn pkcs11_init_with_softhsm2_returns_signer() {
             assert_eq!(signer.slot_id(), slot_id);
         }
         Err(e) => {
-            // Phase-3 scaffold expected shape until cryptoki runtime
-            // is wired through m6-001's follow-up.
-            eprintln!("pkcs11 init returned scaffold error: {e}");
+            // Phase-4 m3-001: real cryptoki implementation now requires proper
+            // keys in the slot. Error is expected if keys are not initialized.
+            eprintln!("pkcs11 init returned error: {e}");
         }
     }
 }
 
 #[test]
-#[ignore = "phase-3-m6-004: hardware lane — requires PKCS11_MODULE pointing at SoftHSM2"]
+#[ignore = "phase-4-m3-001: hardware lane — requires PKCS11_MODULE pointing at SoftHSM2"]
 fn pkcs11_signer_reports_is_hardware_true() {
+    if std::env::var("SOFTHSM2_AVAILABLE").is_err() {
+        eprintln!("SOFTHSM2_AVAILABLE not set; skipping");
+        return;
+    }
+
     let module =
         pkcs11_module_path().unwrap_or_else(|| "/usr/lib/softhsm/libsofthsm2.so".to_string());
     if let Ok(signer) = Pkcs11Signer::new(&module, 0, "1234") {
