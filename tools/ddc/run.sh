@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# ddc: diverse-double-compilation orchestrator.
+# Builds paideia-as twice with two different host toolchains; both
+# stage-1 artifacts are saved for byte-level diffing (m10-002).
+#
+# Phase-2-m10-001 minimum:
+# - Toolchain A: the default cargo / rustc.
+# - Toolchain B: nightly cargo / rustc (if installed; falls back to
+#   "+stable" with a note).
+# - Logs each toolchain's version.
+# - Builds release artifacts to tools/ddc/out/{a,b}/.
+#
+# Usage:
+#   tools/ddc/run.sh
+#
+# Exit codes:
+#   0 - both builds succeeded.
+#   1 - a build failed.
+#   2 - toolchain not available.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+OUT_DIR="${SCRIPT_DIR}/out"
+
+mkdir -p "${OUT_DIR}/a" "${OUT_DIR}/b"
+
+log() { echo "[ddc] $*" >&2; }
+
+build_with() {
+    local toolchain="$1"
+    local outdir="$2"
+    log "building with toolchain: ${toolchain}"
+    if ! cargo "+${toolchain}" --version >/dev/null 2>&1; then
+        log "toolchain ${toolchain} not available; trying default"
+        toolchain=""
+    fi
+
+    local cargo_cmd="cargo"
+    if [[ -n "${toolchain}" ]]; then
+        cargo_cmd="cargo +${toolchain}"
+    fi
+
+    log "  $(${cargo_cmd} --version)"
+    log "  $(${cargo_cmd} rustc -- --version 2>&1 | head -1)"
+
+    # Build the paideia-as binary specifically.
+    (cd "${ROOT_DIR}" && ${cargo_cmd} build --release -p paideia-as) || return 1
+
+    cp "${ROOT_DIR}/target/release/paideia-as" "${outdir}/paideia-as"
+    log "  artifact: ${outdir}/paideia-as ($(stat -c%s "${outdir}/paideia-as") bytes)"
+}
+
+log "DDC dual-build start"
+log "host: $(uname -a)"
+
+build_with "stable" "${OUT_DIR}/a" || { log "build A failed"; exit 1; }
+
+# For phase-2-m10-001, "different toolchain" is best-effort: prefer nightly,
+# fall back to a fresh stable build at a different target if nightly is
+# unavailable. Real diverse-toolchain configs (e.g., GCC-built rustc vs
+# distro rustc) are a follow-up.
+if cargo +nightly --version >/dev/null 2>&1; then
+    build_with "nightly" "${OUT_DIR}/b" || { log "build B failed"; exit 1; }
+else
+    log "nightly toolchain not available; falling back to a second stable build"
+    log "(phase-2-m10-001: real toolchain diversity activates when m10-005 wires the CI workflow)"
+    build_with "stable" "${OUT_DIR}/b" || { log "build B failed"; exit 1; }
+fi
+
+log "DDC dual-build complete"
+log "artifacts:"
+log "  A: ${OUT_DIR}/a/paideia-as"
+log "  B: ${OUT_DIR}/b/paideia-as"
+exit 0
