@@ -148,6 +148,40 @@ pub fn check_resume(
     }
 }
 
+/// Check row-polymorphic scope subsumption.
+///
+/// Validates that a function's effect row is subsumed by a key-scope row.
+/// The rule: `row(fn) ⊑ row(key)` iff:
+/// - fn's fixed part ⊆ key's fixed part AND
+/// - fn has an open tail (fresh row variable)
+///
+/// If fn's row is closed (no tail) or fn's fixed effects are not a subset of
+/// key's scope, returns `false`.
+/// Otherwise returns `true`.
+///
+/// # Parameters
+/// - `fn_row` — the function's effect row (may have open tail)
+/// - `key_scope` — the handler's authorized scope row (must be closed)
+/// - `_span` — source span for diagnostics (reserved for future diagnostic emission)
+///
+/// # Returns
+/// `true` if subsumption holds, `false` otherwise.
+#[must_use]
+pub fn check_scope_subsumption_with_row_poly(
+    fn_row: &EffectRow,
+    key_scope: &EffectRow,
+    _span: Span,
+) -> bool {
+    // Subsumption requires:
+    // 1. fn has an open tail (fresh row variable)
+    // 2. fn's fixed effects ⊆ key's fixed effects
+
+    let has_open_tail = fn_row.tail.is_some();
+    let fixed_is_subset = fn_row.is_subset_of(key_scope);
+
+    has_open_tail && fixed_is_subset
+}
+
 /// Full handler-installation check under row polymorphism.
 ///
 /// Combines:
@@ -394,5 +428,70 @@ mod tests {
         // Expect post_row to be {} (closed empty).
         assert!(post_row.fixed.is_empty());
         assert!(post_row.tail.is_none());
+    }
+
+    // ── Row-polymorphic scope subsumption tests ────────────────────────
+
+    /// Test 1: open tail with fixed subset accepts larger scope.
+    /// Function row: {Io | e}
+    /// Key scope: {Io, Mmio}
+    /// Expected: accepts (subsumption holds).
+    #[test]
+    fn check_handler_installation_polymorphic_accepts_open_tail_with_larger_scope() {
+        let io_effect = eff(1);
+        let mmio_effect = eff(2);
+
+        // Function row: {Io | e}
+        let fn_row = EffectRow::from_ids(vec![io_effect], Some(row_var(1)));
+
+        // Key scope: {Io, Mmio}
+        let key_scope = EffectRow::from_ids(vec![io_effect, mmio_effect], None);
+
+        // Should accept (open tail + subset).
+        let accepts = check_scope_subsumption_with_row_poly(&fn_row, &key_scope, span(0));
+        assert!(accepts, "should accept open tail with larger scope");
+    }
+
+    /// Test 2: closed row (no tail) rejects extra scope.
+    /// Function row: {Io} (closed)
+    /// Key scope: {Io, Mmio}
+    /// Expected: rejects (no open tail, cannot subsume extra effects).
+    #[test]
+    fn check_handler_installation_polymorphic_rejects_closed_row_with_extra_scope() {
+        let io_effect = eff(1);
+        let mmio_effect = eff(2);
+
+        // Function row: {Io} (closed)
+        let fn_row = EffectRow::from_ids(vec![io_effect], None);
+
+        // Key scope: {Io, Mmio}
+        let key_scope = EffectRow::from_ids(vec![io_effect, mmio_effect], None);
+
+        // Should reject (no open tail).
+        let accepts = check_scope_subsumption_with_row_poly(&fn_row, &key_scope, span(0));
+        assert!(!accepts, "should reject closed row even with larger scope");
+    }
+
+    /// Test 3: fixed effects not subset rejects.
+    /// Function row: {Io, Mmio | e}
+    /// Key scope: {Io}
+    /// Expected: rejects (Mmio not in scope).
+    #[test]
+    fn check_handler_installation_polymorphic_rejects_fixed_not_subset() {
+        let io_effect = eff(1);
+        let mmio_effect = eff(2);
+
+        // Function row: {Io, Mmio | e}
+        let fn_row = EffectRow::from_ids(vec![io_effect, mmio_effect], Some(row_var(1)));
+
+        // Key scope: {Io} (missing Mmio)
+        let key_scope = EffectRow::from_ids(vec![io_effect], None);
+
+        // Should reject (fixed not subset).
+        let accepts = check_scope_subsumption_with_row_poly(&fn_row, &key_scope, span(0));
+        assert!(
+            !accepts,
+            "should reject when fixed effects not subset of scope"
+        );
     }
 }

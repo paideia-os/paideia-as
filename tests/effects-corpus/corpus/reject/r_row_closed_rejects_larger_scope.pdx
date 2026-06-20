@@ -1,0 +1,34 @@
+// Closed row rejects handler with larger scope
+//
+// Function effect row: !{Io} (closed, no tail)
+// Handler scope: {Io, Mmio} (larger than function row)
+// Expected: reject per Q0901 (m7-004)
+//
+// Without an open tail, the function is incompatible with a handler
+// that authorizes additional capabilities. The closed row means the
+// function uses exactly {Io} and nothing more, but the handler scope
+// is strictly larger.
+
+module RowClosedRejectsLarger = structure {
+  effect Io {
+    op read : (u16) -> u8
+  }
+
+  effect Mmio {
+    op mmio_read : (u32) -> u64
+  }
+
+  let closed_fn : (unit) -> u8 !{Io} =
+    fn (_ : unit) -> 42
+
+  let result : (unit) -> u8 !{} =
+    fn (_ : unit) ->
+      with io_handler handle Io {
+        closed_fn(())
+      }
+
+  let io_handler : (unit) -> u8 !{Io} =
+    handler {
+      op read[_] k -> k(0)
+    }
+}

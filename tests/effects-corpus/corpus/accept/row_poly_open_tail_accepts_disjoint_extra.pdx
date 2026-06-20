@@ -1,0 +1,37 @@
+// Row-polymorphic function accepts handler with disjoint extra capabilities
+//
+// Function effect row: !{Io | e} (open tail)
+// Handler scope: {Io, Foo, Bar} (contains Io plus disjoint extras)
+// Expected: accept (subsumption holds)
+//
+// Even when the handler scope contains effects completely unrelated to Io,
+// the open tail permits the function to be used because its fixed part {Io}
+// is a subset of the scope.
+
+module RowPolyOpenTailDisjointExtra = structure {
+  effect Io {
+    op read : (u16) -> u8
+  }
+
+  effect Foo {
+    op foo_op : (u8) -> u8
+  }
+
+  effect Bar {
+    op bar_op : (u16) -> u16
+  }
+
+  let poly_fn : (unit) -> u8 !{Io | e} =
+    fn (_ : unit) -> 42
+
+  let result : (unit) -> u8 !{} =
+    fn (_ : unit) ->
+      with io_handler handle Io {
+        poly_fn(())
+      }
+
+  let io_handler : (unit) -> u8 !{Io | e} =
+    handler[e] {
+      op read[_] k -> k(0)
+    }
+}

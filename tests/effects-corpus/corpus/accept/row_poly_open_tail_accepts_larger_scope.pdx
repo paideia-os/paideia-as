@@ -1,0 +1,32 @@
+// Row-polymorphic function accepts handler with larger scope
+//
+// Function effect row: !{Io | e} (open tail allows polymorphism)
+// Handler scope: {Io, Mmio} (strictly larger, but Io is in scope)
+// Expected: accept (subsumption holds)
+//
+// The open tail 'e' allows the function to accept additional
+// capabilities beyond Io, making it safe under a larger scope.
+
+module RowPolyOpenTailLargerScope = structure {
+  effect Io {
+    op read : (u16) -> u8
+  }
+
+  effect Mmio {
+    op mmio_read : (u32) -> u64
+  }
+
+  let poly_fn : (unit) -> u8 !{Io | e} =
+    fn (_ : unit) -> 42
+
+  let result : (unit) -> u8 !{} =
+    fn (_ : unit) ->
+      with io_handler handle Io {
+        poly_fn(())
+      }
+
+  let io_handler : (unit) -> u8 !{Io | e} =
+    handler[e] {
+      op read[_] k -> k(0)
+    }
+}
