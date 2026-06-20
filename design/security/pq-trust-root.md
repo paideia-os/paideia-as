@@ -229,3 +229,86 @@ Implementations:
 - `crates/paideia-pq-sign/` — implementation.
 - PRs #424–#431 — the m7 deliverable.
 - Upstream `pq-trust-root.md` §5 / §12 / §13 — the original questions this appendix resolves.
+
+## Runtime integrations (Phase 4 m3)
+
+Phase 3 m6 shipped HSM scaffolds (PKCS#11 + YubiHSM2) with stubbed runtime calls. Phase 3 m8 shipped the RFC 3161 client with a synthetic-token scaffold. Phase 4 m3 wires the real runtime libraries.
+
+### m3-001: cryptoki for PKCS#11
+
+`paideia-pq-sign::hsm::pkcs11::Pkcs11Signer::new()` now opens a real `cryptoki::Pkcs11` session against the configured module:
+
+1. `Pkcs11::new(module_path)` loads the shared library.
+2. `initialize(CInitializeArgs::OsThreads)` for thread-safe access.
+3. `get_slots_with_token()` + filter by slot_id.
+4. `open_rw_session(slot)` + `login(UserType::User, pin)`.
+5. Find Ed25519 and ML-DSA-65 keys by label in the slot.
+6. `Session` wrapped in `Arc<Mutex<>>` for the `HsmSigner: Send + Sync` contract.
+
+`sign_ed25519(msg)` delegates to `session.sign(Mechanism::Eddsa, key, msg)`.
+
+`sign_mldsa65(msg)` uses `Mechanism::Sha512` as a fallback today. The cryptoki 0.7 crate's mechanism enum doesn't enumerate ML-DSA mechanisms; production deployments need cryptoki ≥ 0.8 with PQC mechanism support OR vendor-specific OID registration.
+
+Activated via `SOFTHSM2_AVAILABLE=1 PKCS11_MODULE=/usr/lib/softhsm/libsofthsm2.so cargo test --test hardware_lane -p paideia-pq-corpus -- --ignored`.
+
+### m3-002: yubihsm for YubiHSM2
+
+`paideia-pq-sign::hsm::yubihsm::YubiHsmSigner::new()` opens a real `yubihsm::Client` against the configured connector:
+
+1. `parse_connector_url(connector_url)` extracts host:port (HTTP only).
+2. `HttpConfig { ... }` configures the connector.
+3. `Connector::http(config)` + `Client::open(connector, credentials, ...)`.
+4. Phase-4-m3-002 minimum: default `Credentials` (id=1, password=password) for MockHsm. Production uses operator-specified credentials.
+
+`sign_ed25519(msg)` delegates to `client.sign_ed25519(key_id, msg)` returning a 64-byte Ed25519 signature.
+
+`sign_mldsa65(msg)` errors with the Q0902 reminder. YubiHSM2 firmware ≤ 2.6 doesn't support ML-DSA-65; the hybrid-fallback rule from m6-002/003 still applies — the PQ leg must use a soft-HSM via the `HybridSigner` composer.
+
+Activated via `YUBIHSM_CONNECTOR=http://127.0.0.1:12345 YUBIHSM_ED25519_KEY_ID=0x0001 cargo test --test hardware_lane -p paideia-pq-corpus -- --ignored`.
+
+### m3-003 / m3-004: reqwest for RFC 3161 TSA
+
+`paideia-pq-sign::timestamp::fetch_token(request, tsa_url)` now performs a real `reqwest::blocking::Client` POST against the TSA:
+
+1. `build_tsq_der(request)` produces a simplified DER-encoded TimeStampReq with hash algorithm OID + message imprint.
+2. POST with `Content-Type: application/timestamp-query`.
+3. 30-second timeout per HTTP best practices.
+4. `parse_tsr_der(bytes, request)` extracts gen_time + serial + signature from the TimeStampResp.
+
+m3-004 extends `paideia-pq-sign verify` with `--tsa-token <path>`:
+- Reads the artifact, computes BLAKE3 hash.
+- Deserializes the TSA token from the file.
+- Cross-checks the token's message imprint against the artifact's content hash.
+- Reports "TSA-anchored: yes" / "TSA-anchored: no" in the verify output.
+
+The token's attachment to the `.paideia.sig` PAX sub-record (the Phase 3 m8-001 deferred path) is m4 emit-stage follow-up; today the token rides as a separate file.
+
+### Q0902 hybrid-fallback rule reaffirmed
+
+YubiHSM2 doesn't support ML-DSA-65 in firmware. The canonical composition stays:
+
+```
+HybridSigner {
+  hardware: YubiHsmSigner,   // Ed25519 in firmware
+  soft: SoftHsm,              // ML-DSA-65 in software (Argon2id + ChaCha20-Poly1305)
+}
+```
+
+Operator opt-in is required via `--opt-in-hybrid-fallback`. Without it, `Q0902` fires at HSM init time. The diagnostic carries a pointer to this section for the operator's review.
+
+PKCS#11 ML-DSA-65 with cryptoki 0.7 has the same gap — falls back to soft-HSM via `HybridSigner` until cryptoki gains PQC mechanism support OR a vendor module exposes an ML-DSA mechanism OID.
+
+### What activates today vs. Phase 5
+
+Activated:
+- PKCS#11 against SoftHSM2 (development) or vendor PKCS#11 module (production).
+- YubiHSM2 Ed25519 against real hardware OR MockHsm fixture.
+- RFC 3161 TSA POST against any compliant TSA (freetsa.org for development).
+- `verify --tsa-token` round-trip.
+
+Deferred to Phase 5+:
+- ML-DSA-65 in cryptoki via PQC mechanism support (upstream dep).
+- ML-DSA-65 in YubiHSM2 firmware (vendor dep).
+- TSA token attachment as `.paideia.sig` sub-record (m4 emit-stage).
+- True NIST ACVP test vectors for ML-DSA-65 (upstream `ml-dsa` crate; tracked by #525).
+- Production HSM quorum (≥2-of-3 signing requirement; pq-trust-root.md §8 mentions).
