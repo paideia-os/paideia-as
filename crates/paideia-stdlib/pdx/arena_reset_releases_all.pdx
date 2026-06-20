@@ -1,0 +1,16 @@
+// Phase 4 m10-003: Fixture — arena_reset_releases_all
+//
+// Verify that arena_reset releases all regions in the arena.
+// Phase-4-m10-003 minimum: parse-only; full elaborator-side execution
+// gates on m1 walker work.
+
+struct Region {
+  base: *u8,
+  offset: u64,
+  capacity: u64,
+  next: *Region,
+}
+
+struct Arena {
+  head: *Region,
+}

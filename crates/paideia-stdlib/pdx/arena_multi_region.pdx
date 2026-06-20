@@ -1,0 +1,30 @@
+// Phase 4 m10-003: Fixture — arena_multi_region
+//
+// Verify that the Arena can manage multiple linked regions.
+// Phase-4-m10-003 minimum: parse-only; semantic activation gated.
+
+struct Region {
+  base: *u8,
+  offset: u64,
+  capacity: u64,
+  next: *Region,
+}
+
+struct Arena {
+  head: *Region,
+}
+
+struct Layout {
+  size: u64,
+  align: u64,
+}
+
+trait Allocator {
+  fn alloc() -> *u8;
+  fn dealloc() -> ();
+}
+
+impl Allocator for Arena {
+  fn alloc() -> *u8 = 0 as *u8;
+  fn dealloc() -> () = ();
+}

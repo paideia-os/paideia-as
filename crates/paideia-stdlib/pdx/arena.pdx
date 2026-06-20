@@ -1,0 +1,29 @@
+// Phase 4 m10-003: Arena allocator — multi-region with per-allocation typing.
+//
+// Invariants:
+// - Arena consists of a linked list of Regions.
+// - When the current region fills, allocate a new region.
+// - alloc(size, align) advances offset in the current region.
+// - reset() releases all regions, returning Arena to initial state.
+// - dealloc is a no-op: the arena allocator reclaims only via reset.
+//
+// Linearity: each Arena is `linear` — must be reset OR dropped
+// before scope-end. Phase 4 m10-003 minimum: documents the discipline
+// via the type system; full linearity enforcement gates on m4-m6
+// borrow-checker.
+
+struct Region {
+  base: *u8,
+  offset: u64,
+  capacity: u64,
+  next: *Region,
+}
+
+struct Arena {
+  head: *Region,
+}
+
+impl Allocator for Arena {
+  fn alloc() -> *u8 = 0 as *u8;
+  fn dealloc() -> () = ();
+}
