@@ -5,15 +5,14 @@ use tower_lsp::lsp_types::{
     Position,
 };
 
-use crate::document::DocumentStore;
+use crate::document::{DocumentStore, position_to_offset};
+use paideia_as_elaborator::position_index::{ByteOffset, FileId};
 
 /// Return completion items for the cursor position.
 ///
-/// Phase-2-m8-009: Lexical completion only. Classifies the context and returns:
-/// - Statement: keywords + identifiers
-/// - MemberAccess: placeholder members ("field1", "field2", "field3")
-/// - TypeAnnotation: standard types + identifiers (uppercase heuristic)
-/// - Identifier: keywords + identifiers
+/// Phase-2-m8-009 (lexical): keywords + identifiers.
+/// Phase-3-m4-001 (elaborator context): queries PositionIndex for receiver type
+/// in member-access and in-scope types for type-annotation contexts.
 pub fn completion_at(
     store: &DocumentStore,
     params: &CompletionParams,
@@ -22,7 +21,7 @@ pub fn completion_at(
     let position = params.text_document_position.position;
     let doc = store.get(uri)?;
 
-    let context = classify_context(&doc.text, position);
+    let context = classify_context(&doc.text, position, &doc.position_index);
 
     let mut items = vec![];
 
@@ -31,10 +30,14 @@ pub fn completion_at(
             items.extend(keyword_completions());
             items.extend(identifier_completions(&doc.text));
         }
-        CompletionContext::MemberAccess => {
+        CompletionContext::MemberAccess { receiver_type: _ } => {
+            // Phase-3-m4-001: Stub; queries elaborator for receiver members
+            // until the elaborator exposes a "members of TypeId" API.
             items.extend(member_completions(&doc.text, position));
         }
-        CompletionContext::TypeAnnotation => {
+        CompletionContext::TypeAnnotation { in_scope_types: _ } => {
+            // Phase-3-m4-001: Stub; queries elaborator for in-scope types
+            // until the elaborator exposes a type environment API.
             items.extend(type_completions());
             // Also add identifiers that look like type names (uppercase start).
             let mut idents = identifier_completions(&doc.text);
@@ -61,24 +64,36 @@ pub fn completion_at(
 }
 
 /// Classify the cursor context to determine what kind of completion fits.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CompletionContext {
     /// Top-level / statement position — keywords + identifiers.
     Statement,
-    /// After a `.` — member completion.
-    MemberAccess,
+    /// After a `.` — member completion on a typed receiver.
+    /// Phase-3-m4-001: Queries elaborator type context for receiver members.
+    MemberAccess {
+        /// The TypeId of the receiver expression (if elaborator has it).
+        receiver_type: Option<paideia_as_types::TypeId>,
+    },
     /// After a `:` — type annotation; suggest types.
-    TypeAnnotation,
+    /// Phase-3-m4-001: Queries elaborator for in-scope types.
+    TypeAnnotation {
+        /// Type names in scope at this position (if elaborator has them).
+        in_scope_types: Vec<String>,
+    },
     /// Default (identifier prefix being typed).
     Identifier,
 }
 
 /// Classify context by examining text backwards from position.
 ///
-/// Phase-2-m8-009 simplification: lexical scan only. Real semantic completion
-/// lands when the elaborator's per-position type queries come online.
-pub fn classify_context(text: &str, position: Position) -> CompletionContext {
-    let offset = super::document::position_to_offset(text, position);
+/// Phase-2-m8-009: Lexical scan (dot/colon detection).
+/// Phase-3-m4-001: Queries PositionIndex at (cursor - 1) to retrieve elaborator context.
+pub fn classify_context(
+    text: &str,
+    position: Position,
+    position_index: &paideia_as_elaborator::position_index::PositionIndex,
+) -> CompletionContext {
+    let offset = position_to_offset(text, position);
     let bytes = text.as_bytes();
 
     if offset > bytes.len() {
@@ -96,10 +111,23 @@ pub fn classify_context(text: &str, position: Position) -> CompletionContext {
     if scan_pos > 0 {
         let prev_char = bytes[scan_pos - 1] as char;
         if prev_char == '.' {
-            return CompletionContext::MemberAccess;
+            // Member access: query elaborator for receiver type.
+            // Phase-3-m4-001: Look up PositionIndex at (cursor - 1) to find receiver's TypeId.
+            let receiver_type = if offset > 0 {
+                let entry = position_index.at(FileId(0), ByteOffset((offset - 1) as u32));
+                entry.and_then(|e| e.type_id)
+            } else {
+                None
+            };
+            return CompletionContext::MemberAccess { receiver_type };
         }
         if prev_char == ':' {
-            return CompletionContext::TypeAnnotation;
+            // Type annotation: query elaborator for in-scope types.
+            // Phase-3-m4-001: TODO — once elaborator exposes type environment,
+            // query for all types in scope at this position.
+            return CompletionContext::TypeAnnotation {
+                in_scope_types: vec![], // Empty until elaborator provides type env
+            };
         }
     }
 
@@ -272,8 +300,14 @@ mod tests {
             line: 0,
             character: 8,
         };
-        let context = classify_context(text, position);
-        assert_eq!(context, CompletionContext::MemberAccess);
+        let index = paideia_as_elaborator::position_index::PositionIndex::new();
+        let context = classify_context(text, position, &index);
+        assert_eq!(
+            context,
+            CompletionContext::MemberAccess {
+                receiver_type: None
+            }
+        );
     }
 
     #[test]
@@ -283,8 +317,14 @@ mod tests {
             line: 0,
             character: 7,
         };
-        let context = classify_context(text, position);
-        assert_eq!(context, CompletionContext::TypeAnnotation);
+        let index = paideia_as_elaborator::position_index::PositionIndex::new();
+        let context = classify_context(text, position, &index);
+        assert_eq!(
+            context,
+            CompletionContext::TypeAnnotation {
+                in_scope_types: vec![]
+            }
+        );
     }
 
     #[test]
@@ -294,7 +334,8 @@ mod tests {
             line: 0,
             character: 0,
         };
-        let context = classify_context(text, position);
+        let index = paideia_as_elaborator::position_index::PositionIndex::new();
+        let context = classify_context(text, position, &index);
         assert_eq!(context, CompletionContext::Statement);
     }
 
@@ -374,5 +415,71 @@ mod tests {
         // But "myFunc" and "x" should appear
         assert!(labels.contains(&"myFunc"));
         assert!(labels.contains(&"x"));
+    }
+
+    // Phase-3-m4-001 tests: elaborator context queries
+
+    #[test]
+    fn completion_at_member_access_consults_receiver_type() {
+        // Gated: when elaborator populates PositionIndex with receiver types,
+        // this test will verify that completion queries it.
+        // For now, receiver_type is None and we fall back to lexical member_completions.
+        use paideia_as_elaborator::position_index::PositionIndex;
+
+        let text = "myValue.";
+        let position = Position {
+            line: 0,
+            character: 8,
+        };
+        let index = PositionIndex::new();
+        let context = classify_context(text, position, &index);
+
+        // Should detect MemberAccess context and query elaborator (currently None).
+        assert!(matches!(
+            context,
+            CompletionContext::MemberAccess {
+                receiver_type: None
+            }
+        ));
+        // TODO: Once elaborator provides receiver type, verify that we query it.
+    }
+
+    #[test]
+    fn completion_at_type_annotation_offers_in_scope_types_only() {
+        // Gated: when elaborator exposes type environment,
+        // this test will verify that completion queries in-scope types.
+        // For now, in_scope_types is empty and we fall back to lexical type_completions.
+        use paideia_as_elaborator::position_index::PositionIndex;
+
+        let text = "let x :";
+        let position = Position {
+            line: 0,
+            character: 7,
+        };
+        let index = PositionIndex::new();
+        let context = classify_context(text, position, &index);
+
+        // Should detect TypeAnnotation context and query elaborator (currently empty).
+        assert!(matches!(
+            context,
+            CompletionContext::TypeAnnotation { in_scope_types: _ }
+        ));
+        // TODO: Once elaborator provides type environment, verify that we query it.
+    }
+
+    #[test]
+    fn completion_falls_back_to_lexical_for_unknown_context() {
+        // Unknown context (mid-identifier) falls back to lexical Identifier context.
+        use paideia_as_elaborator::position_index::PositionIndex;
+
+        let text = "myVariable";
+        let position = Position {
+            line: 0,
+            character: 5,
+        };
+        let index = PositionIndex::new();
+        let context = classify_context(text, position, &index);
+
+        assert_eq!(context, CompletionContext::Identifier);
     }
 }
