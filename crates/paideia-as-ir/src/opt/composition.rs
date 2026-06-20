@@ -96,6 +96,14 @@ mod tests {
             order.contains(&"schedule".to_string()),
             "canonical order should contain schedule"
         );
+        assert!(
+            order.contains(&"macro-fusion".to_string()),
+            "canonical order should contain macro-fusion"
+        );
+        assert!(
+            order.contains(&"align".to_string()),
+            "canonical order should contain align"
+        );
     }
 
     #[test]

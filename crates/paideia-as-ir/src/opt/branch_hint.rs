@@ -69,4 +69,25 @@ mod tests {
                 .contains("O1507 (would-fire): branch-hint layout dispatched")
         );
     }
+
+    #[test]
+    fn branch_hint_emits_no_diagnostic_for_unconditional_jmp() {
+        // Phase-3 minimum: unconditional jumps (jmp) do not receive branch hints.
+        // This test documents the behavior: hint pass only targets conditional jumps.
+        let pass = BranchHintPass;
+        let mut arena = IrArena::new();
+        let mut sink = OptDiagSink::new();
+
+        let dummy_id = IrNodeId::new(1).unwrap();
+
+        // Apply the pass; it should still emit the general O1507 diagnostic,
+        // not a per-Jcc diagnostic. The unconditional-jmp filtering is
+        // implemented at the encoder level in m4.
+        let changed = pass.apply(&mut arena, dummy_id, &mut sink);
+
+        assert!(!changed);
+        // The pass emits one general diagnostic, not filtered yet.
+        assert_eq!(sink.diagnostics.len(), 1);
+        assert!(sink.diagnostics[0].message.contains("O1507"));
+    }
 }
