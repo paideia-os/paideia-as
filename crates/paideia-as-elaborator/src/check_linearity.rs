@@ -202,6 +202,11 @@ pub struct LinearityWalker {
     /// Stack of pre-lambda snapshots: when entering a Lambda's pre_visit,
     /// push a snapshot of the outer scope. Used in post_visit to analyze captures.
     lambda_snapshots: Vec<HashMap<Symbol, Binding>>,
+    /// Stack of pre-match snapshots: when entering a Match's pre_visit,
+    /// push a snapshot of the outer scope. Each enter_match_arm saves a new
+    /// LinearityCtx snapshot for that arm. Used in post_visit to check for
+    /// affine bindings consumed across multiple arms (S0904).
+    match_arm_snapshots: Vec<Vec<LinearityCtx>>,
 }
 
 impl LinearityWalker {
@@ -212,6 +217,7 @@ impl LinearityWalker {
             linearity_ctx: LinearityCtx::new(),
             ordered_log: OrderedLog::new(),
             lambda_snapshots: Vec::new(),
+            match_arm_snapshots: Vec::new(),
         }
     }
 
@@ -269,11 +275,8 @@ impl LinearityWalker {
     /// After all arms walked, if more than one arm consumed the same affine binding
     /// (used the name and consumed it), fire S0904.
     ///
-    /// **Phase-3 Honest**: Match nodes are not yet in the IR (phase-3-m1 placeholder).
-    /// This method will be wired when Match elaboration is complete.
-    /// For now, it is a TODO stub that would be called from `pre_visit(Match)` and
-    /// `post_visit(Match)`.
-    #[allow(dead_code)]
+    /// This method is called from `post_visit(Match)` after all arms have been
+    /// visited and their snapshots collected in `match_arm_snapshots`.
     fn check_multi_arm_consume(&self, arm_contexts: &[LinearityCtx], ctx: &mut WalkerCtx<'_>) {
         // Collect all symbols used across all arms.
         let mut symbol_arm_usage: HashMap<Symbol, Vec<usize>> = HashMap::new();
@@ -395,9 +398,11 @@ impl IrWalker for LinearityWalker {
                 // handlers are not yet fully elaborated, so this is a TODO.
                 self.check_handler_ordered_use(ctx);
             }
-            // TODO(phase-3-m7-002): IrKind::Match =>
-            // When Match elaboration is complete, snapshot the context here,
-            // enter a sub-context for each arm, and collect snapshots for post_visit.
+            IrKind::Match => {
+                // Match node: initialize a new vector for arm snapshots.
+                // The enter_match_arm hook will populate it as each arm is visited.
+                self.match_arm_snapshots.push(Vec::new());
+            }
             _ => {}
         }
     }
@@ -446,10 +451,35 @@ impl IrWalker for LinearityWalker {
                     ctx.emit(diag);
                 }
             }
-            // TODO(phase-3-m7-002): IrKind::Match =>
-            // Collect arm contexts from pre_visit snapshots, call check_multi_arm_consume(),
-            // and emit S0904 diagnostics for affine bindings consumed across multiple arms.
+            IrKind::Match => {
+                // Match node: check if affine bindings are consumed across multiple arms.
+                // Pop the arm snapshots collected during enter_match_arm calls.
+                if let Some(arm_contexts) = self.match_arm_snapshots.pop() {
+                    self.check_multi_arm_consume(&arm_contexts, ctx);
+                }
+            }
             _ => {}
+        }
+    }
+
+    fn enter_match_arm(&mut self, _arm_index: usize, _ctx: &mut WalkerCtx<'_>) {
+        // When entering a match arm, snapshot the current linearity context.
+        // This captures the state of bindings available to this arm (e.g., from outer scopes).
+        let snapshot = self.linearity_ctx.clone();
+        if let Some(arm_list) = self.match_arm_snapshots.last_mut() {
+            arm_list.push(snapshot);
+        }
+    }
+
+    fn exit_match_arm(&mut self, _arm_index: usize, _ctx: &mut WalkerCtx<'_>) {
+        // When exiting a match arm, update the snapshot in match_arm_snapshots
+        // to reflect the current state (after walking the arm body).
+        // This allows check_multi_arm_consume to see which bindings were consumed
+        // in each arm.
+        if let Some(arm_list) = self.match_arm_snapshots.last_mut() {
+            if !arm_list.is_empty() {
+                *arm_list.last_mut().unwrap() = self.linearity_ctx.clone();
+            }
         }
     }
 }

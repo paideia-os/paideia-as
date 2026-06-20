@@ -107,6 +107,8 @@ impl EffectRowId {
 ///   (entry_label, exit_label) for the encoder.
 /// - **Break**: break out of the enclosing loop. No children.
 /// - **Continue**: continue to the next iteration of the enclosing loop. No children.
+/// - **Match**: match expression with pattern arms. Children: [scrutinee, arm0, arm1, ...].
+///   Each arm is its own subtree containing pattern and body expressions.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 #[repr(u8)]
 #[non_exhaustive]
@@ -163,6 +165,10 @@ pub enum IrKind {
     Break,
     /// Continue to the next iteration of the enclosing loop. No children.
     Continue,
+    /// Match expression: match on a value with multiple arms.
+    /// Children = [scrutinee, arm0, arm1, ...].
+    /// Each arm is its own subtree with pattern + body.
+    Match,
 }
 
 /// Per-node IR storage.

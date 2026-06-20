@@ -27,8 +27,8 @@
 //! | ExprPostfix | App | Postfix operators are desugared to applications |
 //! | ExprBlock | Action | Block is a sequence of statements (action) |
 //! | ExprLambda | Lambda | Lambda abstraction |
-//! | ExprMatch | Action | Match placeholder; phase-1 does not model match in IR |
-//! | ExprIf | Action | If-else placeholder; phase-1 does not model if in IR |
+//! | ExprMatch | Match | Match expression with pattern arms (phase-4-m1-002) |
+//! | ExprIf | Action | If-else placeholder; future phase |
 //! | ExprLoop | Action | Loop placeholder; phase-1 does not model loop in IR |
 //! | ExprActionBlock | Action | Action-marked block |
 //! | ExprPerform | Perform | Effect operation invocation |
@@ -165,10 +165,11 @@ fn map_node_kind(kind: NodeKind) -> IrKind {
         | NodeKind::StmtExpr
         | NodeKind::StmtInstruction => IrKind::Action,
 
+        // Control flow: phase-4-m1-002 adds Match to IR; If and Loop in later phases
+        NodeKind::ExprMatch => IrKind::Match,
+
         // Control flow placeholders (phase-1 does not model these in IR yet)
-        NodeKind::ExprMatch | NodeKind::ExprIf | NodeKind::ExprLoop | NodeKind::StmtReturn => {
-            IrKind::Action
-        }
+        NodeKind::ExprIf | NodeKind::ExprLoop | NodeKind::StmtReturn => IrKind::Action,
 
         // Let bindings
         NodeKind::StmtLet | NodeKind::Let => IrKind::Let,

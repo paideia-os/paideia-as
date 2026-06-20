@@ -15,7 +15,7 @@
 use smallvec::SmallVec;
 
 use crate::IrArena;
-use crate::node::{IrNodeData, IrNodeId};
+use crate::node::{IrKind, IrNodeData, IrNodeId};
 use crate::walker_ctx::WalkerCtx;
 
 /// Trait for IR-walker visitor passes.
@@ -71,6 +71,38 @@ pub trait IrWalker {
     ) {
         let _ = (id, node, arena, ctx);
     }
+
+    /// Called before visiting a match arm's body.
+    ///
+    /// Implementors may use this hook to enter arm-local scope for linearity
+    /// tracking or effect-row tracking. The default no-op is appropriate for
+    /// walkers that do not need per-arm context.
+    ///
+    /// # Arguments
+    ///
+    /// * `arm_index` - The 0-based index of this arm within the match.
+    /// * `ctx` - Walker context providing source map and diagnostic sink.
+    ///
+    /// # Default
+    ///
+    /// No-op (the underscore pattern prevents unused-variable warnings).
+    fn enter_match_arm(&mut self, _arm_index: usize, _ctx: &mut WalkerCtx<'_>) {}
+
+    /// Called after visiting a match arm's body.
+    ///
+    /// Implementors may use this hook to exit arm-local scope and record snapshots
+    /// for cross-arm conflict detection (e.g., S0904 for affine bindings consumed
+    /// across multiple arms).
+    ///
+    /// # Arguments
+    ///
+    /// * `arm_index` - The 0-based index of this arm within the match.
+    /// * `ctx` - Walker context providing source map and diagnostic sink.
+    ///
+    /// # Default
+    ///
+    /// No-op (the underscore pattern prevents unused-variable warnings).
+    fn exit_match_arm(&mut self, _arm_index: usize, _ctx: &mut WalkerCtx<'_>) {}
 }
 
 /// Drive a pre-order traversal over an IR tree rooted at `root`.
@@ -136,8 +168,25 @@ pub fn walk<W: IrWalker>(walker: &mut W, arena: &IrArena, root: IrNodeId, ctx: &
     // SmallVec keeps ≤4 children inline, spilling to heap for larger trees.
     let children: SmallVec<[IrNodeId; 4]> = arena.children(root).iter().copied().collect();
 
-    for child in children {
-        walk(walker, arena, child, ctx);
+    // Special handling for Match nodes: walk scrutinee normally, then walk each arm
+    // with enter/exit_match_arm hooks to enable per-arm scope tracking.
+    if arena[root].kind == IrKind::Match {
+        if !children.is_empty() {
+            // First child is the scrutinee; walk it normally.
+            walk(walker, arena, children[0], ctx);
+
+            // Remaining children are arms; walk each with arm hooks.
+            for (arm_index, &arm_id) in children[1..].iter().enumerate() {
+                walker.enter_match_arm(arm_index, ctx);
+                walk(walker, arena, arm_id, ctx);
+                walker.exit_match_arm(arm_index, ctx);
+            }
+        }
+    } else {
+        // For non-Match nodes, walk children normally.
+        for child in children {
+            walk(walker, arena, child, ctx);
+        }
     }
 
     walker.post_visit(root, &arena[root], arena, ctx);
@@ -470,5 +519,83 @@ mod tests {
             walker.child_counts, expected_sequence,
             "deterministic visit sequence should match"
         );
+    }
+
+    #[test]
+    fn ir_walker_visits_match_arm_with_arm_local_scope() {
+        // Test that enter_match_arm and exit_match_arm hooks are called
+        // for each arm in a match expression.
+        struct MatchArmTracker {
+            arm_enters: Vec<usize>,
+            arm_exits: Vec<usize>,
+        }
+
+        impl IrWalker for MatchArmTracker {
+            fn enter_match_arm(&mut self, arm_index: usize, _ctx: &mut WalkerCtx<'_>) {
+                self.arm_enters.push(arm_index);
+            }
+
+            fn exit_match_arm(&mut self, arm_index: usize, _ctx: &mut WalkerCtx<'_>) {
+                self.arm_exits.push(arm_index);
+            }
+        }
+
+        let mut arena = IrArena::new();
+        // Build: Match with scrutinee and two arms
+        let scrutinee_id = arena.alloc(IrKind::Var, span());
+        let arm0_id = arena.alloc(IrKind::Literal, span());
+        let arm1_id = arena.alloc(IrKind::Literal, span());
+        let match_id =
+            arena.alloc_with_children(IrKind::Match, span(), [scrutinee_id, arm0_id, arm1_id]);
+
+        let mut walker = MatchArmTracker {
+            arm_enters: Vec::new(),
+            arm_exits: Vec::new(),
+        };
+        let sm = SourceMap::new();
+        let mut sink = VecSink::new();
+        let mut ctx = WalkerCtx::new(&sm, &mut sink);
+
+        walk(&mut walker, &arena, match_id, &mut ctx);
+
+        assert_eq!(
+            walker.arm_enters,
+            vec![0, 1],
+            "should enter each arm in order"
+        );
+        assert_eq!(
+            walker.arm_exits,
+            vec![0, 1],
+            "should exit each arm in order"
+        );
+    }
+
+    #[test]
+    fn walk_visits_match_scrutinee_before_arms() {
+        // Verify that the scrutinee is visited before any arms,
+        // and arms are visited in order.
+        let mut arena = IrArena::new();
+        let scrutinee_id = arena.alloc(IrKind::Var, span());
+        let arm0_id = arena.alloc(IrKind::Literal, span());
+        let arm1_id = arena.alloc(IrKind::Literal, span());
+        let match_id =
+            arena.alloc_with_children(IrKind::Match, span(), [scrutinee_id, arm0_id, arm1_id]);
+
+        let mut walker = RecordingWalker::new();
+        let sm = SourceMap::new();
+        let mut sink = VecSink::new();
+        let mut ctx = WalkerCtx::new(&sm, &mut sink);
+
+        walk(&mut walker, &arena, match_id, &mut ctx);
+
+        // Expected order: Pre(Match), Pre(Var), Post(Var), Pre(Literal), Post(Literal), Pre(Literal), Post(Literal), Post(Match)
+        assert_eq!(walker.visits[0], (VisitPhase::Pre, IrKind::Match));
+        assert_eq!(walker.visits[1], (VisitPhase::Pre, IrKind::Var)); // scrutinee
+        assert_eq!(walker.visits[2], (VisitPhase::Post, IrKind::Var));
+        assert_eq!(walker.visits[3], (VisitPhase::Pre, IrKind::Literal)); // arm0
+        assert_eq!(walker.visits[4], (VisitPhase::Post, IrKind::Literal));
+        assert_eq!(walker.visits[5], (VisitPhase::Pre, IrKind::Literal)); // arm1
+        assert_eq!(walker.visits[6], (VisitPhase::Post, IrKind::Literal));
+        assert_eq!(walker.visits[7], (VisitPhase::Post, IrKind::Match));
     }
 }

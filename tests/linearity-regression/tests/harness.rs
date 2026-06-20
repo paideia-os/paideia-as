@@ -63,7 +63,7 @@ fn accept_corpus_emits_no_s_codes() {
 // will light up and catch regressions where the accept corpus stops
 // being clean.
 #[test]
-#[ignore = "reject corpus awaits m2/m5 structured IR payloads (linearity, effect, capability classes)"]
+#[ignore = "reject corpus fixtures pending valid paideia-as syntax (phase-4-m1-002 adds walker; m-TBD wires elaboration)"]
 fn reject_corpus_emits_expected_s_codes() {
     let dir = corpus_root().join("reject");
     let files = collect_pdx_files(&dir);
