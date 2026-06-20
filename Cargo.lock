@@ -1704,6 +1704,15 @@ name = "paideia-opt-pool-constants"
 version = "0.0.1"
 
 [[package]]
+name = "paideia-opt-regression"
+version = "0.0.1"
+dependencies = [
+ "paideia-as-diagnostics",
+ "paideia-as-ir",
+ "smallvec",
+]
+
+[[package]]
 name = "paideia-opt-schedule"
 version = "0.0.1"
 

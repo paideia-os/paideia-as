@@ -27,6 +27,7 @@ members = [
     "tests/lsp-harness",
     "tests/migration-smoke/cap",
     "tests/modules-multifile",
+    "tests/opt-regression",
     "tests/opt-regression/align",
     "tests/opt-regression/branch-hint",
     "tests/opt-regression/dse",
