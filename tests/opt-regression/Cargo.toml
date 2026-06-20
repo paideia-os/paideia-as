@@ -1,0 +1,27 @@
+[package]
+name = "paideia-opt-regression"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+# This crate is a unified regression test harness for all 10 optimization
+# passes (peephole, schedule, dse, encode-tight, tailcall, unroll,
+# macro-fusion, branch-hint, align, pool-constants). It validates:
+#
+# - Real-rewrite passes (m3-001..006) emit "rewrote N sites" diagnostics
+# - Would-fire passes (m3-007) emit "would-fire" markers
+# - Stubs (incomplete passes) assert current diagnostic shape
+#
+# Phase-3-m3-008: Per-pass regression tests asserting diagnostic shape.
+
+[lib]
+path = "src/lib.rs"
+
+[dev-dependencies]
+paideia-as-ir = { path = "../../crates/paideia-as-ir" }
+paideia-as-diagnostics = { path = "../../crates/paideia-as-diagnostics" }
+smallvec.workspace = true
