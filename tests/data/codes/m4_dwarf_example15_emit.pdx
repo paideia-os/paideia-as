@@ -1,0 +1,13 @@
+// Phase-4-m2-002 test fixture: simple program with instructions spanning multiple source lines.
+// Used to verify DWARF .debug_line emit-stage threads InstructionSideTable correctly.
+
+mod example15_emit : sig {
+  fn main() : unit !{}
+} = struct {
+  fn main() : unit !{} = {
+    let x = 5
+    let y = x + 3
+    let z = y * 2
+    z
+  }
+}

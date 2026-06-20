@@ -417,7 +417,11 @@ fn build_pe_object(arena: &paideia_as_ir::IrArena) -> Vec<u8> {
 
     // Emit .text section content from InstructionSideTable
     // Phase-4 honesty: emit all instructions from the table into .text
-    let _result = emit_text_from_instructions(arena.instructions(), &mut text_bytes);
+    // Phase-4-m2-002: emit_text_from_instructions now returns EmitResult with offset_map
+    let emit_result = emit_text_from_instructions(arena.instructions(), &mut text_bytes)
+        .unwrap_or_else(|e| {
+            panic!("text emission failed: {e}");
+        });
 
     // If no instructions were encoded, use a minimal placeholder (ret instruction: 0xC3)
     if text_bytes.is_empty() {
@@ -425,6 +429,10 @@ fn build_pe_object(arena: &paideia_as_ir::IrArena) -> Vec<u8> {
     }
 
     sections.add_text(text_bytes);
+
+    // Store offset_map for DWARF emit-stage (Phase-4-m2-002).
+    // This enables DWARF .debug_line reconstruction with post-rewrite offsets.
+    let _offset_map = emit_result.offset_map;
 
     let headers_size = DOS_HEADER_SIZE
         + 4

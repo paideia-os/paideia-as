@@ -12,7 +12,7 @@ pub mod sections;
 pub mod vendor;
 
 pub use info::{CompilationUnit, FunctionDie, build_cu};
-pub use line::LineEntry;
+pub use line::{LineEntry, build_line_program_from_instruction_table};
 pub use sections::{
     build_caps_section, build_effects_section, build_sig_section, build_version_section,
 };

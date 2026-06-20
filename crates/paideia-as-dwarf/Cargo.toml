@@ -13,3 +13,4 @@ name = "paideia_as_dwarf"
 [dependencies]
 gimli = { workspace = true }
 paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
+paideia-as-ir = { path = "../paideia-as-ir" }
