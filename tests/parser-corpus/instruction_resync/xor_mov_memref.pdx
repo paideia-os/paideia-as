@@ -1,0 +1,5 @@
+action {
+    xor rcx, rcx;
+    mov rax, [rbp - 8];
+    ret
+}

@@ -1,0 +1,5 @@
+action {
+    imul rax, rdi, 2;
+    lea rsi, [rax + rcx];
+    ret
+}

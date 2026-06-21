@@ -1,0 +1,5 @@
+action {
+    add rax, 42;
+    sub rbx, 1;
+    ret
+}

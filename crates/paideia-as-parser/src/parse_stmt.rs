@@ -13,7 +13,7 @@
 //!   newlines as tokens.
 
 use paideia_as_ast::{NodeId, NodeKind, StmtData};
-use paideia_as_diagnostics::Span;
+use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
 use paideia_as_lexer::TokenKind;
 
 use crate::parser::{ParseError, Parser};
@@ -164,6 +164,10 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// mnemonic, interns it via `arena.intern_mnemonic()`, then parses
     /// comma-separated operands.
     ///
+    /// After each comma, a valid operand MUST follow. Memory-operand re-sync
+    /// requires that after consuming a comma, if no valid operand can be parsed,
+    /// we must check that a statement separator or block-end follows (phase-6 m2-003).
+    ///
     /// No trailing semicolon is required (the action block's `}` terminates).
     fn parse_instruction_stmt(&mut self) -> Result<NodeId, ParseError> {
         let mnem_tok = self.expect(TokenKind::Ident)?;
@@ -198,6 +202,22 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             // Check for comma (more operands) or end of statement
             if !self.eat(TokenKind::Comma) {
                 break;
+            }
+
+            // Phase-6 m2-003: After consuming a comma, we must have another operand.
+            // Check if we're at a boundary (semicolon, RBrace, or EOF).
+            // If so, this is a trailing comma error (P0102).
+            if self.at(TokenKind::Semicolon) || self.at(TokenKind::RBrace) || self.peek().is_none()
+            {
+                let next_span = self.peek().map(|t| t.span).unwrap_or(mnem_span);
+                let code =
+                    DiagnosticCode::new(Category::P, Severity::Error, 102).expect("valid P code");
+                let diag = Diagnostic::error(code)
+                    .message("expected operand after comma in instruction")
+                    .with_span(next_span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                return Err(ParseError);
             }
         }
 
@@ -482,5 +502,171 @@ mod tests {
         // Verify it's a StmtInstruction node
         let node = arena.get(stmt_id).unwrap();
         assert_eq!(node.kind, NodeKind::StmtInstruction);
+    }
+
+    /// Phase 6 m2-003: Test 1 — Single-line mov + lea with semicolon.
+    /// `mov rax, rdi; lea rax, [rdi + 1]; ret` should parse cleanly.
+    #[test]
+    fn instruction_resync_mov_lea_semicolon() {
+        let toks = vec![
+            tok(TokenKind::Ident, 0, 3), // "mov"
+            tok(TokenKind::Ident, 4, 3), // "rax"
+            tok(TokenKind::Comma, 7, 1),
+            tok(TokenKind::Ident, 9, 3), // "rdi"
+            tok(TokenKind::Semicolon, 12, 1),
+            tok(TokenKind::Ident, 14, 3), // "lea"
+            tok(TokenKind::Ident, 18, 3), // "rax"
+            tok(TokenKind::Comma, 21, 1),
+            tok(TokenKind::LBracket, 23, 1),
+            tok(TokenKind::Ident, 24, 3), // "rdi"
+            tok(TokenKind::Plus, 28, 1),
+            tok(TokenKind::IntLit, 30, 1), // "1"
+            tok(TokenKind::RBracket, 31, 1),
+            tok(TokenKind::Semicolon, 32, 1),
+            tok(TokenKind::Ident, 34, 3), // "ret"
+        ];
+        let source = "mov rax, rdi; lea rax, [rdi + 1]; ret";
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut p = Parser::new(
+            &toks,
+            source,
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        );
+
+        let result = p.parse_stmt(true); // First instruction: mov rax, rdi
+        assert!(result.is_ok(), "mov rax, rdi should parse");
+
+        let result = p.parse_stmt(true); // Second instruction: lea rax, [rdi + 1]
+        assert!(result.is_ok(), "lea rax, [rdi + 1] should parse");
+
+        let result = p.parse_stmt(true); // Third instruction: ret
+        assert!(result.is_ok(), "ret should parse");
+    }
+
+    /// Phase 6 m2-003: Test 2 — add + sub with semicolon.
+    /// `add rax, 42; sub rbx, 1; ret` should parse cleanly.
+    #[test]
+    fn instruction_resync_add_sub_semicolon() {
+        let toks = vec![
+            tok(TokenKind::Ident, 0, 3), // "add"
+            tok(TokenKind::Ident, 4, 3), // "rax"
+            tok(TokenKind::Comma, 7, 1),
+            tok(TokenKind::IntLit, 9, 2), // "42"
+            tok(TokenKind::Semicolon, 11, 1),
+            tok(TokenKind::Ident, 13, 3), // "sub"
+            tok(TokenKind::Ident, 17, 3), // "rbx"
+            tok(TokenKind::Comma, 20, 1),
+            tok(TokenKind::IntLit, 22, 1), // "1"
+            tok(TokenKind::Semicolon, 23, 1),
+            tok(TokenKind::Ident, 25, 3), // "ret"
+        ];
+        let source = "add rax, 42; sub rbx, 1; ret";
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut p = Parser::new(
+            &toks,
+            source,
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        );
+
+        let result = p.parse_stmt(true);
+        assert!(result.is_ok(), "add rax, 42 should parse");
+
+        let result = p.parse_stmt(true);
+        assert!(result.is_ok(), "sub rbx, 1 should parse");
+
+        let result = p.parse_stmt(true);
+        assert!(result.is_ok(), "ret should parse");
+    }
+
+    /// Phase 6 m2-003: Test 3 — xor + mov with memory reference.
+    /// `xor rcx, rcx; mov rax, [rbp - 8]; ret` should parse cleanly.
+    #[test]
+    fn instruction_resync_xor_mov_memref() {
+        let toks = vec![
+            tok(TokenKind::Ident, 0, 3), // "xor"
+            tok(TokenKind::Ident, 4, 3), // "rcx"
+            tok(TokenKind::Comma, 7, 1),
+            tok(TokenKind::Ident, 9, 3), // "rcx"
+            tok(TokenKind::Semicolon, 12, 1),
+            tok(TokenKind::Ident, 14, 3), // "mov"
+            tok(TokenKind::Ident, 18, 3), // "rax"
+            tok(TokenKind::Comma, 21, 1),
+            tok(TokenKind::LBracket, 23, 1),
+            tok(TokenKind::Ident, 24, 3), // "rbp"
+            tok(TokenKind::Minus, 28, 1),
+            tok(TokenKind::IntLit, 30, 1), // "8"
+            tok(TokenKind::RBracket, 31, 1),
+            tok(TokenKind::Semicolon, 32, 1),
+            tok(TokenKind::Ident, 34, 3), // "ret"
+        ];
+        let source = "xor rcx, rcx; mov rax, [rbp - 8]; ret";
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut p = Parser::new(
+            &toks,
+            source,
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        );
+
+        let result = p.parse_stmt(true);
+        assert!(result.is_ok(), "xor rcx, rcx should parse");
+
+        let result = p.parse_stmt(true);
+        assert!(result.is_ok(), "mov rax, [rbp - 8] should parse");
+
+        let result = p.parse_stmt(true);
+        assert!(result.is_ok(), "ret should parse");
+    }
+
+    /// Phase 6 m2-003: Test 4 — imul + lea with immediate and complex memref.
+    /// `imul rax, rdi, 2; lea rsi, [rax + rcx]; ret` should parse cleanly.
+    #[test]
+    fn instruction_resync_imul_lea_immediate() {
+        let toks = vec![
+            tok(TokenKind::Ident, 0, 4), // "imul"
+            tok(TokenKind::Ident, 5, 3), // "rax"
+            tok(TokenKind::Comma, 8, 1),
+            tok(TokenKind::Ident, 10, 3), // "rdi"
+            tok(TokenKind::Comma, 13, 1),
+            tok(TokenKind::IntLit, 15, 1), // "2"
+            tok(TokenKind::Semicolon, 16, 1),
+            tok(TokenKind::Ident, 18, 3), // "lea"
+            tok(TokenKind::Ident, 22, 3), // "rsi"
+            tok(TokenKind::Comma, 25, 1),
+            tok(TokenKind::LBracket, 27, 1),
+            tok(TokenKind::Ident, 28, 3), // "rax"
+            tok(TokenKind::Plus, 32, 1),
+            tok(TokenKind::Ident, 34, 3), // "rcx"
+            tok(TokenKind::RBracket, 37, 1),
+            tok(TokenKind::Semicolon, 38, 1),
+            tok(TokenKind::Ident, 40, 3), // "ret"
+        ];
+        let source = "imul rax, rdi, 2; lea rsi, [rax + rcx]; ret";
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut p = Parser::new(
+            &toks,
+            source,
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        );
+
+        let result = p.parse_stmt(true);
+        assert!(result.is_ok(), "imul rax, rdi, 2 should parse");
+
+        let result = p.parse_stmt(true);
+        assert!(result.is_ok(), "lea rsi, [rax + rcx] should parse");
+
+        let result = p.parse_stmt(true);
+        assert!(result.is_ok(), "ret should parse");
     }
 }

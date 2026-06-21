@@ -1,0 +1,5 @@
+action {
+    mov rax, rdi;
+    lea rax, [rdi + 1];
+    ret
+}
