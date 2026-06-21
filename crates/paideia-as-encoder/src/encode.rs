@@ -787,6 +787,60 @@ pub fn emit_match_arm_branch(
     patch_offset
 }
 
+/// Encode zero-operand control and system instructions.
+///
+/// # Instructions
+/// - `CLI` (Clear Interrupt Flag): `FA` (1 byte)
+/// - `STI` (Set Interrupt Flag): `FB` (1 byte)
+/// - `HLT` (Halt): `F4` (1 byte)
+/// - `NOP` (No Operation): `90` (1 byte)
+/// - `SWAPGS` (Swap GS Base): `0F 01 F8` (3 bytes)
+/// - `CPUID` (CPU Identification): `0F A2` (2 bytes)
+///
+/// # Arguments
+/// - `buf`: code buffer to append instruction to
+/// - `mnem_byte`: the zero-operand instruction type code
+///   - 0x90 for NOP
+///   - 0xF4 for HLT
+///   - 0xFA for CLI
+///   - 0xFB for STI
+///   - 0x81 (sentinel) for SWAPGS
+///   - 0x82 (sentinel) for CPUID
+pub fn encode_zero_operand(buf: &mut CodeBuffer, mnem_byte: u8) {
+    match mnem_byte {
+        0x90 => {
+            // NOP: 90
+            buf.bytes.push(0x90);
+        }
+        0xF4 => {
+            // HLT: F4
+            buf.bytes.push(0xF4);
+        }
+        0xFA => {
+            // CLI: FA
+            buf.bytes.push(0xFA);
+        }
+        0xFB => {
+            // STI: FB
+            buf.bytes.push(0xFB);
+        }
+        0x81 => {
+            // SWAPGS: 0F 01 F8 (special encoding; sentinel)
+            buf.bytes.push(0x0F);
+            buf.bytes.push(0x01);
+            buf.bytes.push(0xF8);
+        }
+        0x82 => {
+            // CPUID: 0F A2 (two-byte encoding; sentinel)
+            buf.bytes.push(0x0F);
+            buf.bytes.push(0xA2);
+        }
+        _ => {
+            // Unreachable for valid mnemonics
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1523,5 +1577,91 @@ mod tests {
         assert_eq!(&buf.as_slice()[4..8], &[0x48, 0x89, 0x57, 0x08]);
         // Verify third store: mov [rdi + 16], rcx
         assert_eq!(&buf.as_slice()[8..12], &[0x48, 0x89, 0x4f, 0x10]);
+    }
+
+    // ── Zero-operand instruction tests (phase-5 m2-002) ──────────
+
+    #[test]
+    fn encode_zero_operand_nop_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_zero_operand(&mut buf, 0x90); // NOP
+
+        assert_eq!(buf.as_slice(), &[0x90]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Nop);
+    }
+
+    #[test]
+    fn encode_zero_operand_hlt_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_zero_operand(&mut buf, 0xF4); // HLT
+
+        assert_eq!(buf.as_slice(), &[0xF4]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Hlt);
+    }
+
+    #[test]
+    fn encode_zero_operand_cli_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_zero_operand(&mut buf, 0xFA); // CLI
+
+        assert_eq!(buf.as_slice(), &[0xFA]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Cli);
+    }
+
+    #[test]
+    fn encode_zero_operand_sti_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_zero_operand(&mut buf, 0xFB); // STI
+
+        assert_eq!(buf.as_slice(), &[0xFB]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Sti);
+    }
+
+    #[test]
+    fn encode_zero_operand_swapgs_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_zero_operand(&mut buf, 0x81); // SWAPGS (sentinel)
+
+        assert_eq!(buf.as_slice(), &[0x0F, 0x01, 0xF8]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Swapgs);
+    }
+
+    #[test]
+    fn encode_zero_operand_cpuid_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_zero_operand(&mut buf, 0x82); // CPUID (sentinel)
+
+        assert_eq!(buf.as_slice(), &[0x0F, 0xA2]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Cpuid);
     }
 }

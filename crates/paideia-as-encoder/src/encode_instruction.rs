@@ -141,13 +141,13 @@ pub fn encode_instruction(
         Mnemonic::Ret => encode_ret(inst, buf),
         Mnemonic::RepMovsb => encode_rep_movsb(inst, buf),
         Mnemonic::Lea => encode_lea(inst, buf),
-        // Phase-5 m2-001 stubs: 20 privileged + system-ISA variants
-        Mnemonic::Cli => Err(EncodeError::Unsupported("phase-5 m2-002")),
-        Mnemonic::Sti => Err(EncodeError::Unsupported("phase-5 m2-002")),
-        Mnemonic::Hlt => Err(EncodeError::Unsupported("phase-5 m2-002")),
-        Mnemonic::Nop => Err(EncodeError::Unsupported("phase-5 m2-002")),
-        Mnemonic::Swapgs => Err(EncodeError::Unsupported("phase-5 m2-002")),
-        Mnemonic::Cpuid => Err(EncodeError::Unsupported("phase-5 m2-002")),
+        // Phase-5 m2-002: zero-operand control + sync instructions
+        Mnemonic::Cli => encode_cli(inst, buf),
+        Mnemonic::Sti => encode_sti(inst, buf),
+        Mnemonic::Hlt => encode_hlt(inst, buf),
+        Mnemonic::Nop => encode_nop(inst, buf),
+        Mnemonic::Swapgs => encode_swapgs(inst, buf),
+        Mnemonic::Cpuid => encode_cpuid(inst, buf),
         Mnemonic::In { .. } => Err(EncodeError::Unsupported("phase-5 m2-003")),
         Mnemonic::Out { .. } => Err(EncodeError::Unsupported("phase-5 m2-003")),
         Mnemonic::Wrmsr => Err(EncodeError::Unsupported("phase-5 m2-004")),
@@ -397,6 +397,78 @@ fn encode_lea(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeErro
 // Helper to emit a REX prefix byte (copied from encode.rs for use in encode_lea).
 fn rex(w: bool, r: bool, x: bool, b: bool) -> u8 {
     0x40 | (u8::from(w) << 3) | (u8::from(r) << 2) | (u8::from(x) << 1) | u8::from(b)
+}
+
+fn encode_cli(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+    if !inst.operands.is_empty() {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::Cli,
+            expected: 0,
+            got: inst.operands.len(),
+        });
+    }
+    encode_zero_operand(buf, 0xFA);
+    Ok(())
+}
+
+fn encode_sti(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+    if !inst.operands.is_empty() {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::Sti,
+            expected: 0,
+            got: inst.operands.len(),
+        });
+    }
+    encode_zero_operand(buf, 0xFB);
+    Ok(())
+}
+
+fn encode_hlt(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+    if !inst.operands.is_empty() {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::Hlt,
+            expected: 0,
+            got: inst.operands.len(),
+        });
+    }
+    encode_zero_operand(buf, 0xF4);
+    Ok(())
+}
+
+fn encode_nop(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+    if !inst.operands.is_empty() {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::Nop,
+            expected: 0,
+            got: inst.operands.len(),
+        });
+    }
+    encode_zero_operand(buf, 0x90);
+    Ok(())
+}
+
+fn encode_swapgs(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+    if !inst.operands.is_empty() {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::Swapgs,
+            expected: 0,
+            got: inst.operands.len(),
+        });
+    }
+    encode_zero_operand(buf, 0x81); // sentinel for SWAPGS
+    Ok(())
+}
+
+fn encode_cpuid(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+    if !inst.operands.is_empty() {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::Cpuid,
+            expected: 0,
+            got: inst.operands.len(),
+        });
+    }
+    encode_zero_operand(buf, 0x82); // sentinel for CPUID
+    Ok(())
 }
 
 #[cfg(test)]
@@ -683,10 +755,12 @@ mod tests {
         assert_eq!(stats.tightened, 1);
     }
 
-    // ── Phase-5 m2-001 privileged ISA stubs ───────────────────────────
+    // ── Phase-5 m2-002: zero-operand control + sync instructions ────────
 
     #[test]
-    fn encode_nop_returns_phase5_m2_002_marker() {
+    fn encode_nop_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
         let mut buf = CodeBuffer::new();
         let inst = Instruction {
             mnemonic: Mnemonic::Nop,
@@ -695,13 +769,117 @@ mod tests {
         };
 
         let mut stats = EncodeStats::new();
-        let result = encode_instruction(&inst, &mut buf, &mut stats);
-        assert!(result.is_err());
-        match result {
-            Err(EncodeError::Unsupported(marker)) => {
-                assert_eq!(marker, "phase-5 m2-002");
-            }
-            _ => panic!("expected Unsupported error with phase-5 m2-002 marker"),
-        }
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0x90]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Nop);
+    }
+
+    #[test]
+    fn encode_hlt_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Hlt,
+            operands: smallvec::smallvec![],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0xF4]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Hlt);
+    }
+
+    #[test]
+    fn encode_cli_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Cli,
+            operands: smallvec::smallvec![],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0xFA]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Cli);
+    }
+
+    #[test]
+    fn encode_sti_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Sti,
+            operands: smallvec::smallvec![],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0xFB]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Sti);
+    }
+
+    #[test]
+    fn encode_swapgs_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Swapgs,
+            operands: smallvec::smallvec![],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0x0F, 0x01, 0xF8]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Swapgs);
+    }
+
+    #[test]
+    fn encode_cpuid_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Cpuid,
+            operands: smallvec::smallvec![],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0x0F, 0xA2]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Cpuid);
     }
 }
