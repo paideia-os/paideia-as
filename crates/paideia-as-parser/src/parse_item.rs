@@ -456,10 +456,18 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         Ok(item)
     }
 
-    /// Parse a top-level let declaration: `let <Ident> <GenericParams>? (: Type)? = Expr`
+    /// Parse a top-level let declaration: `let [mut] <Ident> <GenericParams>? (: Type)? = Expr`
     fn parse_let_decl(&mut self) -> Result<NodeId, ParseError> {
         let let_tok = self.expect(TokenKind::KwLet)?;
         let span_start = let_tok.span;
+
+        // Check for optional `mut` keyword
+        let mutable = if self.at(TokenKind::KwMut) {
+            self.bump();
+            true
+        } else {
+            false
+        };
 
         // Try to parse a pattern first (could be a tuple, struct, enum variant, etc.)
         // If that fails, fall back to parsing a simple identifier.
@@ -539,6 +547,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             NodeKind::Let,
             span,
             ItemData::Let {
+                mutable,
                 name: name_id,
                 generic_params,
                 ty,
@@ -2080,7 +2089,7 @@ mod tests {
 
     #[test]
     fn parse_trait_decl_p0201_malformed() {
-        let (_arena, result, diags) = parse_source_str("trait Eq");
+        let (_arena, _result, diags) = parse_source_str("trait Eq");
         // Parser should emit error for malformed trait (no braces)
         let p0201_diags: Vec<_> = diags.iter().filter(|d| d.code().number() == 201).collect();
         assert!(
@@ -2138,7 +2147,7 @@ mod tests {
 
     #[test]
     fn parse_impl_malformed_no_brace() {
-        let (_arena, result, diags) = parse_source_str("impl Foo");
+        let (_arena, _result, diags) = parse_source_str("impl Foo");
         // Parser should emit error for malformed impl (no braces)
         let p0202_diags: Vec<_> = diags.iter().filter(|d| d.code().number() == 202).collect();
         assert!(
@@ -2238,5 +2247,102 @@ mod tests {
             .filter(|d| d.code().severity() == Severity::Error)
             .collect();
         assert!(errors.is_empty(), "should have no parse errors");
+    }
+
+    #[test]
+    fn parse_let_mut_immutable_binding() {
+        // Test: `let counter : u64 = 0` (immutable binding)
+        // Should parse cleanly without mut keyword
+        let (arena, result, diags) = parse_source_str("let counter : u64 = 0");
+        assert!(result.is_ok(), "should parse immutable let binding");
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "should have no parse errors");
+
+        // Verify the binding is not marked as mutable
+        let root = result.unwrap();
+        if let Some(node) = arena.get(root) {
+            if let paideia_as_ast::NodeKind::Structure = node.kind {
+                if let paideia_as_ast::ItemData::Structure { items, .. } =
+                    arena.item_data(root).unwrap()
+                {
+                    if let Some(&item_id) = items.first() {
+                        if let paideia_as_ast::ItemData::Let { mutable, .. } =
+                            arena.item_data(item_id).unwrap()
+                        {
+                            assert!(!mutable, "immutable let should have mutable=false");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn parse_let_mut_mutable_binding() {
+        // Test: `let mut counter : u64 = 0` (mutable binding)
+        // Should parse cleanly with mut keyword
+        let (arena, result, diags) = parse_source_str("let mut counter : u64 = 0");
+        assert!(result.is_ok(), "should parse mutable let binding");
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "should have no parse errors");
+
+        // Verify the binding is marked as mutable
+        let root = result.unwrap();
+        if let Some(node) = arena.get(root) {
+            if let paideia_as_ast::NodeKind::Structure = node.kind {
+                if let paideia_as_ast::ItemData::Structure { items, .. } =
+                    arena.item_data(root).unwrap()
+                {
+                    if let Some(&item_id) = items.first() {
+                        if let paideia_as_ast::ItemData::Let { mutable, .. } =
+                            arena.item_data(item_id).unwrap()
+                        {
+                            assert!(mutable, "mutable let should have mutable=true");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn parse_let_mut_array_mutable() {
+        // Test: `let mut data : [u8; 256] = 0` (mutable array binding)
+        // Should parse cleanly with mut keyword and array type annotation
+        let (arena, result, diags) = parse_source_str("let mut data : [u8; 256] = 0");
+        assert!(result.is_ok(), "should parse mutable let with array type");
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "should have no parse errors");
+
+        // Verify the binding is marked as mutable
+        let root = result.unwrap();
+        if let Some(node) = arena.get(root) {
+            if let paideia_as_ast::NodeKind::Structure = node.kind {
+                if let paideia_as_ast::ItemData::Structure { items, .. } =
+                    arena.item_data(root).unwrap()
+                {
+                    if let Some(&item_id) = items.first() {
+                        if let paideia_as_ast::ItemData::Let { mutable, ty, .. } =
+                            arena.item_data(item_id).unwrap()
+                        {
+                            assert!(mutable, "mutable let should have mutable=true");
+                            assert!(
+                                ty.is_some(),
+                                "let with type annotation should have ty=Some(...)"
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 }

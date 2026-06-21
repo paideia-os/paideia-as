@@ -86,6 +86,7 @@ fn stub_parse(file: FileId, tokens: &[paideia_as_lexer::Token]) -> AstArena {
                 NodeKind::Let,
                 tok.span,
                 ItemData::Let {
+                    mutable: false,
                     name,
                     generic_params: vec![],
                     ty: None,

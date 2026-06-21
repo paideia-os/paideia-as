@@ -111,6 +111,7 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
             )
         }
         ItemData::Let {
+            mutable,
             name,
             generic_params,
             ty,
@@ -118,7 +119,8 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
             doc,
         } => {
             format!(
-                "Let {{ name: {}, generic_params: [{}], ty: {:?}, value: {}, doc: {:?} }}",
+                "Let {{ mutable: {}, name: {}, generic_params: [{}], ty: {:?}, value: {}, doc: {:?} }}",
+                mutable,
                 name,
                 generic_params
                     .iter()
@@ -916,6 +918,7 @@ mod tests {
             NodeKind::Let,
             span(),
             ItemData::Let {
+                mutable: false,
                 name: let_name,
                 generic_params: vec![],
                 ty: None,
