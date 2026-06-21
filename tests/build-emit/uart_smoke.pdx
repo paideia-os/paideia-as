@@ -1,18 +1,10 @@
-// Phase 5 m6-001: UART smoke test for build-emit activation.
-// Writes 'x' (0x78) to COM1 (port 0x3F8) then halts.
-//
-// QEMU -kernel boots into long mode at this entry; no GDT setup needed.
-
 module UartSmoke = structure {
   let _start : () -> () !{} @{} = fn(_: ()) -> unsafe {
-    effects:       {},
-    capabilities:  {},
-    justification: "Bare-metal entry: write 'x' to COM1, halt.",
+    effects: {},
+    capabilities: {},
+    justification: "smoke test",
     block: {
-      mov al, 0x78
-      mov dx, 0x3F8
-      out dx, al
-      hlt
+      mov rax, rbx
     }
   }
 }

@@ -770,35 +770,23 @@ impl UnsafeWalker {
         }
 
         // Create the Instruction and insert it into the arena.
-        // We need to find or create an IrNodeId for this statement.
-        // For now, we'll use a heuristic: scan the arena for a node with matching span.
-        // Production code would use an AST-to-IR mapping table.
+        // Phase-5-m3-004: Allocate a fresh IrNodeId for this instruction statement.
+        // Each unsafe block instruction gets its own IR node in the instruction side-table,
+        // enabling correct byte-level emission via emit_text_from_instructions.
         let stmt_span = ast.get(stmt_id).map(|n| n.span).unwrap_or_else(|| {
             paideia_as_diagnostics::Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 0, 1)
         });
 
-        // Find an IrNodeId with matching span (this is a placeholder).
-        // A production implementation would consult an AST-to-IR map.
-        let mut found_ir_id = None;
-        for ir_idx in 1..=arena.len() as u32 {
-            if let Some(ir_node_id) = IrNodeId::new(ir_idx) {
-                if let Some(ir_node) = arena.get(ir_node_id) {
-                    if ir_node.span == stmt_span {
-                        found_ir_id = Some(ir_node_id);
-                        break;
-                    }
-                }
-            }
-        }
+        // Allocate a fresh IrNodeId for this instruction.
+        // Use IrKind::Placeholder as a generic container for the instruction side-table entry.
+        let ir_node_id = arena.alloc(paideia_as_ir::IrKind::Placeholder, stmt_span);
 
-        if let Some(ir_node_id) = found_ir_id {
-            let inst = Instruction {
-                mnemonic,
-                operands: parsed_operands,
-                encoding_hint: None,
-            };
-            arena.instructions_mut().insert(ir_node_id, inst);
-        }
+        let inst = Instruction {
+            mnemonic,
+            operands: parsed_operands,
+            encoding_hint: None,
+        };
+        arena.instructions_mut().insert(ir_node_id, inst);
     }
 }
 
