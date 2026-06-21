@@ -4,7 +4,7 @@ module UnsafeBlocks = structure {
     capabilities: {},
     justification: "test block 1",
     block: {
-      sfence
+      cli
     }
   }
   let block2 = unsafe {
@@ -12,7 +12,7 @@ module UnsafeBlocks = structure {
     capabilities: {},
     justification: "test block 2",
     block: {
-      sfence
+      cli
     }
   }
   let block3 = unsafe {
@@ -20,7 +20,7 @@ module UnsafeBlocks = structure {
     capabilities: {},
     justification: "test block 3",
     block: {
-      sfence
+      cli
     }
   }
 }
