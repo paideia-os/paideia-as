@@ -11,13 +11,14 @@
 //! Phase 6 m3-001 adds `FinalisedLayoutTable` for C-ABI natural-alignment
 //! record layout computation during emission.
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::node::IrNodeId;
 
 /// A stable type identifier for records (would come from the type system in later phases).
 /// For now, this is a simple wrapper around a u32.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct RecordTypeId(pub u32);
 
 /// Layout information for a single field within a record.
@@ -25,7 +26,7 @@ pub struct RecordTypeId(pub u32);
 /// Phase 6 m3-001: Records the byte offset and size of a field.
 /// `offset` is the byte offset from the start of the record (aligned per field type).
 /// `size` is the field size in bytes: 1 (u8), 4 (u32), 8 (u64/*T).
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct FieldLayout {
     /// Byte offset within the record (aligned per field's natural alignment).
     pub offset: u64,
@@ -37,7 +38,7 @@ pub struct FieldLayout {
 ///
 /// Phase 6 m3-001: Captures the computed structure size, alignment, and per-field
 /// layout information using C ABI natural-alignment rules.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RecordLayout {
     /// Total size of the record in bytes (rounded up to struct alignment).
     pub size: u64,
@@ -63,7 +64,7 @@ impl RecordLayout {
 ///
 /// Phase 6 m3-001: Populated during emission to provide record layout metadata
 /// for downstream passes (e.g., code generation, debug info).
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct FinalisedLayoutTable {
     /// Sparse mapping: RecordTypeId -> RecordLayout.
     entries: HashMap<RecordTypeId, RecordLayout>,

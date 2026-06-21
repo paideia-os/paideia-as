@@ -37,4 +37,5 @@ paideia-fmt = { path = "../paideia-fmt" }
 
 [dev-dependencies]
 object = { workspace = true }
+serde_json = { workspace = true }
 tempfile = { workspace = true }

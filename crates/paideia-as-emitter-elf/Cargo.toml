@@ -15,6 +15,7 @@ object = { workspace = true }
 paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
 paideia-as-encoder = { path = "../paideia-as-encoder" }
 paideia-as-ir = { path = "../paideia-as-ir" }
+serde_json = { workspace = true }
 static_assertions = { workspace = true }
 
 [dev-dependencies]

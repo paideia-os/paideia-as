@@ -9,6 +9,7 @@
 pub mod encode;
 pub mod handler;
 pub mod lower;
+pub mod notes;
 pub mod opt;
 pub mod prologue;
 pub mod relocs;

@@ -276,6 +276,41 @@ impl ElfWriter {
         Ok(())
     }
 
+    /// Add a `.note.paideia` section containing JSON-serialised record layouts.
+    ///
+    /// Per ELF specification and Phase 6 m3-006, the note section contains:
+    /// - `n_namesz = 8` (b"paideia\0")
+    /// - `n_type = 0x50441600` (PDX_LAYOUTS)
+    /// - descriptor bytes = `serde_json::to_vec(&record_layouts)`
+    ///
+    /// The section is marked as SHT_NOTE and SHF_ALLOC=0 (not loaded into memory).
+    ///
+    /// # Arguments
+    ///
+    /// * `note_bytes` - Pre-encoded note bytes (typically from `notes::encode_paideia_note`)
+    ///
+    /// # Notes
+    ///
+    /// This method should only be called if the record layouts are non-empty.
+    /// The `object` crate will handle section alignment and ELF formatting.
+    pub fn add_note_section(
+        &mut self,
+        note_bytes: &[u8],
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Create a `.note.paideia` section with SectionKind::Note.
+        // The `object` crate automatically marks it as SHT_NOTE.
+        let note_section = self.obj.add_section(
+            vec![], // Empty segment name (notes are typically in their own segment)
+            b".note.paideia".to_vec(),
+            object::SectionKind::Note,
+        );
+
+        // Append the encoded note data to the section.
+        self.obj.append_section_data(note_section, note_bytes, 4);
+
+        Ok(())
+    }
+
     /// Finalize and write the ELF object to bytes.
     ///
     /// Returns a vector of bytes representing a valid, parseable ELF64 object file.

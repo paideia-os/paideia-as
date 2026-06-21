@@ -64,7 +64,14 @@ fn test_lgdt_memory_operand() {
     // Run UnsafeWalker
     let mut sink = VecSink::new();
     let record_layouts = HashMap::new();
-    let _diags = UnsafeWalker::run(&mut ir, &ast, vec![ir_unsafe.get()], &source_map, &mut sink, &record_layouts);
+    let _diags = UnsafeWalker::run(
+        &mut ir,
+        &ast,
+        vec![ir_unsafe.get()],
+        &source_map,
+        &mut sink,
+        &record_layouts,
+    );
 
     // Check that no errors were emitted (in a real test with proper AST nodes, this would work)
     // For now, this test verifies the basic structure compiles.
@@ -115,7 +122,14 @@ fn test_unknown_mnemonic_foozle() {
     // Run UnsafeWalker
     let mut sink = VecSink::new();
     let record_layouts = HashMap::new();
-    let _diags = UnsafeWalker::run(&mut ir, &ast, vec![ir_unsafe.get()], &source_map, &mut sink, &record_layouts);
+    let _diags = UnsafeWalker::run(
+        &mut ir,
+        &ast,
+        vec![ir_unsafe.get()],
+        &source_map,
+        &mut sink,
+        &record_layouts,
+    );
 
     // Check that a U1605 diagnostic was emitted
     let sink_diags = sink.into_diagnostics();
@@ -185,7 +199,14 @@ fn test_malformed_operand_incomplete_memory() {
     // Run UnsafeWalker
     let mut sink = VecSink::new();
     let record_layouts = HashMap::new();
-    let _diags = UnsafeWalker::run(&mut ir, &ast, vec![ir_unsafe.get()], &source_map, &mut sink, &record_layouts);
+    let _diags = UnsafeWalker::run(
+        &mut ir,
+        &ast,
+        vec![ir_unsafe.get()],
+        &source_map,
+        &mut sink,
+        &record_layouts,
+    );
 
     // Check that a U1606 diagnostic was emitted
     let sink_diags = sink.into_diagnostics();
