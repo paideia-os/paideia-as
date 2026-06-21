@@ -249,6 +249,10 @@ impl EmitWalker {
                             // We do not inspect block contents here.
                             self.state.pending_unsafe_blocks.push(node_id.get());
                         }
+                        IrKind::FieldAccess => {
+                            // Phase 6 m3-002: emit field access lowering for (*p).field shape.
+                            self.visit_field_access(node_id, arena);
+                        }
                         _ => {}
                     }
                 }
@@ -633,6 +637,219 @@ impl EmitWalker {
         };
         self.state.instructions.insert(ret_id, ret_inst);
         self.state.current_offset += 1;
+    }
+
+    /// Phase 6 m3-002: Emit field access lowering for (*p).field shape.
+    ///
+    /// Handles pattern: FieldAccess(Deref(Var(p))) where p is the function's first argument.
+    /// Determines field offset and size from the record layout, then emits:
+    /// - mov rax, [rdi + offset] for u64/*T fields (3 bytes: 48 8b 47 NN or 48 8b 87 NNNNNNNN)
+    /// - mov eax, [rdi + offset] for u32 fields (3-6 bytes)
+    /// - movzx rax, byte [rdi + offset] for u8 fields (4-7 bytes)
+    ///
+    /// If the pattern is not Deref(Var(arg0)), emits T0516 diagnostic and skips emission.
+    fn visit_field_access(&mut self, field_access_id: IrNodeId, arena: &IrArena) {
+        // Get the field access info from the side-table.
+        let field_info = match arena.field_access_info().get(field_access_id) {
+            Some(info) => info,
+            None => {
+                // No field access info registered; skip (may happen before elaboration).
+                return;
+            }
+        };
+
+        // Get the FieldAccess node's single child (the record value).
+        let children = arena.children(field_access_id);
+        let record_value_id = match children.first() {
+            Some(&id) => id,
+            None => {
+                // No child; malformed FieldAccess node.
+                self.diagnostics.push(format!(
+                    "FieldAccess node {} has no child",
+                    field_access_id.get()
+                ));
+                return;
+            }
+        };
+
+        // Check that the record value is a Deref.
+        let record_value_node = match arena.get(record_value_id) {
+            Some(node) => node,
+            None => return,
+        };
+
+        if record_value_node.kind != IrKind::Deref {
+            // Not a dereference; pattern not supported yet.
+            self.diagnostics.push(format!(
+                "T0516: field access on non-Deref shape (kind={:?})",
+                record_value_node.kind
+            ));
+            return;
+        }
+
+        // Get the child of Deref (the pointer being dereferenced).
+        let deref_children = arena.children(record_value_id);
+        let ptr_id = match deref_children.first() {
+            Some(&id) => id,
+            None => {
+                self.diagnostics
+                    .push(format!("Deref node {} has no child", record_value_id.get()));
+                return;
+            }
+        };
+
+        // Check that the pointer is a Var.
+        let ptr_node = match arena.get(ptr_id) {
+            Some(node) => node,
+            None => return,
+        };
+
+        if ptr_node.kind != IrKind::Var {
+            // Not a variable; pattern not supported yet.
+            self.diagnostics.push(format!(
+                "T0516: field access on non-Var shape (kind={:?})",
+                ptr_node.kind
+            ));
+            return;
+        }
+
+        // For now, we only support first argument (rdi).
+        // Ideally, we'd track which argument this Var refers to, but we don't have that info yet.
+        // As a simplification for this phase, we assume all Vars are the first argument.
+
+        // Look up the record layout to get field offset and size.
+        let record_layout = match self.state.record_layouts.get(&field_info.type_id) {
+            Some(layout) => layout,
+            None => {
+                self.diagnostics.push(format!(
+                    "No record layout found for type {}",
+                    field_info.type_id.0
+                ));
+                return;
+            }
+        };
+
+        // Get the field layout.
+        let field_index = field_info.field_index as usize;
+        let field_layout = match record_layout.fields.get(field_index) {
+            Some(layout) => layout,
+            None => {
+                self.diagnostics.push(format!(
+                    "Field index {} out of bounds for record type {}",
+                    field_index, field_info.type_id.0
+                ));
+                return;
+            }
+        };
+
+        // Emit the appropriate instruction based on field size.
+        match field_layout.size {
+            8 => {
+                // u64 or *T: mov rax, [rdi + offset]
+                self.emit_field_access_u64(field_access_id, field_layout.offset as i32);
+            }
+            4 => {
+                // u32: mov eax, [rdi + offset]
+                self.emit_field_access_u32(field_access_id, field_layout.offset as i32);
+            }
+            1 => {
+                // u8: movzx rax, byte [rdi + offset]
+                self.emit_field_access_u8(field_access_id, field_layout.offset as i32);
+            }
+            _ => {
+                self.diagnostics.push(format!(
+                    "Unsupported field size {} for field access",
+                    field_layout.size
+                ));
+            }
+        }
+    }
+
+    /// Emit u64 field access: mov rax, [rdi + offset] (3 bytes: 48 8b 47 NN or 48 8b 87 NNNNNNNN).
+    fn emit_field_access_u64(&mut self, field_access_id: IrNodeId, offset: i32) {
+        // mov rax, [rdi + offset]
+        let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        operands.push(Operand::Reg(RegId(0))); // rax (destination)
+        operands.push(Operand::MemSib {
+            base: RegId(7), // rdi (first argument)
+            index: None,
+            scale: paideia_as_ir::instruction::Scale::X1,
+            disp: offset,
+        });
+
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands,
+            encoding_hint: None,
+        };
+
+        self.state.instructions.insert(field_access_id, inst);
+
+        // Estimate size: disp8 → 3 bytes, disp32 → 7 bytes.
+        let size = if offset >= -128 && offset <= 127 {
+            3
+        } else {
+            7
+        };
+        self.state.current_offset += size;
+    }
+
+    /// Emit u32 field access: mov eax, [rdi + offset] (3-6 bytes).
+    fn emit_field_access_u32(&mut self, field_access_id: IrNodeId, offset: i32) {
+        // mov eax, [rdi + offset]
+        let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        operands.push(Operand::Reg(RegId(0))); // eax (32-bit destination)
+        operands.push(Operand::MemSib {
+            base: RegId(7), // rdi
+            index: None,
+            scale: paideia_as_ir::instruction::Scale::X1,
+            disp: offset,
+        });
+
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands,
+            encoding_hint: None,
+        };
+
+        self.state.instructions.insert(field_access_id, inst);
+
+        // Estimate size: no REX prefix for 32-bit → disp8 → 3 bytes, disp32 → 6 bytes.
+        let size = if offset >= -128 && offset <= 127 {
+            3
+        } else {
+            6
+        };
+        self.state.current_offset += size;
+    }
+
+    /// Emit u8 field access: movzx rax, byte [rdi + offset] (4-7 bytes).
+    fn emit_field_access_u8(&mut self, field_access_id: IrNodeId, offset: i32) {
+        // movzx rax, byte [rdi + offset]
+        let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        operands.push(Operand::Reg(RegId(0))); // rax (destination, zero-extended)
+        operands.push(Operand::MemSib {
+            base: RegId(7), // rdi
+            index: None,
+            scale: paideia_as_ir::instruction::Scale::X1,
+            disp: offset,
+        });
+
+        let inst = Instruction {
+            mnemonic: Mnemonic::Movzx,
+            operands,
+            encoding_hint: None,
+        };
+
+        self.state.instructions.insert(field_access_id, inst);
+
+        // Estimate size: movzx has 2-byte opcode → disp8 → 4 bytes, disp32 → 7 bytes.
+        let size = if offset >= -128 && offset <= 127 {
+            4
+        } else {
+            7
+        };
+        self.state.current_offset += size;
     }
 }
 
@@ -1236,5 +1453,256 @@ mod tests {
         assert_eq!(layout.fields.len(), 1);
         assert_eq!(layout.fields[0].offset, 0);
         assert_eq!(layout.fields[0].size, 8);
+    }
+
+    #[test]
+    fn field_access_u64_emits_mov_rax_rdi_offset() {
+        // Phase 6 m3-002: field access for u64 field should emit mov rax, [rdi + offset].
+        use paideia_as_ir::record_layout::{FieldAccessInfo, FieldLayout};
+
+        let mut arena = IrArena::new();
+        let mut walker = EmitWalker::new();
+
+        // Build IR: Deref(Var), FieldAccess wrapping it.
+        let span_ref = span();
+        let var_id = arena.alloc(IrKind::Var, span_ref); // First arg reference
+        let deref_id = arena.alloc_with_children(IrKind::Deref, span_ref, [var_id]);
+        let field_access_id = arena.alloc_with_children(IrKind::FieldAccess, span_ref, [deref_id]);
+
+        // Register field access info: type_id=500, field_index=0 (u64 at offset 0).
+        let field_type_id = RecordTypeId(500);
+        let field_info = FieldAccessInfo {
+            type_id: field_type_id,
+            field_index: 0,
+        };
+        arena
+            .field_access_info_mut()
+            .insert(field_access_id, field_info);
+
+        // Register record layout: u64 field at offset 0, size 8.
+        let layout = RecordLayout::new(8, 8, vec![FieldLayout { offset: 0, size: 8 }]);
+        walker
+            .state_mut()
+            .record_layouts
+            .insert(field_type_id, layout);
+
+        // Emit field access.
+        walker.visit_field_access(field_access_id, &arena);
+
+        // Verify instruction was emitted.
+        assert!(walker.state().instructions.get(field_access_id).is_some());
+        let inst = walker
+            .state()
+            .instructions
+            .get(field_access_id)
+            .expect("instruction should exist");
+
+        assert_eq!(inst.mnemonic, Mnemonic::Mov);
+        assert_eq!(inst.operands.len(), 2);
+        // First operand: rax (RegId(0))
+        assert!(matches!(inst.operands[0], Operand::Reg(RegId(0))));
+        // Second operand: [rdi + 0] (MemSib with base=rdi, disp=0)
+        assert!(matches!(
+            inst.operands[1],
+            Operand::MemSib {
+                base: RegId(7),
+                index: None,
+                disp: 0,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn field_access_u32_emits_mov_eax_rdi_offset() {
+        // Phase 6 m3-002: field access for u32 field should emit mov eax, [rdi + offset].
+        use paideia_as_ir::record_layout::{FieldAccessInfo, FieldLayout};
+
+        let mut arena = IrArena::new();
+        let mut walker = EmitWalker::new();
+
+        let span_ref = span();
+        let var_id = arena.alloc(IrKind::Var, span_ref);
+        let deref_id = arena.alloc_with_children(IrKind::Deref, span_ref, [var_id]);
+        let field_access_id = arena.alloc_with_children(IrKind::FieldAccess, span_ref, [deref_id]);
+
+        // Field info: type_id=501, field_index=1 (u32 at offset 8).
+        let field_type_id = RecordTypeId(501);
+        let field_info = FieldAccessInfo {
+            type_id: field_type_id,
+            field_index: 1,
+        };
+        arena
+            .field_access_info_mut()
+            .insert(field_access_id, field_info);
+
+        // Record layout: u64 at offset 0 (size 8), u32 at offset 8 (size 4).
+        let layout = RecordLayout::new(
+            16,
+            8,
+            vec![
+                FieldLayout { offset: 0, size: 8 },
+                FieldLayout { offset: 8, size: 4 },
+            ],
+        );
+        walker
+            .state_mut()
+            .record_layouts
+            .insert(field_type_id, layout);
+
+        walker.visit_field_access(field_access_id, &arena);
+
+        assert!(walker.state().instructions.get(field_access_id).is_some());
+        let inst = walker
+            .state()
+            .instructions
+            .get(field_access_id)
+            .expect("instruction should exist");
+
+        assert_eq!(inst.mnemonic, Mnemonic::Mov);
+        // Second operand: [rdi + 8]
+        assert!(matches!(
+            inst.operands[1],
+            Operand::MemSib {
+                base: RegId(7),
+                index: None,
+                disp: 8,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn field_access_u8_emits_movzx_rax_rdi_offset() {
+        // Phase 6 m3-002: field access for u8 field should emit movzx rax, byte [rdi + offset].
+        use paideia_as_ir::record_layout::{FieldAccessInfo, FieldLayout};
+
+        let mut arena = IrArena::new();
+        let mut walker = EmitWalker::new();
+
+        let span_ref = span();
+        let var_id = arena.alloc(IrKind::Var, span_ref);
+        let deref_id = arena.alloc_with_children(IrKind::Deref, span_ref, [var_id]);
+        let field_access_id = arena.alloc_with_children(IrKind::FieldAccess, span_ref, [deref_id]);
+
+        // Field info: type_id=502, field_index=2 (u8 at offset 12).
+        let field_type_id = RecordTypeId(502);
+        let field_info = FieldAccessInfo {
+            type_id: field_type_id,
+            field_index: 2,
+        };
+        arena
+            .field_access_info_mut()
+            .insert(field_access_id, field_info);
+
+        // Record layout: u64 (0), u32 (8), u8 (12).
+        let layout = RecordLayout::new(
+            16,
+            8,
+            vec![
+                FieldLayout { offset: 0, size: 8 },
+                FieldLayout { offset: 8, size: 4 },
+                FieldLayout {
+                    offset: 12,
+                    size: 1,
+                },
+            ],
+        );
+        walker
+            .state_mut()
+            .record_layouts
+            .insert(field_type_id, layout);
+
+        walker.visit_field_access(field_access_id, &arena);
+
+        assert!(walker.state().instructions.get(field_access_id).is_some());
+        let inst = walker
+            .state()
+            .instructions
+            .get(field_access_id)
+            .expect("instruction should exist");
+
+        assert_eq!(inst.mnemonic, Mnemonic::Movzx);
+        // First operand: rax
+        assert!(matches!(inst.operands[0], Operand::Reg(RegId(0))));
+        // Second operand: [rdi + 12]
+        assert!(matches!(
+            inst.operands[1],
+            Operand::MemSib {
+                base: RegId(7),
+                index: None,
+                disp: 12,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn field_access_pointer_field_emits_mov_rax_rdi_offset() {
+        // Phase 6 m3-002: field access for *T field should emit mov rax, [rdi + offset].
+        use paideia_as_ir::record_layout::{FieldAccessInfo, FieldLayout};
+
+        let mut arena = IrArena::new();
+        let mut walker = EmitWalker::new();
+
+        let span_ref = span();
+        let var_id = arena.alloc(IrKind::Var, span_ref);
+        let deref_id = arena.alloc_with_children(IrKind::Deref, span_ref, [var_id]);
+        let field_access_id = arena.alloc_with_children(IrKind::FieldAccess, span_ref, [deref_id]);
+
+        // Field info: type_id=503, field_index=3 (*u8 at offset 16, size 8).
+        let field_type_id = RecordTypeId(503);
+        let field_info = FieldAccessInfo {
+            type_id: field_type_id,
+            field_index: 3,
+        };
+        arena
+            .field_access_info_mut()
+            .insert(field_access_id, field_info);
+
+        // Record layout: u64 (0), u32 (8), u8 (12), *T (16).
+        let layout = RecordLayout::new(
+            24,
+            8,
+            vec![
+                FieldLayout { offset: 0, size: 8 },
+                FieldLayout { offset: 8, size: 4 },
+                FieldLayout {
+                    offset: 12,
+                    size: 1,
+                },
+                FieldLayout {
+                    offset: 16,
+                    size: 8,
+                },
+            ],
+        );
+        walker
+            .state_mut()
+            .record_layouts
+            .insert(field_type_id, layout);
+
+        walker.visit_field_access(field_access_id, &arena);
+
+        assert!(walker.state().instructions.get(field_access_id).is_some());
+        let inst = walker
+            .state()
+            .instructions
+            .get(field_access_id)
+            .expect("instruction should exist");
+
+        assert_eq!(inst.mnemonic, Mnemonic::Mov);
+        // First operand: rax
+        assert!(matches!(inst.operands[0], Operand::Reg(RegId(0))));
+        // Second operand: [rdi + 16]
+        assert!(matches!(
+            inst.operands[1],
+            Operand::MemSib {
+                base: RegId(7),
+                index: None,
+                disp: 16,
+                ..
+            }
+        ));
     }
 }

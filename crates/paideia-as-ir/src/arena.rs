@@ -13,6 +13,7 @@ use crate::instruction::InstructionSideTable;
 use crate::literal_value::LiteralValueTable;
 use crate::loop_meta::LoopMetaTable;
 use crate::node::{IrKind, IrNodeData, IrNodeId};
+use crate::record_layout::FieldAccessSideTable;
 use crate::symbol::SymbolTable;
 
 /// Slab-allocated IR storage for one source file.
@@ -42,6 +43,9 @@ pub struct IrArena {
     binding_name_table: BindingNameTable,
     /// Side-table: top-level binding symbol table.
     symbol_table: SymbolTable,
+    /// Side-table: field access metadata indexed by FieldAccess node ID.
+    /// Phase 6 m3-002: populated by elaborator, consumed by EmitWalker.
+    field_access_table: FieldAccessSideTable,
 }
 
 impl IrArena {
@@ -64,6 +68,7 @@ impl IrArena {
             data_table: DataSideTable::new(),
             binding_name_table: BindingNameTable::new(),
             symbol_table: SymbolTable::new(),
+            field_access_table: FieldAccessSideTable::new(),
         }
     }
 
@@ -221,6 +226,18 @@ impl IrArena {
     /// Borrow the symbol table (mutable).
     pub fn symbols_mut(&mut self) -> &mut SymbolTable {
         &mut self.symbol_table
+    }
+
+    /// Borrow the field access table (read-only).
+    /// Phase 6 m3-002: provides access to FieldAccessInfo for FieldAccess nodes.
+    #[must_use]
+    pub fn field_access_info(&self) -> &FieldAccessSideTable {
+        &self.field_access_table
+    }
+
+    /// Borrow the field access table (mutable).
+    pub fn field_access_info_mut(&mut self) -> &mut FieldAccessSideTable {
+        &mut self.field_access_table
     }
 }
 

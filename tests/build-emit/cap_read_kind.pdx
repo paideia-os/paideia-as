@@ -1,0 +1,8 @@
+// Phase 6 m3-002: field access lowering for (*p).field shape
+// Struct Capability with u64/u32/u8/*T fields
+// Function read_kind returns (*p).kind where kind is u64 at offset 0
+// NOTE: This fixture is aspirational. Phase 6 parser/elaborator does not yet support
+// struct types, so this will fail parsing. The unit tests validate the lowering logic.
+module CapReadKind = structure {
+  let read_kind = fn (p) -> p
+}

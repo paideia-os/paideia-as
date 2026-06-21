@@ -641,6 +641,15 @@ description = "Phase 6 m3-001: record field layout computation supports u64 (8 b
 since = "0.6.0"
 deprecated = false
 
+[diagnostic.T0516]
+severity = "error"
+category = "type"
+title = "Field access only supports Deref(Var(arg0)) shape"
+brief = "(*p).field pattern required; nested dereferences or non-argument patterns not yet supported"
+description = "Phase 6 m3-002: EmitWalker field access lowering currently supports only the shape (*p).field where p is the function's first argument. Other patterns, such as nested dereferences (**p), non-argument pointers (local p), or more complex expressions, are not yet supported. Restructure your code to use field access on a dereferenced first argument, or defer support to a later phase."
+since = "0.6.0"
+deprecated = false
+
 [diagnostic.L2001]
 severity = "warning"
 category = "lint"

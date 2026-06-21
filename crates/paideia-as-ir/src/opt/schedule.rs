@@ -54,7 +54,7 @@ impl InstructionClass {
 /// Phase-5-m2-001 extension: 20 privileged + system-ISA variants.
 fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
     match mnemonic {
-        Mnemonic::Mov => InstructionClass::AluReg,
+        Mnemonic::Mov | Mnemonic::Movzx => InstructionClass::AluReg,
         Mnemonic::Lea => InstructionClass::AluReg,
         Mnemonic::Add | Mnemonic::Sub | Mnemonic::Cmp => InstructionClass::AluReg,
         Mnemonic::Jcc(_) | Mnemonic::Jmp | Mnemonic::Call | Mnemonic::Ret => {

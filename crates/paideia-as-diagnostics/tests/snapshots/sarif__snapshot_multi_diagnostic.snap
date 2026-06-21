@@ -1,5 +1,6 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
+assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -768,6 +769,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "Unsupported record field type in Phase 6 layout computation",
               "shortDescription": {
                 "text": "field type is not in {u64, u32, u8, *T} supported by Phase-6 layout finaliser"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase 6 m3-002: EmitWalker field access lowering currently supports only the shape (*p).field where p is the function's first argument. Other patterns, such as nested dereferences (**p), non-argument pointers (local p), or more complex expressions, are not yet supported. Restructure your code to use field access on a dereferenced first argument, or defer support to a later phase."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0516",
+              "id": "T0516",
+              "name": "Field access only supports Deref(Var(arg0)) shape",
+              "shortDescription": {
+                "text": "(*p).field pattern required; nested dereferences or non-argument patterns not yet supported"
               }
             },
             {

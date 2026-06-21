@@ -206,6 +206,7 @@ pub fn encode_instruction(
         Mnemonic::Sysret => encode_sysret_inst(inst, buf),
         Mnemonic::RepStosq => encode_rep_stosq_inst(inst, buf),
         Mnemonic::FarJmp => encode_far_jmp_inst(inst, buf),
+        Mnemonic::Movzx => encode_movzx(inst, buf),
     }
 }
 
@@ -2612,4 +2613,96 @@ mod tests {
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
         assert_eq!(buf.as_slice(), &[0x0F, 0x21, 0xC0]);
     }
+}
+
+/// Phase 6 m3-002: Encode MOVZX (move with zero-extend) instruction.
+///
+/// MOVZX r64, r/m8/r/m16/r/m32 — zero-extends smaller operand to 64-bit.
+/// For now, we only support movzx rax, byte [rdi+offset] pattern used in field access.
+///
+/// Opcode: 0F B6 for r/m8 → r64, 0F B7 for r/m16 → r64, etc.
+/// This is a placeholder implementation; full support deferred to future phase.
+fn encode_movzx(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    // Phase 6 m3-002: Placeholder MOVZX encoder.
+    // For field access lowering, we expect: movzx rax, byte [rdi + offset]
+    // Operands: [0] = rax (Reg), [1] = [rdi + offset] (MemSib)
+    //
+    // Opcode: 0F B6 /r (MOVZX r64, r/m8)
+    // REX.W prefix: 48
+    // ModR/M: calculate based on addressing mode
+    //
+    // For the common case: 48 0F B6 47 NN (movzx rax, byte [rdi + disp8])
+
+    if inst.operands.len() != 2 {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::Movzx,
+            expected: 2,
+            got: inst.operands.len(),
+        });
+    }
+
+    // Extract destination (should be rax).
+    let dest_reg = match &inst.operands[0] {
+        Operand::Reg(reg) => *reg,
+        _ => {
+            return Err(EncodeError::OperandShape {
+                mnemonic: Mnemonic::Movzx,
+            });
+        }
+    };
+
+    if dest_reg.0 != 0 {
+        // For now, only support rax as destination.
+        return Err(EncodeError::Unsupported(
+            "MOVZX: only rax destination supported in phase 6",
+        ));
+    }
+
+    // Extract source (should be [rdi + offset]).
+    let (base_reg, disp) = match &inst.operands[1] {
+        Operand::MemSib {
+            base, index, disp, ..
+        } => {
+            if index.is_some() {
+                return Err(EncodeError::Unsupported(
+                    "MOVZX: indexed addressing not supported",
+                ));
+            }
+            (*base, *disp)
+        }
+        _ => {
+            return Err(EncodeError::OperandShape {
+                mnemonic: Mnemonic::Movzx,
+            });
+        }
+    };
+
+    if base_reg.0 != 7 {
+        // For now, only support rdi as base.
+        return Err(EncodeError::Unsupported(
+            "MOVZX: only rdi base register supported in phase 6",
+        ));
+    }
+
+    // Emit: 48 0F B6 47 NN (movzx rax, byte [rdi + disp8])
+    // or:   48 0F B6 87 NNNNNNNN (movzx rax, byte [rdi + disp32])
+
+    buf.bytes.push(0x48); // REX.W (64-bit)
+    buf.bytes.push(0x0F); // Two-byte opcode
+    buf.bytes.push(0xB6); // MOVZX r64, r/m8
+
+    // ModR/M: mod=01 (disp8) or mod=10 (disp32), reg=000 (rax), r/m=111 (rdi)
+    if disp >= -128 && disp <= 127 {
+        // disp8 mode: mod=01
+        buf.bytes.push(0x47); // mod=01, reg=000, r/m=111
+        buf.bytes.push(disp as u8);
+    } else {
+        // disp32 mode: mod=10
+        buf.bytes.push(0x87); // mod=10, reg=000, r/m=111
+        buf.bytes.push((disp & 0xFF) as u8);
+        buf.bytes.push(((disp >> 8) & 0xFF) as u8);
+        buf.bytes.push(((disp >> 16) & 0xFF) as u8);
+        buf.bytes.push(((disp >> 24) & 0xFF) as u8);
+    }
+    Ok(EncodeOutput::new())
 }

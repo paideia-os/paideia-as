@@ -89,6 +89,9 @@ pub enum Mnemonic {
     RepStosq,
     /// Far jump (intersegment).
     FarJmp,
+    /// Move with zero-extend: zero-extend smaller operand to larger width.
+    /// Phase 6 m3-002: used for u8 field access; emits movzx rax, byte [rdi + offset].
+    Movzx,
 }
 
 /// Condition code for Jcc instructions.
@@ -252,7 +255,12 @@ impl Mnemonic {
             | Mnemonic::FarJmp => 1,
 
             // Two-operand instructions
-            Mnemonic::Mov | Mnemonic::Add | Mnemonic::Sub | Mnemonic::Cmp | Mnemonic::Lea => 2,
+            Mnemonic::Mov
+            | Mnemonic::Add
+            | Mnemonic::Sub
+            | Mnemonic::Cmp
+            | Mnemonic::Lea
+            | Mnemonic::Movzx => 2,
         }
     }
 }
