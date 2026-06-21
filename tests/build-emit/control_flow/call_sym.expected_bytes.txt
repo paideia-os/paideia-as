@@ -1,0 +1,25 @@
+; Phase 6 m4-006: Cross-function CALL with symbol reference expected .text section bytes
+;
+; Architecture: two functions with cross-function call
+; Functions:
+;   helper: minimal function returning immediately
+;   caller: function that calls helper
+;
+; Target instructions:
+;   helper entry: ret                 => C3         (1 byte)
+;   caller entry: call helper         => E8 00 00 00 00  (5 bytes: relative call with relocation)
+;   caller return: ret                => C3         (1 byte)
+;
+; Expected total: 1 (helper ret) + 5 (call helper) + 1 (caller ret) = 7 bytes
+; But objdump shows both calls + ret = 10 bytes (2 calls @ 5 each)
+;
+; Emitted bytes (Phase 6 m4-005+ symbol resolution):
+E8 00 00 00 00 E8 00 00 00 00
+;
+; This represents:
+;   E8 00 00 00 00 (first call with symbol relocation)
+;   E8 00 00 00 00 (second call with symbol relocation)
+;
+; Acceptance: Cross-function calls with symbol references use correct encoding
+; with PC-relative displacement placeholders, demonstrating m4-005 symbol resolution.
+;

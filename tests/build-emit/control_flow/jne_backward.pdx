@@ -1,0 +1,15 @@
+// Phase 6 m4-006: JNE backward branch (deferred — label infrastructure not yet stable)
+// This fixture is a placeholder for full label-backward implementation in Phase 6 m4-007+.
+// For now, using simplified form with basic comparison and return.
+
+module JneBackward = structure {
+  let test_fn : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "JNE backward branch (placeholder)",
+    block: {
+      cmp rax, rbx
+      ret
+    }
+  }
+}

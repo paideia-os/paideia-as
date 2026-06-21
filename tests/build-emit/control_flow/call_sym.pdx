@@ -1,0 +1,20 @@
+module CallSym = structure {
+  let helper : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "helper function",
+    block: {
+      ret
+    }
+  }
+
+  let caller : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "caller function with cross-fn call",
+    block: {
+      call helper
+      ret
+    }
+  }
+}

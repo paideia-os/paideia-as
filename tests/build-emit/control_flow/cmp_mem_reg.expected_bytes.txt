@@ -1,0 +1,17 @@
+; Phase 6 m4-006: CMP with memory operands (placeholder — Phase 3 encoder pending)
+;
+; Architecture: unsafe block with x86-64 CMP instruction (reg-reg form)
+; Target instruction:
+;   cmp rax, rcx       => 48 39 C8  (3 bytes: REX.W + 0x39 + ModRM)
+;
+; Expected total: 3 bytes
+;
+; Current implementation: cmp rax, rcx (placeholder for memory-operand variant)
+; Full memory-addressing form (cmp [rdi + 24], rcx) deferred to Phase 6 m4-009+
+; after memory-addressing infrastructure is stabilized.
+;
+; Emitted bytes (Phase 6 m4-006):
+48 39 C8
+;
+; Acceptance: Placeholder fixture validates test harness structure for memory operands.
+;

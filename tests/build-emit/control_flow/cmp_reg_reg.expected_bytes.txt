@@ -1,0 +1,17 @@
+; Phase 6 m4-006: CMP register-register operands expected .text section bytes
+;
+; Architecture: unsafe block with x86-64 CMP instruction
+; Target instruction:
+;   cmp rax, rdi       => 48 39 F8  (3 bytes: REX.W + 0x39 + ModRM)
+;
+; Expected total: 3 bytes
+;
+; Emitted bytes (Phase 6 m4-006):
+48 39 F8
+;
+; This represents:
+;   cmp rax, rdi       => 48 39 F8
+;
+; Acceptance: CMP reg-reg encoding is byte-exact, demonstrating control-flow
+; permutation correctness for comparison instructions in Phase 6.
+;

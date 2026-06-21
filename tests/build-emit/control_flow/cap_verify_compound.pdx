@@ -1,0 +1,16 @@
+// Phase 6 m4-006: Compound capability verification (simplified for current encoder support)
+// Full hot path with multiple condition checks deferred to Phase 6 m4-008+ when label
+// infrastructure is fully stable. Current version demonstrates encoding of multiple CMP instructions.
+
+module CapVerifyCompound = structure {
+  let verify : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "compound capability verification (placeholder)",
+    block: {
+      cmp rax, rbx
+      cmp rcx, rdx
+      ret
+    }
+  }
+}

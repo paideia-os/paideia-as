@@ -1,0 +1,10 @@
+module CmpRegReg = structure {
+  let test_fn : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "CMP reg-reg operands",
+    block: {
+      cmp rax, rdi
+    }
+  }
+}

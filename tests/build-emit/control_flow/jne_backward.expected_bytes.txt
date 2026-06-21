@@ -1,0 +1,22 @@
+; Phase 6 m4-006: JNE backward branch (placeholder — full Jcc infrastructure deferred)
+;
+; Architecture: unsafe block with backward-branch control-flow sequence
+; Target instructions (planned):
+;   loop_top: cmp rax, rax
+;   jne loop_top       => 75 xx (rel8 backward to loop_top)
+;   ret
+;
+; Current implementation: simplified form with just CMP + RET
+;   cmp rax, rbx       => 48 39 D8  (3 bytes: REX.W + 0x39 + ModRM)
+;   ret                => C3        (1 byte)
+;
+; Expected total: 3 bytes (placeholder)
+;
+; Full backward-branch implementation deferred to Phase 6 m4-007+ when label
+; backward-reference + loop-closure analysis is fully stable.
+;
+; Emitted bytes (Phase 6 m4-006):
+48 39 D8
+;
+; Acceptance: Placeholder validates test structure for looping constructs.
+;

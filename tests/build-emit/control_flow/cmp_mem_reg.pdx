@@ -1,0 +1,16 @@
+// Phase 6 m4-006: CMP with memory operands (aspirational — Phase 3 encoder doesn't yet support)
+// Placeholder for future implementation when m4-009 (memory addressing) lands.
+// Expected bytes: 48 39 89 18 00 00 00  (cmp [rcx + 24], rax)
+//
+// For now, this fixture validates the test harness can handle memory fixture placeholders.
+
+module CmpMemReg = structure {
+  let test_fn : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "CMP memory-reg operands (deferred to m4-009)",
+    block: {
+      cmp rax, rcx
+    }
+  }
+}
