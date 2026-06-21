@@ -723,8 +723,9 @@ mod tests {
         if let Some(ExprData::Unsafe { block, .. }) = arena.expr_data(expr_id) {
             assert!(!block.is_empty(), "Block should contain statements");
             let stmt_node = arena.get(block[0]).unwrap();
-            // Zero-operand mnemonics parse as expression statements per the heuristic
-            assert_eq!(stmt_node.kind, NodeKind::StmtExpr);
+            // Phase 6 m6-001: Zero-operand mnemonics now parse as instruction statements
+            // after extending the heuristic to include RBrace and Semicolon
+            assert_eq!(stmt_node.kind, NodeKind::StmtInstruction);
         } else {
             panic!("Expected ExprUnsafe");
         }
@@ -1280,7 +1281,8 @@ mod tests {
             let label_stmt = arena.get(block[0]).unwrap();
             let instr_stmt = arena.get(block[1]).unwrap();
             assert_eq!(label_stmt.kind, NodeKind::StmtLabel);
-            assert_eq!(instr_stmt.kind, NodeKind::StmtExpr); // cli parses as expr stmt
+            // Phase 6 m6-001: cli parses as instruction stmt (zero-operand instructions now recognized)
+            assert_eq!(instr_stmt.kind, NodeKind::StmtInstruction);
         } else {
             panic!("Expected ExprUnsafe");
         }
@@ -1338,9 +1340,10 @@ mod tests {
             let stmt2 = arena.get(block[2]).unwrap();
             let stmt3 = arena.get(block[3]).unwrap();
             assert_eq!(stmt0.kind, NodeKind::StmtLabel);
-            assert_eq!(stmt1.kind, NodeKind::StmtExpr);
+            // Phase 6 m6-001: cli and hlt now parse as instruction stmts
+            assert_eq!(stmt1.kind, NodeKind::StmtInstruction);
             assert_eq!(stmt2.kind, NodeKind::StmtLabel);
-            assert_eq!(stmt3.kind, NodeKind::StmtExpr);
+            assert_eq!(stmt3.kind, NodeKind::StmtInstruction);
         } else {
             panic!("Expected ExprUnsafe");
         }
@@ -1389,7 +1392,8 @@ mod tests {
             let stmt0 = arena.get(block[0]).unwrap();
             let stmt1 = arena.get(block[1]).unwrap();
             assert_eq!(stmt0.kind, NodeKind::StmtLabel);
-            assert_eq!(stmt1.kind, NodeKind::StmtExpr);
+            // Phase 6 m6-001: cli now parses as instruction stmt
+            assert_eq!(stmt1.kind, NodeKind::StmtInstruction);
         } else {
             panic!("Expected ExprUnsafe");
         }

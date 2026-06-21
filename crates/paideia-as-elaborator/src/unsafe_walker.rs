@@ -89,6 +89,7 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     ("iret", Mnemonic::Iret),
     ("iretq", Mnemonic::Iretq),
     ("sysret", Mnemonic::Sysret),
+    ("syscall", Mnemonic::Syscall),
     ("swapgs", Mnemonic::Swapgs),
     ("cpuid", Mnemonic::Cpuid),
     ("cli", Mnemonic::Cli),
@@ -1361,6 +1362,11 @@ mod tests {
     #[test]
     fn resolve_mnemonic_sysret() {
         assert_eq!(resolve_mnemonic("sysret"), Some(Mnemonic::Sysret));
+    }
+
+    #[test]
+    fn resolve_mnemonic_syscall() {
+        assert_eq!(resolve_mnemonic("syscall"), Some(Mnemonic::Syscall));
     }
 
     #[test]

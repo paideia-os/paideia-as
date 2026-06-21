@@ -73,6 +73,7 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         | Mnemonic::Iret
         | Mnemonic::Iretq
         | Mnemonic::Sysret
+        | Mnemonic::Syscall
         | Mnemonic::Swapgs
         | Mnemonic::Cpuid
         | Mnemonic::Cli

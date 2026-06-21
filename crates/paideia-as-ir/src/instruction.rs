@@ -71,6 +71,8 @@ pub enum Mnemonic {
     Iretq,
     /// System return from fast syscall.
     Sysret,
+    /// System call to kernel (x86_64 syscall instruction).
+    Syscall,
     /// Swap GS base register.
     Swapgs,
     /// CPU identification.
@@ -247,6 +249,7 @@ impl Mnemonic {
             | Mnemonic::Iret
             | Mnemonic::Iretq
             | Mnemonic::Sysret
+            | Mnemonic::Syscall
             | Mnemonic::RepStosq => 0,
 
             // One-operand instructions

@@ -52,11 +52,16 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             self.parse_return_stmt()
         } else if in_action_context && self.at(TokenKind::Ident) && self.peek_at(1).is_some() {
             // Heuristic for instruction statement: current is Ident, and next token exists.
-            // If next is Ident or LBracket, it looks like "mnemonic operand".
+            // If next is Ident, LBracket, IntLit, Semicolon, or RBrace, it looks like an instruction.
+            // Semicolon and RBrace indicate zero-operand instructions (phase 6 m6-001).
             let next_kind = self.peek_at(1).map(|t| t.kind);
             if matches!(
                 next_kind,
-                Some(TokenKind::Ident) | Some(TokenKind::LBracket) | Some(TokenKind::IntLit)
+                Some(TokenKind::Ident)
+                    | Some(TokenKind::LBracket)
+                    | Some(TokenKind::IntLit)
+                    | Some(TokenKind::Semicolon)
+                    | Some(TokenKind::RBrace)
             ) {
                 // Attempt to parse as instruction statement.
                 self.parse_instruction_stmt()

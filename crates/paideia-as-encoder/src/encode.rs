@@ -1074,6 +1074,22 @@ pub fn encode_sysret(buf: &mut CodeBuffer) {
     buf.bytes.push(0x07);
 }
 
+/// Encode system call instruction: `syscall` (no operands).
+///
+/// System call: triggers a system call to the kernel. The syscall instruction
+/// loads RCX with the current RIP and loads RIP from the IA32_LSTAR MSR.
+/// This is the x86_64-specific fast syscall mechanism.
+///
+/// # Instructions
+/// - `syscall`: `0F 05` (2 bytes)
+///
+/// # Arguments
+/// - `buf`: code buffer to append instruction to
+pub fn encode_syscall(buf: &mut CodeBuffer) {
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0x05);
+}
+
 /// Encode control register MOV instruction: `mov cr_idx, gpr` or `mov gpr, cr_idx`.
 ///
 /// Both forms use the two-byte opcode 0F 22 (write to CR) or 0F 20 (read from CR).
@@ -2713,5 +2729,25 @@ mod tests {
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
         assert_eq!(instr.mnemonic(), IcedMnem::Cmp);
+    }
+
+    #[test]
+    fn encode_syscall_emits_0f05() {
+        let mut buf = CodeBuffer::new();
+        encode_syscall(&mut buf);
+        assert_eq!(buf.as_slice(), &[0x0F, 0x05]);
+    }
+
+    #[test]
+    fn encode_syscall_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_syscall(&mut buf);
+        assert_eq!(buf.as_slice(), &[0x0F, 0x05]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Syscall);
     }
 }

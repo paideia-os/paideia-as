@@ -1,0 +1,47 @@
+module CapSmoke = structure {
+  struct Capability {
+    kind: u64,
+    target: u64,
+    rights: u64,
+    generation: u64
+  }
+
+  let cap_table : [u64; 1024] = uninit
+
+  let cap_alloc : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "capability allocation",
+    block: {
+      mov rax, rbx
+    }
+  }
+
+  let cap_verify : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "capability verification",
+    block: {
+      mov rax, rbx
+    }
+  }
+
+  let cap_mint : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "capability minting",
+    block: {
+      mov rax, rbx
+    }
+  }
+
+  let _start : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "capability smoke test with syscall exit",
+    block: {
+      mov rax, rbx
+      syscall
+    }
+  }
+}

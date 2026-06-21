@@ -193,7 +193,11 @@ fn bss_section_is_nobits_and_correctly_sized() {
 
     assert!(found_bss, ".bss section should exist");
     assert!(bss_is_nobits, ".bss section should be marked NOBITS");
-    assert!(bss_size_correct, ".bss section size should be {} bytes", std::mem::size_of::<u64>());
+    assert!(
+        bss_size_correct,
+        ".bss section size should be {} bytes",
+        std::mem::size_of::<u64>()
+    );
 
     let _ = std::fs::remove_file(&tmp);
 }

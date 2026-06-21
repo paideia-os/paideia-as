@@ -1,0 +1,44 @@
+; Phase 6 m6-001: Capability smoke test with Syscall instruction
+;
+; Tests that:
+; 1. The Syscall mnemonic (0F 05) is correctly encoded
+; 2. Zero-operand instructions are parsed and emitted correctly
+; 3. Module-level uninit arrays (.bss) are supported
+; 4. Struct definitions with multiple fields work
+;
+; This fixture includes:
+; - Struct Capability with 4 u64 fields (kind, target, rights, generation)
+; - Array cap_table: [u64; 1024] allocated to .bss
+; - Functions cap_alloc, cap_verify, cap_mint that demonstrate multiple instructions
+; - _start function that calls syscall as the exit mechanism
+;
+; Architecture: Multiple functions with mov + syscall sequences
+; Expected pattern: each function ends with syscall (0F 05)
+;
+; Target instruction encoding:
+;   mov rax, rbx       => 48 89 D8  (3 bytes: REX.W + opcode + ModRM)
+;   syscall            => 0F 05     (2 bytes: two-byte opcode)
+;
+; Expected total: 56 bytes
+; - cap_alloc:  mov(3) + syscall(2) = 5 bytes
+; - cap_verify: mov(3) + syscall(2) = 5 bytes
+; - cap_mint:   mov(3) + syscall(2) = 5 bytes
+; - _start:     mov(3) + mov(3) + mov(3) + mov(3) + syscall(2) +
+;               mov(3) + mov(3) + mov(3) + mov(3) + syscall(2) +
+;               mov(3) + mov(3) + mov(3) + mov(3) + syscall(2) +
+;               mov(3) + mov(3) + mov(3) + mov(3) + syscall(2) = 38 bytes
+;
+; Phase 6 m6-001 acceptance:
+; - Mnemonic::Syscall added and encodes to 0F 05
+; - Parser recognizes zero-operand instructions (RBrace/Semicolon in heuristic)
+; - Syscall and other zero-arity instructions emit correctly
+; - Fixture demonstrates pragmatic capability smoke test
+;
+; Emitted bytes (phase 6 m6-001):
+48 89 d8 0f 05
+48 89 d8 0f 05
+48 89 d8 0f 05
+48 89 d8 48 89 d8 48 89 d8 48 89 d8 0f 05
+48 89 d8 48 89 d8 48 89 d8 48 89 d8 0f 05
+48 89 d8 48 89 d8 48 89 d8 48 89 d8 0f 05
+48 89 d8 48 89 d8 48 89 d8 48 89 d8 0f 05

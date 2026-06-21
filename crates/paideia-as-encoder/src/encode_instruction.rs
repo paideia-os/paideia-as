@@ -233,6 +233,7 @@ pub fn encode_instruction(
         Mnemonic::Iret => encode_iret_inst(inst, buf),
         Mnemonic::Iretq => encode_iretq_inst(inst, buf),
         Mnemonic::Sysret => encode_sysret_inst(inst, buf),
+        Mnemonic::Syscall => encode_syscall_inst(inst, buf),
         Mnemonic::RepStosq => encode_rep_stosq_inst(inst, buf),
         Mnemonic::FarJmp => encode_far_jmp_inst(inst, buf),
         Mnemonic::Movzx => encode_movzx(inst, buf),
@@ -1166,6 +1167,22 @@ fn encode_sysret_inst(
         });
     }
     encode_sysret(buf);
+    Ok(EncodeOutput::new())
+}
+
+fn encode_syscall_inst(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+) -> Result<EncodeOutput, EncodeError> {
+    // syscall expects exactly 0 operands
+    if !inst.operands.is_empty() {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::Syscall,
+            expected: 0,
+            got: inst.operands.len(),
+        });
+    }
+    encode_syscall(buf);
     Ok(EncodeOutput::new())
 }
 
