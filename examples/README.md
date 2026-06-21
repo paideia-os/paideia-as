@@ -54,6 +54,26 @@ paideia-as check examples/01_hello.pdx
 
 Future `paideia-as build --emit elf64 examples/<file>.pdx -o /tmp/out.o` activates per-example end-to-end compilation as the elaborator chokepoints close (Phase 4 m1 walker hookups for most; m6 borrow checker for #08, #11–14; m6+ for fn-body forms).
 
+## Phase 4 stdlib walkthrough
+
+The Phase 4 m11 stdlib bring-up shipped these types and traits. Each is exercised by the relevant example file:
+
+| Stdlib feature                | Where exercised                                      | m11 source         |
+|-------------------------------|------------------------------------------------------|--------------------|
+| `Option<T> { Some, None }`    | `04_enums.pdx`, `13_stdlib.pdx`, `14_iterators.pdx`  | m11-001            |
+| `Result<T, E> { Ok, Err }`    | `04_enums.pdx`, `13_stdlib.pdx`                      | m11-002            |
+| `struct` types                | `03_records.pdx`, `12_traits.pdx`, `14_iterators.pdx`| m7-001             |
+| `enum` sum types              | `04_enums.pdx`, `13_stdlib.pdx`                      | m7-004             |
+| `<T>` generics                | `11_generics.pdx`                                    | m9-001             |
+| `trait` + `impl`              | `11_generics.pdx`, `12_traits.pdx`, `14_iterators.pdx`| m9-003             |
+| Associated types `type Item`  | `12_traits.pdx`, `14_iterators.pdx`                  | m9-007             |
+| `&T` / `&mut T` borrowing     | `08_references.pdx`                                  | m4-001..008        |
+| Effect rows `!{Eff}`          | `07_pointers.pdx`, `09_effects.pdx`, `13_stdlib.pdx` | m11-006 (IO eff)   |
+| Capability sets `@{Cap}`      | `07_pointers.pdx`, `09_effects.pdx`, `10_capabilities.pdx`| m11-006 (paideia.io) |
+| Tail-recursion + match        | `06_loops.pdx`, `16_factorial.pdx`, `17_fibonacci.pdx`| m7-005 (T0512)    |
+
+The full stdlib API (Vec, String, HashMap, Iterator adapters, File/Read/Write traits) ships in `crates/paideia-stdlib/pdx/` source files. The examples here demonstrate the **types and surfaces**; calling stdlib methods end-to-end gates on the elaborator's walker activation (Phase 4 m1-005/006 / Phase 5 self-host).
+
 ## Surface coverage gaps in CLI `check`
 
 Some surface ships in tests via the harness but isn't yet accepted by CLI `check`:
