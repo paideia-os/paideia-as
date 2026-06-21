@@ -7,6 +7,9 @@
 //! This module follows the side-table pattern established in `load_store.rs`
 //! and `instruction.rs`: each IR node variant that requires extra metadata
 //! has a dedicated HashMap-based side-table for O(1) lookups.
+//!
+//! Phase 6 m3-001 adds `FinalisedLayoutTable` for C-ABI natural-alignment
+//! record layout computation during emission.
 
 use std::collections::HashMap;
 
@@ -16,6 +19,95 @@ use crate::node::IrNodeId;
 /// For now, this is a simple wrapper around a u32.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct RecordTypeId(pub u32);
+
+/// Layout information for a single field within a record.
+///
+/// Phase 6 m3-001: Records the byte offset and size of a field.
+/// `offset` is the byte offset from the start of the record (aligned per field type).
+/// `size` is the field size in bytes: 1 (u8), 4 (u32), 8 (u64/*T).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FieldLayout {
+    /// Byte offset within the record (aligned per field's natural alignment).
+    pub offset: u64,
+    /// Field size in bytes (1, 4, or 8 in Phase 6).
+    pub size: u8,
+}
+
+/// Complete layout for a record type.
+///
+/// Phase 6 m3-001: Captures the computed structure size, alignment, and per-field
+/// layout information using C ABI natural-alignment rules.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RecordLayout {
+    /// Total size of the record in bytes (rounded up to struct alignment).
+    pub size: u64,
+    /// Alignment requirement in bytes (max of all field alignments).
+    pub align: u8,
+    /// Per-field layout (offset, size) in declaration order.
+    pub fields: Vec<FieldLayout>,
+}
+
+impl RecordLayout {
+    /// Create a new record layout.
+    #[must_use]
+    pub fn new(size: u64, align: u8, fields: Vec<FieldLayout>) -> Self {
+        Self {
+            size,
+            align,
+            fields,
+        }
+    }
+}
+
+/// Side-table mapping RecordTypeId to finalised C-ABI natural-alignment layouts.
+///
+/// Phase 6 m3-001: Populated during emission to provide record layout metadata
+/// for downstream passes (e.g., code generation, debug info).
+#[derive(Default, Debug, Clone)]
+pub struct FinalisedLayoutTable {
+    /// Sparse mapping: RecordTypeId -> RecordLayout.
+    entries: HashMap<RecordTypeId, RecordLayout>,
+}
+
+impl FinalisedLayoutTable {
+    /// Construct an empty finalised layout side-table.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Insert (or overwrite) the finalised layout for a RecordTypeId.
+    ///
+    /// Returns the previous entry if one existed.
+    pub fn insert(&mut self, id: RecordTypeId, layout: RecordLayout) -> Option<RecordLayout> {
+        self.entries.insert(id, layout)
+    }
+
+    /// Look up the finalised layout for a RecordTypeId.
+    ///
+    /// Returns `None` if the type was never finalised.
+    #[must_use]
+    pub fn get(&self, id: RecordTypeId) -> Option<&RecordLayout> {
+        self.entries.get(&id)
+    }
+
+    /// Look up (mutable) the finalised layout for a RecordTypeId.
+    pub fn get_mut(&mut self, id: RecordTypeId) -> Option<&mut RecordLayout> {
+        self.entries.get_mut(&id)
+    }
+
+    /// Number of record types with finalised layouts.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// `true` iff no layouts are finalised.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+}
 
 /// Side-table mapping RecordCons IrNodeIds to their record RecordTypeId.
 ///
@@ -300,5 +392,104 @@ mod tests {
         let table = FieldAccessSideTable::new();
         assert_eq!(table.len(), 0);
         assert!(table.is_empty());
+    }
+
+    // ── FinalisedLayoutTable tests ────────────────────────────────
+
+    #[test]
+    fn finalised_layout_table_empty_by_default() {
+        let table = FinalisedLayoutTable::new();
+        assert_eq!(table.len(), 0);
+        assert!(table.is_empty());
+    }
+
+    #[test]
+    fn finalised_layout_table_insert_and_get() {
+        let mut table = FinalisedLayoutTable::new();
+        let type_id = RecordTypeId(42);
+        let layout = RecordLayout::new(
+            32,
+            8,
+            vec![
+                FieldLayout { offset: 0, size: 8 },
+                FieldLayout { offset: 8, size: 8 },
+            ],
+        );
+
+        table.insert(type_id, layout.clone());
+        let retrieved = table.get(type_id);
+        assert!(retrieved.is_some());
+        assert_eq!(*retrieved.unwrap(), layout);
+    }
+
+    #[test]
+    fn finalised_layout_table_get_returns_none_for_missing() {
+        let table = FinalisedLayoutTable::new();
+        let missing_type = RecordTypeId(999);
+        assert_eq!(table.get(missing_type), None);
+    }
+
+    #[test]
+    fn finalised_layout_table_insert_overwrites_previous() {
+        let mut table = FinalisedLayoutTable::new();
+        let type_id = RecordTypeId(1);
+
+        let layout1 = RecordLayout::new(16, 8, vec![FieldLayout { offset: 0, size: 8 }]);
+        let layout2 = RecordLayout::new(
+            32,
+            8,
+            vec![
+                FieldLayout { offset: 0, size: 8 },
+                FieldLayout { offset: 8, size: 8 },
+            ],
+        );
+
+        table.insert(type_id, layout1.clone());
+        let previous = table.insert(type_id, layout2.clone());
+
+        assert_eq!(previous, Some(layout1));
+        assert_eq!(*table.get(type_id).unwrap(), layout2);
+    }
+
+    #[test]
+    fn finalised_layout_table_len_tracks_inserts() {
+        let mut table = FinalisedLayoutTable::new();
+        assert_eq!(table.len(), 0);
+        assert!(table.is_empty());
+
+        for i in 0u32..5 {
+            let type_id = RecordTypeId(i);
+            let layout = RecordLayout::new(8, 8, vec![FieldLayout { offset: 0, size: 8 }]);
+            table.insert(type_id, layout);
+            assert_eq!(table.len(), (i + 1) as usize);
+        }
+
+        assert!(!table.is_empty());
+    }
+
+    #[test]
+    fn field_layout_capability_struct() {
+        // Capability: 4 × u64 → offsets [0, 8, 16, 24], size 32, align 8.
+        let fields = vec![
+            FieldLayout { offset: 0, size: 8 },
+            FieldLayout { offset: 8, size: 8 },
+            FieldLayout {
+                offset: 16,
+                size: 8,
+            },
+            FieldLayout {
+                offset: 24,
+                size: 8,
+            },
+        ];
+
+        let cap_layout = RecordLayout::new(32, 8, fields.clone());
+        assert_eq!(cap_layout.size, 32);
+        assert_eq!(cap_layout.align, 8);
+        assert_eq!(cap_layout.fields.len(), 4);
+        assert_eq!(cap_layout.fields[0].offset, 0);
+        assert_eq!(cap_layout.fields[1].offset, 8);
+        assert_eq!(cap_layout.fields[2].offset, 16);
+        assert_eq!(cap_layout.fields[3].offset, 24);
     }
 }

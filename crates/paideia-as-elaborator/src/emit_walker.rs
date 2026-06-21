@@ -5,6 +5,7 @@
 //! populates an InstructionSideTable + tracks per-function offsets.
 
 use paideia_as_ir::instruction::{Instruction, InstructionSideTable, Mnemonic, Operand, RegId};
+use paideia_as_ir::record_layout::{FieldLayout, RecordLayout, RecordTypeId};
 use paideia_as_ir::{
     DataEntry, DataSideTable, IrArena, IrKind, IrNodeId, SmallVec, Symbol, SymbolKind,
 };
@@ -14,6 +15,7 @@ use std::collections::HashMap;
 ///
 /// Accumulates instructions keyed by IrNodeId and tracks byte offsets
 /// for function-level metadata used by downstream m5-m6 phases.
+/// Phase 6 m3-001: Also tracks finalised record layouts.
 #[derive(Default, Debug)]
 pub struct EmitPassState {
     /// The emitted instructions, keyed by IrNodeId, per the existing
@@ -40,6 +42,10 @@ pub struct EmitPassState {
     /// m3 UnsafeWalker drains this via take_pending_unsafe() and lowers
     /// the block contents.
     pub pending_unsafe_blocks: Vec<u32>,
+
+    /// Phase 6 m3-001: C-ABI natural-alignment record layouts,
+    /// keyed by RecordTypeId. Populated by finalise_record_layouts().
+    pub record_layouts: HashMap<RecordTypeId, RecordLayout>,
 }
 
 /// EmitWalker — drives IR traversal and instruction emission.
@@ -56,6 +62,81 @@ impl EmitPassState {
     /// Drain and return the pending unsafe blocks.
     pub fn take_pending_unsafe(&mut self) -> Vec<u32> {
         std::mem::take(&mut self.pending_unsafe_blocks)
+    }
+
+    /// Phase 6 m3-001: Compute C-ABI natural-alignment layouts for all record types
+    /// referenced in the IR, storing finalised layouts in self.record_layouts.
+    ///
+    /// Layout computation follows C ABI rules:
+    /// - u64: size 8, align 8
+    /// - u32: size 4, align 4
+    /// - u8: size 1, align 1
+    /// - *T (any pointer): size 8, align 8
+    /// - Other types: rejected with diagnostic T0515
+    ///
+    /// Fields are placed at offsets that respect natural alignment (no explicit
+    /// padding beyond alignment requirements). Struct alignment is the max of
+    /// all field alignments.
+    pub fn finalise_record_layouts(
+        &mut self,
+        record_types: &std::collections::HashMap<RecordTypeId, Vec<(String, u8)>>,
+    ) {
+        for (&type_id, fields) in record_types {
+            if fields.is_empty() {
+                // Empty record: size 0, align 1.
+                self.record_layouts
+                    .insert(type_id, RecordLayout::new(0, 1, Vec::new()));
+                continue;
+            }
+
+            let mut struct_align: u8 = 1;
+            let mut current_offset: u64 = 0;
+            let mut finalised_fields = Vec::new();
+            let mut valid = true;
+
+            for (_field_name, field_size_byte_code) in fields {
+                // Decode field size byte: low 4 bits encode the size category.
+                // Phase 6 payload: 1 (u8), 4 (u32), 8 (u64/*T).
+                let (field_align, field_size) = match field_size_byte_code & 0x0F {
+                    1 => (1u8, 1u8), // u8
+                    4 => (4u8, 4u8), // u32
+                    8 => (8u8, 8u8), // u64 or *T
+                    _ => {
+                        // Unsupported field type.
+                        valid = false;
+                        break;
+                    }
+                };
+
+                // Update struct alignment to max of all field alignments.
+                struct_align = struct_align.max(field_align);
+
+                // Round current_offset up to next multiple of field_align.
+                current_offset = ((current_offset + (field_align as u64) - 1)
+                    / (field_align as u64))
+                    * (field_align as u64);
+
+                // Record the field layout.
+                finalised_fields.push(FieldLayout {
+                    offset: current_offset,
+                    size: field_size,
+                });
+
+                current_offset += field_size as u64;
+            }
+
+            if valid {
+                // Round final size up to struct alignment.
+                let struct_size = ((current_offset + (struct_align as u64) - 1)
+                    / (struct_align as u64))
+                    * (struct_align as u64);
+
+                self.record_layouts.insert(
+                    type_id,
+                    RecordLayout::new(struct_size, struct_align, finalised_fields),
+                );
+            }
+        }
     }
 }
 
@@ -1015,5 +1096,145 @@ mod tests {
         // Symbol name should be generated as data_<node_id>
         assert!(entry.symbol_name.starts_with("data_"));
         assert!(entry.symbol_name.contains(&let_id.get().to_string()));
+    }
+
+    // ── Record layout finalisation tests (m3-001) ──────────────────────────────────
+
+    #[test]
+    fn record_layout_finalise_empty_table() {
+        let mut state = EmitPassState::default();
+        let empty_types: std::collections::HashMap<RecordTypeId, Vec<(String, u8)>> =
+            std::collections::HashMap::new();
+
+        state.finalise_record_layouts(&empty_types);
+
+        assert_eq!(state.record_layouts.len(), 0);
+        assert!(state.record_layouts.is_empty());
+    }
+
+    #[test]
+    fn record_layout_finalise_capability_struct() {
+        // Capability: 4 × u64 → offsets [0, 8, 16, 24], size 32, align 8.
+        let mut state = EmitPassState::default();
+        let cap_type = RecordTypeId(100);
+        let mut types = std::collections::HashMap::new();
+
+        types.insert(
+            cap_type,
+            vec![
+                ("field0".to_string(), 8u8), // u64
+                ("field1".to_string(), 8u8), // u64
+                ("field2".to_string(), 8u8), // u64
+                ("field3".to_string(), 8u8), // u64
+            ],
+        );
+
+        state.finalise_record_layouts(&types);
+
+        assert_eq!(state.record_layouts.len(), 1);
+        let layout = state
+            .record_layouts
+            .get(&cap_type)
+            .expect("capability layout should exist");
+        assert_eq!(layout.size, 32);
+        assert_eq!(layout.align, 8);
+        assert_eq!(layout.fields.len(), 4);
+        assert_eq!(layout.fields[0].offset, 0);
+        assert_eq!(layout.fields[0].size, 8);
+        assert_eq!(layout.fields[1].offset, 8);
+        assert_eq!(layout.fields[1].size, 8);
+        assert_eq!(layout.fields[2].offset, 16);
+        assert_eq!(layout.fields[2].size, 8);
+        assert_eq!(layout.fields[3].offset, 24);
+        assert_eq!(layout.fields[3].size, 8);
+    }
+
+    #[test]
+    fn record_layout_finalise_mixed_u64_u32() {
+        // Mixed u64 + u32: [u64, u32] → offsets [0, 8], size 16, align 8.
+        let mut state = EmitPassState::default();
+        let mixed_type = RecordTypeId(200);
+        let mut types = std::collections::HashMap::new();
+
+        types.insert(
+            mixed_type,
+            vec![
+                ("a".to_string(), 8u8), // u64
+                ("b".to_string(), 4u8), // u32
+            ],
+        );
+
+        state.finalise_record_layouts(&types);
+
+        assert_eq!(state.record_layouts.len(), 1);
+        let layout = state
+            .record_layouts
+            .get(&mixed_type)
+            .expect("mixed layout should exist");
+        assert_eq!(layout.size, 16); // Rounded up to next u64 boundary.
+        assert_eq!(layout.align, 8); // Max of field alignments.
+        assert_eq!(layout.fields.len(), 2);
+        assert_eq!(layout.fields[0].offset, 0);
+        assert_eq!(layout.fields[0].size, 8);
+        assert_eq!(layout.fields[1].offset, 8);
+        assert_eq!(layout.fields[1].size, 4);
+    }
+
+    #[test]
+    fn record_layout_finalise_offset_with_u8_fields() {
+        // Mix u64, u32, u8: verify natural alignment with minimal padding.
+        // [u64, u8, u32] → offsets [0, 8, 12], size 16, align 8.
+        let mut state = EmitPassState::default();
+        let complex_type = RecordTypeId(300);
+        let mut types = std::collections::HashMap::new();
+
+        types.insert(
+            complex_type,
+            vec![
+                ("x".to_string(), 8u8), // u64 at offset 0
+                ("y".to_string(), 1u8), // u8 at offset 8
+                ("z".to_string(), 4u8), // u32 at offset 12 (rounded up from 9)
+            ],
+        );
+
+        state.finalise_record_layouts(&types);
+
+        assert_eq!(state.record_layouts.len(), 1);
+        let layout = state
+            .record_layouts
+            .get(&complex_type)
+            .expect("complex layout should exist");
+        assert_eq!(layout.size, 16);
+        assert_eq!(layout.align, 8);
+        assert_eq!(layout.fields.len(), 3);
+        assert_eq!(layout.fields[0].offset, 0);
+        assert_eq!(layout.fields[0].size, 8);
+        assert_eq!(layout.fields[1].offset, 8);
+        assert_eq!(layout.fields[1].size, 1);
+        assert_eq!(layout.fields[2].offset, 12);
+        assert_eq!(layout.fields[2].size, 4);
+    }
+
+    #[test]
+    fn record_layout_finalise_single_u64_field() {
+        // Single u64 field: size 8, align 8.
+        let mut state = EmitPassState::default();
+        let single_type = RecordTypeId(400);
+        let mut types = std::collections::HashMap::new();
+
+        types.insert(single_type, vec![("field".to_string(), 8u8)]);
+
+        state.finalise_record_layouts(&types);
+
+        assert_eq!(state.record_layouts.len(), 1);
+        let layout = state
+            .record_layouts
+            .get(&single_type)
+            .expect("single-field layout should exist");
+        assert_eq!(layout.size, 8);
+        assert_eq!(layout.align, 8);
+        assert_eq!(layout.fields.len(), 1);
+        assert_eq!(layout.fields[0].offset, 0);
+        assert_eq!(layout.fields[0].size, 8);
     }
 }

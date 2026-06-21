@@ -632,6 +632,15 @@ description = "Phase 4 m9-005: trait-bound resolution. At this call site, a meth
 since = "0.7.0"
 deprecated = false
 
+[diagnostic.T0515]
+severity = "error"
+category = "type"
+title = "Unsupported record field type in Phase 6 layout computation"
+brief = "field type is not in {u64, u32, u8, *T} supported by Phase-6 layout finaliser"
+description = "Phase 6 m3-001: record field layout computation supports u64 (8 bytes, align 8), u32 (4 bytes, align 4), u8 (1 byte, align 1), and pointer types *T (8 bytes, align 8). Records with fields outside this set cannot be finalised. Add support for additional field types in a future phase or refactor the record to use only the supported types."
+since = "0.6.0"
+deprecated = false
+
 [diagnostic.L2001]
 severity = "warning"
 category = "lint"

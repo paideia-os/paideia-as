@@ -1,6 +1,5 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
-assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -755,6 +754,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "Unsatisfied trait bound",
               "shortDescription": {
                 "text": "no impl found for trait X on type Y at this call site"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase 6 m3-001: record field layout computation supports u64 (8 bytes, align 8), u32 (4 bytes, align 4), u8 (1 byte, align 1), and pointer types *T (8 bytes, align 8). Records with fields outside this set cannot be finalised. Add support for additional field types in a future phase or refactor the record to use only the supported types."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0515",
+              "id": "T0515",
+              "name": "Unsupported record field type in Phase 6 layout computation",
+              "shortDescription": {
+                "text": "field type is not in {u64, u32, u8, *T} supported by Phase-6 layout finaliser"
               }
             },
             {
