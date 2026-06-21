@@ -140,6 +140,7 @@ pub enum CatalogError {
 fn category_letter(name: &str) -> Option<char> {
     match name {
         "lexer" => Some('E'),
+        "elaborator" => Some('E'),
         "parser" => Some('P'),
         "module" => Some('M'),
         "type" => Some('T'),

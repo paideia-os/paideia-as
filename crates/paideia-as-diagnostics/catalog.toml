@@ -650,6 +650,15 @@ description = "Phase 6 m3-002: EmitWalker field access lowering currently suppor
 since = "0.6.0"
 deprecated = false
 
+[diagnostic.T0517]
+severity = "error"
+category = "type"
+title = "Register pressure exceeded in Phase 6 field-bind"
+brief = "more than 4 in-flight field bindings in a single function"
+description = "Phase 6 m3-003: EmitWalker field-binding lowering assigns scratch registers in sequence: RAX(0), RCX(1), RDX(2), R8(8). The calling convention provides exactly 4 caller-save scratch registers. When more than 4 field bindings appear in a single function scope, the elaborator cannot assign a scratch register. Restructure your function to use fewer than 5 field bindings, or defer the assignment of later bindings to a later phase."
+since = "0.6.0"
+deprecated = false
+
 [diagnostic.L2001]
 severity = "warning"
 category = "lint"

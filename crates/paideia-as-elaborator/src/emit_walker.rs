@@ -46,6 +46,11 @@ pub struct EmitPassState {
     /// Phase 6 m3-001: C-ABI natural-alignment record layouts,
     /// keyed by RecordTypeId. Populated by finalise_record_layouts().
     pub record_layouts: HashMap<RecordTypeId, RecordLayout>,
+
+    /// Phase 6 m3-003: Scratch register assignment for in-block field bindings.
+    /// Tracks which scratch registers have been assigned in the current function.
+    /// Reset to empty at function entry. Sequence: RAX(0), RCX(1), RDX(2), R8(8).
+    pub scratch_assignment: Vec<RegId>,
 }
 
 /// EmitWalker — drives IR traversal and instruction emission.
@@ -181,6 +186,7 @@ impl EmitWalker {
     /// m1-004: records IrKind::Unsafe nodes for later processing by UnsafeWalker (m3).
     /// m4-003: populates DataSideTable for module-level Let-Literal bindings.
     /// m5-001: populates SymbolTable for module-level Let bindings.
+    /// m3-003: processes Let → FieldAccess bindings, assigning scratch registers in sequence.
     pub fn walk(&mut self, arena: &mut IrArena) {
         // Iterate over all nodes, looking for Let, Lambda, and Unsafe nodes.
         for i in 1..=arena.len() as u32 {
@@ -238,9 +244,18 @@ impl EmitWalker {
                                         self.visit_let_literal(node_id, value);
                                     }
                                 }
+
+                                // Phase 6 m3-003: Handle Let with FieldAccess RHS.
+                                if rhs_kind == IrKind::FieldAccess {
+                                    self.visit_let_field_access(node_id, rhs_id, arena);
+                                }
                             }
                         }
                         IrKind::Lambda => {
+                            // Phase 6 m3-003: Reset scratch_assignment at function entry.
+                            self.state.scratch_assignment.clear();
+                            self.state.current_function = node_id.get();
+
                             // Lambda lowering: emit Mov/Lea/Ret for simple cases.
                             self.visit_lambda(node_id, arena);
                         }
@@ -367,6 +382,40 @@ impl EmitWalker {
 
         // Bump offset.
         self.state.current_offset += inst_size;
+    }
+
+    /// Phase 6 m3-003: Emit instruction for Let with FieldAccess RHS.
+    ///
+    /// Handles in-block field bindings by assigning scratch registers in sequence:
+    /// RAX(0), RCX(1), RDX(2), R8(8). After 4 in-flight bindings, fires T0517.
+    ///
+    /// Delegates to visit_field_access_with_reg to emit the mov instruction
+    /// to the assigned scratch register instead of RAX.
+    fn visit_let_field_access(
+        &mut self,
+        _let_node_id: IrNodeId,
+        field_access_id: IrNodeId,
+        arena: &IrArena,
+    ) {
+        // Scratch register sequence (calling-convention scratch registers).
+        let scratch_regs = [RegId(0), RegId(1), RegId(2), RegId(8)]; // RAX, RCX, RDX, R8
+
+        // Check if we've exceeded register pressure.
+        if self.state.scratch_assignment.len() >= scratch_regs.len() {
+            // Fire T0517: register pressure exceeded.
+            self.diagnostics.push(format!(
+                "T0517: register pressure exceeded in Phase 6 field-bind: more than {} in-flight bindings",
+                scratch_regs.len()
+            ));
+            return;
+        }
+
+        // Assign the next scratch register.
+        let scratch_reg = scratch_regs[self.state.scratch_assignment.len()];
+        self.state.scratch_assignment.push(scratch_reg);
+
+        // Emit the field access with the assigned scratch register.
+        self.visit_field_access_with_reg(field_access_id, scratch_reg, arena);
     }
 
     /// Emit instructions for Lambda body lowering (m1-003).
@@ -828,6 +877,240 @@ impl EmitWalker {
         // movzx rax, byte [rdi + offset]
         let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
         operands.push(Operand::Reg(RegId(0))); // rax (destination, zero-extended)
+        operands.push(Operand::MemSib {
+            base: RegId(7), // rdi
+            index: None,
+            scale: paideia_as_ir::instruction::Scale::X1,
+            disp: offset,
+        });
+
+        let inst = Instruction {
+            mnemonic: Mnemonic::Movzx,
+            operands,
+            encoding_hint: None,
+        };
+
+        self.state.instructions.insert(field_access_id, inst);
+
+        // Estimate size: movzx has 2-byte opcode → disp8 → 4 bytes, disp32 → 7 bytes.
+        let size = if offset >= -128 && offset <= 127 {
+            4
+        } else {
+            7
+        };
+        self.state.current_offset += size;
+    }
+
+    /// Phase 6 m3-003: Emit field access with a specified scratch register.
+    ///
+    /// Generalizes visit_field_access to support arbitrary destination registers.
+    /// Used by visit_let_field_access to emit field bindings to RAX, RCX, RDX, R8
+    /// in sequence.
+    fn visit_field_access_with_reg(
+        &mut self,
+        field_access_id: IrNodeId,
+        dest_reg: RegId,
+        arena: &IrArena,
+    ) {
+        // Get the field access info from the side-table.
+        let field_info = match arena.field_access_info().get(field_access_id) {
+            Some(info) => info,
+            None => {
+                // No field access info registered; skip (may happen before elaboration).
+                return;
+            }
+        };
+
+        // Get the FieldAccess node's single child (the record value).
+        let children = arena.children(field_access_id);
+        let record_value_id = match children.first() {
+            Some(&id) => id,
+            None => {
+                // No child; malformed FieldAccess node.
+                self.diagnostics.push(format!(
+                    "FieldAccess node {} has no child",
+                    field_access_id.get()
+                ));
+                return;
+            }
+        };
+
+        // Check that the record value is a Deref.
+        let record_value_node = match arena.get(record_value_id) {
+            Some(node) => node,
+            None => return,
+        };
+
+        if record_value_node.kind != IrKind::Deref {
+            // Not a dereference; pattern not supported yet.
+            self.diagnostics.push(format!(
+                "T0516: field access on non-Deref shape (kind={:?})",
+                record_value_node.kind
+            ));
+            return;
+        }
+
+        // Get the child of Deref (the pointer being dereferenced).
+        let deref_children = arena.children(record_value_id);
+        let ptr_id = match deref_children.first() {
+            Some(&id) => id,
+            None => {
+                self.diagnostics
+                    .push(format!("Deref node {} has no child", record_value_id.get()));
+                return;
+            }
+        };
+
+        // Check that the pointer is a Var.
+        let ptr_node = match arena.get(ptr_id) {
+            Some(node) => node,
+            None => return,
+        };
+
+        if ptr_node.kind != IrKind::Var {
+            // Not a variable; pattern not supported yet.
+            self.diagnostics.push(format!(
+                "T0516: field access on non-Var shape (kind={:?})",
+                ptr_node.kind
+            ));
+            return;
+        }
+
+        // Look up the record layout to get field offset and size.
+        let record_layout = match self.state.record_layouts.get(&field_info.type_id) {
+            Some(layout) => layout,
+            None => {
+                self.diagnostics.push(format!(
+                    "No record layout found for type {}",
+                    field_info.type_id.0
+                ));
+                return;
+            }
+        };
+
+        // Get the field layout.
+        let field_index = field_info.field_index as usize;
+        let field_layout = match record_layout.fields.get(field_index) {
+            Some(layout) => layout,
+            None => {
+                self.diagnostics.push(format!(
+                    "Field index {} out of bounds for record type {}",
+                    field_index, field_info.type_id.0
+                ));
+                return;
+            }
+        };
+
+        // Emit the appropriate instruction based on field size, using the specified register.
+        match field_layout.size {
+            8 => {
+                // u64 or *T: mov <dest_reg>, [rdi + offset]
+                self.emit_field_access_u64_reg(
+                    field_access_id,
+                    field_layout.offset as i32,
+                    dest_reg,
+                );
+            }
+            4 => {
+                // u32: mov <dest_reg_32>, [rdi + offset]
+                self.emit_field_access_u32_reg(
+                    field_access_id,
+                    field_layout.offset as i32,
+                    dest_reg,
+                );
+            }
+            1 => {
+                // u8: movzx <dest_reg>, byte [rdi + offset]
+                self.emit_field_access_u8_reg(
+                    field_access_id,
+                    field_layout.offset as i32,
+                    dest_reg,
+                );
+            }
+            _ => {
+                self.diagnostics.push(format!(
+                    "Unsupported field size {} for field access",
+                    field_layout.size
+                ));
+            }
+        }
+    }
+
+    /// Emit u64 field access to a specified register: mov <reg>, [rdi + offset].
+    fn emit_field_access_u64_reg(
+        &mut self,
+        field_access_id: IrNodeId,
+        offset: i32,
+        dest_reg: RegId,
+    ) {
+        let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        operands.push(Operand::Reg(dest_reg)); // destination register
+        operands.push(Operand::MemSib {
+            base: RegId(7), // rdi (first argument)
+            index: None,
+            scale: paideia_as_ir::instruction::Scale::X1,
+            disp: offset,
+        });
+
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands,
+            encoding_hint: None,
+        };
+
+        self.state.instructions.insert(field_access_id, inst);
+
+        // Estimate size: disp8 → 3 bytes, disp32 → 7 bytes.
+        let size = if offset >= -128 && offset <= 127 {
+            3
+        } else {
+            7
+        };
+        self.state.current_offset += size;
+    }
+
+    /// Emit u32 field access to a specified register: mov <reg_32>, [rdi + offset].
+    fn emit_field_access_u32_reg(
+        &mut self,
+        field_access_id: IrNodeId,
+        offset: i32,
+        dest_reg: RegId,
+    ) {
+        let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        operands.push(Operand::Reg(dest_reg)); // destination register (32-bit)
+        operands.push(Operand::MemSib {
+            base: RegId(7), // rdi
+            index: None,
+            scale: paideia_as_ir::instruction::Scale::X1,
+            disp: offset,
+        });
+
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands,
+            encoding_hint: None,
+        };
+
+        self.state.instructions.insert(field_access_id, inst);
+
+        // Estimate size: no REX prefix for 32-bit → disp8 → 3 bytes, disp32 → 6 bytes.
+        let size = if offset >= -128 && offset <= 127 {
+            3
+        } else {
+            6
+        };
+        self.state.current_offset += size;
+    }
+
+    /// Emit u8 field access to a specified register: movzx <reg>, byte [rdi + offset].
+    fn emit_field_access_u8_reg(
+        &mut self,
+        field_access_id: IrNodeId,
+        offset: i32,
+        dest_reg: RegId,
+    ) {
+        let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        operands.push(Operand::Reg(dest_reg)); // destination register (zero-extended)
         operands.push(Operand::MemSib {
             base: RegId(7), // rdi
             index: None,
@@ -1704,5 +1987,261 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    // ── Phase 6 m3-003: In-block field binding tests ─────────────────────
+
+    #[test]
+    fn emit_walker_m3_003_2_stmt_body_assigns_rax_rcx() {
+        // Phase 6 m3-003: Two-statement body: let g = (*p).generation; let k = (*p).kind
+        // Should emit to RAX, then RCX (calling-convention scratch registers).
+        use paideia_as_ir::record_layout::{FieldAccessInfo, FieldLayout};
+
+        let mut arena = IrArena::new();
+        let mut walker = EmitWalker::new();
+
+        let span_ref = span();
+        let field_type_id = RecordTypeId(100);
+
+        // Create two field accesses: generation (offset 24) and kind (offset 0).
+        let var_id = arena.alloc(IrKind::Var, span_ref);
+        let deref1_id = arena.alloc_with_children(IrKind::Deref, span_ref, [var_id]);
+        let field_access1_id =
+            arena.alloc_with_children(IrKind::FieldAccess, span_ref, [deref1_id]);
+
+        let var_id2 = arena.alloc(IrKind::Var, span_ref);
+        let deref2_id = arena.alloc_with_children(IrKind::Deref, span_ref, [var_id2]);
+        let field_access2_id =
+            arena.alloc_with_children(IrKind::FieldAccess, span_ref, [deref2_id]);
+
+        // Register field info.
+        let field_info1 = FieldAccessInfo {
+            type_id: field_type_id,
+            field_index: 0, // kind at offset 0
+        };
+        let field_info2 = FieldAccessInfo {
+            type_id: field_type_id,
+            field_index: 1, // generation at offset 24
+        };
+        arena
+            .field_access_info_mut()
+            .insert(field_access1_id, field_info1);
+        arena
+            .field_access_info_mut()
+            .insert(field_access2_id, field_info2);
+
+        // Record layout: kind (u64 at 0), generation (u64 at 24).
+        let layout = RecordLayout::new(
+            32,
+            8,
+            vec![
+                FieldLayout { offset: 0, size: 8 },
+                FieldLayout {
+                    offset: 24,
+                    size: 8,
+                },
+            ],
+        );
+        walker
+            .state_mut()
+            .record_layouts
+            .insert(field_type_id, layout);
+
+        // Simulate function entry by resetting scratch_assignment and setting current_function.
+        walker.state_mut().scratch_assignment.clear();
+        walker.state_mut().current_function = 1;
+
+        // Emit first field access (should go to RAX).
+        walker.visit_let_field_access(field_access1_id, field_access1_id, &arena);
+
+        // Verify first instruction uses RAX (RegId(0)).
+        let inst1 = walker
+            .state()
+            .instructions
+            .get(field_access1_id)
+            .expect("first instruction should be emitted");
+        assert_eq!(inst1.mnemonic, Mnemonic::Mov);
+        assert_eq!(inst1.operands[0], Operand::Reg(RegId(0))); // RAX
+
+        // Verify scratch_assignment tracks the first register.
+        assert_eq!(walker.state().scratch_assignment.len(), 1);
+        assert_eq!(walker.state().scratch_assignment[0], RegId(0));
+
+        // Emit second field access (should go to RCX).
+        walker.visit_let_field_access(field_access2_id, field_access2_id, &arena);
+
+        // Verify second instruction uses RCX (RegId(1)).
+        let inst2 = walker
+            .state()
+            .instructions
+            .get(field_access2_id)
+            .expect("second instruction should be emitted");
+        assert_eq!(inst2.mnemonic, Mnemonic::Mov);
+        assert_eq!(inst2.operands[0], Operand::Reg(RegId(1))); // RCX
+
+        // Verify scratch_assignment now has two registers.
+        assert_eq!(walker.state().scratch_assignment.len(), 2);
+        assert_eq!(walker.state().scratch_assignment[1], RegId(1));
+    }
+
+    #[test]
+    fn emit_walker_m3_003_4_stmt_body_assigns_rax_rcx_rdx_r8() {
+        // Phase 6 m3-003: Four-statement body assigns RAX, RCX, RDX, R8 in order.
+        use paideia_as_ir::record_layout::{FieldAccessInfo, FieldLayout};
+
+        let mut arena = IrArena::new();
+        let mut walker = EmitWalker::new();
+
+        let span_ref = span();
+        let field_type_id = RecordTypeId(101);
+
+        // Create four field accesses.
+        let mut field_access_ids = Vec::new();
+        for i in 0..4 {
+            let var_id = arena.alloc(IrKind::Var, span_ref);
+            let deref_id = arena.alloc_with_children(IrKind::Deref, span_ref, [var_id]);
+            let field_access_id =
+                arena.alloc_with_children(IrKind::FieldAccess, span_ref, [deref_id]);
+
+            let field_info = FieldAccessInfo {
+                type_id: field_type_id,
+                field_index: i as u32,
+            };
+            arena
+                .field_access_info_mut()
+                .insert(field_access_id, field_info);
+
+            field_access_ids.push(field_access_id);
+        }
+
+        // Record layout: 4 u64 fields at offsets 0, 8, 16, 24.
+        let layout = RecordLayout::new(
+            32,
+            8,
+            vec![
+                FieldLayout { offset: 0, size: 8 },
+                FieldLayout { offset: 8, size: 8 },
+                FieldLayout {
+                    offset: 16,
+                    size: 8,
+                },
+                FieldLayout {
+                    offset: 24,
+                    size: 8,
+                },
+            ],
+        );
+        walker
+            .state_mut()
+            .record_layouts
+            .insert(field_type_id, layout);
+
+        // Simulate function entry.
+        walker.state_mut().scratch_assignment.clear();
+        walker.state_mut().current_function = 2;
+
+        // Expected registers: RAX(0), RCX(1), RDX(2), R8(8).
+        let expected_regs = [RegId(0), RegId(1), RegId(2), RegId(8)];
+
+        // Emit four field accesses.
+        for (i, &field_access_id) in field_access_ids.iter().enumerate() {
+            walker.visit_let_field_access(field_access_id, field_access_id, &arena);
+
+            // Verify instruction uses correct register.
+            let inst = walker
+                .state()
+                .instructions
+                .get(field_access_id)
+                .expect("instruction should be emitted");
+            assert_eq!(inst.mnemonic, Mnemonic::Mov);
+            assert_eq!(inst.operands[0], Operand::Reg(expected_regs[i]));
+
+            // Verify scratch_assignment tracks the register.
+            assert_eq!(walker.state().scratch_assignment[i], expected_regs[i]);
+        }
+
+        // Verify no diagnostics (all 4 fit within pressure limit).
+        assert!(walker.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn emit_walker_m3_003_5_stmt_body_fires_t0517() {
+        // Phase 6 m3-003: Five-statement body exceeds register pressure; fires T0517.
+        use paideia_as_ir::record_layout::{FieldAccessInfo, FieldLayout};
+
+        let mut arena = IrArena::new();
+        let mut walker = EmitWalker::new();
+
+        let span_ref = span();
+        let field_type_id = RecordTypeId(102);
+
+        // Create five field accesses.
+        let mut field_access_ids = Vec::new();
+        for i in 0..5 {
+            let var_id = arena.alloc(IrKind::Var, span_ref);
+            let deref_id = arena.alloc_with_children(IrKind::Deref, span_ref, [var_id]);
+            let field_access_id =
+                arena.alloc_with_children(IrKind::FieldAccess, span_ref, [deref_id]);
+
+            let field_info = FieldAccessInfo {
+                type_id: field_type_id,
+                field_index: i as u32,
+            };
+            arena
+                .field_access_info_mut()
+                .insert(field_access_id, field_info);
+
+            field_access_ids.push(field_access_id);
+        }
+
+        // Record layout: 5 u64 fields.
+        let layout = RecordLayout::new(
+            40,
+            8,
+            vec![
+                FieldLayout { offset: 0, size: 8 },
+                FieldLayout { offset: 8, size: 8 },
+                FieldLayout {
+                    offset: 16,
+                    size: 8,
+                },
+                FieldLayout {
+                    offset: 24,
+                    size: 8,
+                },
+                FieldLayout {
+                    offset: 32,
+                    size: 8,
+                },
+            ],
+        );
+        walker
+            .state_mut()
+            .record_layouts
+            .insert(field_type_id, layout);
+
+        // Simulate function entry.
+        walker.state_mut().scratch_assignment.clear();
+        walker.state_mut().current_function = 3;
+
+        // Emit first four field accesses (should succeed).
+        for (i, &field_access_id) in field_access_ids.iter().take(4).enumerate() {
+            walker.visit_let_field_access(field_access_id, field_access_id, &arena);
+            assert!(
+                walker.diagnostics().is_empty(),
+                "First 4 should emit without errors"
+            );
+        }
+
+        // Emit fifth field access (should fire T0517).
+        walker.visit_let_field_access(field_access_ids[4], field_access_ids[4], &arena);
+
+        // Verify T0517 diagnostic was fired.
+        let diags = walker.diagnostics();
+        assert!(!diags.is_empty(), "T0517 should be fired for 5th binding");
+        assert!(
+            diags.iter().any(|d| d.contains("T0517")),
+            "Diagnostic should mention T0517"
+        );
     }
 }
