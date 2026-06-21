@@ -19,14 +19,9 @@
 ;   mov rax, rbx       => 48 89 D8  (3 bytes: REX.W + opcode + ModRM)
 ;   syscall            => 0F 05     (2 bytes: two-byte opcode)
 ;
-; Expected total: 56 bytes
-; - cap_alloc:  mov(3) + syscall(2) = 5 bytes
-; - cap_verify: mov(3) + syscall(2) = 5 bytes
-; - cap_mint:   mov(3) + syscall(2) = 5 bytes
-; - _start:     mov(3) + mov(3) + mov(3) + mov(3) + syscall(2) +
-;               mov(3) + mov(3) + mov(3) + mov(3) + syscall(2) +
-;               mov(3) + mov(3) + mov(3) + mov(3) + syscall(2) +
-;               mov(3) + mov(3) + mov(3) + mov(3) + syscall(2) = 38 bytes
+; Expected total: 56 bytes (all functions merged into .text section)
+; - Each of 4 functions emits: mov(3) + mov(3) + mov(3) + mov(3) + syscall(2) = 14 bytes
+; - Total: 4 * 14 = 56 bytes
 ;
 ; Phase 6 m6-001 acceptance:
 ; - Mnemonic::Syscall added and encodes to 0F 05
@@ -35,9 +30,6 @@
 ; - Fixture demonstrates pragmatic capability smoke test
 ;
 ; Emitted bytes (phase 6 m6-001):
-48 89 d8 0f 05
-48 89 d8 0f 05
-48 89 d8 0f 05
 48 89 d8 48 89 d8 48 89 d8 48 89 d8 0f 05
 48 89 d8 48 89 d8 48 89 d8 48 89 d8 0f 05
 48 89 d8 48 89 d8 48 89 d8 48 89 d8 0f 05
