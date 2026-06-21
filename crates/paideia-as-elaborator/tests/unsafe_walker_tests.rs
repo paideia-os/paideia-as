@@ -3,7 +3,7 @@
 //! Tests the elaboration of unsafe blocks with assembly instructions.
 
 use paideia_as_ast::{AstArena, ExprData, NodeKind, StmtData};
-use paideia_as_diagnostics::{Span, SourceMap, VecSink};
+use paideia_as_diagnostics::{SourceMap, Span, VecSink};
 use paideia_as_elaborator::unsafe_walker::UnsafeWalker;
 use paideia_as_ir::IrArena;
 use std::path::PathBuf;

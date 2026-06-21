@@ -111,6 +111,24 @@ impl ElfWriter {
         self.obj.append_section_data(text_section, bytes, 1)
     }
 
+    /// Append `bytes` to the `.rodata` section with the specified alignment.
+    /// Returns the offset at which the append starts.
+    /// Phase-1 helper used for read-only data (constants, GDT descriptors, etc).
+    pub fn add_rodata_bytes(&mut self, bytes: &[u8], align: u8) -> u64 {
+        let rodata_section = self.obj.section_id(StandardSection::ReadOnlyData);
+        self.obj
+            .append_section_data(rodata_section, bytes, align as u64)
+    }
+
+    /// Append `bytes` to the `.data` section with the specified alignment.
+    /// Returns the offset at which the append starts.
+    /// Phase-1 helper used for initialized mutable data (Phase 6+).
+    pub fn add_data_bytes(&mut self, bytes: &[u8], align: u8) -> u64 {
+        let data_section = self.obj.section_id(StandardSection::Data);
+        self.obj
+            .append_section_data(data_section, bytes, align as u64)
+    }
+
     /// Add a symbol to the symbol table.
     ///
     /// Accepts a [`SymbolEntry`] and registers it with the ELF object.
@@ -210,6 +228,7 @@ impl ElfWriter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use object::{Object, ObjectSection};
 
     #[test]
     fn new_x86_64_relocatable_constructs() {
@@ -429,5 +448,87 @@ mod tests {
             result.is_err(),
             "adding a relocation to an unknown symbol should fail"
         );
+    }
+
+    #[test]
+    fn writer_add_rodata_bytes_appends_to_rodata() {
+        let mut writer = ElfWriter::new(Arch::X86_64, Kind::Relocatable);
+
+        let bytes = vec![0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77];
+        let offset = writer.add_rodata_bytes(&bytes, 8);
+
+        // Offset should start at 0 for the first append.
+        assert_eq!(offset, 0);
+
+        // Finalize and verify the rodata section contains the bytes.
+        let elf_bytes = writer
+            .finalize()
+            .expect("finalize should succeed after adding rodata");
+        let elf = object::read::elf::ElfFile64::<object::Endianness>::parse(elf_bytes.as_slice())
+            .expect("should parse as valid ELF64");
+
+        // Find and verify the .rodata section contains our bytes.
+        let mut found_rodata_bytes = false;
+        for section in elf.sections() {
+            if section.name().unwrap_or("") == ".rodata" {
+                let data = section.data().expect("rodata should have data");
+                if data.len() >= 8 {
+                    assert_eq!(&data[0..8], &bytes[..]);
+                    found_rodata_bytes = true;
+                }
+            }
+        }
+        assert!(
+            found_rodata_bytes,
+            ".rodata section should contain the appended bytes"
+        );
+    }
+
+    #[test]
+    fn writer_add_data_bytes_appends_to_data() {
+        let mut writer = ElfWriter::new(Arch::X86_64, Kind::Relocatable);
+
+        let bytes = vec![0xAA, 0xBB, 0xCC, 0xDD];
+        let offset = writer.add_data_bytes(&bytes, 4);
+
+        // Offset should start at 0 for the first append.
+        assert_eq!(offset, 0);
+
+        // Finalize and verify the data section contains the bytes.
+        let elf_bytes = writer
+            .finalize()
+            .expect("finalize should succeed after adding data");
+        let elf = object::read::elf::ElfFile64::<object::Endianness>::parse(elf_bytes.as_slice())
+            .expect("should parse as valid ELF64");
+
+        // Find and verify the .data section contains our bytes.
+        let mut found_data_bytes = false;
+        for section in elf.sections() {
+            if section.name().unwrap_or("") == ".data" {
+                let data = section.data().expect("data should have data");
+                if data.len() >= 4 {
+                    assert_eq!(&data[0..4], &bytes[..]);
+                    found_data_bytes = true;
+                }
+            }
+        }
+        assert!(
+            found_data_bytes,
+            ".data section should contain the appended bytes"
+        );
+    }
+
+    #[test]
+    fn writer_multiple_rodata_appends_increase_offset() {
+        let mut writer = ElfWriter::new(Arch::X86_64, Kind::Relocatable);
+
+        let bytes1 = vec![0x11, 0x22, 0x33, 0x44];
+        let offset1 = writer.add_rodata_bytes(&bytes1, 4);
+        assert_eq!(offset1, 0);
+
+        let bytes2 = vec![0x55, 0x66, 0x77, 0x88];
+        let offset2 = writer.add_rodata_bytes(&bytes2, 4);
+        // Second append should start after the first.
+        assert!(offset2 > offset1);
     }
 }

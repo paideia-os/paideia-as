@@ -185,8 +185,13 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str) -> ExitCode {
             // Phase-5-m3-005: Run UnsafeWalker to elaborate pending unsafe blocks.
             // Take pending unsafe blocks from EmitWalker state and process them.
             let pending = emit_walker.state_mut().take_pending_unsafe();
-            let unsafe_diags =
-                UnsafeWalker::run(&mut lowering.ir, &arena, pending, &source_map, &mut walker_sink);
+            let unsafe_diags = UnsafeWalker::run(
+                &mut lowering.ir,
+                &arena,
+                pending,
+                &source_map,
+                &mut walker_sink,
+            );
             instruction_table = lowering.ir.instructions().clone();
             for d in unsafe_diags {
                 let _ = walker_sink.emit(d);
@@ -196,6 +201,47 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str) -> ExitCode {
         // Drain walker diagnostics into the main sink for rendering.
         for d in walker_sink.into_diagnostics() {
             let _ = sink.emit(d);
+        }
+    }
+
+    // Phase-5-m4-003: Populate data side-table for module-level data bindings.
+    // This must run after walker passes and before emit format selection.
+    if !lowering.ir.is_empty() {
+        // Due to Rust borrowing rules, we need to collect the arena state before
+        // calling data_mut(). We'll use a temporary struct to hold the necessary data.
+        let arena_len = lowering.ir.len();
+        let mut data_entries = Vec::new();
+
+        // First pass: collect data entries (using only immutable borrows).
+        for i in 1..=arena_len as u32 {
+            if let Some(node_id) = IrNodeId::new(i) {
+                if let Some(node) = lowering.ir.get(node_id) {
+                    if node.kind == paideia_as_ir::IrKind::Let {
+                        let children = lowering.ir.children(node_id);
+                        if let Some(&rhs_id) = children.first() {
+                            if let Some(rhs_node) = lowering.ir.get(rhs_id) {
+                                if rhs_node.kind == paideia_as_ir::IrKind::Literal {
+                                    if let Some(value) = lowering.ir.literal_values().get(rhs_id) {
+                                        let bytes = EmitWalker::pack_u64_le_public(value);
+                                        let symbol_name = format!("data_{}", node_id.get());
+                                        let entry = paideia_as_ir::DataEntry::new_rodata(
+                                            bytes,
+                                            symbol_name,
+                                            8,
+                                        );
+                                        data_entries.push((node_id, entry));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Second pass: populate the data table (using mutable borrow).
+        for (node_id, entry) in data_entries {
+            lowering.ir.data_mut().insert(node_id, entry);
         }
     }
 
@@ -217,7 +263,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str) -> ExitCode {
             let bytes = if preview {
                 None
             } else {
-                Some(build_elf_object(&instruction_table))
+                Some(build_elf_object(&instruction_table, lowering.ir.data()))
             };
             finish_elf(&source_map, catalog, sink, bytes, input, output)
         }
@@ -245,7 +291,11 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str) -> ExitCode {
 /// Phase-5-m1-005: Now consumes InstructionSideTable from EmitWalker.
 /// If the table is empty, falls back to the placeholder lower_add_one
 /// for backwards compatibility (m5 will remove this entirely).
-fn build_elf_object(instruction_table: &InstructionSideTable) -> Vec<u8> {
+/// Phase-5-m4-003: Also consumes DataSideTable for .rodata and .data section population.
+fn build_elf_object(
+    instruction_table: &InstructionSideTable,
+    data_table: &paideia_as_ir::DataSideTable,
+) -> Vec<u8> {
     let mut writer = ElfWriter::new(Arch::X86_64, Kind::Relocatable);
     let mut buf = paideia_as_emitter_elf::CodeBuffer::new();
 
@@ -262,6 +312,19 @@ fn build_elf_object(instruction_table: &InstructionSideTable) -> Vec<u8> {
     let body_size = buf.bytes.len() as u64;
     writer.add_text_bytes(&buf.bytes);
     let _ = writer.add_symbol(SymbolEntry::func("add_one", 0, body_size));
+
+    // Phase-5-m4-003: Emit data entries from the data side-table.
+    for (_id, entry) in data_table.iter() {
+        match entry.section {
+            paideia_as_ir::SectionKind::Rodata => {
+                writer.add_rodata_bytes(&entry.bytes, entry.align);
+            }
+            paideia_as_ir::SectionKind::Data => {
+                writer.add_data_bytes(&entry.bytes, entry.align);
+            }
+        }
+    }
+
     writer.finalize().unwrap_or_default()
 }
 

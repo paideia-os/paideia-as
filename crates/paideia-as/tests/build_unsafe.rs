@@ -4,9 +4,9 @@
 //! unsafe blocks (each containing lgdt [rdi]; cli; hlt), the InstructionSideTable
 //! populates with 9 instruction entries and produces the expected byte sequence.
 
+use object::ObjectSection;
 use std::path::PathBuf;
 use std::process::Command;
-use object::ObjectSection;
 
 fn data(name: &str) -> PathBuf {
     let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));

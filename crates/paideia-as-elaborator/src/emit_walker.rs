@@ -5,7 +5,7 @@
 //! populates an InstructionSideTable + tracks per-function offsets.
 
 use paideia_as_ir::instruction::{Instruction, InstructionSideTable, Mnemonic, Operand, RegId};
-use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec};
+use paideia_as_ir::{DataEntry, DataSideTable, IrArena, IrKind, IrNodeId, SmallVec};
 use std::collections::HashMap;
 
 /// Tracks emission state during IR traversal.
@@ -86,6 +86,7 @@ impl EmitWalker {
     /// m1-002: processes Let → Literal bindings, emitting Mov instructions.
     /// m1-003: processes Lambda bodies, emitting Mov/Lea/Ret for simple cases.
     /// m1-004: records IrKind::Unsafe nodes for later processing by UnsafeWalker (m3).
+    /// m4-003: populates DataSideTable for module-level Let-Literal bindings.
     pub fn walk(&mut self, arena: &IrArena) {
         // Iterate over all nodes, looking for Let, Lambda, and Unsafe nodes.
         for i in 1..=arena.len() as u32 {
@@ -120,6 +121,67 @@ impl EmitWalker {
                 }
             }
         }
+    }
+
+    /// Populate the DataSideTable for module-level data bindings.
+    ///
+    /// Walks the arena, recognizes module-level Let-Literal bindings, and
+    /// inserts DataEntry records into the provided DataSideTable.
+    /// Symbol names default to the binding identifier (to be resolved via
+    /// name resolution in a full implementation).
+    ///
+    /// # Arguments
+    /// * `arena_len` - The number of nodes in the arena
+    /// * `node_getter` - Closure to retrieve node by id
+    /// * `children_getter` - Closure to retrieve children
+    /// * `literal_getter` - Closure to get literal value
+    /// * `data_table` - The mutable data side-table to populate
+    pub fn populate_data_table(arena: &IrArena, data_table: &mut DataSideTable) {
+        // Iterate over all nodes, looking for module-level Let-Literal bindings.
+        for i in 1..=arena.len() as u32 {
+            if let Some(node_id) = IrNodeId::new(i) {
+                if let Some(node) = arena.get(node_id) {
+                    if node.kind == IrKind::Let {
+                        // Get the single child (the RHS expression).
+                        let children = arena.children(node_id);
+                        if let Some(&rhs_id) = children.first() {
+                            if let Some(rhs_node) = arena.get(rhs_id) {
+                                if rhs_node.kind == IrKind::Literal {
+                                    // Check if we have a literal value for this node.
+                                    if let Some(value) = arena.literal_values().get(rhs_id) {
+                                        // Pack the u64 value as little-endian 8 bytes.
+                                        let bytes = Self::pack_u64_le(value);
+                                        let symbol_name = format!("data_{}", node_id.get());
+                                        let entry = DataEntry::new_rodata(bytes, symbol_name, 8);
+                                        data_table.insert(node_id, entry);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Pack a u64 value as little-endian bytes.
+    fn pack_u64_le(value: i64) -> Vec<u8> {
+        Self::pack_u64_le_public(value)
+    }
+
+    /// Pack a u64 value as little-endian bytes (public helper for external use).
+    pub fn pack_u64_le_public(value: i64) -> Vec<u8> {
+        let u64_val = value as u64;
+        vec![
+            (u64_val & 0xFF) as u8,
+            ((u64_val >> 8) & 0xFF) as u8,
+            ((u64_val >> 16) & 0xFF) as u8,
+            ((u64_val >> 24) & 0xFF) as u8,
+            ((u64_val >> 32) & 0xFF) as u8,
+            ((u64_val >> 40) & 0xFF) as u8,
+            ((u64_val >> 48) & 0xFF) as u8,
+            ((u64_val >> 56) & 0xFF) as u8,
+        ]
     }
 
     /// Emit instruction for Let with Literal RHS.
@@ -636,5 +698,116 @@ mod tests {
 
         // Verify the state's pending list is now empty.
         assert!(state.pending_unsafe_blocks.is_empty());
+    }
+
+    // ── Data table population tests (m4-003) ──────────────────────────────────
+
+    use paideia_as_ir::SectionKind;
+
+    #[test]
+    fn emit_walker_pack_u64_le_small_value() {
+        let bytes = EmitWalker::pack_u64_le(0x0102_0304_0506_0708i64);
+        assert_eq!(bytes.len(), 8);
+        assert_eq!(bytes[0], 0x08);
+        assert_eq!(bytes[1], 0x07);
+        assert_eq!(bytes[2], 0x06);
+        assert_eq!(bytes[3], 0x05);
+        assert_eq!(bytes[4], 0x04);
+        assert_eq!(bytes[5], 0x03);
+        assert_eq!(bytes[6], 0x02);
+        assert_eq!(bytes[7], 0x01);
+    }
+
+    #[test]
+    fn emit_walker_pack_u64_le_zero() {
+        let bytes = EmitWalker::pack_u64_le(0);
+        assert_eq!(bytes, vec![0, 0, 0, 0, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn emit_walker_pack_u64_le_max() {
+        let bytes = EmitWalker::pack_u64_le(-1i64); // all bits set
+        assert_eq!(bytes, vec![0xFF; 8]);
+    }
+
+    #[test]
+    fn emit_walker_populate_data_table_empty_arena() {
+        let arena = IrArena::new();
+        let mut data_table = DataSideTable::new();
+
+        EmitWalker::populate_data_table(&arena, &mut data_table);
+        assert!(data_table.is_empty());
+    }
+
+    #[test]
+    fn emit_walker_populate_data_table_let_literal_value() {
+        let mut arena = IrArena::new();
+
+        // Allocate: Literal node with value 0x0011223344556677, then Let with Literal as child.
+        let lit_id = arena.alloc(IrKind::Literal, span());
+        let let_id = arena.alloc_with_children(IrKind::Let, span(), [lit_id]);
+
+        // Register the literal value.
+        arena
+            .literal_values_mut()
+            .insert(lit_id, 0x0011223344556677i64);
+
+        // Populate the data table.
+        let mut data_table = DataSideTable::new();
+        EmitWalker::populate_data_table(&arena, &mut data_table);
+
+        // Verify the entry was created.
+        let entry = data_table.get(let_id).expect("data entry should exist");
+        assert_eq!(entry.section, SectionKind::Rodata);
+        assert_eq!(entry.align, 8);
+        assert_eq!(entry.bytes.len(), 8);
+        // Little-endian: 77 66 55 44 33 22 11 00
+        assert_eq!(entry.bytes[0], 0x77);
+        assert_eq!(entry.bytes[7], 0x00);
+    }
+
+    #[test]
+    fn emit_walker_populate_data_table_multiple_entries() {
+        let mut arena = IrArena::new();
+
+        // Allocate first Let-Literal.
+        let lit1_id = arena.alloc(IrKind::Literal, span());
+        let let1_id = arena.alloc_with_children(IrKind::Let, span(), [lit1_id]);
+        arena
+            .literal_values_mut()
+            .insert(lit1_id, 0x0102030405060708i64);
+
+        // Allocate second Let-Literal.
+        let lit2_id = arena.alloc(IrKind::Literal, span());
+        let let2_id = arena.alloc_with_children(IrKind::Let, span(), [lit2_id]);
+        arena
+            .literal_values_mut()
+            .insert(lit2_id, 0x0807060504030201i64);
+
+        // Populate the data table.
+        let mut data_table = DataSideTable::new();
+        EmitWalker::populate_data_table(&arena, &mut data_table);
+
+        // Verify both entries were created.
+        assert_eq!(data_table.len(), 2);
+        assert!(data_table.get(let1_id).is_some());
+        assert!(data_table.get(let2_id).is_some());
+    }
+
+    #[test]
+    fn emit_walker_populate_data_table_symbol_name_generation() {
+        let mut arena = IrArena::new();
+
+        let lit_id = arena.alloc(IrKind::Literal, span());
+        let let_id = arena.alloc_with_children(IrKind::Let, span(), [lit_id]);
+        arena.literal_values_mut().insert(lit_id, 42i64);
+
+        let mut data_table = DataSideTable::new();
+        EmitWalker::populate_data_table(&arena, &mut data_table);
+
+        let entry = data_table.get(let_id).expect("data entry should exist");
+        // Symbol name should be generated as data_<node_id>
+        assert!(entry.symbol_name.starts_with("data_"));
+        assert!(entry.symbol_name.contains(&let_id.get().to_string()));
     }
 }

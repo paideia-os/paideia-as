@@ -235,7 +235,9 @@ fn parse_register_from_ident(
     });
 
     // Handle both Ident and ExprPath (single-segment) node kinds
-    let node = ast.get(ident_node).ok_or(OperandError::MalformedOperand(span))?;
+    let node = ast
+        .get(ident_node)
+        .ok_or(OperandError::MalformedOperand(span))?;
     let actual_ident_node = match node.kind {
         NodeKind::Ident => ident_node,
         NodeKind::ExprPath => {
@@ -351,17 +353,15 @@ fn extract_sib_components(
             _ => Err(OperandError::MalformedOperand(span)),
         },
         // Path case: single-segment path (like `rdi`) → same as Ident
-        NodeKind::ExprPath => {
-            match ast.expr_data(expr_node) {
-                Some(ExprData::Path { segments }) if segments.len() == 1 => {
-                    match parse_register_from_ident(ast, segments[0], source_map)? {
-                        Operand::Reg(base) => Ok((base, None, Scale::X1, 0)),
-                        _ => Err(OperandError::MalformedOperand(span)),
-                    }
+        NodeKind::ExprPath => match ast.expr_data(expr_node) {
+            Some(ExprData::Path { segments }) if segments.len() == 1 => {
+                match parse_register_from_ident(ast, segments[0], source_map)? {
+                    Operand::Reg(base) => Ok((base, None, Scale::X1, 0)),
+                    _ => Err(OperandError::MalformedOperand(span)),
                 }
-                _ => Err(OperandError::MalformedOperand(span)),
             }
-        }
+            _ => Err(OperandError::MalformedOperand(span)),
+        },
         // Infix operator: could be addition/subtraction or multiplication
         NodeKind::ExprInfix => {
             match ast.expr_data(expr_node) {
@@ -406,7 +406,8 @@ fn combine_additive_terms(
     });
 
     // Recursively extract components from left and right
-    let (left_base, left_index, left_scale, left_disp) = extract_sib_components(ast, left, source_map)?;
+    let (left_base, left_index, left_scale, left_disp) =
+        extract_sib_components(ast, left, source_map)?;
 
     // Try to parse right as either a register, immediate, or index*scale expression
     let right_kind = ast.get(right).map(|n| n.kind);
