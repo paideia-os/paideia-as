@@ -150,9 +150,9 @@ pub fn encode_instruction(
         Mnemonic::Cpuid => encode_cpuid(inst, buf),
         Mnemonic::In { width } => encode_in(inst, buf, *width),
         Mnemonic::Out { width } => encode_out(inst, buf, *width),
-        Mnemonic::Wrmsr => Err(EncodeError::Unsupported("phase-5 m2-004")),
-        Mnemonic::Rdmsr => Err(EncodeError::Unsupported("phase-5 m2-004")),
-        Mnemonic::Int => Err(EncodeError::Unsupported("phase-5 m2-004")),
+        Mnemonic::Wrmsr => encode_wrmsr_inst(inst, buf),
+        Mnemonic::Rdmsr => encode_rdmsr_inst(inst, buf),
+        Mnemonic::Int => encode_int(inst, buf),
         Mnemonic::MovCr { .. } => Err(EncodeError::Unsupported("phase-5 m2-005")),
         Mnemonic::MovDr { .. } => Err(EncodeError::Unsupported("phase-5 m2-006")),
         Mnemonic::Lgdt => Err(EncodeError::Unsupported("phase-5 m2-007")),
@@ -529,6 +529,51 @@ fn encode_out(inst: &Instruction, buf: &mut CodeBuffer, width: u8) -> Result<(),
 
     encode_out_dx(buf, width);
     Ok(())
+}
+
+fn encode_wrmsr_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+    // wrmsr expects exactly 0 operands (MSR index in ECX, value in EDX:EAX)
+    if !inst.operands.is_empty() {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::Wrmsr,
+            expected: 0,
+            got: inst.operands.len(),
+        });
+    }
+    encode_wrmsr(buf);
+    Ok(())
+}
+
+fn encode_rdmsr_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+    // rdmsr expects exactly 0 operands (MSR index in ECX, result in EDX:EAX)
+    if !inst.operands.is_empty() {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::Rdmsr,
+            expected: 0,
+            got: inst.operands.len(),
+        });
+    }
+    encode_rdmsr(buf);
+    Ok(())
+}
+
+fn encode_int(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+    // int expects exactly 1 operand: an immediate value that fits in u8
+    match inst.operands.as_slice() {
+        [Operand::Imm64(imm)] => {
+            // Check that the operand fits in u8
+            if *imm > u8::MAX as i64 {
+                return Err(EncodeError::Unsupported("int operand > u8"));
+            }
+            encode_int_imm8(buf, *imm as u8);
+            Ok(())
+        }
+        _ => Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::Int,
+            expected: 1,
+            got: inst.operands.len(),
+        }),
+    }
 }
 
 #[cfg(test)]
@@ -1069,5 +1114,70 @@ mod tests {
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
         assert_eq!(instr.mnemonic(), IcedMnem::Out);
+    }
+
+    // ── Phase-5 m2-004: MSR and interrupt instructions ────────────
+
+    #[test]
+    fn encode_wrmsr_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Wrmsr,
+            operands: smallvec::smallvec![],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0x0F, 0x30]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Wrmsr);
+    }
+
+    #[test]
+    fn encode_rdmsr_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Rdmsr,
+            operands: smallvec::smallvec![],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0x0F, 0x32]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Rdmsr);
+    }
+
+    #[test]
+    fn encode_int_0x20_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Int,
+            operands: smallvec::smallvec![Operand::Imm64(0x20)],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0xCD, 0x20]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Int);
     }
 }

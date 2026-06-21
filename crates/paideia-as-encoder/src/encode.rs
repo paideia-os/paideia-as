@@ -909,6 +909,52 @@ pub fn encode_zero_operand(buf: &mut CodeBuffer, mnem_byte: u8) {
     }
 }
 
+/// Encode MSR write instruction: `wrmsr` (no operands).
+///
+/// Model-Specific Register Write: writes the value in EDX:EAX to the MSR
+/// specified by the MSR index in ECX. This is a privileged instruction.
+///
+/// # Instructions
+/// - `wrmsr`: `0F 30` (2 bytes)
+///
+/// # Arguments
+/// - `buf`: code buffer to append instruction to
+pub fn encode_wrmsr(buf: &mut CodeBuffer) {
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0x30);
+}
+
+/// Encode MSR read instruction: `rdmsr` (no operands).
+///
+/// Model-Specific Register Read: reads the MSR specified by the MSR index
+/// in ECX into EDX:EAX. This is a privileged instruction.
+///
+/// # Instructions
+/// - `rdmsr`: `0F 32` (2 bytes)
+///
+/// # Arguments
+/// - `buf`: code buffer to append instruction to
+pub fn encode_rdmsr(buf: &mut CodeBuffer) {
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0x32);
+}
+
+/// Encode software interrupt instruction: `int imm8`.
+///
+/// Generates a software interrupt with the specified interrupt number.
+/// The interrupt number is encoded as an 8-bit immediate value.
+///
+/// # Instructions
+/// - `int N`: `CD <imm8>` (2 bytes)
+///
+/// # Arguments
+/// - `buf`: code buffer to append instruction to
+/// - `imm`: interrupt number (must fit in u8)
+pub fn encode_int_imm8(buf: &mut CodeBuffer, imm: u8) {
+    buf.bytes.push(0xCD);
+    buf.bytes.push(imm);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
