@@ -44,7 +44,7 @@ use paideia_as_emitter_pe::{
     COFF_FILE_HEADER_SIZE, CoffFileHeader, DOS_HEADER_SIZE, DosHeader, NT_SIGNATURE,
     OPTIONAL_HEADER_PE32PLUS_SIZE, OptionalHeaderPe32Plus, SectionTable as PeSectionTable,
 };
-use paideia_as_encoder::EncodeStats;
+use paideia_as_encoder::{EncodeStats, LabelFixup};
 use paideia_as_ir::{InstructionSideTable, IrNodeId, ModuleSideTable, walk};
 use paideia_as_lexer::{Lexer, SourceText};
 use paideia_as_parser::Parser;
@@ -448,6 +448,64 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
     }
 }
 
+/// Patch label fixups after .text encoding is complete.
+///
+/// Phase-6-m4-004: Called after all instructions have been encoded
+/// and byte offsets are known. For each LabelFixup, computes the
+/// displacement as: label_offset - (fixup_byte_offset + 4), then
+/// writes the i32 LE value into the buffer at the fixup location.
+///
+/// # Arguments
+///
+/// * `buffer` - Mutable reference to the .text section bytes
+/// * `label_fixups` - List of fixup sites collected during encoding
+/// * `labels` - Map of label names to their byte offsets in .text
+/// * `strict_mode` - Whether to abort on unresolved labels
+///
+/// # Returns
+///
+/// `Ok(())` if all fixups applied successfully, or
+/// `Err(BuildError::Encoder)` if a label is unresolved in strict mode.
+fn patch_label_fixups(
+    buffer: &mut [u8],
+    label_fixups: &[LabelFixup],
+    labels: &std::collections::HashMap<String, u32>,
+    strict_mode: bool,
+    file: paideia_as_diagnostics::FileId,
+) -> Result<(), BuildError> {
+    for fixup in label_fixups {
+        match labels.get(&fixup.label_name) {
+            Some(&label_offset) => {
+                // Compute displacement: label_offset - (fixup_byte_offset + 4)
+                // The "+4" accounts for the fact that relative offsets are computed
+                // from the byte AFTER the displacement field (i.e., the next instruction).
+                let disp = (label_offset as i64) - ((fixup.byte_offset as i64) + 4);
+                let disp_i32 = disp as i32;
+
+                // Write the displacement as i32 LE at the fixup offset
+                let offset = fixup.byte_offset as usize;
+                if offset + 4 <= buffer.len() {
+                    let disp_bytes = disp_i32.to_le_bytes();
+                    buffer[offset..offset + 4].copy_from_slice(&disp_bytes);
+                }
+            }
+            None => {
+                // Unresolved label: emit U1610
+                eprintln!("error: unresolved label '{}' (U1610)", fixup.label_name);
+                if strict_mode {
+                    let span = paideia_as_diagnostics::Span::new(file, 0, 1);
+                    return Err(BuildError::Encoder {
+                        node: IrNodeId::new(1).unwrap(),
+                        source_span: span,
+                        encoder_message: format!("unresolved label '{}'", fixup.label_name),
+                    });
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Build the phase-1 ELF object body.
 ///
 /// Phase-5-m5-003: Real symbol-table emission from SymbolTable.
@@ -458,6 +516,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
 /// Phase-5-m4-004: Collects relocation sites from instruction encoding and emits
 /// them to the .rela.text section.
 /// Phase-6-m1-004: Propagates encoder failures as BuildError::Encoder instead of silently falling back.
+/// Phase-6-m4-004: Applies label fixups after .text encoding completes.
 fn build_elf_object(
     arena: &paideia_as_ir::IrArena,
     instruction_table: &InstructionSideTable,
@@ -473,11 +532,12 @@ fn build_elf_object(
     let mut text_bytes = Vec::new();
     let emit_result = if instruction_table.is_empty() {
         // Empty instruction table → empty .text section (valid ELF).
-        // Return a minimal EmitResult with no relocations.
+        // Return a minimal EmitResult with no relocations or label fixups.
         paideia_as_emitter_pe::EmitResult {
             encode_stats: EncodeStats::new(),
             offset_map: std::collections::HashMap::new(),
             reloc_sites: Vec::new(),
+            label_fixups: Vec::new(),
         }
     } else {
         // Real instruction encoding: iterate InstructionSideTable in IR-node order
@@ -499,6 +559,7 @@ fn build_elf_object(
                             encode_stats: EncodeStats::new(),
                             offset_map: std::collections::HashMap::new(),
                             reloc_sites: Vec::new(),
+                            label_fixups: Vec::new(),
                         }
                     } else {
                         // Phase-6 default: propagate error
@@ -518,6 +579,18 @@ fn build_elf_object(
             }
         }
     };
+
+    // Phase-6-m4-004: Patch label fixups after .text encoding is complete.
+    // Extract labels from emit_walker state and apply fixups to text_bytes.
+    let labels = &emit_walker.state().labels;
+    let strict_mode = true;
+    patch_label_fixups(
+        &mut text_bytes,
+        &emit_result.label_fixups,
+        labels,
+        strict_mode,
+        file,
+    )?;
 
     writer.add_text_bytes(&text_bytes);
 
@@ -863,6 +936,7 @@ fn build_pe_object(
                         encode_stats: EncodeStats::new(),
                         offset_map: std::collections::HashMap::new(),
                         reloc_sites: Vec::new(),
+                        label_fixups: Vec::new(),
                     }
                 } else {
                     return Err(BuildError::Encoder {

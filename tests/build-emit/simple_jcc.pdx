@@ -1,0 +1,10 @@
+module SimpleJcc = structure {
+  let test_fn : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "simple test",
+    block: {
+      nop
+    }
+  }
+}

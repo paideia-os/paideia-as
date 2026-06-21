@@ -7,7 +7,7 @@
 //! Phase-4-m2-002: Threads InstructionSideTable through emit-stage to
 //! track instruction offsets for DWARF .debug_line section reconstruction.
 
-use paideia_as_encoder::{CodeBuffer, EncodeStats, RelocSite, encode_instruction};
+use paideia_as_encoder::{CodeBuffer, EncodeStats, LabelFixup, RelocSite, encode_instruction};
 use paideia_as_ir::{InstructionSideTable, IrNodeId};
 use std::collections::HashMap;
 
@@ -28,11 +28,12 @@ impl std::fmt::Display for TextEmitterError {
 
 impl std::error::Error for TextEmitterError {}
 
-/// Result of emitting text section: encoding stats, offset map, relocations, and bytes.
+/// Result of emitting text section: encoding stats, offset map, relocations, label fixups, and bytes.
 ///
 /// The offset map tracks the byte offset at which each instruction
 /// was emitted, enabling DWARF .debug_line reconstruction (Phase-4-m2-002).
 /// Relocations are collected from all encoded instructions (Phase-5-m4-004).
+/// Label fixups are collected from Jcc and Jmp instructions with label references (Phase-6-m4-004).
 #[derive(Debug, Clone)]
 pub struct EmitResult {
     /// Instruction count, instruction bytes, etc.
@@ -44,6 +45,10 @@ pub struct EmitResult {
     /// Each relocation specifies a symbol reference to be resolved at link time.
     /// Phase-5-m4-004: Used to populate .rela.text section in ELF emission.
     pub reloc_sites: Vec<RelocSite>,
+    /// Label fixup sites collected from Jcc/Jmp instructions with label references.
+    /// Phase-6-m4-004: These are applied by cmd_build::patch_label_fixups() after
+    /// all instructions have been encoded and label offsets are known.
+    pub label_fixups: Vec<LabelFixup>,
 }
 
 /// Emit .text section content from an InstructionSideTable.
@@ -65,6 +70,7 @@ pub fn emit_text_from_instructions(
     let mut stats = EncodeStats::new();
     let mut offset_map = HashMap::new();
     let mut reloc_sites = Vec::new();
+    let mut label_fixups = Vec::new();
 
     // Iterate over all instructions in the side-table, tracking byte offsets.
     // We collect and sort entries by node_id to ensure deterministic order
@@ -85,6 +91,14 @@ pub fn emit_text_from_instructions(
             reloc_sites.push(site);
         }
 
+        // Phase-6-m4-004: Collect label fixup sites from this instruction.
+        // Each LabelFixup has a byte_offset relative to the instruction's start.
+        // We adjust it to be relative to the start of .text section.
+        for mut fixup in encode_output.label_fixups {
+            fixup.byte_offset = (offset_before as u32) + fixup.byte_offset;
+            label_fixups.push(fixup);
+        }
+
         offset_map.insert(node_id, offset_before);
     }
 
@@ -94,6 +108,7 @@ pub fn emit_text_from_instructions(
         encode_stats: stats,
         offset_map,
         reloc_sites,
+        label_fixups,
     })
 }
 
@@ -113,6 +128,7 @@ mod tests {
         assert_eq!(output.len(), 0);
         assert!(emit_result.offset_map.is_empty());
         assert!(emit_result.reloc_sites.is_empty());
+        assert!(emit_result.label_fixups.is_empty());
     }
 
     #[test]
