@@ -402,6 +402,17 @@ pub enum ExprData {
     /// Array literal expression: contains a list of element expressions.
     /// Empty array literals `[]` require explicit type annotation and emit P0210.
     ArrayLit(Vec<NodeId>),
+
+    /// `uninit`.
+    ///
+    /// Uninitialized value marker. Only valid as the right-hand side of a
+    /// `let mut` binding. Used to declare variables without initializing their
+    /// storage (e.g., for later assignment or performance reasons).
+    /// - Valid: `let mut x : u64 = uninit`
+    /// - Valid: `let mut arr : [u64; 512] = uninit`
+    /// - Invalid: `let x : u64 = uninit` → P0220
+    /// - Invalid: `some_func(uninit)` → P0221
+    Uninit,
 }
 
 /// A single arm in a match expression.
@@ -598,6 +609,17 @@ mod tests {
                 // Successfully matched Continue
             }
             _ => panic!("expected Continue variant"),
+        }
+    }
+
+    #[test]
+    fn expr_uninit_constructs() {
+        let expr = ExprData::Uninit;
+        match expr {
+            ExprData::Uninit => {
+                // Successfully matched Uninit
+            }
+            _ => panic!("expected Uninit variant"),
         }
     }
 }

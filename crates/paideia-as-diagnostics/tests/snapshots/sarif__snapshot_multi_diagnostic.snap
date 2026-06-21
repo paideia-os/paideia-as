@@ -594,6 +594,34 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "Phase 6 m5-001: The uninit keyword can only be used as the right-hand side of a mutable let binding (let mut). To fix this, either add the mut keyword to the let binding or provide a proper initialization value. Example: `let mut x: u64 = uninit;` is valid, but `let x: u64 = uninit;` is not."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0220",
+              "id": "P0220",
+              "name": "uninit only valid for let mut",
+              "shortDescription": {
+                "text": "uninit marker not allowed in immutable let binding"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase 6 m5-001: The uninit keyword can only be used as the right-hand side of a mutable let binding. It cannot appear as a general expression in function calls, return statements, or other contexts. Use it only in patterns like `let mut x: Type = uninit;`."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0221",
+              "id": "P0221",
+              "name": "uninit not valid in this position",
+              "shortDescription": {
+                "text": "uninit keyword only valid as RHS of let mut binding"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "Signature ascription requires the structure to define a named type/val/module that is absent."
               },
               "helpUri": "https://paideia-os.org/diagnostics/M0301",

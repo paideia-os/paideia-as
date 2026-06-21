@@ -22,8 +22,8 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// Parse a statement: let binding, return, expression, or instruction.
     ///
     /// **Algorithm:**
-    /// 1. If current token is `KwLet`: parse `let Pattern (: Type)? = Expr ;`
-    ///    Allocate `StmtData::Let { name, ty, value }`.
+    /// 1. If current token is `KwLet`: parse `let [mut] Pattern (: Type)? = Expr ;`
+    ///    Allocate `StmtData::Let { mutable, name, ty, value }`.
     /// 2. If current token is `KwReturn`: parse `return Expr? ;`
     ///    Allocate `StmtData::Return { value }`.
     /// 3. If `in_action_context` is true and current token is `Ident` AND next token
@@ -68,10 +68,13 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         }
     }
 
-    /// Parse a let statement: `let Pat (: Type)? = Expr ;`
+    /// Parse a let statement: `let [mut] Pat (: Type)? = Expr ;`
     fn parse_let_stmt(&mut self) -> Result<NodeId, ParseError> {
         let let_tok = self.expect(TokenKind::KwLet)?;
         let let_span = let_tok.span;
+
+        // Check for optional `mut` keyword
+        let mutable = self.eat(TokenKind::KwMut);
 
         // Parse pattern (for now, just an identifier)
         let name_tok = self.expect(TokenKind::Ident)?;
@@ -90,6 +93,24 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         // Parse the value expression
         let value = self.parse_expr()?;
 
+        // Validation: if value is Uninit, check mutability
+        if let Some(expr_data) = self.arena().expr_data(value) {
+            if let paideia_as_ast::ExprData::Uninit = expr_data {
+                if !mutable {
+                    // uninit only valid for let mut
+                    let expr_node = self.arena().get(value).expect("expr exists");
+                    let code = DiagnosticCode::new(Category::P, Severity::Error, 220)
+                        .expect("valid P code");
+                    let diag = Diagnostic::error(code)
+                        .message("uninit only valid for let mut")
+                        .with_span(expr_node.span)
+                        .finish();
+                    self.emit_diagnostic(diag);
+                    return Err(ParseError);
+                }
+            }
+        }
+
         // Expect optional `;` (or it's the end of block)
         self.eat(TokenKind::Semicolon);
 
@@ -104,6 +125,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             NodeKind::StmtLet,
             stmt_span,
             StmtData::Let {
+                mutable,
                 name: name_id,
                 ty,
                 value,
@@ -668,5 +690,121 @@ mod tests {
 
         let result = p.parse_stmt(true);
         assert!(result.is_ok(), "ret should parse");
+    }
+
+    /// Phase 6 m5-001: Test 1 — `let mut x : u64 = 0 ;` parses with mutable flag.
+    #[test]
+    fn let_mut_typed_stmt() {
+        // `let mut x : u64 = 0 ;`
+        let toks = vec![
+            tok(TokenKind::KwLet, 0, 3),
+            tok(TokenKind::KwMut, 4, 3), // "mut"
+            tok(TokenKind::Ident, 8, 1), // "x"
+            tok(TokenKind::Colon, 10, 1),
+            tok(TokenKind::Ident, 12, 3), // "u64"
+            tok(TokenKind::Assign, 16, 1),
+            tok(TokenKind::IntLit, 18, 1), // "0"
+            tok(TokenKind::Semicolon, 20, 1),
+        ];
+        let source = "let mut x : u64 = 0 ;";
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut p = Parser::new(
+            &toks,
+            source,
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        );
+
+        let result = p.parse_stmt(false);
+        assert!(result.is_ok(), "let mut x : u64 = 0 should parse");
+        let stmt_id = result.unwrap();
+
+        // Verify it's a StmtLet node with mutable=true
+        let node = arena.get(stmt_id).unwrap();
+        assert_eq!(node.kind, NodeKind::StmtLet);
+        if let Some(StmtData::Let { mutable, .. }) = arena.stmt_data(stmt_id) {
+            assert!(*mutable, "let mut should have mutable=true");
+        } else {
+            panic!("expected Let statement");
+        }
+    }
+
+    /// Phase 6 m5-001: Test 2 — `let mut arr : [u64; 512] = uninit ;` parses.
+    #[test]
+    fn let_mut_with_uninit() {
+        // `let mut arr : [u64; 512] = uninit ;`
+        let toks = vec![
+            tok(TokenKind::KwLet, 0, 3),
+            tok(TokenKind::KwMut, 4, 3), // "mut"
+            tok(TokenKind::Ident, 8, 3), // "arr"
+            tok(TokenKind::Colon, 12, 1),
+            tok(TokenKind::LBracket, 14, 1),
+            tok(TokenKind::Ident, 15, 3), // "u64"
+            tok(TokenKind::Semicolon, 18, 1),
+            tok(TokenKind::IntLit, 20, 3), // "512"
+            tok(TokenKind::RBracket, 23, 1),
+            tok(TokenKind::Assign, 25, 1),
+            tok(TokenKind::Ident, 27, 6), // "uninit"
+            tok(TokenKind::Semicolon, 33, 1),
+        ];
+        let source = "let mut arr : [u64; 512] = uninit ;";
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut p = Parser::new(
+            &toks,
+            source,
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        );
+
+        let result = p.parse_stmt(false);
+        assert!(
+            result.is_ok(),
+            "let mut arr : [u64; 512] = uninit should parse"
+        );
+        let stmt_id = result.unwrap();
+
+        // Verify it's a StmtLet node with mutable=true
+        let node = arena.get(stmt_id).unwrap();
+        assert_eq!(node.kind, NodeKind::StmtLet);
+    }
+
+    /// Phase 6 m5-001: Test 3 — `let x : u64 = uninit ;` rejects with P0220.
+    #[test]
+    fn let_immutable_uninit_rejected() {
+        // `let x : u64 = uninit ;` should error with P0220
+        let toks = vec![
+            tok(TokenKind::KwLet, 0, 3),
+            tok(TokenKind::Ident, 4, 1), // "x"
+            tok(TokenKind::Colon, 6, 1),
+            tok(TokenKind::Ident, 8, 3), // "u64"
+            tok(TokenKind::Assign, 12, 1),
+            tok(TokenKind::Ident, 14, 6), // "uninit"
+            tok(TokenKind::Semicolon, 20, 1),
+        ];
+        let source = "let x : u64 = uninit ;";
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut p = Parser::new(
+            &toks,
+            source,
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        );
+
+        let result = p.parse_stmt(false);
+        // Should fail because uninit is only valid for let mut
+        assert!(result.is_err(), "let x : u64 = uninit should fail");
+        // Verify P0220 was emitted
+        let diags = sink.diagnostics();
+        assert!(
+            !diags.is_empty(),
+            "expected diagnostic for uninit in immutable let"
+        );
+        assert_eq!(diags[0].code().number(), 220, "expected P0220 error code");
     }
 }

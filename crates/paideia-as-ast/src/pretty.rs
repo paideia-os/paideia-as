@@ -623,6 +623,8 @@ fn print_expr_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 .join(", ");
             format!("ArrayLit([{}])", elements_str)
         }
+
+        ExprData::Uninit => "Uninit".to_string(),
     };
 
     use std::fmt::Write;
@@ -646,8 +648,16 @@ fn print_stmt_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
     };
 
     let line = match stmt {
-        StmtData::Let { name, ty, value } => {
-            format!("Let {{ name: {}, ty: {:?}, value: {} }}", name, ty, value)
+        StmtData::Let {
+            mutable,
+            name,
+            ty,
+            value,
+        } => {
+            format!(
+                "Let {{ mutable: {}, name: {}, ty: {:?}, value: {} }}",
+                mutable, name, ty, value
+            )
         }
         StmtData::Expr { expr } => {
             format!("Expr {{ expr: {} }}", expr)

@@ -420,6 +420,9 @@ impl<'a> Term<'a> {
                         result.push(Term::new(self.arena, *element));
                     }
                 }
+                ExprData::Uninit => {
+                    // No children for uninit
+                }
             }
         }
 

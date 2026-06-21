@@ -450,7 +450,13 @@ fn eval_inner<'a>(
 
         NodeKind::StmtLet => {
             // Let statement: bind the variable and return Unit.
-            if let Some(StmtData::Let { name, ty: _, value }) = arena.stmt_data(expr_id) {
+            if let Some(StmtData::Let {
+                mutable: _,
+                name,
+                ty: _,
+                value,
+            }) = arena.stmt_data(expr_id)
+            {
                 let val = eval(arena, *value, env, type_cache)?;
                 // Bind the name (for now, assume it's a simple identifier).
                 // Use the name node's span byte_start as the variable key.
@@ -789,6 +795,7 @@ mod tests {
             NodeKind::StmtLet,
             test_span(0, 10),
             StmtData::Let {
+                mutable: false,
                 name: x_name,
                 ty: None,
                 value: lit1_id,
@@ -1548,6 +1555,7 @@ mod tests {
             NodeKind::StmtLet,
             test_span(0, 10),
             StmtData::Let {
+                mutable: false,
                 name: x_name,
                 ty: None,
                 value: lit1_id,
@@ -1568,6 +1576,7 @@ mod tests {
             NodeKind::StmtLet,
             test_span(10, 10),
             StmtData::Let {
+                mutable: false,
                 name: y_name,
                 ty: None,
                 value: lit2_id,
@@ -1588,6 +1597,7 @@ mod tests {
             NodeKind::StmtLet,
             test_span(20, 10),
             StmtData::Let {
+                mutable: false,
                 name: z_name,
                 ty: None,
                 value: lit3_id,

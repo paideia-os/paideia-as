@@ -380,6 +380,24 @@ description = "Phase 5 m4-002: array literal expressions with explicit syntax `[
 since = "0.8.0"
 deprecated = false
 
+[diagnostic.P0220]
+severity = "error"
+category = "parser"
+title = "uninit only valid for let mut"
+brief = "uninit marker not allowed in immutable let binding"
+description = "Phase 6 m5-001: The uninit keyword can only be used as the right-hand side of a mutable let binding (let mut). To fix this, either add the mut keyword to the let binding or provide a proper initialization value. Example: `let mut x: u64 = uninit;` is valid, but `let x: u64 = uninit;` is not."
+since = "0.9.0"
+deprecated = false
+
+[diagnostic.P0221]
+severity = "error"
+category = "parser"
+title = "uninit not valid in this position"
+brief = "uninit keyword only valid as RHS of let mut binding"
+description = "Phase 6 m5-001: The uninit keyword can only be used as the right-hand side of a mutable let binding. It cannot appear as a general expression in function calls, return statements, or other contexts. Use it only in patterns like `let mut x: Type = uninit;`."
+since = "0.9.0"
+deprecated = false
+
 [diagnostic.O1500]
 severity = "note"
 category = "optimization"

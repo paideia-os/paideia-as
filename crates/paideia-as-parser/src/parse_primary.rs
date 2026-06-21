@@ -270,13 +270,14 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     ///
     /// Path syntax: `Ident (:: Ident)*`.
     /// Also dispatches to `parse_quote_expr` if the identifier is the
-    /// contextual keyword "quote" followed by `{`.
-    /// Returns an ExprPath node with segments, or an ExprQuote on quote syntax.
+    /// contextual keyword "quote" followed by `{`, or returns an ExprUninit
+    /// if the identifier is the contextual keyword "uninit".
+    /// Returns an ExprPath node with segments, or an ExprQuote/ExprUninit on those contexts.
     pub(crate) fn parse_path_or_ident(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
         let first_tok = self.expect(TokenKind::Ident)?;
         let span_start = first_tok.span;
 
-        // Check if this is the contextual keyword "quote" followed by `{`
+        // Check if this is the contextual keyword "quote" followed by `{` or "uninit"
         let source = self.source();
         let start = first_tok.span.byte_start() as usize;
         let end = (first_tok.span.byte_start() + first_tok.span.byte_len()) as usize;
@@ -288,6 +289,14 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
         if ident_lexeme == "quote" && self.peek().is_some_and(|t| t.kind == TokenKind::LBrace) {
             return self.parse_quote_expr(first_tok);
+        }
+
+        if ident_lexeme == "uninit" {
+            return Ok(self.arena_mut().alloc_expr(
+                NodeKind::ExprUninit,
+                span_start,
+                ExprData::Uninit,
+            ));
         }
 
         // Otherwise, parse as a normal path
@@ -1173,5 +1182,42 @@ mod tests {
         assert!(!sink.diagnostics().is_empty());
         let diag = &sink.diagnostics()[sink.diagnostics().len() - 1];
         assert_eq!(diag.code().number(), 101);
+    }
+
+    /// Phase 6 m5-001: Test — `uninit` contextual keyword parses as ExprUninit.
+    #[test]
+    fn parses_uninit_expr() {
+        let source = "uninit";
+        let tokens = vec![
+            tok(TokenKind::Ident, 0, 6), // "uninit"
+            tok(TokenKind::Eof, 6, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(
+            &tokens,
+            source,
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        );
+
+        let result = parser.parse_primary();
+        assert!(
+            result.is_ok(),
+            "uninit should parse as a primary expression"
+        );
+        let expr_id = result.unwrap();
+
+        // Verify it's an ExprUninit node
+        let node = arena.get(expr_id).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprUninit);
+
+        // Verify the ExprData is Uninit
+        if let Some(ExprData::Uninit) = arena.expr_data(expr_id) {
+            // Success
+        } else {
+            panic!("expected Uninit variant");
+        }
     }
 }

@@ -127,6 +127,8 @@ pub enum NodeKind {
     ExprDeref,
     /// `[expr1, expr2, ...]` (array literal).
     ExprArrayLit,
+    /// `uninit` (uninitialized value marker for `let mut` bindings).
+    ExprUninit,
 
     // Statements (§8 Stmt: LetStmt | ExprStmt | InstructionStmt | ReturnStmt | LabelStmt)
     /// `let name: ty? = expr;`.

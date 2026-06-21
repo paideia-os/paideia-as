@@ -12,10 +12,13 @@ use crate::NodeId;
 /// syntax reference. Child `NodeId` fields point to other nodes in the arena.
 #[derive(Clone, Debug)]
 pub enum StmtData {
-    /// `let name: ty? = expr;`.
+    /// `let [mut] name: ty? = expr;`.
     ///
     /// Local let-binding (statement form). Distinct from top-level `ItemData::Let`.
+    /// The `mutable` flag indicates whether this is a mutable binding (`let mut ...`).
     Let {
+        /// Whether this is a mutable binding (true for `let mut ...`, false for `let ...`).
+        mutable: bool,
         /// Binding name (Ident node).
         name: NodeId,
         /// Optional type annotation (Type node).
@@ -77,16 +80,19 @@ mod tests {
         let ty = make_nodeid(2);
         let value = make_nodeid(3);
         let stmt = StmtData::Let {
+            mutable: false,
             name,
             ty: Some(ty),
             value,
         };
         match stmt {
             StmtData::Let {
+                mutable: m,
                 name: n,
                 ty: t,
                 value: v,
             } => {
+                assert!(!m);
                 assert_eq!(n, name);
                 assert_eq!(t, Some(ty));
                 assert_eq!(v, value);
@@ -147,6 +153,33 @@ mod tests {
                 assert!(value.is_none());
             }
             _ => panic!("expected Return variant"),
+        }
+    }
+
+    #[test]
+    fn stmt_let_mutable_constructs() {
+        let name = make_nodeid(1);
+        let ty = make_nodeid(2);
+        let value = make_nodeid(3);
+        let stmt = StmtData::Let {
+            mutable: true,
+            name,
+            ty: Some(ty),
+            value,
+        };
+        match stmt {
+            StmtData::Let {
+                mutable: m,
+                name: n,
+                ty: t,
+                value: v,
+            } => {
+                assert!(m);
+                assert_eq!(n, name);
+                assert_eq!(t, Some(ty));
+                assert_eq!(v, value);
+            }
+            _ => panic!("expected Let variant"),
         }
     }
 }

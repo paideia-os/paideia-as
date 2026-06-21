@@ -381,6 +381,7 @@ mod tests {
             NodeKind::StmtLet,
             span(),
             StmtData::Let {
+                mutable: false,
                 name: name_x_id,
                 ty: None,
                 value: infix_id,
