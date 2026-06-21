@@ -210,7 +210,7 @@ pub fn encode_instruction(
 }
 
 fn encode_mov(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
-    // Phase 6, m1-002: Classify MOV operands and dispatch to specialized encoders.
+    // Phase 6, m1-002 & m1-003: Classify MOV operands and dispatch to specialized encoders.
     let dispatch_kind = classify(inst);
 
     // Route CR moves through encode_mov_cr_dispatcher.
@@ -221,8 +221,14 @@ fn encode_mov(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
         DispatchKind::MovFromCr => {
             return encode_mov_cr_dispatcher(inst, buf, false);
         }
-        // All other dispatch kinds (MovGeneric, MovToDr, MovFromDr, Generic)
-        // fall through to the rest of this function.
+        // Phase 6, m1-003: Route DR moves through encode_mov_dr_dispatcher.
+        DispatchKind::MovToDr => {
+            return encode_mov_dr_dispatcher(inst, buf, true);
+        }
+        DispatchKind::MovFromDr => {
+            return encode_mov_dr_dispatcher(inst, buf, false);
+        }
+        // All other dispatch kinds (MovGeneric, Generic) fall through to the rest of this function.
         _ => {}
     }
 
@@ -314,6 +320,42 @@ fn encode_mov_cr_dispatcher(
 
             // Encode using the low-level helper
             encode_mov_cr(buf, write, cr_idx, gpr_idx);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Mov,
+        }),
+    }
+}
+
+/// Dispatcher for MOV to/from debug register (Phase 6, m1-003).
+///
+/// Extracts DR and GPR indices from operands and routes to encode_mov_dr.
+/// - write=true: mov dr_idx, gpr (destination is DR, source is GPR)
+/// - write=false: mov gpr, dr_idx (destination is GPR, source is DR)
+fn encode_mov_dr_dispatcher(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+    write: bool,
+) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::Reg(first), Operand::Reg(second)] => {
+            let (dr_id, gpr_id) = if write {
+                // mov dr, gpr: first is DR, second is GPR
+                (first.0, second.0)
+            } else {
+                // mov gpr, dr: first is GPR, second is DR
+                (second.0, first.0)
+            };
+
+            // Convert DR ID to DR index: dr_idx = RegId - 25 (compact encoding)
+            let dr_idx = dr_id - 25;
+
+            // GPR index is directly the reg_id (0-15)
+            let gpr_idx = gpr_id;
+
+            // Encode using the low-level helper
+            encode_mov_dr(buf, write, dr_idx, gpr_idx);
             Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::OperandShape {
@@ -2452,5 +2494,122 @@ mod tests {
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
         assert_eq!(buf.as_slice(), &[0x44, 0x0F, 0x22, 0xC0]);
+    }
+
+    // Phase 6 m1-003: DR move dispatch tests
+    // These tests verify that MOV instructions with DR operands are correctly
+    // classified and routed through encode_mov_dr_dispatcher, emitting the correct bytes.
+    // DR encoding: dr_idx = RegId - 25 (compact encoding), opcodes 0F 23 (write), 0F 21 (read).
+
+    /// Test: mov dr0, rax → 0F 23 C0
+    /// DR0 = 25 + 0 = 25, RAX = 0
+    #[test]
+    fn encode_mov_dr0_rax_emits_0f23c0() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![Operand::Reg(RegId(25)), Operand::Reg(RegId(0))],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x0F, 0x23, 0xC0]);
+    }
+
+    /// Test: mov dr1, rdi → 0F 23 CF
+    /// DR1 = 25 + 1 = 26, RDI = 7
+    #[test]
+    fn encode_mov_dr1_rdi_emits_0f23cf() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![Operand::Reg(RegId(26)), Operand::Reg(RegId(7))],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x0F, 0x23, 0xCF]);
+    }
+
+    /// Test: mov dr7, rcx → 0F 23 F9
+    /// DR7 = 25 + 7 = 32, RCX = 1
+    #[test]
+    fn encode_mov_dr7_rcx_emits_0f23f9() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![Operand::Reg(RegId(32)), Operand::Reg(RegId(1))],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x0F, 0x23, 0xF9]);
+    }
+
+    /// Test: mov rax, dr0 → 0F 21 C0 (read from DR0)
+    /// RAX = 0, DR0 = 25 + 0 = 25
+    #[test]
+    fn encode_mov_rax_dr0_emits_0f21c0() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(25))],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x0F, 0x21, 0xC0]);
+    }
+
+    /// Test: mov rdi, dr1 → 0F 21 CF (read from DR1)
+    /// RDI = 7, DR1 = 25 + 1 = 26
+    #[test]
+    fn encode_mov_rdi_dr1_emits_0f21cf() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![Operand::Reg(RegId(7)), Operand::Reg(RegId(26))],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x0F, 0x21, 0xCF]);
+    }
+
+    /// Test: mov rcx, dr7 → 0F 21 F9 (read from DR7)
+    /// RCX = 1, DR7 = 25 + 7 = 32
+    #[test]
+    fn encode_mov_rcx_dr7_emits_0f21f9() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![Operand::Reg(RegId(1)), Operand::Reg(RegId(32))],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x0F, 0x21, 0xF9]);
+    }
+
+    /// Test: mov r8, dr0 → 0F 21 C0 (read from DR0 into r8, GPR 8)
+    /// R8 = 8, DR0 = 25 + 0 = 25
+    #[test]
+    fn encode_mov_r8_dr0_emits_0f21c0() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![Operand::Reg(RegId(8)), Operand::Reg(RegId(25))],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x0F, 0x21, 0xC0]);
     }
 }
