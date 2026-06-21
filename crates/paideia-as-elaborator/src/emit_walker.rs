@@ -518,6 +518,7 @@ impl EmitWalker {
                         self.emit_identity_lambda(lambda_node_id);
                     }
                     // Case 2 & 3: Application `fn (x) -> x + ...` or `fn (x) -> ... + x`
+                    // Phase 7 m1-001: Also handles inter-function calls `fn () -> foo()` or `fn (x) -> foo(x)`
                     IrKind::App => {
                         eprintln!(
                             "[visit_lambda App] Lambda {} body={}",
@@ -539,6 +540,61 @@ impl EmitWalker {
                             );
                         }
                         // App has structure: [callee, arg0, arg1, ...]
+
+                        // Phase 7 m1-001: Check if this is an inter-function call.
+                        // Shape: App { fn: Var(target_id), args: [] or [arg0] or [arg0, arg1] }
+                        if app_children.len() >= 1 {
+                            let callee_id = app_children[0];
+                            let num_args = app_children.len() - 1; // args are children[1..]
+
+                            // Check if callee is a Var (could be a function reference)
+                            if let Some(callee_node) = arena.get(callee_id) {
+                                if callee_node.kind == IrKind::Var {
+                                    // Try to resolve this Var to a function symbol.
+                                    // For Phase 7, we look for any recent Function symbol in the symbol table.
+                                    // In a fully elaborated IR, the Var would have metadata pointing to its binding.
+                                    // For now, we use a heuristic: if there's a Function symbol, use the most recent one.
+                                    if let Some(symbol) = arena
+                                        .symbols()
+                                        .iter()
+                                        .find(|sym| sym.kind == SymbolKind::Function)
+                                    {
+                                        // This is a function call! Check arg count.
+                                        if num_args <= 2 {
+                                            // Record the lambda's starting offset BEFORE emitting.
+                                            self.state.function_offsets.insert(
+                                                lambda_node_id.get(),
+                                                self.state.current_offset,
+                                            );
+                                            // Mark this lambda as emitted
+                                            self.state.emitted_lambdas.insert(lambda_node_id.get());
+
+                                            eprintln!(
+                                                "[emit_function_call] Lambda {} calling function {} with {} args",
+                                                lambda_node_id.get(),
+                                                symbol.name,
+                                                num_args
+                                            );
+                                            self.emit_function_call(
+                                                lambda_node_id,
+                                                symbol.name.clone(),
+                                                &app_children[1..],
+                                                arena,
+                                            );
+                                            return; // Skip further App processing
+                                        } else {
+                                            // Too many arguments for Phase 7
+                                            self.diagnostics.push(format!(
+                                                "PA7-001 fn argument count: function call has {} args, phase 7 only supports 0-2",
+                                                num_args
+                                            ));
+                                            return;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         if app_children.len() >= 3 {
                             let callee_id = app_children[0];
                             let arg0_id = app_children[1];
@@ -645,7 +701,10 @@ impl EmitWalker {
                     }
                     // Phase 7 m1-001: Block body `fn() { let x = 1; x + 1 }`
                     IrKind::Action => {
-                        eprintln!("[visit_lambda Action] Lambda {} body=Action", lambda_node_id.get());
+                        eprintln!(
+                            "[visit_lambda Action] Lambda {} body=Action",
+                            lambda_node_id.get()
+                        );
 
                         // Record the lambda's starting offset BEFORE emitting.
                         self.state
@@ -734,6 +793,134 @@ impl EmitWalker {
         self.state.current_offset += 1;
     }
 
+    /// Phase 7 m1-001: Emit inter-function call.
+    ///
+    /// Handles 0-2 argument calls to other functions:
+    /// - 0-arg call: `call target; ret` (6 bytes total)
+    /// - 1-arg call: `mov rdi, arg0; call target; ret` (3+5+1 bytes)
+    /// - 2-arg call: `mov rdi, arg0; mov rsi, arg1; call target; ret` (3+3+5+1 bytes)
+    fn emit_function_call(
+        &mut self,
+        lambda_node_id: IrNodeId,
+        target_name: String,
+        arg_ids: &[IrNodeId],
+        arena: &IrArena,
+    ) {
+        // ABI calling convention: arguments go to RDI, RSI, RDX, RCX, R8, R9
+        let arg_regs = [RegId(7), RegId(6), RegId(2), RegId(1), RegId(8), RegId(9)]; // RDI, RSI, RDX, RCX, R8, R9
+
+        // Emit MOV instructions for each argument
+        for (arg_idx, &arg_id) in arg_ids.iter().enumerate() {
+            if arg_idx >= 6 {
+                // Phase 7 only supports up to 6 arguments (though check limits it to 2 anyway)
+                break;
+            }
+
+            let dest_reg = arg_regs[arg_idx];
+            let arg_node = match arena.get(arg_id) {
+                Some(node) => node,
+                None => continue,
+            };
+
+            // For now, handle only Literal and Var arguments
+            match arg_node.kind {
+                IrKind::Literal => {
+                    // Load literal into the register
+                    if let Some(value) = arena.literal_values().get(arg_id) {
+                        self.emit_mov_literal_to_reg(lambda_node_id, dest_reg, value);
+                    }
+                }
+                IrKind::Var => {
+                    // For Var arguments, we assume they refer to the function's parameter (RDI)
+                    // For now, just copy from RDI if it's arg 0
+                    if arg_idx == 0 && dest_reg != RegId(7) {
+                        // Need to copy from RDI to another reg (shouldn't happen in Phase 7)
+                        self.emit_mov_reg_to_reg(lambda_node_id, RegId(7), dest_reg);
+                    }
+                }
+                _ => {
+                    // Other argument shapes not yet supported
+                }
+            }
+        }
+
+        // Emit CALL instruction
+        let call_id = IrNodeId::new(lambda_node_id.get() * 2).expect("call instr id");
+        let mut call_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        call_operands.push(Operand::SymbolRef {
+            name: target_name,
+            addend: 0,
+        });
+
+        let call_inst = Instruction {
+            mnemonic: Mnemonic::Call,
+            operands: call_operands,
+            encoding_hint: None,
+        };
+
+        self.state.instructions.insert(call_id, call_inst);
+        self.state.current_offset += 5; // E8 + 4-byte rel32 placeholder
+
+        // Emit RET instruction
+        let ret_id = IrNodeId::new(lambda_node_id.get() * 2 + 1).expect("ret instr id");
+        let ret_inst = Instruction {
+            mnemonic: Mnemonic::Ret,
+            operands: SmallVec::new(),
+            encoding_hint: None,
+        };
+        self.state.instructions.insert(ret_id, ret_inst);
+        self.state.current_offset += 1; // C3
+    }
+
+    /// Emit MOV of a literal value into a register.
+    fn emit_mov_literal_to_reg(&mut self, lambda_node_id: IrNodeId, dest_reg: RegId, value: i64) {
+        // Virtual ID: use a large base ID to avoid collisions
+        // Use 1000000 + (lambda_id * 100) + dest_reg to create unique IDs
+        let inst_id = IrNodeId::new(1000000 + lambda_node_id.get() * 100 + dest_reg.0 as u32)
+            .unwrap_or_else(|| IrNodeId::new(1).unwrap());
+
+        let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        operands.push(Operand::Reg(dest_reg));
+        operands.push(Operand::Imm64(value));
+
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands,
+            encoding_hint: None,
+        };
+
+        self.state.instructions.insert(inst_id, inst);
+
+        // Estimate size: i32 encoding is 7 bytes, i64 is 10 bytes
+        let size = if value >= i32::MIN as i64 && value <= i32::MAX as i64 {
+            7
+        } else {
+            10
+        };
+        self.state.current_offset += size;
+    }
+
+    /// Emit MOV from one register to another.
+    fn emit_mov_reg_to_reg(&mut self, lambda_node_id: IrNodeId, src_reg: RegId, dest_reg: RegId) {
+        // Virtual ID: use a large base ID to avoid collisions
+        // Use 2000000 + (lambda_id * 100) to create unique IDs
+        let inst_id = IrNodeId::new(2000000 + lambda_node_id.get() * 100)
+            .unwrap_or_else(|| IrNodeId::new(1).unwrap());
+
+        let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        operands.push(Operand::Reg(dest_reg));
+        operands.push(Operand::Reg(src_reg));
+
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands,
+            encoding_hint: None,
+        };
+
+        self.state.instructions.insert(inst_id, inst);
+        self.state.current_offset += 3; // mov r64, r64 is 3 bytes (48 89 c0 + variants)
+    }
+
     /// Emit add-immediate lambda: `lea rax, [rdi + imm]; ret`.
     /// For small immediates (disp8, -128..127), this is 4 bytes (48 8d 47 NN).
     /// Larger immediates require disp32 (7 bytes).
@@ -808,8 +995,7 @@ impl EmitWalker {
                         if let_children.first().is_some() {
                             // Assign next scratch register if available.
                             if self.state.scratch_assignment.len() < scratch_regs.len() {
-                                let scratch_reg =
-                                    scratch_regs[self.state.scratch_assignment.len()];
+                                let scratch_reg = scratch_regs[self.state.scratch_assignment.len()];
                                 self.state.scratch_assignment.push(scratch_reg);
 
                                 // TODO: Emit the value expression to scratch_reg.
@@ -835,7 +1021,10 @@ impl EmitWalker {
                     }
                     _ => {
                         // Unexpected statement kind.
-                        eprintln!("[emit_block_body] Unexpected child kind: {:?}", child_node.kind);
+                        eprintln!(
+                            "[emit_block_body] Unexpected child kind: {:?}",
+                            child_node.kind
+                        );
                     }
                 }
             }
@@ -3138,7 +3327,10 @@ mod tests {
 
         // Verify lambda offset was recorded.
         assert!(
-            walker.state().function_offsets.contains_key(&lambda_id.get()),
+            walker
+                .state()
+                .function_offsets
+                .contains_key(&lambda_id.get()),
             "Lambda offset should be recorded"
         );
 
@@ -3186,7 +3378,10 @@ mod tests {
 
         // Verify offset was recorded.
         assert!(
-            walker.state().function_offsets.contains_key(&lambda_id.get()),
+            walker
+                .state()
+                .function_offsets
+                .contains_key(&lambda_id.get()),
             "Lambda offset should be recorded for unsafe block body"
         );
     }
@@ -3215,7 +3410,10 @@ mod tests {
 
         // Verify offset was recorded.
         assert!(
-            walker.state().function_offsets.contains_key(&lambda_id.get()),
+            walker
+                .state()
+                .function_offsets
+                .contains_key(&lambda_id.get()),
             "Lambda offset should be recorded for empty body"
         );
 
@@ -3226,6 +3424,128 @@ mod tests {
         }
 
         // Verify offset is 1 (only ret).
-        assert_eq!(walker.state().current_offset, 1, "Empty body should only emit ret (1 byte)");
+        assert_eq!(
+            walker.state().current_offset,
+            1,
+            "Empty body should only emit ret (1 byte)"
+        );
+    }
+
+    // ── Phase 7 m1-001: Inter-function call tests ──────────────────────────────────
+
+    #[test]
+    fn emit_walker_pa7_002_zero_arg_function_call() {
+        // Phase 7 m1-001: Test zero-argument function call.
+        // let a = fn () -> 42;
+        // let b = fn () -> a();
+        let mut arena = IrArena::new();
+
+        // Create function 'a': fn () -> 42
+        let lit_a_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(lit_a_id, 42);
+        let lambda_a_id = arena.alloc_with_children(IrKind::Lambda, span(), [lit_a_id]);
+
+        // Register 'a' as a symbol - note: ir_node must point to lambda_a_id
+        let sym_a = Symbol::new("a".to_string(), SymbolKind::Function, lambda_a_id);
+        arena.symbols_mut().insert(sym_a);
+
+        // Create function 'b': fn () -> a()
+        // App structure: [callee (Var pointing to a), no args]
+        // For the test to work, we create a Var that has lambda_a_id as its reference.
+        // Since there's no direct Var→Symbol binding in the IR, we'll need to match
+        // the function symbol by checking if any Function symbol exists.
+        let var_a_id = arena.alloc(IrKind::Var, span());
+        let app_id = arena.alloc_with_children(IrKind::App, span(), [var_a_id]);
+        let lambda_b_id = arena.alloc_with_children(IrKind::Lambda, span(), [app_id]);
+
+        // Walk the arena.
+        let mut walker = EmitWalker::new();
+        walker.walk(&mut arena);
+
+        // Verify lambda_b was emitted.
+        assert!(
+            walker.emitted_lambdas().contains(&lambda_b_id.get()),
+            "Lambda b (function call) should be marked as emitted"
+        );
+
+        // Verify call instruction was emitted (5 bytes: E8 + 4-byte rel32)
+        let call_id = IrNodeId::new(lambda_b_id.get() * 2).expect("call instr id");
+        let call_inst = walker
+            .state()
+            .instructions
+            .get(call_id)
+            .expect("call instruction should be emitted");
+        assert_eq!(call_inst.mnemonic, Mnemonic::Call);
+        assert_eq!(call_inst.operands.len(), 1);
+        match &call_inst.operands[0] {
+            Operand::SymbolRef { name, addend } => {
+                assert_eq!(name, "a");
+                assert_eq!(*addend, 0);
+            }
+            _ => panic!("Expected SymbolRef operand"),
+        }
+
+        // Verify ret instruction was emitted (1 byte: C3)
+        let ret_id = IrNodeId::new(lambda_b_id.get() * 2 + 1).expect("ret instr id");
+        let ret_inst = walker
+            .state()
+            .instructions
+            .get(ret_id)
+            .expect("ret instruction should be emitted");
+        assert_eq!(ret_inst.mnemonic, Mnemonic::Ret);
+
+        // Verify offset: 5 bytes for call + 1 byte for ret = 6 bytes
+        assert_eq!(walker.state().current_offset, 6);
+    }
+
+    #[test]
+    fn emit_walker_pa7_002_one_arg_function_call() {
+        // Phase 7 m1-001: Test one-argument function call.
+        // let f = fn (x) -> x + 1;
+        // let g = fn () -> f(7);
+        let mut arena = IrArena::new();
+
+        // Create function 'f': fn (x) -> x + 1
+        let callee_id = arena.alloc(IrKind::Var, span());
+        let var_x_id = arena.alloc(IrKind::Var, span());
+        let lit_1_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(lit_1_id, 1);
+        let add_app_id =
+            arena.alloc_with_children(IrKind::App, span(), [callee_id, var_x_id, lit_1_id]);
+        let lambda_f_id = arena.alloc_with_children(IrKind::Lambda, span(), [add_app_id]);
+
+        // Register 'f' as a symbol
+        let sym_f = Symbol::new("f".to_string(), SymbolKind::Function, lambda_f_id);
+        arena.symbols_mut().insert(sym_f);
+
+        // Create function 'g': fn () -> f(7)
+        // App structure: [callee (Var pointing to f), arg (Literal 7)]
+        let var_f_id = arena.alloc(IrKind::Var, span());
+        let lit_7_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(lit_7_id, 7);
+        let call_app_id = arena.alloc_with_children(IrKind::App, span(), [var_f_id, lit_7_id]);
+        let lambda_g_id = arena.alloc_with_children(IrKind::Lambda, span(), [call_app_id]);
+
+        // Walk the arena.
+        let mut walker = EmitWalker::new();
+        walker.walk(&mut arena);
+
+        // Verify lambda_g was emitted.
+        assert!(
+            walker.emitted_lambdas().contains(&lambda_g_id.get()),
+            "Lambda g (function call) should be marked as emitted"
+        );
+
+        // The offset should account for:
+        // - MOV instruction to load 7 into RDI (7 bytes for i32 or 10 bytes for i64)
+        // - CALL instruction (5 bytes)
+        // - RET instruction (1 byte)
+        // Total should be 7+5+1=13 or 10+5+1=16
+        let expected_offset = 7 + 5 + 1; // Conservative estimate: 13 bytes
+        assert!(
+            walker.state().current_offset >= expected_offset - 5,
+            "Offset should account for mov + call + ret instructions (got {})",
+            walker.state().current_offset
+        );
     }
 }

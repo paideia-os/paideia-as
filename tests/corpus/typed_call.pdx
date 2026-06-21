@@ -1,0 +1,30 @@
+/// Phase 7 m1-001: PA7-002 Corpus Fixture
+/// Inter-function call dispatch with relocation (lambda → call)
+///
+/// Tests scenarios per AC:
+/// (1) 0-arg call: `let a = fn () -> 42; let b = fn () -> a()`
+/// (2) 1-arg call: `let f = fn (x) -> x + 1; let g = fn () -> f(7)`
+/// (3) 2-arg call: `let add = fn (a, b) -> a + b; let result = fn () -> add(3, 5)`
+
+module TypedCall = structure {
+  /// Zero-argument function call.
+  /// Function 'a' returns constant 42.
+  /// Function 'b' calls 'a' with no arguments.
+  /// Expected: returns 42 (via function call relocation).
+  let a : () -> u64 = fn () { 42 }
+  let b : () -> u64 = fn () { a() }
+
+  /// One-argument function call.
+  /// Function 'f' takes an argument and returns it plus 1.
+  /// Function 'g' calls 'f' with argument 7.
+  /// Expected: returns 8 (7 + 1, via function call with relocation).
+  let f : (u64) -> u64 = fn (x) { x + 1 }
+  let g : () -> u64 = fn () { f(7) }
+
+  /// Two-argument function call.
+  /// Function 'add' takes two arguments and returns their sum.
+  /// Function 'result' calls 'add' with arguments 3 and 5.
+  /// Expected: returns 8 (3 + 5, via two-arg function call with relocation).
+  let add : (u64, u64) -> u64 = fn (a, b) { a + b }
+  let result : () -> u64 = fn () { add(3, 5) }
+}

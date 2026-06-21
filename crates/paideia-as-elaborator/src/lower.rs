@@ -173,7 +173,11 @@ pub fn lower_ast_to_ir(ast: &AstArena) -> LoweringResult {
                     }
                     children
                 }
-                ExprData::ActionBlock { effects, capabilities, body } => {
+                ExprData::ActionBlock {
+                    effects,
+                    capabilities,
+                    body,
+                } => {
                     // ActionBlock: optional effects/capabilities + all statements
                     let mut children = Vec::new();
                     if let Some(eff) = effects {
@@ -209,7 +213,9 @@ pub fn lower_ast_to_ir(ast: &AstArena) -> LoweringResult {
         } else if let Some(stmt_data) = ast.stmt_data(ast_id) {
             use paideia_as_ast::StmtData;
             match stmt_data {
-                StmtData::Let { name, ty, value, .. } => {
+                StmtData::Let {
+                    name, ty, value, ..
+                } => {
                     // Statement Let: name + type (opt) + value
                     let mut children = vec![*name, *value];
                     if let Some(t) = ty {

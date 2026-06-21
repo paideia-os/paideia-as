@@ -585,7 +585,8 @@ fn encode_call(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput,
             Ok(EncodeOutput::new())
         }
         [Operand::SymbolRef { name, addend }] => {
-            // call symbol → E8 <disp32_placeholder> + RelocSite
+            // call symbol → E8 <disp32_placeholder> + RelocSite with Plt32
+            // Phase 7 m1-001: Use RelocKind::Plt32 for PLT relocations
             let reloc_offset = buf.bytes.len() as u32;
             buf.bytes.push(0xE8); // call rel32 opcode
             buf.bytes.extend([0, 0, 0, 0]); // placeholder disp32
@@ -593,7 +594,7 @@ fn encode_call(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput,
             output.add_reloc(RelocSite {
                 byte_offset: reloc_offset + 1,
                 symbol: name.clone(),
-                kind: RelocKind::PcRel32,
+                kind: RelocKind::Plt32,
                 addend: *addend,
             });
             Ok(output)
@@ -2502,11 +2503,11 @@ mod tests {
         // 00 00 00 00 = placeholder disp32
         assert_eq!(buf.as_slice(), &[0xE8, 0x00, 0x00, 0x00, 0x00]);
 
-        // Verify relocation site
+        // Verify relocation site (Phase 7 m1-001: uses Plt32)
         assert_eq!(output.reloc_sites.len(), 1);
         assert_eq!(output.reloc_sites[0].byte_offset, 1);
         assert_eq!(output.reloc_sites[0].symbol, "kernel_main_64");
-        assert_eq!(output.reloc_sites[0].kind, RelocKind::PcRel32);
+        assert_eq!(output.reloc_sites[0].kind, RelocKind::Plt32);
         assert_eq!(output.reloc_sites[0].addend, 0);
     }
 
