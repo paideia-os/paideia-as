@@ -11,6 +11,7 @@ mod cli;
 mod cmd_build;
 mod cmd_check;
 mod cmd_dump_ast;
+mod cmd_fmt;
 mod cmd_test;
 mod det;
 
@@ -51,5 +52,10 @@ fn main() -> ExitCode {
             filter,
             list,
         } => cmd_test::run(paths, filter, list),
+        Cmd::Fmt {
+            input,
+            stdin,
+            check,
+        } => cmd_fmt::run(input.as_deref(), check, stdin),
     }
 }

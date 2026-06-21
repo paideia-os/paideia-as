@@ -69,4 +69,15 @@ pub enum Cmd {
         #[arg(long)]
         list: bool,
     },
+    /// Format source code.
+    Fmt {
+        /// Path to the input `.pdx` file. Omit to read from stdin.
+        input: Option<PathBuf>,
+        /// Read from stdin instead of a file.
+        #[arg(long)]
+        stdin: bool,
+        /// Check mode: exit with status 1 if formatting would change the file.
+        #[arg(long)]
+        check: bool,
+    },
 }
