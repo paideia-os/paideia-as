@@ -28,6 +28,7 @@ pub mod opt;
 pub mod pretty;
 pub mod record_layout;
 pub mod string_literal;
+pub mod symbol;
 pub mod walker;
 pub mod walker_ctx;
 
@@ -58,6 +59,7 @@ pub use monomorphisation::{MonoKey, MonomorphisationTable};
 pub use node::{EffectRowId, IrKind, IrNodeData, IrNodeId, LinClass};
 pub use record_layout::{FieldAccessInfo, FieldAccessSideTable, RecordLayoutTable, RecordTypeId};
 pub use string_literal::{StringLiteralInfo, StringLiteralTable};
+pub use symbol::{Symbol, SymbolKind, SymbolTable};
 pub use walker::{IrWalker, walk};
 pub use walker_ctx::WalkerCtx;
 

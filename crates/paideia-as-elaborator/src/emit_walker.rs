@@ -5,7 +5,9 @@
 //! populates an InstructionSideTable + tracks per-function offsets.
 
 use paideia_as_ir::instruction::{Instruction, InstructionSideTable, Mnemonic, Operand, RegId};
-use paideia_as_ir::{DataEntry, DataSideTable, IrArena, IrKind, IrNodeId, SmallVec};
+use paideia_as_ir::{
+    DataEntry, DataSideTable, IrArena, IrKind, IrNodeId, SmallVec, Symbol, SymbolKind,
+};
 use std::collections::HashMap;
 
 /// Tracks emission state during IR traversal.
@@ -87,22 +89,51 @@ impl EmitWalker {
     /// m1-003: processes Lambda bodies, emitting Mov/Lea/Ret for simple cases.
     /// m1-004: records IrKind::Unsafe nodes for later processing by UnsafeWalker (m3).
     /// m4-003: populates DataSideTable for module-level Let-Literal bindings.
-    pub fn walk(&mut self, arena: &IrArena) {
+    /// m5-001: populates SymbolTable for module-level Let bindings.
+    pub fn walk(&mut self, arena: &mut IrArena) {
         // Iterate over all nodes, looking for Let, Lambda, and Unsafe nodes.
         for i in 1..=arena.len() as u32 {
             if let Some(node_id) = IrNodeId::new(i) {
                 if let Some(node) = arena.get(node_id) {
-                    match node.kind {
+                    let node_kind = node.kind;
+                    match node_kind {
                         IrKind::Let => {
                             // Get the single child (the RHS expression).
                             let children = arena.children(node_id);
-                            if let Some(&rhs_id) = children.first() {
-                                if let Some(rhs_node) = arena.get(rhs_id) {
-                                    if rhs_node.kind == IrKind::Literal {
-                                        // Check if we have a literal value for this node.
-                                        if let Some(value) = arena.literal_values().get(rhs_id) {
-                                            self.visit_let_literal(node_id, value);
-                                        }
+                            let rhs_id = if let Some(&rhs) = children.first() {
+                                Some(rhs)
+                            } else {
+                                None
+                            };
+
+                            if let Some(rhs_id) = rhs_id {
+                                let rhs_kind = arena
+                                    .get(rhs_id)
+                                    .map(|n| n.kind)
+                                    .unwrap_or(IrKind::Placeholder);
+                                let has_literal_value =
+                                    arena.literal_values().get(rhs_id).is_some();
+                                let literal_value = arena.literal_values().get(rhs_id);
+
+                                // Determine if RHS is a Lambda (Function) or something else (Object).
+                                let kind = if rhs_kind == IrKind::Lambda {
+                                    SymbolKind::Function
+                                } else {
+                                    SymbolKind::Object
+                                };
+
+                                // Extract binding name: use "_let_<nodeid>" as default.
+                                // Future: integrate AST name resolution for actual names.
+                                let binding_name = format!("_let_{}", node_id.get());
+
+                                // Create and insert symbol.
+                                let sym = Symbol::new(binding_name, kind, node_id);
+                                arena.symbols_mut().insert(sym);
+
+                                // Handle Literal RHS: emit instructions for m1-002.
+                                if rhs_kind == IrKind::Literal && has_literal_value {
+                                    if let Some(value) = literal_value {
+                                        self.visit_let_literal(node_id, value);
                                     }
                                 }
                             }
@@ -415,8 +446,8 @@ mod tests {
     #[test]
     fn emit_walker_walk_on_empty_arena_emits_zero_diagnostics() {
         let mut walker = EmitWalker::new();
-        let arena = IrArena::new();
-        walker.walk(&arena);
+        let mut arena = IrArena::new();
+        walker.walk(&mut arena);
         assert!(walker.diagnostics().is_empty());
     }
 
@@ -442,7 +473,7 @@ mod tests {
 
         // Walk the arena.
         let mut walker = EmitWalker::new();
-        walker.walk(&arena);
+        walker.walk(&mut arena);
 
         // Verify instruction was emitted.
         let inst = walker
@@ -473,7 +504,7 @@ mod tests {
 
         // Walk the arena.
         let mut walker = EmitWalker::new();
-        walker.walk(&arena);
+        walker.walk(&mut arena);
 
         // Verify instruction was emitted.
         let inst = walker
@@ -502,7 +533,7 @@ mod tests {
 
         // Walk the arena.
         let mut walker = EmitWalker::new();
-        walker.walk(&arena);
+        walker.walk(&mut arena);
 
         // Verify instruction was emitted for the lambda.
         let inst = walker
@@ -544,7 +575,7 @@ mod tests {
 
         // Walk the arena.
         let mut walker = EmitWalker::new();
-        walker.walk(&arena);
+        walker.walk(&mut arena);
 
         // Verify instruction was emitted for the lambda.
         let inst = walker
@@ -602,7 +633,7 @@ mod tests {
 
         // Walk the arena.
         let mut walker = EmitWalker::new();
-        walker.walk(&arena);
+        walker.walk(&mut arena);
 
         // Verify instruction was emitted for the lambda.
         let inst = walker
@@ -653,7 +684,7 @@ mod tests {
 
         // Walk the arena.
         let mut walker = EmitWalker::new();
-        walker.walk(&arena);
+        walker.walk(&mut arena);
 
         // Verify the unsafe node was recorded in pending_unsafe_blocks.
         assert_eq!(walker.state().pending_unsafe_blocks.len(), 1);
@@ -670,7 +701,7 @@ mod tests {
 
         // Walk the arena.
         let mut walker = EmitWalker::new();
-        walker.walk(&arena);
+        walker.walk(&mut arena);
 
         // Verify both unsafe nodes were recorded in order.
         assert_eq!(walker.state().pending_unsafe_blocks.len(), 2);

@@ -180,7 +180,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str) -> ExitCode {
             // Phase-5-m1-005: Run EmitWalker to populate InstructionSideTable.
             // EmitWalker does not use the walker framework (it uses direct arena iteration),
             // so we call its walk method directly rather than through the walk() driver.
-            emit_walker.walk(&lowering.ir);
+            emit_walker.walk(&mut lowering.ir);
 
             // Phase-5-m3-005: Run UnsafeWalker to elaborate pending unsafe blocks.
             // Take pending unsafe blocks from EmitWalker state and process them.
@@ -757,8 +757,8 @@ mod tests {
         use paideia_as_elaborator::EmitWalker;
 
         let mut emit_walker = EmitWalker::new();
-        let arena = paideia_as_ir::IrArena::new();
-        emit_walker.walk(&arena);
+        let mut arena = paideia_as_ir::IrArena::new();
+        emit_walker.walk(&mut arena);
 
         assert_eq!(
             emit_walker.state().instructions.len(),
@@ -786,7 +786,7 @@ mod tests {
         arena.literal_values_mut().insert(lit_id, 42);
 
         // Walk and verify one instruction was emitted.
-        emit_walker.walk(&arena);
+        emit_walker.walk(&mut arena);
 
         assert_eq!(
             emit_walker.state().instructions.len(),
@@ -815,7 +815,7 @@ mod tests {
         let lambda_id = arena.alloc_with_children(paideia_as_ir::IrKind::Lambda, span, [var_id]);
 
         // Walk and verify offset was recorded.
-        emit_walker.walk(&arena);
+        emit_walker.walk(&mut arena);
 
         assert!(
             emit_walker

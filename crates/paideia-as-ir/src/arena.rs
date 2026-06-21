@@ -12,6 +12,7 @@ use crate::instruction::InstructionSideTable;
 use crate::literal_value::LiteralValueTable;
 use crate::loop_meta::LoopMetaTable;
 use crate::node::{IrKind, IrNodeData, IrNodeId};
+use crate::symbol::SymbolTable;
 
 /// Slab-allocated IR storage for one source file.
 ///
@@ -36,6 +37,8 @@ pub struct IrArena {
     literal_value_table: LiteralValueTable,
     /// Side-table: data entries (.rodata/.data) indexed by Let node ID.
     data_table: DataSideTable,
+    /// Side-table: top-level binding symbol table.
+    symbol_table: SymbolTable,
 }
 
 impl IrArena {
@@ -56,6 +59,7 @@ impl IrArena {
             constant_pool_table: ConstantPoolTable::new(),
             literal_value_table: LiteralValueTable::new(),
             data_table: DataSideTable::new(),
+            symbol_table: SymbolTable::new(),
         }
     }
 
@@ -191,6 +195,17 @@ impl IrArena {
     /// Borrow the data side-table (mutable).
     pub fn data_mut(&mut self) -> &mut DataSideTable {
         &mut self.data_table
+    }
+
+    /// Borrow the symbol table (read-only).
+    #[must_use]
+    pub fn symbols(&self) -> &SymbolTable {
+        &self.symbol_table
+    }
+
+    /// Borrow the symbol table (mutable).
+    pub fn symbols_mut(&mut self) -> &mut SymbolTable {
+        &mut self.symbol_table
     }
 }
 
