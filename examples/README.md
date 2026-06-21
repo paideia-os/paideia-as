@@ -4,35 +4,43 @@ Curated, tutorial-oriented catalog of the paideia-as surface language. Each `.pd
 
 The 20 examples follow a teaching order: language fundamentals → type system → effects/capabilities → polymorphism → stdlib → unsafe → asm-reference algorithms.
 
-## Examples
+## Examples status
 
-| File | Topic |
-|---|---|
-| `01_hello.pdx`        | module + structure + `let` bindings |
-| `02_functions.pdx`    | `fn` / `\|x\|` lambdas + calling convention |
-| `03_records.pdx`      | `struct { field: T }` + construction |
-| `04_enums.pdx`        | sum types with unit, tuple, generic-tuple payloads |
-| `05_patterns.pdx`     | `let pat = expr` + `match` exhaustiveness |
-| `06_loops.pdx`        | loop forms (tail recursion + while overview) |
-| `07_pointers.pdx`     | `*T` raw pointers + `index_*` intrinsics |
-| `08_references.pdx`   | `&T` / `&mut T` borrowed references |
-| `09_effects.pdx`      | effect rows `!{Eff}` on signatures |
-| `10_capabilities.pdx` | capability sets `@{Cap}` on signatures |
-| `11_generics.pdx`     | `<T>` type parameters + trait bounds |
-| `12_traits.pdx`       | `trait` + `impl` + associated types |
-| `13_stdlib.pdx`       | `Option` / `Result` enum constructors |
-| `14_iterators.pdx`    | `Iterator` trait + adapters |
-| `15_unsafe.pdx`       | `unsafe { ... }` escape with all 4 fields |
-| `16_factorial.pdx`    | iterative factorial via tail recursion (asm-reference equivalent) |
-| `17_fibonacci.pdx`    | iterative Fibonacci (asm-reference equivalent) |
-| `18_sum_array.pdx`    | indexed array walk via `*u64` + `index_u64` (asm-reference equivalent) |
-| `19_memcpy.pdx`       | bulk byte copy via `REP MOVSB` in `unsafe` (asm-reference equivalent) |
-| `20_strlen.pdx`       | NUL-scan via `*u8` + `index_u8` + `ptr_sub_bytes` (asm-reference equivalent) |
+| # | File | Topic | Check | Build | Build block reason |
+|---|------|-------|-------|-------|-------------------|
+| 1 | `01_hello.pdx`        | module + structure + `let` bindings | ✓ | ✓ | *none* — Phase 5 m4 in scope |
+| 2 | `02_functions.pdx`    | `fn` / `\|x\|` lambdas + calling convention | ✓ | ✓ | *none* — Phase 5 m1 in scope |
+| 3 | `03_records.pdx`      | `struct { field: T }` + construction | ✓ | ⊘ | Phase 4 m7; elaborator record codegen deferred to Phase 6 |
+| 4 | `04_enums.pdx`        | sum types with unit, tuple, generic-tuple payloads | ✓ | ⊘ | Phase 4 m7; elaborator enum codegen deferred to Phase 6 |
+| 5 | `05_patterns.pdx`     | `let pat = expr` + `match` exhaustiveness | ✓ | ⊘ | Phase 4 m1; pattern matching in elaborator deferred to Phase 6 |
+| 6 | `06_loops.pdx`        | loop forms (tail recursion + while overview) | ✓ | ⊘ | Phase 4 m8; loop elaborator codegen deferred to Phase 6 |
+| 7 | `07_pointers.pdx`     | `*T` raw pointers + `index_*` intrinsics | ✓ | ⊘ | Phase 3 m1; pointer deref codegen deferred to Phase 6 |
+| 8 | `08_references.pdx`   | `&T` / `&mut T` borrowed references | ✓ | ⊘ | Phase 4 m4; borrow checker + reference codegen deferred to Phase 6 |
+| 9 | `09_effects.pdx`      | effect rows `!{Eff}` on signatures | ✓ | ⊘ | Phase 2 m3; effect-handler codegen deferred to Phase 6+ |
+| 10 | `10_capabilities.pdx` | capability sets `@{Cap}` on signatures | ✓ | ⊘ | Phase 3 m1; capability reification deferred to Phase 6+ |
+| 11 | `11_generics.pdx`     | `<T>` type parameters + trait bounds | ✓ | ⊘ | Phase 4 m9; monomorphisation deferred to Phase 6+ |
+| 12 | `12_traits.pdx`       | `trait` + `impl` + associated types | ✓ | ⊘ | Phase 4 m9; trait method resolution + codegen deferred to Phase 6+ |
+| 13 | `13_stdlib.pdx`       | `Option` / `Result` enum constructors | ✓ | ⊘ | Phase 4 m11; stdlib type codegen deferred to Phase 6+ |
+| 14 | `14_iterators.pdx`    | `Iterator` trait + adapters | ✓ | ⊘ | Phase 4 m11; iterator trait + adapters deferred to Phase 6+ |
+| 15 | `15_unsafe.pdx`       | `unsafe { ... }` escape with all 4 fields | ✓ | ✓ | *none* — Phase 5 m3 in scope |
+| 16 | `16_factorial.pdx`    | iterative factorial via tail recursion | ✓ | ⊘ | Phase 4 m8; TCO + loop elaboration deferred to Phase 6 |
+| 17 | `17_fibonacci.pdx`    | iterative Fibonacci | ✓ | ⊘ | Phase 4 m8; TCO + loop elaboration deferred to Phase 6 |
+| 18 | `18_sum_array.pdx`    | indexed array walk via `*u64` + `index_u64` | ✓ | ⊘ | Phase 3 m1; array indexing codegen deferred to Phase 6 |
+| 19 | `19_memcpy.pdx`       | bulk byte copy via `REP MOVSB` in `unsafe` | ✓ | ⊘ | Phase 5 m2; `rep movsb` encoder added m2-009; unsafe block codegen deferred to Phase 6 |
+| 20 | `20_strlen.pdx`       | NUL-scan via `*u8` + `index_u8` + `ptr_sub_bytes` | ✓ | ⊘ | Phase 3 m1; pointer+string codegen deferred to Phase 6 |
 
-All 20 files paste cleanly via:
+Legend: ✓ = passes; ⊘ = deferred to later phase (documented reason).
+
+All 20 files check cleanly via:
 
 ```sh
 paideia-as check examples/<file>.pdx
+```
+
+Per Phase 5 m7 closure, only examples 01, 02, 15 emit non-empty `.text` sections via:
+
+```sh
+paideia-as build --emit elf64 examples/XX_*.pdx -o /tmp/out.o
 ```
 
 ## asm-reference equivalents (16–20)

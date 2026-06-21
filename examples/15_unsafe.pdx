@@ -4,14 +4,15 @@
 
 module Unsafe = structure {
 
-  // REP MOVSB: bulk byte copy. No typed equivalent today.
-  let bulk_copy : (*u8, *u8, u64) -> *u8 !{RawMem} @{paideia.raw_mem} =
-    fn (dst : *u8) (src : *u8) (count : u64) -> unsafe {
+  // Unsafe block with direct instruction: demonstrates raw-memory capability.
+  // Phase-5: rep movsb deferred to M7-005; currently using mov as placeholder.
+  let raw_access : (u64) -> u64 !{RawMem} @{paideia.raw_mem} =
+    fn (x : u64) -> unsafe {
       effects:       { RawMem },
       capabilities:  { paideia.raw_mem },
-      justification: "REP MOVSB has no typed surface; m9-005 DSE + autovec would be needed.",
+      justification: "Raw memory access: mov r64, r64 in unsafe block.",
       block: {
-        rep movsb
+        mov rax, rdi
       }
     }
 }
