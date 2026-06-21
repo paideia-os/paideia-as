@@ -148,8 +148,8 @@ pub fn encode_instruction(
         Mnemonic::Nop => encode_nop(inst, buf),
         Mnemonic::Swapgs => encode_swapgs(inst, buf),
         Mnemonic::Cpuid => encode_cpuid(inst, buf),
-        Mnemonic::In { .. } => Err(EncodeError::Unsupported("phase-5 m2-003")),
-        Mnemonic::Out { .. } => Err(EncodeError::Unsupported("phase-5 m2-003")),
+        Mnemonic::In { width } => encode_in(inst, buf, *width),
+        Mnemonic::Out { width } => encode_out(inst, buf, *width),
         Mnemonic::Wrmsr => Err(EncodeError::Unsupported("phase-5 m2-004")),
         Mnemonic::Rdmsr => Err(EncodeError::Unsupported("phase-5 m2-004")),
         Mnemonic::Int => Err(EncodeError::Unsupported("phase-5 m2-004")),
@@ -468,6 +468,66 @@ fn encode_cpuid(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeEr
         });
     }
     encode_zero_operand(buf, 0x82); // sentinel for CPUID
+    Ok(())
+}
+
+fn encode_in(inst: &Instruction, buf: &mut CodeBuffer, width: u8) -> Result<(), EncodeError> {
+    // `in` expects exactly 1 operand: the data register (al/ax/eax, encoded as Rax)
+    if inst.operands.len() != 1 {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::In { width },
+            expected: 1,
+            got: inst.operands.len(),
+        });
+    }
+
+    // Verify the operand is Rax (al, ax, or eax depending on width)
+    match &inst.operands[0] {
+        Operand::Reg(reg) => {
+            if *reg != RegId(0) {
+                return Err(EncodeError::OperandShape {
+                    mnemonic: Mnemonic::In { width },
+                });
+            }
+        }
+        _ => {
+            return Err(EncodeError::OperandShape {
+                mnemonic: Mnemonic::In { width },
+            });
+        }
+    }
+
+    encode_in_dx(buf, width);
+    Ok(())
+}
+
+fn encode_out(inst: &Instruction, buf: &mut CodeBuffer, width: u8) -> Result<(), EncodeError> {
+    // `out` expects exactly 1 operand: the data register (al/ax/eax, encoded as Rax)
+    if inst.operands.len() != 1 {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::Out { width },
+            expected: 1,
+            got: inst.operands.len(),
+        });
+    }
+
+    // Verify the operand is Rax (al, ax, or eax depending on width)
+    match &inst.operands[0] {
+        Operand::Reg(reg) => {
+            if *reg != RegId(0) {
+                return Err(EncodeError::OperandShape {
+                    mnemonic: Mnemonic::Out { width },
+                });
+            }
+        }
+        _ => {
+            return Err(EncodeError::OperandShape {
+                mnemonic: Mnemonic::Out { width },
+            });
+        }
+    }
+
+    encode_out_dx(buf, width);
     Ok(())
 }
 
@@ -881,5 +941,133 @@ mod tests {
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
         assert_eq!(instr.mnemonic(), IcedMnem::Cpuid);
+    }
+
+    // ── I/O port instruction tests (phase-5 m2-003) ──────────────
+
+    #[test]
+    fn encode_in_al_dx_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::In { width: 1 },
+            operands: smallvec::smallvec![Operand::Reg(RegId(0))], // al
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0xEC]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::In);
+    }
+
+    #[test]
+    fn encode_in_ax_dx_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::In { width: 2 },
+            operands: smallvec::smallvec![Operand::Reg(RegId(0))], // ax
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0x66, 0xED]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::In);
+    }
+
+    #[test]
+    fn encode_in_eax_dx_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::In { width: 4 },
+            operands: smallvec::smallvec![Operand::Reg(RegId(0))], // eax
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0xED]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::In);
+    }
+
+    #[test]
+    fn encode_out_dx_al_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Out { width: 1 },
+            operands: smallvec::smallvec![Operand::Reg(RegId(0))], // al
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0xEE]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Out);
+    }
+
+    #[test]
+    fn encode_out_dx_ax_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Out { width: 2 },
+            operands: smallvec::smallvec![Operand::Reg(RegId(0))], // ax
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0x66, 0xEF]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Out);
+    }
+
+    #[test]
+    fn encode_out_dx_eax_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Out { width: 4 },
+            operands: smallvec::smallvec![Operand::Reg(RegId(0))], // eax
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0xEF]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Out);
     }
 }

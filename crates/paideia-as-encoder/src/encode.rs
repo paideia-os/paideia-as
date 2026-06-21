@@ -787,6 +787,74 @@ pub fn emit_match_arm_branch(
     patch_offset
 }
 
+/// Encode I/O port read instruction: `in al/ax/eax, dx`.
+///
+/// The SDM fixes the register as al (width=1), ax (width=2), or eax (width=4).
+/// The port address register is always DX (implicit in the encoding).
+///
+/// # Instructions
+/// - `in al, dx`: `EC` (1 byte)
+/// - `in ax, dx`: `66 ED` (2 bytes, with operand-size prefix)
+/// - `in eax, dx`: `ED` (1 byte)
+///
+/// # Arguments
+/// - `buf`: code buffer to append instruction to
+/// - `width`: operand width (1 for al, 2 for ax, 4 for eax)
+pub fn encode_in_dx(buf: &mut CodeBuffer, width: u8) {
+    match width {
+        1 => {
+            // in al, dx: EC
+            buf.bytes.push(0xEC);
+        }
+        2 => {
+            // in ax, dx: 66 ED (operand-size prefix)
+            buf.bytes.push(0x66);
+            buf.bytes.push(0xED);
+        }
+        4 => {
+            // in eax, dx: ED
+            buf.bytes.push(0xED);
+        }
+        _ => {
+            // Unreachable for valid widths
+        }
+    }
+}
+
+/// Encode I/O port write instruction: `out dx, al/ax/eax`.
+///
+/// The SDM fixes the register as al (width=1), ax (width=2), or eax (width=4).
+/// The port address register is always DX (implicit in the encoding).
+///
+/// # Instructions
+/// - `out dx, al`: `EE` (1 byte)
+/// - `out dx, ax`: `66 EF` (2 bytes, with operand-size prefix)
+/// - `out dx, eax`: `EF` (1 byte)
+///
+/// # Arguments
+/// - `buf`: code buffer to append instruction to
+/// - `width`: operand width (1 for al, 2 for ax, 4 for eax)
+pub fn encode_out_dx(buf: &mut CodeBuffer, width: u8) {
+    match width {
+        1 => {
+            // out dx, al: EE
+            buf.bytes.push(0xEE);
+        }
+        2 => {
+            // out dx, ax: 66 EF (operand-size prefix)
+            buf.bytes.push(0x66);
+            buf.bytes.push(0xEF);
+        }
+        4 => {
+            // out dx, eax: EF
+            buf.bytes.push(0xEF);
+        }
+        _ => {
+            // Unreachable for valid widths
+        }
+    }
+}
+
 /// Encode zero-operand control and system instructions.
 ///
 /// # Instructions
@@ -1663,5 +1731,139 @@ mod tests {
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
         assert_eq!(instr.mnemonic(), IcedMnem::Cpuid);
+    }
+
+    // ── I/O port instruction tests (phase-5 m2-003) ──────────────
+
+    #[test]
+    fn encode_in_dx_width_1_emits_ec() {
+        let mut buf = CodeBuffer::new();
+        encode_in_dx(&mut buf, 1);
+        // in al, dx: EC
+        assert_eq!(buf.as_slice(), &[0xEC]);
+    }
+
+    #[test]
+    fn encode_in_dx_width_1_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_in_dx(&mut buf, 1);
+
+        assert_eq!(buf.as_slice(), &[0xEC]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::In);
+    }
+
+    #[test]
+    fn encode_in_dx_width_2_emits_66_ed() {
+        let mut buf = CodeBuffer::new();
+        encode_in_dx(&mut buf, 2);
+        // in ax, dx: 66 ED
+        assert_eq!(buf.as_slice(), &[0x66, 0xED]);
+    }
+
+    #[test]
+    fn encode_in_dx_width_2_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_in_dx(&mut buf, 2);
+
+        assert_eq!(buf.as_slice(), &[0x66, 0xED]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::In);
+    }
+
+    #[test]
+    fn encode_in_dx_width_4_emits_ed() {
+        let mut buf = CodeBuffer::new();
+        encode_in_dx(&mut buf, 4);
+        // in eax, dx: ED
+        assert_eq!(buf.as_slice(), &[0xED]);
+    }
+
+    #[test]
+    fn encode_in_dx_width_4_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_in_dx(&mut buf, 4);
+
+        assert_eq!(buf.as_slice(), &[0xED]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::In);
+    }
+
+    #[test]
+    fn encode_out_dx_width_1_emits_ee() {
+        let mut buf = CodeBuffer::new();
+        encode_out_dx(&mut buf, 1);
+        // out dx, al: EE
+        assert_eq!(buf.as_slice(), &[0xEE]);
+    }
+
+    #[test]
+    fn encode_out_dx_width_1_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_out_dx(&mut buf, 1);
+
+        assert_eq!(buf.as_slice(), &[0xEE]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Out);
+    }
+
+    #[test]
+    fn encode_out_dx_width_2_emits_66_ef() {
+        let mut buf = CodeBuffer::new();
+        encode_out_dx(&mut buf, 2);
+        // out dx, ax: 66 EF
+        assert_eq!(buf.as_slice(), &[0x66, 0xEF]);
+    }
+
+    #[test]
+    fn encode_out_dx_width_2_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_out_dx(&mut buf, 2);
+
+        assert_eq!(buf.as_slice(), &[0x66, 0xEF]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Out);
+    }
+
+    #[test]
+    fn encode_out_dx_width_4_emits_ef() {
+        let mut buf = CodeBuffer::new();
+        encode_out_dx(&mut buf, 4);
+        // out dx, eax: EF
+        assert_eq!(buf.as_slice(), &[0xEF]);
+    }
+
+    #[test]
+    fn encode_out_dx_width_4_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_out_dx(&mut buf, 4);
+
+        assert_eq!(buf.as_slice(), &[0xEF]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Out);
     }
 }
