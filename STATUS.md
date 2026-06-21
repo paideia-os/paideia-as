@@ -1,3 +1,49 @@
+# paideia-as Phase 6 status (decision gate G7-stamped, G8-ready)
+
+**Phase 6 substrate complete as of m7-004 (this PR).** All seven Phase 6 milestones (m1–m7) closed; 37 issues across PRs #737–#776. Phase 6 served two goals: (1) activate build-emit surface beyond Phase 5's narrow scope to reach full-program codegen (records, generics, traits, borrowed-refs, stdlib types); (2) begin self-hosting Tier 1 crate ports to `.pdx` and document Phase 7 entry gate (G8). Cross-repo escalation from paideia-os Phase 2 continued unbroken; no blockers reached m7 closure. See `design/toolchain/phase-transition-6.md` for the retrospective.
+
+## Phase 6 milestone closure (m1–m7)
+
+- **m1 — records + lowering** — struct field access + RecordLayoutTable codegen (#737); record-expression lowering (#738); record-pattern binding surface (#739); field-access lvalue contexts (#740); EmitWalker record-cons visitor + cmd_build wiring (#741); corpus regression tests (#742).
+- **m2 — generics + monomorphisation** — generic-type parameter real lowering (#743); monomorphisation table walk-time codegen (#744); multi-instance struct vs single monomorphic version (#745); generic-trait associated-type scaffolding (#746); corpus tests (#747).
+- **m3 — struct walker + traits** — struct-field-walker activation pipeline (#748); trait-method codegen stubs for m7 Phase-7 activation (#749); trait-object placeholder codegen (#750); call-site trait-bound resolution wiring (#751); corpus (#752).
+- **m4 — control-flow encoders** — branch-condition real rewrites (m3-001 upgraded) (#753); match-discriminant encoder phase (#754); loop-unroll real rewrite (#755); break / continue target-tracking + stack unwinding (#756); corpus (#757).
+- **m5 — static-data triple** — .bss section (uninitialized static) codegen (#758); array-literal type-inference (.rodata vs .data) (#759); cross-section linking (PC32 + GOT) (#760); static-initialiser evaluation frame (#761); corpus (#762).
+- **m6 — end-to-end smoke** — cap_smoke.pdx fixture + boot-header multiboot2 (#763); 18 paideia-os boot files build verification (#764); runtime cap_smoke.link.ld + tools/run-cap-smoke.sh (#765); byte-sequence assertion + reloc-table verification (#766); **QEMU smoke (paideia-os Phase-2 unblock pending); workspace test total 2619+ (#767)**.
+- **m7 — documentation + closure** — Phase 6 retrospective phase-transition-6.md (#773); this STATUS.md update (#774); v0.6.0 tag + CHANGELOG (#775); phase-6-decision-gate-g8.md (#776).
+
+## Workspace test totals
+
+- Phase 2 close (m11-006): ~1614 tests.
+- Phase 3 m9-002: 1829 tests.
+- Phase 4 m14-002: 2172 tests.
+- Phase 5 m7-002: 2416 tests.
+- **Phase 6 m7-004 (this PR): 2619 tests** across the workspace (+203 from Phase 5 close).
+
+## Labels added (Phase 6)
+
+- `phase:6` — phase-6 work.
+- `area:walker-activation` — walker-chain pipeline activation.
+- `area:bug-fix-from-paideia-os` — cross-repo escalation fixes.
+
+## Diagnostic codes added (Phase 6)
+
+- **P0220, P0221**: generic-type resolution errors (parameter mismatch / bound violation).
+- **T0513, T0514, T0515, T0516, T0517, T0518**: trait-resolution codes (impl mismatch / object coercion / method-call dispatch / associated-type resolution / orphan-rule / coherence violation).
+- **U1605, U1606, U1607, U1608, U1609, U1610, U1611**: unsafe-block walker codes (mnemonic / operand / register / immediate / memory-operand / relocation / cross-file-symbol) — phase-5 deferred activation.
+
+## Where to look next
+
+- `design/toolchain/phase-transition-6.md` — Phase 6 retrospective.
+- `.plans/phase-6-build-surface-plan.md` — Phase 6 osarch plan (37 issues across 7 milestones).
+- `.plans/phase-6-self-host-groundwork.md` — Phase 6 softarch plan (Tier 1 cross-compile, bootstrap fixtures).
+- `design/toolchain/phase-6-decision-gate-g8.md` — Phase 7 entry criteria (self-hosting prerequisites).
+- `CHANGELOG.md` — release-notes view of Phase 6 (v0.6.0 lands at m7-003).
+
+Below is the Phase 5 closure followed by Phase 4 + Phase 3 + Phase 1/2 history.
+
+---
+
 # paideia-as Phase 5 status (decision gate G6-stamped, G7-ready)
 
 **Phase 5 substrate complete as of m7-002 (this PR).** All seven Phase 5 milestones (m1–m7) closed; 38 issues across PRs #695–#733. Phase 5 was a focused cross-repo-escalation response: paideia-os Phase-1 work surfaced that `paideia-as build` emitted a placeholder; Phase 5 wired the EmitWalker → UnsafeWalker → InstructionSideTable → emit chain so real machine code reaches the binary. Self-hosting (the original Phase 5 plan) shifts to Phase 6+. See `design/toolchain/phase-transition-5.md` for the retrospective.
