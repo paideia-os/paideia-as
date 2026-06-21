@@ -167,6 +167,10 @@ pub enum IrKind {
     Break,
     /// Continue to the next iteration of the enclosing loop. No children.
     Continue,
+    /// While-loop with condition and body. Children = [condition, body].
+    /// Phase 7 m1-001: emits top_label, test instruction, conditional jump to exit_label,
+    /// body, unconditional jump back to top_label, then exit_label.
+    While,
     /// Match expression: match on a value with multiple arms.
     /// Children = [scrutinee, arm0, arm1, ...].
     /// Each arm is its own subtree with pattern + body.

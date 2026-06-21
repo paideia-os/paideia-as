@@ -695,6 +695,15 @@ description = "Phase 7 m1-001: both branches of an if-then-else expression must 
 since = "0.7.0"
 deprecated = false
 
+[diagnostic.T0520]
+severity = "error"
+category = "type"
+title = "Loop body type-incompatible with break value"
+brief = "break value type does not match loop result type"
+description = "Phase 7 m1-002 (PA7-004): when a break statement in a while loop provides a value, that value's type must match the expected result type of the loop expression. If the loop is used in a context requiring a specific return type, all break values must have that type. If you meant to discard the result, ensure all breaks are value-less or restructure the code to return unit type."
+since = "0.7.0"
+deprecated = false
+
 [diagnostic.L2001]
 severity = "warning"
 category = "lint"

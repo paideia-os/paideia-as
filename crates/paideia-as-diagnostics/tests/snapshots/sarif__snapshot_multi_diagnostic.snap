@@ -1,5 +1,6 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
+assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -852,6 +853,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "If-expression branches have mismatched types",
               "shortDescription": {
                 "text": "then and else branches of if-expression have incompatible types"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase 7 m1-002 (PA7-004): when a break statement in a while loop provides a value, that value's type must match the expected result type of the loop expression. If the loop is used in a context requiring a specific return type, all break values must have that type. If you meant to discard the result, ensure all breaks are value-less or restructure the code to return unit type."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0520",
+              "id": "T0520",
+              "name": "Loop body type-incompatible with break value",
+              "shortDescription": {
+                "text": "break value type does not match loop result type"
               }
             },
             {

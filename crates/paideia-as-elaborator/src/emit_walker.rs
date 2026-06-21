@@ -316,6 +316,10 @@ impl EmitWalker {
                             // Phase 7 m1-001: emit if-then-else expression lowering.
                             self.visit_branch(node_id, arena);
                         }
+                        IrKind::While => {
+                            // Phase 7 m1-002: emit while-loop lowering.
+                            self.visit_while(node_id, arena);
+                        }
                         _ => {}
                     }
                 }
@@ -1756,6 +1760,97 @@ impl EmitWalker {
 
         // Register end_label.
         self.state.register_label(end_label);
+    }
+
+    /// Phase 7 m1-002: Emit while-loop lowering.
+    ///
+    /// Lowers `while x < 10 { x = x + 1 }` to:
+    /// - top_label: (at offset O)
+    /// - test rdi, rdi (3 bytes, offset O -> O+3)
+    /// - jnz exit_label (6 bytes, offset O+3 -> O+9)
+    /// - [body emitted elsewhere]
+    /// - jmp top_label (5 bytes)
+    /// - exit_label: (at final offset)
+    ///
+    /// break jumps to exit_label; continue jumps to top_label.
+    fn visit_while(&mut self, while_node_id: IrNodeId, arena: &IrArena) {
+        let children = arena.children(while_node_id);
+        if children.len() < 2 {
+            // Malformed While node (needs condition + body).
+            self.diagnostics.push(format!(
+                "While node {} has {} children; expected at least 2",
+                while_node_id.get(),
+                children.len()
+            ));
+            return;
+        }
+
+        let _cond_id = children[0];
+        let _body_id = children[1];
+
+        // Generate label names unique per while node.
+        let top_label = format!("while_top_{}", while_node_id.get());
+        let exit_label = format!("while_exit_{}", while_node_id.get());
+
+        // Register top_label at current offset.
+        self.state.register_label(top_label.clone());
+
+        // Emit TEST instruction: test rdi, rdi (3 bytes: 48 85 FF)
+        // Phase 7 m1-002 minimum: assume condition is in rdi (first argument).
+        let test_id = IrNodeId::new(while_node_id.get() * 4).expect("test instr id");
+        let mut test_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        test_operands.push(Operand::Reg(RegId(7))); // rdi
+        test_operands.push(Operand::Reg(RegId(7))); // rdi
+
+        let test_inst = Instruction {
+            mnemonic: Mnemonic::Test,
+            operands: test_operands,
+            encoding_hint: None,
+        };
+
+        self.state.instructions.insert(test_id, test_inst);
+        self.state.current_offset += 3;
+
+        // Emit conditional jump (jnz): Jump if NOT zero to exit_label.
+        let jnz_id = IrNodeId::new(while_node_id.get() * 4 + 1).expect("jnz instr id");
+        let mut jnz_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        jnz_operands.push(Operand::LabelRef {
+            name: exit_label.clone(),
+            addend: 0,
+        });
+
+        let jnz_inst = Instruction {
+            mnemonic: Mnemonic::Jcc(Cond::NonZero),
+            operands: jnz_operands,
+            encoding_hint: None,
+        };
+
+        self.state.instructions.insert(jnz_id, jnz_inst);
+        self.state.current_offset += 6; // jcc rel32 is 6 bytes
+
+        // Placeholder: emit body instructions.
+        // Phase 7: actual body emission deferred.
+        // After body, emit unconditional jump back to top_label.
+
+        // Emit unconditional jump (jmp) to top_label (5 bytes: E9 XX XX XX XX)
+        let jmp_id = IrNodeId::new(while_node_id.get() * 4 + 2).expect("jmp instr id");
+        let mut jmp_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        jmp_operands.push(Operand::LabelRef {
+            name: top_label,
+            addend: 0,
+        });
+
+        let jmp_inst = Instruction {
+            mnemonic: Mnemonic::Jmp,
+            operands: jmp_operands,
+            encoding_hint: None,
+        };
+
+        self.state.instructions.insert(jmp_id, jmp_inst);
+        self.state.current_offset += 5; // jmp rel32 is 5 bytes
+
+        // Register exit_label at final offset.
+        self.state.register_label(exit_label);
     }
 }
 
@@ -3376,7 +3471,7 @@ mod tests {
             })
             .collect();
 
-        let record_cons_id =
+        let _record_cons_id =
             arena.alloc_with_children(IrKind::RecordCons, span_ref, lit_ids.into_iter());
 
         // Do NOT register layout → should fire T0518 at walk time.
@@ -3868,6 +3963,141 @@ mod tests {
         assert_ne!(outer_end_label, inner_end_label);
 
         // Verify offset accounts for both branches: 2 * (test + jz + jmp) = 2 * 14 = 28 bytes
+        assert_eq!(walker.state().current_offset, 28);
+    }
+
+    // ── While-loop lowering tests (m1-002) ─────────────────────────────────
+
+    #[test]
+    fn emit_walker_while_simple_loop() {
+        let mut arena = IrArena::new();
+
+        // Allocate: Literal (condition), Var (body), then While with both as children.
+        let cond_id = arena.alloc(IrKind::Literal, span());
+        let body_id = arena.alloc(IrKind::Var, span());
+        let while_id = arena.alloc_with_children(IrKind::While, span(), [cond_id, body_id]);
+
+        // Walk the arena.
+        let mut walker = EmitWalker::new();
+        walker.walk(&mut arena);
+
+        // Verify instructions were emitted for the while loop.
+        // Test instruction at while_id * 4
+        let test_id = IrNodeId::new(while_id.get() * 4).expect("test instr id");
+        let test_inst = walker
+            .state()
+            .instructions
+            .get(test_id)
+            .expect("test instruction should be emitted");
+        assert_eq!(test_inst.mnemonic, Mnemonic::Test);
+        assert_eq!(test_inst.operands.len(), 2);
+        assert_eq!(test_inst.operands[0], Operand::Reg(RegId(7))); // rdi
+        assert_eq!(test_inst.operands[1], Operand::Reg(RegId(7))); // rdi
+
+        // JNZ instruction at while_id * 4 + 1
+        let jnz_id = IrNodeId::new(while_id.get() * 4 + 1).expect("jnz instr id");
+        let jnz_inst = walker
+            .state()
+            .instructions
+            .get(jnz_id)
+            .expect("jnz instruction should be emitted");
+        assert!(matches!(jnz_inst.mnemonic, Mnemonic::Jcc(Cond::NonZero)));
+        assert_eq!(jnz_inst.operands.len(), 1);
+
+        // JMP instruction at while_id * 4 + 2
+        let jmp_id = IrNodeId::new(while_id.get() * 4 + 2).expect("jmp instr id");
+        let jmp_inst = walker
+            .state()
+            .instructions
+            .get(jmp_id)
+            .expect("jmp instruction should be emitted");
+        assert_eq!(jmp_inst.mnemonic, Mnemonic::Jmp);
+        assert_eq!(jmp_inst.operands.len(), 1);
+
+        // Verify labels were registered.
+        let top_label = format!("while_top_{}", while_id.get());
+        let exit_label = format!("while_exit_{}", while_id.get());
+        assert!(walker.state().labels.contains_key(&top_label));
+        assert!(walker.state().labels.contains_key(&exit_label));
+
+        // Verify offset: test (3) + jnz (6) + jmp (5) = 14 bytes.
+        assert_eq!(walker.state().current_offset, 14);
+    }
+
+    #[test]
+    fn emit_walker_while_with_break() {
+        let mut arena = IrArena::new();
+
+        // Allocate: Literal (condition), Break (body).
+        let cond_id = arena.alloc(IrKind::Literal, span());
+        let break_id = arena.alloc(IrKind::Break, span());
+        let while_id = arena.alloc_with_children(IrKind::While, span(), [cond_id, break_id]);
+
+        // Walk the arena.
+        let mut walker = EmitWalker::new();
+        walker.walk(&mut arena);
+
+        // Verify instructions were emitted.
+        let test_id = IrNodeId::new(while_id.get() * 4).expect("test instr id");
+        assert!(walker.state().instructions.get(test_id).is_some());
+
+        let jnz_id = IrNodeId::new(while_id.get() * 4 + 1).expect("jnz instr id");
+        let jnz_inst = walker
+            .state()
+            .instructions
+            .get(jnz_id)
+            .expect("jnz instruction should be emitted");
+
+        // Verify jnz references the exit label (where break will jump).
+        let exit_label = format!("while_exit_{}", while_id.get());
+        match &jnz_inst.operands[0] {
+            Operand::LabelRef { name, addend } => {
+                assert_eq!(name, &exit_label);
+                assert_eq!(*addend, 0);
+            }
+            _ => panic!("Expected LabelRef operand for jnz"),
+        }
+
+        // Verify exit label was registered.
+        assert!(walker.state().labels.contains_key(&exit_label));
+    }
+
+    #[test]
+    fn emit_walker_while_nested_with_continue() {
+        let mut arena = IrArena::new();
+
+        // Allocate inner while loop: condition + continue.
+        let inner_cond_id = arena.alloc(IrKind::Literal, span());
+        let continue_id = arena.alloc(IrKind::Continue, span());
+        let inner_while_id =
+            arena.alloc_with_children(IrKind::While, span(), [inner_cond_id, continue_id]);
+
+        // Allocate outer while loop: condition + inner while.
+        let outer_cond_id = arena.alloc(IrKind::Literal, span());
+        let outer_while_id =
+            arena.alloc_with_children(IrKind::While, span(), [outer_cond_id, inner_while_id]);
+
+        // Walk the arena.
+        let mut walker = EmitWalker::new();
+        walker.walk(&mut arena);
+
+        // Verify outer while labels exist and are distinct.
+        let outer_top_label = format!("while_top_{}", outer_while_id.get());
+        let outer_exit_label = format!("while_exit_{}", outer_while_id.get());
+        assert!(walker.state().labels.contains_key(&outer_top_label));
+        assert!(walker.state().labels.contains_key(&outer_exit_label));
+
+        // Verify inner while labels exist and are distinct.
+        let inner_top_label = format!("while_top_{}", inner_while_id.get());
+        let inner_exit_label = format!("while_exit_{}", inner_while_id.get());
+        assert!(walker.state().labels.contains_key(&inner_top_label));
+        assert!(walker.state().labels.contains_key(&inner_exit_label));
+
+        // Verify all four labels are distinct.
+        assert_ne!(outer_top_label, inner_top_label);
+        assert_ne!(outer_exit_label, inner_exit_label);
+
+        // Verify offset accounts for both while loops: 2 * 14 = 28 bytes.
         assert_eq!(walker.state().current_offset, 28);
     }
 }

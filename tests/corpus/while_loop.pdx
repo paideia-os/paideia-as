@@ -1,0 +1,40 @@
+// Phase 7 m1-002: While-loop lowering test fixtures.
+// Tests basic and nested while-loop control flow.
+
+// Test 1: Simple while loop counting up
+// x starts at 0, increments until it reaches 10
+fn simple_while_count() -> u64 {
+    let mut x: u64 = 0;
+    while x < 10 {
+        x = x + 1;
+    }
+    x
+}
+
+// Test 2: While loop with break statement
+// Loop exits early when condition is met
+fn while_with_break(n: u64) -> u64 {
+    let mut result: u64 = 0;
+    while result < n {
+        if result == 5 {
+            break;
+        }
+        result = result + 1;
+    }
+    result
+}
+
+// Test 3: Nested while loops with continue
+// Outer loop counts to 3, inner loop counts to 5 per outer iteration
+fn nested_while_with_continue() -> u64 {
+    let mut outer: u64 = 0;
+    let mut inner: u64 = 0;
+    while outer < 3 {
+        while inner < 5 {
+            inner = inner + 1;
+        }
+        outer = outer + 1;
+        inner = 0;
+    }
+    outer
+}
