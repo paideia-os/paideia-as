@@ -1,0 +1,26 @@
+module UnsafeBlocks = structure {
+  let block1 = unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "test block 1",
+    block: {
+      sfence
+    }
+  }
+  let block2 = unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "test block 2",
+    block: {
+      sfence
+    }
+  }
+  let block3 = unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "test block 3",
+    block: {
+      sfence
+    }
+  }
+}

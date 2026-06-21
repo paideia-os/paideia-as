@@ -3,9 +3,10 @@
 //! Tests the elaboration of unsafe blocks with assembly instructions.
 
 use paideia_as_ast::{AstArena, ExprData, NodeKind, StmtData};
-use paideia_as_diagnostics::{Span, VecSink};
+use paideia_as_diagnostics::{Span, SourceMap, VecSink};
 use paideia_as_elaborator::unsafe_walker::UnsafeWalker;
 use paideia_as_ir::IrArena;
+use std::path::PathBuf;
 
 /// Helper to create a test span.
 fn test_span() -> Span {
@@ -52,9 +53,13 @@ fn test_lgdt_memory_operand() {
     // Create an IR Unsafe node
     let ir_unsafe = ir.alloc(paideia_as_ir::IrKind::Unsafe, span);
 
+    // Create a source map with a dummy file for testing
+    let mut source_map = SourceMap::new();
+    let _ = source_map.add_file(PathBuf::from("test.pdx"), String::new());
+
     // Run UnsafeWalker
     let mut sink = VecSink::new();
-    let _diags = UnsafeWalker::run(&mut ir, &ast, vec![ir_unsafe.get()], &mut sink);
+    let _diags = UnsafeWalker::run(&mut ir, &ast, vec![ir_unsafe.get()], &source_map, &mut sink);
 
     // Check that no errors were emitted (in a real test with proper AST nodes, this would work)
     // For now, this test verifies the basic structure compiles.
@@ -98,9 +103,13 @@ fn test_unknown_mnemonic_foozle() {
     // Create an IR Unsafe node
     let ir_unsafe = ir.alloc(paideia_as_ir::IrKind::Unsafe, span);
 
+    // Create a source map with a dummy file for testing
+    let mut source_map = SourceMap::new();
+    let _ = source_map.add_file(PathBuf::from("test.pdx"), String::new());
+
     // Run UnsafeWalker
     let mut sink = VecSink::new();
-    let _diags = UnsafeWalker::run(&mut ir, &ast, vec![ir_unsafe.get()], &mut sink);
+    let _diags = UnsafeWalker::run(&mut ir, &ast, vec![ir_unsafe.get()], &source_map, &mut sink);
 
     // Check that a U1605 diagnostic was emitted
     let sink_diags = sink.into_diagnostics();
@@ -163,9 +172,13 @@ fn test_malformed_operand_incomplete_memory() {
     // Create an IR Unsafe node
     let ir_unsafe = ir.alloc(paideia_as_ir::IrKind::Unsafe, span);
 
+    // Create a source map with a dummy file for testing
+    let mut source_map = SourceMap::new();
+    let _ = source_map.add_file(PathBuf::from("test.pdx"), String::new());
+
     // Run UnsafeWalker
     let mut sink = VecSink::new();
-    let _diags = UnsafeWalker::run(&mut ir, &ast, vec![ir_unsafe.get()], &mut sink);
+    let _diags = UnsafeWalker::run(&mut ir, &ast, vec![ir_unsafe.get()], &source_map, &mut sink);
 
     // Check that a U1606 diagnostic was emitted
     let sink_diags = sink.into_diagnostics();

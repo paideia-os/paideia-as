@@ -171,6 +171,7 @@ pub fn resolve_mnemonic(name: &str) -> Option<Mnemonic> {
 ///
 /// * `ast` - The AST arena
 /// * `operand_node` - The NodeId of the operand node
+/// * `source_map` - The source map for resolving file content from spans
 ///
 /// # Returns
 ///
@@ -189,6 +190,7 @@ pub fn resolve_mnemonic(name: &str) -> Option<Mnemonic> {
 pub fn parse_operand_from_ast(
     ast: &AstArena,
     operand_node: NodeId,
+    source_map: &paideia_as_diagnostics::SourceMap,
 ) -> Result<Operand, OperandError> {
     let node = ast.get(operand_node).ok_or(OperandError::MalformedOperand(
         ast.get(operand_node).map(|n| n.span).unwrap_or_else(|| {
@@ -199,7 +201,16 @@ pub fn parse_operand_from_ast(
     match node.kind {
         NodeKind::Ident => {
             // Register operand: try to parse as register name
-            parse_register_from_ident(ast, operand_node)
+            parse_register_from_ident(ast, operand_node, source_map)
+        }
+        NodeKind::OperandRegister => {
+            // Register operand from parsed instruction: extract the register reference
+            match ast.expr_data(operand_node) {
+                Some(ExprData::OperandRegister { reg }) => {
+                    parse_register_from_ident(ast, *reg, source_map)
+                }
+                _ => Err(OperandError::MalformedOperand(node.span)),
+            }
         }
         NodeKind::ExprLiteral => {
             // Immediate operand: extract integer literal
@@ -207,21 +218,39 @@ pub fn parse_operand_from_ast(
         }
         NodeKind::OperandMemoryRef => {
             // Memory operand: parse memory reference with SIB addressing
-            parse_memory_from_memref(ast, operand_node)
+            parse_memory_from_memref(ast, operand_node, source_map)
         }
         _ => Err(OperandError::MalformedOperand(node.span)),
     }
 }
 
-/// Parse a register operand from an Ident node.
-fn parse_register_from_ident(ast: &AstArena, ident_node: NodeId) -> Result<Operand, OperandError> {
+/// Parse a register operand from an Ident node or ExprPath (single-segment).
+fn parse_register_from_ident(
+    ast: &AstArena,
+    ident_node: NodeId,
+    source_map: &paideia_as_diagnostics::SourceMap,
+) -> Result<Operand, OperandError> {
     let span = ast.get(ident_node).map(|n| n.span).unwrap_or_else(|| {
         paideia_as_diagnostics::Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 0, 1)
     });
 
+    // Handle both Ident and ExprPath (single-segment) node kinds
+    let node = ast.get(ident_node).ok_or(OperandError::MalformedOperand(span))?;
+    let actual_ident_node = match node.kind {
+        NodeKind::Ident => ident_node,
+        NodeKind::ExprPath => {
+            // For ExprPath, extract the first segment (should be single-segment)
+            match ast.expr_data(ident_node) {
+                Some(ExprData::Path { segments }) if segments.len() == 1 => segments[0],
+                _ => return Err(OperandError::MalformedOperand(span)),
+            }
+        }
+        _ => return Err(OperandError::MalformedOperand(span)),
+    };
+
     // Extract the identifier text by looking up in the source.
     // For phase-1, we use a lookup table matching register names to RegIds.
-    let reg_id = match get_register_name(ast, ident_node) {
+    let reg_id = match get_register_name(ast, actual_ident_node, source_map) {
         Some(name) => register_name_to_regid(&name)
             .ok_or_else(|| OperandError::UnknownRegister(name, span))?,
         None => {
@@ -257,7 +286,11 @@ fn parse_immediate_from_literal(
 }
 
 /// Parse a memory operand from an OperandMemoryRef node.
-fn parse_memory_from_memref(ast: &AstArena, memref_node: NodeId) -> Result<Operand, OperandError> {
+fn parse_memory_from_memref(
+    ast: &AstArena,
+    memref_node: NodeId,
+    source_map: &paideia_as_diagnostics::SourceMap,
+) -> Result<Operand, OperandError> {
     let span = ast.get(memref_node).map(|n| n.span).unwrap_or_else(|| {
         paideia_as_diagnostics::Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 0, 1)
     });
@@ -265,7 +298,7 @@ fn parse_memory_from_memref(ast: &AstArena, memref_node: NodeId) -> Result<Opera
     match ast.expr_data(memref_node) {
         Some(ExprData::OperandMemoryRef { addr }) => {
             // Parse the address expression to extract SIB components
-            parse_address_to_sib(ast, *addr)
+            parse_address_to_sib(ast, *addr, source_map)
         }
         _ => Err(OperandError::MalformedOperand(span)),
     }
@@ -278,10 +311,14 @@ fn parse_memory_from_memref(ast: &AstArena, memref_node: NodeId) -> Result<Opera
 /// - `rdi + 8` → base=7, index=None, scale=X1, disp=8
 /// - `rdi + rsi * 4` → base=7, index=Some(6), scale=X4, disp=0
 /// - `rdi + rsi * 4 + 8` → base=7, index=Some(6), scale=X4, disp=8
-fn parse_address_to_sib(ast: &AstArena, addr_node: NodeId) -> Result<Operand, OperandError> {
+fn parse_address_to_sib(
+    ast: &AstArena,
+    addr_node: NodeId,
+    source_map: &paideia_as_diagnostics::SourceMap,
+) -> Result<Operand, OperandError> {
     // Extract SIB components from the address expression.
     // Phase-1 implementation: support infix operators (+, -) and multiply (*).
-    let (base, index, scale, disp) = extract_sib_components(ast, addr_node)?;
+    let (base, index, scale, disp) = extract_sib_components(ast, addr_node, source_map)?;
 
     Ok(Operand::MemSib {
         base,
@@ -297,6 +334,7 @@ fn parse_address_to_sib(ast: &AstArena, addr_node: NodeId) -> Result<Operand, Op
 fn extract_sib_components(
     ast: &AstArena,
     expr_node: NodeId,
+    source_map: &paideia_as_diagnostics::SourceMap,
 ) -> Result<(RegId, Option<RegId>, Scale, i32), OperandError> {
     let span = ast.get(expr_node).map(|n| n.span).unwrap_or_else(|| {
         paideia_as_diagnostics::Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 0, 1)
@@ -308,10 +346,22 @@ fn extract_sib_components(
 
     match node.kind {
         // Base case: single register → base=reg, index=None, scale=X1, disp=0
-        NodeKind::Ident => match parse_register_from_ident(ast, expr_node)? {
+        NodeKind::Ident => match parse_register_from_ident(ast, expr_node, source_map)? {
             Operand::Reg(base) => Ok((base, None, Scale::X1, 0)),
             _ => Err(OperandError::MalformedOperand(span)),
         },
+        // Path case: single-segment path (like `rdi`) → same as Ident
+        NodeKind::ExprPath => {
+            match ast.expr_data(expr_node) {
+                Some(ExprData::Path { segments }) if segments.len() == 1 => {
+                    match parse_register_from_ident(ast, segments[0], source_map)? {
+                        Operand::Reg(base) => Ok((base, None, Scale::X1, 0)),
+                        _ => Err(OperandError::MalformedOperand(span)),
+                    }
+                }
+                _ => Err(OperandError::MalformedOperand(span)),
+            }
+        }
         // Infix operator: could be addition/subtraction or multiplication
         NodeKind::ExprInfix => {
             match ast.expr_data(expr_node) {
@@ -322,7 +372,7 @@ fn extract_sib_components(
                     match op_str.as_deref() {
                         Some("+") | Some("-") => {
                             // Addition/subtraction: base + disp or index*scale + base + disp
-                            combine_additive_terms(ast, *lhs, *rhs, op_str == Some("-"))
+                            combine_additive_terms(ast, *lhs, *rhs, op_str == Some("-"), source_map)
                         }
                         Some("*") => {
                             // Multiplication: should only appear as index*scale
@@ -349,13 +399,14 @@ fn combine_additive_terms(
     left: NodeId,
     right: NodeId,
     is_sub: bool,
+    source_map: &paideia_as_diagnostics::SourceMap,
 ) -> Result<(RegId, Option<RegId>, Scale, i32), OperandError> {
     let span = ast.get(left).map(|n| n.span).unwrap_or_else(|| {
         paideia_as_diagnostics::Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 0, 1)
     });
 
     // Recursively extract components from left and right
-    let (left_base, left_index, left_scale, left_disp) = extract_sib_components(ast, left)?;
+    let (left_base, left_index, left_scale, left_disp) = extract_sib_components(ast, left, source_map)?;
 
     // Try to parse right as either a register, immediate, or index*scale expression
     let right_kind = ast.get(right).map(|n| n.kind);
@@ -363,7 +414,7 @@ fn combine_additive_terms(
     match right_kind {
         Some(NodeKind::Ident) => {
             // Right is a register: could be base or index
-            match parse_register_from_ident(ast, right)? {
+            match parse_register_from_ident(ast, right, source_map)? {
                 Operand::Reg(reg) => {
                     // Merge: if left has base, right is index; otherwise right is base
                     if left_base == RegId(0) && left_index.is_none() {
@@ -408,7 +459,7 @@ fn combine_additive_terms(
                     let op_str = get_infix_op_name(ast, *op);
                     if op_str == Some("*") {
                         // Extract index and scale from multiplication
-                        match extract_index_scale(ast, *mul_lhs, *mul_rhs)? {
+                        match extract_index_scale(ast, *mul_lhs, *mul_rhs, source_map)? {
                             (idx, scale_factor) => {
                                 let scale = Scale::from_factor(scale_factor)
                                     .ok_or(OperandError::MalformedOperand(span))?;
@@ -431,13 +482,14 @@ fn extract_index_scale(
     ast: &AstArena,
     left: NodeId,
     right: NodeId,
+    source_map: &paideia_as_diagnostics::SourceMap,
 ) -> Result<(RegId, u32), OperandError> {
     let span = ast.get(left).map(|n| n.span).unwrap_or_else(|| {
         paideia_as_diagnostics::Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 0, 1)
     });
 
     // Left should be register, right should be immediate scale
-    let idx_reg = match parse_register_from_ident(ast, left)? {
+    let idx_reg = match parse_register_from_ident(ast, left, source_map)? {
         Operand::Reg(reg) => reg,
         _ => return Err(OperandError::MalformedOperand(span)),
     };
@@ -460,12 +512,27 @@ fn get_infix_op_name(ast: &AstArena, op_node: NodeId) -> Option<&'static str> {
 }
 
 /// Get the register name from an Ident node by looking at the source text.
-fn get_register_name(_ast: &AstArena, _ident_node: NodeId) -> Option<String> {
-    // For phase-1, we extract the register name via a heuristic:
-    // The AST arena has access to the original source spans.
-    // A full implementation would use a source map to look up the actual text.
-    // For now, we return None and rely on the register lookup table in parse_register_from_ident.
-    None
+fn get_register_name(
+    ast: &AstArena,
+    ident_node: NodeId,
+    source_map: &paideia_as_diagnostics::SourceMap,
+) -> Option<String> {
+    // Extract the register name from the span using the source map
+    let node = ast.get(ident_node)?;
+    let span = node.span;
+
+    // Look up the file content in the source map
+    let file_id = span.file();
+    let source = source_map.content(file_id);
+
+    // Extract the text from the span
+    let start = span.byte_start() as usize;
+    let end = start + span.byte_len() as usize;
+    if end <= source.len() {
+        Some(source[start..end].to_string())
+    } else {
+        None
+    }
 }
 
 /// Extract an integer value from a span/literal node.
@@ -554,6 +621,7 @@ impl UnsafeWalker {
     /// * `arena` - The IR arena containing the unsafe block nodes.
     /// * `ast` - The AST arena containing the block's statement data.
     /// * `pending_ids` - IrNodeIds of IrKind::Unsafe nodes to elaborate.
+    /// * `source_map` - The source map for resolving file content from spans.
     /// * `sink` - Diagnostic sink for emitting errors.
     ///
     /// # Returns
@@ -567,6 +635,7 @@ impl UnsafeWalker {
         arena: &mut IrArena,
         ast: &AstArena,
         pending_ids: Vec<u32>,
+        source_map: &paideia_as_diagnostics::SourceMap,
         sink: &mut dyn DiagnosticSink,
     ) -> Vec<Diagnostic> {
         let mut diags = Vec::new();
@@ -599,7 +668,7 @@ impl UnsafeWalker {
                                         if ast_stmt_node.kind == NodeKind::StmtInstruction {
                                             // Process this instruction statement.
                                             Self::process_instruction_stmt(
-                                                arena, ast, stmt_id, &mut diags, sink,
+                                                arena, ast, stmt_id, &mut diags, sink, source_map,
                                             );
                                         }
                                     }
@@ -624,6 +693,7 @@ impl UnsafeWalker {
         stmt_id: NodeId,
         diags: &mut Vec<Diagnostic>,
         sink: &mut dyn DiagnosticSink,
+        source_map: &paideia_as_diagnostics::SourceMap,
     ) {
         // Get the statement data.
         let stmt_data = match ast.stmt_data(stmt_id) {
@@ -664,7 +734,7 @@ impl UnsafeWalker {
         let mut operand_error = false;
 
         for &operand_id in operand_ids {
-            match parse_operand_from_ast(ast, operand_id) {
+            match parse_operand_from_ast(ast, operand_id, source_map) {
                 Ok(operand) => {
                     parsed_operands.push(operand);
                 }

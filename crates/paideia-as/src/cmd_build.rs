@@ -18,8 +18,8 @@ use paideia_as_diagnostics::{
     Catalog, DiagnosticSink, HumanRenderer, HumanSink, Severity, SourceMap, VecSink,
 };
 use paideia_as_elaborator::{
-    CapWalker, EffectRowWalker, EmitWalker, LinearityWalker, lower_ast_to_ir, placeholder_for,
-    validate_file_module_mapping,
+    CapWalker, EffectRowWalker, EmitWalker, LinearityWalker, UnsafeWalker, lower_ast_to_ir,
+    placeholder_for, validate_file_module_mapping,
 };
 use paideia_as_emitter_elf::{Arch, ElfWriter, Kind, SymbolEntry, lower_add_one};
 use paideia_as_emitter_pax::{
@@ -136,7 +136,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str) -> ExitCode {
     }
 
     // If there are any errors so far, do not emit anything downstream.
-    let lowering = lower_ast_to_ir(&arena);
+    let mut lowering = lower_ast_to_ir(&arena);
 
     // Run walkers over the IR to surface S/F/C diagnostics.
     // Phase-2-m1: walkers run with empty injection tables (from CLI), so only
@@ -181,7 +181,16 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str) -> ExitCode {
             // EmitWalker does not use the walker framework (it uses direct arena iteration),
             // so we call its walk method directly rather than through the walk() driver.
             emit_walker.walk(&lowering.ir);
-            instruction_table = emit_walker.state().instructions.clone();
+
+            // Phase-5-m3-005: Run UnsafeWalker to elaborate pending unsafe blocks.
+            // Take pending unsafe blocks from EmitWalker state and process them.
+            let pending = emit_walker.state_mut().take_pending_unsafe();
+            let unsafe_diags =
+                UnsafeWalker::run(&mut lowering.ir, &arena, pending, &source_map, &mut walker_sink);
+            instruction_table = lowering.ir.instructions().clone();
+            for d in unsafe_diags {
+                let _ = walker_sink.emit(d);
+            }
         }
 
         // Drain walker diagnostics into the main sink for rendering.
