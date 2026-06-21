@@ -804,6 +804,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "Phase 6 m3-004: EmitWalker RecordCons lowering currently supports only the cap-mint (4-field all-u64) shape when bound via let p : *T = construct_into(...). Other record shapes and binding patterns are not yet supported. Restructure your code to use the supported shape, or defer support to a later phase."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0518",
+              "id": "T0518",
+              "name": "RecordCons must be bound by construct_into(...) in Phase 6",
+              "shortDescription": {
+                "text": "unsupported RecordCons shape in Phase 6 m3-004"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "A binding declared as Linear or Ordered in the substructural lattice must be used exactly once. This binding was never used. A Linear binding represents a unique resource that must be consumed; Ordered adds ordering constraints. Check that the binding is referenced exactly once in its scope."
               },
               "helpUri": "https://paideia-os.org/diagnostics/S0900",

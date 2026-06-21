@@ -659,6 +659,15 @@ description = "Phase 6 m3-003: EmitWalker field-binding lowering assigns scratch
 since = "0.6.0"
 deprecated = false
 
+[diagnostic.T0518]
+severity = "error"
+category = "type"
+title = "RecordCons must be bound by construct_into(...) in Phase 6"
+brief = "unsupported RecordCons shape in Phase 6 m3-004"
+description = "Phase 6 m3-004: EmitWalker RecordCons lowering currently supports only the cap-mint (4-field all-u64) shape when bound via let p : *T = construct_into(...). Other record shapes and binding patterns are not yet supported. Restructure your code to use the supported shape, or defer support to a later phase."
+since = "0.6.0"
+deprecated = false
+
 [diagnostic.L2001]
 severity = "warning"
 category = "lint"

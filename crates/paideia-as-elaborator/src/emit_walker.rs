@@ -268,6 +268,10 @@ impl EmitWalker {
                             // Phase 6 m3-002: emit field access lowering for (*p).field shape.
                             self.visit_field_access(node_id, arena);
                         }
+                        IrKind::RecordCons => {
+                            // Phase 6 m3-004: emit record constructor lowering for cap-mint shape.
+                            self.visit_record_cons(node_id, arena);
+                        }
                         _ => {}
                     }
                 }
@@ -1133,6 +1137,159 @@ impl EmitWalker {
             7
         };
         self.state.current_offset += size;
+    }
+
+    /// Phase 6 m3-004: Emit record constructor lowering for cap-mint shape.
+    ///
+    /// Accepts only the 4-field all-u64 capability descriptor shape:
+    /// - Field 0: u64 at offset 0 (from RSI = arg 2)
+    /// - Field 1: u64 at offset 8 (from RDX = arg 3)
+    /// - Field 2: u64 at offset 16 (from RCX = arg 4)
+    /// - Field 3: u64 at offset 24 (from R8 = arg 5)
+    /// Buffer pointer is in RDI (arg 0).
+    ///
+    /// For literal-valued fields, emits `mov [rdi + offset], 0` via
+    /// imm32-sign-extended form: `48 C7 47 18 00 00 00 00` (8 bytes).
+    ///
+    /// Fires T0518 for unsupported shapes.
+    fn visit_record_cons(&mut self, record_cons_id: IrNodeId, arena: &IrArena) {
+        // Look up the RecordTypeId for this RecordCons node.
+        let type_id = match arena.record_layout_table().get(record_cons_id) {
+            Some(&tid) => tid,
+            None => {
+                // No layout entry → unsupported shape → T0518
+                self.diagnostics.push(format!(
+                    "T0518: RecordCons node {} has no layout entry (unsupported shape in Phase 6)",
+                    record_cons_id.get()
+                ));
+                return;
+            }
+        };
+
+        // Look up the finalised layout for this type.
+        let layout = match self.state.record_layouts.get(&type_id) {
+            Some(l) => l,
+            None => {
+                // Layout not finalised → unsupported
+                self.diagnostics.push(format!(
+                    "T0518: RecordCons node {} type {} not finalised (unsupported shape in Phase 6)",
+                    record_cons_id.get(),
+                    type_id.0
+                ));
+                return;
+            }
+        };
+
+        // Phase 6 m3-004: Accept only the cap-mint shape:
+        // - Exactly 4 fields
+        // - All u64 (size 8 each)
+        // - Offsets [0, 8, 16, 24], total size 32, align 8
+        if layout.fields.len() != 4 {
+            self.diagnostics.push(format!(
+                "T0518: RecordCons node {} has {} fields; cap-mint requires 4 (unsupported shape in Phase 6)",
+                record_cons_id.get(),
+                layout.fields.len()
+            ));
+            return;
+        }
+
+        for (i, field) in layout.fields.iter().enumerate() {
+            if field.size != 8 {
+                self.diagnostics.push(format!(
+                    "T0518: RecordCons node {} field {} has size {}; cap-mint requires u64 (size 8) (unsupported shape in Phase 6)",
+                    record_cons_id.get(),
+                    i,
+                    field.size
+                ));
+                return;
+            }
+            let expected_offset = (i as u64) * 8;
+            if field.offset != expected_offset {
+                self.diagnostics.push(format!(
+                    "T0518: RecordCons node {} field {} has offset {}; cap-mint requires offset {} (unsupported shape in Phase 6)",
+                    record_cons_id.get(),
+                    i,
+                    field.offset,
+                    expected_offset
+                ));
+                return;
+            }
+        }
+
+        // Shape is valid cap-mint. Get field values from children.
+        let children = arena.children(record_cons_id);
+        if children.len() != 4 {
+            self.diagnostics.push(format!(
+                "T0518: RecordCons node {} has {} children; cap-mint requires 4 (unsupported shape in Phase 6)",
+                record_cons_id.get(),
+                children.len()
+            ));
+            return;
+        }
+
+        // Argument register assignment: RSI, RDX, RCX, R8 for args 2..5
+        // In RegId terms: RSI=6, RDX=2, RCX=1, R8=8
+        let arg_regs = [RegId(6), RegId(2), RegId(1), RegId(8)];
+
+        // Emit 4 store instructions in field-declaration order.
+        for (field_idx, &arg_reg) in arg_regs.iter().enumerate() {
+            let field_offset = (field_idx as i32) * 8;
+
+            // Check if this field is a literal (0).
+            let is_literal = if let Some(child_node) = arena.get(children[field_idx]) {
+                child_node.kind == IrKind::Literal
+            } else {
+                false
+            };
+
+            if is_literal {
+                // Emit: mov [rdi + offset], 0 via imm32-sign-extended form.
+                // Encoding: 48 C7 47 NN 00 00 00 00 (8 bytes for small offsets)
+                let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                operands.push(Operand::MemSib {
+                    base: RegId(7), // rdi = buffer pointer
+                    index: None,
+                    scale: paideia_as_ir::instruction::Scale::X1,
+                    disp: field_offset,
+                });
+                operands.push(Operand::Imm64(0));
+
+                let inst = Instruction {
+                    mnemonic: Mnemonic::Mov,
+                    operands,
+                    encoding_hint: None,
+                };
+
+                // Virtual ID: record_cons_id * 10 + field_idx to sort in order.
+                let inst_id = IrNodeId::new(record_cons_id.get() * 10 + field_idx as u32)
+                    .expect("virtual id");
+                self.state.instructions.insert(inst_id, inst);
+                self.state.current_offset += 8; // mov [rdi+disp8], imm32
+            } else {
+                // Emit: mov [rdi + offset], arg_reg via MemSib.
+                // Encoding: 48 89 47 NN (4 bytes for small offsets)
+                let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                operands.push(Operand::MemSib {
+                    base: RegId(7), // rdi = buffer pointer
+                    index: None,
+                    scale: paideia_as_ir::instruction::Scale::X1,
+                    disp: field_offset,
+                });
+                operands.push(Operand::Reg(arg_reg));
+
+                let inst = Instruction {
+                    mnemonic: Mnemonic::Mov,
+                    operands,
+                    encoding_hint: None,
+                };
+
+                // Virtual ID: record_cons_id * 10 + field_idx to sort in order.
+                let inst_id = IrNodeId::new(record_cons_id.get() * 10 + field_idx as u32)
+                    .expect("virtual id");
+                self.state.instructions.insert(inst_id, inst);
+                self.state.current_offset += 4; // mov [rdi+disp8], reg
+            }
+        }
     }
 }
 
@@ -2225,7 +2382,7 @@ mod tests {
         walker.state_mut().current_function = 3;
 
         // Emit first four field accesses (should succeed).
-        for (i, &field_access_id) in field_access_ids.iter().take(4).enumerate() {
+        for (_, &field_access_id) in field_access_ids.iter().take(4).enumerate() {
             walker.visit_let_field_access(field_access_id, field_access_id, &arena);
             assert!(
                 walker.diagnostics().is_empty(),
@@ -2242,6 +2399,375 @@ mod tests {
         assert!(
             diags.iter().any(|d| d.contains("T0517")),
             "Diagnostic should mention T0517"
+        );
+    }
+
+    // ── RecordCons lowering tests (m3-004) ──────────────────────────────
+
+    #[test]
+    fn emit_walker_m3_004_cap_mint_4_stores_from_arg_regs() {
+        // Phase 6 m3-004: RecordCons for cap-mint (4×u64) emits exactly 4 store instructions.
+        use paideia_as_ir::record_layout::FieldLayout;
+
+        let mut arena = IrArena::new();
+        let mut walker = EmitWalker::new();
+
+        let span_ref = span();
+        let type_id = RecordTypeId(201);
+
+        // Create 4 literal field values (0).
+        let lit_ids: Vec<_> = (0..4)
+            .map(|_| {
+                let lit_id = arena.alloc(IrKind::Literal, span_ref);
+                arena.literal_values_mut().insert(lit_id, 0);
+                lit_id
+            })
+            .collect();
+
+        // Create RecordCons with 4 Literal children.
+        let record_cons_id =
+            arena.alloc_with_children(IrKind::RecordCons, span_ref, lit_ids.into_iter());
+
+        // Register layout: cap-mint shape.
+        let layout = RecordLayout::new(
+            32,
+            8,
+            vec![
+                FieldLayout { offset: 0, size: 8 },
+                FieldLayout { offset: 8, size: 8 },
+                FieldLayout {
+                    offset: 16,
+                    size: 8,
+                },
+                FieldLayout {
+                    offset: 24,
+                    size: 8,
+                },
+            ],
+        );
+        walker.state_mut().record_layouts.insert(type_id, layout);
+
+        // Register RecordCons → TypeId mapping.
+        arena
+            .record_layout_table_mut()
+            .insert(record_cons_id, type_id);
+
+        // Walk the arena to trigger visit_record_cons.
+        walker.walk(&mut arena);
+
+        // Verify 4 instructions were emitted.
+        let mut insts = Vec::new();
+        for i in 0..4 {
+            let inst_id = IrNodeId::new(record_cons_id.get() * 10 + i).expect("virtual id");
+            if let Some(inst) = walker.state().instructions.get(inst_id) {
+                insts.push((i, inst.clone()));
+            }
+        }
+
+        assert_eq!(
+            insts.len(),
+            4,
+            "Should emit exactly 4 store instructions for cap-mint"
+        );
+
+        // Verify each instruction is Mov with [rdi + offset], imm64(0).
+        for (field_idx, inst) in &insts {
+            assert_eq!(inst.mnemonic, Mnemonic::Mov);
+            assert_eq!(inst.operands.len(), 2);
+
+            let expected_offset = (*field_idx as i32) * 8;
+            if let Operand::MemSib {
+                base, index, disp, ..
+            } = &inst.operands[0]
+            {
+                assert_eq!(*base, RegId(7)); // rdi
+                assert_eq!(*index, None);
+                assert_eq!(*disp, expected_offset);
+            } else {
+                panic!("First operand should be MemSib");
+            }
+
+            assert_eq!(inst.operands[1], Operand::Imm64(0));
+        }
+
+        // Verify offset advanced by 8 bytes per store (4 stores × 8 = 32 bytes).
+        assert_eq!(walker.state().current_offset, 32);
+
+        // Verify no diagnostics.
+        assert!(
+            walker.diagnostics().is_empty(),
+            "cap-mint shape should emit without T0518"
+        );
+    }
+
+    #[test]
+    fn emit_walker_m3_004_cap_mint_with_arg_registers() {
+        // Phase 6 m3-004: RecordCons stores use RSI, RDX, RCX, R8 for args 2..5.
+        use paideia_as_ir::record_layout::FieldLayout;
+
+        let mut arena = IrArena::new();
+        let mut walker = EmitWalker::new();
+
+        let span_ref = span();
+        let type_id = RecordTypeId(202);
+
+        // Create 4 non-literal field values (Var nodes).
+        let var_ids: Vec<_> = (0..4).map(|_| arena.alloc(IrKind::Var, span_ref)).collect();
+
+        // Create RecordCons with 4 Var children.
+        let record_cons_id =
+            arena.alloc_with_children(IrKind::RecordCons, span_ref, var_ids.into_iter());
+
+        // Register layout: cap-mint shape.
+        let layout = RecordLayout::new(
+            32,
+            8,
+            vec![
+                FieldLayout { offset: 0, size: 8 },
+                FieldLayout { offset: 8, size: 8 },
+                FieldLayout {
+                    offset: 16,
+                    size: 8,
+                },
+                FieldLayout {
+                    offset: 24,
+                    size: 8,
+                },
+            ],
+        );
+        walker.state_mut().record_layouts.insert(type_id, layout);
+
+        // Register RecordCons → TypeId mapping.
+        arena
+            .record_layout_table_mut()
+            .insert(record_cons_id, type_id);
+
+        // Walk the arena.
+        walker.walk(&mut arena);
+
+        // Verify 4 instructions; each should use the correct argument register.
+        let arg_regs = [RegId(6), RegId(2), RegId(1), RegId(8)]; // RSI, RDX, RCX, R8
+        for (field_idx, &expected_reg) in arg_regs.iter().enumerate() {
+            let inst_id =
+                IrNodeId::new(record_cons_id.get() * 10 + field_idx as u32).expect("virtual id");
+            let inst = walker
+                .state()
+                .instructions
+                .get(inst_id)
+                .expect("instruction should exist");
+
+            assert_eq!(inst.mnemonic, Mnemonic::Mov);
+            assert_eq!(inst.operands[1], Operand::Reg(expected_reg));
+        }
+
+        // Verify offset: 4 stores × 4 bytes each = 16 bytes (for non-literal).
+        assert_eq!(walker.state().current_offset, 16);
+
+        // Verify no diagnostics.
+        assert!(walker.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn emit_walker_m3_004_cap_mint_wrong_field_count_fires_t0518() {
+        // Phase 6 m3-004: RecordCons with != 4 fields fires T0518.
+        use paideia_as_ir::record_layout::FieldLayout;
+
+        let mut arena = IrArena::new();
+        let mut walker = EmitWalker::new();
+
+        let span_ref = span();
+        let type_id = RecordTypeId(203);
+
+        // Create 3 field values (wrong count).
+        let lit_ids: Vec<_> = (0..3)
+            .map(|_| {
+                let lit_id = arena.alloc(IrKind::Literal, span_ref);
+                arena.literal_values_mut().insert(lit_id, 0);
+                lit_id
+            })
+            .collect();
+
+        let record_cons_id =
+            arena.alloc_with_children(IrKind::RecordCons, span_ref, lit_ids.into_iter());
+
+        // Register layout with 3 fields.
+        let layout = RecordLayout::new(
+            24,
+            8,
+            vec![
+                FieldLayout { offset: 0, size: 8 },
+                FieldLayout { offset: 8, size: 8 },
+                FieldLayout {
+                    offset: 16,
+                    size: 8,
+                },
+            ],
+        );
+        walker.state_mut().record_layouts.insert(type_id, layout);
+
+        arena
+            .record_layout_table_mut()
+            .insert(record_cons_id, type_id);
+
+        walker.walk(&mut arena);
+
+        // Verify T0518 was fired.
+        assert!(
+            walker
+                .diagnostics()
+                .iter()
+                .any(|d| d.contains("T0518") && d.contains("3 fields")),
+            "Should fire T0518 for 3-field record"
+        );
+    }
+
+    #[test]
+    fn emit_walker_m3_004_cap_mint_wrong_field_size_fires_t0518() {
+        // Phase 6 m3-004: RecordCons with non-u64 field fires T0518.
+        use paideia_as_ir::record_layout::FieldLayout;
+
+        let mut arena = IrArena::new();
+        let mut walker = EmitWalker::new();
+
+        let span_ref = span();
+        let type_id = RecordTypeId(204);
+
+        // Create 4 field values.
+        let lit_ids: Vec<_> = (0..4)
+            .map(|_| {
+                let lit_id = arena.alloc(IrKind::Literal, span_ref);
+                arena.literal_values_mut().insert(lit_id, 0);
+                lit_id
+            })
+            .collect();
+
+        let record_cons_id =
+            arena.alloc_with_children(IrKind::RecordCons, span_ref, lit_ids.into_iter());
+
+        // Register layout with one u32 field (wrong type).
+        let layout = RecordLayout::new(
+            32,
+            8,
+            vec![
+                FieldLayout { offset: 0, size: 4 }, // u32, wrong!
+                FieldLayout { offset: 4, size: 8 },
+                FieldLayout {
+                    offset: 12,
+                    size: 8,
+                },
+                FieldLayout {
+                    offset: 20,
+                    size: 8,
+                },
+            ],
+        );
+        walker.state_mut().record_layouts.insert(type_id, layout);
+
+        arena
+            .record_layout_table_mut()
+            .insert(record_cons_id, type_id);
+
+        walker.walk(&mut arena);
+
+        // Verify T0518 was fired.
+        assert!(
+            walker
+                .diagnostics()
+                .iter()
+                .any(|d| d.contains("T0518") && d.contains("field 0") && d.contains("size 4")),
+            "Should fire T0518 for non-u64 field"
+        );
+    }
+
+    #[test]
+    fn emit_walker_m3_004_cap_mint_wrong_field_offset_fires_t0518() {
+        // Phase 6 m3-004: RecordCons with misaligned field fires T0518.
+        use paideia_as_ir::record_layout::FieldLayout;
+
+        let mut arena = IrArena::new();
+        let mut walker = EmitWalker::new();
+
+        let span_ref = span();
+        let type_id = RecordTypeId(205);
+
+        // Create 4 field values.
+        let lit_ids: Vec<_> = (0..4)
+            .map(|_| {
+                let lit_id = arena.alloc(IrKind::Literal, span_ref);
+                arena.literal_values_mut().insert(lit_id, 0);
+                lit_id
+            })
+            .collect();
+
+        let record_cons_id =
+            arena.alloc_with_children(IrKind::RecordCons, span_ref, lit_ids.into_iter());
+
+        // Register layout with misaligned offset.
+        let layout = RecordLayout::new(
+            32,
+            8,
+            vec![
+                FieldLayout { offset: 0, size: 8 },
+                FieldLayout { offset: 9, size: 8 }, // Wrong offset!
+                FieldLayout {
+                    offset: 16,
+                    size: 8,
+                },
+                FieldLayout {
+                    offset: 24,
+                    size: 8,
+                },
+            ],
+        );
+        walker.state_mut().record_layouts.insert(type_id, layout);
+
+        arena
+            .record_layout_table_mut()
+            .insert(record_cons_id, type_id);
+
+        walker.walk(&mut arena);
+
+        // Verify T0518 was fired.
+        assert!(
+            walker
+                .diagnostics()
+                .iter()
+                .any(|d| d.contains("T0518") && d.contains("field 1") && d.contains("offset 9")),
+            "Should fire T0518 for misaligned field"
+        );
+    }
+
+    #[test]
+    fn emit_walker_m3_004_no_layout_entry_fires_t0518() {
+        // Phase 6 m3-004: RecordCons with no layout entry fires T0518.
+        let mut arena = IrArena::new();
+        let mut walker = EmitWalker::new();
+
+        let span_ref = span();
+
+        // Create 4 literal fields.
+        let lit_ids: Vec<_> = (0..4)
+            .map(|_| {
+                let lit_id = arena.alloc(IrKind::Literal, span_ref);
+                arena.literal_values_mut().insert(lit_id, 0);
+                lit_id
+            })
+            .collect();
+
+        let record_cons_id =
+            arena.alloc_with_children(IrKind::RecordCons, span_ref, lit_ids.into_iter());
+
+        // Do NOT register layout → should fire T0518 at walk time.
+
+        walker.walk(&mut arena);
+
+        // Verify T0518 was fired.
+        assert!(
+            walker
+                .diagnostics()
+                .iter()
+                .any(|d| d.contains("T0518") && d.contains("no layout entry")),
+            "Should fire T0518 when layout entry missing"
         );
     }
 }

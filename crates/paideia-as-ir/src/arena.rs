@@ -13,7 +13,7 @@ use crate::instruction::InstructionSideTable;
 use crate::literal_value::LiteralValueTable;
 use crate::loop_meta::LoopMetaTable;
 use crate::node::{IrKind, IrNodeData, IrNodeId};
-use crate::record_layout::FieldAccessSideTable;
+use crate::record_layout::{FieldAccessSideTable, RecordLayoutTable};
 use crate::symbol::SymbolTable;
 
 /// Slab-allocated IR storage for one source file.
@@ -46,6 +46,9 @@ pub struct IrArena {
     /// Side-table: field access metadata indexed by FieldAccess node ID.
     /// Phase 6 m3-002: populated by elaborator, consumed by EmitWalker.
     field_access_table: FieldAccessSideTable,
+    /// Side-table: record constructor type mapping indexed by RecordCons node ID.
+    /// Phase 6 m3-004: maps RecordCons nodes to their RecordTypeId for layout lookup.
+    record_layout_table: RecordLayoutTable,
 }
 
 impl IrArena {
@@ -69,6 +72,7 @@ impl IrArena {
             binding_name_table: BindingNameTable::new(),
             symbol_table: SymbolTable::new(),
             field_access_table: FieldAccessSideTable::new(),
+            record_layout_table: RecordLayoutTable::new(),
         }
     }
 
@@ -238,6 +242,18 @@ impl IrArena {
     /// Borrow the field access table (mutable).
     pub fn field_access_info_mut(&mut self) -> &mut FieldAccessSideTable {
         &mut self.field_access_table
+    }
+
+    /// Borrow the record layout table (read-only).
+    /// Phase 6 m3-004: provides RecordTypeId for RecordCons nodes.
+    #[must_use]
+    pub fn record_layout_table(&self) -> &RecordLayoutTable {
+        &self.record_layout_table
+    }
+
+    /// Borrow the record layout table (mutable).
+    pub fn record_layout_table_mut(&mut self) -> &mut RecordLayoutTable {
+        &mut self.record_layout_table
     }
 }
 
