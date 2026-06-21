@@ -1,0 +1,13 @@
+; Accept: loop without mutation to borrowed var
+fn test_loop_no_mutation() -> u64 {
+  let x: u64 = 42;
+  let r: &x = &x;
+  let mut acc: u64 = 0;
+  loop {
+    acc = acc + 1;
+    if acc > 5 {
+      break;
+    }
+  }
+  *r + acc
+}

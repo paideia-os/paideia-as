@@ -1,0 +1,8 @@
+; Reject: three-way conflict (immut, then immut, then mut)
+fn test_three_way() -> u64 {
+  let x: u64 = 42;
+  let i1: &x = &x;
+  let i2: &x = &x;
+  let m: &mut x = &mut x;
+  *i1 + *i2 + *m
+}

@@ -1,0 +1,8 @@
+; Reject: three mutable borrows
+fn test_three_mut() -> u64 {
+  let x: u64 = 42;
+  let m1: &mut x = &mut x;
+  let m2: &mut x = &mut x;
+  let m3: &mut x = &mut x;
+  *m1 + *m2 + *m3
+}

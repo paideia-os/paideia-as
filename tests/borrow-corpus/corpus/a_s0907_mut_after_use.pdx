@@ -1,0 +1,8 @@
+; Accept: second mutable borrow after first is used
+fn test_mut_after_use() -> u64 {
+  let x: u64 = 42;
+  let m1: &mut x = &mut x;
+  let r1 = *m1;
+  let m2: &mut x = &mut x;
+  r1 + *m2
+}

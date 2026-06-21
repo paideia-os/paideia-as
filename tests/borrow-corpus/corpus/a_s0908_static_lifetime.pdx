@@ -1,0 +1,5 @@
+; Accept: static lifetime source
+fn test_static() -> &u64 {
+  let static_data: u64 = 42;
+  &static_data
+}

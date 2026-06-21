@@ -1,0 +1,10 @@
+; Reject: nested scopes with mutable overlaps
+fn test_nested_mut() -> u64 {
+  let x: u64 = 42;
+  let m1: &mut x = &mut x;
+  {
+    let m2: &mut x = &mut x;
+    *m2
+  }
+  *m1
+}

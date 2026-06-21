@@ -1,0 +1,7 @@
+; Reject: source drops before borrow used
+fn test_drop_then_use() -> u64 {
+  let x: u64 = 42;
+  let r: &x = &x;
+  drop(x);
+  *r
+}

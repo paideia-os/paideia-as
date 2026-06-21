@@ -1,0 +1,7 @@
+; Accept: two immutable borrows (allowed)
+fn test_two_immut() -> u64 {
+  let x: u64 = 42;
+  let iref1: &x = &x;
+  let iref2: &x = &x;
+  *iref1 + *iref2
+}

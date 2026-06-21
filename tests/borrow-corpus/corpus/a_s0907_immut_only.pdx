@@ -1,0 +1,8 @@
+; Accept: immutable borrows (always allowed)
+fn test_immut_multiple() -> u64 {
+  let x: u64 = 42;
+  let i1: &x = &x;
+  let i2: &x = &x;
+  let i3: &x = &x;
+  *i1 + *i2 + *i3
+}

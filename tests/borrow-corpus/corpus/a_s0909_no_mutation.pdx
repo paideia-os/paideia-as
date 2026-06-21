@@ -1,0 +1,6 @@
+; Accept: borrow without mutation
+fn test_no_mutation() -> u64 {
+  let x: u64 = 42;
+  let r: &x = &x;
+  *r + 1
+}

@@ -1,0 +1,9 @@
+; Reject: immut and mut conflict in loop
+fn test_loop_conflict() -> u64 {
+  let x: u64 = 42;
+  let iref: &x = &x;
+  loop {
+    let mref: &mut x = &mut x;
+    *iref + *mref
+  }
+}

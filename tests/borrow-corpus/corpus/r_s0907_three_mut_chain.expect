@@ -1,0 +1,2 @@
+# Reject: three mutable borrows
+S0907

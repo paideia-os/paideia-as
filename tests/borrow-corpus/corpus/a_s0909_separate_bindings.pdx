@@ -1,0 +1,8 @@
+; Accept: mutation of different binding
+fn test_separate_bindings() -> u64 {
+  let x: u64 = 42;
+  let y: u64 = 10;
+  let r: &x = &x;
+  y = 20;
+  *r + y
+}

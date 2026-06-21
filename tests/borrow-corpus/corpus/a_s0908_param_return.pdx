@@ -1,0 +1,8 @@
+; Accept: borrow parameter returned
+fn borrow_return(x: &u64) -> &u64 {
+  x
+}
+fn test_param_return() -> u64 {
+  let local: u64 = 42;
+  *borrow_return(&local)
+}

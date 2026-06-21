@@ -1,0 +1,8 @@
+; Accept: mutation after borrow ends
+fn test_mutation_after() -> u64 {
+  let x: u64 = 42;
+  let r: &x = &x;
+  let result = *r;
+  x = 100;
+  result
+}

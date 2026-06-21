@@ -1,0 +1,6 @@
+; Accept: immutable borrow only (no conflicting mutable borrow)
+fn test_immut_only() -> u64 {
+  let x: u64 = 42;
+  let iref: &x = &x;
+  *iref
+}

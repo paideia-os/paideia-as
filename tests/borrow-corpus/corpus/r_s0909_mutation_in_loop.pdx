@@ -1,0 +1,12 @@
+; Reject: mutation of borrowed var in loop
+fn test_mutation_in_loop() -> u64 {
+  let x: u64 = 42;
+  let r: &x = &x;
+  loop {
+    x = x + 1;
+    if x > 50 {
+      break;
+    }
+  }
+  *r
+}

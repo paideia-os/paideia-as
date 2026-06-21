@@ -1,0 +1,9 @@
+; Accept: valid scope chain
+fn test_scope_chain() -> u64 {
+  let x: u64 = 42;
+  {
+    let r: &x = &x;
+    *r
+  }
+  0
+}

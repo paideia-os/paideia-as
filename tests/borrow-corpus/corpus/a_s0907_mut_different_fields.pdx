@@ -1,0 +1,8 @@
+; Accept: mutable borrows of different fields
+struct Point { x: u64, y: u64 }
+fn test_different_fields() -> u64 {
+  let p: Point = Point { x: 1, y: 2 };
+  let mx: &mut p.x = &mut p.x;
+  let my: &mut p.y = &mut p.y;
+  *mx + *my
+}

@@ -1,0 +1,10 @@
+; Reject: nested scope with invalid return
+fn test_nested_invalid() -> &u64 {
+  let outer: u64 = 10;
+  {
+    let inner: u64 = 20;
+    let r: &inner = &inner;
+    r
+  }
+  &outer
+}

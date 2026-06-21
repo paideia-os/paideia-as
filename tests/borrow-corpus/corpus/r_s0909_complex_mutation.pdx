@@ -1,0 +1,9 @@
+; Reject: complex mutation pattern
+fn test_complex_mutation() -> u64 {
+  let x: u64 = 42;
+  let r: &x = &x;
+  for i in 0..10 {
+    x = x + i;
+  }
+  *r
+}

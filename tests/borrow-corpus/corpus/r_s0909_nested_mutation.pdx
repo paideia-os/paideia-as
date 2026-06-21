@@ -1,0 +1,11 @@
+; Reject: nested mutation in inner scope
+fn test_nested_mutation() -> u64 {
+  let x: u64 = 42;
+  let r: &x = &x;
+  {
+    {
+      x = 50;
+    }
+  }
+  *r
+}

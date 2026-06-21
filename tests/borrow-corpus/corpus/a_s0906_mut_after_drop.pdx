@@ -1,0 +1,8 @@
+; Accept: mutable borrow after immutable borrow is dropped
+fn test_mut_after_drop() -> u64 {
+  let x: u64 = 42;
+  let iref: &x = &x;
+  let r1 = *iref;
+  let mref: &mut x = &mut x;
+  *mref + 1
+}

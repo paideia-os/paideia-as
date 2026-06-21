@@ -1,0 +1,11 @@
+[package]
+name = "paideia-borrow-corpus"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dev-dependencies]
+paideia-as-diagnostics = { path = "../../crates/paideia-as-diagnostics" }

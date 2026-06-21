@@ -2053,6 +2053,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "paideia-borrow-corpus"
+version = "0.0.1"
+dependencies = [
+ "paideia-as-diagnostics",
+]
+
+[[package]]
 name = "paideia-cap-smoke"
 version = "0.0.1"
 dependencies = [

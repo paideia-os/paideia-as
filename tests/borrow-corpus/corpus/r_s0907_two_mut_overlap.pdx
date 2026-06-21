@@ -1,0 +1,8 @@
+; Reject: two mutable borrows of same field
+struct Cell { val: u64 }
+fn test_two_mut() -> u64 {
+  let c: Cell = Cell { val: 42 };
+  let m1: &mut c.val = &mut c.val;
+  let m2: &mut c.val = &mut c.val;
+  *m1 + *m2
+}

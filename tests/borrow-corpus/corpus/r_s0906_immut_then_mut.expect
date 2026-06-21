@@ -1,0 +1,2 @@
+# Reject: immutable borrow then mutable borrow conflict
+S0906

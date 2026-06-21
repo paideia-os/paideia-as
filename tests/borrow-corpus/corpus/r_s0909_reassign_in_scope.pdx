@@ -1,0 +1,9 @@
+; Reject: reassignment while borrow active
+fn test_reassign() -> u64 {
+  let x: u64 = 42;
+  let r: &x = &x;
+  {
+    x = 100;
+  }
+  *r
+}

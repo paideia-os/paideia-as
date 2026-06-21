@@ -1,0 +1,6 @@
+; Reject: inner scope borrow returned
+fn test_inner_return() -> &u64 {
+  let x: u64 = 42;
+  let r: &x = &x;
+  r
+}

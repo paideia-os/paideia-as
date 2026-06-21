@@ -1,0 +1,5 @@
+; Reject: return reference to local
+fn test_return_local() -> &u64 {
+  let x: u64 = 42;
+  &x
+}

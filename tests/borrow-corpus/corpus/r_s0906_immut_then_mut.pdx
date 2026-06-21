@@ -1,0 +1,7 @@
+; Reject: immutable borrow then mutable borrow (conflict)
+fn test_immut_then_mut() -> u64 {
+  let x: u64 = 42;
+  let iref: &x = &x;
+  let mref: &mut x = &mut x;
+  *iref + *mref
+}

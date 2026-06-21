@@ -1,0 +1,13 @@
+; Accept: assignment to different variable in loop
+fn test_loop_diff_var() -> u64 {
+  let x: u64 = 42;
+  let r: &x = &x;
+  let mut temp: u64 = 0;
+  loop {
+    temp = temp + 1;
+    if temp >= 3 {
+      break;
+    }
+  }
+  *r + temp
+}

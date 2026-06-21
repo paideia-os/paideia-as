@@ -1,0 +1,6 @@
+; Accept: single mutable borrow
+fn test_mut_single() -> u64 {
+  let x: u64 = 42;
+  let mref: &mut x = &mut x;
+  *mref + 1
+}

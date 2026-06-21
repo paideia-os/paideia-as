@@ -1,0 +1,8 @@
+; Reject: overlapping field borrows (one mut, one immut)
+struct Pair { a: u64, b: u64 }
+fn test_field_conflict() -> u64 {
+  let p: Pair = Pair { a: 1, b: 2 };
+  let iref: &p.a = &p.a;
+  let mref: &mut p.b = &mut p.b;
+  *iref + *mref
+}

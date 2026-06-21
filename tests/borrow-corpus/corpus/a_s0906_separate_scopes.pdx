@@ -1,0 +1,13 @@
+; Accept: immutable then mutable in separate scopes
+fn test_separate_scopes() -> u64 {
+  let x: u64 = 42;
+  {
+    let iref: &x = &x;
+    let r1 = *iref;
+  }
+  {
+    let mref: &mut x = &mut x;
+    *mref + 1
+  }
+  0
+}

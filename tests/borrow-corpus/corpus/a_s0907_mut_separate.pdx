@@ -1,0 +1,13 @@
+; Accept: mutable borrows in separate scopes
+fn test_mut_separate() -> u64 {
+  let x: u64 = 42;
+  {
+    let m1: &mut x = &mut x;
+    *m1
+  }
+  {
+    let m2: &mut x = &mut x;
+    *m2
+  }
+  0
+}

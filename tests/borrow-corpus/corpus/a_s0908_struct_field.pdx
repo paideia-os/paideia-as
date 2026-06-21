@@ -1,0 +1,7 @@
+; Accept: borrow of struct field with valid lifetime
+struct Wrapper { val: u64 }
+fn test_field_borrow() -> u64 {
+  let w: Wrapper = Wrapper { val: 42 };
+  let r: &w.val = &w.val;
+  *r
+}

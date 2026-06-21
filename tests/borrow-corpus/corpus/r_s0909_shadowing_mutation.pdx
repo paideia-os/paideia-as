@@ -1,0 +1,10 @@
+; Reject: shadowing with mutation during borrow
+fn test_shadowing() -> u64 {
+  let x: u64 = 42;
+  let r: &x = &x;
+  {
+    let x: u64 = 50;
+    x = 60;
+  }
+  *r
+}

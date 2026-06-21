@@ -1,0 +1,10 @@
+; Reject: deeply nested scope return
+fn test_deeply_nested() -> &u64 {
+  let x: u64 = 42;
+  {
+    {
+      let r: &x = &x;
+      r
+    }
+  }
+}
