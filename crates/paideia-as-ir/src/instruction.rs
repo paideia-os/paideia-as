@@ -167,6 +167,16 @@ pub enum Operand {
         /// Addend to apply to the symbol address.
         addend: i32,
     },
+    /// Label reference: a forward or backward reference to a label within the unsafe block.
+    /// Phase 6 m4-002: used by Jcc/Jmp instructions. The encoder emits a zero displacement
+    /// placeholder and records the fixup in EncodeOutput.label_fixups for later resolution.
+    /// Duplicate labels → U1609; unknown labels → U1610.
+    LabelRef {
+        /// Name of the label.
+        name: String,
+        /// Addend to apply to the label address (typically 0).
+        addend: i32,
+    },
 }
 
 /// x86_64 register identifier.

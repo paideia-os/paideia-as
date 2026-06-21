@@ -51,6 +51,16 @@ pub enum StmtData {
         /// Operand nodes.
         operands: Vec<NodeId>,
     },
+
+    /// `label_name:`.
+    ///
+    /// Label declaration statement (Phase 6 m4-002). Labels are targets for Jcc/Jmp
+    /// instructions within unsafe blocks. The label name is stored as an identifier node.
+    /// Duplicate labels → U1609; unknown references → U1610.
+    Label {
+        /// Label name (Ident node).
+        name: NodeId,
+    },
 }
 
 #[cfg(test)]

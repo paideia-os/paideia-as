@@ -733,6 +733,12 @@ pub const U_UNEXPECTED_OPERANDS: u16 = 1607;
 /// Diagnostic code for unresolved field offset in unsafe block (U1608).
 pub const U_UNRESOLVED_FIELD_OFFSET: u16 = 1608;
 
+/// Diagnostic code for duplicate label declaration in unsafe block (U1609).
+pub const U_DUPLICATE_LABEL: u16 = 1609;
+
+/// Diagnostic code for unknown label reference in unsafe block (U1610).
+pub const U_UNKNOWN_LABEL: u16 = 1610;
+
 /// Helper: create a U-category error code.
 fn u_code(n: u16) -> DiagnosticCode {
     DiagnosticCode::new(Category::U, Severity::Error, n).expect("valid U code")
@@ -797,7 +803,52 @@ impl UnsafeWalker {
                             // Found an ExprUnsafe node; check if this is our target.
                             if let Some(ExprData::Unsafe { block, .. }) = ast.expr_data(ast_node_id)
                             {
-                                // Iterate over the statements in the unsafe block.
+                                // Phase 6 m4-002: Two-pass processing for labels.
+                                // Pass 1: Collect all label declarations into a HashMap.
+                                let mut labels: HashMap<String, u32> = HashMap::new();
+                                for &stmt_id in block {
+                                    if let Some(ast_stmt_node) = ast.get(stmt_id) {
+                                        if ast_stmt_node.kind == NodeKind::StmtLabel {
+                                            // Collect label: extract label name from StmtData::Label
+                                            if let Some(StmtData::Label { name }) =
+                                                ast.stmt_data(stmt_id)
+                                            {
+                                                if let Some(name_node) = ast.get(*name) {
+                                                    if name_node.kind == NodeKind::Ident {
+                                                        // Extract the label name from source
+                                                        let span = name_node.span;
+                                                        let file_id = span.file();
+                                                        let source = source_map.content(file_id);
+                                                        let label_text = &source[span.byte_start()
+                                                            as usize
+                                                            ..(span.byte_start() + span.byte_len())
+                                                                as usize];
+                                                        // Check for duplicate label (U1609)
+                                                        if labels.contains_key(label_text) {
+                                                            let diag = Diagnostic::error(u_code(
+                                                                U_DUPLICATE_LABEL,
+                                                            ))
+                                                            .message(format!(
+                                                                "duplicate label declaration: {}",
+                                                                label_text
+                                                            ))
+                                                            .with_span(span)
+                                                            .finish();
+                                                            let _ = sink.emit(diag.clone());
+                                                            diags.push(diag);
+                                                        } else {
+                                                            // Store label with a placeholder byte offset (0 for now)
+                                                            labels
+                                                                .insert(label_text.to_string(), 0);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Pass 2: Process instructions and check label references.
                                 for &stmt_id in block {
                                     if let Some(ast_stmt_node) = ast.get(stmt_id) {
                                         if ast_stmt_node.kind == NodeKind::StmtInstruction {
@@ -810,6 +861,7 @@ impl UnsafeWalker {
                                                 sink,
                                                 source_map,
                                                 record_layouts,
+                                                &labels,
                                             );
                                         }
                                     }
@@ -827,7 +879,8 @@ impl UnsafeWalker {
     /// Process a single StmtInstruction node.
     ///
     /// Resolves the mnemonic, parses all operands, and inserts an Instruction
-    /// into the arena's side-table. Emits diagnostics on error.
+    /// into the arena's side-table. Emits diagnostics on error. Also validates
+    /// label references against the collected labels map (Phase 6 m4-002).
     fn process_instruction_stmt(
         arena: &mut IrArena,
         ast: &AstArena,
@@ -836,6 +889,7 @@ impl UnsafeWalker {
         sink: &mut dyn DiagnosticSink,
         source_map: &paideia_as_diagnostics::SourceMap,
         record_layouts: &HashMap<RecordTypeId, RecordLayout>,
+        labels: &HashMap<String, u32>,
     ) {
         // Get the statement data.
         let stmt_data = match ast.stmt_data(stmt_id) {
@@ -952,6 +1006,30 @@ impl UnsafeWalker {
             // If any operand parsing failed, skip this instruction.
             if operand_error {
                 return;
+            }
+        }
+
+        // Phase 6 m4-002: Validate label references.
+        // Check each operand to see if it's a LabelRef and verify it exists in the labels map.
+        for operand in &parsed_operands {
+            if let Operand::LabelRef { name, .. } = operand {
+                if !labels.contains_key(name) {
+                    // U1610: Unknown label reference
+                    let stmt_span = ast.get(stmt_id).map(|n| n.span).unwrap_or_else(|| {
+                        paideia_as_diagnostics::Span::new(
+                            paideia_as_diagnostics::FileId::new(1).unwrap(),
+                            0,
+                            1,
+                        )
+                    });
+                    let diag = Diagnostic::error(u_code(U_UNKNOWN_LABEL))
+                        .message(format!("unknown label reference: {}", name))
+                        .with_span(stmt_span)
+                        .finish();
+                    let _ = sink.emit(diag.clone());
+                    diags.push(diag);
+                    return;
+                }
             }
         }
 
@@ -1480,5 +1558,47 @@ mod tests {
                 disp: 0,
             }
         );
+    }
+
+    // --- Phase 6 m4-002: Label reference operand tests ---
+
+    #[test]
+    fn operand_label_ref_constructs() {
+        let op = Operand::LabelRef {
+            name: "fail_label".to_string(),
+            addend: 0,
+        };
+        match op {
+            Operand::LabelRef { name, addend } => {
+                assert_eq!(name, "fail_label");
+                assert_eq!(addend, 0);
+            }
+            _ => panic!("expected LabelRef variant"),
+        }
+    }
+
+    #[test]
+    fn operand_label_ref_with_addend() {
+        let op = Operand::LabelRef {
+            name: "loop_start".to_string(),
+            addend: 8,
+        };
+        match op {
+            Operand::LabelRef { name, addend } => {
+                assert_eq!(name, "loop_start");
+                assert_eq!(addend, 8);
+            }
+            _ => panic!("expected LabelRef variant"),
+        }
+    }
+
+    #[test]
+    fn operand_label_ref_roundtrips_through_clone() {
+        let op1 = Operand::LabelRef {
+            name: "end_loop".to_string(),
+            addend: -4,
+        };
+        let op2 = op1.clone();
+        assert_eq!(op1, op2);
     }
 }

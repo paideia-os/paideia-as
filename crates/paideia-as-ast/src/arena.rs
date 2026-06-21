@@ -128,7 +128,7 @@ pub enum NodeKind {
     /// `[expr1, expr2, ...]` (array literal).
     ExprArrayLit,
 
-    // Statements (§8 Stmt: LetStmt | ExprStmt | InstructionStmt | ReturnStmt)
+    // Statements (§8 Stmt: LetStmt | ExprStmt | InstructionStmt | ReturnStmt | LabelStmt)
     /// `let name: ty? = expr;`.
     StmtLet,
     /// `expr;`.
@@ -137,6 +137,8 @@ pub enum NodeKind {
     StmtReturn,
     /// `mnemonic operand, operand, ...` (assembly instruction).
     StmtInstruction,
+    /// `label_name:` (label declaration, Phase 6 m4-002).
+    StmtLabel,
 
     // Operands (§8 Operand: Register | ImmediateExpr | MemoryRef)
     /// Register operand (Ident-shaped, e.g., `rax`, `r8`).

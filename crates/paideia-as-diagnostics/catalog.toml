@@ -712,3 +712,21 @@ brief = "field offset cannot be resolved; declare struct before use"
 description = "Phase 6 m3-005: A field access expression (*p.field) inside an unsafe { block: { ... } } references a field whose struct type has not been registered in the record layout table. This occurs when the target record type is not declared before the unsafe block, or the field name does not exist in the struct. The unsafe block requires C-ABI natural-alignment record layout information to resolve field byte offsets at parse time."
 since = "0.6.0"
 deprecated = false
+
+[diagnostic.U1609]
+severity = "error"
+category = "unsafe"
+title = "Duplicate label declaration in unsafe block"
+brief = "label name already declared; each label must be unique within the unsafe block"
+description = "Phase 6 m4-002: A label with this name has already been declared in the current unsafe block. Labels must have unique names within the block's scope. Rename the duplicate label to a unique identifier or remove the duplicate declaration."
+since = "0.9.0"
+deprecated = false
+
+[diagnostic.U1610]
+severity = "error"
+category = "unsafe"
+title = "Unknown label reference in unsafe block"
+brief = "label referenced but not declared; check spelling or add label declaration"
+description = "Phase 6 m4-002: A jump instruction references a label that has not been declared in the current unsafe block. Either declare the label with a `label_name:` statement, or fix the spelling of the label reference. Label resolution is performed at parse time by the walker."
+since = "0.9.0"
+deprecated = false

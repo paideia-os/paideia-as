@@ -666,6 +666,9 @@ fn print_stmt_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 mnemonic, ops_str
             )
         }
+        StmtData::Label { name } => {
+            format!("Label {{ name: {} }}", name)
+        }
     };
 
     use std::fmt::Write;

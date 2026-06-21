@@ -191,6 +191,11 @@ pub enum IrKind {
     /// through lowering; the AST back-pointer is available via the
     /// `ast_to_ir` map in `LoweringResult`.
     RawInstruction,
+    /// Label declaration: a target for Jcc/Jmp instructions within an unsafe block.
+    /// Phase 6 m4-002: Labels are collected by UnsafeWalker and stored in
+    /// EmitPassState.labels (HashMap<name, byte_offset>). Duplicate labels → U1609;
+    /// unknown references → U1610.
+    Label,
 }
 
 /// Per-node IR storage.

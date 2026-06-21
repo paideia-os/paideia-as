@@ -22,7 +22,7 @@
 //! and immediates (e.g., `add rax, 42`). The only place in paideia-as where raw assembly
 //! instructions appear without the typed surface in between (custom-assembler.md §9.1).
 
-use paideia_as_ast::{ExprData, NodeId, NodeKind};
+use paideia_as_ast::{ExprData, NodeId, NodeKind, StmtData};
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
 use paideia_as_lexer::TokenKind;
 
@@ -351,9 +351,37 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                             break;
                         }
 
-                        // Unsafe block statements: pass in_action_context=true
-                        let stmt = self.parse_stmt(true)?;
-                        block_body.push(stmt);
+                        // Phase 6 m4-002: Check for label declaration (ident followed by colon).
+                        // If we see `ident:` pattern, parse as label declaration.
+                        // Otherwise, parse as regular statement.
+                        if self.at(TokenKind::Ident)
+                            && self.peek_at(1).map(|t| t.kind) == Some(TokenKind::Colon)
+                        {
+                            // Parse label declaration: `label_name:`
+                            let label_tok = self.bump().unwrap();
+                            let label_id = self.arena_mut().alloc(NodeKind::Ident, label_tok.span);
+
+                            self.expect(TokenKind::Colon)?;
+
+                            let rbrace_span =
+                                self.peek().map(|tok| tok.span).unwrap_or(label_tok.span);
+                            let label_span = Span::new(
+                                label_tok.span.file(),
+                                label_tok.span.byte_start(),
+                                rbrace_span.byte_start() - label_tok.span.byte_start(),
+                            );
+
+                            let label_stmt = self.arena_mut().alloc_stmt(
+                                NodeKind::StmtLabel,
+                                label_span,
+                                StmtData::Label { name: label_id },
+                            );
+                            block_body.push(label_stmt);
+                        } else {
+                            // Unsafe block statements: pass in_action_context=true
+                            let stmt = self.parse_stmt(true)?;
+                            block_body.push(stmt);
+                        }
                     }
 
                     // At least one statement is required
@@ -1199,5 +1227,171 @@ mod tests {
             p0101_found,
             "Expected P0101 diagnostic for empty statement (consecutive semis)"
         );
+    }
+
+    /// Phase 6 m4-002: Test 1 — Accept label declaration followed by instruction.
+    /// `unsafe { ..., block: { fail_label: cli } }` parses and emits 2 statements.
+    #[test]
+    fn unsafe_block_accepts_label_followed_by_instruction() {
+        // Test: fail_label: cli
+        let tokens = vec![
+            tok(TokenKind::KwUnsafe, 0),
+            tok(TokenKind::LBrace, 7),
+            tok(TokenKind::Ident, 9), // effects
+            tok(TokenKind::Colon, 16),
+            tok(TokenKind::LBrace, 18),
+            tok(TokenKind::RBrace, 19),
+            tok(TokenKind::Comma, 20),
+            tok(TokenKind::Ident, 22), // capabilities
+            tok(TokenKind::Colon, 34),
+            tok(TokenKind::LBrace, 36),
+            tok(TokenKind::RBrace, 37),
+            tok(TokenKind::Comma, 38),
+            tok(TokenKind::Ident, 40), // justification
+            tok(TokenKind::Colon, 53),
+            tok(TokenKind::StringLit, 55),
+            tok(TokenKind::Comma, 77),
+            tok(TokenKind::Ident, 79), // block
+            tok(TokenKind::Colon, 84),
+            tok(TokenKind::LBrace, 86),
+            tok(TokenKind::Ident, 97),  // fail_label
+            tok(TokenKind::Colon, 107), // :
+            tok(TokenKind::Ident, 109), // cli
+            tok(TokenKind::RBrace, 112),
+            tok(TokenKind::RBrace, 114),
+            tok(TokenKind::Eof, 115),
+        ];
+        let (arena, result, diags) = parse_unsafe_block(tokens);
+
+        assert_eq!(diags.len(), 0, "Expected no diagnostics; got: {:?}", diags);
+        assert!(result.is_ok(), "Expected parse success");
+
+        let expr_id = result.unwrap();
+        let expr_node = arena.get(expr_id).unwrap();
+        assert_eq!(expr_node.kind, NodeKind::ExprUnsafe);
+
+        // Verify block contains 2 statements: label + instruction
+        if let Some(ExprData::Unsafe { block, .. }) = arena.expr_data(expr_id) {
+            assert_eq!(
+                block.len(),
+                2,
+                "Block should contain 2 statements (label + instruction)"
+            );
+            let label_stmt = arena.get(block[0]).unwrap();
+            let instr_stmt = arena.get(block[1]).unwrap();
+            assert_eq!(label_stmt.kind, NodeKind::StmtLabel);
+            assert_eq!(instr_stmt.kind, NodeKind::StmtExpr); // cli parses as expr stmt
+        } else {
+            panic!("Expected ExprUnsafe");
+        }
+    }
+
+    /// Phase 6 m4-002: Test 2 — Accept multiple labels and instructions.
+    /// `unsafe { ..., block: { loop_start: cli; end_loop: hlt } }` parses.
+    #[test]
+    fn unsafe_block_accepts_multiple_labels_and_instructions() {
+        let tokens = vec![
+            tok(TokenKind::KwUnsafe, 0),
+            tok(TokenKind::LBrace, 7),
+            tok(TokenKind::Ident, 9), // effects
+            tok(TokenKind::Colon, 16),
+            tok(TokenKind::LBrace, 18),
+            tok(TokenKind::RBrace, 19),
+            tok(TokenKind::Comma, 20),
+            tok(TokenKind::Ident, 22), // capabilities
+            tok(TokenKind::Colon, 34),
+            tok(TokenKind::LBrace, 36),
+            tok(TokenKind::RBrace, 37),
+            tok(TokenKind::Comma, 38),
+            tok(TokenKind::Ident, 40), // justification
+            tok(TokenKind::Colon, 53),
+            tok(TokenKind::StringLit, 55),
+            tok(TokenKind::Comma, 77),
+            tok(TokenKind::Ident, 79), // block
+            tok(TokenKind::Colon, 84),
+            tok(TokenKind::LBrace, 86),
+            tok(TokenKind::Ident, 88),  // loop_start
+            tok(TokenKind::Colon, 98),  // :
+            tok(TokenKind::Ident, 100), // cli
+            tok(TokenKind::Semicolon, 103),
+            tok(TokenKind::Ident, 105), // end_loop
+            tok(TokenKind::Colon, 114), // :
+            tok(TokenKind::Ident, 116), // hlt
+            tok(TokenKind::RBrace, 119),
+            tok(TokenKind::RBrace, 121),
+            tok(TokenKind::Eof, 122),
+        ];
+        let (arena, result, diags) = parse_unsafe_block(tokens);
+
+        assert_eq!(diags.len(), 0, "Expected no diagnostics; got: {:?}", diags);
+        assert!(result.is_ok(), "Expected parse success");
+
+        let expr_id = result.unwrap();
+        let expr_node = arena.get(expr_id).unwrap();
+        assert_eq!(expr_node.kind, NodeKind::ExprUnsafe);
+
+        // Verify block contains 4 statements: label + cli + label + hlt
+        if let Some(ExprData::Unsafe { block, .. }) = arena.expr_data(expr_id) {
+            assert_eq!(block.len(), 4, "Block should contain 4 statements");
+            let stmt0 = arena.get(block[0]).unwrap();
+            let stmt1 = arena.get(block[1]).unwrap();
+            let stmt2 = arena.get(block[2]).unwrap();
+            let stmt3 = arena.get(block[3]).unwrap();
+            assert_eq!(stmt0.kind, NodeKind::StmtLabel);
+            assert_eq!(stmt1.kind, NodeKind::StmtExpr);
+            assert_eq!(stmt2.kind, NodeKind::StmtLabel);
+            assert_eq!(stmt3.kind, NodeKind::StmtExpr);
+        } else {
+            panic!("Expected ExprUnsafe");
+        }
+    }
+
+    /// Phase 6 m4-002: Test 3 — Accept label with instruction and semicolon.
+    /// `unsafe { ..., block: { fail_label: cli; } }` parses.
+    #[test]
+    fn unsafe_block_label_with_trailing_semicolon() {
+        let tokens = vec![
+            tok(TokenKind::KwUnsafe, 0),
+            tok(TokenKind::LBrace, 7),
+            tok(TokenKind::Ident, 9), // effects
+            tok(TokenKind::Colon, 16),
+            tok(TokenKind::LBrace, 18),
+            tok(TokenKind::RBrace, 19),
+            tok(TokenKind::Comma, 20),
+            tok(TokenKind::Ident, 22), // capabilities
+            tok(TokenKind::Colon, 34),
+            tok(TokenKind::LBrace, 36),
+            tok(TokenKind::RBrace, 37),
+            tok(TokenKind::Comma, 38),
+            tok(TokenKind::Ident, 40), // justification
+            tok(TokenKind::Colon, 53),
+            tok(TokenKind::StringLit, 55),
+            tok(TokenKind::Comma, 77),
+            tok(TokenKind::Ident, 79), // block
+            tok(TokenKind::Colon, 84),
+            tok(TokenKind::LBrace, 86),
+            tok(TokenKind::Ident, 97),  // fail_label
+            tok(TokenKind::Colon, 107), // :
+            tok(TokenKind::Ident, 109), // cli
+            tok(TokenKind::Semicolon, 112),
+            tok(TokenKind::RBrace, 113),
+            tok(TokenKind::RBrace, 115),
+            tok(TokenKind::Eof, 116),
+        ];
+        let (arena, result, diags) = parse_unsafe_block(tokens);
+
+        assert_eq!(diags.len(), 0, "Expected no diagnostics; got: {:?}", diags);
+        assert!(result.is_ok(), "Expected parse success");
+
+        let expr_id = result.unwrap();
+        if let Some(ExprData::Unsafe { block, .. }) = arena.expr_data(expr_id) {
+            assert_eq!(block.len(), 2);
+            let stmt0 = arena.get(block[0]).unwrap();
+            let stmt1 = arena.get(block[1]).unwrap();
+            assert_eq!(stmt0.kind, NodeKind::StmtLabel);
+            assert_eq!(stmt1.kind, NodeKind::StmtExpr);
+        } else {
+            panic!("Expected ExprUnsafe");
+        }
     }
 }
