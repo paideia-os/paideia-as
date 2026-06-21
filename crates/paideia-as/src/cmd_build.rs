@@ -368,10 +368,12 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                         let children = lowering.ir.children(node_id);
                         if let Some(&rhs_id) = children.first() {
                             if let Some(rhs_node) = lowering.ir.get(rhs_id) {
+                                let symbol_name = format!("data_{}", node_id.get());
+
                                 if rhs_node.kind == paideia_as_ir::IrKind::Literal {
+                                    // Phase 5: Let with Literal → Rodata
                                     if let Some(value) = lowering.ir.literal_values().get(rhs_id) {
                                         let bytes = EmitWalker::pack_u64_le_public(value);
-                                        let symbol_name = format!("data_{}", node_id.get());
                                         let entry = paideia_as_ir::DataEntry::new_rodata(
                                             bytes,
                                             symbol_name,
@@ -379,6 +381,16 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                                         );
                                         data_entries.push((node_id, entry));
                                     }
+                                } else if rhs_node.kind == paideia_as_ir::IrKind::Placeholder {
+                                    // Phase 6 m5-004: Let with Placeholder (uninit) → Bss
+                                    // Route all uninit to .bss regardless of mutability.
+                                    // Size hint defaults to 8 (u64); full type support TBD
+                                    let entry = paideia_as_ir::DataEntry::new_bss(
+                                        symbol_name,
+                                        8,
+                                        8,
+                                    );
+                                    data_entries.push((node_id, entry));
                                 }
                             }
                         }

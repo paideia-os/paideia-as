@@ -370,14 +370,11 @@ impl EmitWalker {
                                     }
                                     IrKind::Placeholder => {
                                         // Placeholder RHS: likely uninit marker.
-                                        // For now, only process if the Let is mutable.
-                                        if is_mutable {
-                                            // Mutable + uninit → Bss section.
-                                            // Size hint defaults to 8 (u64). Full type info
-                                            // will be available in later elaboration passes.
-                                            let entry = DataEntry::new_bss(symbol_name, 8, 8);
-                                            data_table.insert(node_id, entry);
-                                        }
+                                        // Phase 6 m5-004: Route all uninit to .bss regardless of mutability.
+                                        // Uninitialized data goes to .bss whether it's marked mut or not.
+                                        // This supports both `let x = uninit` and (future) `let mut x = uninit`.
+                                        let entry = DataEntry::new_bss(symbol_name, 8, 8);
+                                        data_table.insert(node_id, entry);
                                     }
                                     _ => {
                                         // Other RHS shapes not handled yet (e.g., ArrayLit, etc.).
@@ -1893,7 +1890,7 @@ mod tests {
     }
 
     #[test]
-    fn emit_walker_populate_data_table_immutable_placeholder_not_routed() {
+    fn emit_walker_populate_data_table_immutable_placeholder_routed_to_bss() {
         let mut arena = IrArena::new();
 
         // Allocate: immutable Let with Placeholder RHS
@@ -1905,8 +1902,11 @@ mod tests {
         let mut data_table = DataSideTable::new();
         EmitWalker::populate_data_table(&arena, &mut data_table);
 
-        // Immutable + Placeholder is not a valid pattern and should not be routed.
-        assert_eq!(data_table.len(), 0);
+        // Phase 6 m5-004: Immutable + Placeholder is now routed to .bss
+        // (supports `let x = uninit` at module level, even though module-level doesn't support `let mut`)
+        assert_eq!(data_table.len(), 1);
+        let entry = data_table.iter().next().expect("should have one entry");
+        assert_eq!(entry.1.section, SectionKind::Bss);
     }
 
     #[test]

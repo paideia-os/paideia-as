@@ -1,0 +1,29 @@
+// cap_table_addr.pdx — .bss relocation fixture (Phase 6 m5-004)
+//
+// Declares a .bss-allocated array (cap_table) and a function that
+// loads its address. This triggers a PC32 relocation against a .bss symbol.
+//
+// Acceptance criteria:
+// - Compiles to ELF with .bss section (SHT_NOBITS)
+// - Emits PC32 relocation against cap_table symbol
+// - `readelf -r` shows relocation entry
+// - `objdump -d` shows mov with displacement placeholder
+// - Linker can link the resulting object file
+
+module CapTableAddr = structure {
+  // Declare a .bss-allocated uninitialized value
+  // Phase 6 m5-003: module-level uninit bindings emit to .bss with SectionKind::Bss
+  // Note: Type size is currently hardcoded at 8 bytes in emit_walker.rs; full type support TBD
+  let cap_table : u64 = uninit
+
+  // Function to load cap_table address
+  // Phase 6 m4-005 + m5-004: mov r64, [symbol] triggers PC32 relocation
+  let read_cap_addr : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "Phase 6 m5-004: test .bss relocation",
+    block: {
+      mov rax, cap_table
+    }
+  }
+}

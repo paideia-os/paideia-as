@@ -271,14 +271,18 @@ pub fn parse_operand_from_ast(
 /// Phase 6 m4-005: Only `call` and `jmp` (conditional and unconditional)
 /// mnemonics support symbol references in operand position.
 fn supports_symbol_ref(mnemonic: Mnemonic) -> bool {
-    matches!(mnemonic, Mnemonic::Call | Mnemonic::Jmp | Mnemonic::Jcc(_))
+    matches!(
+        mnemonic,
+        Mnemonic::Call | Mnemonic::Jmp | Mnemonic::Jcc(_) | Mnemonic::Mov | Mnemonic::Lea
+    )
 }
 
-/// Parse a symbol reference from a bare identifier (Phase 6 m4-005).
+/// Parse a symbol reference from a bare identifier (Phase 6 m4-005, Phase 6 m5-004).
 ///
 /// Returns `Operand::SymbolRef { name, addend: 0 }` for bare-identifier
-/// symbols used in call/jmp position. These are resolved at link time
-/// with PC-relative 32-bit relocations.
+/// symbols used in call/jmp/mov/lea position. These are resolved at link time
+/// with PC-relative 32-bit relocations. Phase 6 m5-004 extends support to
+/// mov/lea for .bss symbol references (e.g., `mov rax, cap_table`).
 fn parse_symbol_ref_from_ident(
     ast: &AstArena,
     ident_node: NodeId,
@@ -1731,13 +1735,13 @@ mod tests {
     }
 
     #[test]
-    fn does_not_support_symbol_ref_for_mov() {
-        assert!(!supports_symbol_ref(Mnemonic::Mov));
+    fn supports_symbol_ref_for_mov() {
+        assert!(supports_symbol_ref(Mnemonic::Mov));
     }
 
     #[test]
-    fn does_not_support_symbol_ref_for_lea() {
-        assert!(!supports_symbol_ref(Mnemonic::Lea));
+    fn supports_symbol_ref_for_lea() {
+        assert!(supports_symbol_ref(Mnemonic::Lea));
     }
 
     #[test]
