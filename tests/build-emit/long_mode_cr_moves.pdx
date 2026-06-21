@@ -1,0 +1,12 @@
+module LongModeCrMoves = structure {
+  let fn_cr_moves : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "phase 6 m1-002 CR move dispatch fixture",
+    block: {
+      mov cr3, rdi
+      mov cr4, rcx
+      mov cr0, rax
+    }
+  }
+}

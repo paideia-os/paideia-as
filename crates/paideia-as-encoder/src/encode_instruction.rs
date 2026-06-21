@@ -5,6 +5,7 @@
 //! minimum: covers the 10-mnemonic catalog from instruction.rs; future
 //! mnemonics drop into the match arm.
 
+use crate::dispatch::{DispatchKind, classify};
 use crate::encode::*;
 use paideia_as_ir::{Cond as IrCond, Instruction, Mnemonic, Operand, RegId, Scale};
 
@@ -209,6 +210,22 @@ pub fn encode_instruction(
 }
 
 fn encode_mov(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    // Phase 6, m1-002: Classify MOV operands and dispatch to specialized encoders.
+    let dispatch_kind = classify(inst);
+
+    // Route CR moves through encode_mov_cr_dispatcher.
+    match dispatch_kind {
+        DispatchKind::MovToCr => {
+            return encode_mov_cr_dispatcher(inst, buf, true);
+        }
+        DispatchKind::MovFromCr => {
+            return encode_mov_cr_dispatcher(inst, buf, false);
+        }
+        // All other dispatch kinds (MovGeneric, MovToDr, MovFromDr, Generic)
+        // fall through to the rest of this function.
+        _ => {}
+    }
+
     match inst.operands.as_slice() {
         [Operand::Reg(dest), Operand::Reg(src)] => {
             // mov r64, r64 → 48 89 <ModR/M>
@@ -266,6 +283,42 @@ fn encode_mov(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
         _ => Err(EncodeError::Unsupported(
             "mov form not in phase-3-m2-002 minimum",
         )),
+    }
+}
+
+/// Dispatcher for MOV to/from control register (Phase 6, m1-002).
+///
+/// Extracts CR and GPR indices from operands and routes to encode_mov_cr.
+/// - write=true: mov cr_idx, gpr (destination is CR, source is GPR)
+/// - write=false: mov gpr, cr_idx (destination is GPR, source is CR)
+fn encode_mov_cr_dispatcher(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+    write: bool,
+) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::Reg(first), Operand::Reg(second)] => {
+            let (cr_id, gpr_id) = if write {
+                // mov cr, gpr: first is CR, second is GPR
+                (first.0, second.0)
+            } else {
+                // mov gpr, cr: first is GPR, second is CR
+                (second.0, first.0)
+            };
+
+            // Convert CR ID to CR index: cr_idx = RegId - 16
+            let cr_idx = cr_id - 16;
+
+            // GPR index is directly the reg_id (0-15)
+            let gpr_idx = gpr_id;
+
+            // Encode using the low-level helper
+            encode_mov_cr(buf, write, cr_idx, gpr_idx);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Mov,
+        }),
     }
 }
 
@@ -2299,5 +2352,105 @@ mod tests {
         assert_eq!(output.reloc_sites[0].symbol, "kernel_main_64");
         assert_eq!(output.reloc_sites[0].kind, RelocKind::PcRel32);
         assert_eq!(output.reloc_sites[0].addend, 0);
+    }
+
+    // Phase 6 m1-002: CR move dispatch tests
+    // These tests verify that MOV instructions with CR operands are correctly
+    // classified and routed through encode_mov_cr_dispatcher, emitting the correct bytes.
+
+    /// Test: mov cr3, rdi → 0F 22 DF
+    /// CR3 = 16 + 3 = 19, RDI = 7
+    #[test]
+    fn encode_mov_cr3_rdi_emits_0f22df() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![Operand::Reg(RegId(19)), Operand::Reg(RegId(7))],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x0F, 0x22, 0xDF]);
+    }
+
+    /// Test: mov cr4, rcx → 0F 22 E1
+    /// CR4 = 16 + 4 = 20, RCX = 1
+    #[test]
+    fn encode_mov_cr4_rcx_emits_0f22e1() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![Operand::Reg(RegId(20)), Operand::Reg(RegId(1))],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x0F, 0x22, 0xE1]);
+    }
+
+    /// Test: mov cr0, rax → 0F 22 C0
+    /// CR0 = 16 + 0 = 16, RAX = 0
+    #[test]
+    fn encode_mov_cr0_rax_via_dispatch_emits_0f22c0() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![Operand::Reg(RegId(16)), Operand::Reg(RegId(0))],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x0F, 0x22, 0xC0]);
+    }
+
+    /// Test: mov rdi, cr3 → 0F 20 DF (read from CR3)
+    /// RDI = 7, CR3 = 16 + 3 = 19
+    #[test]
+    fn encode_mov_rdi_cr3_emits_0f20df() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![Operand::Reg(RegId(7)), Operand::Reg(RegId(19))],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x0F, 0x20, 0xDF]);
+    }
+
+    /// Test: mov rcx, cr4 → 0F 20 E1 (read from CR4)
+    /// RCX = 1, CR4 = 16 + 4 = 20
+    #[test]
+    fn encode_mov_rcx_cr4_emits_0f20e1() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![Operand::Reg(RegId(1)), Operand::Reg(RegId(20))],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x0F, 0x20, 0xE1]);
+    }
+
+    /// Test: mov cr8, rax → 44 0F 22 C0 (CR8 requires REX.R)
+    /// CR8 = 16 + 8 = 24, RAX = 0
+    #[test]
+    fn encode_mov_cr8_rax_via_dispatch_emits_440f22c0() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![Operand::Reg(RegId(24)), Operand::Reg(RegId(0))],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x44, 0x0F, 0x22, 0xC0]);
     }
 }
