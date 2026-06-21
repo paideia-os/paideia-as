@@ -1670,8 +1670,8 @@ impl EmitWalker {
             return;
         }
 
-        let cond_id = children[0];
-        let then_id = children[1];
+        let _cond_id = children[0];
+        let _then_id = children[1];
         let else_id = if children.len() > 2 {
             Some(children[2])
         } else {
