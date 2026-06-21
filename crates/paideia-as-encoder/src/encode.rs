@@ -295,6 +295,66 @@ pub fn cmp_reg64_reg64(buf: &mut CodeBuffer, dst: Reg64, src: Reg64) {
     buf.bytes.push(0xC0 | ((src_id & 7) << 3) | (dst_id & 7));
 }
 
+/// Encode `cmp [mem], reg64` (memory form with base + disp).
+///
+/// Instruction: REX.W 39 /r
+/// ModR/M encodes the base register as r/m, and the src register in the reg field.
+///
+/// Uses the smallest form possible:
+/// - If disp fits in i8 and is not 0: mod=01, disp8 (2 bytes for disp)
+/// - If disp is 0: use mod=01 with disp8=0 (RBP with mod=00 is special)
+/// - Otherwise: mod=10, disp32 (4 bytes for disp)
+///
+/// Example: `cmp [rdi + 24], rcx` → `48 39 4F 18`
+pub fn cmp_mem_reg64_reg64(buf: &mut CodeBuffer, base: Reg64, disp: i32, src: Reg64) {
+    let base_id = base as u8;
+    let src_id = src as u8;
+    let rex_byte = rex(true, (src_id >> 3) != 0, false, (base_id >> 3) != 0);
+
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x39);
+
+    if (-128..=127).contains(&disp) {
+        // Use mod=01, disp8
+        buf.bytes.push(0x40 | ((src_id & 7) << 3) | (base_id & 7));
+        buf.bytes.push(disp as u8);
+    } else {
+        // Use mod=10, disp32
+        buf.bytes.push(0x80 | ((src_id & 7) << 3) | (base_id & 7));
+        buf.bytes.extend(disp.to_le_bytes());
+    }
+}
+
+/// Encode `cmp reg64, imm8` (8-bit immediate, sign-extended to 64-bit).
+///
+/// Instruction: REX.W 83 /7 ib
+/// ModR/M: 0xF8 | (reg & 7) (register 7 in the reg field means cmp)
+/// Bytes: `48 83 (0xF8 | reg) imm8`
+///
+/// Example: `cmp rax, 0` → `48 83 F8 00`
+pub fn cmp_reg64_imm8(buf: &mut CodeBuffer, dst: Reg64, imm: i8) {
+    let reg_id = dst as u8;
+    let rex_byte = rex(true, false, false, (reg_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x83);
+    buf.bytes.push(0xF8 | (reg_id & 7));
+    buf.bytes.push(imm as u8);
+}
+
+/// Encode `cmp reg64, imm32` (32-bit immediate, sign-extended to 64-bit).
+///
+/// Instruction: REX.W 81 /7 id
+/// ModR/M: 0xF8 | (reg & 7) (register 7 in the reg field means cmp)
+/// Bytes: `48 81 (0xF8 | reg) imm32_le`
+pub fn cmp_reg64_imm32(buf: &mut CodeBuffer, dst: Reg64, imm: i32) {
+    let reg_id = dst as u8;
+    let rex_byte = rex(true, false, false, (reg_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x81);
+    buf.bytes.push(0xF8 | (reg_id & 7));
+    buf.bytes.extend(imm.to_le_bytes());
+}
+
 /// Encode `test reg64, reg64`.
 ///
 /// Instruction: REX.W 85 /r
@@ -2450,5 +2510,196 @@ mod tests {
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
         assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    // ── CMP round-trip tests (phase 6 m4-001) ───────────────────
+
+    #[test]
+    fn cmp_rax_rdi_emits_4839f8() {
+        let mut buf = CodeBuffer::new();
+        cmp_reg64_reg64(&mut buf, Reg64::Rax, Reg64::Rdi);
+        // REX.W=1, opcode 39, ModR/M: 0xC0 | (7<<3) | 0 = 0xf8
+        assert_eq!(buf.as_slice(), &[0x48, 0x39, 0xf8]);
+    }
+
+    #[test]
+    fn cmp_rax_rdi_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        cmp_reg64_reg64(&mut buf, Reg64::Rax, Reg64::Rdi);
+        assert_eq!(buf.as_slice(), &[0x48, 0x39, 0xf8]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Cmp);
+    }
+
+    #[test]
+    fn cmp_mem_rdi_24_rcx_emits_48394f18() {
+        let mut buf = CodeBuffer::new();
+        cmp_mem_reg64_reg64(&mut buf, Reg64::Rdi, 24, Reg64::Rcx);
+        // REX.W=1, opcode 39, ModR/M with disp8: 0x40 | (1<<3) | 7 = 0x4f, disp8=24=0x18
+        assert_eq!(buf.as_slice(), &[0x48, 0x39, 0x4f, 0x18]);
+    }
+
+    #[test]
+    fn cmp_mem_rdi_24_rcx_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        cmp_mem_reg64_reg64(&mut buf, Reg64::Rdi, 24, Reg64::Rcx);
+        assert_eq!(buf.as_slice(), &[0x48, 0x39, 0x4f, 0x18]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Cmp);
+    }
+
+    #[test]
+    fn cmp_rax_imm8_0_emits_4883f800() {
+        let mut buf = CodeBuffer::new();
+        cmp_reg64_imm8(&mut buf, Reg64::Rax, 0);
+        // REX.W=1, opcode 83, ModR/M: 0xF8 | 0 = 0xf8, imm8=0
+        assert_eq!(buf.as_slice(), &[0x48, 0x83, 0xf8, 0x00]);
+    }
+
+    #[test]
+    fn cmp_rax_imm8_0_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        cmp_reg64_imm8(&mut buf, Reg64::Rax, 0);
+        assert_eq!(buf.as_slice(), &[0x48, 0x83, 0xf8, 0x00]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Cmp);
+    }
+
+    #[test]
+    fn cmp_rcx_imm8_127_emits_4883f97f() {
+        let mut buf = CodeBuffer::new();
+        cmp_reg64_imm8(&mut buf, Reg64::Rcx, 127);
+        // REX.W=1, opcode 83, ModR/M: 0xF8 | 1 = 0xf9, imm8=127
+        assert_eq!(buf.as_slice(), &[0x48, 0x83, 0xf9, 0x7f]);
+    }
+
+    #[test]
+    fn cmp_rcx_imm8_127_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        cmp_reg64_imm8(&mut buf, Reg64::Rcx, 127);
+        assert_eq!(buf.as_slice(), &[0x48, 0x83, 0xf9, 0x7f]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Cmp);
+    }
+
+    #[test]
+    fn cmp_rdx_imm32_256_emits_4881fa00010000() {
+        let mut buf = CodeBuffer::new();
+        cmp_reg64_imm32(&mut buf, Reg64::Rdx, 256);
+        // REX.W=1, opcode 81, ModR/M: 0xF8 | 2 = 0xfa, imm32=256 in LE
+        assert_eq!(buf.as_slice(), &[0x48, 0x81, 0xfa, 0x00, 0x01, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn cmp_rdx_imm32_256_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        cmp_reg64_imm32(&mut buf, Reg64::Rdx, 256);
+        assert_eq!(buf.as_slice(), &[0x48, 0x81, 0xfa, 0x00, 0x01, 0x00, 0x00]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Cmp);
+    }
+
+    #[test]
+    fn cmp_r8_imm8_neg1_emits_4983f8ff() {
+        let mut buf = CodeBuffer::new();
+        cmp_reg64_imm8(&mut buf, Reg64::R8, -1);
+        // REX.W=1, B=1 (R8 is id 8 > 7): 0x49, opcode 83, ModR/M: 0xF8 | 0 = 0xf8, imm8=-1=0xff
+        assert_eq!(buf.as_slice(), &[0x49, 0x83, 0xf8, 0xff]);
+    }
+
+    #[test]
+    fn cmp_r8_imm8_neg1_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        cmp_reg64_imm8(&mut buf, Reg64::R8, -1);
+        assert_eq!(buf.as_slice(), &[0x49, 0x83, 0xf8, 0xff]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Cmp);
+    }
+
+    #[test]
+    fn cmp_r15_imm32_0x7fffffff_emits_49811fff_ffffffff7f() {
+        let mut buf = CodeBuffer::new();
+        cmp_reg64_imm32(&mut buf, Reg64::R15, 0x7fffffff);
+        // REX.W=1, R=1 (R15 is id 15 > 7): 0x4d, opcode 81, ModR/M: 0xF8 | 7 = 0xff, imm32=0x7fffffff in LE
+        assert_eq!(buf.as_slice(), &[0x49, 0x81, 0xff, 0xff, 0xff, 0xff, 0x7f]);
+    }
+
+    #[test]
+    fn cmp_r15_imm32_0x7fffffff_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        cmp_reg64_imm32(&mut buf, Reg64::R15, 0x7fffffff);
+        assert_eq!(buf.as_slice(), &[0x49, 0x81, 0xff, 0xff, 0xff, 0xff, 0x7f]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Cmp);
+    }
+
+    #[test]
+    fn cmp_mem_rbp_minus_8_rax_emits_4839455f8() {
+        let mut buf = CodeBuffer::new();
+        cmp_mem_reg64_reg64(&mut buf, Reg64::Rbp, -8, Reg64::Rax);
+        // REX.W=1, opcode 39, ModR/M with disp8: 0x40 | (0<<3) | 5 = 0x45, disp8=-8=0xf8
+        assert_eq!(buf.as_slice(), &[0x48, 0x39, 0x45, 0xf8]);
+    }
+
+    #[test]
+    fn cmp_mem_rbp_minus_8_rax_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        cmp_mem_reg64_reg64(&mut buf, Reg64::Rbp, -8, Reg64::Rax);
+        assert_eq!(buf.as_slice(), &[0x48, 0x39, 0x45, 0xf8]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Cmp);
+    }
+
+    #[test]
+    fn cmp_mem_rsi_1000_r9_emits_48399c06e8030000() {
+        let mut buf = CodeBuffer::new();
+        cmp_mem_reg64_reg64(&mut buf, Reg64::Rsi, 1000, Reg64::R9);
+        // REX.W=1, R=1 (R9 is id 9 > 7): 0x4c, opcode 39, ModR/M with disp32: 0x80 | (1<<3) | 6 = 0x8e, disp32=1000 in LE
+        assert_eq!(buf.as_slice(), &[0x4c, 0x39, 0x8e, 0xe8, 0x03, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn cmp_mem_rsi_1000_r9_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        cmp_mem_reg64_reg64(&mut buf, Reg64::Rsi, 1000, Reg64::R9);
+        assert_eq!(buf.as_slice(), &[0x4c, 0x39, 0x8e, 0xe8, 0x03, 0x00, 0x00]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Cmp);
     }
 }

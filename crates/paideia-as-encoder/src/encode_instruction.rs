@@ -432,8 +432,40 @@ fn encode_cmp(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
             cmp_reg64_reg64(buf, reg64_from(*dest)?, reg64_from(*src)?);
             Ok(EncodeOutput::new())
         }
+        [
+            Operand::MemSib {
+                base,
+                index: None,
+                scale: Scale::X1,
+                disp,
+            },
+            Operand::Reg(src),
+        ] => {
+            // cmp [base + disp], r64 → 48 39 <ModR/M> [disp]
+            cmp_mem_reg64_reg64(buf, reg64_from(*base)?, *disp, reg64_from(*src)?);
+            Ok(EncodeOutput::new())
+        }
+        [Operand::Reg(dest), Operand::Imm64(imm)] => {
+            let dest_reg = reg64_from(*dest)?;
+            let imm_i64 = *imm;
+
+            // Determine the best encoding form for the immediate
+            if (-128..=127).contains(&imm_i64) {
+                // 8-bit immediate: use 83 /7 ib
+                cmp_reg64_imm8(buf, dest_reg, imm_i64 as i8);
+            } else if imm_i64 >= i32::MIN as i64 && imm_i64 <= i32::MAX as i64 {
+                // 32-bit immediate: use 81 /7 id
+                cmp_reg64_imm32(buf, dest_reg, imm_i64 as i32);
+            } else {
+                // imm64 out-of-range: unsupported
+                return Err(EncodeError::Unsupported(
+                    "cmp imm64 not supported; load into reg first",
+                ));
+            }
+            Ok(EncodeOutput::new())
+        }
         _ => Err(EncodeError::Unsupported(
-            "cmp form not in phase-3-m2-002 minimum",
+            "cmp shape not in phase-6-m4-001 minimum",
         )),
     }
 }
