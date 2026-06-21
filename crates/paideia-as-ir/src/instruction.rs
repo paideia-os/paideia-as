@@ -13,7 +13,8 @@ use std::collections::HashMap;
 /// x86_64 mnemonics targeted by the m9 opt-pass catalog.
 ///
 /// Phase-3-m2-001 minimum: the 10-mnemonic catalog the m9 passes
-/// reference. Wider coverage (full SDM subset) ships in a future PR.
+/// reference. Phase-5-m2-001 extension: 20 privileged + system-ISA mnemonics.
+/// Wider coverage (full SDM subset) ships in a future PR.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum Mnemonic {
     /// Move (register to register, register to memory, memory to register, immediate to register).
@@ -36,6 +37,58 @@ pub enum Mnemonic {
     RepMovsb,
     /// Load effective address.
     Lea,
+    /// Load global descriptor table register.
+    Lgdt,
+    /// Load interrupt descriptor table register.
+    Lidt,
+    /// Move to/from control register (write indicates direction).
+    MovCr {
+        /// True for MOV-to-CR (write), false for MOV-from-CR (read).
+        write: bool,
+    },
+    /// Move to/from debug register (write indicates direction).
+    MovDr {
+        /// True for MOV-to-DR (write), false for MOV-from-DR (read).
+        write: bool,
+    },
+    /// Write to model-specific register.
+    Wrmsr,
+    /// Read from model-specific register.
+    Rdmsr,
+    /// Read from I/O port (width in bytes: 1, 2, or 4).
+    In {
+        /// Width of the I/O read: 1, 2, or 4 bytes.
+        width: u8,
+    },
+    /// Write to I/O port (width in bytes: 1, 2, or 4).
+    Out {
+        /// Width of the I/O write: 1, 2, or 4 bytes.
+        width: u8,
+    },
+    /// Interrupt return (32-bit).
+    Iret,
+    /// Interrupt return (64-bit).
+    Iretq,
+    /// System return from fast syscall.
+    Sysret,
+    /// Swap GS base register.
+    Swapgs,
+    /// CPU identification.
+    Cpuid,
+    /// Clear interrupt flag.
+    Cli,
+    /// Set interrupt flag.
+    Sti,
+    /// Halt processor.
+    Hlt,
+    /// Software interrupt.
+    Int,
+    /// No operation.
+    Nop,
+    /// REP-prefixed STOSQ (store to memory via RCX iterations).
+    RepStosq,
+    /// Far jump (intersegment).
+    FarJmp,
 }
 
 /// Condition code for Jcc instructions.
@@ -410,5 +463,15 @@ mod tests {
         assert_eq!(removed.unwrap().mnemonic, Mnemonic::Add);
         assert_eq!(table.len(), 0);
         assert!(table.is_empty());
+    }
+
+    // ── Mnemonic size constraint ────────────────────────────────────────
+
+    #[test]
+    fn mnemonic_size_fits_in_four_bytes() {
+        use std::mem::size_of;
+        // Mnemonic includes Jcc(Cond) (1 byte tag + 1 byte data) and
+        // MovCr/MovDr/In/Out with bool or u8 payloads. Max size is 4 bytes.
+        assert!(size_of::<Mnemonic>() <= 4);
     }
 }

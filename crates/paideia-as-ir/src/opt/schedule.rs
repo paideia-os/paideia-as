@@ -51,6 +51,7 @@ impl InstructionClass {
 ///
 /// Maps x86_64 mnemonics to their latency model for scheduling purposes.
 /// Phase-3-m3 implementation: covers the 10-mnemonic m9 catalog.
+/// Phase-5-m2-001 extension: 20 privileged + system-ISA variants.
 fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
     match mnemonic {
         Mnemonic::Mov => InstructionClass::AluReg,
@@ -60,6 +61,27 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
             InstructionClass::Branch
         }
         Mnemonic::RepMovsb => InstructionClass::Other, // Conservative: treat as other
+        // Phase-5 m2-001: privileged + system-ISA mnemonics treated as conservative Other
+        Mnemonic::Lgdt
+        | Mnemonic::Lidt
+        | Mnemonic::MovCr { .. }
+        | Mnemonic::MovDr { .. }
+        | Mnemonic::Wrmsr
+        | Mnemonic::Rdmsr
+        | Mnemonic::In { .. }
+        | Mnemonic::Out { .. }
+        | Mnemonic::Iret
+        | Mnemonic::Iretq
+        | Mnemonic::Sysret
+        | Mnemonic::Swapgs
+        | Mnemonic::Cpuid
+        | Mnemonic::Cli
+        | Mnemonic::Sti
+        | Mnemonic::Hlt
+        | Mnemonic::Int
+        | Mnemonic::Nop
+        | Mnemonic::RepStosq
+        | Mnemonic::FarJmp => InstructionClass::Other,
     }
 }
 

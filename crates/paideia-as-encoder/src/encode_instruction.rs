@@ -141,6 +141,27 @@ pub fn encode_instruction(
         Mnemonic::Ret => encode_ret(inst, buf),
         Mnemonic::RepMovsb => encode_rep_movsb(inst, buf),
         Mnemonic::Lea => encode_lea(inst, buf),
+        // Phase-5 m2-001 stubs: 20 privileged + system-ISA variants
+        Mnemonic::Cli => Err(EncodeError::Unsupported("phase-5 m2-002")),
+        Mnemonic::Sti => Err(EncodeError::Unsupported("phase-5 m2-002")),
+        Mnemonic::Hlt => Err(EncodeError::Unsupported("phase-5 m2-002")),
+        Mnemonic::Nop => Err(EncodeError::Unsupported("phase-5 m2-002")),
+        Mnemonic::Swapgs => Err(EncodeError::Unsupported("phase-5 m2-002")),
+        Mnemonic::Cpuid => Err(EncodeError::Unsupported("phase-5 m2-002")),
+        Mnemonic::In { .. } => Err(EncodeError::Unsupported("phase-5 m2-003")),
+        Mnemonic::Out { .. } => Err(EncodeError::Unsupported("phase-5 m2-003")),
+        Mnemonic::Wrmsr => Err(EncodeError::Unsupported("phase-5 m2-004")),
+        Mnemonic::Rdmsr => Err(EncodeError::Unsupported("phase-5 m2-004")),
+        Mnemonic::Int => Err(EncodeError::Unsupported("phase-5 m2-004")),
+        Mnemonic::MovCr { .. } => Err(EncodeError::Unsupported("phase-5 m2-005")),
+        Mnemonic::MovDr { .. } => Err(EncodeError::Unsupported("phase-5 m2-006")),
+        Mnemonic::Lgdt => Err(EncodeError::Unsupported("phase-5 m2-007")),
+        Mnemonic::Lidt => Err(EncodeError::Unsupported("phase-5 m2-007")),
+        Mnemonic::Iret => Err(EncodeError::Unsupported("phase-5 m2-008")),
+        Mnemonic::Iretq => Err(EncodeError::Unsupported("phase-5 m2-008")),
+        Mnemonic::Sysret => Err(EncodeError::Unsupported("phase-5 m2-008")),
+        Mnemonic::RepStosq => Err(EncodeError::Unsupported("phase-5 m2-009")),
+        Mnemonic::FarJmp => Err(EncodeError::Unsupported("phase-5 m2-010")),
     }
 }
 
@@ -660,5 +681,27 @@ mod tests {
         stats.record_instruction();
         assert_eq!(stats.total, 2);
         assert_eq!(stats.tightened, 1);
+    }
+
+    // ── Phase-5 m2-001 privileged ISA stubs ───────────────────────────
+
+    #[test]
+    fn encode_nop_returns_phase5_m2_002_marker() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Nop,
+            operands: smallvec::smallvec![],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        let result = encode_instruction(&inst, &mut buf, &mut stats);
+        assert!(result.is_err());
+        match result {
+            Err(EncodeError::Unsupported(marker)) => {
+                assert_eq!(marker, "phase-5 m2-002");
+            }
+            _ => panic!("expected Unsupported error with phase-5 m2-002 marker"),
+        }
     }
 }
