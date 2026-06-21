@@ -2,6 +2,7 @@
 
 use object::SymbolKind;
 use object::write::SymbolId;
+use paideia_as_ir::SectionKind;
 
 /// Type alias for a symbol index in the ELF symbol table.
 /// Represents the handle returned by the object crate when adding a symbol.
@@ -52,13 +53,15 @@ pub struct SymbolEntry {
     pub offset: Option<u64>,
     /// Size in bytes; 0 for undefined symbols.
     pub size: u64,
+    /// Which section this symbol belongs to. Phase 6 m5-003: used for .bss symbols.
+    pub section: Option<SectionKind>,
 }
 
 impl SymbolEntry {
     /// Construct a function symbol.
     ///
     /// Creates a globally visible function symbol with the given name, offset, and size.
-    /// Equivalent to `SymbolEntry { name, kind: SymKind::Func, is_global: true, offset: Some(offset), size }`.
+    /// Equivalent to `SymbolEntry { name, kind: SymKind::Func, is_global: true, offset: Some(offset), size, section: None }`.
     #[inline]
     pub fn func(name: impl Into<String>, offset: u64, size: u64) -> Self {
         Self {
@@ -67,13 +70,14 @@ impl SymbolEntry {
             is_global: true,
             offset: Some(offset),
             size,
+            section: None,
         }
     }
 
     /// Construct a data symbol.
     ///
     /// Creates a globally visible data symbol with the given name, offset, and size.
-    /// Equivalent to `SymbolEntry { name, kind: SymKind::Data, is_global: true, offset: Some(offset), size }`.
+    /// Equivalent to `SymbolEntry { name, kind: SymKind::Data, is_global: true, offset: Some(offset), size, section: None }`.
     #[inline]
     pub fn data(name: impl Into<String>, offset: u64, size: u64) -> Self {
         Self {
@@ -82,13 +86,35 @@ impl SymbolEntry {
             is_global: true,
             offset: Some(offset),
             size,
+            section: None,
+        }
+    }
+
+    /// Construct a data symbol with explicit section kind.
+    ///
+    /// Creates a globally visible data symbol with the given name, offset, size, and section.
+    /// Phase 6 m5-003: used for .bss symbols.
+    #[inline]
+    pub fn data_with_section(
+        name: impl Into<String>,
+        offset: u64,
+        size: u64,
+        section: SectionKind,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            kind: SymKind::Data,
+            is_global: true,
+            offset: Some(offset),
+            size,
+            section: Some(section),
         }
     }
 
     /// Construct an undefined external symbol.
     ///
     /// Creates a globally visible undefined symbol (resolved by the linker) with no offset.
-    /// Equivalent to `SymbolEntry { name, kind: SymKind::Undefined, is_global: true, offset: None, size: 0 }`.
+    /// Equivalent to `SymbolEntry { name, kind: SymKind::Undefined, is_global: true, offset: None, size: 0, section: None }`.
     #[inline]
     pub fn undefined(name: impl Into<String>) -> Self {
         Self {
@@ -97,6 +123,7 @@ impl SymbolEntry {
             is_global: true,
             offset: None,
             size: 0,
+            section: None,
         }
     }
 }

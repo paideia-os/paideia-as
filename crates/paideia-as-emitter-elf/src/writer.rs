@@ -116,6 +116,13 @@ impl ElfWriter {
         self.obj.section_id(StandardSection::ReadOnlyData)
     }
 
+    /// Get the `.bss` section ID.
+    ///
+    /// Phase-6-m5-003: Used for symbol bindings to .bss.
+    pub fn bss_section_id(&mut self) -> SectionId {
+        self.obj.section_id(StandardSection::UninitializedData)
+    }
+
     /// Append `bytes` to the `.text` section. Returns the offset at
     /// which the append starts. Phase-1 helper used by the CLI to
     /// land function bodies; later refinements will accept a
@@ -146,14 +153,14 @@ impl ElfWriter {
     /// Allocate space in the `.bss` section with the specified alignment and size.
     /// Returns the offset at which the allocation starts.
     /// Phase 6 m5-002: used for uninitialized mutable data (let mut x : T = uninit).
-    /// Note: bss entries are created with zero-filled placeholder bytes internally.
+    /// Phase 6 m5-003: uses Section::append_bss() which doesn't write file data.
+    /// The object crate correctly marks this as SHT_NOBITS and records the size.
     pub fn add_bss_space(&mut self, size: u64, align: u8) -> u64 {
         let bss_section = self.obj.section_id(StandardSection::UninitializedData);
-        // Allocate space by appending zero bytes. The object crate will handle
-        // this as uninitialized data in the resulting ELF binary.
-        let placeholder = vec![0u8; size as usize];
-        self.obj
-            .append_section_data(bss_section, &placeholder, align as u64)
+        // Use the Section::append_bss() method which allocates space without writing to file.
+        // This ensures .bss is properly marked as SHT_NOBITS with no file payload growth.
+        let section = self.obj.section_mut(bss_section);
+        section.append_bss(size, align as u64)
     }
 
     /// Add a symbol to the symbol table.
@@ -167,6 +174,29 @@ impl ElfWriter {
     /// (e.g., invalid symbol configuration).
     pub fn add_symbol(&mut self, entry: SymbolEntry) -> Result<(), Box<dyn std::error::Error>> {
         let sym_name = entry.name.clone();
+
+        // Determine the section for the symbol.
+        // Phase 6 m5-003: if entry.section is set, use the corresponding section ID.
+        let symbol_section = if let Some(section_kind) = entry.section {
+            match section_kind {
+                paideia_as_ir::SectionKind::Rodata => {
+                    SymbolSection::Section(self.obj.section_id(StandardSection::ReadOnlyData))
+                }
+                paideia_as_ir::SectionKind::Data => {
+                    SymbolSection::Section(self.obj.section_id(StandardSection::Data))
+                }
+                paideia_as_ir::SectionKind::Bss => {
+                    SymbolSection::Section(self.obj.section_id(StandardSection::UninitializedData))
+                }
+            }
+        } else if entry.offset.is_some() {
+            // For defined symbols without explicit section, use Undefined.
+            // This maintains backward compatibility.
+            SymbolSection::Undefined
+        } else {
+            SymbolSection::Undefined
+        };
+
         let sym_id = self.obj.add_symbol(Symbol {
             name: sym_name.clone().into_bytes(),
             value: entry.offset.unwrap_or(0),
@@ -178,14 +208,7 @@ impl ElfWriter {
                 SymbolScope::Compilation
             },
             weak: false,
-            section: if entry.offset.is_some() {
-                // For defined symbols, we would ideally link to the actual section.
-                // For now, we use Undefined and let the linker resolve via absolute addressing.
-                // In a full implementation, the caller would specify which section the symbol belongs to.
-                SymbolSection::Undefined
-            } else {
-                SymbolSection::Undefined
-            },
+            section: symbol_section,
             flags: SymbolFlags::None,
         });
 

@@ -160,6 +160,7 @@ fn elf_writer_handles_relocation_infrastructure() {
         size: 8,
         kind: SymKind::Data,
         is_global: false,
+        section: None,
     });
 
     // Add a relocation

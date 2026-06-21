@@ -609,13 +609,19 @@ fn build_elf_object(
             }
         };
         // Phase-5-m4-003: Create a symbol for the data entry so relocations can reference it
+        // Phase 6 m5-003: include section information for .bss symbols
         let sym_name = format!("data_{}", id.get());
+        let size = match entry.section {
+            paideia_as_ir::SectionKind::Bss => entry.size_hint,
+            _ => entry.bytes.len() as u64,
+        };
         let _ = writer.add_symbol(SymbolEntry {
             name: sym_name,
             offset: Some(data_offset),
-            size: entry.bytes.len() as u64,
+            size,
             kind: SymKind::Data,
             is_global: false,
+            section: Some(entry.section),
         });
     }
 
@@ -654,6 +660,7 @@ fn build_elf_object(
                     is_global: symbol.global,
                     offset: Some(offset as u64),
                     size,
+                    section: None,
                 };
                 let _ = writer.add_symbol(sym_entry);
                 emitted_any_symbol = true;
