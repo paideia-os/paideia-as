@@ -160,7 +160,7 @@ pub fn encode_instruction(
         Mnemonic::Iret => encode_iret_inst(inst, buf),
         Mnemonic::Iretq => encode_iretq_inst(inst, buf),
         Mnemonic::Sysret => encode_sysret_inst(inst, buf),
-        Mnemonic::RepStosq => Err(EncodeError::Unsupported("phase-5 m2-009")),
+        Mnemonic::RepStosq => encode_rep_stosq_inst(inst, buf),
         Mnemonic::FarJmp => Err(EncodeError::Unsupported("phase-5 m2-010")),
     }
 }
@@ -764,6 +764,19 @@ fn encode_sysret_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), En
     Ok(())
 }
 
+fn encode_rep_stosq_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+    // rep stosq expects exactly 0 operands (RAX=value, RCX=count, RDI=destination implicit)
+    if !inst.operands.is_empty() {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::RepStosq,
+            expected: 0,
+            got: inst.operands.len(),
+        });
+    }
+    encode_rep_stosq(buf);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -884,6 +897,28 @@ mod tests {
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
         assert_eq!(instr.mnemonic(), IcedMnem::Movsb);
+    }
+
+    #[test]
+    fn encode_rep_stosq_round_trips() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::RepStosq,
+            operands: smallvec::smallvec![],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Verify byte sequence: F3 48 AB
+        assert_eq!(buf.as_slice(), &[0xF3, 0x48, 0xAB]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Stosq);
     }
 
     #[test]

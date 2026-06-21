@@ -1097,6 +1097,22 @@ pub fn encode_descriptor_table_load(
     }
 }
 
+/// Encode repeat store quadword instruction: `rep stosq` (no operands).
+///
+/// Stores RAX to memory at [RDI], then decrements RCX and repeats until RCX is zero.
+/// Used primarily for .bss section zeroing with RAX=0, RCX=size in quadwords, RDI=base.
+///
+/// # Instructions
+/// - `rep stosq`: `F3 48 AB` (3 bytes: rep prefix, REX.W, stosq opcode)
+///
+/// # Arguments
+/// - `buf`: code buffer to append instruction to
+pub fn encode_rep_stosq(buf: &mut CodeBuffer) {
+    buf.bytes.push(0xF3); // rep prefix
+    buf.bytes.push(0x48); // REX.W for 64-bit operand
+    buf.bytes.push(0xAB); // stosq opcode
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
