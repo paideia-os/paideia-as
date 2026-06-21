@@ -151,6 +151,11 @@ pub enum Operand {
         /// Displacement offset.
         disp: i32,
     },
+    /// RIP-relative memory: [rip + disp32].
+    MemRipRel {
+        /// 32-bit displacement (sign-extended).
+        disp: i32,
+    },
 }
 
 /// x86_64 register identifier.

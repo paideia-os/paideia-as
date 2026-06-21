@@ -161,7 +161,7 @@ pub fn encode_instruction(
         Mnemonic::Iretq => encode_iretq_inst(inst, buf),
         Mnemonic::Sysret => encode_sysret_inst(inst, buf),
         Mnemonic::RepStosq => encode_rep_stosq_inst(inst, buf),
-        Mnemonic::FarJmp => Err(EncodeError::Unsupported("phase-5 m2-010")),
+        Mnemonic::FarJmp => encode_far_jmp_inst(inst, buf),
     }
 }
 
@@ -775,6 +775,38 @@ fn encode_rep_stosq_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(),
     }
     encode_rep_stosq(buf);
     Ok(())
+}
+
+fn encode_far_jmp_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+    // jmp far expects exactly 1 operand: memory (SIB or RIP-relative)
+    if inst.operands.len() != 1 {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::FarJmp,
+            expected: 1,
+            got: inst.operands.len(),
+        });
+    }
+
+    match &inst.operands[0] {
+        Operand::MemSib {
+            base,
+            index: None,
+            scale: Scale::X1,
+            disp,
+        } => {
+            // [base + disp] form
+            encode_far_jmp(buf, Some(reg64_from(*base)?), *disp);
+            Ok(())
+        }
+        Operand::MemRipRel { disp } => {
+            // [rip + disp32] form
+            encode_far_jmp(buf, None, *disp);
+            Ok(())
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::FarJmp,
+        }),
+    }
 }
 
 #[cfg(test)]
@@ -1836,5 +1868,92 @@ mod tests {
         let instr = decoder.decode();
         // Note: in 64-bit decoder, 48 0F 07 is decoded as Sysretq (64-bit form)
         assert_eq!(instr.mnemonic(), IcedMnem::Sysretq);
+    }
+
+    #[test]
+    fn encode_far_jmp_mem_rdi_round_trips() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::FarJmp,
+            operands: smallvec::smallvec![Operand::MemSib {
+                base: RegId(7), // rdi
+                index: None,
+                scale: Scale::X1,
+                disp: 0,
+            }],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expect: 48 FF 2F (3 bytes)
+        // 48 = REX.W
+        // FF = opcode
+        // 2F = ModR/M with mod=00, reg=5, rm=7 (rdi)
+        assert_eq!(buf.as_slice(), &[0x48, 0xFF, 0x2F]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Jmp);
+    }
+
+    #[test]
+    fn encode_far_jmp_mem_rdi_plus_8_round_trips() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::FarJmp,
+            operands: smallvec::smallvec![Operand::MemSib {
+                base: RegId(7), // rdi
+                index: None,
+                scale: Scale::X1,
+                disp: 8,
+            }],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expect: 48 FF 6F 08 (4 bytes)
+        // 48 = REX.W
+        // FF = opcode
+        // 6F = ModR/M with mod=01, reg=5, rm=7 (rdi + disp8)
+        // 08 = disp8
+        assert_eq!(buf.as_slice(), &[0x48, 0xFF, 0x6F, 0x08]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Jmp);
+    }
+
+    #[test]
+    fn encode_far_jmp_mem_rip_relative_round_trips() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::FarJmp,
+            operands: smallvec::smallvec![Operand::MemRipRel { disp: 0x1000 }],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expect: 48 FF 2D 00 10 00 00 (7 bytes)
+        // 48 = REX.W
+        // FF = opcode
+        // 2D = ModR/M with mod=00, reg=5, rm=5 (rip-relative marker)
+        // 00 10 00 00 = 0x1000 in little-endian
+        assert_eq!(buf.as_slice(), &[0x48, 0xFF, 0x2D, 0x00, 0x10, 0x00, 0x00]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Jmp);
     }
 }

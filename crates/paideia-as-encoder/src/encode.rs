@@ -1113,6 +1113,51 @@ pub fn encode_rep_stosq(buf: &mut CodeBuffer) {
     buf.bytes.push(0xAB); // stosq opcode
 }
 
+/// Encode `jmp far [mem]` with SIB or RIP-relative addressing.
+///
+/// Far jump to memory uses `FF /5` with REX.W prefix (`48`).
+/// Instruction: `REX.W FF [ModR/M] [SIB] [disp]`
+///
+/// For SIB form `[base]` with disp:
+/// - disp=0: ModR/M = 00_101_base_id (where base_id is the low 3 bits of base register)
+/// - disp8: ModR/M = 01_101_base_id + disp8
+/// - disp32: ModR/M = 10_101_base_id + disp32_le
+///
+/// For RIP-relative form `[rip + disp32]`:
+/// - ModR/M = 00_101_101 (0x2D) + disp32_le
+pub fn encode_far_jmp(buf: &mut CodeBuffer, base: Option<Reg64>, disp: i32) {
+    let reg_field = 5u8; // /5 for far jmp
+
+    if let Some(base_reg) = base {
+        // SIB form: [base + disp]
+        let base_id = base_reg as u8;
+        let base_b = (base_id >> 3) != 0; // REX.B bit
+
+        buf.bytes.push(rex(true, false, false, base_b)); // REX.W
+        buf.bytes.push(0xFF);
+
+        if disp == 0 {
+            // mod=00: [base]
+            buf.bytes.push((reg_field << 3) | (base_id & 7));
+        } else if (-128..=127).contains(&disp) {
+            // mod=01: [base + disp8]
+            buf.bytes.push(0x40 | (reg_field << 3) | (base_id & 7));
+            buf.bytes.push(disp as u8);
+        } else {
+            // mod=10: [base + disp32]
+            buf.bytes.push(0x80 | (reg_field << 3) | (base_id & 7));
+            buf.bytes.extend(disp.to_le_bytes());
+        }
+    } else {
+        // RIP-relative form: [rip + disp32]
+        // ModR/M.rm = 101 (5) signals RIP-relative in 64-bit mode with mod=00
+        buf.bytes.push(rex_w());
+        buf.bytes.push(0xFF);
+        buf.bytes.push((reg_field << 3) | 5); // ModR/M with rm=5 for RIP-relative
+        buf.bytes.extend(disp.to_le_bytes());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
