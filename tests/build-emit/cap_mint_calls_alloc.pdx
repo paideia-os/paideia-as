@@ -1,0 +1,10 @@
+module CapMintCallsAlloc = structure {
+  let mint : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "smoke test for symbol ref",
+    block: {
+      call cap_alloc
+    }
+  }
+}

@@ -1,5 +1,6 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
+assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -1202,6 +1203,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "Unknown label reference in unsafe block",
               "shortDescription": {
                 "text": "label referenced but not declared; check spelling or add label declaration"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase 6 m4-005: A bare-identifier symbol operand (e.g., `cap_alloc`) was used with a mnemonic that does not support symbol references. In Phase 6, only `call` and `jmp` (both conditional and unconditional) mnemonics support bare-identifier symbols in call position, which resolve to SymbolRef operands with PC-relative 32-bit relocations. Other mnemonics (mov, lea, etc.) require explicit syntax (e.g., `lea rax, [symbol]` for RIP-relative addressing). This restriction will be lifted in Phase 7+ with full symbol-address-of support. Either use call/jmp, or refactor to use supported addressing modes."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1611",
+              "id": "U1611",
+              "name": "SymbolRef operand not supported for mnemonic in Phase 6",
+              "shortDescription": {
+                "text": "bare-identifier symbol in call position is valid only for call/jmp mnemonics"
               }
             },
             {

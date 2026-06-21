@@ -730,3 +730,12 @@ brief = "label referenced but not declared; check spelling or add label declarat
 description = "Phase 6 m4-002: A jump instruction references a label that has not been declared in the current unsafe block. Either declare the label with a `label_name:` statement, or fix the spelling of the label reference. Label resolution is performed at parse time by the walker."
 since = "0.9.0"
 deprecated = false
+
+[diagnostic.U1611]
+severity = "error"
+category = "unsafe"
+title = "SymbolRef operand not supported for mnemonic in Phase 6"
+brief = "bare-identifier symbol in call position is valid only for call/jmp mnemonics"
+description = "Phase 6 m4-005: A bare-identifier symbol operand (e.g., `cap_alloc`) was used with a mnemonic that does not support symbol references. In Phase 6, only `call` and `jmp` (both conditional and unconditional) mnemonics support bare-identifier symbols in call position, which resolve to SymbolRef operands with PC-relative 32-bit relocations. Other mnemonics (mov, lea, etc.) require explicit syntax (e.g., `lea rax, [symbol]` for RIP-relative addressing). This restriction will be lifted in Phase 7+ with full symbol-address-of support. Either use call/jmp, or refactor to use supported addressing modes."
+since = "0.10.0"
+deprecated = false

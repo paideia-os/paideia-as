@@ -166,16 +166,19 @@ pub fn resolve_mnemonic(name: &str) -> Option<Mnemonic> {
 
 /// Parse an operand from an AST node.
 ///
-/// Handles three operand shapes:
+/// Handles multiple operand shapes:
 /// 1. Register operands (Ident nodes representing register names)
 /// 2. Immediate operands (integer literals)
 /// 3. Memory operands (OperandMemoryRef nodes with SIB addressing)
+/// 4. Symbol references (bare identifiers in call/jmp position) — Phase 6 m4-005
 ///
 /// # Arguments
 ///
 /// * `ast` - The AST arena
 /// * `operand_node` - The NodeId of the operand node
 /// * `source_map` - The source map for resolving file content from spans
+/// * `record_layouts` - Record layout table for field offset resolution
+/// * `mnemonic` - The resolved Mnemonic enum to determine if SymbolRef is supported
 ///
 /// # Returns
 ///
@@ -190,12 +193,16 @@ pub fn resolve_mnemonic(name: &str) -> Option<Mnemonic> {
 /// // Memory: [rdi + 8] → Operand::MemSib {
 /// //     base: RegId(7), index: None, scale: Scale::X1, disp: 8
 /// // }
+/// // Symbol (in call): call cap_alloc → Operand::SymbolRef {
+/// //     name: "cap_alloc", addend: 0
+/// // }
 /// ```
 pub fn parse_operand_from_ast(
     ast: &AstArena,
     operand_node: NodeId,
     source_map: &paideia_as_diagnostics::SourceMap,
     record_layouts: &HashMap<RecordTypeId, RecordLayout>,
+    mnemonic: Mnemonic,
 ) -> Result<Operand, OperandError> {
     let node = ast.get(operand_node).ok_or(OperandError::MalformedOperand(
         ast.get(operand_node).map(|n| n.span).unwrap_or_else(|| {
@@ -205,14 +212,39 @@ pub fn parse_operand_from_ast(
 
     match node.kind {
         NodeKind::Ident => {
-            // Register operand: try to parse as register name
-            parse_register_from_ident(ast, operand_node, source_map)
+            // Try to parse as register name first, then fall through to symbol if not a register
+            match parse_register_from_ident(ast, operand_node, source_map) {
+                Ok(op) => Ok(op),
+                Err(_) => {
+                    // Not a register: check if this mnemonic supports symbol references
+                    if supports_symbol_ref(mnemonic) {
+                        // This is a bare identifier symbol reference (Phase 6 m4-005)
+                        parse_symbol_ref_from_ident(ast, operand_node, source_map)
+                    } else {
+                        // Mnemonic doesn't support symbol references: error
+                        Err(OperandError::MalformedOperand(node.span))
+                    }
+                }
+            }
         }
         NodeKind::OperandRegister => {
             // Register operand from parsed instruction: extract the register reference
             match ast.expr_data(operand_node) {
                 Some(ExprData::OperandRegister { reg }) => {
-                    parse_register_from_ident(ast, *reg, source_map)
+                    // Try to parse as register name first, then fall through to symbol if not a register
+                    match parse_register_from_ident(ast, *reg, source_map) {
+                        Ok(op) => Ok(op),
+                        Err(_) => {
+                            // Not a register: check if this mnemonic supports symbol references
+                            if supports_symbol_ref(mnemonic) {
+                                // This is a bare identifier symbol reference (Phase 6 m4-005)
+                                parse_symbol_ref_from_ident(ast, *reg, source_map)
+                            } else {
+                                // Mnemonic doesn't support symbol references: error
+                                Err(OperandError::MalformedOperand(node.span))
+                            }
+                        }
+                    }
                 }
                 _ => Err(OperandError::MalformedOperand(node.span)),
             }
@@ -232,6 +264,40 @@ pub fn parse_operand_from_ast(
         }
         _ => Err(OperandError::MalformedOperand(node.span)),
     }
+}
+
+/// Check if a mnemonic supports bare-identifier symbol references.
+///
+/// Phase 6 m4-005: Only `call` and `jmp` (conditional and unconditional)
+/// mnemonics support symbol references in operand position.
+fn supports_symbol_ref(mnemonic: Mnemonic) -> bool {
+    matches!(mnemonic, Mnemonic::Call | Mnemonic::Jmp | Mnemonic::Jcc(_))
+}
+
+/// Parse a symbol reference from a bare identifier (Phase 6 m4-005).
+///
+/// Returns `Operand::SymbolRef { name, addend: 0 }` for bare-identifier
+/// symbols used in call/jmp position. These are resolved at link time
+/// with PC-relative 32-bit relocations.
+fn parse_symbol_ref_from_ident(
+    ast: &AstArena,
+    ident_node: NodeId,
+    source_map: &paideia_as_diagnostics::SourceMap,
+) -> Result<Operand, OperandError> {
+    let span = ast.get(ident_node).map(|n| n.span).unwrap_or_else(|| {
+        paideia_as_diagnostics::Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 0, 1)
+    });
+
+    // Extract the symbol name from the source
+    let symbol_name = match get_register_name(ast, ident_node, source_map) {
+        Some(name) => name,
+        None => return Err(OperandError::MalformedOperand(span)),
+    };
+
+    Ok(Operand::SymbolRef {
+        name: symbol_name,
+        addend: 0,
+    })
 }
 
 /// Parse a register operand from an Ident node or ExprPath (single-segment).
@@ -739,6 +805,9 @@ pub const U_DUPLICATE_LABEL: u16 = 1609;
 /// Diagnostic code for unknown label reference in unsafe block (U1610).
 pub const U_UNKNOWN_LABEL: u16 = 1610;
 
+/// Diagnostic code for SymbolRef operand not supported for mnemonic (U1611).
+pub const U_SYMBOLREF_NOT_SUPPORTED: u16 = 1611;
+
 /// Helper: create a U-category error code.
 fn u_code(n: u16) -> DiagnosticCode {
     DiagnosticCode::new(Category::U, Severity::Error, n).expect("valid U code")
@@ -959,7 +1028,8 @@ impl UnsafeWalker {
             let mut operand_error = false;
 
             for &operand_id in operand_ids {
-                match parse_operand_from_ast(ast, operand_id, source_map, record_layouts) {
+                match parse_operand_from_ast(ast, operand_id, source_map, record_layouts, mnemonic)
+                {
                     Ok(operand) => {
                         parsed_operands.push(operand);
                     }
@@ -1025,6 +1095,45 @@ impl UnsafeWalker {
                     let diag = Diagnostic::error(u_code(U_UNKNOWN_LABEL))
                         .message(format!("unknown label reference: {}", name))
                         .with_span(stmt_span)
+                        .finish();
+                    let _ = sink.emit(diag.clone());
+                    diags.push(diag);
+                    return;
+                }
+            }
+        }
+
+        // Phase 6 m4-005: Validate SymbolRef operands.
+        // SymbolRef is only supported for call/jmp mnemonics. If a bare-identifier symbol
+        // was parsed as SymbolRef for a different mnemonic, emit U1611.
+        for (idx, operand) in parsed_operands.iter().enumerate() {
+            if let Operand::SymbolRef { name, .. } = operand {
+                if !supports_symbol_ref(mnemonic) {
+                    // U1611: SymbolRef not supported for this mnemonic
+                    let operand_span = if let Some(&operand_id) = operand_ids.get(idx) {
+                        ast.get(operand_id).map(|n| n.span).unwrap_or_else(|| {
+                            paideia_as_diagnostics::Span::new(
+                                paideia_as_diagnostics::FileId::new(1).unwrap(),
+                                0,
+                                1,
+                            )
+                        })
+                    } else {
+                        ast.get(stmt_id).map(|n| n.span).unwrap_or_else(|| {
+                            paideia_as_diagnostics::Span::new(
+                                paideia_as_diagnostics::FileId::new(1).unwrap(),
+                                0,
+                                1,
+                            )
+                        })
+                    };
+                    let diag = Diagnostic::error(u_code(U_SYMBOLREF_NOT_SUPPORTED))
+                        .message(format!(
+                            "SymbolRef operand '{}' not supported for mnemonic {} in Phase 6; \
+                             only call and jmp support symbol references",
+                            name, mnemonic_str
+                        ))
+                        .with_span(operand_span)
                         .finish();
                     let _ = sink.emit(diag.clone());
                     diags.push(diag);
@@ -1600,5 +1709,97 @@ mod tests {
         };
         let op2 = op1.clone();
         assert_eq!(op1, op2);
+    }
+
+    // --- Phase 6 m4-005: Symbol reference operand tests ---
+
+    #[test]
+    fn supports_symbol_ref_for_call() {
+        assert!(supports_symbol_ref(Mnemonic::Call));
+    }
+
+    #[test]
+    fn supports_symbol_ref_for_jmp() {
+        assert!(supports_symbol_ref(Mnemonic::Jmp));
+    }
+
+    #[test]
+    fn supports_symbol_ref_for_jcc() {
+        assert!(supports_symbol_ref(Mnemonic::Jcc(Cond::Eq)));
+        assert!(supports_symbol_ref(Mnemonic::Jcc(Cond::Ne)));
+        assert!(supports_symbol_ref(Mnemonic::Jcc(Cond::Below)));
+    }
+
+    #[test]
+    fn does_not_support_symbol_ref_for_mov() {
+        assert!(!supports_symbol_ref(Mnemonic::Mov));
+    }
+
+    #[test]
+    fn does_not_support_symbol_ref_for_lea() {
+        assert!(!supports_symbol_ref(Mnemonic::Lea));
+    }
+
+    #[test]
+    fn does_not_support_symbol_ref_for_add() {
+        assert!(!supports_symbol_ref(Mnemonic::Add));
+    }
+
+    #[test]
+    fn operand_symbol_ref_constructs() {
+        let op = Operand::SymbolRef {
+            name: "cap_alloc".to_string(),
+            addend: 0,
+        };
+        match op {
+            Operand::SymbolRef { name, addend } => {
+                assert_eq!(name, "cap_alloc");
+                assert_eq!(addend, 0);
+            }
+            _ => panic!("expected SymbolRef variant"),
+        }
+    }
+
+    #[test]
+    fn operand_symbol_ref_with_addend() {
+        let op = Operand::SymbolRef {
+            name: "cap_mint".to_string(),
+            addend: 8,
+        };
+        match op {
+            Operand::SymbolRef { name, addend } => {
+                assert_eq!(name, "cap_mint");
+                assert_eq!(addend, 8);
+            }
+            _ => panic!("expected SymbolRef variant"),
+        }
+    }
+
+    #[test]
+    fn operand_symbol_ref_roundtrips_through_clone() {
+        let op1 = Operand::SymbolRef {
+            name: "symbol_name".to_string(),
+            addend: 16,
+        };
+        let op2 = op1.clone();
+        assert_eq!(op1, op2);
+    }
+
+    #[test]
+    fn operand_symbol_ref_equality() {
+        let op1 = Operand::SymbolRef {
+            name: "symbol".to_string(),
+            addend: 0,
+        };
+        let op2 = Operand::SymbolRef {
+            name: "symbol".to_string(),
+            addend: 0,
+        };
+        let op3 = Operand::SymbolRef {
+            name: "symbol".to_string(),
+            addend: 4,
+        };
+        assert_eq!(op1, op2);
+        assert_ne!(op1, op3);
     }
 }
