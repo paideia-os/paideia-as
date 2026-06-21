@@ -149,7 +149,9 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str) -> ExitCode {
             if let Some(ast_id) = paideia_as_ast::NodeId::new((i + 1) as u32) {
                 if let Some(node) = arena.get(ast_id) {
                     if node.kind == paideia_as_ast::NodeKind::ExprLiteral {
-                        if let Some(paideia_as_ast::ExprData::Literal { lit }) = arena.expr_data(ast_id) {
+                        if let Some(paideia_as_ast::ExprData::Literal { lit }) =
+                            arena.expr_data(ast_id)
+                        {
                             // The 'lit' is a Placeholder node that contains the literal's span
                             if let Some(lit_node) = arena.get(*lit) {
                                 let span = lit_node.span;
@@ -254,7 +256,12 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str) -> ExitCode {
             if let Some(ast_id) = paideia_as_ast::NodeId::new((i + 1) as u32) {
                 if let Some(node) = arena.get(ast_id) {
                     if node.kind == paideia_as_ast::NodeKind::Let {
-                        if let Some(paideia_as_ast::ItemData::Let { name: name_id, value: value_id, .. }) = arena.item_data(ast_id) {
+                        if let Some(paideia_as_ast::ItemData::Let {
+                            name: name_id,
+                            value: value_id,
+                            ..
+                        }) = arena.item_data(ast_id)
+                        {
                             // Get the name string from source content
                             if let Some(name_node) = arena.get(*name_id) {
                                 let span = name_node.span;
@@ -282,11 +289,8 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str) -> ExitCode {
                 // Check if this symbol's ir_node.get() is in name_map (i.e., it's a function symbol for a named binding)
                 if let Some(real_name) = name_map.get(&sym.ir_node.get()) {
                     // Re-insert the symbol with the real name
-                    let updated_sym = paideia_as_ir::Symbol::new(
-                        real_name.clone(),
-                        sym.kind,
-                        sym.ir_node,
-                    );
+                    let updated_sym =
+                        paideia_as_ir::Symbol::new(real_name.clone(), sym.kind, sym.ir_node);
                     lowering.ir.symbols_mut().insert(updated_sym);
                 } else {
                     // Symbol has no real name mapping, keep the original

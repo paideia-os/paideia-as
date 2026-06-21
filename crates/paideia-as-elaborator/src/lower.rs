@@ -125,7 +125,11 @@ pub fn lower_ast_to_ir(ast: &AstArena) -> LoweringResult {
 
         // Debug: print the structure for Lambda nodes
         if ast_node.kind == paideia_as_ast::NodeKind::ExprLambda {
-            eprintln!("[lower_ast_to_ir] Lambda AST node {} -> IR {}", ast_id.get(), ir_id.get());
+            eprintln!(
+                "[lower_ast_to_ir] Lambda AST node {} -> IR {}",
+                ast_id.get(),
+                ir_id.get()
+            );
         }
 
         // Extract children from AST based on node kind/data.

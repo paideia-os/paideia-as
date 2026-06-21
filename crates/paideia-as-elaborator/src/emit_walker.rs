@@ -307,11 +307,24 @@ impl EmitWalker {
                     }
                     // Case 2 & 3: Application `fn (x) -> x + ...` or `fn (x) -> ... + x`
                     IrKind::App => {
-                        eprintln!("[visit_lambda App] Lambda {} body={}", lambda_node_id.get(), body_id.get());
+                        eprintln!(
+                            "[visit_lambda App] Lambda {} body={}",
+                            lambda_node_id.get(),
+                            body_id.get()
+                        );
                         let app_children = arena.children(body_id);
-                        eprintln!("[visit_lambda App] Lambda {} App body={} has {} children", lambda_node_id.get(), body_id.get(), app_children.len());
+                        eprintln!(
+                            "[visit_lambda App] Lambda {} App body={} has {} children",
+                            lambda_node_id.get(),
+                            body_id.get(),
+                            app_children.len()
+                        );
                         if app_children.len() > 0 {
-                            eprintln!("[visit_lambda App] Lambda {} child[0]={}", lambda_node_id.get(), app_children[0].get());
+                            eprintln!(
+                                "[visit_lambda App] Lambda {} child[0]={}",
+                                lambda_node_id.get(),
+                                app_children[0].get()
+                            );
                         }
                         // App has structure: [callee, arg0, arg1, ...]
                         if app_children.len() >= 3 {
@@ -321,14 +334,24 @@ impl EmitWalker {
 
                             // Check if callee is the + builtin.
                             if let Some(callee_node) = arena.get(callee_id) {
-                                eprintln!("[visit_lambda] Lambda {} App callee[{}] kind: {:?}", lambda_node_id.get(), callee_id.get(), callee_node.kind);
+                                eprintln!(
+                                    "[visit_lambda] Lambda {} App callee[{}] kind: {:?}",
+                                    lambda_node_id.get(),
+                                    callee_id.get(),
+                                    callee_node.kind
+                                );
                                 if matches!(callee_node.kind, IrKind::Var | IrKind::Placeholder) {
                                     // We assume this is +; ideally we'd check a builtin registry.
                                     // For now, we inspect the arguments.
                                     if let (Some(arg0_node), Some(arg1_node)) =
                                         (arena.get(arg0_id), arena.get(arg1_id))
                                     {
-                                        eprintln!("[visit_lambda] Lambda {} App args: {:?}, {:?}", lambda_node_id.get(), arg0_node.kind, arg1_node.kind);
+                                        eprintln!(
+                                            "[visit_lambda] Lambda {} App args: {:?}, {:?}",
+                                            lambda_node_id.get(),
+                                            arg0_node.kind,
+                                            arg1_node.kind
+                                        );
                                         match (arg0_node.kind, arg1_node.kind) {
                                             // Case 2: x + x (double) — both args are Var
                                             // Heuristic: For single-param lambdas like |x| x + x, both args are Vars.
@@ -345,12 +368,18 @@ impl EmitWalker {
                                                 if lambda_node_id.get() > 50 {
                                                     // Heuristic: only emit for large lambdas (likely single-param)
                                                     // Record offset before emitting
-                                                    self.state
-                                                        .function_offsets
-                                                        .insert(lambda_node_id.get(), self.state.current_offset);
+                                                    self.state.function_offsets.insert(
+                                                        lambda_node_id.get(),
+                                                        self.state.current_offset,
+                                                    );
                                                     // Mark this lambda as emitted
-                                                    self.state.emitted_lambdas.insert(lambda_node_id.get());
-                                                    eprintln!("[emit_double_lambda] Lambda {}", lambda_node_id.get());
+                                                    self.state
+                                                        .emitted_lambdas
+                                                        .insert(lambda_node_id.get());
+                                                    eprintln!(
+                                                        "[emit_double_lambda] Lambda {}",
+                                                        lambda_node_id.get()
+                                                    );
                                                     self.emit_double_lambda(lambda_node_id);
                                                 }
                                             }
@@ -360,12 +389,19 @@ impl EmitWalker {
                                                     arena.literal_values().get(arg1_id)
                                                 {
                                                     // Record offset before emitting
-                                                    self.state
-                                                        .function_offsets
-                                                        .insert(lambda_node_id.get(), self.state.current_offset);
+                                                    self.state.function_offsets.insert(
+                                                        lambda_node_id.get(),
+                                                        self.state.current_offset,
+                                                    );
                                                     // Mark this lambda as emitted
-                                                    self.state.emitted_lambdas.insert(lambda_node_id.get());
-                                                    eprintln!("[emit_add_imm_lambda] Lambda {} emit_add_imm with value {}", lambda_node_id.get(), value);
+                                                    self.state
+                                                        .emitted_lambdas
+                                                        .insert(lambda_node_id.get());
+                                                    eprintln!(
+                                                        "[emit_add_imm_lambda] Lambda {} emit_add_imm with value {}",
+                                                        lambda_node_id.get(),
+                                                        value
+                                                    );
                                                     self.emit_add_imm_lambda(lambda_node_id, value);
                                                 }
                                             }
@@ -375,11 +411,14 @@ impl EmitWalker {
                                                     arena.literal_values().get(arg0_id)
                                                 {
                                                     // Record offset before emitting
-                                                    self.state
-                                                        .function_offsets
-                                                        .insert(lambda_node_id.get(), self.state.current_offset);
+                                                    self.state.function_offsets.insert(
+                                                        lambda_node_id.get(),
+                                                        self.state.current_offset,
+                                                    );
                                                     // Mark this lambda as emitted
-                                                    self.state.emitted_lambdas.insert(lambda_node_id.get());
+                                                    self.state
+                                                        .emitted_lambdas
+                                                        .insert(lambda_node_id.get());
                                                     self.emit_add_imm_lambda(lambda_node_id, value);
                                                 }
                                             }

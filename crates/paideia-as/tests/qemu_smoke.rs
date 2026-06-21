@@ -12,14 +12,24 @@ use std::process::Command;
 #[test]
 fn qemu_smoke_uart_writes_x() {
     // Gate on QEMU availability.
-    if Command::new("which").arg("qemu-system-x86_64").output()
-        .ok().map(|o| !o.stdout.is_empty()).unwrap_or(false) == false {
+    if Command::new("which")
+        .arg("qemu-system-x86_64")
+        .output()
+        .ok()
+        .map(|o| !o.stdout.is_empty())
+        .unwrap_or(false)
+        == false
+    {
         println!("qemu not found; skipping");
         return;
     }
 
     let repo_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent().unwrap().parent().unwrap().to_path_buf();
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf();
     let smoke_sh = repo_root.join("tools/run-smoke.sh");
     let pdx = repo_root.join("tests/build-emit/uart_smoke.pdx");
 
@@ -50,10 +60,13 @@ fn qemu_smoke_uart_writes_x() {
     } else if status == 1 {
         // Linker succeeded but no UART output found (expected for stub fixture).
         // Infrastructure is working; full test will pass once compiler emits _start.
-        println!("qemu smoke infrastructure ok; no UART output (pending full compiler implementation)");
+        println!(
+            "qemu smoke infrastructure ok; no UART output (pending full compiler implementation)"
+        );
     } else {
         assert_eq!(
-            status, 0,
+            status,
+            0,
             "qemu smoke failed with unexpected status {status}\nstdout: {}\nstderr: {}",
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr),
