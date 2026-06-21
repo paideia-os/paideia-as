@@ -1,0 +1,11 @@
+[package]
+name = "paideia-self-hosting-fixture"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dev-dependencies]
+paideia-stdlib = { path = "../../crates/paideia-stdlib" }

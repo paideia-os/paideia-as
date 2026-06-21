@@ -48,6 +48,7 @@ members = [
     "tests/stdlib-smoke",
     "tests/uefi-smoke",
     "tests/cross-build",
+    "tests/self-hosting",
     "tools/ddc",
     "tools/pax-introspect",
 ]
