@@ -142,7 +142,8 @@ pub fn validate_file_module_mapping(
 
 /// Convert a file stem to PascalCase module name.
 ///
-/// Splits on `_` or `-`, capitalizes each segment, and concatenates.
+/// Splits on `_` or `-`, skips numeric-only segments (for e.g. `01_hello` → `Hello`),
+/// capitalizes each remaining segment, and concatenates.
 ///
 /// # Examples
 ///
@@ -150,6 +151,8 @@ pub fn validate_file_module_mapping(
 /// - `my_module` → `MyModule`
 /// - `kebab-case` → `KebabCase`
 /// - `snake_AND_kebab` → `SnakeAndKebab` (note: AND is lowercased then capitalized)
+/// - `01_hello` → `Hello` (numeric prefix skipped)
+/// - `02_functions` → `Functions` (numeric prefix skipped)
 #[must_use]
 pub fn expected_module_name(stem: &str) -> String {
     if stem.is_empty() {
@@ -160,7 +163,7 @@ pub fn expected_module_name(stem: &str) -> String {
 
     segments
         .into_iter()
-        .filter(|s| !s.is_empty())
+        .filter(|s| !s.is_empty() && !s.chars().all(|c| c.is_ascii_digit()))
         .map(|segment| {
             let mut chars = segment.chars();
             match chars.next() {
@@ -377,5 +380,16 @@ mod tests {
 
         assert!(!result);
         assert!(diags.iter().any(|d| d.code().number() == M_NO_TOP_MODULE));
+    }
+
+    /// Test 8: Numeric prefixes are skipped in PascalCase transformation.
+    #[test]
+    fn pascal_case_transform_skips_numeric_prefixes() {
+        assert_eq!(expected_module_name("01_hello"), "Hello");
+        assert_eq!(expected_module_name("02_functions"), "Functions");
+        assert_eq!(expected_module_name("03_records"), "Records");
+        assert_eq!(expected_module_name("10_capabilities"), "Capabilities");
+        assert_eq!(expected_module_name("01"), ""); // All numeric → empty
+        assert_eq!(expected_module_name("123_456_abc"), "Abc"); // Numeric segments skipped
     }
 }

@@ -106,7 +106,7 @@ pub fn lower_ast_to_ir(ast: &AstArena) -> LoweringResult {
     let mut ir = IrArena::with_capacity(ast.len());
     let mut ast_to_ir = HashMap::with_capacity(ast.len());
 
-    // Walk the AST arena in NodeId order.
+    // First pass: allocate all IR nodes (without children).
     for i in 0..ast.len() {
         // NodeId and IrNodeId both index from 1.
         let ast_id = NodeId::new((i + 1) as u32).expect("non-zero node id");
@@ -114,6 +114,71 @@ pub fn lower_ast_to_ir(ast: &AstArena) -> LoweringResult {
         let ir_kind = map_node_kind(node.kind);
         let ir_id = ir.alloc(ir_kind, node.span);
         ast_to_ir.insert(ast_id, ir_id);
+    }
+
+    // Second pass: transfer structure (children) from AST to IR.
+    // This ensures that IR nodes have the same parent-child relationships as the AST.
+    for i in 0..ast.len() {
+        let ast_id = NodeId::new((i + 1) as u32).expect("non-zero node id");
+        let ir_id = ast_to_ir[&ast_id];
+        let ast_node = &ast[ast_id];
+
+        // Debug: print the structure for Lambda nodes
+        if ast_node.kind == paideia_as_ast::NodeKind::ExprLambda {
+            eprintln!("[lower_ast_to_ir] Lambda AST node {} -> IR {}", ast_id.get(), ir_id.get());
+        }
+
+        // Extract children from AST based on node kind/data.
+        let ast_children: Vec<NodeId> = if let Some(expr_data) = ast.expr_data(ast_id) {
+            use paideia_as_ast::ExprData;
+            match expr_data {
+                ExprData::Lambda { body, .. } => {
+                    // Lambda: body is a single child node
+                    vec![*body]
+                }
+                ExprData::Call { callee, args } => {
+                    // Call (App): callee + all arguments
+                    let mut children = vec![*callee];
+                    children.extend(args.iter().copied());
+                    children
+                }
+                ExprData::Infix { op, lhs, rhs } => {
+                    // Infix: op (usually a Var), lhs, rhs  (becomes App)
+                    // App structure: [callee (the +), arg0 (lhs), arg1 (rhs)]
+                    vec![*op, *lhs, *rhs]
+                }
+                ExprData::Prefix { op, expr } => {
+                    // Prefix: op (unary operator), expr (argument)
+                    // App structure: [callee (the op), arg0 (expr)]
+                    vec![*op, *expr]
+                }
+                ExprData::Postfix { expr, op } => {
+                    // Postfix: expr (argument), op (postfix operator)
+                    // App structure: [callee (the op), arg0 (expr)]
+                    vec![*op, *expr]
+                }
+                ExprData::Literal { .. } => {
+                    // Literal: no children
+                    Vec::new()
+                }
+                // TODO: Add Path, Ident, and other expression types as needed
+                // _ => Vec::new(),
+                _ => Vec::new(),
+            }
+        } else {
+            Vec::new()
+        };
+
+        // Transfer children to IR using children_mut.
+        if !ast_children.is_empty() {
+            if let Some(ir_children) = ir.children_mut(ir_id) {
+                for ast_child_id in ast_children {
+                    if let Some(ir_child_id) = ast_to_ir.get(&ast_child_id) {
+                        ir_children.push(*ir_child_id);
+                    }
+                }
+            }
+        }
     }
 
     LoweringResult { ir, ast_to_ir }

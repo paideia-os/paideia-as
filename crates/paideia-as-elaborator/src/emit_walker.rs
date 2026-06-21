@@ -152,6 +152,11 @@ impl EmitWalker {
                 }
             }
         }
+
+        // Transfer accumulated instructions from state to arena's instruction side-table.
+        for (node_id, inst) in self.state.instructions.entries().iter() {
+            arena.instructions_mut().insert(*node_id, inst.clone());
+        }
     }
 
     /// Populate the DataSideTable for module-level data bindings.
@@ -278,11 +283,17 @@ impl EmitWalker {
                 match body_node.kind {
                     // Case 1: Identity function `fn (x) -> x`
                     IrKind::Var => {
+                        eprintln!("[emit_identity_lambda] Lambda {}", lambda_node_id.get());
                         self.emit_identity_lambda(lambda_node_id);
                     }
                     // Case 2 & 3: Application `fn (x) -> x + ...` or `fn (x) -> ... + x`
                     IrKind::App => {
+                        eprintln!("[visit_lambda App] Lambda {} body={}", lambda_node_id.get(), body_id.get());
                         let app_children = arena.children(body_id);
+                        eprintln!("[visit_lambda App] Lambda {} App body={} has {} children", lambda_node_id.get(), body_id.get(), app_children.len());
+                        if app_children.len() > 0 {
+                            eprintln!("[visit_lambda App] Lambda {} child[0]={}", lambda_node_id.get(), app_children[0].get());
+                        }
                         // App has structure: [callee, arg0, arg1, ...]
                         if app_children.len() >= 3 {
                             let callee_id = app_children[0];
@@ -291,15 +302,18 @@ impl EmitWalker {
 
                             // Check if callee is the + builtin.
                             if let Some(callee_node) = arena.get(callee_id) {
+                                eprintln!("[visit_lambda] Lambda {} App callee[{}] kind: {:?}", lambda_node_id.get(), callee_id.get(), callee_node.kind);
                                 if callee_node.kind == IrKind::Var {
                                     // We assume this is +; ideally we'd check a builtin registry.
                                     // For now, we inspect the arguments.
                                     if let (Some(arg0_node), Some(arg1_node)) =
                                         (arena.get(arg0_id), arena.get(arg1_id))
                                     {
+                                        eprintln!("[visit_lambda] Lambda {} App args: {:?}, {:?}", lambda_node_id.get(), arg0_node.kind, arg1_node.kind);
                                         match (arg0_node.kind, arg1_node.kind) {
                                             // Case 2: x + x (double)
                                             (IrKind::Var, IrKind::Var) => {
+                                                eprintln!("[emit_double_lambda] Lambda {}", lambda_node_id.get());
                                                 self.emit_double_lambda(lambda_node_id);
                                             }
                                             // Case 3: x + literal
@@ -307,6 +321,7 @@ impl EmitWalker {
                                                 if let Some(value) =
                                                     arena.literal_values().get(arg1_id)
                                                 {
+                                                    eprintln!("[emit_add_imm_lambda] Lambda {} emit_add_imm with value {}", lambda_node_id.get(), value);
                                                     self.emit_add_imm_lambda(lambda_node_id, value);
                                                 }
                                             }
