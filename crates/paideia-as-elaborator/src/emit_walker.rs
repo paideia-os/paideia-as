@@ -29,6 +29,11 @@ pub struct EmitPassState {
     /// IrNodeId of the lambda/function -> first instruction's IrNodeId.
     /// Allows m6 end-to-end smoke to verify byte offsets.
     pub function_offsets: HashMap<u32, u32>,
+
+    /// IrNodeIds of IrKind::Unsafe nodes encountered during the walk.
+    /// m3 UnsafeWalker drains this via take_pending_unsafe() and lowers
+    /// the block contents.
+    pub pending_unsafe_blocks: Vec<u32>,
 }
 
 /// EmitWalker — drives IR traversal and instruction emission.
@@ -39,6 +44,13 @@ pub struct EmitPassState {
 pub struct EmitWalker {
     state: EmitPassState,
     diagnostics: Vec<String>,
+}
+
+impl EmitPassState {
+    /// Drain and return the pending unsafe blocks.
+    pub fn take_pending_unsafe(&mut self) -> Vec<u32> {
+        std::mem::take(&mut self.pending_unsafe_blocks)
+    }
 }
 
 impl EmitWalker {
@@ -73,8 +85,9 @@ impl EmitWalker {
     ///
     /// m1-002: processes Let → Literal bindings, emitting Mov instructions.
     /// m1-003: processes Lambda bodies, emitting Mov/Lea/Ret for simple cases.
+    /// m1-004: records IrKind::Unsafe nodes for later processing by UnsafeWalker (m3).
     pub fn walk(&mut self, arena: &IrArena) {
-        // Iterate over all nodes, looking for Let and Lambda nodes.
+        // Iterate over all nodes, looking for Let, Lambda, and Unsafe nodes.
         for i in 1..=arena.len() as u32 {
             if let Some(node_id) = IrNodeId::new(i) {
                 if let Some(node) = arena.get(node_id) {
@@ -96,6 +109,11 @@ impl EmitWalker {
                         IrKind::Lambda => {
                             // Lambda lowering: emit Mov/Lea/Ret for simple cases.
                             self.visit_lambda(node_id, arena);
+                        }
+                        IrKind::Unsafe => {
+                            // Record unsafe node for later processing by UnsafeWalker (m3).
+                            // We do not inspect block contents here.
+                            self.state.pending_unsafe_blocks.push(node_id.get());
                         }
                         _ => {}
                     }
@@ -193,14 +211,16 @@ impl EmitWalker {
                                             }
                                             // Case 3: x + literal
                                             (IrKind::Var, IrKind::Literal) => {
-                                                if let Some(value) = arena.literal_values().get(arg1_id)
+                                                if let Some(value) =
+                                                    arena.literal_values().get(arg1_id)
                                                 {
                                                     self.emit_add_imm_lambda(lambda_node_id, value);
                                                 }
                                             }
                                             // Case 3 (reversed): literal + x
                                             (IrKind::Literal, IrKind::Var) => {
-                                                if let Some(value) = arena.literal_values().get(arg0_id)
+                                                if let Some(value) =
+                                                    arena.literal_values().get(arg0_id)
                                                 {
                                                     self.emit_add_imm_lambda(lambda_node_id, value);
                                                 }
@@ -558,5 +578,63 @@ mod tests {
                 .function_offsets
                 .contains_key(&lambda_id.get())
         );
+    }
+
+    // ── Unsafe block recording tests (m1-004) ──────────────────────────────────
+
+    #[test]
+    fn emit_walker_unsafe_node_recorded_in_pending() {
+        let mut arena = IrArena::new();
+
+        // Allocate a single Unsafe node with an empty body (no children).
+        let unsafe_id = arena.alloc(IrKind::Unsafe, span());
+
+        // Walk the arena.
+        let mut walker = EmitWalker::new();
+        walker.walk(&arena);
+
+        // Verify the unsafe node was recorded in pending_unsafe_blocks.
+        assert_eq!(walker.state().pending_unsafe_blocks.len(), 1);
+        assert_eq!(walker.state().pending_unsafe_blocks[0], unsafe_id.get());
+    }
+
+    #[test]
+    fn emit_walker_two_unsafe_nodes_recorded_in_order() {
+        let mut arena = IrArena::new();
+
+        // Allocate two Unsafe nodes.
+        let unsafe_id_1 = arena.alloc(IrKind::Unsafe, span());
+        let unsafe_id_2 = arena.alloc(IrKind::Unsafe, span());
+
+        // Walk the arena.
+        let mut walker = EmitWalker::new();
+        walker.walk(&arena);
+
+        // Verify both unsafe nodes were recorded in order.
+        assert_eq!(walker.state().pending_unsafe_blocks.len(), 2);
+        assert_eq!(walker.state().pending_unsafe_blocks[0], unsafe_id_1.get());
+        assert_eq!(walker.state().pending_unsafe_blocks[1], unsafe_id_2.get());
+    }
+
+    #[test]
+    fn emit_pass_state_take_pending_drains() {
+        let mut state = EmitPassState::default();
+
+        // Add some pending unsafe blocks.
+        state.pending_unsafe_blocks.push(1);
+        state.pending_unsafe_blocks.push(2);
+        state.pending_unsafe_blocks.push(3);
+
+        // Take the pending unsafe blocks.
+        let taken = state.take_pending_unsafe();
+
+        // Verify the taken vector has the expected contents.
+        assert_eq!(taken.len(), 3);
+        assert_eq!(taken[0], 1);
+        assert_eq!(taken[1], 2);
+        assert_eq!(taken[2], 3);
+
+        // Verify the state's pending list is now empty.
+        assert!(state.pending_unsafe_blocks.is_empty());
     }
 }
