@@ -1,6 +1,5 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
-assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -839,6 +838,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "RecordCons must be bound by construct_into(...) in Phase 6",
               "shortDescription": {
                 "text": "unsupported RecordCons shape in Phase 6 m3-004"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase 7 m1-001: both branches of an if-then-else expression must have the same type. The then branch has type T1 but the else branch has type T2. If you meant to discard the result, wrap in an action block { ... }; if you meant to use one branch's type, add an explicit type annotation or restructure the expression."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0519",
+              "id": "T0519",
+              "name": "If-expression branches have mismatched types",
+              "shortDescription": {
+                "text": "then and else branches of if-expression have incompatible types"
               }
             },
             {
