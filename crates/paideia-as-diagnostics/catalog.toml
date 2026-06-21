@@ -649,3 +649,12 @@ brief = "operand parsing failed; check operand syntax and memory-addressing mode
 description = "Phase 5 m3-004: UnsafeWalker encountered an operand parsing error while elaborating a StmtInstruction inside an `unsafe { block: { ... } }`. This indicates a syntax error in the operand expression: invalid register name, malformed memory reference (e.g., '[rdi +]' with missing operand), type mismatch, or other shape error returned by m3-002's operand parser. The instruction is skipped; check the operand against the x86_64 addressing-mode rules in design/cpu/unsafe-blocks.md."
 since = "0.5.0"
 deprecated = false
+
+[diagnostic.U1607]
+severity = "error"
+category = "unsafe"
+title = "Unexpected operands for zero-arity instruction"
+brief = "the instruction takes no operands; operands present in source are ignored"
+description = "Phase 6 m1-005: cli, sti, hlt, nop, swapgs, cpuid, wrmsr, rdmsr, iret, iretq, sysret, rep_stosq take no operands. Source with operands for these mnemonics emits U1607 and proceeds with operands ignored (recovery posture for iteration)."
+since = "0.6.0"
+deprecated = false

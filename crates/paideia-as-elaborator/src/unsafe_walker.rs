@@ -601,6 +601,9 @@ pub const U_UNKNOWN_MNEMONIC: u16 = 1605;
 /// Diagnostic code for malformed operand (U1606).
 pub const U_MALFORMED_OPERAND: u16 = 1606;
 
+/// Diagnostic code for unexpected operands on zero-arity instruction (U1607).
+pub const U_UNEXPECTED_OPERANDS: u16 = 1607;
+
 /// Helper: create a U-category error code.
 fn u_code(n: u16) -> DiagnosticCode {
     DiagnosticCode::new(Category::U, Severity::Error, n).expect("valid U code")
@@ -730,43 +733,75 @@ impl UnsafeWalker {
             }
         };
 
-        // Parse all operands.
+        // Phase 6 m1-005: Check if this is a zero-arity instruction with operands.
+        // If mnemonic.arity() == 0 and operand_ids is non-empty, emit U1607 and proceed with empty operands.
         let mut parsed_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        let mut operand_error = false;
 
-        for &operand_id in operand_ids {
-            match parse_operand_from_ast(ast, operand_id, source_map) {
-                Ok(operand) => {
-                    parsed_operands.push(operand);
-                }
-                Err(OperandError::UnknownRegister(_name, span)) => {
-                    // U1606: Malformed operand (register name not recognized)
-                    let diag = Diagnostic::error(u_code(U_MALFORMED_OPERAND))
-                        .message("malformed operand in unsafe block: unknown register".to_string())
-                        .with_span(span)
-                        .finish();
-                    let _ = sink.emit(diag.clone());
-                    diags.push(diag);
-                    operand_error = true;
-                    break;
-                }
-                Err(OperandError::MalformedOperand(span)) => {
-                    // U1606: Malformed operand (shape error)
-                    let diag = Diagnostic::error(u_code(U_MALFORMED_OPERAND))
-                        .message("malformed operand in unsafe block".to_string())
-                        .with_span(span)
-                        .finish();
-                    let _ = sink.emit(diag.clone());
-                    diags.push(diag);
-                    operand_error = true;
-                    break;
+        let expected_arity = mnemonic.arity();
+        if expected_arity == 0 && !operand_ids.is_empty() {
+            // Emit U1607 with span of the first operand
+            if let Some(&first_operand_id) = operand_ids.first() {
+                let operand_span = ast
+                    .get(first_operand_id)
+                    .map(|n| n.span)
+                    .unwrap_or_else(|| {
+                        paideia_as_diagnostics::Span::new(
+                            paideia_as_diagnostics::FileId::new(1).unwrap(),
+                            0,
+                            1,
+                        )
+                    });
+                let diag = Diagnostic::error(u_code(U_UNEXPECTED_OPERANDS))
+                    .message(format!(
+                        "unexpected operands for zero-arity instruction: {}",
+                        mnemonic_str
+                    ))
+                    .with_span(operand_span)
+                    .finish();
+                let _ = sink.emit(diag.clone());
+                diags.push(diag);
+            }
+            // Continue with empty operands (recovery posture)
+        } else {
+            // Parse all operands normally.
+            let mut operand_error = false;
+
+            for &operand_id in operand_ids {
+                match parse_operand_from_ast(ast, operand_id, source_map) {
+                    Ok(operand) => {
+                        parsed_operands.push(operand);
+                    }
+                    Err(OperandError::UnknownRegister(_name, span)) => {
+                        // U1606: Malformed operand (register name not recognized)
+                        let diag = Diagnostic::error(u_code(U_MALFORMED_OPERAND))
+                            .message(
+                                "malformed operand in unsafe block: unknown register".to_string(),
+                            )
+                            .with_span(span)
+                            .finish();
+                        let _ = sink.emit(diag.clone());
+                        diags.push(diag);
+                        operand_error = true;
+                        break;
+                    }
+                    Err(OperandError::MalformedOperand(span)) => {
+                        // U1606: Malformed operand (shape error)
+                        let diag = Diagnostic::error(u_code(U_MALFORMED_OPERAND))
+                            .message("malformed operand in unsafe block".to_string())
+                            .with_span(span)
+                            .finish();
+                        let _ = sink.emit(diag.clone());
+                        diags.push(diag);
+                        operand_error = true;
+                        break;
+                    }
                 }
             }
-        }
 
-        // If any operand parsing failed, skip this instruction.
-        if operand_error {
-            return;
+            // If any operand parsing failed, skip this instruction.
+            if operand_error {
+                return;
+            }
         }
 
         // Create the Instruction and insert it into the arena.

@@ -213,6 +213,50 @@ impl Scale {
     }
 }
 
+impl Mnemonic {
+    /// Return the expected operand count (arity) for this mnemonic.
+    ///
+    /// Zero-arity mnemonics (cli, sti, hlt, nop, swapgs, cpuid, wrmsr, rdmsr,
+    /// iret, iretq, sysret, rep_stosq) take no operands. UnsafeWalker uses this
+    /// to skip operand-parsing and emit U1607 if the source has operands.
+    #[must_use]
+    pub fn arity(self) -> u8 {
+        match self {
+            // Zero-arity instructions (Phase 6 m1-005)
+            Mnemonic::Cli
+            | Mnemonic::Sti
+            | Mnemonic::Hlt
+            | Mnemonic::Nop
+            | Mnemonic::Swapgs
+            | Mnemonic::Cpuid
+            | Mnemonic::Wrmsr
+            | Mnemonic::Rdmsr
+            | Mnemonic::Iret
+            | Mnemonic::Iretq
+            | Mnemonic::Sysret
+            | Mnemonic::RepStosq => 0,
+
+            // One-operand instructions
+            Mnemonic::Call
+            | Mnemonic::Ret
+            | Mnemonic::Jmp
+            | Mnemonic::Jcc(_)
+            | Mnemonic::RepMovsb
+            | Mnemonic::Lgdt
+            | Mnemonic::Lidt
+            | Mnemonic::MovCr { .. }
+            | Mnemonic::MovDr { .. }
+            | Mnemonic::In { .. }
+            | Mnemonic::Out { .. }
+            | Mnemonic::Int
+            | Mnemonic::FarJmp => 1,
+
+            // Two-operand instructions
+            Mnemonic::Mov | Mnemonic::Add | Mnemonic::Sub | Mnemonic::Cmp | Mnemonic::Lea => 2,
+        }
+    }
+}
+
 /// Encoding hint that the encoder may consult.
 ///
 /// Phase-3-m2-001 minimum: opcode + operand-size override. Future

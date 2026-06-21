@@ -8,6 +8,9 @@ use paideia_as_elaborator::unsafe_walker::UnsafeWalker;
 use paideia_as_ir::IrArena;
 use std::path::PathBuf;
 
+// Phase 6 m1-005 tests: zero-arity mnemonics
+mod unsafe_walker;
+
 /// Helper to create a test span.
 fn test_span() -> Span {
     Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 0, 1)
