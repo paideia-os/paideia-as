@@ -1,6 +1,11 @@
 //! Symbol table entries for paideia-as ELF emission.
 
 use object::SymbolKind;
+use object::write::SymbolId;
+
+/// Type alias for a symbol index in the ELF symbol table.
+/// Represents the handle returned by the object crate when adding a symbol.
+pub type SymbolIndex = SymbolId;
 
 /// Symbol table entry kinds paideia-as emits per `custom-assembler.md` §12.1.
 ///

@@ -1,0 +1,13 @@
+; Test fixture for cross-file relocation: callee.pdx
+; Defines the gdt_load function that is called from caller.pdx
+
+.section .text
+
+; Definition of gdt_load function
+.global gdt_load
+gdt_load:
+    push rbp
+    mov rbp, rsp
+    ; Just a simple return for testing
+    pop rbp
+    ret

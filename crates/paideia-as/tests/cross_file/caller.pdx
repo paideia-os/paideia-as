@@ -1,0 +1,13 @@
+; Test fixture for cross-file relocation: caller.pdx
+; Calls an undefined function gdt_load that will be defined in another object file.
+
+.section .text
+
+; Entry point that calls an undefined external function
+.global main
+main:
+    push rbp
+    mov rbp, rsp
+    call gdt_load         ; This will generate a relocation to undefined symbol gdt_load
+    pop rbp
+    ret

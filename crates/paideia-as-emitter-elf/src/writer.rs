@@ -3,7 +3,7 @@
 use crate::relocs::RelocEntry;
 use crate::relocs::RelocKind;
 use crate::sections::PAIDEIA_SECTIONS;
-use crate::symtab::SymbolEntry;
+use crate::symtab::{SymbolEntry, SymbolIndex};
 use object::{
     Architecture, BinaryFormat, Endianness, RelocationEncoding, RelocationFlags, RelocationKind,
     SectionKind, SymbolScope,
@@ -180,10 +180,52 @@ impl ElfWriter {
         Ok(())
     }
 
+    /// Add an undefined symbol to the symbol table if not already present.
+    ///
+    /// When emitting relocation entries, if a target symbol is not found in the symbol table,
+    /// this method is called to add an undefined external reference. The symbol will be
+    /// marked as globally visible with type NOTYPE (unknown kind), and the linker will
+    /// resolve the actual definition from other object files.
+    ///
+    /// Returns the symbol index (`SymbolIndex`/`SymbolId`) for use in relocation entries.
+    /// If the symbol already exists in the table, returns the existing symbol's ID.
+    ///
+    /// # Example
+    ///
+    /// When processing a relocation to `gdt_load` that is not defined in the current
+    /// object file, this method creates an undefined symbol entry so the relocation
+    /// can reference it. The linker then resolves the actual address when combining
+    /// with other object files.
+    pub fn add_undefined_symbol(&mut self, name: &str) -> SymbolIndex {
+        // Check if symbol already exists.
+        if let Some((_, existing_id)) = self.symbols.get(name) {
+            return *existing_id;
+        }
+
+        // Create an undefined symbol entry.
+        let entry = SymbolEntry::undefined(name);
+        let sym_id = self.obj.add_symbol(Symbol {
+            name: name.as_bytes().to_vec(),
+            value: 0,
+            size: 0,
+            kind: entry.kind.to_object_kind(),
+            scope: SymbolScope::Dynamic,
+            weak: false,
+            section: SymbolSection::Undefined,
+            flags: SymbolFlags::None,
+        });
+
+        // Cache the symbol for future lookups.
+        self.symbols.insert(name.to_string(), (entry, sym_id));
+
+        sym_id
+    }
+
     /// Add a relocation to a section.
     ///
-    /// Registers a relocation request for the given section. The target symbol
-    /// must already have been added via [`add_symbol`](Self::add_symbol).
+    /// Registers a relocation request for the given section. If the target symbol
+    /// is not found in the symbol table, it is automatically added as an undefined
+    /// external reference via [`add_undefined_symbol`](Self::add_undefined_symbol).
     ///
     /// Maps paideia-as relocation kinds to `object` crate kinds:
     /// - [`RelocKind::PC32`] → [`RelocationKind::Relative`] (32-bit PC-relative)
@@ -191,21 +233,19 @@ impl ElfWriter {
     ///
     /// # Errors
     ///
-    /// Returns an error if the target symbol is not found in the symbol table,
-    /// or if the underlying `object` crate operation fails.
+    /// Returns an error if the underlying `object` crate operation fails.
     pub fn add_relocation(
         &mut self,
         section: SectionId,
         entry: RelocEntry,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Look up the target symbol in our symbol table.
-        let sym_id = self
-            .symbols
-            .get(&entry.target)
-            .map(|(_, id)| *id)
-            .ok_or_else(|| -> Box<dyn std::error::Error> {
-                format!("symbol '{}' not found in symbol table", entry.target).into()
-            })?;
+        // If not found, add it as an undefined symbol.
+        let sym_id = if let Some((_, id)) = self.symbols.get(&entry.target) {
+            *id
+        } else {
+            self.add_undefined_symbol(&entry.target)
+        };
 
         let flags = match entry.kind {
             RelocKind::PC32 => RelocationFlags::Generic {
@@ -446,8 +486,9 @@ mod tests {
     }
 
     #[test]
-    fn writer_rejects_relocation_to_unknown_symbol() {
+    fn writer_add_relocation_to_unknown_symbol_creates_undefined() {
         use crate::relocs::RelocEntry;
+        use object::ObjectSymbol;
 
         let mut writer = ElfWriter::new(Arch::X86_64, Kind::Relocatable);
 
@@ -459,13 +500,31 @@ mod tests {
             .map(|(_, id)| *id)
             .expect("should have .text section");
 
-        // Try to add a relocation to a symbol that was never added.
-        let reloc = RelocEntry::call(5, "unknown_symbol");
+        // Add a relocation to a symbol that was never explicitly added.
+        // This should now succeed by creating an undefined symbol.
+        let reloc = RelocEntry::call(5, "external_fn");
         let result = writer.add_relocation(text_section, reloc);
 
         assert!(
-            result.is_err(),
-            "adding a relocation to an unknown symbol should fail"
+            result.is_ok(),
+            "adding a relocation to an unknown symbol should create an undefined symbol"
+        );
+
+        // Finalize and verify the output is parseable ELF.
+        let bytes = writer
+            .finalize()
+            .expect("finalize should succeed after adding a relocation to undefined symbol");
+        let elf = object::read::elf::ElfFile64::<object::Endianness>::parse(bytes.as_slice())
+            .expect("finalized bytes should parse as valid ELF64");
+
+        // Verify the undefined symbol exists in the symbol table.
+        let symbols: Vec<_> = elf.symbols().collect();
+        let found_undefined = symbols
+            .iter()
+            .any(|sym| sym.name().unwrap_or("") == "external_fn" && sym.is_undefined());
+        assert!(
+            found_undefined,
+            "ELF should contain undefined symbol 'external_fn'"
         );
     }
 
@@ -549,5 +608,64 @@ mod tests {
         let offset2 = writer.add_rodata_bytes(&bytes2, 4);
         // Second append should start after the first.
         assert!(offset2 > offset1);
+    }
+
+    #[test]
+    fn writer_add_undefined_symbol_creates_undefined() {
+        use object::ObjectSymbol;
+
+        let mut writer = ElfWriter::new(Arch::X86_64, Kind::Relocatable);
+
+        // Add an undefined symbol.
+        let _sym_id = writer.add_undefined_symbol("gdt_load");
+
+        // Finalize and verify the output is parseable ELF.
+        let bytes = writer
+            .finalize()
+            .expect("finalize should succeed after adding an undefined symbol");
+        let elf = object::read::elf::ElfFile64::<object::Endianness>::parse(bytes.as_slice())
+            .expect("finalized bytes should parse as valid ELF64");
+
+        // Verify the undefined symbol exists in the symbol table.
+        let symbols: Vec<_> = elf.symbols().collect();
+        let found_undefined = symbols
+            .iter()
+            .any(|sym| sym.name().unwrap_or("") == "gdt_load" && sym.is_undefined());
+        assert!(
+            found_undefined,
+            "ELF should contain undefined symbol 'gdt_load'"
+        );
+    }
+
+    #[test]
+    fn writer_add_undefined_symbol_deduplicates() {
+        use object::ObjectSymbol;
+
+        let mut writer = ElfWriter::new(Arch::X86_64, Kind::Relocatable);
+
+        // Add the same undefined symbol twice.
+        let sym_id1 = writer.add_undefined_symbol("extern_fn");
+        let sym_id2 = writer.add_undefined_symbol("extern_fn");
+
+        // Both should return the same symbol ID.
+        assert_eq!(
+            sym_id1, sym_id2,
+            "duplicate undefined symbols should return same ID"
+        );
+
+        // Finalize and verify only one symbol was created.
+        let bytes = writer
+            .finalize()
+            .expect("finalize should succeed after adding duplicate undefined symbols");
+        let elf = object::read::elf::ElfFile64::<object::Endianness>::parse(bytes.as_slice())
+            .expect("finalized bytes should parse as valid ELF64");
+
+        // Count how many "extern_fn" symbols exist.
+        let symbols: Vec<_> = elf.symbols().collect();
+        let count = symbols
+            .iter()
+            .filter(|sym| sym.name().unwrap_or("") == "extern_fn")
+            .count();
+        assert_eq!(count, 1, "should have exactly one extern_fn symbol");
     }
 }
