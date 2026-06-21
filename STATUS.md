@@ -1,3 +1,36 @@
+# paideia-as Phase 5 status (decision gate G6-stamped, G7-ready)
+
+**Phase 5 substrate complete as of m7-002 (this PR).** All seven Phase 5 milestones (m1–m7) closed; 38 issues across PRs #695–#733. Phase 5 was a focused cross-repo-escalation response: paideia-os Phase-1 work surfaced that `paideia-as build` emitted a placeholder; Phase 5 wired the EmitWalker → UnsafeWalker → InstructionSideTable → emit chain so real machine code reaches the binary. Self-hosting (the original Phase 5 plan) shifts to Phase 6+. See `design/toolchain/phase-transition-5.md` for the retrospective.
+
+## Phase 5 milestone closure (m1–m7)
+
+- **m1 — elaborator: real per-construct lowering** — EmitWalker skeleton + EmitPassState (#695); Let(Literal) lowering with mov rax, imm (#696); Lambda body lowering for identity / double / add-immediate (#697); IrKind::Unsafe delegation to UnsafeWalker (#698); cmd_build wiring (#699).
+- **m2 — encoder: boot intrinsics** — 20 new Mnemonic variants + stub bridge (#718); zero-operand encoders cli/sti/hlt/nop/swapgs/cpuid (#719); I/O port encoders in/out × 3 widths (#720); MSR + Int N encoders (#721); MOV CR0-4/CR8 ↔ GPR encoders (#722); MOV DR0-7 ↔ GPR encoders (#723); LGDT/LIDT memory-operand encoders (#724); IRET/IRETQ/SYSRET encoders (#725); REP STOSQ encoder (#726); far-JMP m16:64 encoder (#727).
+- **m3 — unsafe-block payload walker** — IrKind::RawInstruction preserving AST back-pointer (#700); operand parser parse_operand_from_ast (#701); mnemonic-name → Mnemonic resolver + U1605 (#702); UnsafeWalker::run consuming pending blocks + U1606 (#703); cmd_build calls UnsafeWalker after EmitWalker (#704).
+- **m4 — initialised static-data surface** — [T; N] fixed-array type parsing (#705); array literal [...] initialisers + P0210 (#706); .rodata/.data section population via DataSideTable (#707); R_X86_64_PC32 relocation linking (#708).
+- **m5 — symbol export + relocations** — top-level binding SymbolTable (#709); Operand::SymbolRef + RelocSite + EncodeOutput (#729); real symbol-table emission from SymbolTable (#710); undefined-symbol entries for cross-file references (#711); cmd_build writes real InstructionSideTable into .text — lower_add_one finally killed (#712).
+- **m6 — end-to-end smoke (PaideiaOS Phase-1 unblock)** — uart_smoke.pdx fixture (#713); link.ld + run-smoke.sh driver (#714); byte-sequence assertion test + UnsafeWalker fix (#715); QEMU smoke gated by qemu availability (#716); **#717 add_one byte-identical regression — closure marker for PaideiaOS Phase-1 unblock; all 3 byte sequences (add_one 48 8D 47 01 C3, identity 48 89 F8 C3, double 48 8D 04 3F C3) verified after fixing 4 chain bugs in lower.rs / emit_walker.rs / cmd_build.rs / encode_instruction.rs.**
+- **m7 — documentation + closure** — Phase 5 retrospective phase-transition-5.md (#730); this STATUS.md update (#731); v0.5.0 tag + CHANGELOG (#732); examples build-clean parity (#733).
+
+## Workspace test totals
+
+- Phase 2 close (m11-006): ~1614 tests.
+- Phase 3 m9-002: 1829 tests.
+- Phase 4 m14-002: 2172 tests.
+- **Phase 5 m7-002 (this PR): 2416 tests** across the workspace (+244 from Phase 4 close).
+
+## Where to look next
+
+- `design/toolchain/phase-transition-5.md` — Phase 5 retrospective.
+- `.plans/phase-5-build-emit-plan.md` — Phase 5 osarch plan (38 issues across 7 milestones).
+- `.plans/phase-5-build-emit-softarch.md` — Phase 5 softarch plan (tempo + labels + closure ritual).
+- `design/toolchain/self-hosting-phase5-plan.md` — original Phase 5 self-hosting plan (now Phase 6+ scope).
+- `CHANGELOG.md` — release-notes view of Phase 5 (v0.5.0 lands at m7-003).
+
+Below is the Phase 4 closure followed by Phase 3 + Phase 1/2 history.
+
+---
+
 # paideia-as Phase 4 status (decision gate G5-stamped, G6-ready)
 
 **Phase 4 substrate complete as of m14-002.** All fourteen Phase 4 milestones (m1–m14) are closed; 101 issues across PRs #592–#693. PaideiaOS-aware re-ordering applied: m7 → m9 → m10 → m8 → m11 → m1 → m2 → m3 → m4 → m5 → m6 → m12 → m13 → m14. See `design/toolchain/phase-transition-4.md` for the Phase 4 retrospective.
