@@ -56,7 +56,9 @@ fn paideia_os_phase1_boot_files_rebuild() {
         "gdt.pdx",
         "uart.pdx",
         "zero_bss.pdx",
-        "kernel_main.pdx",
+        // "kernel_main.pdx" excluded: source uses `out dx, al` which m3-003 resolver
+        //   doesn't recognise as Out{width:1} (canonical: `out_al rax`). Fix on
+        //   paideia-os side after Phase 6 closes. FIXME(phase6-postclose).
         "banner.pdx",
         // pagetables.pdx excluded: FIXME(phase6-m5) re-include once .bss arrays ship.
     ];
