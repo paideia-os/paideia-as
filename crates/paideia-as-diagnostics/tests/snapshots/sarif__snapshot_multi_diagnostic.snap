@@ -1181,6 +1181,34 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "Phase 6 m4-002: A label with this name has already been declared in the current unsafe block. Labels must have unique names within the block's scope. Rename the duplicate label to a unique identifier or remove the duplicate declaration."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1609",
+              "id": "U1609",
+              "name": "Duplicate label declaration in unsafe block",
+              "shortDescription": {
+                "text": "label name already declared; each label must be unique within the unsafe block"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase 6 m4-002: A jump instruction references a label that has not been declared in the current unsafe block. Either declare the label with a `label_name:` statement, or fix the spelling of the label reference. Label resolution is performed at parse time by the walker."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1610",
+              "id": "U1610",
+              "name": "Unknown label reference in unsafe block",
+              "shortDescription": {
+                "text": "label referenced but not declared; check spelling or add label declaration"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "A symbol is marked as undefined (section_index=0xFFFFFFFF) in the symbol table, but no input PAX exports a symbol with the same BLAKE3 name hash. The linker cannot resolve this reference."
               },
               "helpUri": "https://paideia-os.org/diagnostics/B1700",
