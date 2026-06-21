@@ -1889,6 +1889,7 @@ dependencies = [
  "object",
  "paideia-as-ast",
  "paideia-as-diagnostics",
+ "paideia-as-doc",
  "paideia-as-elaborator",
  "paideia-as-emitter-elf",
  "paideia-as-emitter-pax",
@@ -1925,6 +1926,14 @@ dependencies = [
  "static_assertions",
  "thiserror 2.0.18",
  "toml",
+]
+
+[[package]]
+name = "paideia-as-doc"
+version = "0.0.1"
+dependencies = [
+ "paideia-as-ast",
+ "paideia-as-parser",
 ]
 
 [[package]]

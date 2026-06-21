@@ -1,0 +1,18 @@
+[package]
+name = "paideia-as-doc"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+paideia-as-ast = { path = "../paideia-as-ast" }
+paideia-as-parser = { path = "../paideia-as-parser" }
+
+[dev-dependencies]

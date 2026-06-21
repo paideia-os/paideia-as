@@ -10,6 +10,7 @@
 mod cli;
 mod cmd_build;
 mod cmd_check;
+mod cmd_doc;
 mod cmd_dump_ast;
 mod cmd_fmt;
 mod cmd_test;
@@ -42,10 +43,7 @@ fn main() -> ExitCode {
             eprintln!("paideia-as audit: stub (phase 1)");
             ExitCode::SUCCESS
         }
-        Cmd::Doc { .. } => {
-            eprintln!("paideia-as doc: stub (phase 1)");
-            ExitCode::SUCCESS
-        }
+        Cmd::Doc { inputs } => cmd_doc::run(inputs),
         Cmd::DumpAst { input } => cmd_dump_ast::run(&input),
         Cmd::Test {
             paths,
