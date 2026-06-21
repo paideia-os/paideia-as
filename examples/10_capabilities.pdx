@@ -1,0 +1,17 @@
+// 10_capabilities.pdx — capability sets @{} on signatures
+// First two capability handles enter in R12 + R13 per calling-convention §1.3.
+// Built-in dotted caps: paideia.raw_mem (m1-005), paideia.io (m11-005).
+
+module Capabilities = structure {
+  // One capability.
+  let read_mmio : (u64) -> u64 !{RawMem} @{paideia.raw_mem} =
+    fn (addr : u64) -> 0
+
+  // Two capabilities — comma-separated.
+  let read_then_write : (u64) -> u64 !{RawMem} @{paideia.raw_mem, paideia.io} =
+    fn (addr : u64) -> 0
+
+  // No capabilities required: explicit @{}.
+  let pure_compute : (u64) -> u64 !{} @{} =
+    fn (x : u64) -> x + 1
+}

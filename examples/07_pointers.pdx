@@ -1,0 +1,18 @@
+// 07_pointers.pdx — raw pointers *T + index_* intrinsics
+// *T is always Unrestricted (copying a pointer is free).
+// Dereference requires !{RawMem} @{paideia.raw_mem}.
+
+module Pointers = structure {
+
+  // index_u64(p, i) reads p[i] (8-byte load).
+  let read_first : (*u64) -> u64 !{RawMem} @{paideia.raw_mem} =
+    fn (xs : *u64) -> index_u64(xs, 0)
+
+  // index_u64_set(p, i, v) writes v to p[i].
+  let zero_at : (*u64, u64) -> () !{RawMem} @{paideia.raw_mem} =
+    fn (xs : *u64) (i : u64) -> index_u64_set(xs, i, 0)
+
+  // Pointer arithmetic: ptr_sub_bytes gives byte-distance.
+  let ptr_diff : (*u64, *u64) -> u64 !{} @{} =
+    fn (a : *u64) (b : *u64) -> ptr_sub_bytes(a, b)
+}

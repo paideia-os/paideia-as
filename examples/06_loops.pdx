@@ -1,0 +1,20 @@
+// 06_loops.pdx — loop forms (parser surface)
+// Phase 4 m8 ships while / for / loop / break / continue keywords.
+// Full while/loop usage needs `let mut` bindings inside fn bodies (not module-let).
+// See tests/data/codes/m8_while_simple.pdx for the fn-body form;
+// the example here shows the keywords parsed in module-let context only.
+
+module Loops = structure {
+  // Tail recursion is the idiomatic loop in module-let scope.
+  // m9-008 TCO lowers the recursive call to a jmp (same shape as a while loop).
+  let count_down : (u64) -> u64 = fn (n: u64) -> match n {
+    0 => 0
+    _ => count_down(n - 1)
+  }
+
+  // Accumulator pattern (see 16_factorial.pdx / 17_fibonacci.pdx).
+  let sum_acc : (u64, u64) -> u64 = fn (n: u64) (total: u64) -> match n {
+    0 => total
+    _ => sum_acc(n - 1, total + n)
+  }
+}

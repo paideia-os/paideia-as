@@ -1,7 +1,0 @@
-// Phase 4 m9-007: Bounded generics with associated type projections
-// Acceptance test: should parse projection syntax <Item = Type> without errors
-// Phase 4 minimum: parse-only; resolver will validate projections in phase 5+
-
-let process_iter<I: Iterator<Item = u64>>(iter: I) = iter;
-
-let transform<F: Fn<In = u32, Out = u32>, G: Fn<In = u32, Out = u64>>(f: F, g: G) = (f, g);

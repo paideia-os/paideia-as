@@ -1,0 +1,21 @@
+// 20_strlen.pdx — NUL-terminated byte-string length, pure tail recursion
+// asm-reference: asm-reference/algorithms/strlen.asm
+// Uses index_u8 + ptr_add_bytes + ptr_sub_bytes — no unsafe block.
+
+module Strlen = structure {
+
+  // Per-byte read primitive.
+  let read_byte_at : (*u8) -> u8 !{RawMem} @{paideia.raw_mem} =
+    fn (p : *u8) -> index_u8(p, 0)
+
+  // Walk cursor forward until NUL; return cursor - start byte distance.
+  let scan : (*u8, *u8) -> u64 !{RawMem} @{paideia.raw_mem} =
+    fn (cursor : *u8) (start : *u8) -> match read_byte_at(cursor) {
+      0 => ptr_sub_bytes(cursor, start),
+      _ => scan(ptr_add_bytes(cursor, 1), start)
+    }
+
+  // s in RDI, length in RAX.
+  let strlen : (*u8) -> u64 !{RawMem} @{paideia.raw_mem} =
+    fn (s : *u8) -> scan(s, s)
+}

@@ -1,0 +1,16 @@
+// 08_references.pdx — borrowed references &T / &mut T
+// &T is Affine; &mut T is Linear. Borrow-checker (m6) enforces:
+// S0906 immut+mut conflict, S0907 two mut, S0908 outlives, S0909 mutate-while-borrowed.
+
+module References = structure {
+  // &T parameter form.
+  let read_ref: (&u64) -> u64 =
+    fn (r: &u64) -> 0
+
+  // &mut T parameter form.
+  let zero_ref: (&mut u64) -> () =
+    fn (r: &mut u64) -> ()
+
+  // Reference type as field.
+  let null_ref: &u64 = null
+}

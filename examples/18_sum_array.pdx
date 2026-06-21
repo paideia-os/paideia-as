@@ -1,0 +1,16 @@
+// 18_sum_array.pdx — sum n u64s via typed *u64 + index_u64
+// asm-reference: asm-reference/algorithms/sum_array.asm
+// index_u64 lowers to mov rax, [rdi + rcx * 8]  (SIB form: 48 8b 04 cf).
+
+module SumArray = structure {
+
+  // xs in RDI, n in RSI, sum in RAX. !{RawMem} from index_u64.
+  let sum_acc : (*u64, u64, u64, u64) -> u64 !{RawMem} @{paideia.raw_mem} =
+    fn (xs : *u64) (n : u64) (i : u64) (acc : u64) -> match i {
+      n => acc,
+      _ => sum_acc(xs, n, i + 1, acc + index_u64(xs, i))
+    }
+
+  let sum_array : (*u64, u64) -> u64 !{RawMem} @{paideia.raw_mem} =
+    fn (xs : *u64) (n : u64) -> sum_acc(xs, n, 0, 0)
+}

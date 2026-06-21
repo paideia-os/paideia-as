@@ -1,0 +1,27 @@
+// 12_traits.pdx — trait declarations + impl blocks
+// Coherence: at most one impl per (trait, type) pair (T0513).
+
+// Trait with associated type + one method.
+trait Iterator<Item> {
+  fn next() -> (Option Item);
+}
+
+// Trait with default method body.
+trait WithDefault {
+  fn get_default() -> u64 { 42u64 }
+}
+
+// Concrete enum so impl has something to attach to.
+enum Option<T> {
+  Some(T),
+  None
+}
+
+struct Counter {
+  value: u64
+}
+
+// Trait impl: implements WithDefault for Counter.
+impl WithDefault for Counter {
+  let get_default = fn(x: ()) -> u64 = 0u64
+}

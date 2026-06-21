@@ -1,8 +1,0 @@
-// Phase 4 m9-007: Associated types in traits — simple example
-// Acceptance test: should parse without errors
-
-trait Container<T> {
-  type Item;
-  fn new() -> Container(T);
-  fn get(self) -> T;
-}

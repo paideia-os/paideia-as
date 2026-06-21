@@ -1,0 +1,16 @@
+// 16_factorial.pdx — iterative factorial via tail recursion
+// asm-reference: asm-reference/algorithms/factorial.asm
+// m9-008 TCO lowers the recursive arm to a jmp; same shape as the NASM loop.
+
+module Factorial = structure {
+
+  // Accumulator helper: factorial_acc(n, acc) → acc * n!.
+  let factorial_acc : (u64, u64) -> u64 =
+    fn (n : u64) (acc : u64) -> match n {
+      0 => acc,
+      _ => factorial_acc(n - 1, n * acc)
+    }
+
+  // Public entry: n in RDI, result in RAX.
+  let factorial : (u64) -> u64 = fn (n : u64) -> factorial_acc(n, 1)
+}

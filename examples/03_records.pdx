@@ -1,0 +1,18 @@
+// 03_records.pdx — struct types (product types with named fields)
+// Layout: field-aligned, tail-padded to record's max alignment.
+
+struct Point {
+  x: u64,
+  y: u64
+}
+
+struct Frame {
+  origin: Point,
+  scale: u64
+}
+
+module Records = structure {
+  // Construction uses the type name as a constructor.
+  let origin = Point { x: 0, y: 0 }
+  let zero_frame = Frame { origin: origin, scale: 1 }
+}

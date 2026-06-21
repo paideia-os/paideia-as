@@ -1,0 +1,16 @@
+// 17_fibonacci.pdx — iterative Fibonacci via 3-arg tail recursion
+// asm-reference: asm-reference/algorithms/fibonacci.asm
+// Threads the (a, b) -> (b, a + b) rotation through function args.
+
+module Fibonacci = structure {
+
+  // n in RDI, a in RSI, b in RDX; returns a after n iterations.
+  let fib_acc : (u64, u64, u64) -> u64 =
+    fn (n : u64) (a : u64) (b : u64) -> match n {
+      0 => a,
+      _ => fib_acc(n - 1, b, a + b)
+    }
+
+  // fib(0) = 0, fib(1) = 1, etc.
+  let fibonacci : (u64) -> u64 = fn (n : u64) -> fib_acc(n, 0, 1)
+}

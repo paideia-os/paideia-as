@@ -1,0 +1,16 @@
+// 19_memcpy.pdx — bulk byte copy via REP MOVSB
+// asm-reference: asm-reference/algorithms/memcpy.asm
+// Typed signature; only the 1-instruction REP MOVSB stays unsafe.
+
+module Memcpy = structure {
+
+  let memcpy : (*u8, *u8, u64) -> *u8 !{RawMem} @{paideia.raw_mem} =
+    fn (dst : *u8) (src : *u8) (count : u64) -> unsafe {
+      effects:       { RawMem },
+      capabilities:  { paideia.raw_mem },
+      justification: "REP MOVSB has no typed equivalent: decrements RCX + increments RSI/RDI under the rep prefix's microarch optimisation path.",
+      block: {
+        rep movsb
+      }
+    }
+}

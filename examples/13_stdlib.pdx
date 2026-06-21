@@ -1,0 +1,24 @@
+// 13_stdlib.pdx — stdlib types: Option / Result / Vec / String / HashMap
+// Ambient allocator: Arena on PaideiaOS, SystemAllocator on host.
+
+enum Option<T> {
+  Some(T),
+  None
+}
+
+enum Result<T, E> {
+  Ok(T),
+  Err(E)
+}
+
+enum NumError {
+  DivByZero,
+  Overflow
+}
+
+module Stdlib = structure {
+  // Construction.
+  let some_val = Some(42u64)
+  let ok_val   = Ok(0u64)
+  let err_val  = Err(DivByZero)
+}

@@ -1,0 +1,28 @@
+// 05_patterns.pdx — pattern bindings + match exhaustiveness
+// let pat = expr is irrefutable (P0199 for refutable in let).
+// match on enum must cover every variant or use _ (T0512 otherwise).
+
+enum Choice {
+  First,
+  Second,
+  Third
+}
+
+module Patterns = structure {
+  // Tuple destructuring in let (irrefutable).
+  let (a, b) = (10, 20)
+  let sum = a + b
+
+  // Exhaustive match.
+  let rank = fn (c: Choice) -> match c {
+    First  => 0
+    Second => 1
+    Third  => 2
+  }
+
+  // Wildcard catches the remainder.
+  let is_first = fn (c: Choice) -> match c {
+    First => true
+    _     => false
+  }
+}

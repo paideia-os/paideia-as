@@ -1,0 +1,9 @@
+// 01_hello.pdx — module + structure + let bindings
+// One .pdx file = one structure named after the file (PascalCase basename).
+
+module Hello = structure {
+  let answer  = 42                           // i32, inferred
+  let magic   = 0xCAFE_F00D_DEAD_BEEF        // u64, _ separators OK
+  let ready   = true
+  let nothing = ()
+}

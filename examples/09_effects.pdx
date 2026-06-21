@@ -1,0 +1,16 @@
+// 09_effects.pdx — effect rows on function signatures
+// Form: (args) -> ret !{Eff1, Eff2} @{Cap1, Cap2}
+
+module Effects = structure {
+  // RawMem effect (prelude-built; m1-005).
+  let read_byte : (u64) -> u8 !{RawMem} @{paideia.raw_mem} =
+    fn (addr : u64) -> 0u8
+
+  // Empty effect row + empty cap row.
+  let pure : (u64) -> u64 !{} @{} =
+    fn (x : u64) -> x
+
+  // Two effects, two capabilities.
+  let read_then_log : (u64) -> u64 !{RawMem, IO} @{paideia.raw_mem, paideia.io} =
+    fn (addr : u64) -> 0
+}

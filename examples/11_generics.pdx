@@ -1,0 +1,27 @@
+// 11_generics.pdx — generic type parameters <T> + trait bounds
+// Monomorphisation per instantiation; Kind::Star for all params today.
+
+// Generic function: single param.
+let identity<T> = fn(x: T) -> x
+
+// Two-arg uses curried fn-form fn(x)(y).
+let swap<T, U> = fn(x: T)(y: U) -> (y, x)
+
+// Bounded: T must implement Show.
+trait Show {
+  fn show() -> u64;
+}
+
+let display<T: Show> = fn(x: T) -> 0u64
+
+// Generic struct.
+struct Pair<A, B> {
+  first: A,
+  second: B
+}
+
+// Generic enum.
+enum Either<L, R> {
+  Left(L),
+  Right(R)
+}

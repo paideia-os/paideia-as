@@ -1,0 +1,25 @@
+// 04_enums.pdx — sum types (tagged unions)
+// Three payload shapes: unit, tuple, record-with-fields.
+// Layout: 8-byte discriminant + max payload + tail pad.
+
+enum Color {
+  Red,
+  Green,
+  Blue
+}
+
+enum Option<T> {
+  Some(T),
+  None
+}
+
+enum Result<T, E> {
+  Ok(T),
+  Err(E)
+}
+
+module Enums = structure {
+  let opt = Some(42u64)
+  let res = Ok(0u64)
+  let c   = Red
+}

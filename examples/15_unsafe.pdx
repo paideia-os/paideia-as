@@ -1,0 +1,17 @@
+// 15_unsafe.pdx — unsafe { } escape for ops with no typed surface
+// All four fields required: effects, capabilities, justification, block.
+// Declarations are believed (not checked); audit catalog records the block.
+
+module Unsafe = structure {
+
+  // REP MOVSB: bulk byte copy. No typed equivalent today.
+  let bulk_copy : (*u8, *u8, u64) -> *u8 !{RawMem} @{paideia.raw_mem} =
+    fn (dst : *u8) (src : *u8) (count : u64) -> unsafe {
+      effects:       { RawMem },
+      capabilities:  { paideia.raw_mem },
+      justification: "REP MOVSB has no typed surface; m9-005 DSE + autovec would be needed.",
+      block: {
+        rep movsb
+      }
+    }
+}

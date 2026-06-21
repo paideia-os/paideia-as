@@ -1,0 +1,31 @@
+// 14_iterators.pdx — Iterator trait + adapter shape
+// Adapters (Map, Filter) chain lazily; for-loops desugar to next() calls.
+
+enum Option<T> {
+  Some(T),
+  None
+}
+
+// Iterator trait with associated Item type.
+trait Iterator<Item> {
+  fn next() -> (Option Item);
+}
+
+// Default-method adapters live in the trait body.
+trait Count {
+  fn count() -> u64 { 0u64 }
+}
+
+// Concrete iterator that counts up.
+struct Counter {
+  value: u64
+}
+
+// Generic impl: impl<T> Trait for (Type (T)).
+impl<T> Iterator for (Counter) {
+  let next = fn(x: ()) -> u64 = 0u64
+}
+
+impl Count for Counter {
+  let count = fn(x: ()) -> u64 = 0u64
+}
