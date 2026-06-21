@@ -955,6 +955,53 @@ pub fn encode_int_imm8(buf: &mut CodeBuffer, imm: u8) {
     buf.bytes.push(imm);
 }
 
+/// Encode interrupt return (32-bit): `iret`.
+///
+/// Returns from an interrupt handler using the stack-based interrupt frame.
+/// In 32-bit mode, pops EIP, CS, and EFLAGS from the stack.
+///
+/// # Instructions
+/// - `iret`: `CF` (1 byte)
+///
+/// # Arguments
+/// - `buf`: code buffer to append instruction to
+pub fn encode_iret(buf: &mut CodeBuffer) {
+    buf.bytes.push(0xCF);
+}
+
+/// Encode interrupt return (64-bit): `iretq`.
+///
+/// Returns from an interrupt handler using the stack-based interrupt frame.
+/// In 64-bit mode, pops RIP, CS, and RFLAGS from the stack.
+/// Requires REX.W prefix to distinguish from 32-bit `iret`.
+///
+/// # Instructions
+/// - `iretq`: `48 CF` (2 bytes, REX.W prefix)
+///
+/// # Arguments
+/// - `buf`: code buffer to append instruction to
+pub fn encode_iretq(buf: &mut CodeBuffer) {
+    buf.bytes.push(0x48); // REX.W
+    buf.bytes.push(0xCF);
+}
+
+/// Encode system return from fast syscall: `sysret`.
+///
+/// Returns from a fast system call made via `syscall` instruction.
+/// In 64-bit mode, loads RIP and CS from MSR_SYSRET_CS, and RFLAGS from R11.
+/// Operates in ring 3 only.
+///
+/// # Instructions
+/// - `sysret`: `48 0F 07` (3 bytes, REX.W prefix + two-byte opcode)
+///
+/// # Arguments
+/// - `buf`: code buffer to append instruction to
+pub fn encode_sysret(buf: &mut CodeBuffer) {
+    buf.bytes.push(0x48); // REX.W
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0x07);
+}
+
 /// Encode control register MOV instruction: `mov cr_idx, gpr` or `mov gpr, cr_idx`.
 ///
 /// Both forms use the two-byte opcode 0F 22 (write to CR) or 0F 20 (read from CR).

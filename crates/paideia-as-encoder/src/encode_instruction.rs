@@ -157,9 +157,9 @@ pub fn encode_instruction(
         Mnemonic::MovDr { write } => encode_mov_dr_inst(inst, buf, *write),
         Mnemonic::Lgdt => encode_lgdt_inst(inst, buf),
         Mnemonic::Lidt => encode_lidt_inst(inst, buf),
-        Mnemonic::Iret => Err(EncodeError::Unsupported("phase-5 m2-008")),
-        Mnemonic::Iretq => Err(EncodeError::Unsupported("phase-5 m2-008")),
-        Mnemonic::Sysret => Err(EncodeError::Unsupported("phase-5 m2-008")),
+        Mnemonic::Iret => encode_iret_inst(inst, buf),
+        Mnemonic::Iretq => encode_iretq_inst(inst, buf),
+        Mnemonic::Sysret => encode_sysret_inst(inst, buf),
         Mnemonic::RepStosq => Err(EncodeError::Unsupported("phase-5 m2-009")),
         Mnemonic::FarJmp => Err(EncodeError::Unsupported("phase-5 m2-010")),
     }
@@ -723,6 +723,45 @@ fn encode_lidt_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), Enco
             mnemonic: Mnemonic::Lidt,
         }),
     }
+}
+
+fn encode_iret_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+    // iret expects exactly 0 operands
+    if !inst.operands.is_empty() {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::Iret,
+            expected: 0,
+            got: inst.operands.len(),
+        });
+    }
+    encode_iret(buf);
+    Ok(())
+}
+
+fn encode_iretq_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+    // iretq expects exactly 0 operands
+    if !inst.operands.is_empty() {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::Iretq,
+            expected: 0,
+            got: inst.operands.len(),
+        });
+    }
+    encode_iretq(buf);
+    Ok(())
+}
+
+fn encode_sysret_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+    // sysret expects exactly 0 operands
+    if !inst.operands.is_empty() {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::Sysret,
+            expected: 0,
+            got: inst.operands.len(),
+        });
+    }
+    encode_sysret(buf);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1692,5 +1731,75 @@ mod tests {
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
         assert_eq!(instr.mnemonic(), IcedMnem::Lidt);
+    }
+
+    // ── Phase-5 m2-008: interrupt-return + system-return instructions ────────
+
+    #[test]
+    fn encode_iret_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Iret,
+            operands: smallvec::smallvec![],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expect: CF (1 byte)
+        assert_eq!(buf.as_slice(), &[0xCF]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        // Note: in 64-bit decoder, bare CF is decoded as Iretd (32-bit form)
+        assert_eq!(instr.mnemonic(), IcedMnem::Iretd);
+    }
+
+    #[test]
+    fn encode_iretq_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Iretq,
+            operands: smallvec::smallvec![],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expect: 48 CF (2 bytes, REX.W prefix)
+        assert_eq!(buf.as_slice(), &[0x48, 0xCF]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Iretq);
+    }
+
+    #[test]
+    fn encode_sysret_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Sysret,
+            operands: smallvec::smallvec![],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expect: 48 0F 07 (3 bytes, REX.W prefix + two-byte opcode)
+        assert_eq!(buf.as_slice(), &[0x48, 0x0F, 0x07]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        // Note: in 64-bit decoder, 48 0F 07 is decoded as Sysretq (64-bit form)
+        assert_eq!(instr.mnemonic(), IcedMnem::Sysretq);
     }
 }
