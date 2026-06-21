@@ -17,6 +17,7 @@ pub mod effect_rewrite;
 pub mod enum_layout;
 pub mod handler_value;
 pub mod instruction;
+pub mod literal_value;
 pub mod load_store;
 pub mod loop_meta;
 pub mod modules;
@@ -43,6 +44,7 @@ pub use handler_value::{HandlerInfo, HandlerSideTable, pretty_handler};
 pub use instruction::{
     Cond, EncodingHint, Instruction, InstructionSideTable, Mnemonic, Operand, RegId, Scale,
 };
+pub use literal_value::LiteralValueTable;
 pub use load_store::{
     LoadStoreInfo, LoadStoreSideTable, Signedness, Width, alloc_load, alloc_store,
 };

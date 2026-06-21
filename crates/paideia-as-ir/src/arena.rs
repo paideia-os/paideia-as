@@ -8,6 +8,7 @@ use std::ops::Index;
 
 use crate::constant_pool::ConstantPoolTable;
 use crate::instruction::InstructionSideTable;
+use crate::literal_value::LiteralValueTable;
 use crate::loop_meta::LoopMetaTable;
 use crate::node::{IrKind, IrNodeData, IrNodeId};
 
@@ -30,6 +31,8 @@ pub struct IrArena {
     loop_meta_table: LoopMetaTable,
     /// Side-table: constant pool for repeated 64-bit immediates (m1-010 pool-constants pass).
     constant_pool_table: ConstantPoolTable,
+    /// Side-table: literal values (i64) indexed by Literal node ID.
+    literal_value_table: LiteralValueTable,
 }
 
 impl IrArena {
@@ -48,6 +51,7 @@ impl IrArena {
             instruction_table: InstructionSideTable::new(),
             loop_meta_table: LoopMetaTable::new(),
             constant_pool_table: ConstantPoolTable::new(),
+            literal_value_table: LiteralValueTable::new(),
         }
     }
 
@@ -161,6 +165,17 @@ impl IrArena {
     /// Borrow the constant pool side-table (mutable).
     pub fn constant_pool_mut(&mut self) -> &mut ConstantPoolTable {
         &mut self.constant_pool_table
+    }
+
+    /// Borrow the literal value side-table (read-only).
+    #[must_use]
+    pub fn literal_values(&self) -> &LiteralValueTable {
+        &self.literal_value_table
+    }
+
+    /// Borrow the literal value side-table (mutable).
+    pub fn literal_values_mut(&mut self) -> &mut LiteralValueTable {
+        &mut self.literal_value_table
     }
 }
 
