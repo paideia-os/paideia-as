@@ -172,12 +172,14 @@ fn test_functor_module() {
 }
 
 #[test]
-fn test_example_11_unsafe_block() {
-    // Integration test: parse the complete examples/11_unsafe_block.pdx file.
-    // Verifies that unsafe blocks with instruction-stream bodies parse cleanly
-    // per issue #159: the `block:` field accepts the action-block instruction
-    // grammar (zero-operand mnemonics, register operands, memory references, immediates).
-    let source = include_str!("../../../examples/11_unsafe_block.pdx");
+fn test_example_15_unsafe() {
+    // Integration test: parse examples/15_unsafe.pdx (renamed from
+    // 11_unsafe_block.pdx in the examples rewrite). Verifies that unsafe
+    // blocks with instruction-stream bodies parse cleanly per issue #159:
+    // the `block:` field accepts the action-block instruction grammar
+    // (zero-operand mnemonics, register operands, memory references,
+    // immediates).
+    let source = include_str!("../../../examples/15_unsafe.pdx");
     let (_arena, _err, diags) = parse_source(source);
     let errors: Vec<_> = diags
         .iter()
@@ -185,7 +187,7 @@ fn test_example_11_unsafe_block() {
         .collect();
     assert!(
         errors.is_empty(),
-        "example_11_unsafe_block.pdx should parse cleanly with no error diagnostics"
+        "example_15_unsafe.pdx should parse cleanly with no error diagnostics"
     );
 }
 

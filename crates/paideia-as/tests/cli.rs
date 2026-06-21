@@ -173,7 +173,7 @@ fn build_calling_convention_example_emits_clean_elf() {
         .parent()
         .and_then(|p| p.parent())
         .and_then(|p| p.parent())
-        .map(|p| p.join("examples").join("12_calling_convention.pdx"))
+        .map(|p| p.join("examples").join("02_functions.pdx"))
         .expect("could not resolve examples directory");
 
     if !input.exists() {
