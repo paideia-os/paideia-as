@@ -1,0 +1,10 @@
+module UnsafeLgdt = structure {
+  let block1 = unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "test",
+    block: {
+      lgdt [rdi]
+    }
+  }
+}

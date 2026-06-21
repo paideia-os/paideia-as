@@ -102,12 +102,26 @@ impl ElfWriter {
         &self.sections
     }
 
+    /// Get the `.text` section ID.
+    ///
+    /// Phase-5-m4-004: Used to add relocations to .text.
+    pub fn text_section_id(&mut self) -> SectionId {
+        self.obj.section_id(StandardSection::Text)
+    }
+
+    /// Get the `.rodata` section ID.
+    ///
+    /// Phase-5-m4-003: Used to add data symbols and relocations.
+    pub fn rodata_section_id(&mut self) -> SectionId {
+        self.obj.section_id(StandardSection::ReadOnlyData)
+    }
+
     /// Append `bytes` to the `.text` section. Returns the offset at
     /// which the append starts. Phase-1 helper used by the CLI to
     /// land function bodies; later refinements will accept a
     /// per-function bytes payload + automatic symbol binding.
     pub fn add_text_bytes(&mut self, bytes: &[u8]) -> u64 {
-        let text_section = self.obj.section_id(StandardSection::Text);
+        let text_section = self.text_section_id();
         self.obj.append_section_data(text_section, bytes, 1)
     }
 
@@ -115,7 +129,7 @@ impl ElfWriter {
     /// Returns the offset at which the append starts.
     /// Phase-1 helper used for read-only data (constants, GDT descriptors, etc).
     pub fn add_rodata_bytes(&mut self, bytes: &[u8], align: u8) -> u64 {
-        let rodata_section = self.obj.section_id(StandardSection::ReadOnlyData);
+        let rodata_section = self.rodata_section_id();
         self.obj
             .append_section_data(rodata_section, bytes, align as u64)
     }
@@ -196,6 +210,11 @@ impl ElfWriter {
         let flags = match entry.kind {
             RelocKind::PC32 => RelocationFlags::Generic {
                 kind: RelocationKind::Relative,
+                encoding: RelocationEncoding::X86Branch,
+                size: 32,
+            },
+            RelocKind::PLT32 => RelocationFlags::Generic {
+                kind: RelocationKind::PltRelative,
                 encoding: RelocationEncoding::X86Branch,
                 size: 32,
             },

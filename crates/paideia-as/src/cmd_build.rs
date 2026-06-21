@@ -21,15 +21,16 @@ use paideia_as_elaborator::{
     CapWalker, EffectRowWalker, EmitWalker, LinearityWalker, UnsafeWalker, lower_ast_to_ir,
     placeholder_for, validate_file_module_mapping,
 };
-use paideia_as_emitter_elf::{Arch, ElfWriter, Kind, SymbolEntry, lower_add_one};
+use paideia_as_emitter_elf::{Arch, ElfWriter, Kind, SymKind, SymbolEntry, lower_add_one};
 use paideia_as_emitter_pax::{
     Architecture, FunctorsSection, PAX_HEADER_SIZE, PaxHeader, SectionTable, compute_content_hash,
 };
+use paideia_as_emitter_pe::emit_text_from_instructions;
 use paideia_as_emitter_pe::{
     COFF_FILE_HEADER_SIZE, CoffFileHeader, DOS_HEADER_SIZE, DosHeader, NT_SIGNATURE,
     OPTIONAL_HEADER_PE32PLUS_SIZE, OptionalHeaderPe32Plus, SectionTable as PeSectionTable,
-    emit_text_from_instructions,
 };
+use paideia_as_encoder::EncodeStats;
 use paideia_as_ir::{InstructionSideTable, IrNodeId, ModuleSideTable, walk};
 use paideia_as_lexer::{Lexer, SourceText};
 use paideia_as_parser::Parser;
@@ -292,37 +293,78 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str) -> ExitCode {
 /// If the table is empty, falls back to the placeholder lower_add_one
 /// for backwards compatibility (m5 will remove this entirely).
 /// Phase-5-m4-003: Also consumes DataSideTable for .rodata and .data section population.
+/// Phase-5-m4-004: Collects relocation sites from instruction encoding and emits
+/// them to the .rela.text section.
 fn build_elf_object(
     instruction_table: &InstructionSideTable,
     data_table: &paideia_as_ir::DataSideTable,
 ) -> Vec<u8> {
     let mut writer = ElfWriter::new(Arch::X86_64, Kind::Relocatable);
-    let mut buf = paideia_as_emitter_elf::CodeBuffer::new();
 
-    // If the instruction table is empty, use the placeholder.
-    // Once m1-005+ fully populate the table, this fallback becomes unreachable.
-    if instruction_table.is_empty() {
+    // Phase-5-m4-004: Emit instructions and collect relocation sites.
+    // Use emit_text_from_instructions from the PE emitter (shared across formats).
+    let mut text_bytes = Vec::new();
+    let emit_result = if instruction_table.is_empty() {
+        // Fallback for empty instruction table: use placeholder
+        let mut buf = paideia_as_emitter_elf::CodeBuffer::new();
         lower_add_one(&mut buf);
+        text_bytes = buf.bytes.clone();
+        // Return a minimal EmitResult with no relocations
+        paideia_as_emitter_pe::EmitResult {
+            encode_stats: EncodeStats::new(),
+            offset_map: std::collections::HashMap::new(),
+            reloc_sites: Vec::new(),
+        }
     } else {
-        // Phase-5-m5: emit instructions from the table (parity with PE/COFF emitter).
-        // For now, fall back to placeholder to maintain smoke test compatibility.
-        lower_add_one(&mut buf);
-    }
+        emit_text_from_instructions(instruction_table, &mut text_bytes).unwrap_or_else(|e| {
+            eprintln!("warning: text emission failed: {e}; using placeholder");
+            let mut buf = paideia_as_emitter_elf::CodeBuffer::new();
+            lower_add_one(&mut buf);
+            text_bytes = buf.bytes.clone();
+            paideia_as_emitter_pe::EmitResult {
+                encode_stats: EncodeStats::new(),
+                offset_map: std::collections::HashMap::new(),
+                reloc_sites: Vec::new(),
+            }
+        })
+    };
 
-    let body_size = buf.bytes.len() as u64;
-    writer.add_text_bytes(&buf.bytes);
+    let body_size = text_bytes.len() as u64;
+    writer.add_text_bytes(&text_bytes);
     let _ = writer.add_symbol(SymbolEntry::func("add_one", 0, body_size));
 
     // Phase-5-m4-003: Emit data entries from the data side-table.
-    for (_id, entry) in data_table.iter() {
-        match entry.section {
+    // Also create symbols for each data entry so relocations can reference them.
+    for (id, entry) in data_table.iter() {
+        let data_offset = match entry.section {
             paideia_as_ir::SectionKind::Rodata => {
-                writer.add_rodata_bytes(&entry.bytes, entry.align);
+                writer.add_rodata_bytes(&entry.bytes, entry.align)
             }
-            paideia_as_ir::SectionKind::Data => {
-                writer.add_data_bytes(&entry.bytes, entry.align);
-            }
-        }
+            paideia_as_ir::SectionKind::Data => writer.add_data_bytes(&entry.bytes, entry.align),
+        };
+        // Phase-5-m4-003: Create a symbol for the data entry so relocations can reference it
+        let sym_name = format!("data_{}", id.get());
+        let _ = writer.add_symbol(SymbolEntry {
+            name: sym_name,
+            offset: Some(data_offset),
+            size: entry.bytes.len() as u64,
+            kind: SymKind::Data,
+            is_global: false,
+        });
+    }
+
+    // Phase-5-m4-004: Emit relocations collected from instruction encoding.
+    use paideia_as_emitter_elf::RelocEntry;
+    let text_section = writer.text_section_id();
+    for reloc_site in &emit_result.reloc_sites {
+        let reloc_kind = paideia_as_emitter_elf::RelocKind::from_encoder(reloc_site.kind);
+        let entry = RelocEntry {
+            offset: reloc_site.byte_offset as u64,
+            target: reloc_site.symbol.clone(),
+            kind: reloc_kind,
+            addend: reloc_site.addend as i64,
+        };
+        let _ = writer.add_relocation(text_section, entry);
     }
 
     writer.finalize().unwrap_or_default()

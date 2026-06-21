@@ -74,7 +74,7 @@ pub enum EncodeError {
 }
 
 /// Kind of relocation for a symbol reference.
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum RelocKind {
     /// PC-relative 32-bit relocation (x86_64 R_X86_64_PC32).
     PcRel32,

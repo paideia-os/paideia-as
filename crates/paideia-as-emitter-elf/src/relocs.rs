@@ -1,5 +1,7 @@
 //! Relocation entries for paideia-as ELF emission.
 
+use paideia_as_encoder::RelocKind as EncoderRelocKind;
+
 /// Relocation kinds per `custom-assembler.md` §12.1.
 ///
 /// Specifies the type of relocation and how the linker should patch the code.
@@ -9,6 +11,22 @@ pub enum RelocKind {
     PC32,
     /// 64-bit absolute references, e.g., `[R_X86_64_64]`.
     Abs64,
+    /// PLT-relative 32-bit references for external function symbols.
+    PLT32,
+}
+
+impl RelocKind {
+    /// Convert an encoder relocation kind to ELF relocation kind.
+    ///
+    /// Maps encoder RelocKind (generic x86_64 ABI) to ELF-specific kinds
+    /// used by the writer.
+    pub fn from_encoder(kind: EncoderRelocKind) -> Self {
+        match kind {
+            EncoderRelocKind::PcRel32 => Self::PC32,
+            EncoderRelocKind::Plt32 => Self::PLT32,
+            EncoderRelocKind::Abs64 => Self::Abs64,
+        }
+    }
 }
 
 /// One relocation request the writer will lower into `object::write::Relocation`.

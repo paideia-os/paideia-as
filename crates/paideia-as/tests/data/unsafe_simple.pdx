@@ -1,0 +1,10 @@
+module UnsafeSimple = structure {
+  let block1 = unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "test",
+    block: {
+      sfence
+    }
+  }
+}

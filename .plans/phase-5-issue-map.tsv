@@ -1,0 +1,34 @@
+Task	Issue	Title	Milestone	Size
+m2-009	726	encoder: rep stosq for .bss zeroing (P1-005)	phase-5-encoder-boot-isa	XS
+m2-010	727	encoder: far-jmp m16:64 for the 32→64 mode transition (P1-003)	phase-5-encoder-boot-isa	S
+m2-007	724	encoder: descriptor-table load (lgdt [mem], lidt [mem])	phase-5-encoder-boot-isa	XS
+m2-008	725	encoder: interrupt-return + system-return (iret, iretq, sysret)	phase-5-encoder-boot-isa	XS
+m2-005	722	encoder: control-register MOV (mov cr*, reg, mov reg, cr*)	phase-5-encoder-boot-isa	S
+m2-006	723	encoder: debug-register MOV (mov dr*, reg, mov reg, dr*)	phase-5-encoder-boot-isa	XS
+m2-003	720	encoder: I/O port instructions (in al/ax dx, out dx al/ax)	phase-5-encoder-boot-isa	S
+m2-004	721	encoder: MSR access (wrmsr, rdmsr) + Mnemonic::Int N	phase-5-encoder-boot-isa	XS
+m1-002	696	elaborator: EmitWalker lowers IrKind::Let(Literal) for let : u64 = imm	phase-5-elab-lowering	S
+m1-003	697	elaborator: EmitWalker lowers IrKind::Lambda body for fn (x) -> x + N	phase-5-elab-lowering	S
+m1-001	695	elaborator: EmitWalker skeleton + EmitPassState side-table writer	phase-5-elab-lowering	S
+m1-004	698	elaborator: EmitWalker handles IrKind::Unsafe — delegate to UnsafeWalker (m3)	phase-5-elab-lowering	XS
+m1-005	699	elaborator: chain EmitWalker into cmd_build and propagate diagnostics	phase-5-elab-lowering	S
+m4-004	708	emitter-elf: relocation linking .text references to .rodata data symbols	phase-5-static-data	S
+m5-001	709	ir: top-level binding symbol table	phase-5-symbols-relocs	S
+m3-001	700	ir + ast: persist StmtInstruction mnemonic + operand AST shape through lowering	phase-5-unsafe-walker	S
+m3-002	701	elaborator: operand parser for the unsafe-block surface	phase-5-unsafe-walker	S
+m3-003	702	elaborator: mnemonic-name → Mnemonic enum resolver	phase-5-unsafe-walker	S
+m3-004	703	elaborator: UnsafeWalker consumes pending blocks, emits Instruction entries	phase-5-unsafe-walker	S
+m3-005	704	cli: cmd_build calls UnsafeWalker::run after EmitWalker	phase-5-unsafe-walker	XS
+m4-001	705	parser: [T; N] fixed-array type parses without P0100	phase-5-static-data	S
+m4-002	706	parser: array literal [expr, expr, ...] initialisers	phase-5-static-data	S
+m4-003	707	emitter-elf: .rodata + .data section population from elaborator	phase-5-static-data	S
+m2-002	719	encoder: zero-operand control + sync instructions (cli, sti, hlt, nop, swapgs, cpuid)	phase-5-encoder-boot-isa	XS
+m2-001	718	ir + encoder: extend Mnemonic with privileged-ISA variants + bridge stub	phase-5-encoder-boot-isa	S
+m6-001	713	fixtures: tests/build-emit/uart_smoke.pdx source	phase-5-end-to-end-smoke	XS
+m5-005	712	cli: cmd_build writes the real InstructionSideTable body into .text	phase-5-symbols-relocs	S
+m5-004	711	emitter-elf: undefined-symbol entries for cross-file references	phase-5-symbols-relocs	S
+m5-003	710	emitter-elf: real symbol-table emission from SymbolTable	phase-5-symbols-relocs	S
+m6-005	717	cli + tests: add_one regression — 02_functions.pdx::add_one byte-identical	phase-5-end-to-end-smoke	XS
+m6-004	716	tests: QEMU smoke under cargo test --test qemu_smoke (gated)	phase-5-end-to-end-smoke	XS
+m6-003	715	tests: byte-sequence assertion for uart_smoke.pdx	phase-5-end-to-end-smoke	S
+m6-002	714	fixtures: tests/build-emit/link.ld and tools/run-smoke.sh driver	phase-5-end-to-end-smoke	XS

@@ -7,7 +7,7 @@
 //! Phase-4-m2-002: Threads InstructionSideTable through emit-stage to
 //! track instruction offsets for DWARF .debug_line section reconstruction.
 
-use paideia_as_encoder::{CodeBuffer, EncodeStats, encode_instruction};
+use paideia_as_encoder::{CodeBuffer, EncodeStats, RelocSite, encode_instruction};
 use paideia_as_ir::{InstructionSideTable, IrNodeId};
 use std::collections::HashMap;
 
@@ -28,10 +28,11 @@ impl std::fmt::Display for TextEmitterError {
 
 impl std::error::Error for TextEmitterError {}
 
-/// Result of emitting text section: encoding stats, offset map, and bytes.
+/// Result of emitting text section: encoding stats, offset map, relocations, and bytes.
 ///
 /// The offset map tracks the byte offset at which each instruction
 /// was emitted, enabling DWARF .debug_line reconstruction (Phase-4-m2-002).
+/// Relocations are collected from all encoded instructions (Phase-5-m4-004).
 #[derive(Debug, Clone)]
 pub struct EmitResult {
     /// Instruction count, instruction bytes, etc.
@@ -39,6 +40,10 @@ pub struct EmitResult {
     /// Map from IrNodeId to emitted byte offset within .text.
     /// Used by DWARF emit-stage to build .debug_line with post-rewrite offsets.
     pub offset_map: HashMap<IrNodeId, u64>,
+    /// Relocation sites collected from instruction encoding.
+    /// Each relocation specifies a symbol reference to be resolved at link time.
+    /// Phase-5-m4-004: Used to populate .rela.text section in ELF emission.
+    pub reloc_sites: Vec<RelocSite>,
 }
 
 /// Emit .text section content from an InstructionSideTable.
@@ -46,10 +51,12 @@ pub struct EmitResult {
 /// Iterates over all instruction entries in the table, encodes each
 /// using the shared encoder, and appends bytes to the output buffer.
 /// Returns encoding statistics, an offset map (IrNodeId → byte offset),
-/// and any errors encountered.
+/// collected relocation sites, and any errors encountered.
 ///
 /// Phase-4-m2-002: The offset map enables DWARF emit-stage to reconstruct
 /// .debug_line with post-rewrite instruction offsets.
+/// Phase-5-m4-004: Relocation sites are collected for linking .text references
+/// to .rodata / .data symbols.
 pub fn emit_text_from_instructions(
     table: &InstructionSideTable,
     output: &mut Vec<u8>,
@@ -57,6 +64,7 @@ pub fn emit_text_from_instructions(
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
     let mut offset_map = HashMap::new();
+    let mut reloc_sites = Vec::new();
 
     // Iterate over all instructions in the side-table, tracking byte offsets.
     // We collect and sort entries by node_id to ensure deterministic order
@@ -66,9 +74,17 @@ pub fn emit_text_from_instructions(
 
     for (&node_id, instruction) in entries {
         let offset_before = buf.bytes.len() as u64;
-        let _encode_output = encode_instruction(instruction, &mut buf, &mut stats)
+        let encode_output = encode_instruction(instruction, &mut buf, &mut stats)
             .map_err(|e| TextEmitterError::EncodeError(format!("{:?}", e)))?;
-        // TODO: Phase 5 m5-003: collect reloc_sites and process them
+
+        // Phase-5-m4-004: Collect relocation sites from this instruction.
+        // Each RelocSite has a byte_offset relative to the instruction's start.
+        // We adjust it to be relative to the start of .text section.
+        for mut site in encode_output.reloc_sites {
+            site.byte_offset = (offset_before as u32) + site.byte_offset;
+            reloc_sites.push(site);
+        }
+
         offset_map.insert(node_id, offset_before);
     }
 
@@ -77,6 +93,7 @@ pub fn emit_text_from_instructions(
     Ok(EmitResult {
         encode_stats: stats,
         offset_map,
+        reloc_sites,
     })
 }
 
@@ -95,6 +112,7 @@ mod tests {
         let emit_result = result.unwrap();
         assert_eq!(output.len(), 0);
         assert!(emit_result.offset_map.is_empty());
+        assert!(emit_result.reloc_sites.is_empty());
     }
 
     #[test]
