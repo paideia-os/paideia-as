@@ -26,6 +26,7 @@ pub mod effect_infer;
 pub mod effect_unify;
 pub mod effect_walker;
 pub mod elab_builtin;
+pub mod emit_walker;
 pub mod env;
 pub mod file_module;
 pub mod functor_apply;
@@ -90,6 +91,7 @@ pub use effect_unify::{
     unify_call_row,
 };
 pub use effect_walker::EffectRowWalker;
+pub use emit_walker::{EmitPassState, EmitWalker};
 pub use env::{Symbol, TypeEnv};
 pub use file_module::{
     M_FILE_NAME_MISMATCH, M_MULTIPLE_TOP_MODULES, M_NO_TOP_MODULE, expected_module_name,
