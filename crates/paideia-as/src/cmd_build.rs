@@ -275,12 +275,14 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
             // Phase-5-m3-005: Run UnsafeWalker to elaborate pending unsafe blocks.
             // Take pending unsafe blocks from EmitWalker state and process them.
             let pending = emit_walker.state_mut().take_pending_unsafe();
+            let record_layouts = &emit_walker.state().record_layouts;
             let unsafe_diags = UnsafeWalker::run(
                 &mut lowering.ir,
                 &arena,
                 pending,
                 &source_map,
                 &mut walker_sink,
+                record_layouts,
             );
             instruction_table = lowering.ir.instructions().clone();
             for d in unsafe_diags {

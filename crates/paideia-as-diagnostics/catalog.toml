@@ -703,3 +703,12 @@ brief = "the instruction takes no operands; operands present in source are ignor
 description = "Phase 6 m1-005: cli, sti, hlt, nop, swapgs, cpuid, wrmsr, rdmsr, iret, iretq, sysret, rep_stosq take no operands. Source with operands for these mnemonics emits U1607 and proceeds with operands ignored (recovery posture for iteration)."
 since = "0.6.0"
 deprecated = false
+
+[diagnostic.U1608]
+severity = "error"
+category = "unsafe"
+title = "Field offset not resolved in unsafe block"
+brief = "field offset cannot be resolved; declare struct before use"
+description = "Phase 6 m3-005: A field access expression (*p.field) inside an unsafe { block: { ... } } references a field whose struct type has not been registered in the record layout table. This occurs when the target record type is not declared before the unsafe block, or the field name does not exist in the struct. The unsafe block requires C-ABI natural-alignment record layout information to resolve field byte offsets at parse time."
+since = "0.6.0"
+deprecated = false

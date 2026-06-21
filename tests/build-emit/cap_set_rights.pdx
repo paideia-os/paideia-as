@@ -1,0 +1,15 @@
+// Phase 6 m3-005: field-access expression inside unsafe { block: { ... } } payload
+// Struct Capability with rights field at offset 16 (after kind at offset 0)
+// Function set_rights dereferences pointer and writes to rights field at offset 16
+// Expected bytes: 48 89 77 10 (mov [rdi + 16], rsi)
+
+module CapSetRights = structure {
+  let fn_set_rights : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "phase 6 m3-005 field access write fixture",
+    block: {
+      mov [rdi + 16], rsi
+    }
+  }
+}

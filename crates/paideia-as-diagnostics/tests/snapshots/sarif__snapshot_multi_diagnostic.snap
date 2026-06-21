@@ -1,6 +1,5 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
-assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -1161,6 +1160,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "Unexpected operands for zero-arity instruction",
               "shortDescription": {
                 "text": "the instruction takes no operands; operands present in source are ignored"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase 6 m3-005: A field access expression (*p.field) inside an unsafe { block: { ... } } references a field whose struct type has not been registered in the record layout table. This occurs when the target record type is not declared before the unsafe block, or the field name does not exist in the struct. The unsafe block requires C-ABI natural-alignment record layout information to resolve field byte offsets at parse time."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1608",
+              "id": "U1608",
+              "name": "Field offset not resolved in unsafe block",
+              "shortDescription": {
+                "text": "field offset cannot be resolved; declare struct before use"
               }
             },
             {
