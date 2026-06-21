@@ -15,19 +15,32 @@
 //! - In{width}: `in_al` → `In{width:1}`, `in_ax` → `In{width:2}`, `in_eax` → `In{width:4}`
 //! - Out{width}: `out_al` → `Out{width:1}`, `out_ax` → `Out{width:2}`, `out_eax` → `Out{width:4}`
 //!
+//! # UnsafeWalker (Phase 5, m3-004)
+//!
+//! The UnsafeWalker elaborates pending unsafe blocks emitted by the EmitWalker.
+//! For each pending unsafe block, it walks the block's statement sequence, emitting
+//! `Instruction` entries into the IR's InstructionSideTable keyed by StmtInstruction IrNodeId.
+//!
+//! Errors are handled per spec:
+//! - Unknown mnemonic: emits U1605 diagnostic with mnemonic span; instruction skipped.
+//! - Operand shape error: emits U1606 diagnostic with operand span; instruction skipped.
+//!
 //! # Register Encoding
 //!
 //! General-purpose registers and special registers use distinct sentinel ranges:
 //! - GPR (rax–r15): `RegId(0..15)` (standard x86_64 encoding)
-//! - Control registers (cr0–cr8): `RegId(0x100 | index)` (sentinel 0x100, index in low byte)
-//! - Debug registers (dr0–dr7): `RegId(0x200 | index)` (sentinel 0x200, index in low byte)
+//! - Control registers (cr0–cr8): `RegId(16..24)` (compact encoding for m2-005 bridge)
+//! - Debug registers (dr0–dr7): `RegId(25..32)` (compact encoding for m2-005 bridge)
 //!
-//! These sentinel encodings allow the bridge in m2-005 to distinguish special registers
-//! during instruction materialization.
+//! The m2-005 bridge reconciles these: if RegId >= 16 and < 25, extract cr_idx = RegId - 16;
+//! if >= 25 and < 33, extract dr_idx = RegId - 25.
 
-use paideia_as_ast::{AstArena, ExprData, NodeId, NodeKind};
-use paideia_as_diagnostics::Span;
-use paideia_as_ir::instruction::{Cond, Mnemonic, Operand, RegId, Scale};
+use paideia_as_ast::{AstArena, ExprData, NodeId, NodeKind, StmtData};
+use paideia_as_diagnostics::{
+    Category, Diagnostic, DiagnosticCode, DiagnosticSink, Severity, Span,
+};
+use paideia_as_ir::instruction::{Cond, Instruction, Mnemonic, Operand, RegId, Scale};
+use paideia_as_ir::{IrArena, IrNodeId, SmallVec};
 
 /// Error type for operand parsing.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -511,6 +524,210 @@ fn register_name_to_regid(name: &str) -> Option<RegId> {
         "dr6" => Some(RegId(31)),
         "dr7" => Some(RegId(32)),
         _ => None,
+    }
+}
+
+/// Diagnostic code for unknown mnemonic (U1605).
+pub const U_UNKNOWN_MNEMONIC: u16 = 1605;
+
+/// Diagnostic code for malformed operand (U1606).
+pub const U_MALFORMED_OPERAND: u16 = 1606;
+
+/// Helper: create a U-category error code.
+fn u_code(n: u16) -> DiagnosticCode {
+    DiagnosticCode::new(Category::U, Severity::Error, n).expect("valid U code")
+}
+
+/// UnsafeWalker — Phase 5 m3-004 elaborator for unsafe blocks.
+///
+/// Walks pending unsafe blocks (collected by EmitWalker m1-004) and emits
+/// `Instruction` entries into the IR's InstructionSideTable. For each
+/// `StmtInstruction` in the block, resolves the mnemonic and parses all operands,
+/// then inserts an `Instruction` keyed by the statement's IrNodeId.
+pub struct UnsafeWalker;
+
+impl UnsafeWalker {
+    /// Run the unsafe walker on a set of pending unsafe blocks.
+    ///
+    /// # Arguments
+    ///
+    /// * `arena` - The IR arena containing the unsafe block nodes.
+    /// * `ast` - The AST arena containing the block's statement data.
+    /// * `pending_ids` - IrNodeIds of IrKind::Unsafe nodes to elaborate.
+    /// * `sink` - Diagnostic sink for emitting errors.
+    ///
+    /// # Returns
+    ///
+    /// A vector of diagnostics emitted during elaboration.
+    ///
+    /// # Side effects
+    ///
+    /// Mutates `arena.instructions_mut()` to insert Instruction entries.
+    pub fn run(
+        arena: &mut IrArena,
+        ast: &AstArena,
+        pending_ids: Vec<u32>,
+        sink: &mut dyn DiagnosticSink,
+    ) -> Vec<Diagnostic> {
+        let mut diags = Vec::new();
+
+        for ir_node_id_u32 in pending_ids {
+            let _ir_node_id = match IrNodeId::new(ir_node_id_u32) {
+                Some(id) => id,
+                None => continue,
+            };
+
+            // Get the IR node to find the AST node it references.
+            // The IR node for Unsafe should have been constructed during lowering.
+            // We need to find the corresponding AST node via the elaborator's
+            // lowering tables (typically stored in a context struct).
+            // For this phase, we assume that the unsafe block's AST node ID
+            // can be derived or is passed via context. Placeholder: search in AST.
+
+            // Scan the entire AST for ExprUnsafe nodes (this is a placeholder approach).
+            // A production implementation would use an AST-to-IR mapping table.
+            for ast_idx in 1..=ast.len() {
+                if let Some(ast_node_id) = NodeId::new(ast_idx as u32) {
+                    if let Some(ast_node) = ast.get(ast_node_id) {
+                        if ast_node.kind == NodeKind::ExprUnsafe {
+                            // Found an ExprUnsafe node; check if this is our target.
+                            if let Some(ExprData::Unsafe { block, .. }) = ast.expr_data(ast_node_id)
+                            {
+                                // Iterate over the statements in the unsafe block.
+                                for &stmt_id in block {
+                                    if let Some(ast_stmt_node) = ast.get(stmt_id) {
+                                        if ast_stmt_node.kind == NodeKind::StmtInstruction {
+                                            // Process this instruction statement.
+                                            Self::process_instruction_stmt(
+                                                arena, ast, stmt_id, &mut diags, sink,
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        diags
+    }
+
+    /// Process a single StmtInstruction node.
+    ///
+    /// Resolves the mnemonic, parses all operands, and inserts an Instruction
+    /// into the arena's side-table. Emits diagnostics on error.
+    fn process_instruction_stmt(
+        arena: &mut IrArena,
+        ast: &AstArena,
+        stmt_id: NodeId,
+        diags: &mut Vec<Diagnostic>,
+        sink: &mut dyn DiagnosticSink,
+    ) {
+        // Get the statement data.
+        let stmt_data = match ast.stmt_data(stmt_id) {
+            Some(StmtData::Instruction { mnemonic, operands }) => (mnemonic, operands),
+            _ => return,
+        };
+
+        let mnemonic_id = stmt_data.0;
+        let operand_ids = stmt_data.1;
+
+        // Get the mnemonic string from the arena's interned table.
+        let mnemonic_str = ast.mnemonic_str(*mnemonic_id);
+
+        // Resolve the mnemonic to a Mnemonic enum variant.
+        let mnemonic = match resolve_mnemonic(mnemonic_str) {
+            Some(m) => m,
+            None => {
+                // U1605: Unknown mnemonic
+                let span = ast.get(stmt_id).map(|n| n.span).unwrap_or_else(|| {
+                    paideia_as_diagnostics::Span::new(
+                        paideia_as_diagnostics::FileId::new(1).unwrap(),
+                        0,
+                        1,
+                    )
+                });
+                let diag = Diagnostic::error(u_code(U_UNKNOWN_MNEMONIC))
+                    .message(format!("unknown mnemonic: {}", mnemonic_str))
+                    .with_span(span)
+                    .finish();
+                let _ = sink.emit(diag.clone());
+                diags.push(diag);
+                return;
+            }
+        };
+
+        // Parse all operands.
+        let mut parsed_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        let mut operand_error = false;
+
+        for &operand_id in operand_ids {
+            match parse_operand_from_ast(ast, operand_id) {
+                Ok(operand) => {
+                    parsed_operands.push(operand);
+                }
+                Err(OperandError::UnknownRegister(_name, span)) => {
+                    // U1606: Malformed operand (register name not recognized)
+                    let diag = Diagnostic::error(u_code(U_MALFORMED_OPERAND))
+                        .message("malformed operand in unsafe block: unknown register".to_string())
+                        .with_span(span)
+                        .finish();
+                    let _ = sink.emit(diag.clone());
+                    diags.push(diag);
+                    operand_error = true;
+                    break;
+                }
+                Err(OperandError::MalformedOperand(span)) => {
+                    // U1606: Malformed operand (shape error)
+                    let diag = Diagnostic::error(u_code(U_MALFORMED_OPERAND))
+                        .message("malformed operand in unsafe block".to_string())
+                        .with_span(span)
+                        .finish();
+                    let _ = sink.emit(diag.clone());
+                    diags.push(diag);
+                    operand_error = true;
+                    break;
+                }
+            }
+        }
+
+        // If any operand parsing failed, skip this instruction.
+        if operand_error {
+            return;
+        }
+
+        // Create the Instruction and insert it into the arena.
+        // We need to find or create an IrNodeId for this statement.
+        // For now, we'll use a heuristic: scan the arena for a node with matching span.
+        // Production code would use an AST-to-IR mapping table.
+        let stmt_span = ast.get(stmt_id).map(|n| n.span).unwrap_or_else(|| {
+            paideia_as_diagnostics::Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 0, 1)
+        });
+
+        // Find an IrNodeId with matching span (this is a placeholder).
+        // A production implementation would consult an AST-to-IR map.
+        let mut found_ir_id = None;
+        for ir_idx in 1..=arena.len() as u32 {
+            if let Some(ir_node_id) = IrNodeId::new(ir_idx) {
+                if let Some(ir_node) = arena.get(ir_node_id) {
+                    if ir_node.span == stmt_span {
+                        found_ir_id = Some(ir_node_id);
+                        break;
+                    }
+                }
+            }
+        }
+
+        if let Some(ir_node_id) = found_ir_id {
+            let inst = Instruction {
+                mnemonic,
+                operands: parsed_operands,
+                encoding_hint: None,
+            };
+            arena.instructions_mut().insert(ir_node_id, inst);
+        }
     }
 }
 

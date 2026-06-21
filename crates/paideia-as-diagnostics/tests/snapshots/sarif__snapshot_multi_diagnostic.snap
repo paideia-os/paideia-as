@@ -1055,6 +1055,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "Phase 5 m3-004: UnsafeWalker encountered an operand parsing error while elaborating a StmtInstruction inside an `unsafe { block: { ... } }`. This indicates a syntax error in the operand expression: invalid register name, malformed memory reference (e.g., '[rdi +]' with missing operand), type mismatch, or other shape error returned by m3-002's operand parser. The instruction is skipped; check the operand against the x86_64 addressing-mode rules in design/cpu/unsafe-blocks.md."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1606",
+              "id": "U1606",
+              "name": "Malformed operand in unsafe block",
+              "shortDescription": {
+                "text": "operand parsing failed; check operand syntax and memory-addressing mode"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "A symbol is marked as undefined (section_index=0xFFFFFFFF) in the symbol table, but no input PAX exports a symbol with the same BLAKE3 name hash. The linker cannot resolve this reference."
               },
               "helpUri": "https://paideia-os.org/diagnostics/B1700",

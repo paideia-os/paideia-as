@@ -631,3 +631,12 @@ brief = "the mnemonic name is not in the resolver table; check spelling or file 
 description = "Phase 5 m3-003: every mnemonic used inside an `unsafe { block: { ... } }` must be present in the MNEMONIC_TABLE. Unknown mnemonics could be typos OR could be valid x86_64 instructions not yet wired through paideia-as. The resolver tables cover Phase 3 m2-001's 10 base mnemonics plus Phase 5 m2-001's 20 privileged/system-ISA mnemonics, along with all Jcc condition codes, control/debug register moves, I/O port operations, and software interrupts (30+ total). Consult `crates/paideia-as-elaborator/src/unsafe_walker.rs` MNEMONIC_TABLE or file an issue to request additional instruction support."
 since = "0.5.0"
 deprecated = false
+
+[diagnostic.U1606]
+severity = "error"
+category = "unsafe"
+title = "Malformed operand in unsafe block"
+brief = "operand parsing failed; check operand syntax and memory-addressing mode"
+description = "Phase 5 m3-004: UnsafeWalker encountered an operand parsing error while elaborating a StmtInstruction inside an `unsafe { block: { ... } }`. This indicates a syntax error in the operand expression: invalid register name, malformed memory reference (e.g., '[rdi +]' with missing operand), type mismatch, or other shape error returned by m3-002's operand parser. The instruction is skipped; check the operand against the x86_64 addressing-mode rules in design/cpu/unsafe-blocks.md."
+since = "0.5.0"
+deprecated = false
