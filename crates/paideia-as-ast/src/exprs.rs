@@ -396,6 +396,12 @@ pub enum ExprData {
         /// Expression being dereferenced.
         expr: NodeId,
     },
+
+    /// `[expr1, expr2, ...]` or `[expr1, expr2, ...,]`.
+    ///
+    /// Array literal expression: contains a list of element expressions.
+    /// Empty array literals `[]` require explicit type annotation and emit P0210.
+    ArrayLit(Vec<NodeId>),
 }
 
 /// A single arm in a match expression.

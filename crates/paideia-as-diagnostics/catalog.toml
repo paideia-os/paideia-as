@@ -362,6 +362,15 @@ description = "An impl block must have the form: impl<T, U, ...> (TraitName)? fo
 since = "0.7.0"
 deprecated = false
 
+[diagnostic.P0210]
+severity = "error"
+category = "parser"
+title = "Empty array literal requires type annotation"
+brief = "empty array literal `[]` used without explicit type"
+description = "Phase 5 m4-002: array literal expressions with explicit syntax `[expr, expr, ...]` require a type annotation to disambiguate the element type when the array is empty. Provide an explicit type annotation like `let xs: [u64; 3] = [1, 2, 3];` or ensure the array is not empty so the type can be inferred from elements."
+since = "0.8.0"
+deprecated = false
+
 [diagnostic.O1500]
 severity = "note"
 category = "optimization"

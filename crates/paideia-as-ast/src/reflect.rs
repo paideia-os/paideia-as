@@ -415,6 +415,11 @@ impl<'a> Term<'a> {
                 ExprData::Deref { expr } => {
                     result.push(Term::new(self.arena, *expr));
                 }
+                ExprData::ArrayLit(elements) => {
+                    for element in elements {
+                        result.push(Term::new(self.arena, *element));
+                    }
+                }
             }
         }
 

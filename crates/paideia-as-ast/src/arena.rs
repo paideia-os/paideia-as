@@ -125,6 +125,8 @@ pub enum NodeKind {
     ExprBorrow,
     /// `*expr` (dereference expression).
     ExprDeref,
+    /// `[expr1, expr2, ...]` (array literal).
+    ExprArrayLit,
 
     // Statements (§8 Stmt: LetStmt | ExprStmt | InstructionStmt | ReturnStmt)
     /// `let name: ty? = expr;`.

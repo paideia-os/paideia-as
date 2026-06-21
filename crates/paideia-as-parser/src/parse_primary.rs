@@ -21,6 +21,8 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     ///   allocate synthetic Placeholder nodes, wrap in ExprLiteral.
     /// - **Identifiers**: parse as a path with segments separated by `::`.
     /// - **KwSelfType / KwSelfValue**: treat as a single-segment path.
+    /// - **LBracket**: parse as array literal `[expr, expr, ...]`. Empty array requires
+    ///   explicit type annotation and emits P0210.
     /// - **LParen**: disambiguate between `()` (unit), `(expr)` (parenthesized),
     ///   and `(a, b, c)` (tuple; currently stubbed as Placeholder).
     /// - **Otherwise**: emit P0100 "expected expression" and return Err.
@@ -231,6 +233,9 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                         ))
                     }
 
+                    // Array literals
+                    TokenKind::LBracket => self.parse_array_lit(),
+
                     // Parenthesized expressions and tuples
                     TokenKind::LParen => self.parse_paren_expr(),
 
@@ -307,6 +312,69 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         Ok(self
             .arena_mut()
             .alloc_expr(NodeKind::ExprPath, path_span, ExprData::Path { segments }))
+    }
+
+    /// Parse an array literal: `[expr1, expr2, ..., exprN]` or `[expr1, expr2, ...,]`.
+    ///
+    /// Algorithm:
+    /// 1. Expect `[`.
+    /// 2. If `]` immediately follows, emit P0210 and return Err (empty array without type annotation).
+    /// 3. Otherwise, parse comma-separated expressions until `]`.
+    /// 4. Allow trailing comma before the closing `]`.
+    /// 5. Return ExprArrayLit with the list of element node IDs.
+    ///
+    /// Returns an ExprArrayLit node with `ArrayLit(Vec<NodeId>)`.
+    fn parse_array_lit(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
+        let lbracket_tok = self.expect(TokenKind::LBracket)?;
+        let span_start = lbracket_tok.span;
+
+        // Check for empty array literal: `[]`
+        if self.at(TokenKind::RBracket) {
+            // Empty array requires explicit type annotation — emit P0210
+            let span = span_start;
+            let diag = Diagnostic::error(p_code(210))
+                .message("empty array literal requires explicit type annotation".to_string())
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        // Parse comma-separated elements
+        let mut elements = vec![];
+        loop {
+            elements.push(self.parse_expr()?);
+
+            if !self.at(TokenKind::Comma) {
+                break;
+            }
+            self.bump(); // consume comma
+
+            // Check for trailing comma before closing bracket
+            if self.at(TokenKind::RBracket) {
+                break;
+            }
+        }
+
+        // Expect closing bracket
+        if !self.at(TokenKind::RBracket) {
+            return self.error_mismatched_delimiter(span_start);
+        }
+        let rbracket_tok = self.expect(TokenKind::RBracket)?;
+        let rbracket_span = rbracket_tok.span;
+
+        // Compute span from `[` to `]`
+        let array_span = Span::new(
+            span_start.file(),
+            span_start.byte_start(),
+            rbracket_span.byte_start() + rbracket_span.byte_len() - span_start.byte_start(),
+        );
+
+        Ok(self.arena_mut().alloc_expr(
+            NodeKind::ExprArrayLit,
+            array_span,
+            ExprData::ArrayLit(elements),
+        ))
     }
 
     /// Parse parenthesized expressions: `()`, `(expr)`, or `(a, b, c)`.
@@ -948,5 +1016,162 @@ mod tests {
         let expr_id = result.unwrap();
         let node = arena.get(expr_id).unwrap();
         assert_eq!(node.kind, NodeKind::ExprResume);
+    }
+
+    #[test]
+    fn parses_array_lit_single_element() {
+        // [1]
+        let tokens = vec![
+            tok(TokenKind::LBracket, 0, 1),
+            tok(TokenKind::IntLit, 1, 1),
+            tok(TokenKind::RBracket, 2, 1),
+            tok(TokenKind::Eof, 3, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+
+        let result = parser.parse_primary();
+        assert!(result.is_ok());
+        let expr_id = result.unwrap();
+        let node = arena.get(expr_id).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprArrayLit);
+        if let Some(ExprData::ArrayLit(elements)) = arena.expr_data(expr_id) {
+            assert_eq!(elements.len(), 1);
+        } else {
+            panic!("expected ArrayLit variant");
+        }
+    }
+
+    #[test]
+    fn parses_array_lit_three_elements() {
+        // [1, 2, 3]
+        let tokens = vec![
+            tok(TokenKind::LBracket, 0, 1),
+            tok(TokenKind::IntLit, 1, 1),
+            tok(TokenKind::Comma, 2, 1),
+            tok(TokenKind::IntLit, 3, 1),
+            tok(TokenKind::Comma, 4, 1),
+            tok(TokenKind::IntLit, 5, 1),
+            tok(TokenKind::RBracket, 6, 1),
+            tok(TokenKind::Eof, 7, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+
+        let result = parser.parse_primary();
+        assert!(result.is_ok());
+        let expr_id = result.unwrap();
+        let node = arena.get(expr_id).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprArrayLit);
+        if let Some(ExprData::ArrayLit(elements)) = arena.expr_data(expr_id) {
+            assert_eq!(elements.len(), 3);
+        } else {
+            panic!("expected ArrayLit variant");
+        }
+    }
+
+    #[test]
+    fn parses_array_lit_trailing_comma() {
+        // [1, 2, 3,]
+        let tokens = vec![
+            tok(TokenKind::LBracket, 0, 1),
+            tok(TokenKind::IntLit, 1, 1),
+            tok(TokenKind::Comma, 2, 1),
+            tok(TokenKind::IntLit, 3, 1),
+            tok(TokenKind::Comma, 4, 1),
+            tok(TokenKind::IntLit, 5, 1),
+            tok(TokenKind::Comma, 6, 1),
+            tok(TokenKind::RBracket, 7, 1),
+            tok(TokenKind::Eof, 8, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+
+        let result = parser.parse_primary();
+        assert!(result.is_ok());
+        let expr_id = result.unwrap();
+        let node = arena.get(expr_id).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprArrayLit);
+        if let Some(ExprData::ArrayLit(elements)) = arena.expr_data(expr_id) {
+            assert_eq!(elements.len(), 3);
+        } else {
+            panic!("expected ArrayLit variant");
+        }
+    }
+
+    #[test]
+    fn parses_array_lit_with_byte_literals() {
+        // [0xCF, 0x9A, 0x00, 0x00, 0xFF]
+        let tokens = vec![
+            tok(TokenKind::LBracket, 0, 1),
+            tok(TokenKind::IntLit, 1, 4), // 0xCF
+            tok(TokenKind::Comma, 5, 1),
+            tok(TokenKind::IntLit, 6, 4), // 0x9A
+            tok(TokenKind::Comma, 10, 1),
+            tok(TokenKind::IntLit, 11, 5), // 0x00
+            tok(TokenKind::Comma, 16, 1),
+            tok(TokenKind::IntLit, 17, 5), // 0x00
+            tok(TokenKind::Comma, 22, 1),
+            tok(TokenKind::IntLit, 23, 4), // 0xFF
+            tok(TokenKind::RBracket, 27, 1),
+            tok(TokenKind::Eof, 28, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+
+        let result = parser.parse_primary();
+        assert!(result.is_ok());
+        let expr_id = result.unwrap();
+        let node = arena.get(expr_id).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprArrayLit);
+        if let Some(ExprData::ArrayLit(elements)) = arena.expr_data(expr_id) {
+            assert_eq!(elements.len(), 5);
+        } else {
+            panic!("expected ArrayLit variant");
+        }
+    }
+
+    #[test]
+    fn empty_array_lit_emits_p0210() {
+        // []
+        let tokens = vec![
+            tok(TokenKind::LBracket, 0, 1),
+            tok(TokenKind::RBracket, 1, 1),
+            tok(TokenKind::Eof, 2, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+
+        let result = parser.parse_primary();
+        assert!(result.is_err(), "empty array literal should fail");
+        assert_eq!(sink.diagnostics().len(), 1);
+        let diag = &sink.diagnostics()[0];
+        assert_eq!(diag.code().number(), 210);
+    }
+
+    #[test]
+    fn array_lit_missing_close_emits_p0101() {
+        // [1, 2 (EOF) - missing ]
+        let tokens = vec![
+            tok(TokenKind::LBracket, 0, 1),
+            tok(TokenKind::IntLit, 1, 1),
+            tok(TokenKind::Comma, 2, 1),
+            tok(TokenKind::IntLit, 3, 1),
+            tok(TokenKind::Eof, 4, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+
+        let result = parser.parse_primary();
+        assert!(result.is_err(), "missing closing bracket should fail");
+        assert!(!sink.diagnostics().is_empty());
+        let diag = &sink.diagnostics()[sink.diagnostics().len() - 1];
+        assert_eq!(diag.code().number(), 101);
     }
 }

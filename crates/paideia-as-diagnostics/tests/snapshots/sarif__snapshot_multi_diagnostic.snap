@@ -1,5 +1,6 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
+assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -558,6 +559,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "Malformed impl block",
               "shortDescription": {
                 "text": "expected impl block syntax"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase 5 m4-002: array literal expressions with explicit syntax `[expr, expr, ...]` require a type annotation to disambiguate the element type when the array is empty. Provide an explicit type annotation like `let xs: [u64; 3] = [1, 2, 3];` or ensure the array is not empty so the type can be inferred from elements."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0210",
+              "id": "P0210",
+              "name": "Empty array literal requires type annotation",
+              "shortDescription": {
+                "text": "empty array literal `[]` used without explicit type"
               }
             },
             {

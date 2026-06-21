@@ -615,6 +615,14 @@ fn print_expr_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
         ExprData::Deref { expr } => {
             format!("Deref {{ expr: {} }}", expr)
         }
+        ExprData::ArrayLit(elements) => {
+            let elements_str = elements
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("ArrayLit([{}])", elements_str)
+        }
     };
 
     use std::fmt::Write;
