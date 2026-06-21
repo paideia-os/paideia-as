@@ -155,8 +155,8 @@ pub fn encode_instruction(
         Mnemonic::Int => encode_int(inst, buf),
         Mnemonic::MovCr { write } => encode_mov_cr_inst(inst, buf, *write),
         Mnemonic::MovDr { write } => encode_mov_dr_inst(inst, buf, *write),
-        Mnemonic::Lgdt => Err(EncodeError::Unsupported("phase-5 m2-007")),
-        Mnemonic::Lidt => Err(EncodeError::Unsupported("phase-5 m2-007")),
+        Mnemonic::Lgdt => encode_lgdt_inst(inst, buf),
+        Mnemonic::Lidt => encode_lidt_inst(inst, buf),
         Mnemonic::Iret => Err(EncodeError::Unsupported("phase-5 m2-008")),
         Mnemonic::Iretq => Err(EncodeError::Unsupported("phase-5 m2-008")),
         Mnemonic::Sysret => Err(EncodeError::Unsupported("phase-5 m2-008")),
@@ -655,6 +655,72 @@ fn encode_mov_dr_inst(
         }
         _ => Err(EncodeError::OperandShape {
             mnemonic: Mnemonic::MovDr { write },
+        }),
+    }
+}
+
+fn encode_lgdt_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+    // lgdt [base + disp] - load GDT descriptor
+    match inst.operands.as_slice() {
+        [
+            Operand::MemSib {
+                base,
+                index: None,
+                scale: Scale::X1,
+                disp,
+            },
+        ] => {
+            // Valid form: [base] with optional displacement, no index
+            let base_reg = reg64_from(*base)?;
+            encode_descriptor_table_load(buf, base_reg, *disp, 2); // 2 = /2 for lgdt
+            Ok(())
+        }
+        [
+            Operand::MemSib {
+                base: _,
+                index: Some(_),
+                scale: _,
+                disp: _,
+            },
+        ] => {
+            // Indexed form not supported
+            Err(EncodeError::Unsupported("lgdt/lidt indexed form"))
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Lgdt,
+        }),
+    }
+}
+
+fn encode_lidt_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+    // lidt [base + disp] - load IDT descriptor
+    match inst.operands.as_slice() {
+        [
+            Operand::MemSib {
+                base,
+                index: None,
+                scale: Scale::X1,
+                disp,
+            },
+        ] => {
+            // Valid form: [base] with optional displacement, no index
+            let base_reg = reg64_from(*base)?;
+            encode_descriptor_table_load(buf, base_reg, *disp, 3); // 3 = /3 for lidt
+            Ok(())
+        }
+        [
+            Operand::MemSib {
+                base: _,
+                index: Some(_),
+                scale: _,
+                disp: _,
+            },
+        ] => {
+            // Indexed form not supported
+            Err(EncodeError::Unsupported("lgdt/lidt indexed form"))
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Lidt,
         }),
     }
 }
@@ -1462,5 +1528,169 @@ mod tests {
         let mut stats = EncodeStats::new();
         let result = encode_instruction(&inst, &mut buf, &mut stats);
         assert!(result.is_err(), "CR2 should not be supported in phase-5");
+    }
+
+    // ── Phase-5 m2-007: descriptor-table load (lgdt/lidt) ────────
+
+    #[test]
+    fn encode_lgdt_rdi_disp0_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Lgdt,
+            operands: smallvec::smallvec![Operand::MemSib {
+                base: RegId(7), // rdi
+                index: None,
+                scale: Scale::X1,
+                disp: 0,
+            }],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expect: 0F 01 17 (3 bytes)
+        assert_eq!(buf.as_slice(), &[0x0F, 0x01, 0x17]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Lgdt);
+    }
+
+    #[test]
+    fn encode_lgdt_rdi_disp8_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Lgdt,
+            operands: smallvec::smallvec![Operand::MemSib {
+                base: RegId(7), // rdi
+                index: None,
+                scale: Scale::X1,
+                disp: 8,
+            }],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expect: 0F 01 57 08 (4 bytes)
+        assert_eq!(buf.as_slice(), &[0x0F, 0x01, 0x57, 0x08]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Lgdt);
+    }
+
+    #[test]
+    fn encode_lgdt_rdi_disp_neg128_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Lgdt,
+            operands: smallvec::smallvec![Operand::MemSib {
+                base: RegId(7), // rdi
+                index: None,
+                scale: Scale::X1,
+                disp: -128,
+            }],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expect: 0F 01 57 80 (4 bytes, -128 as u8 = 0x80)
+        assert_eq!(buf.as_slice(), &[0x0F, 0x01, 0x57, 0x80]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Lgdt);
+    }
+
+    #[test]
+    fn encode_lidt_rdi_disp0_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Lidt,
+            operands: smallvec::smallvec![Operand::MemSib {
+                base: RegId(7), // rdi
+                index: None,
+                scale: Scale::X1,
+                disp: 0,
+            }],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expect: 0F 01 1F (3 bytes, encoding: 0F 01 /3)
+        assert_eq!(buf.as_slice(), &[0x0F, 0x01, 0x1F]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Lidt);
+    }
+
+    #[test]
+    fn encode_lidt_rdi_disp16_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Lidt,
+            operands: smallvec::smallvec![Operand::MemSib {
+                base: RegId(7), // rdi
+                index: None,
+                scale: Scale::X1,
+                disp: 16,
+            }],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expect: 0F 01 5F 10 (4 bytes)
+        assert_eq!(buf.as_slice(), &[0x0F, 0x01, 0x5F, 0x10]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Lidt);
+    }
+
+    #[test]
+    fn encode_lidt_rdi_disp_neg128_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Lidt,
+            operands: smallvec::smallvec![Operand::MemSib {
+                base: RegId(7), // rdi
+                index: None,
+                scale: Scale::X1,
+                disp: -128,
+            }],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expect: 0F 01 5F 80 (4 bytes)
+        assert_eq!(buf.as_slice(), &[0x0F, 0x01, 0x5F, 0x80]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Lidt);
     }
 }

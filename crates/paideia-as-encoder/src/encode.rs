@@ -1009,6 +1009,47 @@ pub fn encode_mov_dr(buf: &mut CodeBuffer, write: bool, dr_idx: u8, gpr_idx: u8)
     buf.bytes.push(modrm);
 }
 
+/// Encode descriptor-table load instructions: `lgdt [base + disp]` or `lidt [base + disp]`.
+///
+/// Both lgdt and lidt follow the same encoding pattern:
+/// - Opcode: 0F 01 /2 (lgdt) or 0F 01 /3 (lidt)
+/// - Operand: memory address [base + disp]
+///
+/// # Arguments
+/// - `buf`: code buffer to append instructions to
+/// - `base_reg`: base register ID (0-15 for GPRs)
+/// - `disp`: displacement from base (-2^31..2^31-1)
+/// - `reg_digit`: 2 for lgdt, 3 for lidt (the /digit field in ModR/M.reg)
+pub fn encode_descriptor_table_load(
+    buf: &mut CodeBuffer,
+    base_reg: Reg64,
+    disp: i32,
+    reg_digit: u8,
+) {
+    let base_id = base_reg as u8;
+
+    // Emit two-byte opcode (no REX prefix needed for this instruction)
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0x01);
+
+    // Encode displacement and ModR/M byte
+    if disp == 0 {
+        // Use mod=00, no displacement
+        let modrm = ((reg_digit & 7) << 3) | (base_id & 7);
+        buf.bytes.push(modrm);
+    } else if (-128..=127).contains(&disp) {
+        // Use mod=01, disp8
+        let modrm = 0x40 | ((reg_digit & 7) << 3) | (base_id & 7);
+        buf.bytes.push(modrm);
+        buf.bytes.push(disp as u8);
+    } else {
+        // Use mod=10, disp32
+        let modrm = 0x80 | ((reg_digit & 7) << 3) | (base_id & 7);
+        buf.bytes.push(modrm);
+        buf.bytes.extend(disp.to_le_bytes());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
