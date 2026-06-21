@@ -165,6 +165,8 @@ pub enum NodeKind {
     TypeEnum,
     /// `Self::Item` (self-qualified path to associated type).
     TypeSelfQualifiedPath,
+    /// `[T; N]` (fixed-size array type).
+    TypeArray,
 
     // Patterns (§8 Pattern)
     /// `_` (wildcard).

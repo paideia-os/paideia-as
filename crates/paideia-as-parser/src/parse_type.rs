@@ -172,6 +172,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             Some(TokenKind::KwRecord) => self.parse_type_record(),
             Some(TokenKind::KwEnum) => self.parse_type_enum(),
             Some(TokenKind::LParen) => self.parse_type_paren(),
+            Some(TokenKind::LBracket) => self.parse_type_array(),
             Some(TokenKind::KwSelfType) => self.parse_self_qualified_path(),
             Some(TokenKind::Ident) => self.parse_type_name(),
             Some(TokenKind::EffectOpen) => self.parse_effect_row(),
@@ -716,6 +717,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 tok.kind,
                 TokenKind::Ident
                     | TokenKind::LParen
+                    | TokenKind::LBracket
                     | TokenKind::EffectOpen
                     | TokenKind::CapOpen
                     | TokenKind::Star
@@ -1077,6 +1079,74 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             .unwrap(),
         )
         .message(format!("malformed enum type: {}", reason))
+        .with_span(span)
+        .finish();
+        self.emit_diagnostic(diag);
+        Err(ParseError)
+    }
+
+    /// Parse a fixed-size array type: `[T; N]`.
+    ///
+    /// Syntax: `LBracket Type Semicolon Expr RBracket`.
+    /// The length is parsed as a primary expression (any primary expression is valid
+    /// syntactically; semantic constraints to constant values are enforced at
+    /// type elaboration, not at parse time).
+    ///
+    /// Returns a TypeArray node with element type and length expression.
+    ///
+    /// Errors:
+    /// - P0199: malformed array type (missing length, missing `;`, etc.)
+    fn parse_type_array(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
+        let lbracket_tok = self.expect(TokenKind::LBracket)?;
+        let span_start = lbracket_tok.span;
+
+        // Parse element type
+        let element = self.parse_type_unquantified()?;
+
+        // Expect semicolon
+        if !self.at(TokenKind::Semicolon) {
+            return self.error_malformed_array(
+                self.peek().map(|t| t.span).unwrap_or(span_start),
+                "expected ';' after array element type",
+            );
+        }
+        self.bump(); // consume `;`
+
+        // Parse length expression (as a primary expression)
+        let length = self.parse_primary()?;
+
+        // Expect closing bracket
+        let rbracket_tok = self.expect(TokenKind::RBracket)?;
+
+        // Compute span
+        let span = Span::new(
+            span_start.file(),
+            span_start.byte_start(),
+            rbracket_tok.span.byte_start() + rbracket_tok.span.byte_len() - span_start.byte_start(),
+        );
+
+        Ok(self.arena_mut().alloc_type(
+            NodeKind::TypeArray,
+            span,
+            TypeData::Array { element, length },
+        ))
+    }
+
+    /// Emit a P0199 ("malformed array type") diagnostic and return Err.
+    fn error_malformed_array(
+        &mut self,
+        span: paideia_as_diagnostics::Span,
+        reason: &str,
+    ) -> Result<paideia_as_ast::NodeId, ParseError> {
+        let diag = paideia_as_diagnostics::Diagnostic::error(
+            paideia_as_diagnostics::DiagnosticCode::new(
+                paideia_as_diagnostics::Category::P,
+                paideia_as_diagnostics::Severity::Error,
+                199,
+            )
+            .unwrap(),
+        )
+        .message(format!("malformed array type: {}", reason))
         .with_span(span)
         .finish();
         self.emit_diagnostic(diag);
@@ -2387,6 +2457,166 @@ mod tests {
         assert_eq!(diags.len(), 1, "expected 1 diagnostic");
         let diag = &diags[0];
         assert_eq!(diag.code().number(), 196, "expected P0196");
+        assert!(result.is_err(), "expected parse error");
+    }
+
+    // === Fixed-size array type tests ===
+
+    #[test]
+    fn parse_array_u8_zero() {
+        // `[u8; 0]` → LBracket Ident Semicolon IntLit RBracket Eof
+        let tokens = vec![
+            tok(TokenKind::LBracket, 0),
+            tok(TokenKind::Ident, 1), // u8
+            tok(TokenKind::Semicolon, 3),
+            tok(TokenKind::IntLit, 4), // 0
+            tok(TokenKind::RBracket, 5),
+            tok(TokenKind::Eof, 6),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected");
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypeArray);
+        if let Some(TypeData::Array { element, length }) = arena.type_data(ty_id) {
+            let elem_node = arena.get(*element).unwrap();
+            assert_eq!(elem_node.kind, NodeKind::TypeName);
+            let len_node = arena.get(*length).unwrap();
+            assert_eq!(len_node.kind, NodeKind::ExprLiteral);
+        } else {
+            panic!("expected TypeArray");
+        }
+    }
+
+    #[test]
+    fn parse_array_u8_sixteen() {
+        // `[u8; 16]` → LBracket Ident Semicolon IntLit RBracket Eof
+        let tokens = vec![
+            tok(TokenKind::LBracket, 0),
+            tok(TokenKind::Ident, 1), // u8
+            tok(TokenKind::Semicolon, 3),
+            tok(TokenKind::IntLit, 4), // 16
+            tok(TokenKind::RBracket, 6),
+            tok(TokenKind::Eof, 7),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected");
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypeArray);
+        if let Some(TypeData::Array { element, length }) = arena.type_data(ty_id) {
+            let elem_node = arena.get(*element).unwrap();
+            assert_eq!(elem_node.kind, NodeKind::TypeName);
+            let len_node = arena.get(*length).unwrap();
+            assert_eq!(len_node.kind, NodeKind::ExprLiteral);
+        } else {
+            panic!("expected TypeArray");
+        }
+    }
+
+    #[test]
+    fn parse_array_u64_five() {
+        // `[u64; 5]` → LBracket Ident Semicolon IntLit RBracket Eof
+        let tokens = vec![
+            tok(TokenKind::LBracket, 0),
+            tok(TokenKind::Ident, 1), // u64
+            tok(TokenKind::Semicolon, 4),
+            tok(TokenKind::IntLit, 5), // 5
+            tok(TokenKind::RBracket, 6),
+            tok(TokenKind::Eof, 7),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected");
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypeArray);
+        if let Some(TypeData::Array { element, length }) = arena.type_data(ty_id) {
+            let elem_node = arena.get(*element).unwrap();
+            assert_eq!(elem_node.kind, NodeKind::TypeName);
+            let len_node = arena.get(*length).unwrap();
+            assert_eq!(len_node.kind, NodeKind::ExprLiteral);
+        } else {
+            panic!("expected TypeArray");
+        }
+    }
+
+    #[test]
+    fn parse_nested_array() {
+        // `[[u8; 4]; 4]` → LBracket LBracket Ident Semicolon IntLit RBracket Semicolon IntLit RBracket Eof
+        let tokens = vec![
+            tok(TokenKind::LBracket, 0),
+            tok(TokenKind::LBracket, 1),
+            tok(TokenKind::Ident, 2), // u8
+            tok(TokenKind::Semicolon, 4),
+            tok(TokenKind::IntLit, 5), // 4
+            tok(TokenKind::RBracket, 6),
+            tok(TokenKind::Semicolon, 7),
+            tok(TokenKind::IntLit, 8), // 4
+            tok(TokenKind::RBracket, 9),
+            tok(TokenKind::Eof, 10),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected");
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypeArray);
+        if let Some(TypeData::Array { element, length }) = arena.type_data(ty_id) {
+            // element should be another TypeArray
+            let elem_node = arena.get(*element).unwrap();
+            assert_eq!(elem_node.kind, NodeKind::TypeArray);
+            // length should be a literal
+            let len_node = arena.get(*length).unwrap();
+            assert_eq!(len_node.kind, NodeKind::ExprLiteral);
+        } else {
+            panic!("expected TypeArray");
+        }
+    }
+
+    #[test]
+    fn parse_array_p0199_missing_length() {
+        // `[u8;]` (missing length) → expect P0199 diagnostic
+        let tokens = vec![
+            tok(TokenKind::LBracket, 0),
+            tok(TokenKind::Ident, 1), // u8
+            tok(TokenKind::Semicolon, 3),
+            tok(TokenKind::RBracket, 4),
+            tok(TokenKind::Eof, 5),
+        ];
+        let (_arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 1, "expected 1 diagnostic");
+        let diag = &diags[0];
+        assert_eq!(
+            diag.code().number(),
+            100,
+            "expected P0100 (expected expression)"
+        );
+        assert!(result.is_err(), "expected parse error");
+    }
+
+    #[test]
+    fn parse_array_p0199_missing_semicolon() {
+        // `[u8 16]` (missing semicolon) → expect P0199 diagnostic
+        let tokens = vec![
+            tok(TokenKind::LBracket, 0),
+            tok(TokenKind::Ident, 1),  // u8
+            tok(TokenKind::IntLit, 3), // 16 (no semicolon before this)
+            tok(TokenKind::RBracket, 4),
+            tok(TokenKind::Eof, 5),
+        ];
+        let (_arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 1, "expected 1 diagnostic");
+        let diag = &diags[0];
+        assert_eq!(diag.code().number(), 199, "expected P0199");
         assert!(result.is_err(), "expected parse error");
     }
 }

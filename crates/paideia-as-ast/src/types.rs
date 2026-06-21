@@ -107,6 +107,18 @@ pub enum TypeData {
         /// Name of the associated type (Ident node).
         item: NodeId,
     },
+
+    /// `[T; N]` — Fixed-size array type.
+    ///
+    /// Array type: element type and length expression.
+    /// Length is parsed as a primary expression (semantic constraint to constant
+    /// is enforced at type elaboration, not at parse time).
+    Array {
+        /// Element type (e.g., `u8` in `[u8; 16]`).
+        element: NodeId,
+        /// Length expression (e.g., `16` in `[u8; 16]`).
+        length: NodeId,
+    },
 }
 
 /// One variant of an enum type.
@@ -267,5 +279,22 @@ mod tests {
         let _ = LinClass::Unrestricted;
         let _ = LinClass::LinearMark;
         let _ = LinClass::AffineMark;
+    }
+
+    #[test]
+    fn type_array_constructs() {
+        let element = make_nodeid(1);
+        let length = make_nodeid(2);
+        let ty = TypeData::Array { element, length };
+        match ty {
+            TypeData::Array {
+                element: e,
+                length: l,
+            } => {
+                assert_eq!(e, element);
+                assert_eq!(l, length);
+            }
+            _ => panic!("expected Array variant"),
+        }
     }
 }

@@ -767,6 +767,9 @@ fn print_type_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
         TypeData::SelfQualifiedPath { item } => {
             format!("SelfQualifiedPath {{ item: {} }}", item)
         }
+        TypeData::Array { element, length } => {
+            format!("Array {{ element: {}, length: {} }}", element, length)
+        }
     };
 
     use std::fmt::Write;
