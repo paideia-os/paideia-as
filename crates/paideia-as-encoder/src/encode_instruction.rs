@@ -73,6 +73,49 @@ pub enum EncodeError {
     Unsupported(&'static str),
 }
 
+/// Kind of relocation for a symbol reference.
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub enum RelocKind {
+    /// PC-relative 32-bit relocation (x86_64 R_X86_64_PC32).
+    PcRel32,
+    /// PLT 32-bit relocation (x86_64 R_X86_64_PLT32).
+    Plt32,
+    /// Absolute 64-bit relocation (x86_64 R_X86_64_64).
+    Abs64,
+}
+
+/// A relocation site in the encoded instruction stream.
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct RelocSite {
+    /// Byte offset into the instruction stream where the relocation applies.
+    pub byte_offset: u32,
+    /// Name of the symbol being referenced.
+    pub symbol: String,
+    /// Kind of relocation to apply.
+    pub kind: RelocKind,
+    /// Addend to apply to the symbol address.
+    pub addend: i32,
+}
+
+/// Output from encoding an instruction, including relocation sites.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct EncodeOutput {
+    /// Relocation sites to be processed by the linker.
+    pub reloc_sites: Vec<RelocSite>,
+}
+
+impl EncodeOutput {
+    /// Create a new empty output.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Add a relocation site to the output.
+    pub fn add_reloc(&mut self, site: RelocSite) {
+        self.reloc_sites.push(site);
+    }
+}
+
 /// Convert an IR register ID to an encoder Reg64.
 fn reg64_from(id: RegId) -> Result<Reg64, EncodeError> {
     match id.0 {
@@ -123,12 +166,12 @@ fn cond_from(ir_cond: IrCond) -> Result<Cond, EncodeError> {
 
 /// Dispatch an Instruction to its mnemonic-specific encoder.
 ///
-/// Returns `Ok(stats)` with encoding statistics on success, or an error if encoding fails.
+/// Returns `Ok(EncodeOutput)` with encoding output (including relocation sites) on success, or an error if encoding fails.
 pub fn encode_instruction(
     inst: &Instruction,
     buf: &mut CodeBuffer,
     stats: &mut EncodeStats,
-) -> Result<(), EncodeError> {
+) -> Result<EncodeOutput, EncodeError> {
     stats.record_instruction();
     match &inst.mnemonic {
         Mnemonic::Mov => encode_mov(inst, buf),
@@ -165,17 +208,17 @@ pub fn encode_instruction(
     }
 }
 
-fn encode_mov(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+fn encode_mov(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
     match inst.operands.as_slice() {
         [Operand::Reg(dest), Operand::Reg(src)] => {
             // mov r64, r64 → 48 89 <ModR/M>
             mov_reg64_reg64(buf, reg64_from(*dest)?, reg64_from(*src)?);
-            Ok(())
+            Ok(EncodeOutput::new())
         }
         [Operand::Reg(dest), Operand::Imm64(imm)] => {
             // mov r64, imm64 → REX.W B8+rd <imm64>
             mov_reg64_imm64(buf, reg64_from(*dest)?, *imm as u64);
-            Ok(())
+            Ok(EncodeOutput::new())
         }
         [
             Operand::Reg(dest),
@@ -195,7 +238,30 @@ fn encode_mov(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeErro
                 scale_to_bytes(*scale),
                 false,
             );
-            Ok(())
+            Ok(EncodeOutput::new())
+        }
+        [Operand::Reg(dest), Operand::SymbolRef { name, addend }] => {
+            // mov r64, [symbol + addend] → 48 8B /r [rip-relative ModR/M] [disp32_placeholder]
+            let dest_id = reg64_from(*dest)? as u8;
+            let rex_byte = rex(true, (dest_id >> 3) != 0, false, false);
+
+            buf.bytes.push(rex_byte);
+            buf.bytes.push(0x8B); // mov r64, r/m64 opcode
+
+            // RIP-relative addressing: mod=00, r/m=5
+            buf.bytes.push(0x05 | ((dest_id & 7) << 3)); // ModR/M with rip-relative form
+
+            let reloc_offset = buf.bytes.len() as u32;
+            buf.bytes.extend([0, 0, 0, 0]); // placeholder disp32
+
+            let mut output = EncodeOutput::new();
+            output.add_reloc(RelocSite {
+                byte_offset: reloc_offset,
+                symbol: name.clone(),
+                kind: RelocKind::PcRel32,
+                addend: *addend,
+            });
+            Ok(output)
         }
         _ => Err(EncodeError::Unsupported(
             "mov form not in phase-3-m2-002 minimum",
@@ -207,12 +273,12 @@ fn encode_add(
     inst: &Instruction,
     buf: &mut CodeBuffer,
     stats: &mut EncodeStats,
-) -> Result<(), EncodeError> {
+) -> Result<EncodeOutput, EncodeError> {
     match inst.operands.as_slice() {
         [Operand::Reg(dest), Operand::Reg(src)] => {
             // add r64, r64 → 48 01 <ModR/M>
             add_reg64_reg64(buf, reg64_from(*dest)?, reg64_from(*src)?);
-            Ok(())
+            Ok(EncodeOutput::new())
         }
         [Operand::Reg(dest), Operand::Imm64(imm)] => {
             let dest_reg = reg64_from(*dest)?;
@@ -242,7 +308,7 @@ fn encode_add(
                     "64-bit immediate add not yet supported",
                 ));
             }
-            Ok(())
+            Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::Unsupported(
             "add form not in phase-3-m2-002 minimum",
@@ -250,12 +316,12 @@ fn encode_add(
     }
 }
 
-fn encode_sub(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+fn encode_sub(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
     match inst.operands.as_slice() {
         [Operand::Reg(dest), Operand::Reg(src)] => {
             // sub r64, r64 → 48 29 <ModR/M>
             sub_reg64_reg64(buf, reg64_from(*dest)?, reg64_from(*src)?);
-            Ok(())
+            Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::Unsupported(
             "sub form not in phase-3-m2-002 minimum",
@@ -263,12 +329,12 @@ fn encode_sub(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeErro
     }
 }
 
-fn encode_cmp(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+fn encode_cmp(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
     match inst.operands.as_slice() {
         [Operand::Reg(dest), Operand::Reg(src)] => {
             // cmp r64, r64 → 48 39 <ModR/M>
             cmp_reg64_reg64(buf, reg64_from(*dest)?, reg64_from(*src)?);
-            Ok(())
+            Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::Unsupported(
             "cmp form not in phase-3-m2-002 minimum",
@@ -281,7 +347,7 @@ fn encode_jcc(
     inst: &Instruction,
     buf: &mut CodeBuffer,
     stats: &mut EncodeStats,
-) -> Result<(), EncodeError> {
+) -> Result<EncodeOutput, EncodeError> {
     match inst.operands.as_slice() {
         [Operand::Imm64(rel)] => {
             // jcc can be encoded as rel32 or rel8 depending on displacement
@@ -297,7 +363,7 @@ fn encode_jcc(
                 // Use rel32 form (standard 6-byte encoding)
                 jcc_rel32(buf, cond, disp as i32);
             }
-            Ok(())
+            Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::Unsupported(
             "jcc form not in phase-3-m2-002 minimum",
@@ -305,12 +371,12 @@ fn encode_jcc(
     }
 }
 
-fn encode_jmp(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+fn encode_jmp(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
     match inst.operands.as_slice() {
         [Operand::Imm64(rel)] => {
             // jmp rel32 → E9 <rel32>
             jmp_rel32(buf, *rel as i32);
-            Ok(())
+            Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::Unsupported(
             "jmp form not in phase-3-m2-002 minimum",
@@ -318,12 +384,26 @@ fn encode_jmp(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeErro
     }
 }
 
-fn encode_call(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+fn encode_call(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
     match inst.operands.as_slice() {
         [Operand::Imm64(rel)] => {
             // call rel32 → E8 <rel32>
             call_rel32(buf, *rel as i32);
-            Ok(())
+            Ok(EncodeOutput::new())
+        }
+        [Operand::SymbolRef { name, addend }] => {
+            // call symbol → E8 <disp32_placeholder> + RelocSite
+            let reloc_offset = buf.bytes.len() as u32;
+            buf.bytes.push(0xE8); // call rel32 opcode
+            buf.bytes.extend([0, 0, 0, 0]); // placeholder disp32
+            let mut output = EncodeOutput::new();
+            output.add_reloc(RelocSite {
+                byte_offset: reloc_offset + 1,
+                symbol: name.clone(),
+                kind: RelocKind::PcRel32,
+                addend: *addend,
+            });
+            Ok(output)
         }
         _ => Err(EncodeError::Unsupported(
             "call form not in phase-3-m2-002 minimum",
@@ -331,7 +411,7 @@ fn encode_call(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeErr
     }
 }
 
-fn encode_ret(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+fn encode_ret(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
     if !inst.operands.is_empty() {
         return Err(EncodeError::OperandCount {
             mnemonic: Mnemonic::Ret,
@@ -340,10 +420,10 @@ fn encode_ret(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeErro
         });
     }
     ret(buf);
-    Ok(())
+    Ok(EncodeOutput::new())
 }
 
-fn encode_rep_movsb(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+fn encode_rep_movsb(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
     if !inst.operands.is_empty() {
         return Err(EncodeError::OperandCount {
             mnemonic: Mnemonic::RepMovsb,
@@ -353,10 +433,10 @@ fn encode_rep_movsb(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), Enco
     }
     buf.bytes.push(0xF3);
     buf.bytes.push(0xA4); // rep movsb
-    Ok(())
+    Ok(EncodeOutput::new())
 }
 
-fn encode_lea(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+fn encode_lea(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
     match inst.operands.as_slice() {
         [
             Operand::Reg(dest),
@@ -386,7 +466,30 @@ fn encode_lea(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeErro
                 buf.bytes.push(0x80 | ((dest_id & 7) << 3) | (base_id & 7));
                 buf.bytes.extend(disp.to_le_bytes());
             }
-            Ok(())
+            Ok(EncodeOutput::new())
+        }
+        [Operand::Reg(dest), Operand::SymbolRef { name, addend }] => {
+            // lea r64, [symbol] → 48 8D /r [rip-relative ModR/M] [disp32_placeholder]
+            let dest_id = reg64_from(*dest)? as u8;
+            let rex_byte = rex(true, (dest_id >> 3) != 0, false, false);
+
+            buf.bytes.push(rex_byte);
+            buf.bytes.push(0x8D); // LEA opcode
+
+            // RIP-relative addressing: mod=00, r/m=5
+            buf.bytes.push(0x05 | ((dest_id & 7) << 3)); // ModR/M with rip-relative form
+
+            let reloc_offset = buf.bytes.len() as u32;
+            buf.bytes.extend([0, 0, 0, 0]); // placeholder disp32
+
+            let mut output = EncodeOutput::new();
+            output.add_reloc(RelocSite {
+                byte_offset: reloc_offset,
+                symbol: name.clone(),
+                kind: RelocKind::PcRel32,
+                addend: *addend,
+            });
+            Ok(output)
         }
         _ => Err(EncodeError::Unsupported(
             "lea form not in phase-3-m2-002 minimum",
@@ -399,7 +502,7 @@ fn rex(w: bool, r: bool, x: bool, b: bool) -> u8 {
     0x40 | (u8::from(w) << 3) | (u8::from(r) << 2) | (u8::from(x) << 1) | u8::from(b)
 }
 
-fn encode_cli(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+fn encode_cli(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
     if !inst.operands.is_empty() {
         return Err(EncodeError::OperandCount {
             mnemonic: Mnemonic::Cli,
@@ -408,10 +511,10 @@ fn encode_cli(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeErro
         });
     }
     encode_zero_operand(buf, 0xFA);
-    Ok(())
+    Ok(EncodeOutput::new())
 }
 
-fn encode_sti(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+fn encode_sti(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
     if !inst.operands.is_empty() {
         return Err(EncodeError::OperandCount {
             mnemonic: Mnemonic::Sti,
@@ -420,10 +523,10 @@ fn encode_sti(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeErro
         });
     }
     encode_zero_operand(buf, 0xFB);
-    Ok(())
+    Ok(EncodeOutput::new())
 }
 
-fn encode_hlt(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+fn encode_hlt(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
     if !inst.operands.is_empty() {
         return Err(EncodeError::OperandCount {
             mnemonic: Mnemonic::Hlt,
@@ -432,10 +535,10 @@ fn encode_hlt(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeErro
         });
     }
     encode_zero_operand(buf, 0xF4);
-    Ok(())
+    Ok(EncodeOutput::new())
 }
 
-fn encode_nop(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+fn encode_nop(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
     if !inst.operands.is_empty() {
         return Err(EncodeError::OperandCount {
             mnemonic: Mnemonic::Nop,
@@ -444,10 +547,10 @@ fn encode_nop(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeErro
         });
     }
     encode_zero_operand(buf, 0x90);
-    Ok(())
+    Ok(EncodeOutput::new())
 }
 
-fn encode_swapgs(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+fn encode_swapgs(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
     if !inst.operands.is_empty() {
         return Err(EncodeError::OperandCount {
             mnemonic: Mnemonic::Swapgs,
@@ -456,10 +559,10 @@ fn encode_swapgs(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeE
         });
     }
     encode_zero_operand(buf, 0x81); // sentinel for SWAPGS
-    Ok(())
+    Ok(EncodeOutput::new())
 }
 
-fn encode_cpuid(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+fn encode_cpuid(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
     if !inst.operands.is_empty() {
         return Err(EncodeError::OperandCount {
             mnemonic: Mnemonic::Cpuid,
@@ -468,10 +571,14 @@ fn encode_cpuid(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeEr
         });
     }
     encode_zero_operand(buf, 0x82); // sentinel for CPUID
-    Ok(())
+    Ok(EncodeOutput::new())
 }
 
-fn encode_in(inst: &Instruction, buf: &mut CodeBuffer, width: u8) -> Result<(), EncodeError> {
+fn encode_in(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+    width: u8,
+) -> Result<EncodeOutput, EncodeError> {
     // `in` expects exactly 1 operand: the data register (al/ax/eax, encoded as Rax)
     if inst.operands.len() != 1 {
         return Err(EncodeError::OperandCount {
@@ -498,10 +605,14 @@ fn encode_in(inst: &Instruction, buf: &mut CodeBuffer, width: u8) -> Result<(), 
     }
 
     encode_in_dx(buf, width);
-    Ok(())
+    Ok(EncodeOutput::new())
 }
 
-fn encode_out(inst: &Instruction, buf: &mut CodeBuffer, width: u8) -> Result<(), EncodeError> {
+fn encode_out(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+    width: u8,
+) -> Result<EncodeOutput, EncodeError> {
     // `out` expects exactly 1 operand: the data register (al/ax/eax, encoded as Rax)
     if inst.operands.len() != 1 {
         return Err(EncodeError::OperandCount {
@@ -528,10 +639,13 @@ fn encode_out(inst: &Instruction, buf: &mut CodeBuffer, width: u8) -> Result<(),
     }
 
     encode_out_dx(buf, width);
-    Ok(())
+    Ok(EncodeOutput::new())
 }
 
-fn encode_wrmsr_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+fn encode_wrmsr_inst(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+) -> Result<EncodeOutput, EncodeError> {
     // wrmsr expects exactly 0 operands (MSR index in ECX, value in EDX:EAX)
     if !inst.operands.is_empty() {
         return Err(EncodeError::OperandCount {
@@ -541,10 +655,13 @@ fn encode_wrmsr_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), Enc
         });
     }
     encode_wrmsr(buf);
-    Ok(())
+    Ok(EncodeOutput::new())
 }
 
-fn encode_rdmsr_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+fn encode_rdmsr_inst(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+) -> Result<EncodeOutput, EncodeError> {
     // rdmsr expects exactly 0 operands (MSR index in ECX, result in EDX:EAX)
     if !inst.operands.is_empty() {
         return Err(EncodeError::OperandCount {
@@ -554,10 +671,10 @@ fn encode_rdmsr_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), Enc
         });
     }
     encode_rdmsr(buf);
-    Ok(())
+    Ok(EncodeOutput::new())
 }
 
-fn encode_int(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+fn encode_int(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
     // int expects exactly 1 operand: an immediate value that fits in u8
     match inst.operands.as_slice() {
         [Operand::Imm64(imm)] => {
@@ -566,7 +683,7 @@ fn encode_int(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeErro
                 return Err(EncodeError::Unsupported("int operand > u8"));
             }
             encode_int_imm8(buf, *imm as u8);
-            Ok(())
+            Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::OperandCount {
             mnemonic: Mnemonic::Int,
@@ -580,7 +697,7 @@ fn encode_mov_cr_inst(
     inst: &Instruction,
     buf: &mut CodeBuffer,
     write: bool,
-) -> Result<(), EncodeError> {
+) -> Result<EncodeOutput, EncodeError> {
     // mov cr_idx, gpr (write=true): first=CR, second=GPR
     // mov gpr, cr_idx (write=false): first=GPR, second=CR
     match inst.operands.as_slice() {
@@ -610,7 +727,7 @@ fn encode_mov_cr_inst(
 
             // Emit the instruction using the low-level encoder
             encode_mov_cr(buf, write, cr_idx, gpr_idx);
-            Ok(())
+            Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::OperandShape {
             mnemonic: Mnemonic::MovCr { write },
@@ -622,7 +739,7 @@ fn encode_mov_dr_inst(
     inst: &Instruction,
     buf: &mut CodeBuffer,
     write: bool,
-) -> Result<(), EncodeError> {
+) -> Result<EncodeOutput, EncodeError> {
     // mov dr_idx, gpr (write=true): first=DR, second=GPR
     // mov gpr, dr_idx (write=false): first=GPR, second=DR
     match inst.operands.as_slice() {
@@ -651,7 +768,7 @@ fn encode_mov_dr_inst(
 
             // Emit the instruction using the low-level encoder
             encode_mov_dr(buf, write, dr_idx, gpr_idx);
-            Ok(())
+            Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::OperandShape {
             mnemonic: Mnemonic::MovDr { write },
@@ -659,7 +776,7 @@ fn encode_mov_dr_inst(
     }
 }
 
-fn encode_lgdt_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+fn encode_lgdt_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
     // lgdt [base + disp] - load GDT descriptor
     match inst.operands.as_slice() {
         [
@@ -673,7 +790,26 @@ fn encode_lgdt_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), Enco
             // Valid form: [base] with optional displacement, no index
             let base_reg = reg64_from(*base)?;
             encode_descriptor_table_load(buf, base_reg, *disp, 2); // 2 = /2 for lgdt
-            Ok(())
+            Ok(EncodeOutput::new())
+        }
+        [Operand::SymbolRef { name, addend }] => {
+            // lgdt [symbol] → 0F 01 [rip-relative ModR/M] [disp32_placeholder]
+            buf.bytes.push(0x0F);
+            buf.bytes.push(0x01);
+            // RIP-relative addressing: mod=00, /2 for lgdt
+            buf.bytes.push(0x15); // 0x05 | (2 << 3) = rip-relative with /2
+
+            let reloc_offset = buf.bytes.len() as u32;
+            buf.bytes.extend([0, 0, 0, 0]); // placeholder disp32
+
+            let mut output = EncodeOutput::new();
+            output.add_reloc(RelocSite {
+                byte_offset: reloc_offset,
+                symbol: name.clone(),
+                kind: RelocKind::PcRel32,
+                addend: *addend,
+            });
+            Ok(output)
         }
         [
             Operand::MemSib {
@@ -692,7 +828,7 @@ fn encode_lgdt_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), Enco
     }
 }
 
-fn encode_lidt_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+fn encode_lidt_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
     // lidt [base + disp] - load IDT descriptor
     match inst.operands.as_slice() {
         [
@@ -706,7 +842,26 @@ fn encode_lidt_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), Enco
             // Valid form: [base] with optional displacement, no index
             let base_reg = reg64_from(*base)?;
             encode_descriptor_table_load(buf, base_reg, *disp, 3); // 3 = /3 for lidt
-            Ok(())
+            Ok(EncodeOutput::new())
+        }
+        [Operand::SymbolRef { name, addend }] => {
+            // lidt [symbol] → 0F 01 [rip-relative ModR/M] [disp32_placeholder]
+            buf.bytes.push(0x0F);
+            buf.bytes.push(0x01);
+            // RIP-relative addressing: mod=00, /3 for lidt
+            buf.bytes.push(0x1D); // 0x05 | (3 << 3) = rip-relative with /3
+
+            let reloc_offset = buf.bytes.len() as u32;
+            buf.bytes.extend([0, 0, 0, 0]); // placeholder disp32
+
+            let mut output = EncodeOutput::new();
+            output.add_reloc(RelocSite {
+                byte_offset: reloc_offset,
+                symbol: name.clone(),
+                kind: RelocKind::PcRel32,
+                addend: *addend,
+            });
+            Ok(output)
         }
         [
             Operand::MemSib {
@@ -725,7 +880,7 @@ fn encode_lidt_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), Enco
     }
 }
 
-fn encode_iret_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+fn encode_iret_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
     // iret expects exactly 0 operands
     if !inst.operands.is_empty() {
         return Err(EncodeError::OperandCount {
@@ -735,10 +890,13 @@ fn encode_iret_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), Enco
         });
     }
     encode_iret(buf);
-    Ok(())
+    Ok(EncodeOutput::new())
 }
 
-fn encode_iretq_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+fn encode_iretq_inst(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+) -> Result<EncodeOutput, EncodeError> {
     // iretq expects exactly 0 operands
     if !inst.operands.is_empty() {
         return Err(EncodeError::OperandCount {
@@ -748,10 +906,13 @@ fn encode_iretq_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), Enc
         });
     }
     encode_iretq(buf);
-    Ok(())
+    Ok(EncodeOutput::new())
 }
 
-fn encode_sysret_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+fn encode_sysret_inst(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+) -> Result<EncodeOutput, EncodeError> {
     // sysret expects exactly 0 operands
     if !inst.operands.is_empty() {
         return Err(EncodeError::OperandCount {
@@ -761,10 +922,13 @@ fn encode_sysret_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), En
         });
     }
     encode_sysret(buf);
-    Ok(())
+    Ok(EncodeOutput::new())
 }
 
-fn encode_rep_stosq_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+fn encode_rep_stosq_inst(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+) -> Result<EncodeOutput, EncodeError> {
     // rep stosq expects exactly 0 operands (RAX=value, RCX=count, RDI=destination implicit)
     if !inst.operands.is_empty() {
         return Err(EncodeError::OperandCount {
@@ -774,10 +938,13 @@ fn encode_rep_stosq_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(),
         });
     }
     encode_rep_stosq(buf);
-    Ok(())
+    Ok(EncodeOutput::new())
 }
 
-fn encode_far_jmp_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeError> {
+fn encode_far_jmp_inst(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+) -> Result<EncodeOutput, EncodeError> {
     // jmp far expects exactly 1 operand: memory (SIB or RIP-relative)
     if inst.operands.len() != 1 {
         return Err(EncodeError::OperandCount {
@@ -796,12 +963,12 @@ fn encode_far_jmp_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), E
         } => {
             // [base + disp] form
             encode_far_jmp(buf, Some(reg64_from(*base)?), *disp);
-            Ok(())
+            Ok(EncodeOutput::new())
         }
         Operand::MemRipRel { disp } => {
             // [rip + disp32] form
             encode_far_jmp(buf, None, *disp);
-            Ok(())
+            Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::OperandShape {
             mnemonic: Mnemonic::FarJmp,
@@ -1955,5 +2122,130 @@ mod tests {
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
         assert_eq!(instr.mnemonic(), IcedMnem::Jmp);
+    }
+
+    // ── Phase-5 m5-002: SymbolRef tests ───────────────────────────────
+
+    #[test]
+    fn encode_lea_rax_symbol_ref_produces_reloc_site() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Lea,
+            operands: smallvec::smallvec![
+                Operand::Reg(RegId(0)), // rax
+                Operand::SymbolRef {
+                    name: "gdt_descriptor".to_string(),
+                    addend: 0,
+                }
+            ],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expect: 48 8D 05 00 00 00 00 (7 bytes)
+        // 48 = REX.W
+        // 8D = LEA opcode
+        // 05 = ModR/M with mod=00, reg=0 (rax), rm=5 (rip-relative)
+        // 00 00 00 00 = placeholder disp32
+        assert_eq!(buf.as_slice(), &[0x48, 0x8D, 0x05, 0x00, 0x00, 0x00, 0x00]);
+
+        // Verify relocation site
+        assert_eq!(output.reloc_sites.len(), 1);
+        assert_eq!(output.reloc_sites[0].byte_offset, 3);
+        assert_eq!(output.reloc_sites[0].symbol, "gdt_descriptor");
+        assert_eq!(output.reloc_sites[0].kind, RelocKind::PcRel32);
+        assert_eq!(output.reloc_sites[0].addend, 0);
+    }
+
+    #[test]
+    fn encode_lgdt_symbol_ref_produces_reloc_site() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Lgdt,
+            operands: smallvec::smallvec![Operand::SymbolRef {
+                name: "gdt_descriptor".to_string(),
+                addend: 0,
+            }],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expect: 0F 01 15 00 00 00 00 (7 bytes)
+        // 0F 01 = two-byte opcode
+        // 15 = ModR/M with mod=00, reg=2 (/2 for lgdt), rm=5 (rip-relative)
+        // 00 00 00 00 = placeholder disp32
+        assert_eq!(buf.as_slice(), &[0x0F, 0x01, 0x15, 0x00, 0x00, 0x00, 0x00]);
+
+        // Verify relocation site
+        assert_eq!(output.reloc_sites.len(), 1);
+        assert_eq!(output.reloc_sites[0].byte_offset, 3);
+        assert_eq!(output.reloc_sites[0].symbol, "gdt_descriptor");
+        assert_eq!(output.reloc_sites[0].kind, RelocKind::PcRel32);
+        assert_eq!(output.reloc_sites[0].addend, 0);
+    }
+
+    #[test]
+    fn encode_mov_rax_symbol_ref_with_addend_produces_reloc_site() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![
+                Operand::Reg(RegId(0)), // rax
+                Operand::SymbolRef {
+                    name: "table".to_string(),
+                    addend: 8,
+                }
+            ],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expect: 48 8B 05 00 00 00 00 (7 bytes)
+        // 48 = REX.W
+        // 8B = mov r64, r/m64 opcode
+        // 05 = ModR/M with mod=00, reg=0 (rax), rm=5 (rip-relative)
+        // 00 00 00 00 = placeholder disp32
+        assert_eq!(buf.as_slice(), &[0x48, 0x8B, 0x05, 0x00, 0x00, 0x00, 0x00]);
+
+        // Verify relocation site with addend
+        assert_eq!(output.reloc_sites.len(), 1);
+        assert_eq!(output.reloc_sites[0].byte_offset, 3);
+        assert_eq!(output.reloc_sites[0].symbol, "table");
+        assert_eq!(output.reloc_sites[0].kind, RelocKind::PcRel32);
+        assert_eq!(output.reloc_sites[0].addend, 8);
+    }
+
+    #[test]
+    fn encode_call_symbol_ref_produces_reloc_site() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Call,
+            operands: smallvec::smallvec![Operand::SymbolRef {
+                name: "kernel_main_64".to_string(),
+                addend: 0,
+            }],
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expect: E8 00 00 00 00 (5 bytes)
+        // E8 = call rel32 opcode
+        // 00 00 00 00 = placeholder disp32
+        assert_eq!(buf.as_slice(), &[0xE8, 0x00, 0x00, 0x00, 0x00]);
+
+        // Verify relocation site
+        assert_eq!(output.reloc_sites.len(), 1);
+        assert_eq!(output.reloc_sites[0].byte_offset, 1);
+        assert_eq!(output.reloc_sites[0].symbol, "kernel_main_64");
+        assert_eq!(output.reloc_sites[0].kind, RelocKind::PcRel32);
+        assert_eq!(output.reloc_sites[0].addend, 0);
     }
 }

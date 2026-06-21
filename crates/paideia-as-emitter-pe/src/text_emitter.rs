@@ -66,8 +66,9 @@ pub fn emit_text_from_instructions(
 
     for (&node_id, instruction) in entries {
         let offset_before = buf.bytes.len() as u64;
-        encode_instruction(instruction, &mut buf, &mut stats)
+        let _encode_output = encode_instruction(instruction, &mut buf, &mut stats)
             .map_err(|e| TextEmitterError::EncodeError(format!("{:?}", e)))?;
+        // TODO: Phase 5 m5-003: collect reloc_sites and process them
         offset_map.insert(node_id, offset_before);
     }
 

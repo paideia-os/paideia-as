@@ -129,7 +129,7 @@ pub enum Cond {
 }
 
 /// An operand to an x86_64 instruction.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Operand {
     /// Register operand.
     Reg(RegId),
@@ -155,6 +155,14 @@ pub enum Operand {
     MemRipRel {
         /// 32-bit displacement (sign-extended).
         disp: i32,
+    },
+    /// Unresolved symbol reference with optional addend.
+    /// Used during assembly for symbols that are resolved at link time.
+    SymbolRef {
+        /// Name of the symbol.
+        name: String,
+        /// Addend to apply to the symbol address.
+        addend: i32,
     },
 }
 
@@ -337,7 +345,7 @@ mod tests {
     #[test]
     fn operand_reg_roundtrips_through_clone() {
         let op1 = Operand::Reg(RegId(5));
-        let op2 = op1;
+        let op2 = op1.clone();
         assert_eq!(op1, op2);
     }
 
@@ -397,9 +405,9 @@ mod tests {
         let op3 = Operand::Imm64(42);
 
         let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        operands.push(op1);
-        operands.push(op2);
-        operands.push(op3);
+        operands.push(op1.clone());
+        operands.push(op2.clone());
+        operands.push(op3.clone());
 
         let inst = Instruction {
             mnemonic: Mnemonic::Mov,
