@@ -27,7 +27,7 @@ pub enum BuildError {
 }
 
 use crate::det;
-use paideia_as_ast::AstArena;
+use paideia_as_ast::{AstArena, NodeId as AstNodeId, NodeKind, TypeData};
 use paideia_as_diagnostics::{
     Catalog, DiagnosticSink, HumanRenderer, HumanSink, Severity, SourceMap, VecSink,
 };
@@ -75,6 +75,92 @@ impl EmitFormat {
             )),
         }
     }
+}
+
+/// Phase 6 m5-005: Compute .bss size from array type if present in AST.
+///
+/// Given an IR Let node ID, attempts to extract the type annotation from the AST
+/// and compute the total size in bytes for array types [T; N].
+/// Returns 8 (default u64 size) if no type info or not an array type.
+fn compute_bss_size_from_type(
+    ir_node_id: IrNodeId,
+    ast_arena: &AstArena,
+    source_map: &SourceMap,
+    file_id: paideia_as_diagnostics::FileId,
+) -> u64 {
+    // Map IR node ID to AST node ID (1-to-1 mapping).
+    let ast_node_id = match AstNodeId::new(ir_node_id.get()) {
+        Some(nid) => nid,
+        None => return 8,
+    };
+
+    // Get the Let item from AST.
+    let ast_node = match ast_arena.get(ast_node_id) {
+        Some(node) => node,
+        None => return 8,
+    };
+
+    if ast_node.kind != NodeKind::Let {
+        return 8;
+    }
+
+    // Extract the type annotation from Let.
+    let ty_node_id = match ast_arena.item_data(ast_node_id) {
+        Some(paideia_as_ast::ItemData::Let { ty, .. }) => match ty {
+            Some(ty_id) => *ty_id,
+            None => return 8,
+        },
+        _ => return 8,
+    };
+
+    // Check if this type is an array type [T; N].
+    let type_node = match ast_arena.get(ty_node_id) {
+        Some(node) => node,
+        None => return 8,
+    };
+
+    if type_node.kind != NodeKind::TypeArray {
+        return 8;
+    }
+
+    // Extract TypeData to check for Array variant.
+    let type_data = match ast_arena.type_data(ty_node_id) {
+        Some(td) => td,
+        None => return 8,
+    };
+
+    if let TypeData::Array { length, .. } = type_data {
+        // Extract the length literal from the AST.
+        let length_node = match ast_arena.get(*length) {
+            Some(node) => node,
+            None => return 8,
+        };
+
+        if length_node.kind != NodeKind::ExprLiteral {
+            return 8;
+        }
+
+        // Get the literal span and parse it.
+        if let Some(paideia_as_ast::ExprData::Literal { lit }) = ast_arena.expr_data(*length) {
+            if let Some(lit_node) = ast_arena.get(*lit) {
+                let span = lit_node.span;
+                let content = source_map.content(file_id);
+                let start = span.byte_start() as usize;
+                let len = span.byte_len() as usize;
+
+                if start + len <= content.len() {
+                    let literal_text = &content[start..start + len];
+                    // Parse the array length.
+                    if let Ok(array_len) = parse_integer_literal(literal_text) {
+                        // Each element is u64 (8 bytes).
+                        return (array_len as u64) * 8;
+                    }
+                }
+            }
+        }
+    }
+
+    8
 }
 
 /// Run `paideia-as build <input> [--emit <format>] [-o <output>] [--encoder-warn]`.
@@ -382,14 +468,17 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                                         data_entries.push((node_id, entry));
                                     }
                                 } else if rhs_node.kind == paideia_as_ir::IrKind::Placeholder {
-                                    // Phase 6 m5-004: Let with Placeholder (uninit) → Bss
+                                    // Phase 6 m5-005: Let with Placeholder (uninit) → Bss
                                     // Route all uninit to .bss regardless of mutability.
-                                    // Size hint defaults to 8 (u64); full type support TBD
-                                    let entry = paideia_as_ir::DataEntry::new_bss(
-                                        symbol_name,
-                                        8,
-                                        8,
+                                    // Phase 6 m5-005: Compute size from array type annotation if present.
+                                    let size = compute_bss_size_from_type(
+                                        node_id,
+                                        &arena,
+                                        &source_map,
+                                        file,
                                     );
+                                    let entry =
+                                        paideia_as_ir::DataEntry::new_bss(symbol_name, 8, size);
                                     data_entries.push((node_id, entry));
                                 }
                             }
