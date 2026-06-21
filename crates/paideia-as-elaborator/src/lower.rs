@@ -165,6 +165,26 @@ pub fn lower_ast_to_ir(ast: &AstArena) -> LoweringResult {
                     // Literal: no children
                     Vec::new()
                 }
+                ExprData::Block { stmts, tail } => {
+                    // Block: all statements + optional tail expression
+                    let mut children = stmts.iter().copied().collect::<Vec<_>>();
+                    if let Some(tail_expr) = tail {
+                        children.push(*tail_expr);
+                    }
+                    children
+                }
+                ExprData::ActionBlock { effects, capabilities, body } => {
+                    // ActionBlock: optional effects/capabilities + all statements
+                    let mut children = Vec::new();
+                    if let Some(eff) = effects {
+                        children.push(*eff);
+                    }
+                    if let Some(cap) = capabilities {
+                        children.push(*cap);
+                    }
+                    children.extend(body.iter().copied());
+                    children
+                }
                 // TODO: Add Path, Ident, and other expression types as needed
                 // _ => Vec::new(),
                 _ => Vec::new(),
@@ -185,6 +205,34 @@ pub fn lower_ast_to_ir(ast: &AstArena) -> LoweringResult {
                     vec![*body]
                 }
                 _ => Vec::new(),
+            }
+        } else if let Some(stmt_data) = ast.stmt_data(ast_id) {
+            use paideia_as_ast::StmtData;
+            match stmt_data {
+                StmtData::Let { name, ty, value, .. } => {
+                    // Statement Let: name + type (opt) + value
+                    let mut children = vec![*name, *value];
+                    if let Some(t) = ty {
+                        children.push(*t);
+                    }
+                    children
+                }
+                StmtData::Expr { expr } => {
+                    // Statement Expr: the expression
+                    vec![*expr]
+                }
+                StmtData::Return { value } => {
+                    // Statement Return: optional return value
+                    value.iter().copied().collect()
+                }
+                StmtData::Instruction { operands, .. } => {
+                    // Assembly instruction: operands are children
+                    operands.clone()
+                }
+                StmtData::Label { name } => {
+                    // Label: name is a child
+                    vec![*name]
+                }
             }
         } else {
             Vec::new()

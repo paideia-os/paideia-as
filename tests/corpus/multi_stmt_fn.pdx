@@ -1,0 +1,29 @@
+/// Phase 7 m1-001: PA7-001 Corpus Fixture
+/// Multi-statement function body support (Lambda → Action shape).
+///
+/// Tests three scenarios per AC:
+/// (1) 2-stmt body: `{ let y : u64 = 1; y + 1 }` returns 2
+/// (2) 3-stmt unsafe blocks
+/// (3) empty body returns nothing
+module MultiStmtFn = structure {
+  /// Simple multi-statement function: bind y to 1, then return y + 1.
+  /// Expected: returns 2 (1 + 1).
+  let fn_two_stmt : (u64) -> u64 = fn (x) { let y : u64 = 1; y + 1 }
+
+  /// Function with multiple let bindings in a block.
+  /// Expected: returns 6 (1 + 2 + 3).
+  let fn_three_let : (u64) -> u64 = fn (x) {
+    let a : u64 = 1
+    let b : u64 = 2
+    let c : u64 = 3
+    a + b + c
+  }
+
+  /// Empty function body.
+  /// Expected: returns 0 (or nothing, depending on return convention).
+  let fn_empty : (u64) -> u64 = fn (x) { }
+
+  /// Function with single statement expression (no let).
+  /// Expected: returns argument + 1.
+  let fn_one_stmt : (u64) -> u64 = fn (x) { x + 1 }
+}

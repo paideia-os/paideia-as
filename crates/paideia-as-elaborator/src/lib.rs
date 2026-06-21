@@ -36,6 +36,7 @@ pub mod intrinsics;
 pub mod kind;
 pub mod last_use;
 pub mod lifetime_walker;
+pub mod local_binding_table;
 pub mod linearity_ctx;
 mod lower;
 pub mod macro_expand;
@@ -105,6 +106,7 @@ pub use kind::type_kind;
 pub use last_use::LastUseAnalyzer;
 pub use lifetime_walker::LifetimeWalker;
 pub use linearity_ctx::{Binding, LinearityCtx};
+pub use local_binding_table::LocalBindingTable;
 pub use lower::{LoweringResult, lower_ast_to_ir};
 pub use macro_expand::{
     ExpansionOutcome, M_MACRO_EFFECT_VIOLATION, M_RECURSION_LIMIT, M_UNBOUND_META,
