@@ -1,3 +1,59 @@
+# paideia-as Phase 4 status (decision gate G5-stamped, G6-ready)
+
+**Phase 4 substrate complete as of m14-002.** All fourteen Phase 4 milestones (m1–m14) are closed; 101 issues across PRs #592–#693. PaideiaOS-aware re-ordering applied: m7 → m9 → m10 → m8 → m11 → m1 → m2 → m3 → m4 → m5 → m6 → m12 → m13 → m14. See `design/toolchain/phase-transition-4.md` for the Phase 4 retrospective.
+
+## Phase 4 milestone closure (m1–m14)
+
+- **m7 — records + enums**: `struct` types + RecordLayoutTable; pattern bindings + P0199; record codegen; `enum` sum types + EnumLayoutTable; match exhaustiveness T0512; enum discriminant; corpus; IR RecordCons / FieldAccess / EnumCons / EnumDiscriminant; records-enums-phase4.md appendix.
+
+- **m9 — generics + traits**: `<T>` grammar P0200; Type::Var + HrKind::{Star, Arrow}; trait declarations P0201 + impl blocks P0202; trait-bound resolution T0514; coherence T0513; monomorphisation table; associated types; derive-macro infrastructure (Eq, Hash, Debug); corpus; generics-and-traits-phase4.md appendix.
+
+- **m10 — allocator + memory model**: Allocator trait + Layout; BumpAllocator; Arena; SystemAllocator with C1401/C1402 cfg-gates; Box<T>; allocator-phase4.md with Q3 dual-default Arena/SystemAllocator.
+
+- **m8 — strings + loops**: string literals E0010/E0011; Type::Str fat pointer; heap String; for/while/loop/break/continue keywords; IR Loop/Break/Continue + LoopMetaTable; m3-006 unroll over explicit loops; corpus; strings-and-loops-phase4.md appendix.
+
+- **m11 — stdlib bring-up**: Option, Result, Vec, String + Str ops, HashMap, IO effect + paideia.io capability + Stdin/Stdout/Stderr, File + Read + Write traits, Iterator + Map/Filter adapters; stdlib-phase4.md + stdlib-smoke kitchen-sink (135 LoC).
+
+- **m1 — walker hookups**: Call/Match/Handle/Branch walkers; PositionIndex + NameResolutionTable population; macro-fusion / branch-hint / align / pool-constants 4-pass real-rewrite flip; walker-hookups-phase4.md.
+
+- **m2 — encoder real-rewrites**: PE/COFF + DWARF + PAX emitters consume InstructionSideTable; per-emit DDC fixture; optimization-passes.md §2.2 m2 closure.
+
+- **m3 — runtime integrations**: real cryptoki + yubihsm + reqwest TSA; hardware-lane activation guide; pq-trust-root.md Phase 4 m3 appendix.
+
+- **m4 — borrowed references grammar**: `&T` / `&mut T` grammar P0196; Type::Ref interner; `&x` / `&mut x` / `*r` expressions; substructural Affine/Linear; IR Borrow/BorrowMut/Deref + BorrowSideTable; codegen-as-pointer; corpus; borrowed-references-phase4.md appendix.
+
+- **m5 — region calculus**: RegionId + RegionGraph + transitive closure; lexical region inference; lifetime-variable surface syntax; per-binding region metadata in PositionIndex; region elision rules + L2001; region appendix.
+
+- **m6 — borrow checker**: BorrowWalker S0906/S0907 (renamed from A0700/A0701); LifetimeWalker S0908 (was A0702); MutationWalker S0909 (was A0703); two-phase borrows; NLL precise drop + LastUseAnalyzer; ExtendedBorrowDiagnostic with SARIF relatedLocations; 40-fixture corpus; borrow-checker-phase4.md.
+
+- **m12 — paideia-as tooling**: paideia-as test runner; paideia-as fmt CLI subcommand; paideia-as doc generator; tooling-phase4.md.
+
+- **m13 — self-hosting groundwork**: port-target inventory across 21 crates; bootstrap-fixture .pdx mini-compiler in tests/self-hosting/; Rust-dependency gap analysis (10 stdlib expansions identified); stage-1 hash + DDC fixture in tools/ddc/run.sh; Phase 5 opening conditions in self-hosting-phase5-plan.md §8.
+
+- **m14 — documentation closure**: phase-transition-4.md retrospective (m14-001); this STATUS.md update (m14-002); v0.4.0 tag + CHANGELOG (m14-003); examples README + stdlib walkthrough (m14-004).
+
+## Workspace test totals
+
+- Phase 2 close (m11-006): ~1614 tests.
+- Phase 3 m9-002: 1829 tests.
+- Phase 4 m14-002 (this PR): **2172 tests** across the workspace.
+
++343 delta vs Phase 3 close.
+
+## Where to look next
+
+- `design/toolchain/phase-transition-4.md` — Phase 4 retrospective.
+- `design/toolchain/phase-4-plan.md` — the plan all 14 milestones derive from.
+- `design/toolchain/self-hosting-phase5-plan.md` — Phase 5 plan + opening conditions.
+- `design/toolchain/rust-dep-gap-analysis.md` — Phase 5 stdlib-expansion gap list.
+- `design/toolchain/tooling-phase4.md` — paideia-as test/fmt/doc subcommand reference.
+- `design/toolchain/borrow-checker-phase4.md` — m4+m5+m6 borrow stack reference.
+- `CHANGELOG.md` — release-notes view of Phase 4 (v0.4.0 lands at m14-003).
+
+Below is the Phase 3 closure (G4) followed by the original Phase 1 / Phase 2 history.
+
+---
+
 # paideia-as Phase 3 status (decision gate G4-stamped, G5-ready)
 
 **Phase 3 substrate complete as of m9-002.** All nine Phase 3 milestones (m1–m9) are closed; #525 (NIST ACVP vectors for ML-DSA-65) stays open by design per its own AC. Phase 3 covers PRs #475–#587. See `design/toolchain/phase-transition-3.md` for the Phase 3 retrospective.
