@@ -186,6 +186,11 @@ pub enum IrKind {
     /// Deref: dereference a reference. Children = [reference].
     /// No side-table needed today.
     Deref,
+    /// RawInstruction: x86_64 assembly instruction with mnemonic + operands.
+    /// The instruction's mnemonic and operand AST shape are persisted
+    /// through lowering; the AST back-pointer is available via the
+    /// `ast_to_ir` map in `LoweringResult`.
+    RawInstruction,
 }
 
 /// Per-node IR storage.

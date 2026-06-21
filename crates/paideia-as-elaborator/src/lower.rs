@@ -39,7 +39,7 @@
 //! | StmtLet | Let | Let binding |
 //! | StmtExpr | Action | Statement-as-action |
 //! | StmtReturn | Action | Return placeholder; phase-1 does not model return in IR |
-//! | StmtInstruction | Action | Assembly instruction as action |
+//! | StmtInstruction | RawInstruction | Assembly instruction with persisted mnemonic + operand shape |
 //! | Module | Module | Module declaration |
 //! | Signature | Module | Signature (module-like construct) |
 //! | Structure | Module | Module body |
@@ -160,10 +160,10 @@ fn map_node_kind(kind: NodeKind) -> IrKind {
         NodeKind::ExprUnsafe => IrKind::Unsafe,
 
         // Blocks and sequences (all mapped to Action placeholders for phase-1)
-        NodeKind::ExprBlock
-        | NodeKind::ExprActionBlock
-        | NodeKind::StmtExpr
-        | NodeKind::StmtInstruction => IrKind::Action,
+        NodeKind::ExprBlock | NodeKind::ExprActionBlock | NodeKind::StmtExpr => IrKind::Action,
+
+        // Assembly instruction: mnemonic + operands persisted through lowering
+        NodeKind::StmtInstruction => IrKind::RawInstruction,
 
         // Control flow: phase-4-m1-002 adds Match to IR; phase-4-m1-004 adds Branch
         NodeKind::ExprMatch => IrKind::Match,
@@ -470,5 +470,47 @@ mod tests {
         assert_eq!(result.ir[result.ast_to_ir[&id2]].kind, IrKind::Literal);
         assert_eq!(result.ir[result.ast_to_ir[&id3]].kind, IrKind::App);
         assert_eq!(result.ir[result.ast_to_ir[&id4]].kind, IrKind::Module);
+    }
+
+    #[test]
+    fn lower_stmt_instruction_to_raw_instruction() {
+        // AC: lower `mov rax, 1` StmtInstruction; assert single IrKind::RawInstruction;
+        // assert ast_to_ir[ir_node_id] == original_node_id.
+        let mut ast = AstArena::new();
+
+        // Allocate operand nodes: "rax" and "1"
+        let rax_id = ast.alloc(NodeKind::OperandRegister, span());
+        let one_id = ast.alloc(NodeKind::ExprLiteral, span());
+
+        // Allocate the StmtInstruction: mnemonic_id=0 (stub), operands=[rax, 1]
+        let instr_id = ast.alloc_stmt(
+            NodeKind::StmtInstruction,
+            span(),
+            StmtData::Instruction {
+                mnemonic: 0, // Stub: real mnemonic interning happens in parser/elaborator
+                operands: vec![rax_id, one_id],
+            },
+        );
+
+        // Lower the AST.
+        let result = lower_ast_to_ir(&ast);
+
+        // Verify we have 3 IR nodes: OperandRegister, ExprLiteral, StmtInstruction.
+        assert_eq!(result.ir.len(), 3);
+        assert_eq!(result.ast_to_ir.len(), 3);
+
+        // Verify the StmtInstruction AST node maps to a RawInstruction IR node.
+        let ir_instr_id = result.ast_to_ir[&instr_id];
+        assert_eq!(result.ir[ir_instr_id].kind, IrKind::RawInstruction);
+
+        // Verify round-trip: ast_to_ir[ir_instr_id] resolves back to instr_id.
+        // This tests the bijection invariant: AST NodeId N ↔ IR IrNodeId N.
+        assert_eq!(ir_instr_id.get() as u32, instr_id.get());
+
+        // Verify operand nodes are also lowered correctly.
+        let ir_rax_id = result.ast_to_ir[&rax_id];
+        let ir_one_id = result.ast_to_ir[&one_id];
+        assert_eq!(result.ir[ir_rax_id].kind, IrKind::Var); // OperandRegister -> Var
+        assert_eq!(result.ir[ir_one_id].kind, IrKind::Literal); // ExprLiteral -> Literal
     }
 }
