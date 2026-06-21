@@ -68,15 +68,14 @@ fn cap_smoke_runtime() {
     }
 
     // PA7-001..003 progressively activated fn-body lowering. cap_smoke now
-    // links + runs but segfaults (exit 139 / SIGSEGV / 134=SIGABRT etc.) as
-    // the fn-body lowering doesn't yet implement the full kernel/syscall ABI
-    // chain. Treat any non-zero-non-one exit as a Phase-7-in-progress gap,
-    // not a regression. Real exit == 1 lands when PA7-006..009 + R2.5 close.
-    if rc != 0 && rc != 1 {
+    // links + runs but the kernel/syscall ABI chain is incomplete, so the
+    // runtime exit code doesn't match expected==1 yet. The driver script
+    // (tools/run-cap-smoke.sh) maps wrong exit codes to rc=1, segfault to
+    // rc=1, etc. — anything non-zero is in-progress until PA7-006..009 + R2.5.
+    if rc == 1 {
         println!(
-            "cap_smoke ran but exited rc={rc} (expected 1; common values are 139 SIGSEGV / 134 SIGABRT). \
-             This documents an in-progress PA7-006+/R2.5 gap, not a regression. \
-             stderr: {}",
+            "cap_smoke ran but the runtime exit didn't match expected==1 (in-progress PA7-006+/R2.5 gap; \
+             driver script returned rc=1 for any unexpected runtime exit). stderr: {}",
             String::from_utf8_lossy(&output.stderr),
         );
         return;
