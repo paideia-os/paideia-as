@@ -139,6 +139,43 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str) -> ExitCode {
     // If there are any errors so far, do not emit anything downstream.
     let mut lowering = lower_ast_to_ir(&arena);
 
+    // Phase-5-m1-001: Extract literal values from AST and populate the IR's literal_values table.
+    // This enables emit_walker to look up literal values during lambda lowering.
+    {
+        let content_ref = source_map.content(file);
+
+        // Walk AST to find all ExprLiteral nodes and extract their numeric values
+        for i in 0..arena.len() {
+            if let Some(ast_id) = paideia_as_ast::NodeId::new((i + 1) as u32) {
+                if let Some(node) = arena.get(ast_id) {
+                    if node.kind == paideia_as_ast::NodeKind::ExprLiteral {
+                        if let Some(paideia_as_ast::ExprData::Literal { lit }) = arena.expr_data(ast_id) {
+                            // The 'lit' is a Placeholder node that contains the literal's span
+                            if let Some(lit_node) = arena.get(*lit) {
+                                let span = lit_node.span;
+                                let start = span.byte_start() as usize;
+                                let len = span.byte_len() as usize;
+                                if start + len <= content_ref.len() {
+                                    let literal_text = &content_ref[start..start + len];
+                                    // Try to parse the literal as u64/i64
+                                    // Handle common formats: decimal, hex (0x...), binary (0b...), octal (0o...)
+                                    if let Ok(value) = parse_integer_literal(literal_text) {
+                                        // Map AST node ID to IR node ID (1-to-1 mapping)
+                                        // The KEY is the ExprLiteral node ID (ast_id), not the Placeholder child ID,
+                                        // because the IR Literal node ID = ast_id (1-to-1 mapping).
+                                        let ir_lit_id = paideia_as_ir::IrNodeId::new(ast_id.get())
+                                            .expect("valid ir node id from ast expr literal node");
+                                        lowering.ir.literal_values_mut().insert(ir_lit_id, value);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Run walkers over the IR to surface S/F/C diagnostics.
     // Phase-2-m1: walkers run with empty injection tables (from CLI), so only
     // diagnostics that depend on kind-only IR will fire (S0900/S0901/S0903).
@@ -202,6 +239,60 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str) -> ExitCode {
         // Drain walker diagnostics into the main sink for rendering.
         for d in walker_sink.into_diagnostics() {
             let _ = sink.emit(d);
+        }
+    }
+
+    // Phase-5-m6-005: Symbol name resolution pass.
+    // Walk the AST to find Let bindings with actual names, then update the symbol table
+    // to use the real binding names instead of "_let_<id>".
+    {
+        let mut name_map: std::collections::HashMap<u32, String> = std::collections::HashMap::new();
+        let content_ref = source_map.content(file);
+
+        // Walk AST to find all Let bindings and extract their names
+        for i in 0..arena.len() {
+            if let Some(ast_id) = paideia_as_ast::NodeId::new((i + 1) as u32) {
+                if let Some(node) = arena.get(ast_id) {
+                    if node.kind == paideia_as_ast::NodeKind::Let {
+                        if let Some(paideia_as_ast::ItemData::Let { name: name_id, value: value_id, .. }) = arena.item_data(ast_id) {
+                            // Get the name string from source content
+                            if let Some(name_node) = arena.get(*name_id) {
+                                let span = name_node.span;
+                                let start = span.byte_start() as usize;
+                                let len = span.byte_len() as usize;
+                                if start + len <= content_ref.len() {
+                                    let name_str = content_ref[start..start + len].to_string();
+                                    // Map the lambda/value's IR node ID to its binding name
+                                    // Since 1-to-1 mapping: ast value_id maps to IR node with same numeric id
+                                    name_map.insert(value_id.get(), name_str);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Now rebuild the symbol table with updated names
+        if !name_map.is_empty() {
+            let old_symbols: Vec<_> = lowering.ir.symbols().iter().cloned().collect();
+            lowering.ir.symbols_mut().clear();
+
+            for sym in old_symbols {
+                // Check if this symbol's ir_node.get() is in name_map (i.e., it's a function symbol for a named binding)
+                if let Some(real_name) = name_map.get(&sym.ir_node.get()) {
+                    // Re-insert the symbol with the real name
+                    let updated_sym = paideia_as_ir::Symbol::new(
+                        real_name.clone(),
+                        sym.kind,
+                        sym.ir_node,
+                    );
+                    lowering.ir.symbols_mut().insert(updated_sym);
+                } else {
+                    // Symbol has no real name mapping, keep the original
+                    lowering.ir.symbols_mut().insert(sym);
+                }
+            }
         }
     }
 
@@ -359,10 +450,16 @@ fn build_elf_object(
     // Phase-5-m5-003: Emit real symbols from SymbolTable.
     // Iterate over arena.symbols().iter() and emit one symbol per entry.
     let function_offsets = &emit_walker.state().function_offsets;
+    let emitted_lambdas = emit_walker.emitted_lambdas();
     let mut emitted_any_symbol = false;
     for symbol in arena.symbols().iter() {
         match symbol.kind {
             paideia_as_ir::SymbolKind::Function => {
+                // Skip symbols for lambdas that didn't emit bytecode
+                if !emitted_lambdas.contains(&symbol.ir_node.get()) {
+                    continue;
+                }
+
                 // For function symbols, look up the byte offset from function_offsets.
                 // The size is computed as: next function offset - this offset (or text_bytes.len()).
                 let offset = function_offsets
@@ -924,4 +1021,48 @@ mod tests {
             "lambda offset should be recorded"
         );
     }
+}
+
+/// Parse an integer literal from text, supporting decimal, hex, binary, and octal formats.
+///
+/// Formats:
+/// - Decimal: `42`, `-42`
+/// - Hexadecimal: `0x2A`, `0X2a`
+/// - Binary: `0b101010`, `0B101010`
+/// - Octal: `0o52`, `0O52`
+///
+/// Returns `Ok(value)` on success, `Err(())` on parse failure.
+fn parse_integer_literal(text: &str) -> Result<i64, ()> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Err(());
+    }
+
+    // Handle negative numbers
+    let (is_negative, text) = if text.starts_with('-') {
+        (true, &text[1..])
+    } else if text.starts_with('+') {
+        (false, &text[1..])
+    } else {
+        (false, text)
+    };
+
+    // Determine the base and skip the prefix
+    let (base, digits) = if text.starts_with("0x") || text.starts_with("0X") {
+        (16, &text[2..])
+    } else if text.starts_with("0b") || text.starts_with("0B") {
+        (2, &text[2..])
+    } else if text.starts_with("0o") || text.starts_with("0O") {
+        (8, &text[2..])
+    } else {
+        (10, text)
+    };
+
+    // Remove underscores (allowed in numeric literals)
+    let digits: String = digits.chars().filter(|c| *c != '_').collect();
+
+    // Parse the digits
+    i64::from_str_radix(&digits, base)
+        .map(|n| if is_negative { -n } else { n })
+        .map_err(|_| ())
 }

@@ -165,6 +165,23 @@ pub fn lower_ast_to_ir(ast: &AstArena) -> LoweringResult {
                 // _ => Vec::new(),
                 _ => Vec::new(),
             }
+        } else if let Some(item_data) = ast.item_data(ast_id) {
+            use paideia_as_ast::ItemData;
+            match item_data {
+                ItemData::Let { value, .. } => {
+                    // Let binding: value is the single child (the RHS)
+                    vec![*value]
+                }
+                ItemData::Structure { items, .. } => {
+                    // Structure: all items are children
+                    items.clone()
+                }
+                ItemData::Module { body, .. } => {
+                    // Module: body is the single child
+                    vec![*body]
+                }
+                _ => Vec::new(),
+            }
         } else {
             Vec::new()
         };

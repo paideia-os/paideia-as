@@ -468,6 +468,58 @@ fn encode_lea(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
             }
             Ok(EncodeOutput::new())
         }
+        [
+            Operand::Reg(dest),
+            Operand::MemSib {
+                base,
+                index: Some(index),
+                scale,
+                disp,
+            },
+        ] => {
+            // lea r64, [base + index * scale + disp]
+            // Uses SIB (Scale-Index-Base) byte format: SIB = scale (2 bits) | index (3 bits) | base (3 bits)
+            let dest_id = reg64_from(*dest)? as u8;
+            let base_id = reg64_from(*base)? as u8;
+            let index_id = reg64_from(*index)? as u8;
+
+            let scale_bits = match scale {
+                Scale::X1 => 0,
+                Scale::X2 => 1,
+                Scale::X4 => 2,
+                Scale::X8 => 3,
+            };
+
+            let rex_byte = rex(
+                true,
+                (dest_id >> 3) != 0,
+                (index_id >> 3) != 0,
+                (base_id >> 3) != 0,
+            );
+
+            buf.bytes.push(rex_byte);
+            buf.bytes.push(0x8D); // LEA opcode
+
+            if *disp == 0 {
+                // Use mod=00 (no displacement) with SIB
+                buf.bytes.push(0x04 | ((dest_id & 7) << 3)); // mod=00, r/m=100 (SIB follows)
+                let sib = ((scale_bits & 3) << 6) | ((index_id & 7) << 3) | (base_id & 7);
+                buf.bytes.push(sib);
+            } else if (-128..=127).contains(disp) {
+                // Use mod=01, disp8 with SIB
+                buf.bytes.push(0x44 | ((dest_id & 7) << 3)); // mod=01, r/m=100 (SIB follows)
+                let sib = ((scale_bits & 3) << 6) | ((index_id & 7) << 3) | (base_id & 7);
+                buf.bytes.push(sib);
+                buf.bytes.push(*disp as u8);
+            } else {
+                // Use mod=10, disp32 with SIB
+                buf.bytes.push(0x84 | ((dest_id & 7) << 3)); // mod=10, r/m=100 (SIB follows)
+                let sib = ((scale_bits & 3) << 6) | ((index_id & 7) << 3) | (base_id & 7);
+                buf.bytes.push(sib);
+                buf.bytes.extend(disp.to_le_bytes());
+            }
+            Ok(EncodeOutput::new())
+        }
         [Operand::Reg(dest), Operand::SymbolRef { name, addend }] => {
             // lea r64, [symbol] → 48 8D /r [rip-relative ModR/M] [disp32_placeholder]
             let dest_id = reg64_from(*dest)? as u8;

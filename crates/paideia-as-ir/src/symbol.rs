@@ -123,6 +123,13 @@ impl SymbolTable {
     pub fn is_empty(&self) -> bool {
         self.symbols.is_empty()
     }
+
+    /// Clear all symbols from the table.
+    pub fn clear(&mut self) {
+        self.symbols.clear();
+        self.by_name.clear();
+        self.entry_point = None;
+    }
 }
 
 #[cfg(test)]
