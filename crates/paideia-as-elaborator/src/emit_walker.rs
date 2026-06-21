@@ -51,6 +51,12 @@ pub struct EmitPassState {
     /// Tracks which scratch registers have been assigned in the current function.
     /// Reset to empty at function entry. Sequence: RAX(0), RCX(1), RDX(2), R8(8).
     pub scratch_assignment: Vec<RegId>,
+
+    /// Phase 6 m4-003: Label name → byte offset mapping.
+    /// Populated during unsafe block lowering when labels are encountered.
+    /// Used to resolve backward label references at encoding time.
+    /// Scoped to the current function; reset at function entry.
+    pub labels: HashMap<String, u32>,
 }
 
 /// EmitWalker — drives IR traversal and instruction emission.
@@ -67,6 +73,31 @@ impl EmitPassState {
     /// Drain and return the pending unsafe blocks.
     pub fn take_pending_unsafe(&mut self) -> Vec<u32> {
         std::mem::take(&mut self.pending_unsafe_blocks)
+    }
+
+    /// Phase 6 m4-003: Register a label at the current byte offset.
+    ///
+    /// Called during unsafe block lowering when a label definition is encountered.
+    /// The label can then be referenced by forward or backward Jcc/Jmp instructions.
+    pub fn register_label(&mut self, name: String) {
+        self.labels.insert(name, self.current_offset);
+    }
+
+    /// Phase 6 m4-003: Compute rel32 displacement for a label reference.
+    ///
+    /// Used during encoding to resolve backward (already-defined) labels.
+    /// Returns Some(rel32) if label is found, None otherwise.
+    /// rel32 = label_offset - (current_offset + instruction_size)
+    pub fn compute_label_rel32(
+        &self,
+        label_name: &str,
+        current_offset: u32,
+        instruction_size: u32,
+    ) -> Option<i32> {
+        self.labels.get(label_name).map(|&label_offset| {
+            let rel = (label_offset as i64) - ((current_offset as i64) + (instruction_size as i64));
+            rel as i32
+        })
     }
 
     /// Phase 6 m3-001: Compute C-ABI natural-alignment layouts for all record types

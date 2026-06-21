@@ -71,7 +71,9 @@ pub enum Reg32 {
 
 /// Conditional jump condition codes (used in `0F 8X` two-byte opcodes).
 ///
-/// The second byte of a two-byte jump is `0x80 + (cond as u8)`.
+/// The second byte of a two-byte jump is the opcode value below.
+/// Note: JE/JZ, JNE/JNZ are aliases (same opcodes); the IR will map both to
+/// the canonical encoder variants (Eq and Neq).
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[repr(u8)]
 pub enum Cond {
@@ -87,6 +89,22 @@ pub enum Cond {
     Le = 0x8E,
     /// JG (greater than, signed): `0F 8F`
     Gt = 0x8F,
+    /// JB (below, unsigned): `0F 82`
+    Below = 0x82,
+    /// JBE (below or equal, unsigned): `0F 86`
+    BelowOrEqual = 0x86,
+    /// JA (above, unsigned): `0F 87`
+    Above = 0x87,
+    /// JAE (above or equal, unsigned): `0F 83`
+    AboveOrEqual = 0x83,
+    /// JS (sign): `0F 88`
+    Sign = 0x88,
+    /// JNS (not sign): `0F 89`
+    NotSign = 0x89,
+    /// JO (overflow): `0F 80`
+    Overflow = 0x80,
+    /// JNO (not overflow): `0F 81`
+    NotOverflow = 0x81,
 }
 
 /// A buffer that encodes instructions append bytes to.
@@ -403,15 +421,9 @@ pub fn jcc_rel32(buf: &mut CodeBuffer, cond: Cond, rel: i32) {
 ///
 /// Only valid when displacement fits in i8 (-128..=127).
 pub fn jcc_rel8(buf: &mut CodeBuffer, cond: Cond, rel: i8) {
-    // Convert Cond to rel8 opcode (0x70 + condition code)
-    let rel8_opcode = match cond {
-        Cond::Eq => 0x74,
-        Cond::Neq => 0x75,
-        Cond::Lt => 0x7C,
-        Cond::Ge => 0x7D,
-        Cond::Le => 0x7E,
-        Cond::Gt => 0x7F,
-    };
+    // Convert Cond to rel8 opcode: 0x70 + (cond_byte - 0x80)
+    // For example: Eq (0x84) → 0x74; Below (0x82) → 0x72; Overflow (0x80) → 0x70
+    let rel8_opcode = 0x70 + (cond as u8 - 0x80);
     buf.bytes.push(rel8_opcode);
     buf.bytes.push(rel as u8);
 }

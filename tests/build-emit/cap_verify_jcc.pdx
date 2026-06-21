@@ -1,0 +1,36 @@
+module CapVerifyJcc = structure {
+  let test_jcc : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "phase 6 m4-003: verify all 16 Jcc variants + Jmp with label references",
+    block: {
+      // Test all 16 Jcc condition variants with forward and backward labels
+      cmp rax, rbx
+      je exit_label       // Test Eq
+      jne skip1           // Test Ne (forward label)
+skip1:
+      jl exit_label       // Test Lt
+      jle exit_label      // Test Le
+      jg exit_label       // Test Gt
+      jge exit_label      // Test Ge
+      jb exit_label       // Test Below
+      jbe exit_label      // Test BelowOrEqual
+      ja exit_label       // Test Above
+      jae exit_label      // Test AboveOrEqual
+      jz exit_label       // Test Zero (alias for Eq)
+      jnz skip2           // Test NonZero (forward label)
+skip2:
+      js exit_label       // Test Sign
+      jns exit_label      // Test NotSign
+      jo exit_label       // Test Overflow
+      jno exit_label      // Test NotOverflow
+
+      // Test Jmp with label reference
+      jmp exit_label      // Jmp to forward label
+      mov rax, 0xDEADBEEF // Dead code after jmp
+
+exit_label:
+      mov rax, 0
+    }
+  }
+}

@@ -98,11 +98,28 @@ pub struct RelocSite {
     pub addend: i32,
 }
 
-/// Output from encoding an instruction, including relocation sites.
+/// Phase 6 m4-003: A label fixup site in the encoded instruction stream.
+/// Records where a Jcc or Jmp instruction references a label (forward or backward),
+/// allowing the linker to patch the rel32 displacement after all labels are resolved.
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct LabelFixup {
+    /// Byte offset into the instruction stream where the rel32 placeholder is located.
+    pub byte_offset: u32,
+    /// Name of the target label.
+    pub label_name: String,
+    /// Addend to apply to the label offset (typically 0).
+    pub addend: i32,
+    /// Size of the instruction (5 for jmp, 6 for jcc).
+    pub instruction_size: u32,
+}
+
+/// Output from encoding an instruction, including relocation sites and label fixups.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct EncodeOutput {
     /// Relocation sites to be processed by the linker.
     pub reloc_sites: Vec<RelocSite>,
+    /// Label fixup sites for Jcc/Jmp instructions (phase 6 m4-003).
+    pub label_fixups: Vec<LabelFixup>,
 }
 
 impl EncodeOutput {
@@ -114,6 +131,11 @@ impl EncodeOutput {
     /// Add a relocation site to the output.
     pub fn add_reloc(&mut self, site: RelocSite) {
         self.reloc_sites.push(site);
+    }
+
+    /// Phase 6 m4-003: Add a label fixup site to the output.
+    pub fn add_label_fixup(&mut self, fixup: LabelFixup) {
+        self.label_fixups.push(fixup);
     }
 }
 
@@ -159,9 +181,16 @@ fn cond_from(ir_cond: IrCond) -> Result<Cond, EncodeError> {
         IrCond::Ge => Ok(Cond::Ge),
         IrCond::Le => Ok(Cond::Le),
         IrCond::Gt => Ok(Cond::Gt),
-        _ => Err(EncodeError::Unsupported(
-            "conditional code not in phase-3-m2-002 minimum",
-        )),
+        IrCond::Below => Ok(Cond::Below),
+        IrCond::BelowOrEqual => Ok(Cond::BelowOrEqual),
+        IrCond::Above => Ok(Cond::Above),
+        IrCond::AboveOrEqual => Ok(Cond::AboveOrEqual),
+        IrCond::Zero => Ok(Cond::Eq),     // jz is alias for je (0x84)
+        IrCond::NonZero => Ok(Cond::Neq), // jnz is alias for jne (0x85)
+        IrCond::Sign => Ok(Cond::Sign),
+        IrCond::NotSign => Ok(Cond::NotSign),
+        IrCond::Overflow => Ok(Cond::Overflow),
+        IrCond::NotOverflow => Ok(Cond::NotOverflow),
     }
 }
 
@@ -493,6 +522,24 @@ fn encode_jcc(
             }
             Ok(EncodeOutput::new())
         }
+        [Operand::LabelRef { name, addend }] => {
+            // Phase 6 m4-003: Label reference (forward or backward).
+            // Emit placeholder rel32 and record fixup for linker resolution.
+            let cond = cond_from(ir_cond)?;
+            let offset_before = buf.len() as u32;
+
+            // Emit jcc rel32 with zero placeholder
+            jcc_rel32(buf, cond, 0);
+
+            let mut output = EncodeOutput::new();
+            output.add_label_fixup(LabelFixup {
+                byte_offset: offset_before + 2, // offset of rel32 (after 0F XX)
+                label_name: name.clone(),
+                addend: *addend,
+                instruction_size: 6,
+            });
+            Ok(output)
+        }
         _ => Err(EncodeError::Unsupported(
             "jcc form not in phase-3-m2-002 minimum",
         )),
@@ -505,6 +552,23 @@ fn encode_jmp(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
             // jmp rel32 → E9 <rel32>
             jmp_rel32(buf, *rel as i32);
             Ok(EncodeOutput::new())
+        }
+        [Operand::LabelRef { name, addend }] => {
+            // Phase 6 m4-003: Label reference (forward or backward).
+            // Emit placeholder rel32 and record fixup for linker resolution.
+            let offset_before = buf.len() as u32;
+
+            // Emit jmp rel32 with zero placeholder
+            jmp_rel32(buf, 0);
+
+            let mut output = EncodeOutput::new();
+            output.add_label_fixup(LabelFixup {
+                byte_offset: offset_before + 1, // offset of rel32 (after E9)
+                label_name: name.clone(),
+                addend: *addend,
+                instruction_size: 5,
+            });
+            Ok(output)
         }
         _ => Err(EncodeError::Unsupported(
             "jmp form not in phase-3-m2-002 minimum",
@@ -2737,4 +2801,397 @@ fn encode_movzx(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput
         buf.bytes.push(((disp >> 24) & 0xFF) as u8);
     }
     Ok(EncodeOutput::new())
+}
+
+// Phase 6 m4-003: Jcc encoder tests (16 condition variants + label support)
+
+#[cfg(test)]
+mod jcc_tests {
+    use super::*;
+    use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+    use paideia_as_ir::{Cond as IrCond, Instruction, Mnemonic, Operand};
+
+    // Test 1: Je with immediate (rel32) round-trips through iced-x86
+    #[test]
+    fn jcc_je_imm_rel32_round_trips() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jcc(IrCond::Eq),
+            operands: smallvec::smallvec![Operand::Imm64(0x100)],
+            encoding_hint: None,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Should be 6 bytes: 0F 84 <rel32_le>
+        assert_eq!(buf.len(), 6);
+        assert_eq!(buf.as_slice()[0], 0x0F);
+        assert_eq!(buf.as_slice()[1], 0x84);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Je);
+    }
+
+    // Test 2: Jne with immediate (rel32) round-trips
+    #[test]
+    fn jcc_jne_imm_rel32_round_trips() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jcc(IrCond::Ne),
+            operands: smallvec::smallvec![Operand::Imm64(0x1000)], // Large displacement
+            encoding_hint: None,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.len(), 6);
+        assert_eq!(buf.as_slice()[0], 0x0F);
+        assert_eq!(buf.as_slice()[1], 0x85);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Jne);
+    }
+
+    // Test 3: Jl (signed less than) round-trips
+    #[test]
+    fn jcc_jl_imm_rel32_round_trips() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jcc(IrCond::Lt),
+            operands: smallvec::smallvec![Operand::Imm64(0x200)],
+            encoding_hint: None,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.len(), 6);
+        assert_eq!(buf.as_slice()[1], 0x8C);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Jl);
+    }
+
+    // Test 4: Jg (signed greater than) round-trips
+    #[test]
+    fn jcc_jg_imm_rel32_round_trips() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jcc(IrCond::Gt),
+            operands: smallvec::smallvec![Operand::Imm64(0x300)],
+            encoding_hint: None,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.len(), 6);
+        assert_eq!(buf.as_slice()[1], 0x8F);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Jg);
+    }
+
+    // Test 5: Jle round-trips
+    #[test]
+    fn jcc_jle_imm_rel32_round_trips() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jcc(IrCond::Le),
+            operands: smallvec::smallvec![Operand::Imm64(0x400)],
+            encoding_hint: None,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.len(), 6);
+        assert_eq!(buf.as_slice()[1], 0x8E);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Jle);
+    }
+
+    // Test 6: Jge round-trips
+    #[test]
+    fn jcc_jge_imm_rel32_round_trips() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jcc(IrCond::Ge),
+            operands: smallvec::smallvec![Operand::Imm64(-5000i64)], // Large negative displacement
+            encoding_hint: None,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.len(), 6);
+        assert_eq!(buf.as_slice()[1], 0x8D);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Jge);
+    }
+
+    // Test 7: Jb (below, unsigned) round-trips
+    #[test]
+    fn jcc_jb_imm_rel32_round_trips() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jcc(IrCond::Below),
+            operands: smallvec::smallvec![Operand::Imm64(0x500)],
+            encoding_hint: None,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.len(), 6);
+        assert_eq!(buf.as_slice()[1], 0x82);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Jb);
+    }
+
+    // Test 8: Jbe round-trips
+    #[test]
+    fn jcc_jbe_imm_rel32_round_trips() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jcc(IrCond::BelowOrEqual),
+            operands: smallvec::smallvec![Operand::Imm64(0x600)],
+            encoding_hint: None,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.len(), 6);
+        assert_eq!(buf.as_slice()[1], 0x86);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Jbe);
+    }
+
+    // Test 9: Ja round-trips
+    #[test]
+    fn jcc_ja_imm_rel32_round_trips() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jcc(IrCond::Above),
+            operands: smallvec::smallvec![Operand::Imm64(0x700)],
+            encoding_hint: None,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.len(), 6);
+        assert_eq!(buf.as_slice()[1], 0x87);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Ja);
+    }
+
+    // Test 10: Jae round-trips
+    #[test]
+    fn jcc_jae_imm_rel32_round_trips() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jcc(IrCond::AboveOrEqual),
+            operands: smallvec::smallvec![Operand::Imm64(0x800)],
+            encoding_hint: None,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.len(), 6);
+        assert_eq!(buf.as_slice()[1], 0x83);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Jae);
+    }
+
+    // Test 11: Jz (alias for Je) round-trips
+    #[test]
+    fn jcc_jz_imm_rel32_round_trips() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jcc(IrCond::Zero),
+            operands: smallvec::smallvec![Operand::Imm64(0x100)],
+            encoding_hint: None,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.len(), 6);
+        assert_eq!(buf.as_slice()[1], 0x84); // Same opcode as Je
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        // Decoder will recognize as Je (iced-x86 canonicalizes)
+        assert_eq!(instr.mnemonic(), IcedMnem::Je);
+    }
+
+    // Test 12: Jnz (alias for Jne) round-trips
+    #[test]
+    fn jcc_jnz_imm_rel32_round_trips() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jcc(IrCond::NonZero),
+            operands: smallvec::smallvec![Operand::Imm64(0x200)],
+            encoding_hint: None,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.len(), 6);
+        assert_eq!(buf.as_slice()[1], 0x85); // Same opcode as Jne
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        // Decoder will recognize as Jne (iced-x86 canonicalizes)
+        assert_eq!(instr.mnemonic(), IcedMnem::Jne);
+    }
+
+    // Test 13: Js round-trips
+    #[test]
+    fn jcc_js_imm_rel32_round_trips() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jcc(IrCond::Sign),
+            operands: smallvec::smallvec![Operand::Imm64(0x300)],
+            encoding_hint: None,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.len(), 6);
+        assert_eq!(buf.as_slice()[1], 0x88);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Js);
+    }
+
+    // Test 14: Jns round-trips
+    #[test]
+    fn jcc_jns_imm_rel32_round_trips() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jcc(IrCond::NotSign),
+            operands: smallvec::smallvec![Operand::Imm64(0x400)],
+            encoding_hint: None,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.len(), 6);
+        assert_eq!(buf.as_slice()[1], 0x89);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Jns);
+    }
+
+    // Test 15: Jo round-trips
+    #[test]
+    fn jcc_jo_imm_rel32_round_trips() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jcc(IrCond::Overflow),
+            operands: smallvec::smallvec![Operand::Imm64(0x500)],
+            encoding_hint: None,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.len(), 6);
+        assert_eq!(buf.as_slice()[1], 0x80);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Jo);
+    }
+
+    // Test 16: Jno round-trips
+    #[test]
+    fn jcc_jno_imm_rel32_round_trips() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jcc(IrCond::NotOverflow),
+            operands: smallvec::smallvec![Operand::Imm64(0x600)],
+            encoding_hint: None,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.len(), 6);
+        assert_eq!(buf.as_slice()[1], 0x81);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Jno);
+    }
+
+    // Test 17: Je with label reference records fixup correctly
+    #[test]
+    fn jcc_je_label_records_fixup() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jcc(IrCond::Eq),
+            operands: smallvec::smallvec![Operand::LabelRef {
+                name: "fail".to_string(),
+                addend: 0,
+            }],
+            encoding_hint: None,
+        };
+        let mut stats = EncodeStats::new();
+        let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Should emit 6 bytes with zero placeholder
+        assert_eq!(buf.len(), 6);
+        assert_eq!(buf.as_slice()[0], 0x0F);
+        assert_eq!(buf.as_slice()[1], 0x84);
+        assert_eq!(&buf.as_slice()[2..6], &[0, 0, 0, 0]);
+
+        // Should record fixup
+        assert_eq!(output.label_fixups.len(), 1);
+        let fixup = &output.label_fixups[0];
+        assert_eq!(fixup.label_name, "fail");
+        assert_eq!(fixup.byte_offset, 2);
+        assert_eq!(fixup.addend, 0);
+        assert_eq!(fixup.instruction_size, 6);
+    }
+
+    // Test 18: Jmp with label reference records fixup correctly
+    #[test]
+    fn jmp_label_records_fixup() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jmp,
+            operands: smallvec::smallvec![Operand::LabelRef {
+                name: "end".to_string(),
+                addend: 0,
+            }],
+            encoding_hint: None,
+        };
+        let mut stats = EncodeStats::new();
+        let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Should emit 5 bytes: E9 + zero rel32
+        assert_eq!(buf.len(), 5);
+        assert_eq!(buf.as_slice()[0], 0xE9);
+        assert_eq!(&buf.as_slice()[1..5], &[0, 0, 0, 0]);
+
+        // Should record fixup
+        assert_eq!(output.label_fixups.len(), 1);
+        let fixup = &output.label_fixups[0];
+        assert_eq!(fixup.label_name, "end");
+        assert_eq!(fixup.byte_offset, 1);
+        assert_eq!(fixup.addend, 0);
+        assert_eq!(fixup.instruction_size, 5);
+    }
 }
