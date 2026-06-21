@@ -141,4 +141,32 @@ done
 
 log "DDC per-emit fixture determinism checks passed"
 
+# Phase-4-m13-004: stage-1 hash + DDC fixture for the m13-002 mini-lexer.
+# Establishes the discipline that stage-1 compilation outputs are byte-stable
+# for the self-hosting fixture too. Activates when CI re-enables.
+log "Phase-4-m13-004: m13-002 mini-lexer stage-1 byte stability"
+M13_002_FIXTURE="${ROOT_DIR}/tests/self-hosting/pdx/mini_lexer.pdx"
+if [[ ! -f "${M13_002_FIXTURE}" ]]; then
+    log "  mini-lexer fixture not found: ${M13_002_FIXTURE}; skipping"
+else
+    for emit_fmt in elf64 pax; do
+        log "  checking mini-lexer ${emit_fmt} determinism"
+        tmp_run1="${OUT_DIR}/a/m13-002-mini-lexer.${emit_fmt}"
+        tmp_run2="${OUT_DIR}/b/m13-002-mini-lexer.${emit_fmt}"
+        if SOURCE_DATE_EPOCH=0 PDX_PATH_PREFIX_MAP="/=/" "${OUT_DIR}/a/paideia-as" build --emit "${emit_fmt}" "${M13_002_FIXTURE}" -o "${tmp_run1}" >/dev/null 2>&1 && \
+           SOURCE_DATE_EPOCH=0 PDX_PATH_PREFIX_MAP="/=/" "${OUT_DIR}/a/paideia-as" build --emit "${emit_fmt}" "${M13_002_FIXTURE}" -o "${tmp_run2}" >/dev/null 2>&1; then
+            if cmp -s "${tmp_run1}" "${tmp_run2}"; then
+                log "    mini-lexer ${emit_fmt}: byte-identical"
+            else
+                log "    mini-lexer ${emit_fmt}: DIFFERS — DDC FAIL"
+                exit 1
+            fi
+        else
+            log "    mini-lexer ${emit_fmt}: build skipped (gates on m13-002 elaborator readiness)"
+        fi
+    done
+fi
+
+log "Phase-4-m13-004: mini-lexer stage-1 stability checks complete"
+
 exit 0
