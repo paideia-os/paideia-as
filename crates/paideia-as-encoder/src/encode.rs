@@ -955,6 +955,41 @@ pub fn encode_int_imm8(buf: &mut CodeBuffer, imm: u8) {
     buf.bytes.push(imm);
 }
 
+/// Encode control register MOV instruction: `mov cr_idx, gpr` or `mov gpr, cr_idx`.
+///
+/// Both forms use the two-byte opcode 0F 22 (write to CR) or 0F 20 (read from CR).
+/// CR8 requires REX.R=1 to extend the reg field (cr_idx >= 8).
+///
+/// # Instructions
+/// - `mov cr0, rax`: `0F 22 C0` (3 bytes)
+/// - `mov cr3, rax`: `0F 22 D8` (3 bytes, cr_idx=3 in reg field)
+/// - `mov cr4, rax`: `0F 22 E0` (3 bytes, cr_idx=4 in reg field)
+/// - `mov cr8, rax`: `44 0F 22 C0` (4 bytes, REX.R=1 for extended cr_idx)
+/// - `mov rax, cr0`: `0F 20 C0` (3 bytes)
+/// - `mov rax, cr3`: `0F 20 D8` (3 bytes)
+/// - `mov rax, cr4`: `0F 20 E0` (3 bytes)
+/// - `mov rax, cr8`: `44 0F 20 C0` (4 bytes, REX.R=1)
+///
+/// # Arguments
+/// - `buf`: code buffer to append instruction to
+/// - `write`: true for `mov cr_idx, gpr` (write to CR); false for `mov gpr, cr_idx` (read from CR)
+/// - `cr_idx`: control register index (0-4 or 8; phase-5 supports CR0..CR4 + CR8 only)
+/// - `gpr_idx`: general-purpose register index (0-15)
+pub fn encode_mov_cr(buf: &mut CodeBuffer, write: bool, cr_idx: u8, gpr_idx: u8) {
+    // Emit REX.R if cr_idx >= 8 (extends the reg field to support CR8)
+    if cr_idx >= 8 {
+        buf.bytes.push(0x44); // REX with R=1
+    }
+
+    // Emit two-byte opcode
+    buf.bytes.push(0x0F);
+    buf.bytes.push(if write { 0x22 } else { 0x20 });
+
+    // Emit ModR/M byte: mod=11, reg=cr_idx & 7, r/m=gpr_idx & 7
+    let modrm = 0xC0 | ((cr_idx & 7) << 3) | (gpr_idx & 7);
+    buf.bytes.push(modrm);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1911,5 +1946,175 @@ mod tests {
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
         assert_eq!(instr.mnemonic(), IcedMnem::Out);
+    }
+
+    // ── Phase-5 m2-005: control register MOV instructions ─────────
+
+    // Write (mov cr_idx, rax) tests: 6 tests covering CR0, CR2, CR3, CR4, CR8 with rax
+    // and round-trip verification via iced-x86
+
+    #[test]
+    fn encode_mov_cr0_rax_emits_0f22c0() {
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, true, 0, 0); // write=true, cr_idx=0, gpr_idx=0 (rax)
+        assert_eq!(buf.as_slice(), &[0x0F, 0x22, 0xC0]);
+    }
+
+    #[test]
+    fn encode_mov_cr0_rax_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, true, 0, 0);
+        assert_eq!(buf.as_slice(), &[0x0F, 0x22, 0xC0]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    #[test]
+    fn encode_mov_cr3_rax_emits_0f22d8() {
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, true, 3, 0); // write=true, cr_idx=3, gpr_idx=0 (rax)
+        assert_eq!(buf.as_slice(), &[0x0F, 0x22, 0xD8]);
+    }
+
+    #[test]
+    fn encode_mov_cr3_rax_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, true, 3, 0);
+        assert_eq!(buf.as_slice(), &[0x0F, 0x22, 0xD8]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    #[test]
+    fn encode_mov_cr4_rax_emits_0f22e0() {
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, true, 4, 0); // write=true, cr_idx=4, gpr_idx=0 (rax)
+        assert_eq!(buf.as_slice(), &[0x0F, 0x22, 0xE0]);
+    }
+
+    #[test]
+    fn encode_mov_cr4_rax_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, true, 4, 0);
+        assert_eq!(buf.as_slice(), &[0x0F, 0x22, 0xE0]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    #[test]
+    fn encode_mov_cr8_rax_emits_440f22c0() {
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, true, 8, 0); // write=true, cr_idx=8, gpr_idx=0 (rax)
+        // CR8 requires REX.R=1: 0x44, then 0x0F 0x22, then 0xC0 (reg=0, r/m=0)
+        assert_eq!(buf.as_slice(), &[0x44, 0x0F, 0x22, 0xC0]);
+    }
+
+    #[test]
+    fn encode_mov_cr8_rax_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, true, 8, 0);
+        assert_eq!(buf.as_slice(), &[0x44, 0x0F, 0x22, 0xC0]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    // Read (mov rax, cr_idx) tests: 6 tests covering CR0, CR2, CR3, CR4, CR8 from rax
+    // and round-trip verification via iced-x86
+
+    #[test]
+    fn encode_mov_rax_cr0_emits_0f20c0() {
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, false, 0, 0); // write=false, cr_idx=0, gpr_idx=0 (rax)
+        assert_eq!(buf.as_slice(), &[0x0F, 0x20, 0xC0]);
+    }
+
+    #[test]
+    fn encode_mov_rax_cr0_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, false, 0, 0);
+        assert_eq!(buf.as_slice(), &[0x0F, 0x20, 0xC0]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    #[test]
+    fn encode_mov_rax_cr3_emits_0f20d8() {
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, false, 3, 0); // write=false, cr_idx=3, gpr_idx=0 (rax)
+        assert_eq!(buf.as_slice(), &[0x0F, 0x20, 0xD8]);
+    }
+
+    #[test]
+    fn encode_mov_rax_cr3_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, false, 3, 0);
+        assert_eq!(buf.as_slice(), &[0x0F, 0x20, 0xD8]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    #[test]
+    fn encode_mov_rax_cr4_emits_0f20e0() {
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, false, 4, 0); // write=false, cr_idx=4, gpr_idx=0 (rax)
+        assert_eq!(buf.as_slice(), &[0x0F, 0x20, 0xE0]);
+    }
+
+    #[test]
+    fn encode_mov_rax_cr4_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, false, 4, 0);
+        assert_eq!(buf.as_slice(), &[0x0F, 0x20, 0xE0]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    #[test]
+    fn encode_mov_rax_cr8_emits_440f20c0() {
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, false, 8, 0); // write=false, cr_idx=8, gpr_idx=0 (rax)
+        // CR8 requires REX.R=1: 0x44, then 0x0F 0x20, then 0xC0 (reg=0, r/m=0)
+        assert_eq!(buf.as_slice(), &[0x44, 0x0F, 0x20, 0xC0]);
+    }
+
+    #[test]
+    fn encode_mov_rax_cr8_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, false, 8, 0);
+        assert_eq!(buf.as_slice(), &[0x44, 0x0F, 0x20, 0xC0]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
     }
 }

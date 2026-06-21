@@ -153,7 +153,7 @@ pub fn encode_instruction(
         Mnemonic::Wrmsr => encode_wrmsr_inst(inst, buf),
         Mnemonic::Rdmsr => encode_rdmsr_inst(inst, buf),
         Mnemonic::Int => encode_int(inst, buf),
-        Mnemonic::MovCr { .. } => Err(EncodeError::Unsupported("phase-5 m2-005")),
+        Mnemonic::MovCr { write } => encode_mov_cr_inst(inst, buf, *write),
         Mnemonic::MovDr { .. } => Err(EncodeError::Unsupported("phase-5 m2-006")),
         Mnemonic::Lgdt => Err(EncodeError::Unsupported("phase-5 m2-007")),
         Mnemonic::Lidt => Err(EncodeError::Unsupported("phase-5 m2-007")),
@@ -572,6 +572,48 @@ fn encode_int(inst: &Instruction, buf: &mut CodeBuffer) -> Result<(), EncodeErro
             mnemonic: Mnemonic::Int,
             expected: 1,
             got: inst.operands.len(),
+        }),
+    }
+}
+
+fn encode_mov_cr_inst(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+    write: bool,
+) -> Result<(), EncodeError> {
+    // mov cr_idx, gpr (write=true): first=CR, second=GPR
+    // mov gpr, cr_idx (write=false): first=GPR, second=CR
+    match inst.operands.as_slice() {
+        [Operand::Reg(first_reg), Operand::Reg(second_reg)] => {
+            let (cr_idx, gpr_idx) = if write {
+                // mov cr_idx, gpr: first is CR, second is GPR
+                (first_reg.0, second_reg.0)
+            } else {
+                // mov gpr, cr_idx: first is GPR, second is CR
+                (second_reg.0, first_reg.0)
+            };
+
+            // Validate CR index: phase-5 supports CR0..CR4 + CR8 only
+            match cr_idx {
+                0 | 3 | 4 | 8 => {}
+                _ => {
+                    return Err(EncodeError::Unsupported("CR index not in phase-5 minimum"));
+                }
+            }
+
+            // Validate GPR index: must be 0-15
+            if gpr_idx > 15 {
+                return Err(EncodeError::OperandShape {
+                    mnemonic: Mnemonic::MovCr { write },
+                });
+            }
+
+            // Emit the instruction using the low-level encoder
+            encode_mov_cr(buf, write, cr_idx, gpr_idx);
+            Ok(())
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::MovCr { write },
         }),
     }
 }
@@ -1179,5 +1221,205 @@ mod tests {
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
         assert_eq!(instr.mnemonic(), IcedMnem::Int);
+    }
+
+    // ── Phase-5 m2-005: control register MOV instruction encoding ────────
+
+    // Write (mov cr_idx, rax) tests via encode_instruction dispatcher
+    #[test]
+    fn encode_instruction_mov_cr0_rax_round_trips() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::MovCr { write: true },
+            operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(0))], // mov cr0, rax
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0x0F, 0x22, 0xC0]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    #[test]
+    fn encode_instruction_mov_cr3_rax_round_trips() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::MovCr { write: true },
+            operands: smallvec::smallvec![Operand::Reg(RegId(3)), Operand::Reg(RegId(0))], // mov cr3, rax
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0x0F, 0x22, 0xD8]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    #[test]
+    fn encode_instruction_mov_cr4_rax_round_trips() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::MovCr { write: true },
+            operands: smallvec::smallvec![Operand::Reg(RegId(4)), Operand::Reg(RegId(0))], // mov cr4, rax
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0x0F, 0x22, 0xE0]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    #[test]
+    fn encode_instruction_mov_cr8_rax_round_trips() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::MovCr { write: true },
+            operands: smallvec::smallvec![Operand::Reg(RegId(8)), Operand::Reg(RegId(0))], // mov cr8, rax
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0x44, 0x0F, 0x22, 0xC0]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    #[test]
+    fn encode_instruction_mov_cr2_write_fails_validation() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::MovCr { write: true },
+            operands: smallvec::smallvec![Operand::Reg(RegId(2)), Operand::Reg(RegId(0))], // mov cr2, rax (not supported)
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        let result = encode_instruction(&inst, &mut buf, &mut stats);
+        assert!(result.is_err(), "CR2 should not be supported in phase-5");
+    }
+
+    // Read (mov rax, cr_idx) tests via encode_instruction dispatcher
+    #[test]
+    fn encode_instruction_mov_rax_cr0_round_trips() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::MovCr { write: false },
+            operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(0))], // mov rax, cr0
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0x0F, 0x20, 0xC0]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    #[test]
+    fn encode_instruction_mov_rax_cr3_round_trips() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::MovCr { write: false },
+            operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(3))], // mov rax, cr3
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0x0F, 0x20, 0xD8]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    #[test]
+    fn encode_instruction_mov_rax_cr4_round_trips() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::MovCr { write: false },
+            operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(4))], // mov rax, cr4
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0x0F, 0x20, 0xE0]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    #[test]
+    fn encode_instruction_mov_rax_cr8_round_trips() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::MovCr { write: false },
+            operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(8))], // mov rax, cr8
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0x44, 0x0F, 0x20, 0xC0]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    #[test]
+    fn encode_instruction_mov_rax_cr2_fails_validation() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::MovCr { write: false },
+            operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(2))], // mov rax, cr2 (not supported)
+            encoding_hint: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        let result = encode_instruction(&inst, &mut buf, &mut stats);
+        assert!(result.is_err(), "CR2 should not be supported in phase-5");
     }
 }
