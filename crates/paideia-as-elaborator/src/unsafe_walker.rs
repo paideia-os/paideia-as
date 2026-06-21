@@ -4,6 +4,17 @@
 //! used in unsafe blocks. It converts AST operand nodes into IR `Operand` values
 //! with proper register encoding and memory addressing modes.
 //!
+//! # Mnemonic Resolution (Phase 5, m3-003)
+//!
+//! The MNEMONIC_TABLE constant provides a canonical mapping from mnemonic string spellings
+//! (case-insensitive) to IR `Mnemonic` enum variants, including proper disambiguation for
+//! variants with payloads:
+//! - Jcc(Cond) forms: `je` → `Jcc(Cond::Eq)`, `jne` → `Jcc(Cond::Ne)`, etc.
+//! - MovCr{write}: `mov_cr` → `MovCr{write:true}`, `mov_from_cr` → `MovCr{write:false}`
+//! - MovDr{write}: `mov_dr` → `MovDr{write:true}`, `mov_from_dr` → `MovDr{write:false}`
+//! - In{width}: `in_al` → `In{width:1}`, `in_ax` → `In{width:2}`, `in_eax` → `In{width:4}`
+//! - Out{width}: `out_al` → `Out{width:1}`, `out_ax` → `Out{width:2}`, `out_eax` → `Out{width:4}`
+//!
 //! # Register Encoding
 //!
 //! General-purpose registers and special registers use distinct sentinel ranges:
@@ -16,7 +27,7 @@
 
 use paideia_as_ast::{AstArena, ExprData, NodeId, NodeKind};
 use paideia_as_diagnostics::Span;
-use paideia_as_ir::instruction::{Operand, RegId, Scale};
+use paideia_as_ir::instruction::{Cond, Mnemonic, Operand, RegId, Scale};
 
 /// Error type for operand parsing.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -25,6 +36,115 @@ pub enum OperandError {
     UnknownRegister(String, Span),
     /// Malformed operand (e.g., invalid memory reference).
     MalformedOperand(Span),
+}
+
+/// Table-driven mnemonic resolver for x86_64 instructions.
+///
+/// Maps canonical mnemonic spellings (case-insensitive) to IR Mnemonic variants.
+/// Covers the Phase 3 m2-001 + Phase 5 m2-001 combined set (30+ mnemonics).
+///
+/// Canonical spellings for payload variants:
+/// - Jcc: `je` (Eq), `jne` (Ne), `jl` (Lt), `jle` (Le), `jg` (Gt), `jge` (Ge),
+///   `jb` (Below), `jbe` (BelowOrEqual), `ja` (Above), `jae` (AboveOrEqual),
+///   `jz` (Zero), `jnz` (NonZero), `js` (Sign), `jns` (NotSign),
+///   `jo` (Overflow), `jno` (NotOverflow)
+/// - MovCr: `mov_cr` (write=true), `mov_from_cr` (write=false)
+/// - MovDr: `mov_dr` (write=true), `mov_from_dr` (write=false)
+/// - In: `in_al` (width=1), `in_ax` (width=2), `in_eax` (width=4)
+/// - Out: `out_al` (width=1), `out_ax` (width=2), `out_eax` (width=4)
+const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
+    // Phase 3 m2-001: original 10 mnemonics
+    ("mov", Mnemonic::Mov),
+    ("add", Mnemonic::Add),
+    ("sub", Mnemonic::Sub),
+    ("cmp", Mnemonic::Cmp),
+    ("jmp", Mnemonic::Jmp),
+    ("call", Mnemonic::Call),
+    ("ret", Mnemonic::Ret),
+    ("rep_movsb", Mnemonic::RepMovsb),
+    ("lea", Mnemonic::Lea),
+    ("nop", Mnemonic::Nop),
+    // Phase 5 m2-001: 20 privileged + system-ISA mnemonics
+    ("lgdt", Mnemonic::Lgdt),
+    ("lidt", Mnemonic::Lidt),
+    ("wrmsr", Mnemonic::Wrmsr),
+    ("rdmsr", Mnemonic::Rdmsr),
+    ("iret", Mnemonic::Iret),
+    ("iretq", Mnemonic::Iretq),
+    ("sysret", Mnemonic::Sysret),
+    ("swapgs", Mnemonic::Swapgs),
+    ("cpuid", Mnemonic::Cpuid),
+    ("cli", Mnemonic::Cli),
+    ("sti", Mnemonic::Sti),
+    ("hlt", Mnemonic::Hlt),
+    ("rep_stosq", Mnemonic::RepStosq),
+    ("farjmp", Mnemonic::FarJmp),
+    // Jcc (conditional jump) variants (16 forms)
+    ("je", Mnemonic::Jcc(Cond::Eq)),
+    ("jne", Mnemonic::Jcc(Cond::Ne)),
+    ("jl", Mnemonic::Jcc(Cond::Lt)),
+    ("jle", Mnemonic::Jcc(Cond::Le)),
+    ("jg", Mnemonic::Jcc(Cond::Gt)),
+    ("jge", Mnemonic::Jcc(Cond::Ge)),
+    ("jb", Mnemonic::Jcc(Cond::Below)),
+    ("jbe", Mnemonic::Jcc(Cond::BelowOrEqual)),
+    ("ja", Mnemonic::Jcc(Cond::Above)),
+    ("jae", Mnemonic::Jcc(Cond::AboveOrEqual)),
+    ("jz", Mnemonic::Jcc(Cond::Zero)),
+    ("jnz", Mnemonic::Jcc(Cond::NonZero)),
+    ("js", Mnemonic::Jcc(Cond::Sign)),
+    ("jns", Mnemonic::Jcc(Cond::NotSign)),
+    ("jo", Mnemonic::Jcc(Cond::Overflow)),
+    ("jno", Mnemonic::Jcc(Cond::NotOverflow)),
+    // MovCr (control register move) variants (2 forms)
+    ("mov_cr", Mnemonic::MovCr { write: true }),
+    ("mov_from_cr", Mnemonic::MovCr { write: false }),
+    // MovDr (debug register move) variants (2 forms)
+    ("mov_dr", Mnemonic::MovDr { write: true }),
+    ("mov_from_dr", Mnemonic::MovDr { write: false }),
+    // In (I/O port read) variants (3 forms)
+    ("in_al", Mnemonic::In { width: 1 }),
+    ("in_ax", Mnemonic::In { width: 2 }),
+    ("in_eax", Mnemonic::In { width: 4 }),
+    // Out (I/O port write) variants (3 forms)
+    ("out_al", Mnemonic::Out { width: 1 }),
+    ("out_ax", Mnemonic::Out { width: 2 }),
+    ("out_eax", Mnemonic::Out { width: 4 }),
+    // Note: Int (software interrupt) uses int3 as canonical (see resolve_mnemonic)
+];
+
+/// Resolve a mnemonic name to an IR Mnemonic enum variant.
+///
+/// Performs case-insensitive lookup against the MNEMONIC_TABLE.
+/// Returns `Some(Mnemonic)` if found, `None` if the name is unknown.
+///
+/// # Examples
+///
+/// ```ignore
+/// assert_eq!(resolve_mnemonic("mov"), Some(Mnemonic::Mov));
+/// assert_eq!(resolve_mnemonic("MOV"), Some(Mnemonic::Mov));  // case-insensitive
+/// assert_eq!(resolve_mnemonic("je"), Some(Mnemonic::Jcc(Cond::Eq)));
+/// assert_eq!(resolve_mnemonic("mov_cr"), Some(Mnemonic::MovCr { write: true }));
+/// assert_eq!(resolve_mnemonic("in_al"), Some(Mnemonic::In { width: 1 }));
+/// assert_eq!(resolve_mnemonic("not_a_mnemonic"), None);
+/// ```
+#[must_use]
+pub fn resolve_mnemonic(name: &str) -> Option<Mnemonic> {
+    let lower_name = name.to_lowercase();
+
+    // Handle the special case of Int (software interrupt)
+    if lower_name == "int3" {
+        return Some(Mnemonic::Int);
+    }
+
+    // Table lookup with case-insensitive ASCII lowercase
+    for (mnem_name, mnem) in MNEMONIC_TABLE {
+        if mnem_name.eq_ignore_ascii_case(&lower_name) {
+            return Some(*mnem);
+        }
+    }
+
+    None
 }
 
 /// Parse an operand from an AST node.
@@ -491,5 +611,325 @@ mod tests {
             1,
         ));
         assert!(matches!(err, OperandError::MalformedOperand(_)));
+    }
+
+    // ── Mnemonic resolver tests (Phase 5 m3-003) ──────────────────────────
+
+    // --- Phase 3 m2-001: original 10 mnemonics ---
+
+    #[test]
+    fn resolve_mnemonic_mov() {
+        assert_eq!(resolve_mnemonic("mov"), Some(Mnemonic::Mov));
+    }
+
+    #[test]
+    fn resolve_mnemonic_mov_case_insensitive() {
+        assert_eq!(resolve_mnemonic("MOV"), Some(Mnemonic::Mov));
+        assert_eq!(resolve_mnemonic("Mov"), Some(Mnemonic::Mov));
+    }
+
+    #[test]
+    fn resolve_mnemonic_add() {
+        assert_eq!(resolve_mnemonic("add"), Some(Mnemonic::Add));
+    }
+
+    #[test]
+    fn resolve_mnemonic_sub() {
+        assert_eq!(resolve_mnemonic("sub"), Some(Mnemonic::Sub));
+    }
+
+    #[test]
+    fn resolve_mnemonic_cmp() {
+        assert_eq!(resolve_mnemonic("cmp"), Some(Mnemonic::Cmp));
+    }
+
+    #[test]
+    fn resolve_mnemonic_jmp() {
+        assert_eq!(resolve_mnemonic("jmp"), Some(Mnemonic::Jmp));
+    }
+
+    #[test]
+    fn resolve_mnemonic_call() {
+        assert_eq!(resolve_mnemonic("call"), Some(Mnemonic::Call));
+    }
+
+    #[test]
+    fn resolve_mnemonic_ret() {
+        assert_eq!(resolve_mnemonic("ret"), Some(Mnemonic::Ret));
+    }
+
+    #[test]
+    fn resolve_mnemonic_rep_movsb() {
+        assert_eq!(resolve_mnemonic("rep_movsb"), Some(Mnemonic::RepMovsb));
+    }
+
+    #[test]
+    fn resolve_mnemonic_lea() {
+        assert_eq!(resolve_mnemonic("lea"), Some(Mnemonic::Lea));
+    }
+
+    #[test]
+    fn resolve_mnemonic_nop() {
+        assert_eq!(resolve_mnemonic("nop"), Some(Mnemonic::Nop));
+    }
+
+    // --- Phase 5 m2-001: 20 privileged + system-ISA mnemonics ---
+
+    #[test]
+    fn resolve_mnemonic_lgdt() {
+        assert_eq!(resolve_mnemonic("lgdt"), Some(Mnemonic::Lgdt));
+    }
+
+    #[test]
+    fn resolve_mnemonic_lidt() {
+        assert_eq!(resolve_mnemonic("lidt"), Some(Mnemonic::Lidt));
+    }
+
+    #[test]
+    fn resolve_mnemonic_wrmsr() {
+        assert_eq!(resolve_mnemonic("wrmsr"), Some(Mnemonic::Wrmsr));
+    }
+
+    #[test]
+    fn resolve_mnemonic_rdmsr() {
+        assert_eq!(resolve_mnemonic("rdmsr"), Some(Mnemonic::Rdmsr));
+    }
+
+    #[test]
+    fn resolve_mnemonic_iret() {
+        assert_eq!(resolve_mnemonic("iret"), Some(Mnemonic::Iret));
+    }
+
+    #[test]
+    fn resolve_mnemonic_iretq() {
+        assert_eq!(resolve_mnemonic("iretq"), Some(Mnemonic::Iretq));
+    }
+
+    #[test]
+    fn resolve_mnemonic_sysret() {
+        assert_eq!(resolve_mnemonic("sysret"), Some(Mnemonic::Sysret));
+    }
+
+    #[test]
+    fn resolve_mnemonic_swapgs() {
+        assert_eq!(resolve_mnemonic("swapgs"), Some(Mnemonic::Swapgs));
+    }
+
+    #[test]
+    fn resolve_mnemonic_cpuid() {
+        assert_eq!(resolve_mnemonic("cpuid"), Some(Mnemonic::Cpuid));
+    }
+
+    #[test]
+    fn resolve_mnemonic_cli() {
+        assert_eq!(resolve_mnemonic("cli"), Some(Mnemonic::Cli));
+    }
+
+    #[test]
+    fn resolve_mnemonic_sti() {
+        assert_eq!(resolve_mnemonic("sti"), Some(Mnemonic::Sti));
+    }
+
+    #[test]
+    fn resolve_mnemonic_hlt() {
+        assert_eq!(resolve_mnemonic("hlt"), Some(Mnemonic::Hlt));
+    }
+
+    #[test]
+    fn resolve_mnemonic_rep_stosq() {
+        assert_eq!(resolve_mnemonic("rep_stosq"), Some(Mnemonic::RepStosq));
+    }
+
+    #[test]
+    fn resolve_mnemonic_farjmp() {
+        assert_eq!(resolve_mnemonic("farjmp"), Some(Mnemonic::FarJmp));
+    }
+
+    // --- Jcc (conditional jump) variants: all 16 forms ---
+
+    #[test]
+    fn resolve_mnemonic_je() {
+        assert_eq!(resolve_mnemonic("je"), Some(Mnemonic::Jcc(Cond::Eq)));
+    }
+
+    #[test]
+    fn resolve_mnemonic_jne() {
+        assert_eq!(resolve_mnemonic("jne"), Some(Mnemonic::Jcc(Cond::Ne)));
+    }
+
+    #[test]
+    fn resolve_mnemonic_jl() {
+        assert_eq!(resolve_mnemonic("jl"), Some(Mnemonic::Jcc(Cond::Lt)));
+    }
+
+    #[test]
+    fn resolve_mnemonic_jle() {
+        assert_eq!(resolve_mnemonic("jle"), Some(Mnemonic::Jcc(Cond::Le)));
+    }
+
+    #[test]
+    fn resolve_mnemonic_jg() {
+        assert_eq!(resolve_mnemonic("jg"), Some(Mnemonic::Jcc(Cond::Gt)));
+    }
+
+    #[test]
+    fn resolve_mnemonic_jge() {
+        assert_eq!(resolve_mnemonic("jge"), Some(Mnemonic::Jcc(Cond::Ge)));
+    }
+
+    #[test]
+    fn resolve_mnemonic_jb() {
+        assert_eq!(resolve_mnemonic("jb"), Some(Mnemonic::Jcc(Cond::Below)));
+    }
+
+    #[test]
+    fn resolve_mnemonic_jbe() {
+        assert_eq!(
+            resolve_mnemonic("jbe"),
+            Some(Mnemonic::Jcc(Cond::BelowOrEqual))
+        );
+    }
+
+    #[test]
+    fn resolve_mnemonic_ja() {
+        assert_eq!(resolve_mnemonic("ja"), Some(Mnemonic::Jcc(Cond::Above)));
+    }
+
+    #[test]
+    fn resolve_mnemonic_jae() {
+        assert_eq!(
+            resolve_mnemonic("jae"),
+            Some(Mnemonic::Jcc(Cond::AboveOrEqual))
+        );
+    }
+
+    #[test]
+    fn resolve_mnemonic_jz() {
+        assert_eq!(resolve_mnemonic("jz"), Some(Mnemonic::Jcc(Cond::Zero)));
+    }
+
+    #[test]
+    fn resolve_mnemonic_jnz() {
+        assert_eq!(resolve_mnemonic("jnz"), Some(Mnemonic::Jcc(Cond::NonZero)));
+    }
+
+    #[test]
+    fn resolve_mnemonic_js() {
+        assert_eq!(resolve_mnemonic("js"), Some(Mnemonic::Jcc(Cond::Sign)));
+    }
+
+    #[test]
+    fn resolve_mnemonic_jns() {
+        assert_eq!(resolve_mnemonic("jns"), Some(Mnemonic::Jcc(Cond::NotSign)));
+    }
+
+    #[test]
+    fn resolve_mnemonic_jo() {
+        assert_eq!(resolve_mnemonic("jo"), Some(Mnemonic::Jcc(Cond::Overflow)));
+    }
+
+    #[test]
+    fn resolve_mnemonic_jno() {
+        assert_eq!(
+            resolve_mnemonic("jno"),
+            Some(Mnemonic::Jcc(Cond::NotOverflow))
+        );
+    }
+
+    // --- MovCr (control register move) variants ---
+
+    #[test]
+    fn resolve_mnemonic_mov_cr_write() {
+        assert_eq!(
+            resolve_mnemonic("mov_cr"),
+            Some(Mnemonic::MovCr { write: true })
+        );
+    }
+
+    #[test]
+    fn resolve_mnemonic_mov_from_cr_read() {
+        assert_eq!(
+            resolve_mnemonic("mov_from_cr"),
+            Some(Mnemonic::MovCr { write: false })
+        );
+    }
+
+    // --- MovDr (debug register move) variants ---
+
+    #[test]
+    fn resolve_mnemonic_mov_dr_write() {
+        assert_eq!(
+            resolve_mnemonic("mov_dr"),
+            Some(Mnemonic::MovDr { write: true })
+        );
+    }
+
+    #[test]
+    fn resolve_mnemonic_mov_from_dr_read() {
+        assert_eq!(
+            resolve_mnemonic("mov_from_dr"),
+            Some(Mnemonic::MovDr { write: false })
+        );
+    }
+
+    // --- In (I/O port read) variants ---
+
+    #[test]
+    fn resolve_mnemonic_in_al() {
+        assert_eq!(resolve_mnemonic("in_al"), Some(Mnemonic::In { width: 1 }));
+    }
+
+    #[test]
+    fn resolve_mnemonic_in_ax() {
+        assert_eq!(resolve_mnemonic("in_ax"), Some(Mnemonic::In { width: 2 }));
+    }
+
+    #[test]
+    fn resolve_mnemonic_in_eax() {
+        assert_eq!(resolve_mnemonic("in_eax"), Some(Mnemonic::In { width: 4 }));
+    }
+
+    // --- Out (I/O port write) variants ---
+
+    #[test]
+    fn resolve_mnemonic_out_al() {
+        assert_eq!(resolve_mnemonic("out_al"), Some(Mnemonic::Out { width: 1 }));
+    }
+
+    #[test]
+    fn resolve_mnemonic_out_ax() {
+        assert_eq!(resolve_mnemonic("out_ax"), Some(Mnemonic::Out { width: 2 }));
+    }
+
+    #[test]
+    fn resolve_mnemonic_out_eax() {
+        assert_eq!(
+            resolve_mnemonic("out_eax"),
+            Some(Mnemonic::Out { width: 4 })
+        );
+    }
+
+    // --- Int (software interrupt) ---
+
+    #[test]
+    fn resolve_mnemonic_int3() {
+        assert_eq!(resolve_mnemonic("int3"), Some(Mnemonic::Int));
+    }
+
+    // --- Negative tests: unknown mnemonics ---
+
+    #[test]
+    fn resolve_mnemonic_unknown_typo() {
+        assert_eq!(resolve_mnemonic("mvo"), None);
+    }
+
+    #[test]
+    fn resolve_mnemonic_unknown_garbage() {
+        assert_eq!(resolve_mnemonic("not_a_real_mnemonic"), None);
+    }
+
+    #[test]
+    fn resolve_mnemonic_unknown_empty() {
+        assert_eq!(resolve_mnemonic(""), None);
     }
 }

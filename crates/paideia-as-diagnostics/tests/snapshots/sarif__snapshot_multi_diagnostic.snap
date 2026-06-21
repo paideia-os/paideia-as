@@ -1041,6 +1041,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "Phase 5 m3-003: every mnemonic used inside an `unsafe { block: { ... } }` must be present in the MNEMONIC_TABLE. Unknown mnemonics could be typos OR could be valid x86_64 instructions not yet wired through paideia-as. The resolver tables cover Phase 3 m2-001's 10 base mnemonics plus Phase 5 m2-001's 20 privileged/system-ISA mnemonics, along with all Jcc condition codes, control/debug register moves, I/O port operations, and software interrupts (30+ total). Consult `crates/paideia-as-elaborator/src/unsafe_walker.rs` MNEMONIC_TABLE or file an issue to request additional instruction support."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1605",
+              "id": "U1605",
+              "name": "Unknown mnemonic in unsafe block",
+              "shortDescription": {
+                "text": "the mnemonic name is not in the resolver table; check spelling or file an issue if the instruction should be supported"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "A symbol is marked as undefined (section_index=0xFFFFFFFF) in the symbol table, but no input PAX exports a symbol with the same BLAKE3 name hash. The linker cannot resolve this reference."
               },
               "helpUri": "https://paideia-os.org/diagnostics/B1700",

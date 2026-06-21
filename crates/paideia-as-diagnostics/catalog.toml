@@ -622,3 +622,12 @@ brief = "elision rules cannot determine output lifetime from input lifetimes"
 description = "Phase 4 m5-005: region (lifetime) elision. When a function's output borrow lacks an explicit lifetime, the elision rules attempt to infer it from input lifetimes: (1) if a single input borrow has an elided lifetime, use it; (2) if a single input lifetime exists (explicit or elided), assign it to all elided outputs; (3) for methods, all output lifetimes take the receiver's lifetime. This warning fires when the rules encounter an ambiguous situation: either multiple input lifetimes (ambiguous which to choose) or zero input lifetimes but an elided output (nothing to infer from). Resolve by explicitly annotating the output lifetime with the desired region."
 since = "0.7.0"
 deprecated = false
+
+[diagnostic.U1605]
+severity = "error"
+category = "unsafe"
+title = "Unknown mnemonic in unsafe block"
+brief = "the mnemonic name is not in the resolver table; check spelling or file an issue if the instruction should be supported"
+description = "Phase 5 m3-003: every mnemonic used inside an `unsafe { block: { ... } }` must be present in the MNEMONIC_TABLE. Unknown mnemonics could be typos OR could be valid x86_64 instructions not yet wired through paideia-as. The resolver tables cover Phase 3 m2-001's 10 base mnemonics plus Phase 5 m2-001's 20 privileged/system-ISA mnemonics, along with all Jcc condition codes, control/debug register moves, I/O port operations, and software interrupts (30+ total). Consult `crates/paideia-as-elaborator/src/unsafe_walker.rs` MNEMONIC_TABLE or file an issue to request additional instruction support."
+since = "0.5.0"
+deprecated = false
