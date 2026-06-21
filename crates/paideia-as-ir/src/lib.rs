@@ -10,6 +10,7 @@
 
 pub mod anf;
 mod arena;
+pub mod binding_name;
 pub mod borrow;
 pub mod call_meta;
 pub mod constant_pool;
@@ -34,6 +35,7 @@ pub mod walker_ctx;
 
 pub use anf::{AnfRewrite, is_atomic, normalise_operands};
 pub use arena::IrArena;
+pub use binding_name::BindingNameTable;
 pub use borrow::{BorrowMeta, BorrowSideTable};
 pub use call_meta::{CallMeta, CallSideTable};
 pub use constant_pool::ConstantPoolTable;

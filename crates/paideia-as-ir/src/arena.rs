@@ -6,6 +6,7 @@ use paideia_as_diagnostics::Span;
 use smallvec::SmallVec;
 use std::ops::Index;
 
+use crate::binding_name::BindingNameTable;
 use crate::constant_pool::ConstantPoolTable;
 use crate::data::DataSideTable;
 use crate::instruction::InstructionSideTable;
@@ -37,6 +38,8 @@ pub struct IrArena {
     literal_value_table: LiteralValueTable,
     /// Side-table: data entries (.rodata/.data) indexed by Let node ID.
     data_table: DataSideTable,
+    /// Side-table: binding names for Let nodes indexed by Let node ID.
+    binding_name_table: BindingNameTable,
     /// Side-table: top-level binding symbol table.
     symbol_table: SymbolTable,
 }
@@ -59,6 +62,7 @@ impl IrArena {
             constant_pool_table: ConstantPoolTable::new(),
             literal_value_table: LiteralValueTable::new(),
             data_table: DataSideTable::new(),
+            binding_name_table: BindingNameTable::new(),
             symbol_table: SymbolTable::new(),
         }
     }
@@ -195,6 +199,17 @@ impl IrArena {
     /// Borrow the data side-table (mutable).
     pub fn data_mut(&mut self) -> &mut DataSideTable {
         &mut self.data_table
+    }
+
+    /// Borrow the binding name side-table (read-only).
+    #[must_use]
+    pub fn binding_names(&self) -> &BindingNameTable {
+        &self.binding_name_table
+    }
+
+    /// Borrow the binding name side-table (mutable).
+    pub fn binding_names_mut(&mut self) -> &mut BindingNameTable {
+        &mut self.binding_name_table
     }
 
     /// Borrow the symbol table (read-only).

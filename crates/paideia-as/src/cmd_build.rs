@@ -192,6 +192,42 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
         }
     }
 
+    // Phase 6 m2-004: Extract binding names from AST Let nodes and populate the IR's binding_names table.
+    // This enables emit_walker to use actual binding names (_start, _anchor, etc.) instead of generic _let_<nodeid>.
+    {
+        let content_ref = source_map.content(file);
+
+        // Walk AST to find all Let nodes and extract their binding names
+        for i in 0..arena.len() {
+            if let Some(ast_id) = paideia_as_ast::NodeId::new((i + 1) as u32) {
+                if let Some(node) = arena.get(ast_id) {
+                    if node.kind == paideia_as_ast::NodeKind::Let {
+                        if let Some(paideia_as_ast::ItemData::Let { name: name_id, .. }) =
+                            arena.item_data(ast_id)
+                        {
+                            // Get the Ident node for the binding name
+                            if let Some(name_node) = arena.get(*name_id) {
+                                let span = name_node.span;
+                                let start = span.byte_start() as usize;
+                                let len = span.byte_len() as usize;
+                                if start + len <= content_ref.len() {
+                                    let binding_text = content_ref[start..start + len].to_string();
+                                    // Map AST Let node ID to IR Let node ID (1-to-1 mapping)
+                                    let ir_let_id = paideia_as_ir::IrNodeId::new(ast_id.get())
+                                        .expect("valid ir node id from ast let node");
+                                    lowering
+                                        .ir
+                                        .binding_names_mut()
+                                        .insert(ir_let_id, binding_text);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Run walkers over the IR to surface S/F/C diagnostics.
     // Phase-2-m1: walkers run with empty injection tables (from CLI), so only
     // diagnostics that depend on kind-only IR will fire (S0900/S0901/S0903).

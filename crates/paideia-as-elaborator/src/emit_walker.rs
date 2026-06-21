@@ -132,9 +132,13 @@ impl EmitWalker {
                                     SymbolKind::Object
                                 };
 
-                                // Extract binding name: use "_let_<nodeid>" as default.
-                                // Future: integrate AST name resolution for actual names.
-                                let binding_name = format!("_let_{}", node_id.get());
+                                // Extract binding name from binding_names side-table.
+                                // Fall back to "_let_<nodeid>" if not found.
+                                let binding_name = arena
+                                    .binding_names()
+                                    .get(node_id)
+                                    .map(|s| s.to_string())
+                                    .unwrap_or_else(|| format!("_let_{}", node_id.get()));
 
                                 // Create and insert symbol.
                                 // For function symbols, use the lambda's IR node ID so offset lookup works.
