@@ -154,7 +154,7 @@ pub fn encode_instruction(
         Mnemonic::Rdmsr => encode_rdmsr_inst(inst, buf),
         Mnemonic::Int => encode_int(inst, buf),
         Mnemonic::MovCr { write } => encode_mov_cr_inst(inst, buf, *write),
-        Mnemonic::MovDr { .. } => Err(EncodeError::Unsupported("phase-5 m2-006")),
+        Mnemonic::MovDr { write } => encode_mov_dr_inst(inst, buf, *write),
         Mnemonic::Lgdt => Err(EncodeError::Unsupported("phase-5 m2-007")),
         Mnemonic::Lidt => Err(EncodeError::Unsupported("phase-5 m2-007")),
         Mnemonic::Iret => Err(EncodeError::Unsupported("phase-5 m2-008")),
@@ -614,6 +614,47 @@ fn encode_mov_cr_inst(
         }
         _ => Err(EncodeError::OperandShape {
             mnemonic: Mnemonic::MovCr { write },
+        }),
+    }
+}
+
+fn encode_mov_dr_inst(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+    write: bool,
+) -> Result<(), EncodeError> {
+    // mov dr_idx, gpr (write=true): first=DR, second=GPR
+    // mov gpr, dr_idx (write=false): first=GPR, second=DR
+    match inst.operands.as_slice() {
+        [Operand::Reg(first_reg), Operand::Reg(second_reg)] => {
+            let (dr_idx, gpr_idx) = if write {
+                // mov dr_idx, gpr: first is DR, second is GPR
+                (first_reg.0, second_reg.0)
+            } else {
+                // mov gpr, dr_idx: first is GPR, second is DR
+                (second_reg.0, first_reg.0)
+            };
+
+            // Validate DR index: phase-5 supports DR0..DR7 only
+            if dr_idx > 7 {
+                return Err(EncodeError::Unsupported(
+                    "DR index > 7 not supported in phase-5",
+                ));
+            }
+
+            // Validate GPR index: must be 0-15
+            if gpr_idx > 15 {
+                return Err(EncodeError::OperandShape {
+                    mnemonic: Mnemonic::MovDr { write },
+                });
+            }
+
+            // Emit the instruction using the low-level encoder
+            encode_mov_dr(buf, write, dr_idx, gpr_idx);
+            Ok(())
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::MovDr { write },
         }),
     }
 }

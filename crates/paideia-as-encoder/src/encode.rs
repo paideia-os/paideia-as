@@ -990,6 +990,25 @@ pub fn encode_mov_cr(buf: &mut CodeBuffer, write: bool, cr_idx: u8, gpr_idx: u8)
     buf.bytes.push(modrm);
 }
 
+/// Encode MOV to/from debug register (0F 23 /r for write, 0F 21 /r for read).
+///
+/// # Arguments
+/// - `write`: true for `mov dr_idx, gpr` (write to DR); false for `mov gpr, dr_idx` (read from DR)
+/// - `dr_idx`: debug register index (0-7; phase-5 supports DR0..DR7 only; no aliasing logic)
+/// - `gpr_idx`: general-purpose register index (0-15)
+pub fn encode_mov_dr(buf: &mut CodeBuffer, write: bool, dr_idx: u8, gpr_idx: u8) {
+    // No REX prefix needed; DR0..DR7 are directly encoded in ModR/M.reg (bits [5:3])
+    // DR8+ do not exist in x86_64.
+
+    // Emit two-byte opcode
+    buf.bytes.push(0x0F);
+    buf.bytes.push(if write { 0x23 } else { 0x21 });
+
+    // Emit ModR/M byte: mod=11, reg=dr_idx & 7, r/m=gpr_idx & 7
+    let modrm = 0xC0 | ((dr_idx & 7) << 3) | (gpr_idx & 7);
+    buf.bytes.push(modrm);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2112,6 +2131,172 @@ mod tests {
         let mut buf = CodeBuffer::new();
         encode_mov_cr(&mut buf, false, 8, 0);
         assert_eq!(buf.as_slice(), &[0x44, 0x0F, 0x20, 0xC0]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    // Write (mov dr_idx, rax) tests: 4 tests covering DR0, DR2, DR6, DR7 to rax
+    // and round-trip verification via iced-x86
+
+    #[test]
+    fn encode_mov_dr0_rax_emits_0f23c0() {
+        let mut buf = CodeBuffer::new();
+        encode_mov_dr(&mut buf, true, 0, 0); // write=true, dr_idx=0, gpr_idx=0 (rax)
+        assert_eq!(buf.as_slice(), &[0x0F, 0x23, 0xC0]);
+    }
+
+    #[test]
+    fn encode_mov_dr0_rax_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_mov_dr(&mut buf, true, 0, 0);
+        assert_eq!(buf.as_slice(), &[0x0F, 0x23, 0xC0]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    #[test]
+    fn encode_mov_dr2_rax_emits_0f23d0() {
+        let mut buf = CodeBuffer::new();
+        encode_mov_dr(&mut buf, true, 2, 0); // write=true, dr_idx=2, gpr_idx=0 (rax)
+        assert_eq!(buf.as_slice(), &[0x0F, 0x23, 0xD0]);
+    }
+
+    #[test]
+    fn encode_mov_dr2_rax_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_mov_dr(&mut buf, true, 2, 0);
+        assert_eq!(buf.as_slice(), &[0x0F, 0x23, 0xD0]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    #[test]
+    fn encode_mov_dr6_rax_emits_0f23f0() {
+        let mut buf = CodeBuffer::new();
+        encode_mov_dr(&mut buf, true, 6, 0); // write=true, dr_idx=6, gpr_idx=0 (rax)
+        assert_eq!(buf.as_slice(), &[0x0F, 0x23, 0xF0]);
+    }
+
+    #[test]
+    fn encode_mov_dr6_rax_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_mov_dr(&mut buf, true, 6, 0);
+        assert_eq!(buf.as_slice(), &[0x0F, 0x23, 0xF0]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    #[test]
+    fn encode_mov_dr7_rax_emits_0f23f8() {
+        let mut buf = CodeBuffer::new();
+        encode_mov_dr(&mut buf, true, 7, 0); // write=true, dr_idx=7, gpr_idx=0 (rax)
+        assert_eq!(buf.as_slice(), &[0x0F, 0x23, 0xF8]);
+    }
+
+    #[test]
+    fn encode_mov_dr7_rax_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_mov_dr(&mut buf, true, 7, 0);
+        assert_eq!(buf.as_slice(), &[0x0F, 0x23, 0xF8]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    // Read (mov rax, dr_idx) tests: 4 tests covering RAX from DR0, DR2, DR6, DR7
+    // and round-trip verification via iced-x86
+
+    #[test]
+    fn encode_mov_rax_dr0_emits_0f21c0() {
+        let mut buf = CodeBuffer::new();
+        encode_mov_dr(&mut buf, false, 0, 0); // write=false, dr_idx=0, gpr_idx=0 (rax)
+        assert_eq!(buf.as_slice(), &[0x0F, 0x21, 0xC0]);
+    }
+
+    #[test]
+    fn encode_mov_rax_dr0_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_mov_dr(&mut buf, false, 0, 0);
+        assert_eq!(buf.as_slice(), &[0x0F, 0x21, 0xC0]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    #[test]
+    fn encode_mov_rax_dr2_emits_0f21d0() {
+        let mut buf = CodeBuffer::new();
+        encode_mov_dr(&mut buf, false, 2, 0); // write=false, dr_idx=2, gpr_idx=0 (rax)
+        assert_eq!(buf.as_slice(), &[0x0F, 0x21, 0xD0]);
+    }
+
+    #[test]
+    fn encode_mov_rax_dr2_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_mov_dr(&mut buf, false, 2, 0);
+        assert_eq!(buf.as_slice(), &[0x0F, 0x21, 0xD0]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    #[test]
+    fn encode_mov_rax_dr6_emits_0f21f0() {
+        let mut buf = CodeBuffer::new();
+        encode_mov_dr(&mut buf, false, 6, 0); // write=false, dr_idx=6, gpr_idx=0 (rax)
+        assert_eq!(buf.as_slice(), &[0x0F, 0x21, 0xF0]);
+    }
+
+    #[test]
+    fn encode_mov_rax_dr6_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_mov_dr(&mut buf, false, 6, 0);
+        assert_eq!(buf.as_slice(), &[0x0F, 0x21, 0xF0]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    #[test]
+    fn encode_mov_rax_dr7_emits_0f21f8() {
+        let mut buf = CodeBuffer::new();
+        encode_mov_dr(&mut buf, false, 7, 0); // write=false, dr_idx=7, gpr_idx=0 (rax)
+        assert_eq!(buf.as_slice(), &[0x0F, 0x21, 0xF8]);
+    }
+
+    #[test]
+    fn encode_mov_rax_dr7_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_mov_dr(&mut buf, false, 7, 0);
+        assert_eq!(buf.as_slice(), &[0x0F, 0x21, 0xF8]);
 
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
