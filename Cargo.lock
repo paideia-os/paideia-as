@@ -1896,6 +1896,8 @@ dependencies = [
  "paideia-as-ir",
  "paideia-as-lexer",
  "paideia-as-parser",
+ "paideia-as-test",
+ "tempfile",
  "thiserror 2.0.18",
 ]
 
@@ -2037,6 +2039,16 @@ dependencies = [
  "paideia-as-ast",
  "paideia-as-diagnostics",
  "paideia-as-lexer",
+]
+
+[[package]]
+name = "paideia-as-test"
+version = "0.0.1"
+dependencies = [
+ "paideia-as-ast",
+ "paideia-as-parser",
+ "regex",
+ "tempfile",
 ]
 
 [[package]]

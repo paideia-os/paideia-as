@@ -30,6 +30,8 @@ paideia-as-emitter-elf = { path = "../paideia-as-emitter-elf" }
 paideia-as-emitter-pax = { path = "../paideia-as-emitter-pax" }
 paideia-as-emitter-pe = { path = "../paideia-as-emitter-pe" }
 paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
+paideia-as-test = { path = "../paideia-as-test" }
 
 [dev-dependencies]
 object = { workspace = true }
+tempfile = { workspace = true }

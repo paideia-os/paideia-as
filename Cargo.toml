@@ -16,6 +16,7 @@ members = [
     "crates/paideia-as-dwarf",
     "crates/paideia-as-diagnostics",
     "crates/paideia-as-linker",
+    "crates/paideia-as-test",
     "crates/paideia-lsp",
     "crates/paideia-fmt",
     "crates/paideia-pq-sign",
@@ -102,6 +103,9 @@ insta = "1"
 proptest = "1"
 iced-x86 = "1"
 tempfile = "3"
+
+# Text processing
+regex = "1"
 
 [profile.release]
 opt-level = 3

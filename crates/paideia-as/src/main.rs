@@ -11,6 +11,7 @@ mod cli;
 mod cmd_build;
 mod cmd_check;
 mod cmd_dump_ast;
+mod cmd_test;
 mod det;
 
 use std::process::ExitCode;
@@ -45,5 +46,10 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Cmd::DumpAst { input } => cmd_dump_ast::run(&input),
+        Cmd::Test {
+            paths,
+            filter,
+            list,
+        } => cmd_test::run(paths, filter, list),
     }
 }

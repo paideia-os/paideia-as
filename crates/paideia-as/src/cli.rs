@@ -57,4 +57,16 @@ pub enum Cmd {
         /// Path to the input `.pdx` file.
         input: PathBuf,
     },
+    /// Discover and run tests in `.pdx` files.
+    Test {
+        /// Paths to scan for tests. If not provided, scans `tests/` and `src/`.
+        #[arg(value_name = "PATHS")]
+        paths: Vec<PathBuf>,
+        /// Filter tests by regex pattern.
+        #[arg(long)]
+        filter: Option<String>,
+        /// List discovered tests without running them.
+        #[arg(long)]
+        list: bool,
+    },
 }

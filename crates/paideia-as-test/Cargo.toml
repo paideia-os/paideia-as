@@ -1,0 +1,16 @@
+[package]
+name = "paideia-as-test"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+paideia-as-ast = { path = "../paideia-as-ast" }
+paideia-as-parser = { path = "../paideia-as-parser" }
+regex = "1"
+
+[dev-dependencies]
+tempfile = "3"
