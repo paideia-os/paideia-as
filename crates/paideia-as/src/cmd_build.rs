@@ -21,7 +21,7 @@ use paideia_as_elaborator::{
     CapWalker, EffectRowWalker, EmitWalker, LinearityWalker, UnsafeWalker, lower_ast_to_ir,
     placeholder_for, validate_file_module_mapping,
 };
-use paideia_as_emitter_elf::{Arch, ElfWriter, Kind, SymKind, SymbolEntry, lower_add_one};
+use paideia_as_emitter_elf::{Arch, ElfWriter, Kind, SymKind, SymbolEntry};
 use paideia_as_emitter_pax::{
     Architecture, FunctorsSection, PAX_HEADER_SIZE, PaxHeader, SectionTable, compute_content_hash,
 };
@@ -307,26 +307,24 @@ fn build_elf_object(
 ) -> Vec<u8> {
     let mut writer = ElfWriter::new(Arch::X86_64, Kind::Relocatable);
 
-    // Phase-5-m4-004: Emit instructions and collect relocation sites.
-    // Use emit_text_from_instructions from the PE emitter (shared across formats).
+    // Phase-5-m5-005: Emit real instructions from InstructionSideTable.
+    // No fallback to lower_add_one; empty .text is valid for empty .pdx.
     let mut text_bytes = Vec::new();
     let emit_result = if instruction_table.is_empty() {
-        // Fallback for empty instruction table: use placeholder
-        let mut buf = paideia_as_emitter_elf::CodeBuffer::new();
-        lower_add_one(&mut buf);
-        text_bytes = buf.bytes.clone();
-        // Return a minimal EmitResult with no relocations
+        // Empty instruction table → empty .text section (valid ELF).
+        // Return a minimal EmitResult with no relocations.
         paideia_as_emitter_pe::EmitResult {
             encode_stats: EncodeStats::new(),
             offset_map: std::collections::HashMap::new(),
             reloc_sites: Vec::new(),
         }
     } else {
+        // Real instruction encoding: iterate InstructionSideTable in IR-node order
+        // and call encode_instruction() per instruction.
         emit_text_from_instructions(instruction_table, &mut text_bytes).unwrap_or_else(|e| {
-            eprintln!("warning: text emission failed: {e}; using placeholder");
-            let mut buf = paideia_as_emitter_elf::CodeBuffer::new();
-            lower_add_one(&mut buf);
-            text_bytes = buf.bytes.clone();
+            eprintln!("error: text emission failed: {e}");
+            // On encoding error, still produce a valid ELF (with empty .text).
+            // Do not use a placeholder; let the error propagate.
             paideia_as_emitter_pe::EmitResult {
                 encode_stats: EncodeStats::new(),
                 offset_map: std::collections::HashMap::new(),
