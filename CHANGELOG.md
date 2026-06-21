@@ -1,5 +1,48 @@
 # Changelog
 
+## v0.5.0 — Phase 5 (build-emit activation; paideia-os Phase-1 unblock)
+
+**Released:** Tag pushed at m7-003 closure (this PR).
+
+paideia-as Phase 5 closes 7 milestones across 38 issues, PRs #695–#733. Scope: make `paideia-as build --emit elf64` produce real machine code from `.pdx` source, enough to unblock paideia-os Phase-1 kernel bring-up. The originally-planned Phase 5 (self-hosting) shifts to Phase 6+.
+
+This Phase was a cross-repo escalation response: paideia-os Phase-1 work on 2026-06-20 surfaced that `paideia-as build` was emitting a fixed placeholder (`lea 0x1(%rdi), %rax; ret`) regardless of source content. Phase 5 wired the full EmitWalker → UnsafeWalker → InstructionSideTable → emit chain so user code reaches the binary.
+
+### Milestones
+
+- **m1 — elaborator: real per-construct lowering** — EmitWalker skeleton + per-construct visitors for Let(Literal) and Lambda body (identity / double / add-immediate) + Unsafe delegation + cmd_build chain.
+- **m2 — encoder: boot intrinsics** — 20 new x86_64 mnemonics with encoders covering all PaideiaOS Phase-1 needs: control-flow (cli / sti / hlt / nop / swapgs / cpuid), I/O ports (in/out × 3 widths), MSRs (wrmsr / rdmsr / int), CR0-4 + CR8 moves, DR0-7 moves, descriptor-table loads (lgdt / lidt), returns (iret / iretq / sysret), rep stosq, far-jmp m16:64.
+- **m3 — unsafe-block payload walker** — IrKind::RawInstruction preserving AST back-pointer; operand parser for register names + memory references + immediates; mnemonic-name resolver (30+ mnemonics); UnsafeWalker::run consuming pending blocks; cmd_build wiring after EmitWalker. New diagnostics U1605 (unknown mnemonic) + U1606 (malformed operand).
+- **m4 — initialised static-data surface** — `[T; N]` array type parsing; `[expr, expr, ...]` array literals; DataSideTable + `.rodata` / `.data` section population; R_X86_64_PC32 relocation linking. New diagnostic P0210 (empty array needs type annotation).
+- **m5 — symbol export + relocations** — top-level binding SymbolTable; `Operand::SymbolRef { name, addend }` + `RelocSite` + `EncodeOutput`; real symbol-table emission with proper STT_FUNC / STT_OBJECT / STB_GLOBAL bindings; undefined-symbol entries for cross-file references; real `.text` from InstructionSideTable iteration (`lower_add_one` placeholder finally killed).
+- **m6 — end-to-end smoke (paideia-os Phase-1 unblock)** — uart_smoke.pdx fixture; link.ld + run-smoke.sh driver; byte-sequence assertion test (+ fixes UnsafeWalker bug that was processing only the first instruction per block); QEMU smoke under cargo test gated by qemu availability; **add_one byte-identical regression** — the closure marker for the paideia-os Phase-1 unblock, with 4 separate chain bugs fixed in lower.rs / emit_walker.rs / cmd_build.rs / encode_instruction.rs.
+- **m7 — documentation + closure** — phase-transition-5.md retrospective; STATUS.md update; this v0.5.0 tag + CHANGELOG; examples build-clean parity.
+
+### Highlights
+
+- **2416 workspace tests** across the workspace (+244 from Phase 4 close at 2172).
+- **paideia-os Phase-1 unblocked**: `cargo test -p paideia-as --test build_emit_smoke add_one_byte_identical` is the closure marker. All three lambda shapes lower to byte-identical x86_64:
+  - `fn (x) -> x` → `48 89 F8 C3` (mov rax, rdi; ret).
+  - `fn (x) -> x + 1` → `48 8D 47 01 C3` (lea rax, [rdi + 1]; ret).
+  - `fn (x) -> x + x` → `48 8D 04 3F C3` (lea rax, [rdi + rdi]; ret).
+- 4 new diagnostic codes: U1605, U1606, P0210, M0305 enforcement.
+- 4 new GitHub labels: `phase:5`, `gated:downstream-paideia-os`, `area:emit-activation`, `area:boot-intrinsics`.
+- Continuous-tempo loop (no per-milestone pause) executed cleanly across 7 milestones.
+
+### Operational deferrals (Phase 6+ carryover)
+
+- **The originally-planned Phase 5 self-hosting work**: 5 stdlib expansions (SmallVec, Unicode XID, serde-family, BLAKE3, Lru) + Tier 1-3 paideia-as port to `.pdx`. All shifts to Phase 6+.
+- **Surface lowering for records / generics / traits / borrowed-refs / stdlib types**: still placeholder in `paideia-as build` for these. Phase 5 was scoped narrowly to paideia-os Phase-1 needs (let / fn / lambda / unsafe / *T). Phase 6+ activates the rest.
+- **Full m1-003 lambda body shapes**: covers identity, double, add-immediate. Curried 2-arg `add l r → l + r` not yet lowered. Phase 6+.
+- **General RIP-relative addressing**: only for far-jmp m16:64 (one mnemonic). General-case `mov rax, [rip + symbol]` works via SymbolRef but conservatively encoded. Phase 6+.
+- **paideia-lsp + paideia-pq-sign self-hosting**: Phase 6+ (async runtime + crypto crate decisions).
+- **NIST ACVP test vectors for ML-DSA-65**: gates on upstream `ml-dsa` crate; stays open.
+- **Stage-0b GAS AT&T-syntax variants**: still `.intel_syntax noprefix` only.
+
+See `design/toolchain/phase-transition-5.md` for the full retrospective and Phase-6 carryover catalogue.
+
+---
+
 ## v0.4.0 — Phase 4 (substrate expansion for PaideiaOS readiness)
 
 **Released:** Tag pushed at m14-003 closure (this PR).
