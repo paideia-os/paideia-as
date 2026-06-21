@@ -4,7 +4,9 @@
 //! m1-004 Unsafe) lands as siblings inside this module. The walker
 //! populates an InstructionSideTable + tracks per-function offsets.
 
-use paideia_as_ir::instruction::{Instruction, InstructionSideTable, Mnemonic, Operand, RegId};
+use paideia_as_ir::instruction::{
+    Cond, Instruction, InstructionSideTable, Mnemonic, Operand, RegId,
+};
 use paideia_as_ir::record_layout::{FieldLayout, RecordLayout, RecordTypeId};
 use paideia_as_ir::{
     DataEntry, DataSideTable, IrArena, IrKind, IrNodeId, SmallVec, Symbol, SymbolKind,
@@ -309,6 +311,10 @@ impl EmitWalker {
                         IrKind::RecordCons => {
                             // Phase 6 m3-004: emit record constructor lowering for cap-mint shape.
                             self.visit_record_cons(node_id, arena);
+                        }
+                        IrKind::Branch => {
+                            // Phase 7 m1-001: emit if-then-else expression lowering.
+                            self.visit_branch(node_id, arena);
                         }
                         _ => {}
                     }
@@ -1640,6 +1646,116 @@ impl EmitWalker {
                 self.state.current_offset += 4; // mov [rdi+disp8], reg
             }
         }
+    }
+
+    /// Phase 7 m1-001: Emit if-then-else expression lowering (IrKind::Branch).
+    ///
+    /// Handles three cases:
+    /// 1. `if x { then_block }` (no else): emit test + jz end + then_block + end_label
+    /// 2. `if x { then_block } else { else_block }`: emit test + jz else + then_block + jmp end + else_label + else_block + end_label
+    /// 3. Nested if-else: each Branch node gets its own label triplet
+    ///
+    /// Branch node children: [condition, then_body, else_body (optional)]
+    /// Labels are generated per node: if_then_{node_id}, if_else_{node_id}, if_end_{node_id}
+    /// Label resolution is deferred to Phase 6 m4-004 (label patcher).
+    fn visit_branch(&mut self, branch_node_id: IrNodeId, arena: &IrArena) {
+        let children = arena.children(branch_node_id);
+        if children.len() < 2 {
+            // Malformed Branch node (needs at least condition + then_body).
+            self.diagnostics.push(format!(
+                "Branch node {} has {} children; expected at least 2",
+                branch_node_id.get(),
+                children.len()
+            ));
+            return;
+        }
+
+        let cond_id = children[0];
+        let then_id = children[1];
+        let else_id = if children.len() > 2 {
+            Some(children[2])
+        } else {
+            None
+        };
+
+        // Generate label names unique per branch node.
+        let then_label = format!("if_then_{}", branch_node_id.get());
+        let else_label = format!("if_else_{}", branch_node_id.get());
+        let end_label = format!("if_end_{}", branch_node_id.get());
+
+        // Emit TEST instruction: test rdi, rdi (3 bytes: 48 85 FF)
+        // Phase 7 m1-001 minimum: assume condition is in rdi (first argument).
+        // Full type-directed encoding (cmp vs test) deferred to phase 8.
+        let test_id = IrNodeId::new(branch_node_id.get() * 3).expect("test instr id");
+        let mut test_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        test_operands.push(Operand::Reg(RegId(7))); // rdi
+        test_operands.push(Operand::Reg(RegId(7))); // rdi
+
+        let test_inst = Instruction {
+            mnemonic: Mnemonic::Test,
+            operands: test_operands,
+            encoding_hint: None,
+        };
+
+        self.state.instructions.insert(test_id, test_inst);
+        self.state.current_offset += 3; // test r64, r64 is 3 bytes (48 85 c0 + variants)
+
+        // Emit conditional jump (jz): Jump if zero to else-label (or end if no else).
+        let target_label = if else_id.is_some() {
+            &else_label
+        } else {
+            &end_label
+        };
+        let jz_id = IrNodeId::new(branch_node_id.get() * 3 + 1).expect("jz instr id");
+        let mut jz_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        jz_operands.push(Operand::LabelRef {
+            name: target_label.clone(),
+            addend: 0,
+        });
+
+        let jz_inst = Instruction {
+            mnemonic: Mnemonic::Jcc(Cond::Zero),
+            operands: jz_operands,
+            encoding_hint: None,
+        };
+
+        self.state.instructions.insert(jz_id, jz_inst);
+        self.state.current_offset += 6; // jcc rel32 is 6 bytes (0F 8X XX XX XX XX)
+
+        // Register then_label at current offset.
+        self.state.register_label(then_label);
+
+        // Placeholder: emit then_block instructions.
+        // Phase 7: actual block emission deferred to full block lowering in m1-002+.
+        // For now, we just track the label position.
+
+        if let Some(_else_id) = else_id {
+            // Else branch exists: emit jmp to end_label after then_block.
+            let jmp_id = IrNodeId::new(branch_node_id.get() * 3 + 2).expect("jmp instr id");
+            let mut jmp_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+            jmp_operands.push(Operand::LabelRef {
+                name: end_label.clone(),
+                addend: 0,
+            });
+
+            let jmp_inst = Instruction {
+                mnemonic: Mnemonic::Jmp,
+                operands: jmp_operands,
+                encoding_hint: None,
+            };
+
+            self.state.instructions.insert(jmp_id, jmp_inst);
+            self.state.current_offset += 5; // jmp rel32 is 5 bytes (E9 XX XX XX XX)
+
+            // Register else_label.
+            self.state.register_label(else_label);
+
+            // Placeholder: emit else_block instructions.
+            // Phase 7: actual block emission deferred.
+        }
+
+        // Register end_label.
+        self.state.register_label(end_label);
     }
 }
 
@@ -3547,5 +3663,211 @@ mod tests {
             "Offset should account for mov + call + ret instructions (got {})",
             walker.state().current_offset
         );
+    }
+
+    // ── If-else expression tests (m1-001) ──────────────────────────────────
+
+    #[test]
+    fn emit_walker_branch_simple_if_no_else() {
+        // Phase 7 m1-001: Test simple if without else.
+        // if x { ... } (no else) → test rdi, rdi; jz end_label; end_label:
+        let mut arena = IrArena::new();
+
+        // Allocate: Var (condition), then_block (placeholder).
+        let cond_id = arena.alloc(IrKind::Var, span());
+        let then_id = arena.alloc(IrKind::Action, span());
+        let branch_id = arena.alloc_with_children(IrKind::Branch, span(), [cond_id, then_id]);
+
+        // Walk the arena.
+        let mut walker = EmitWalker::new();
+        walker.walk(&mut arena);
+
+        // Verify test instruction was emitted (3 bytes: 48 85 FF).
+        let test_id = IrNodeId::new(branch_id.get() * 3).expect("test instr id");
+        let test_inst = walker
+            .state()
+            .instructions
+            .get(test_id)
+            .expect("test instruction should be emitted");
+        assert_eq!(test_inst.mnemonic, Mnemonic::Test);
+        assert_eq!(test_inst.operands.len(), 2);
+        assert_eq!(test_inst.operands[0], Operand::Reg(RegId(7))); // rdi
+        assert_eq!(test_inst.operands[1], Operand::Reg(RegId(7))); // rdi
+
+        // Verify jz instruction was emitted (6 bytes: 0F 84 XX XX XX XX).
+        let jz_id = IrNodeId::new(branch_id.get() * 3 + 1).expect("jz instr id");
+        let jz_inst = walker
+            .state()
+            .instructions
+            .get(jz_id)
+            .expect("jz instruction should be emitted");
+        match jz_inst.mnemonic {
+            Mnemonic::Jcc(cond) => assert_eq!(cond, Cond::Zero),
+            _ => panic!("Expected Jcc(Zero) mnemonic"),
+        }
+        assert_eq!(jz_inst.operands.len(), 1);
+        match &jz_inst.operands[0] {
+            Operand::LabelRef { name, addend } => {
+                // Should reference end_label (not else_label since there's no else)
+                assert!(
+                    name.contains(&format!("if_end_{}", branch_id.get())),
+                    "jz should reference end_label, got: {}",
+                    name
+                );
+                assert_eq!(*addend, 0);
+            }
+            _ => panic!("Expected LabelRef operand"),
+        }
+
+        // Verify end_label was registered.
+        assert!(
+            walker
+                .state()
+                .labels
+                .contains_key(&format!("if_end_{}", branch_id.get()))
+        );
+
+        // Verify offset: 3 bytes for test + 6 bytes for jz = 9 bytes.
+        assert_eq!(walker.state().current_offset, 9);
+    }
+
+    #[test]
+    fn emit_walker_branch_if_else() {
+        // Phase 7 m1-001: Test if-else with both branches.
+        // if x { then_block } else { else_block } → test + jz else + then + jmp end + else: + else + end:
+        let mut arena = IrArena::new();
+
+        // Allocate: Var (condition), then_block, else_block.
+        let cond_id = arena.alloc(IrKind::Var, span());
+        let then_id = arena.alloc(IrKind::Action, span());
+        let else_id = arena.alloc(IrKind::Action, span());
+        let branch_id =
+            arena.alloc_with_children(IrKind::Branch, span(), [cond_id, then_id, else_id]);
+
+        // Walk the arena.
+        let mut walker = EmitWalker::new();
+        walker.walk(&mut arena);
+
+        // Verify test instruction.
+        let test_id = IrNodeId::new(branch_id.get() * 3).expect("test instr id");
+        let test_inst = walker
+            .state()
+            .instructions
+            .get(test_id)
+            .expect("test instruction should be emitted");
+        assert_eq!(test_inst.mnemonic, Mnemonic::Test);
+
+        // Verify jz instruction jumps to else_label (not end_label).
+        let jz_id = IrNodeId::new(branch_id.get() * 3 + 1).expect("jz instr id");
+        let jz_inst = walker
+            .state()
+            .instructions
+            .get(jz_id)
+            .expect("jz instruction should be emitted");
+        match &jz_inst.operands[0] {
+            Operand::LabelRef { name, addend } => {
+                assert!(
+                    name.contains(&format!("if_else_{}", branch_id.get())),
+                    "jz should reference else_label, got: {}",
+                    name
+                );
+                assert_eq!(*addend, 0);
+            }
+            _ => panic!("Expected LabelRef operand"),
+        }
+
+        // Verify jmp instruction was emitted (5 bytes: E9 XX XX XX XX).
+        let jmp_id = IrNodeId::new(branch_id.get() * 3 + 2).expect("jmp instr id");
+        let jmp_inst = walker
+            .state()
+            .instructions
+            .get(jmp_id)
+            .expect("jmp instruction should be emitted");
+        assert_eq!(jmp_inst.mnemonic, Mnemonic::Jmp);
+        assert_eq!(jmp_inst.operands.len(), 1);
+        match &jmp_inst.operands[0] {
+            Operand::LabelRef { name, addend } => {
+                assert!(
+                    name.contains(&format!("if_end_{}", branch_id.get())),
+                    "jmp should reference end_label, got: {}",
+                    name
+                );
+                assert_eq!(*addend, 0);
+            }
+            _ => panic!("Expected LabelRef operand"),
+        }
+
+        // Verify all three labels were registered.
+        assert!(
+            walker
+                .state()
+                .labels
+                .contains_key(&format!("if_then_{}", branch_id.get()))
+        );
+        assert!(
+            walker
+                .state()
+                .labels
+                .contains_key(&format!("if_else_{}", branch_id.get()))
+        );
+        assert!(
+            walker
+                .state()
+                .labels
+                .contains_key(&format!("if_end_{}", branch_id.get()))
+        );
+
+        // Verify offset: 3 bytes for test + 6 bytes for jz + 5 bytes for jmp = 14 bytes.
+        assert_eq!(walker.state().current_offset, 14);
+    }
+
+    #[test]
+    fn emit_walker_branch_nested_if_else() {
+        // Phase 7 m1-001: Test nested if-else.
+        // Outer: if a { inner: if b { ... } else { ... } } else { ... }
+        // Each Branch node gets independent label set.
+        let mut arena = IrArena::new();
+
+        // Allocate inner branch: if b { ... } else { ... }
+        let inner_cond = arena.alloc(IrKind::Var, span());
+        let inner_then = arena.alloc(IrKind::Action, span());
+        let inner_else = arena.alloc(IrKind::Action, span());
+        let inner_branch =
+            arena.alloc_with_children(IrKind::Branch, span(), [inner_cond, inner_then, inner_else]);
+
+        // Allocate outer branch: if a { inner_branch } else { ... }
+        let outer_cond = arena.alloc(IrKind::Var, span());
+        let outer_then = inner_branch; // The then-block is the inner branch itself
+        let outer_else = arena.alloc(IrKind::Action, span());
+        let outer_branch =
+            arena.alloc_with_children(IrKind::Branch, span(), [outer_cond, outer_then, outer_else]);
+
+        // Walk the arena.
+        let mut walker = EmitWalker::new();
+        walker.walk(&mut arena);
+
+        // Verify outer branch labels exist and are distinct from inner.
+        let outer_then_label = format!("if_then_{}", outer_branch.get());
+        let outer_else_label = format!("if_else_{}", outer_branch.get());
+        let outer_end_label = format!("if_end_{}", outer_branch.get());
+        assert!(walker.state().labels.contains_key(&outer_then_label));
+        assert!(walker.state().labels.contains_key(&outer_else_label));
+        assert!(walker.state().labels.contains_key(&outer_end_label));
+
+        // Verify inner branch labels exist and are distinct.
+        let inner_then_label = format!("if_then_{}", inner_branch.get());
+        let inner_else_label = format!("if_else_{}", inner_branch.get());
+        let inner_end_label = format!("if_end_{}", inner_branch.get());
+        assert!(walker.state().labels.contains_key(&inner_then_label));
+        assert!(walker.state().labels.contains_key(&inner_else_label));
+        assert!(walker.state().labels.contains_key(&inner_end_label));
+
+        // Verify all six labels are distinct.
+        assert_ne!(outer_then_label, inner_then_label);
+        assert_ne!(outer_else_label, inner_else_label);
+        assert_ne!(outer_end_label, inner_end_label);
+
+        // Verify offset accounts for both branches: 2 * (test + jz + jmp) = 2 * 14 = 28 bytes
+        assert_eq!(walker.state().current_offset, 28);
     }
 }

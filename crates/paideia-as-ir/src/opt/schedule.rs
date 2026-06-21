@@ -56,7 +56,7 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
     match mnemonic {
         Mnemonic::Mov | Mnemonic::Movzx => InstructionClass::AluReg,
         Mnemonic::Lea => InstructionClass::AluReg,
-        Mnemonic::Add | Mnemonic::Sub | Mnemonic::Cmp => InstructionClass::AluReg,
+        Mnemonic::Add | Mnemonic::Sub | Mnemonic::Cmp | Mnemonic::Test => InstructionClass::AluReg,
         Mnemonic::Jcc(_) | Mnemonic::Jmp | Mnemonic::Call | Mnemonic::Ret => {
             InstructionClass::Branch
         }

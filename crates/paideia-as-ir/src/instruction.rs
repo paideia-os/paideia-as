@@ -25,6 +25,8 @@ pub enum Mnemonic {
     Sub,
     /// Compare (compute difference without storing).
     Cmp,
+    /// Test (bitwise AND with register/memory, sets flags without storing).
+    Test,
     /// Jcc with embedded condition code.
     Jcc(Cond),
     /// Unconditional jump.
@@ -272,6 +274,7 @@ impl Mnemonic {
             | Mnemonic::Add
             | Mnemonic::Sub
             | Mnemonic::Cmp
+            | Mnemonic::Test
             | Mnemonic::Lea
             | Mnemonic::Movzx => 2,
         }

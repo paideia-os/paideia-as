@@ -208,6 +208,7 @@ pub fn encode_instruction(
         Mnemonic::Add => encode_add(inst, buf, stats),
         Mnemonic::Sub => encode_sub(inst, buf),
         Mnemonic::Cmp => encode_cmp(inst, buf),
+        Mnemonic::Test => encode_test(inst, buf),
         Mnemonic::Jcc(cond) => encode_jcc(*cond, inst, buf, stats),
         Mnemonic::Jmp => encode_jmp(inst, buf),
         Mnemonic::Call => encode_call(inst, buf),
@@ -496,6 +497,21 @@ fn encode_cmp(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
         }
         _ => Err(EncodeError::Unsupported(
             "cmp shape not in phase-6-m4-001 minimum",
+        )),
+    }
+}
+
+fn encode_test(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    // Phase 7 m1-001: test r64, r64 for condition testing.
+    // Operands: [register, register] for "test rdi, rdi" shape.
+    match inst.operands.as_slice() {
+        [Operand::Reg(dest), Operand::Reg(src)] => {
+            // test r64, r64 → 48 85 <ModR/M>
+            test_reg64_reg64(buf, reg64_from(*dest)?, reg64_from(*src)?);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::Unsupported(
+            "test shape not in phase-7-m1-001 minimum",
         )),
     }
 }

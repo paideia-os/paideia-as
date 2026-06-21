@@ -686,6 +686,15 @@ description = "Phase 6 m3-004: EmitWalker RecordCons lowering currently supports
 since = "0.6.0"
 deprecated = false
 
+[diagnostic.T0519]
+severity = "error"
+category = "type"
+title = "If-expression branches have mismatched types"
+brief = "then and else branches of if-expression have incompatible types"
+description = "Phase 7 m1-001: both branches of an if-then-else expression must have the same type. The then branch has type T1 but the else branch has type T2. If you meant to discard the result, wrap in an action block { ... }; if you meant to use one branch's type, add an explicit type annotation or restructure the expression."
+since = "0.7.0"
+deprecated = false
+
 [diagnostic.L2001]
 severity = "warning"
 category = "lint"
