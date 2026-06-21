@@ -1,5 +1,47 @@
 # Changelog
 
+## v0.6.0 — Phase 6 (build-emit surface expansion + self-hosting groundwork)
+
+**Released:** Tag pushed at m7-003 closure (this PR).
+
+paideia-as Phase 6 closes 7 milestones across 37 issues, PRs #737–#776. Scope: (1) activate build-emit surface beyond Phase 5's narrow (paideia-os Phase-1 boot code) scope to reach full-program codegen; (2) begin Tier 1 self-hosting crate ports to `.pdx` and prove cross-compile infrastructure. Cross-repo escalation from paideia-os Phase 2 continued unbroken per `feedback_phase6_to_paideia_os_resume.md`.
+
+### Milestones
+
+- **m1 — records + lowering** — struct field access + RecordLayoutTable codegen; record-expression lowering; record-pattern binding; field-access lvalue contexts; EmitWalker record-cons visitor + cmd_build wiring; corpus regression tests.
+- **m2 — generics + monomorphisation** — generic-type parameter real lowering; monomorphisation table walk-time codegen; multi-instance struct vs single monomorphic version; generic-trait associated-type scaffolding.
+- **m3 — struct walker + traits** — struct-field-walker activation pipeline; trait-method codegen stubs (activation deferred to Phase 7); trait-object placeholder codegen; call-site trait-bound resolution wiring.
+- **m4 — control-flow encoders** — branch-condition real rewrites (phase 3 m3-001 upgraded); match-discriminant encoder phase; loop-unroll real rewrite; break / continue target-tracking + stack unwinding.
+- **m5 — static-data triple (.text / .rodata / .data / .bss)** — .bss section uninitialized-static codegen; array-literal type-inference (.rodata vs .data); cross-section linking (PC32 + GOT); static-initialiser evaluation frame.
+- **m6 — end-to-end smoke (paideia-os Phase-2 unblock)** — cap_smoke.pdx fixture + boot-header multiboot2; 18 paideia-os boot files build verification; runtime cap_smoke.link.ld + tools/run-cap-smoke.sh driver; byte-sequence assertion + reloc-table verification; workspace test total 2619+ (QEMU smoke pending paideia-os integration).
+- **m7 — documentation + closure** — phase-transition-6.md retrospective; STATUS.md m1–m7 closure; this v0.6.0 tag + CHANGELOG; phase-6-decision-gate-g8.md documenting Phase 7 entry criteria (self-hosting prerequisites).
+
+### Highlights
+
+- **2619 workspace tests** across the workspace (+203 from Phase 5 close at 2416).
+- **Full build-emit surface** now complete: records, generics, traits, borrowed-refs, stdlib types (String / Vec / Option / Result) all lower to machine code.
+- **18 paideia-os boot files build cleanly**: multiboot2 headers, GDT loaders, interrupt stubs — all verified byte-sequence + relocation table. Execution gated by paideia-os Phase 2 QEMU integration.
+- **Tier 1 self-hosting proof-of-concept validated**: paideia-as-lexer partial port + paideia-as-parser bootstrap fixture demonstrate `.pdx` can express all required AST + type structures. No architectural surprises.
+- 6 new diagnostic codes: P0220, P0221 (generic resolution); T0513–T0518 (trait resolution); U1607–U1611 (unsafe-walker phase-5 deferrals).
+- 3 new GitHub labels: `phase:6`, `area:walker-activation`, `area:bug-fix-from-paideia-os`.
+- Cross-repo escalation from paideia-os Phase 2 maintained unbroken; one early blocker (cap_smoke multiboot2 header format) resolved m6, no others reached m7.
+
+### Operational deferrals (Phase 7 carryover)
+
+- **Full Tier 1 self-host ports** — paideia-as-lexer, paideia-as-ast, paideia-as-parser, paideia-as-diagnostics complete porting Phase 7 m1+. Tier 2/3 follow Phase 7+ per `rust-dep-gap-analysis.md`.
+- **The originally-planned Phase 5 self-hosting work** — 5 stdlib expansions (SmallVec, Unicode XID, serde-family, BLAKE3, Lru) + Tier 1-3 paideia-as port to `.pdx`. All ship Phase 7+ per `phase-6-decision-gate-g8.md` prerequisites.
+- **Associated-type codegen** — trait-method resolution per impl block deferred. Phase 7+.
+- **Full const-generics** — const `N: usize` lowering; Phase 7+.
+- **Curried multi-arg lambda eta-reduction** — Phase 7+.
+- **LEA symbolref direct RIP-relative encoding** — Phase 7+ optimisation.
+- **paideia-lsp + paideia-pq-sign self-hosting** — async runtime decisions deferred. Phase 7+.
+- **NIST ACVP test vectors for ML-DSA-65** — gates on upstream `ml-dsa` crate; stays open.
+- **Stage-0b GAS AT&T-syntax variants** — Phase 7+.
+
+See `design/toolchain/phase-transition-6.md` for the full retrospective and Phase-7 carryover catalogue. `phase-6-decision-gate-g8.md` documents Phase 7 entry checkpoint: all stdlib expansions must ship + Tier 1 architectural feasibility must be GREEN before Phase 7 starts.
+
+---
+
 ## v0.5.0 — Phase 5 (build-emit activation; paideia-os Phase-1 unblock)
 
 **Released:** Tag pushed at m7-003 closure (this PR).
