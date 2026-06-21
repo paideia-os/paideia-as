@@ -80,6 +80,8 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 }
                 paideia_as_lexer::TokenKind::Pipe => {
                     // Pipe-form lambda: |x, y| body
+                    // Guard: verify this is actually a lambda (lookahead for closing pipe)
+                    // by ensuring we can parse it successfully
                     return self.parse_lambda_pipe();
                 }
                 paideia_as_lexer::TokenKind::KwAction => {

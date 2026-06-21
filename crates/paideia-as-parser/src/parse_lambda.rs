@@ -33,9 +33,19 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
         let mut params = Vec::new();
 
-        // Parse one or more parameter groups: (pat : ty) (pat : ty) ...
+        // Parse zero or more parameter groups: (pat : ty) (pat : ty) ...
         loop {
             self.expect(TokenKind::LParen)?;
+
+            // Check for empty parameter list: () -> ...
+            if self.at(TokenKind::RParen) {
+                self.expect(TokenKind::RParen)?;
+                // Check for another parameter group
+                if !self.at(TokenKind::LParen) {
+                    break;
+                }
+                continue;
+            }
 
             // Parse pattern (for phase-1, just accept Ident)
             let pattern = self.parse_pattern_atomic()?;
