@@ -33,6 +33,10 @@ pub enum Cmd {
         /// paideia-as-emitter-elf).
         #[arg(long = "emit", default_value = "placeholder")]
         emit: String,
+        /// Phase-5 behaviour: warn on encoder failure and drop instruction instead of exiting.
+        /// Default (Phase-6+): encoder failures abort the build with exit 2.
+        #[arg(long)]
+        encoder_warn: bool,
     },
     /// Type-check without emitting object files. Phase-1: lex + parse +
     /// lower; the type checker is a stub. Writes a SARIF sidecar

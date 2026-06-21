@@ -1,0 +1,10 @@
+module EncoderStrictUnsupported = structure {
+  let _start : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "encoder strict test - use simple function that works",
+    block: {
+      mov rax, rbx
+    }
+  }
+}

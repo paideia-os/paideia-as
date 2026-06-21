@@ -29,7 +29,8 @@ fn main() -> ExitCode {
             input,
             output,
             emit,
-        } => cmd_build::run(&input, output.as_deref(), &emit),
+            encoder_warn,
+        } => cmd_build::run(&input, output.as_deref(), &emit, encoder_warn),
         Cmd::Check { input, dump_ir } => cmd_check::run(&input, dump_ir),
         Cmd::Lint { .. } => {
             eprintln!("paideia-as lint: stub (phase 1)");

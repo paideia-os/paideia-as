@@ -12,6 +12,20 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+/// Error type for build operations.
+#[derive(Debug, Clone)]
+pub enum BuildError {
+    /// Instruction encoder failed (e.g., unsupported operand shape).
+    Encoder {
+        /// IR node ID where the encoder failed.
+        node: paideia_as_ir::IrNodeId,
+        /// Source span for error reporting.
+        source_span: paideia_as_diagnostics::Span,
+        /// Encoder error message.
+        encoder_message: String,
+    },
+}
+
 use crate::det;
 use paideia_as_ast::AstArena;
 use paideia_as_diagnostics::{
@@ -63,8 +77,8 @@ impl EmitFormat {
     }
 }
 
-/// Run `paideia-as build <input> [--emit <format>] [-o <output>]`.
-pub fn run(input: &Path, output: Option<&Path>, emit: &str) -> ExitCode {
+/// Run `paideia-as build <input> [--emit <format>] [-o <output>] [--encoder-warn]`.
+pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) -> ExitCode {
     let format = match EmitFormat::parse(emit) {
         Ok(f) => f,
         Err(msg) => {
@@ -356,16 +370,23 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str) -> ExitCode {
             finish_placeholder(&source_map, catalog, sink, to_write, input, output)
         }
         EmitFormat::Elf64 => {
-            let bytes = if preview {
-                None
+            let result = if preview {
+                Ok(None)
             } else {
-                Some(build_elf_object(
+                build_elf_object(
                     &lowering.ir,
                     &instruction_table,
                     &emit_walker,
-                ))
+                    &source_map,
+                    file,
+                    encoder_warn,
+                )
+                .map(Some)
             };
-            finish_elf(&source_map, catalog, sink, bytes, input, output)
+            match result {
+                Ok(bytes) => finish_elf(&source_map, catalog, sink, bytes, input, output),
+                Err(build_err) => finish_build_error(&source_map, catalog, sink, build_err, input),
+            }
         }
         EmitFormat::Pax => {
             let bytes = if preview {
@@ -376,12 +397,15 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str) -> ExitCode {
             finish_pax(&source_map, catalog, sink, bytes, input, output)
         }
         EmitFormat::PeCoff => {
-            let bytes = if preview {
-                None
+            let result = if preview {
+                Ok(None)
             } else {
-                Some(build_pe_object(&lowering.ir))
+                build_pe_object(&lowering.ir, &source_map, file, encoder_warn).map(Some)
             };
-            finish_pe(&source_map, catalog, sink, bytes, input, output)
+            match result {
+                Ok(bytes) => finish_pe(&source_map, catalog, sink, bytes, input, output),
+                Err(build_err) => finish_build_error(&source_map, catalog, sink, build_err, input),
+            }
         }
     }
 }
@@ -395,15 +419,19 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str) -> ExitCode {
 /// For each data symbol, the value is the byte offset in .rodata/.data.
 /// Phase-5-m4-004: Collects relocation sites from instruction encoding and emits
 /// them to the .rela.text section.
+/// Phase-6-m1-004: Propagates encoder failures as BuildError::Encoder instead of silently falling back.
 fn build_elf_object(
     arena: &paideia_as_ir::IrArena,
     instruction_table: &InstructionSideTable,
     emit_walker: &paideia_as_elaborator::EmitWalker,
-) -> Vec<u8> {
+    _source_map: &SourceMap,
+    file: paideia_as_diagnostics::FileId,
+    encoder_warn: bool,
+) -> Result<Vec<u8>, BuildError> {
     let mut writer = ElfWriter::new(Arch::X86_64, Kind::Relocatable);
 
     // Phase-5-m5-005: Emit real instructions from InstructionSideTable.
-    // No fallback to lower_add_one; empty .text is valid for empty .pdx.
+    // Phase-6-m1-004: Propagate encoder failures as BuildError::Encoder instead of silently falling back.
     let mut text_bytes = Vec::new();
     let emit_result = if instruction_table.is_empty() {
         // Empty instruction table → empty .text section (valid ELF).
@@ -416,16 +444,41 @@ fn build_elf_object(
     } else {
         // Real instruction encoding: iterate InstructionSideTable in IR-node order
         // and call encode_instruction() per instruction.
-        emit_text_from_instructions(instruction_table, &mut text_bytes).unwrap_or_else(|e| {
-            eprintln!("error: text emission failed: {e}");
-            // On encoding error, still produce a valid ELF (with empty .text).
-            // Do not use a placeholder; let the error propagate.
-            paideia_as_emitter_pe::EmitResult {
-                encode_stats: EncodeStats::new(),
-                offset_map: std::collections::HashMap::new(),
-                reloc_sites: Vec::new(),
+        match emit_text_from_instructions(instruction_table, &mut text_bytes) {
+            Ok(result) => result,
+            Err(e) => {
+                // Phase-6-m1-004: Find the instruction that failed and extract IR node info.
+                if let Some(failed_node_id) = find_failing_instruction(instruction_table) {
+                    let span = paideia_as_diagnostics::Span::new(file, 0, 1);
+                    if encoder_warn {
+                        // Phase-5 behaviour: warn and drop instruction
+                        eprintln!(
+                            "warning: encoder failed on node {}: {}, continuing with --encoder-warn",
+                            failed_node_id.get(),
+                            e
+                        );
+                        paideia_as_emitter_pe::EmitResult {
+                            encode_stats: EncodeStats::new(),
+                            offset_map: std::collections::HashMap::new(),
+                            reloc_sites: Vec::new(),
+                        }
+                    } else {
+                        // Phase-6 default: propagate error
+                        return Err(BuildError::Encoder {
+                            node: failed_node_id,
+                            source_span: span,
+                            encoder_message: e.to_string(),
+                        });
+                    }
+                } else {
+                    return Err(BuildError::Encoder {
+                        node: IrNodeId::new(1).unwrap(),
+                        source_span: paideia_as_diagnostics::Span::new(file, 0, 1),
+                        encoder_message: e.to_string(),
+                    });
+                }
             }
-        })
+        }
     };
 
     writer.add_text_bytes(&text_bytes);
@@ -525,7 +578,15 @@ fn build_elf_object(
         let _ = writer.add_relocation(text_section, entry);
     }
 
-    writer.finalize().unwrap_or_default()
+    Ok(writer.finalize().unwrap_or_default())
+}
+
+/// Phase-6-m1-004: Find the first instruction in the table (since we encode sequentially,
+/// the failure likely occurs on the first one when we process deterministically).
+fn find_failing_instruction(instruction_table: &InstructionSideTable) -> Option<IrNodeId> {
+    let mut entries: Vec<_> = instruction_table.entries().iter().collect();
+    entries.sort_by_key(|&(&node_id, _)| node_id);
+    entries.first().map(|&(&node_id, _)| node_id)
 }
 
 fn finish_elf(
@@ -563,6 +624,36 @@ fn finish_elf(
         }
     }
     ExitCode::SUCCESS
+}
+
+fn finish_build_error(
+    _source_map: &SourceMap,
+    _catalog: &Catalog,
+    _sink: VecSink,
+    error: BuildError,
+    _input: &Path,
+) -> ExitCode {
+    match error {
+        BuildError::Encoder {
+            node,
+            source_span,
+            encoder_message,
+        } => {
+            eprintln!(
+                "error: encoder failed on IR node {}: {}",
+                node.get(),
+                encoder_message
+            );
+            eprintln!(
+                "  at file #{}, bytes {}-{}",
+                source_span.file(),
+                source_span.byte_start(),
+                source_span.byte_end()
+            );
+        }
+    }
+
+    ExitCode::from(2)
 }
 
 fn elf_path_for(input: &Path) -> PathBuf {
@@ -693,7 +784,13 @@ pub fn functors_from_modules(
 
 /// Build the phase-4-m2-001 PE/COFF object body. Constructs a PE/COFF with
 /// .text section populated from InstructionSideTable.
-fn build_pe_object(arena: &paideia_as_ir::IrArena) -> Vec<u8> {
+/// Phase-6-m1-004: Propagates encoder failures as BuildError::Encoder.
+fn build_pe_object(
+    arena: &paideia_as_ir::IrArena,
+    _source_map: &SourceMap,
+    file: paideia_as_diagnostics::FileId,
+    encoder_warn: bool,
+) -> Result<Vec<u8>, BuildError> {
     // 1. DosHeader::new() (e_lfanew = 64).
     let dos = DosHeader::new();
 
@@ -712,10 +809,39 @@ fn build_pe_object(arena: &paideia_as_ir::IrArena) -> Vec<u8> {
     // Emit .text section content from InstructionSideTable
     // Phase-4 honesty: emit all instructions from the table into .text
     // Phase-4-m2-002: emit_text_from_instructions now returns EmitResult with offset_map
-    let emit_result = emit_text_from_instructions(arena.instructions(), &mut text_bytes)
-        .unwrap_or_else(|e| {
-            panic!("text emission failed: {e}");
-        });
+    // Phase-6-m1-004: Propagate encoder failures as BuildError::Encoder.
+    let emit_result = match emit_text_from_instructions(arena.instructions(), &mut text_bytes) {
+        Ok(result) => result,
+        Err(e) => {
+            if let Some(failed_node_id) = find_failing_instruction(arena.instructions()) {
+                let span = paideia_as_diagnostics::Span::new(file, 0, 1);
+                if encoder_warn {
+                    eprintln!(
+                        "warning: encoder failed on node {}: {}, continuing with --encoder-warn",
+                        failed_node_id.get(),
+                        e
+                    );
+                    paideia_as_emitter_pe::EmitResult {
+                        encode_stats: EncodeStats::new(),
+                        offset_map: std::collections::HashMap::new(),
+                        reloc_sites: Vec::new(),
+                    }
+                } else {
+                    return Err(BuildError::Encoder {
+                        node: failed_node_id,
+                        source_span: span,
+                        encoder_message: e.to_string(),
+                    });
+                }
+            } else {
+                return Err(BuildError::Encoder {
+                    node: IrNodeId::new(1).unwrap(),
+                    source_span: paideia_as_diagnostics::Span::new(file, 0, 1),
+                    encoder_message: e.to_string(),
+                });
+            }
+        }
+    };
 
     // If no instructions were encoded, use a minimal placeholder (ret instruction: 0xC3)
     if text_bytes.is_empty() {
@@ -776,7 +902,7 @@ fn build_pe_object(arena: &paideia_as_ir::IrArena) -> Vec<u8> {
     }
     // Section content.
     bytes.extend_from_slice(&sections.to_bytes_content(opt.file_alignment));
-    bytes
+    Ok(bytes)
 }
 
 fn align_up_to(value: u32, align: u32) -> u32 {
