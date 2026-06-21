@@ -143,6 +143,19 @@ impl ElfWriter {
             .append_section_data(data_section, bytes, align as u64)
     }
 
+    /// Allocate space in the `.bss` section with the specified alignment and size.
+    /// Returns the offset at which the allocation starts.
+    /// Phase 6 m5-002: used for uninitialized mutable data (let mut x : T = uninit).
+    /// Note: bss entries are created with zero-filled placeholder bytes internally.
+    pub fn add_bss_space(&mut self, size: u64, align: u8) -> u64 {
+        let bss_section = self.obj.section_id(StandardSection::UninitializedData);
+        // Allocate space by appending zero bytes. The object crate will handle
+        // this as uninitialized data in the resulting ELF binary.
+        let placeholder = vec![0u8; size as usize];
+        self.obj
+            .append_section_data(bss_section, &placeholder, align as u64)
+    }
+
     /// Add a symbol to the symbol table.
     ///
     /// Accepts a [`SymbolEntry`] and registers it with the ELF object.

@@ -317,19 +317,22 @@ impl EmitWalker {
 
     /// Populate the DataSideTable for module-level data bindings.
     ///
-    /// Walks the arena, recognizes module-level Let-Literal bindings, and
+    /// Walks the arena, recognizes module-level Let-Literal and Let-Uninit bindings, and
     /// inserts DataEntry records into the provided DataSideTable.
+    ///
+    /// Routing decisions (Phase 6 m5-002):
+    /// - `let x : T = literal_expr` → Rodata (immutable, initialized)
+    /// - `let mut x : T = literal_expr` → Data (mutable, initialized)
+    /// - `let mut x : T = uninit` → Bss (mutable, uninitialized)
+    ///
     /// Symbol names default to the binding identifier (to be resolved via
     /// name resolution in a full implementation).
     ///
     /// # Arguments
-    /// * `arena_len` - The number of nodes in the arena
-    /// * `node_getter` - Closure to retrieve node by id
-    /// * `children_getter` - Closure to retrieve children
-    /// * `literal_getter` - Closure to get literal value
+    /// * `arena` - The IR arena containing all nodes
     /// * `data_table` - The mutable data side-table to populate
     pub fn populate_data_table(arena: &IrArena, data_table: &mut DataSideTable) {
-        // Iterate over all nodes, looking for module-level Let-Literal bindings.
+        // Iterate over all nodes, looking for module-level Let-Literal and Let-Uninit bindings.
         for i in 1..=arena.len() as u32 {
             if let Some(node_id) = IrNodeId::new(i) {
                 if let Some(node) = arena.get(node_id) {
@@ -338,14 +341,46 @@ impl EmitWalker {
                         let children = arena.children(node_id);
                         if let Some(&rhs_id) = children.first() {
                             if let Some(rhs_node) = arena.get(rhs_id) {
-                                if rhs_node.kind == IrKind::Literal {
-                                    // Check if we have a literal value for this node.
-                                    if let Some(value) = arena.literal_values().get(rhs_id) {
-                                        // Pack the u64 value as little-endian 8 bytes.
-                                        let bytes = Self::pack_u64_le(value);
-                                        let symbol_name = format!("data_{}", node_id.get());
-                                        let entry = DataEntry::new_rodata(bytes, symbol_name, 8);
-                                        data_table.insert(node_id, entry);
+                                let symbol_name = format!("data_{}", node_id.get());
+
+                                // Check if this Let is mutable.
+                                let is_mutable = arena
+                                    .let_meta()
+                                    .get(node_id)
+                                    .map(|info| info.mutable)
+                                    .unwrap_or(false);
+
+                                match rhs_node.kind {
+                                    IrKind::Literal => {
+                                        // Literal RHS: check for a registered value.
+                                        if let Some(value) = arena.literal_values().get(rhs_id) {
+                                            // Pack the u64 value as little-endian 8 bytes.
+                                            let bytes = Self::pack_u64_le(value);
+
+                                            let entry = if is_mutable {
+                                                // Mutable + initialized → Data section.
+                                                DataEntry::new_data(bytes, symbol_name, 8)
+                                            } else {
+                                                // Immutable + initialized → Rodata section.
+                                                DataEntry::new_rodata(bytes, symbol_name, 8)
+                                            };
+
+                                            data_table.insert(node_id, entry);
+                                        }
+                                    }
+                                    IrKind::Placeholder => {
+                                        // Placeholder RHS: likely uninit marker.
+                                        // For now, only process if the Let is mutable.
+                                        if is_mutable {
+                                            // Mutable + uninit → Bss section.
+                                            // Size hint defaults to 8 (u64). Full type info
+                                            // will be available in later elaboration passes.
+                                            let entry = DataEntry::new_bss(symbol_name, 8, 8);
+                                            data_table.insert(node_id, entry);
+                                        }
+                                    }
+                                    _ => {
+                                        // Other RHS shapes not handled yet (e.g., ArrayLit, etc.).
                                     }
                                 }
                             }
@@ -1784,6 +1819,159 @@ mod tests {
         // Symbol name should be generated as data_<node_id>
         assert!(entry.symbol_name.starts_with("data_"));
         assert!(entry.symbol_name.contains(&let_id.get().to_string()));
+    }
+
+    // ── Phase 6 m5-002 Data table routing tests (uninit + immutable/mutable) ──────────────────────────
+
+    #[test]
+    fn emit_walker_populate_data_table_immutable_literal_routes_to_rodata() {
+        let mut arena = IrArena::new();
+
+        // Allocate: immutable Let with Literal RHS
+        let lit_id = arena.alloc(IrKind::Literal, span());
+        let let_id = arena.alloc_with_children(IrKind::Let, span(), [lit_id]);
+        arena
+            .literal_values_mut()
+            .insert(lit_id, 0x1234567890ABCDEF);
+
+        // Do NOT register as mutable (defaults to false).
+
+        let mut data_table = DataSideTable::new();
+        EmitWalker::populate_data_table(&arena, &mut data_table);
+
+        let entry = data_table.get(let_id).expect("data entry should exist");
+        assert_eq!(entry.section, SectionKind::Rodata);
+        assert_eq!(entry.size_hint, 8);
+        assert!(!entry.bytes.is_empty());
+    }
+
+    #[test]
+    fn emit_walker_populate_data_table_mutable_literal_routes_to_data() {
+        let mut arena = IrArena::new();
+
+        // Allocate: mutable Let with Literal RHS
+        let lit_id = arena.alloc(IrKind::Literal, span());
+        let let_id = arena.alloc_with_children(IrKind::Let, span(), [lit_id]);
+        arena
+            .literal_values_mut()
+            .insert(lit_id, 0xFEDCBA0987654321u64 as i64);
+
+        // Register as mutable
+        arena
+            .let_meta_mut()
+            .insert(let_id, paideia_as_ir::LetInfo::mutable());
+
+        let mut data_table = DataSideTable::new();
+        EmitWalker::populate_data_table(&arena, &mut data_table);
+
+        let entry = data_table.get(let_id).expect("data entry should exist");
+        assert_eq!(entry.section, SectionKind::Data);
+        assert_eq!(entry.size_hint, 8);
+        assert!(!entry.bytes.is_empty());
+    }
+
+    #[test]
+    fn emit_walker_populate_data_table_mutable_uninit_routes_to_bss() {
+        let mut arena = IrArena::new();
+
+        // Allocate: mutable Let with Placeholder RHS (uninit marker)
+        let uninit_id = arena.alloc(IrKind::Placeholder, span());
+        let let_id = arena.alloc_with_children(IrKind::Let, span(), [uninit_id]);
+
+        // Register as mutable
+        arena
+            .let_meta_mut()
+            .insert(let_id, paideia_as_ir::LetInfo::mutable());
+
+        let mut data_table = DataSideTable::new();
+        EmitWalker::populate_data_table(&arena, &mut data_table);
+
+        let entry = data_table.get(let_id).expect("data entry should exist");
+        assert_eq!(entry.section, SectionKind::Bss);
+        assert_eq!(entry.size_hint, 8);
+        assert!(entry.bytes.is_empty());
+    }
+
+    #[test]
+    fn emit_walker_populate_data_table_immutable_placeholder_not_routed() {
+        let mut arena = IrArena::new();
+
+        // Allocate: immutable Let with Placeholder RHS
+        let uninit_id = arena.alloc(IrKind::Placeholder, span());
+        let _let_id = arena.alloc_with_children(IrKind::Let, span(), [uninit_id]);
+
+        // Do NOT register as mutable (defaults to false).
+
+        let mut data_table = DataSideTable::new();
+        EmitWalker::populate_data_table(&arena, &mut data_table);
+
+        // Immutable + Placeholder is not a valid pattern and should not be routed.
+        assert_eq!(data_table.len(), 0);
+    }
+
+    #[test]
+    fn emit_walker_populate_data_table_rodata_bss_coexist() {
+        let mut arena = IrArena::new();
+
+        // Allocate: immutable Let-Literal (→ Rodata)
+        let lit1_id = arena.alloc(IrKind::Literal, span());
+        let let1_id = arena.alloc_with_children(IrKind::Let, span(), [lit1_id]);
+        arena
+            .literal_values_mut()
+            .insert(lit1_id, 0x0011223344556677);
+
+        // Allocate: mutable Let-Uninit (→ Bss)
+        let uninit_id = arena.alloc(IrKind::Placeholder, span());
+        let let2_id = arena.alloc_with_children(IrKind::Let, span(), [uninit_id]);
+        arena
+            .let_meta_mut()
+            .insert(let2_id, paideia_as_ir::LetInfo::mutable());
+
+        let mut data_table = DataSideTable::new();
+        EmitWalker::populate_data_table(&arena, &mut data_table);
+
+        assert_eq!(data_table.len(), 2);
+        let rodata_entry = data_table.get(let1_id).expect("rodata entry should exist");
+        let bss_entry = data_table.get(let2_id).expect("bss entry should exist");
+
+        assert_eq!(rodata_entry.section, SectionKind::Rodata);
+        assert_eq!(bss_entry.section, SectionKind::Bss);
+        assert!(!rodata_entry.bytes.is_empty());
+        assert!(bss_entry.bytes.is_empty());
+    }
+
+    #[test]
+    fn emit_walker_populate_data_table_mutable_data_rodata_coexist() {
+        let mut arena = IrArena::new();
+
+        // Allocate: immutable Let-Literal (→ Rodata)
+        let lit1_id = arena.alloc(IrKind::Literal, span());
+        let let1_id = arena.alloc_with_children(IrKind::Let, span(), [lit1_id]);
+        arena
+            .literal_values_mut()
+            .insert(lit1_id, 0xAAAAAAAAAAAAAAAAu64 as i64);
+
+        // Allocate: mutable Let-Literal (→ Data)
+        let lit2_id = arena.alloc(IrKind::Literal, span());
+        let let2_id = arena.alloc_with_children(IrKind::Let, span(), [lit2_id]);
+        arena
+            .literal_values_mut()
+            .insert(lit2_id, 0xBBBBBBBBBBBBBBBBu64 as i64);
+        arena
+            .let_meta_mut()
+            .insert(let2_id, paideia_as_ir::LetInfo::mutable());
+
+        let mut data_table = DataSideTable::new();
+        EmitWalker::populate_data_table(&arena, &mut data_table);
+
+        assert_eq!(data_table.len(), 2);
+        let rodata_entry = data_table.get(let1_id).expect("rodata entry should exist");
+        let data_entry = data_table.get(let2_id).expect("data entry should exist");
+
+        assert_eq!(rodata_entry.section, SectionKind::Rodata);
+        assert_eq!(data_entry.section, SectionKind::Data);
+        assert_eq!(rodata_entry.size_hint, 8);
+        assert_eq!(data_entry.size_hint, 8);
     }
 
     // ── Record layout finalisation tests (m3-001) ──────────────────────────────────

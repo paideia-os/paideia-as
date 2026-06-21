@@ -10,6 +10,7 @@ use crate::binding_name::BindingNameTable;
 use crate::constant_pool::ConstantPoolTable;
 use crate::data::DataSideTable;
 use crate::instruction::InstructionSideTable;
+use crate::let_meta::LetMetaTable;
 use crate::literal_value::LiteralValueTable;
 use crate::loop_meta::LoopMetaTable;
 use crate::node::{IrKind, IrNodeData, IrNodeId};
@@ -37,10 +38,13 @@ pub struct IrArena {
     constant_pool_table: ConstantPoolTable,
     /// Side-table: literal values (i64) indexed by Literal node ID.
     literal_value_table: LiteralValueTable,
-    /// Side-table: data entries (.rodata/.data) indexed by Let node ID.
+    /// Side-table: data entries (.rodata/.data/.bss) indexed by Let node ID.
     data_table: DataSideTable,
     /// Side-table: binding names for Let nodes indexed by Let node ID.
     binding_name_table: BindingNameTable,
+    /// Side-table: let binding mutability metadata indexed by Let node ID.
+    /// Phase 6 m5-002: tracks whether a let binding is mutable (let mut x : T = ...).
+    let_meta_table: LetMetaTable,
     /// Side-table: top-level binding symbol table.
     symbol_table: SymbolTable,
     /// Side-table: field access metadata indexed by FieldAccess node ID.
@@ -70,6 +74,7 @@ impl IrArena {
             literal_value_table: LiteralValueTable::new(),
             data_table: DataSideTable::new(),
             binding_name_table: BindingNameTable::new(),
+            let_meta_table: LetMetaTable::new(),
             symbol_table: SymbolTable::new(),
             field_access_table: FieldAccessSideTable::new(),
             record_layout_table: RecordLayoutTable::new(),
@@ -219,6 +224,18 @@ impl IrArena {
     /// Borrow the binding name side-table (mutable).
     pub fn binding_names_mut(&mut self) -> &mut BindingNameTable {
         &mut self.binding_name_table
+    }
+
+    /// Borrow the let metadata side-table (read-only).
+    /// Phase 6 m5-002: provides access to LetInfo for Let nodes.
+    #[must_use]
+    pub fn let_meta(&self) -> &LetMetaTable {
+        &self.let_meta_table
+    }
+
+    /// Borrow the let metadata side-table (mutable).
+    pub fn let_meta_mut(&mut self) -> &mut LetMetaTable {
+        &mut self.let_meta_table
     }
 
     /// Borrow the symbol table (read-only).

@@ -603,6 +603,10 @@ fn build_elf_object(
                 writer.add_rodata_bytes(&entry.bytes, entry.align)
             }
             paideia_as_ir::SectionKind::Data => writer.add_data_bytes(&entry.bytes, entry.align),
+            paideia_as_ir::SectionKind::Bss => {
+                // Phase 6 m5-002: allocate uninitialized space in .bss section
+                writer.add_bss_space(entry.size_hint, entry.align)
+            }
         };
         // Phase-5-m4-003: Create a symbol for the data entry so relocations can reference it
         let sym_name = format!("data_{}", id.get());

@@ -8,18 +8,15 @@ use crate::node::IrNodeId;
 use std::collections::HashMap;
 
 /// Section kind for data entries.
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Default)]
 pub enum SectionKind {
     /// Read-only data section (.rodata). Default for immutable let bindings.
+    #[default]
     Rodata,
     /// Initialized data section (.data). Used for mutable let mut bindings (Phase 6+).
     Data,
-}
-
-impl Default for SectionKind {
-    fn default() -> Self {
-        Self::Rodata
-    }
+    /// Uninitialized data section (.bss). Used for uninit mutable bindings (Phase 6+).
+    Bss,
 }
 
 /// A single entry in the data section.
@@ -28,7 +25,7 @@ impl Default for SectionKind {
 /// and is ready for ELF emission.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DataEntry {
-    /// Which section to emit into (.rodata or .data).
+    /// Which section to emit into (.rodata, .data, or .bss).
     pub section: SectionKind,
     /// Little-endian packed bytes of the data.
     pub bytes: Vec<u8>,
@@ -36,6 +33,8 @@ pub struct DataEntry {
     pub symbol_name: String,
     /// Alignment requirement in bytes (power of 2). Common values: 1, 4, 8, 16.
     pub align: u8,
+    /// Size hint in bytes. For .rodata and .data: bytes.len(). For .bss: computed from type.
+    pub size_hint: u64,
 }
 
 impl DataEntry {
@@ -47,22 +46,43 @@ impl DataEntry {
     /// * `align` - power-of-2 alignment (e.g., 8 for 8-byte aligned)
     #[must_use]
     pub fn new_rodata(bytes: Vec<u8>, symbol_name: String, align: u8) -> Self {
+        let size_hint = bytes.len() as u64;
         Self {
             section: SectionKind::Rodata,
             bytes,
             symbol_name,
             align,
+            size_hint,
         }
     }
 
     /// Construct a new data entry for .data (mutable, Phase 6+).
     #[must_use]
     pub fn new_data(bytes: Vec<u8>, symbol_name: String, align: u8) -> Self {
+        let size_hint = bytes.len() as u64;
         Self {
             section: SectionKind::Data,
             bytes,
             symbol_name,
             align,
+            size_hint,
+        }
+    }
+
+    /// Construct a new data entry for .bss (uninitialized, Phase 6+).
+    ///
+    /// # Arguments
+    /// * `symbol_name` - C-friendly symbol identifier
+    /// * `align` - power-of-2 alignment (e.g., 8 for 8-byte aligned)
+    /// * `size_hint` - size in bytes (computed from type at elaboration time)
+    #[must_use]
+    pub fn new_bss(symbol_name: String, align: u8, size_hint: u64) -> Self {
+        Self {
+            section: SectionKind::Bss,
+            bytes: Vec::new(),
+            symbol_name,
+            align,
+            size_hint,
         }
     }
 }
@@ -234,5 +254,57 @@ mod tests {
         mut_entry.align = 8;
 
         assert_eq!(table.get(data_id).unwrap().align, 8);
+    }
+
+    #[test]
+    fn section_kind_bss_variant_exists() {
+        let bss = SectionKind::Bss;
+        assert_eq!(bss, SectionKind::Bss);
+        assert_ne!(bss, SectionKind::Rodata);
+        assert_ne!(bss, SectionKind::Data);
+    }
+
+    #[test]
+    fn data_entry_new_bss_constructs() {
+        let entry = DataEntry::new_bss("uninit_array".to_string(), 8, 4096);
+        assert_eq!(entry.section, SectionKind::Bss);
+        assert!(entry.bytes.is_empty());
+        assert_eq!(entry.symbol_name, "uninit_array");
+        assert_eq!(entry.align, 8);
+        assert_eq!(entry.size_hint, 4096);
+    }
+
+    #[test]
+    fn data_entry_rodata_size_hint_equals_bytes_len() {
+        let bytes = vec![1, 2, 3, 4, 5];
+        let entry = DataEntry::new_rodata(bytes.clone(), "data".to_string(), 4);
+        assert_eq!(entry.size_hint, bytes.len() as u64);
+        assert_eq!(entry.size_hint, 5);
+    }
+
+    #[test]
+    fn data_entry_data_size_hint_equals_bytes_len() {
+        let bytes = vec![0xAA; 16];
+        let entry = DataEntry::new_data(bytes.clone(), "mut_data".to_string(), 8);
+        assert_eq!(entry.size_hint, bytes.len() as u64);
+        assert_eq!(entry.size_hint, 16);
+    }
+
+    #[test]
+    fn data_entry_bss_size_hint_independent_of_bytes() {
+        let entry = DataEntry::new_bss("uninit".to_string(), 8, 8192);
+        assert!(entry.bytes.is_empty());
+        assert_eq!(entry.size_hint, 8192);
+    }
+
+    #[test]
+    fn data_entry_sections_have_correct_size_hints() {
+        let rodata_entry = DataEntry::new_rodata(vec![1, 2], "ro".to_string(), 1);
+        let data_entry = DataEntry::new_data(vec![3, 4, 5], "rw".to_string(), 1);
+        let bss_entry = DataEntry::new_bss("uninit".to_string(), 8, 64);
+
+        assert_eq!(rodata_entry.size_hint, 2);
+        assert_eq!(data_entry.size_hint, 3);
+        assert_eq!(bss_entry.size_hint, 64);
     }
 }
