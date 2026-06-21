@@ -344,6 +344,15 @@ description = "A let binding uses a refutable pattern (such as an enum variant o
 since = "0.4.0"
 deprecated = false
 
+[diagnostic.P0101]
+severity = "error"
+category = "parser"
+title = "Empty statement found"
+brief = "expected statement, found empty statement (`;`)"
+description = "Phase 6 m2-002: a statement block (such as `unsafe { block: { ... } }`) encountered consecutive semicolons or a leading semicolon, forming an empty statement. Empty statements are not allowed. Provide a valid statement (expression, let binding, return, instruction, etc.) or remove the extra semicolons. Trailing semicolons after valid statements are permitted (e.g., `{ stmt1; stmt2; }`)."
+since = "0.9.0"
+deprecated = false
+
 [diagnostic.P0201]
 severity = "error"
 category = "parser"

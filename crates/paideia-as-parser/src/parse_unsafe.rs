@@ -281,6 +281,76 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                             break;
                         }
 
+                        // Check for empty statements (leading or consecutive semicolons)
+                        // Empty statements are an error (P0101), except trailing semicolons
+                        // after a valid statement are allowed.
+                        if self.at(TokenKind::Semicolon) {
+                            // Peek ahead to see if this is a trailing semicolon (RBrace follows)
+                            // or if there are more semicolons (indicating empty statement)
+                            if let Some(next) = self.peek_at(1) {
+                                match next.kind {
+                                    TokenKind::RBrace => {
+                                        // Trailing semicolon after a statement: allow it
+                                        // (only valid if we already have at least one statement)
+                                        if !block_body.is_empty() {
+                                            self.bump(); // consume the trailing semicolon
+                                            continue;
+                                        } else {
+                                            // Leading semicolon (empty statement at start)
+                                            let semi_tok = self.bump().unwrap();
+                                            let code = DiagnosticCode::new(
+                                                Category::P,
+                                                Severity::Error,
+                                                101,
+                                            )
+                                            .expect("valid P code");
+                                            let diag = Diagnostic::error(code)
+                                                .message("expected statement, found empty statement (`;`)")
+                                                .with_span(semi_tok.span)
+                                                .finish();
+                                            self.emit_diagnostic(diag);
+                                            return Err(ParseError);
+                                        }
+                                    }
+                                    TokenKind::Semicolon => {
+                                        // Consecutive semicolons: empty statement
+                                        let semi_tok = self.bump().unwrap();
+                                        let code =
+                                            DiagnosticCode::new(Category::P, Severity::Error, 101)
+                                                .expect("valid P code");
+                                        let diag = Diagnostic::error(code)
+                                            .message(
+                                                "expected statement, found empty statement (`;`)",
+                                            )
+                                            .with_span(semi_tok.span)
+                                            .finish();
+                                        self.emit_diagnostic(diag);
+                                        return Err(ParseError);
+                                    }
+                                    _ => {
+                                        // Semicolon followed by another token (not RBrace or semicolon)
+                                        // This is a statement separator; consume it and continue
+                                        self.bump();
+                                    }
+                                }
+                            } else {
+                                // EOF reached while looking ahead (unusual)
+                                let semi_tok = self.bump().unwrap();
+                                let code = DiagnosticCode::new(Category::P, Severity::Error, 101)
+                                    .expect("valid P code");
+                                let diag = Diagnostic::error(code)
+                                    .message("expected statement, found empty statement (`;`)")
+                                    .with_span(semi_tok.span)
+                                    .finish();
+                                self.emit_diagnostic(diag);
+                                return Err(ParseError);
+                            }
+                        }
+
+                        if self.at(TokenKind::RBrace) {
+                            break;
+                        }
+
                         // Unsafe block statements: pass in_action_context=true
                         let stmt = self.parse_stmt(true)?;
                         block_body.push(stmt);
@@ -956,5 +1026,178 @@ mod tests {
                 "Parity failure: action and unsafe stmt kinds differ"
             );
         }
+    }
+
+    /// Phase 6 m2-002: Test 1 — Accept single statement with trailing semicolon.
+    /// `unsafe { ..., block: { hlt; } }` parses.
+    #[test]
+    fn unsafe_block_single_stmt_with_trailing_semi() {
+        let tokens = vec![
+            tok(TokenKind::KwUnsafe, 0),
+            tok(TokenKind::LBrace, 7),
+            tok(TokenKind::Ident, 9), // effects
+            tok(TokenKind::Colon, 16),
+            tok(TokenKind::LBrace, 18),
+            tok(TokenKind::RBrace, 19),
+            tok(TokenKind::Comma, 20),
+            tok(TokenKind::Ident, 22), // capabilities
+            tok(TokenKind::Colon, 34),
+            tok(TokenKind::LBrace, 36),
+            tok(TokenKind::RBrace, 37),
+            tok(TokenKind::Comma, 38),
+            tok(TokenKind::Ident, 40), // justification
+            tok(TokenKind::Colon, 53),
+            tok(TokenKind::StringLit, 55),
+            tok(TokenKind::Comma, 77),
+            tok(TokenKind::Ident, 79), // block
+            tok(TokenKind::Colon, 84),
+            tok(TokenKind::LBrace, 86),
+            tok(TokenKind::Ident, 88),     // hlt
+            tok(TokenKind::Semicolon, 91), // trailing semicolon
+            tok(TokenKind::RBrace, 92),
+            tok(TokenKind::RBrace, 94),
+            tok(TokenKind::Eof, 95),
+        ];
+        let (arena, result, diags) = parse_unsafe_block(tokens);
+
+        assert_eq!(diags.len(), 0, "Expected no diagnostics; got: {:?}", diags);
+        assert!(result.is_ok(), "Expected parse success");
+
+        let expr_id = result.unwrap();
+        let expr_node = arena.get(expr_id).unwrap();
+        assert_eq!(expr_node.kind, NodeKind::ExprUnsafe);
+    }
+
+    /// Phase 6 m2-002: Test 2 — Accept multiple statements with trailing semicolon.
+    /// `unsafe { ..., block: { cli; hlt; } }` parses.
+    #[test]
+    fn unsafe_block_multi_stmt_with_trailing_semi() {
+        let tokens = vec![
+            tok(TokenKind::KwUnsafe, 0),
+            tok(TokenKind::LBrace, 7),
+            tok(TokenKind::Ident, 9), // effects
+            tok(TokenKind::Colon, 16),
+            tok(TokenKind::LBrace, 18),
+            tok(TokenKind::RBrace, 19),
+            tok(TokenKind::Comma, 20),
+            tok(TokenKind::Ident, 22), // capabilities
+            tok(TokenKind::Colon, 34),
+            tok(TokenKind::LBrace, 36),
+            tok(TokenKind::RBrace, 37),
+            tok(TokenKind::Comma, 38),
+            tok(TokenKind::Ident, 40), // justification
+            tok(TokenKind::Colon, 53),
+            tok(TokenKind::StringLit, 55),
+            tok(TokenKind::Comma, 77),
+            tok(TokenKind::Ident, 79), // block
+            tok(TokenKind::Colon, 84),
+            tok(TokenKind::LBrace, 86),
+            tok(TokenKind::Ident, 88), // cli
+            tok(TokenKind::Semicolon, 91),
+            tok(TokenKind::Ident, 93),     // hlt
+            tok(TokenKind::Semicolon, 96), // trailing semicolon
+            tok(TokenKind::RBrace, 97),
+            tok(TokenKind::RBrace, 99),
+            tok(TokenKind::Eof, 100),
+        ];
+        let (arena, result, diags) = parse_unsafe_block(tokens);
+
+        assert_eq!(diags.len(), 0, "Expected no diagnostics; got: {:?}", diags);
+        assert!(result.is_ok(), "Expected parse success");
+
+        let expr_id = result.unwrap();
+        let expr_node = arena.get(expr_id).unwrap();
+        assert_eq!(expr_node.kind, NodeKind::ExprUnsafe);
+
+        // Verify block contains both statements
+        if let Some(ExprData::Unsafe { block, .. }) = arena.expr_data(expr_id) {
+            assert_eq!(block.len(), 2, "Block should contain 2 statements");
+        } else {
+            panic!("Expected ExprUnsafe");
+        }
+    }
+
+    /// Phase 6 m2-002: Test 3 — Reject empty statement (leading semicolon).
+    /// `unsafe { ..., block: { ; } }` rejects with P0101.
+    #[test]
+    fn unsafe_block_reject_leading_semi() {
+        let tokens = vec![
+            tok(TokenKind::KwUnsafe, 0),
+            tok(TokenKind::LBrace, 7),
+            tok(TokenKind::Ident, 9), // effects
+            tok(TokenKind::Colon, 16),
+            tok(TokenKind::LBrace, 18),
+            tok(TokenKind::RBrace, 19),
+            tok(TokenKind::Comma, 20),
+            tok(TokenKind::Ident, 22), // capabilities
+            tok(TokenKind::Colon, 34),
+            tok(TokenKind::LBrace, 36),
+            tok(TokenKind::RBrace, 37),
+            tok(TokenKind::Comma, 38),
+            tok(TokenKind::Ident, 40), // justification
+            tok(TokenKind::Colon, 53),
+            tok(TokenKind::StringLit, 55),
+            tok(TokenKind::Comma, 77),
+            tok(TokenKind::Ident, 79), // block
+            tok(TokenKind::Colon, 84),
+            tok(TokenKind::LBrace, 86),
+            tok(TokenKind::Semicolon, 87), // leading semicolon (empty statement)
+            tok(TokenKind::RBrace, 88),
+            tok(TokenKind::RBrace, 90),
+            tok(TokenKind::Eof, 91),
+        ];
+        let (_arena, result, diags) = parse_unsafe_block(tokens);
+
+        assert!(result.is_err(), "Expected parse failure");
+
+        // Check for P0101 diagnostic
+        let p0101_found = diags
+            .iter()
+            .any(|d| d.code().category() == Category::P && d.code().number() == 101);
+        assert!(p0101_found, "Expected P0101 diagnostic for empty statement");
+    }
+
+    /// Phase 6 m2-002: Test 4 — Reject consecutive semicolons (empty statements).
+    /// `unsafe { ..., block: { ;; } }` rejects with P0101.
+    #[test]
+    fn unsafe_block_reject_consecutive_semis() {
+        let tokens = vec![
+            tok(TokenKind::KwUnsafe, 0),
+            tok(TokenKind::LBrace, 7),
+            tok(TokenKind::Ident, 9), // effects
+            tok(TokenKind::Colon, 16),
+            tok(TokenKind::LBrace, 18),
+            tok(TokenKind::RBrace, 19),
+            tok(TokenKind::Comma, 20),
+            tok(TokenKind::Ident, 22), // capabilities
+            tok(TokenKind::Colon, 34),
+            tok(TokenKind::LBrace, 36),
+            tok(TokenKind::RBrace, 37),
+            tok(TokenKind::Comma, 38),
+            tok(TokenKind::Ident, 40), // justification
+            tok(TokenKind::Colon, 53),
+            tok(TokenKind::StringLit, 55),
+            tok(TokenKind::Comma, 77),
+            tok(TokenKind::Ident, 79), // block
+            tok(TokenKind::Colon, 84),
+            tok(TokenKind::LBrace, 86),
+            tok(TokenKind::Semicolon, 87), // first semicolon
+            tok(TokenKind::Semicolon, 88), // second semicolon (empty statement)
+            tok(TokenKind::RBrace, 89),
+            tok(TokenKind::RBrace, 91),
+            tok(TokenKind::Eof, 92),
+        ];
+        let (_arena, result, diags) = parse_unsafe_block(tokens);
+
+        assert!(result.is_err(), "Expected parse failure");
+
+        // Check for P0101 diagnostic
+        let p0101_found = diags
+            .iter()
+            .any(|d| d.code().category() == Category::P && d.code().number() == 101);
+        assert!(
+            p0101_found,
+            "Expected P0101 diagnostic for empty statement (consecutive semis)"
+        );
     }
 }

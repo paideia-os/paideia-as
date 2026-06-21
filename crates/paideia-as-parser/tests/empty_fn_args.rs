@@ -44,11 +44,7 @@ fn empty_fn_args_simple_int() {
     ];
     let (arena, root_opt, diags) = parse(tokens);
 
-    assert_eq!(
-        diags.len(),
-        0,
-        "no diagnostics expected for `fn () -> 42`"
-    );
+    assert_eq!(diags.len(), 0, "no diagnostics expected for `fn () -> 42`");
     let root = root_opt.expect("parse should succeed");
     let node = arena.get(root).unwrap();
     assert_eq!(
@@ -229,11 +225,7 @@ fn empty_pipe_form_lambda() {
     ];
     let (arena, root_opt, diags) = parse(tokens);
 
-    assert_eq!(
-        diags.len(),
-        0,
-        "no diagnostics expected for `|| 5`"
-    );
+    assert_eq!(diags.len(), 0, "no diagnostics expected for `|| 5`");
     let root = root_opt.expect("parse should succeed");
     let node = arena.get(root).unwrap();
     assert_eq!(

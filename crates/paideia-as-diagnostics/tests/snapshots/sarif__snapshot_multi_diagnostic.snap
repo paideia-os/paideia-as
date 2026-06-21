@@ -1,5 +1,6 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
+assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -390,6 +391,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "Source file is empty or whitespace-only",
               "shortDescription": {
                 "text": "source file empty or whitespace-only"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase 6 m2-002: a statement block (such as `unsafe { block: { ... } }`) encountered consecutive semicolons or a leading semicolon, forming an empty statement. Empty statements are not allowed. Provide a valid statement (expression, let binding, return, instruction, etc.) or remove the extra semicolons. Trailing semicolons after valid statements are permitted (e.g., `{ stmt1; stmt2; }`)."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0101",
+              "id": "P0101",
+              "name": "Empty statement found",
+              "shortDescription": {
+                "text": "expected statement, found empty statement (`;`)"
               }
             },
             {
