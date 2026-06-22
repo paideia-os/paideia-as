@@ -31,7 +31,10 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// Returns a `NodeKind::ExprIf`.
     ///
     /// The `kind` parameter is threaded to both then-block and else-block.
-    pub(crate) fn parse_if(&mut self, kind: BlockKind) -> Result<paideia_as_ast::NodeId, ParseError> {
+    pub(crate) fn parse_if(
+        &mut self,
+        kind: BlockKind,
+    ) -> Result<paideia_as_ast::NodeId, ParseError> {
         let if_tok = self.expect(TokenKind::KwIf)?;
         let if_span = if_tok.span;
 
@@ -245,7 +248,10 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// - If block ends with `;`:
     ///   - **Value position**: emit P0158 and return Err.
     ///   - **Statement position**: synthesize unit literal `()` as tail.
-    pub(crate) fn parse_block_kind(&mut self, kind: BlockKind) -> Result<paideia_as_ast::NodeId, ParseError> {
+    pub(crate) fn parse_block_kind(
+        &mut self,
+        kind: BlockKind,
+    ) -> Result<paideia_as_ast::NodeId, ParseError> {
         let lbrace_tok = self.expect(TokenKind::LBrace)?;
         let lbrace_span = lbrace_tok.span;
 
@@ -334,8 +340,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 }
                 BlockKind::Statement => {
                     // Statement position: synthesize unit literal `()` as tail
-                    let unit_lit_id =
-                        self.arena_mut().alloc(NodeKind::Placeholder, rbrace_span);
+                    let unit_lit_id = self.arena_mut().alloc(NodeKind::Placeholder, rbrace_span);
                     tail = Some(self.arena_mut().alloc_expr(
                         NodeKind::ExprLiteral,
                         rbrace_span,
@@ -858,7 +863,7 @@ mod tests {
             tok(TokenKind::KwIf, 0, 2),
             tok(TokenKind::Ident, 3, 4), // cond
             tok(TokenKind::LBrace, 8, 1),
-            tok(TokenKind::Ident, 10, 1), // x
+            tok(TokenKind::Ident, 10, 1),     // x
             tok(TokenKind::Semicolon, 11, 1), // trailing ;
             tok(TokenKind::RBrace, 12, 1),
             tok(TokenKind::Eof, 13, 0),
@@ -874,14 +879,17 @@ mod tests {
         // Should fail
         assert!(result.is_err());
         let diags = sink.diagnostics();
-        assert!(diags.iter().any(|d| d.code().number() == 158), "P0158 on value-position block with trailing ;");
+        assert!(
+            diags.iter().any(|d| d.code().number() == 158),
+            "P0158 on value-position block with trailing ;"
+        );
     }
 
     #[test]
     fn nested_if_else_statement_position() {
         // if a { 1 } else if b { 2 } else { 3 } ; (all statement position)
         let tokens = vec![
-            tok(TokenKind::KwIf, 0, 2),      // if a
+            tok(TokenKind::KwIf, 0, 2), // if a
             tok(TokenKind::Ident, 3, 1),
             tok(TokenKind::LBrace, 5, 1),
             tok(TokenKind::IntLit, 7, 1), // 1
@@ -983,7 +991,11 @@ mod tests {
         ];
         let (arena, root, diags) = parse(tokens);
 
-        assert_eq!(diags.len(), 0, "no diagnostics expected for value-position block");
+        assert_eq!(
+            diags.len(),
+            0,
+            "no diagnostics expected for value-position block"
+        );
         // The block { y } parses successfully as value-position (y is tail).
         let node = arena.get(root).unwrap();
         assert_eq!(node.kind, NodeKind::ExprBlock);
@@ -1007,5 +1019,4 @@ mod tests {
         let node = arena.get(root).unwrap();
         assert_eq!(node.kind, NodeKind::ExprBlock);
     }
-
 }

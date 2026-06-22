@@ -16,8 +16,8 @@ use paideia_as_ast::{NodeId, NodeKind, StmtData};
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
 use paideia_as_lexer::TokenKind;
 
-use crate::parser::{ParseError, Parser};
 use crate::parse_control::BlockKind;
+use crate::parser::{ParseError, Parser};
 
 impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// Parse a statement: let binding, return, expression, or instruction.

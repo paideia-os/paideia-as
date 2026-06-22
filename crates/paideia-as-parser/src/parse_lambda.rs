@@ -432,7 +432,10 @@ mod tests {
         let node = arena.get(root).unwrap();
         assert_eq!(node.kind, NodeKind::ExprLambda);
         if let Some(expr_data) = arena.expr_data(root) {
-            if let ExprData::Lambda { body, pipe_form, .. } = expr_data {
+            if let ExprData::Lambda {
+                body, pipe_form, ..
+            } = expr_data
+            {
                 assert!(!pipe_form);
                 let body_node = arena.get(*body).unwrap();
                 assert_eq!(body_node.kind, NodeKind::ExprBlock);
@@ -464,7 +467,10 @@ mod tests {
         let node = arena.get(root).unwrap();
         assert_eq!(node.kind, NodeKind::ExprLambda);
         if let Some(expr_data) = arena.expr_data(root) {
-            if let ExprData::Lambda { body, pipe_form, .. } = expr_data {
+            if let ExprData::Lambda {
+                body, pipe_form, ..
+            } = expr_data
+            {
                 assert!(!pipe_form);
                 let body_node = arena.get(*body).unwrap();
                 assert_eq!(body_node.kind, NodeKind::ExprBlock);

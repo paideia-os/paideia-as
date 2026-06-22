@@ -392,7 +392,7 @@ mod tests {
         let tokens = vec![
             tok(paideia_as_lexer::TokenKind::KwWith, 0, 4),
             tok(paideia_as_lexer::TokenKind::Ident, 5, 1), // h
-            tok(paideia_as_lexer::TokenKind::Ident, 7, 6),  // handle (contextual)
+            tok(paideia_as_lexer::TokenKind::Ident, 7, 6), // handle (contextual)
             tok(paideia_as_lexer::TokenKind::Ident, 14, 1), // e
             tok(paideia_as_lexer::TokenKind::LBrace, 16, 1),
             tok(paideia_as_lexer::TokenKind::Ident, 17, 1), // i
@@ -429,7 +429,7 @@ mod tests {
         let tokens = vec![
             tok(paideia_as_lexer::TokenKind::KwWith, 0, 4),
             tok(paideia_as_lexer::TokenKind::Ident, 5, 1),
-            tok(paideia_as_lexer::TokenKind::Ident, 7, 6),  // handle (contextual)
+            tok(paideia_as_lexer::TokenKind::Ident, 7, 6), // handle (contextual)
             tok(paideia_as_lexer::TokenKind::Ident, 14, 1),
             tok(paideia_as_lexer::TokenKind::LBrace, 16, 1),
             tok(paideia_as_lexer::TokenKind::KwFinally, 17, 7),
@@ -458,7 +458,7 @@ mod tests {
         let tokens = vec![
             tok(paideia_as_lexer::TokenKind::KwWith, 0, 4),
             tok(paideia_as_lexer::TokenKind::Ident, 5, 1),
-            tok(paideia_as_lexer::TokenKind::Ident, 7, 6),  // handle (contextual)
+            tok(paideia_as_lexer::TokenKind::Ident, 7, 6), // handle (contextual)
             tok(paideia_as_lexer::TokenKind::Ident, 14, 1),
             tok(paideia_as_lexer::TokenKind::LBrace, 16, 1),
             tok(paideia_as_lexer::TokenKind::Ident, 17, 1),
@@ -488,7 +488,7 @@ mod tests {
         let tokens = vec![
             tok(paideia_as_lexer::TokenKind::KwWith, 0, 4),
             tok(paideia_as_lexer::TokenKind::Ident, 5, 1),
-            tok(paideia_as_lexer::TokenKind::Ident, 7, 6),  // handle (contextual)
+            tok(paideia_as_lexer::TokenKind::Ident, 7, 6), // handle (contextual)
             tok(paideia_as_lexer::TokenKind::Ident, 14, 1),
             tok(paideia_as_lexer::TokenKind::LBrace, 16, 1),
             tok(paideia_as_lexer::TokenKind::KwLet, 17, 3),
@@ -526,7 +526,7 @@ mod tests {
         // handle Io { op read => 0 }
         const SRC: &str = "handle Io { op read => 0 }";
         let tokens = vec![
-            tok(paideia_as_lexer::TokenKind::Ident, 0, 6),  // handle (contextual)
+            tok(paideia_as_lexer::TokenKind::Ident, 0, 6), // handle (contextual)
             tok(paideia_as_lexer::TokenKind::Ident, 7, 2), // Io
             tok(paideia_as_lexer::TokenKind::LBrace, 10, 1),
             tok(paideia_as_lexer::TokenKind::Ident, 12, 2), // op
@@ -559,7 +559,7 @@ mod tests {
         // handle Io { op read => 0 ; op write => 1 }
         const SRC: &str = "handle Io { op read => 0 ; op write => 1 }";
         let tokens = vec![
-            tok(paideia_as_lexer::TokenKind::Ident, 0, 6),  // handle (contextual)
+            tok(paideia_as_lexer::TokenKind::Ident, 0, 6), // handle (contextual)
             tok(paideia_as_lexer::TokenKind::Ident, 7, 2), // Io
             tok(paideia_as_lexer::TokenKind::LBrace, 10, 1),
             tok(paideia_as_lexer::TokenKind::Ident, 12, 2), // op
@@ -596,7 +596,7 @@ mod tests {
         // handle Io { op read => 0 ; finally => cleanup() }
         const SRC: &str = "handle Io { op read => 0 ; finally => cleanup() }";
         let tokens = vec![
-            tok(paideia_as_lexer::TokenKind::Ident, 0, 6),  // handle (contextual)
+            tok(paideia_as_lexer::TokenKind::Ident, 0, 6), // handle (contextual)
             tok(paideia_as_lexer::TokenKind::Ident, 7, 2), // Io
             tok(paideia_as_lexer::TokenKind::LBrace, 10, 1),
             tok(paideia_as_lexer::TokenKind::Ident, 12, 2), // op
@@ -634,7 +634,7 @@ mod tests {
         // handle Io { finally => x ; op read => 0 }  <- op after finally
         const SRC: &str = "handle Io { finally => x ; op read => 0 }";
         let tokens = vec![
-            tok(paideia_as_lexer::TokenKind::Ident, 0, 6),  // handle (contextual)
+            tok(paideia_as_lexer::TokenKind::Ident, 0, 6), // handle (contextual)
             tok(paideia_as_lexer::TokenKind::Ident, 7, 2), // Io
             tok(paideia_as_lexer::TokenKind::LBrace, 10, 1),
             tok(paideia_as_lexer::TokenKind::KwFinally, 12, 7),

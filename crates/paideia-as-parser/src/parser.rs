@@ -196,7 +196,10 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// 5. On success, consumes the token and returns `Ok(token)`.
     pub fn expect_contextual(&mut self, text: &'static str) -> Result<Token, ParseError> {
         if self.cursor.at(TokenKind::Ident) {
-            let tok = self.peek().expect("at(Ident) implies peek() is Some").clone();
+            let tok = self
+                .peek()
+                .expect("at(Ident) implies peek() is Some")
+                .clone();
             let source = self.source();
             let start = tok.span.byte_start() as usize;
             let end = (tok.span.byte_start() + tok.span.byte_len()) as usize;
@@ -207,7 +210,10 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             };
 
             if ident_text == text {
-                Ok(self.cursor.bump().expect("at(Ident) implies peek() is Some"))
+                Ok(self
+                    .cursor
+                    .bump()
+                    .expect("at(Ident) implies peek() is Some"))
             } else {
                 let span = tok.span;
                 let diag = Diagnostic::error(p_code(100))

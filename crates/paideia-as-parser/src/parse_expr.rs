@@ -8,8 +8,8 @@ use paideia_as_ast::{ExprData, NodeId, NodeKind};
 use paideia_as_diagnostics::Span;
 use paideia_as_lexer::TokenKind;
 
-use crate::parser::{ParseError, Parser};
 use crate::parse_control::BlockKind;
+use crate::parser::{ParseError, Parser};
 use crate::precedence::{infix_bp, postfix_bp, prefix_bp};
 
 impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
