@@ -60,16 +60,12 @@ struct Case {
 // lapic_isr.pdx: interrupt service routine for LAPIC timer
 // Contains supervisor instructions for interrupt handling and TLB operations.
 // Baseline from post-m5-001 build.
-const LAPIC_ISR_TEXT: &[u8] = &[
-    0x48, 0x89, 0xc0, 0xc3,
-];
+const LAPIC_ISR_TEXT: &[u8] = &[0x48, 0x89, 0xc0, 0xc3];
 
 // lapic_timer.pdx: LAPIC timer initialization and management
 // Contains rdtsc and invlpg supervisor instructions.
 // Baseline from post-m5-001 build.
-const LAPIC_TIMER_TEXT: &[u8] = &[
-    0x48, 0x89, 0xc0, 0x0f, 0x31, 0xc3,
-];
+const LAPIC_TIMER_TEXT: &[u8] = &[0x48, 0x89, 0xc0, 0x0f, 0x31, 0xc3];
 
 const CASES: &[Case] = &[
     Case {
@@ -106,8 +102,10 @@ fn find_paideia_os() -> Option<PathBuf> {
 
 /// Extract the .text section from an ELF object file.
 fn extract_text_section(elf_path: &Path) -> Result<Vec<u8>, String> {
-    let data = std::fs::read(elf_path).map_err(|e| format!("failed to read {}: {}", elf_path.display(), e))?;
-    let obj = object::File::parse(data.as_slice()).map_err(|e| format!("failed to parse ELF: {}", e))?;
+    let data = std::fs::read(elf_path)
+        .map_err(|e| format!("failed to read {}: {}", elf_path.display(), e))?;
+    let obj =
+        object::File::parse(data.as_slice()).map_err(|e| format!("failed to parse ELF: {}", e))?;
 
     for section in obj.sections() {
         if section.name().unwrap_or("") == ".text" {
@@ -122,7 +120,9 @@ fn paideia_os_m5_835_lapic_ipi_text_snapshot() {
     let paideia_os = match find_paideia_os() {
         Some(p) => p,
         None => {
-            eprintln!("PaideiaOS not found; test skipped (set PAIDEIA_OS_PATH or ensure ../../PaideiaOS exists)");
+            eprintln!(
+                "PaideiaOS not found; test skipped (set PAIDEIA_OS_PATH or ensure ../../PaideiaOS exists)"
+            );
             return;
         }
     };
@@ -136,14 +136,20 @@ fn paideia_os_m5_835_lapic_ipi_text_snapshot() {
             found_count += 1;
             eprintln!("✓ {} found at {}", case.name, pdx_path.display());
         } else {
-            eprintln!("○ {} not found at {} (may be in quarantine or removed)", case.name, pdx_path.display());
+            eprintln!(
+                "○ {} not found at {} (may be in quarantine or removed)",
+                case.name,
+                pdx_path.display()
+            );
         }
     }
 
     // If none of the files exist, the test is inconclusive but we don't fail
     if found_count == 0 {
         eprintln!("Note: No LAPIC/IPI files found in PaideiaOS source tree.");
-        eprintln!("This is normal if the files are still quarantined or not yet moved into production.");
+        eprintln!(
+            "This is normal if the files are still quarantined or not yet moved into production."
+        );
         return;
     }
 

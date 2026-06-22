@@ -939,9 +939,9 @@ mod tests {
             tok(TokenKind::Ident, 10, 1),     // x
             tok(TokenKind::Semicolon, 11, 1), // trailing ;
             tok(TokenKind::RBrace, 12, 1),
-            tok(TokenKind::KwElse, 14, 4),    // else
+            tok(TokenKind::KwElse, 14, 4), // else
             tok(TokenKind::LBrace, 19, 1),
-            tok(TokenKind::Ident, 21, 1),     // y
+            tok(TokenKind::Ident, 21, 1), // y
             tok(TokenKind::RBrace, 22, 1),
             tok(TokenKind::Eof, 23, 0),
         ];
@@ -1106,12 +1106,12 @@ mod tests {
         // so it doesn't reject the trailing ; of the if statement in a value-position outer block.
         // Simplified: bare if { 42; } should parse without P0158 when in statement position.
         let tokens = vec![
-            tok(TokenKind::KwIf, 0, 2),    // if
-            tok(TokenKind::Ident, 3, 4),   // cond
-            tok(TokenKind::LBrace, 8, 1),  // {
-            tok(TokenKind::IntLit, 10, 2), // 42
+            tok(TokenKind::KwIf, 0, 2),       // if
+            tok(TokenKind::Ident, 3, 4),      // cond
+            tok(TokenKind::LBrace, 8, 1),     // {
+            tok(TokenKind::IntLit, 10, 2),    // 42
             tok(TokenKind::Semicolon, 12, 1), // ;
-            tok(TokenKind::RBrace, 13, 1), // }
+            tok(TokenKind::RBrace, 13, 1),    // }
             tok(TokenKind::Eof, 14, 0),
         ];
         let mut arena = AstArena::new();
@@ -1136,15 +1136,15 @@ mod tests {
         // Bare if { stmts; } followed by another stmt in BlockKind::Statement block.
         // The if itself should parse without error (no P0158).
         let tokens = vec![
-            tok(TokenKind::LBrace, 0, 1),  // outer {
-            tok(TokenKind::KwIf, 2, 2),    // if
-            tok(TokenKind::Ident, 5, 4),   // cond
-            tok(TokenKind::LBrace, 10, 1), // inner {
-            tok(TokenKind::IntLit, 12, 1), // x
-            tok(TokenKind::RBrace, 13, 1), // inner }
+            tok(TokenKind::LBrace, 0, 1),     // outer {
+            tok(TokenKind::KwIf, 2, 2),       // if
+            tok(TokenKind::Ident, 5, 4),      // cond
+            tok(TokenKind::LBrace, 10, 1),    // inner {
+            tok(TokenKind::IntLit, 12, 1),    // x
+            tok(TokenKind::RBrace, 13, 1),    // inner }
             tok(TokenKind::Semicolon, 14, 1), // if statement ends with ;
-            tok(TokenKind::Ident, 16, 1),  // another stmt
-            tok(TokenKind::RBrace, 17, 1), // outer }
+            tok(TokenKind::Ident, 16, 1),     // another stmt
+            tok(TokenKind::RBrace, 17, 1),    // outer }
             tok(TokenKind::Eof, 18, 0),
         ];
         let (arena, root, diags) = parse(tokens);
@@ -1165,20 +1165,20 @@ mod tests {
         // the if statement itself ends with ;, making the outer block have statements but no tail.
         // In Statement position, this works fine.
         let tokens = vec![
-            tok(TokenKind::KwIf, 0, 2),    // if a
-            tok(TokenKind::Ident, 3, 1),   // a
-            tok(TokenKind::LBrace, 5, 1),  // {
-            tok(TokenKind::KwIf, 7, 2),    // inner: if b
-            tok(TokenKind::Ident, 10, 1),  // b
-            tok(TokenKind::LBrace, 12, 1), // inner {
-            tok(TokenKind::IntLit, 14, 1), // 1
-            tok(TokenKind::RBrace, 15, 1), // inner }
+            tok(TokenKind::KwIf, 0, 2),       // if a
+            tok(TokenKind::Ident, 3, 1),      // a
+            tok(TokenKind::LBrace, 5, 1),     // {
+            tok(TokenKind::KwIf, 7, 2),       // inner: if b
+            tok(TokenKind::Ident, 10, 1),     // b
+            tok(TokenKind::LBrace, 12, 1),    // inner {
+            tok(TokenKind::IntLit, 14, 1),    // 1
+            tok(TokenKind::RBrace, 15, 1),    // inner }
             tok(TokenKind::Semicolon, 16, 1), // ;
-            tok(TokenKind::RBrace, 17, 1), // outer then }
-            tok(TokenKind::KwElse, 19, 4), // else
-            tok(TokenKind::LBrace, 24, 1), // else {
-            tok(TokenKind::IntLit, 26, 1), // 99
-            tok(TokenKind::RBrace, 27, 1), // else }
+            tok(TokenKind::RBrace, 17, 1),    // outer then }
+            tok(TokenKind::KwElse, 19, 4),    // else
+            tok(TokenKind::LBrace, 24, 1),    // else {
+            tok(TokenKind::IntLit, 26, 1),    // 99
+            tok(TokenKind::RBrace, 27, 1),    // else }
             tok(TokenKind::Eof, 28, 0),
         ];
         let mut arena = AstArena::new();
@@ -1221,7 +1221,11 @@ mod tests {
         let diags = sink.diagnostics();
 
         // Should parse successfully
-        assert_eq!(diags.len(), 0, "bare if with tail expr should have no diagnostics");
+        assert_eq!(
+            diags.len(),
+            0,
+            "bare if with tail expr should have no diagnostics"
+        );
         let node = arena.get(root).unwrap();
         assert_eq!(node.kind, NodeKind::ExprIf);
     }

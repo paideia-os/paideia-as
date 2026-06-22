@@ -20,8 +20,8 @@ fn checkpoint2_orchestration_compiles_and_has_expected_structure() {
     );
 
     // Read the fixture to verify basic structure.
-    let source = fs::read_to_string(&fixture_path)
-        .expect("failed to read checkpoint2_orchestration.pdx");
+    let source =
+        fs::read_to_string(&fixture_path).expect("failed to read checkpoint2_orchestration.pdx");
 
     // Verify all m2-m5 milestone features are present.
     assert!(
@@ -36,14 +36,8 @@ fn checkpoint2_orchestration_compiles_and_has_expected_structure() {
         source.contains("{ x: 10u64, y: 20u64 }"),
         "m2-003 record-literal init not found"
     );
-    assert!(
-        source.contains("(cast"),
-        "m3-002 cast operator not found"
-    );
-    assert!(
-        source.contains("unsafe {"),
-        "m4-001 unsafe block not found"
-    );
+    assert!(source.contains("(cast"), "m3-002 cast operator not found");
+    assert!(source.contains("unsafe {"), "m4-001 unsafe block not found");
     assert!(
         source.contains("cli;"),
         "m5-001 supervisor mnemonic not found"
@@ -73,7 +67,10 @@ fn checkpoint2_orchestration_compiles_and_has_expected_structure() {
         source.contains("let supervisor_cli :"),
         "supervisor_cli not found"
     );
-    assert!(source.contains("let mem_operand :"), "mem_operand not found");
+    assert!(
+        source.contains("let mem_operand :"),
+        "mem_operand not found"
+    );
 }
 
 #[test]

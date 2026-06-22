@@ -550,6 +550,58 @@ fn encode_mov(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
             mov_mem_reg64_disp_reg64(buf, reg64_from(*base)?, *disp, reg64_from(*src)?);
             Ok(EncodeOutput::new())
         }
+        [
+            Operand::Reg(dest),
+            Operand::MemSib {
+                base,
+                index: Some(index),
+                scale,
+                disp,
+            },
+        ] => {
+            // mov r64, [base + index*scale + disp] — Phase 9 m1-003: SIB with displacement
+            let scale_bits = match scale {
+                Scale::X1 => 0,
+                Scale::X2 => 1,
+                Scale::X4 => 2,
+                Scale::X8 => 3,
+            };
+            mov_reg64_mem_sib_disp(
+                buf,
+                reg64_from(*dest)?,
+                reg64_from(*base)?,
+                reg64_from(*index)?,
+                scale_bits,
+                *disp,
+            );
+            Ok(EncodeOutput::new())
+        }
+        [
+            Operand::MemSib {
+                base,
+                index: Some(index),
+                scale,
+                disp,
+            },
+            Operand::Reg(src),
+        ] => {
+            // mov [base + index*scale + disp], r64 — Phase 9 m1-003: SIB with displacement
+            let scale_bits = match scale {
+                Scale::X1 => 0,
+                Scale::X2 => 1,
+                Scale::X4 => 2,
+                Scale::X8 => 3,
+            };
+            mov_mem_sib_disp_reg64(
+                buf,
+                reg64_from(*base)?,
+                reg64_from(*index)?,
+                scale_bits,
+                *disp,
+                reg64_from(*src)?,
+            );
+            Ok(EncodeOutput::new())
+        }
         [Operand::Reg(dest), Operand::SymbolRef { name, addend }] => {
             // mov r64, [symbol + addend] → 48 8B /r [rip-relative ModR/M] [disp32_placeholder]
             let dest_id = reg64_from(*dest)? as u8;
