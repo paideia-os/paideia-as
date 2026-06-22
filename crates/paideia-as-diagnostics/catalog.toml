@@ -856,3 +856,12 @@ brief = "more than 4 in-flight let-literal bindings in multi-statement function 
 description = "Phase 7 m2-002 (PA7C-m2-002): EmitWalker Let-literal lowering in emit_block_body assigns scratch registers in sequence: RAX(0), RCX(1), RDX(2), R8(8). The calling convention provides exactly 4 caller-save scratch registers. When more than 4 let-literal bindings appear in a single function body, the elaborator cannot assign a scratch register. Restructure your function to use fewer than 5 let-literal bindings, or defer the assignment of later bindings to a later phase."
 since = "0.12.1"
 deprecated = false
+
+[diagnostic.T0528]
+severity = "error"
+category = "type"
+title = "Unresolved local binding in unsafe operand"
+brief = "unresolved local binding referenced in unsafe.instruction operand"
+description = "Phase 7 m2-003 (PA7C-m2-003): An unsafe.instruction operand references a local binding name (e.g., ${x} in let-chain unsafe.block) that was not found in the function's local binding table. This occurs when a binding has either not been declared, has gone out of scope, or the resolve_var_operands pass is not wired into the build pipeline. Ensure the binding is declared before use in the unsafe block operand."
+since = "0.12.2"
+deprecated = false

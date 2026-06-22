@@ -15,6 +15,7 @@ mod cmd_dump_ast;
 mod cmd_fmt;
 mod cmd_test;
 mod det;
+mod resolve_var_operands;
 
 use std::process::ExitCode;
 

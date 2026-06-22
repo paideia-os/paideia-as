@@ -166,6 +166,10 @@ pub fn classify(inst: &Instruction) -> DispatchKind {
     // MOV with non-register operands (e.g., memory) fall through to MovGeneric.
     let (dst_reg, src_reg) = match (dst, src) {
         (Operand::Reg(d), Operand::Reg(s)) => (*d, *s),
+        // Var operands should have been resolved by resolve_var_operands pass.
+        (Operand::Var { .. }, _) | (_, Operand::Var { .. }) => {
+            unreachable!("Operand::Var reached classifier — resolve_var_operands pass was skipped")
+        }
         // Memory or immediate operands not involving CR/DR → MovGeneric
         _ => return DispatchKind::MovGeneric,
     };

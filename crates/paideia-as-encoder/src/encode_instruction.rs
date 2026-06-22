@@ -318,6 +318,9 @@ fn encode_mov(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
             });
             Ok(output)
         }
+        operands if operands.iter().any(|op| matches!(op, Operand::Var { .. })) => {
+            unreachable!("Operand::Var reached encoder — resolve_var_operands pass was skipped")
+        }
         _ => Err(EncodeError::Unsupported(
             "mov form not in phase-3-m2-002 minimum",
         )),

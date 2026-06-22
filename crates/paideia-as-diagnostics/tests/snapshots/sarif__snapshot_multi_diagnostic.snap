@@ -972,6 +972,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "Phase 7 m2-003 (PA7C-m2-003): An unsafe.instruction operand references a local binding name (e.g., ${x} in let-chain unsafe.block) that was not found in the function's local binding table. This occurs when a binding has either not been declared, has gone out of scope, or the resolve_var_operands pass is not wired into the build pipeline. Ensure the binding is declared before use in the unsafe block operand."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0528",
+              "id": "T0528",
+              "name": "Unresolved local binding in unsafe operand",
+              "shortDescription": {
+                "text": "unresolved local binding referenced in unsafe.instruction operand"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "A binding declared as Linear or Ordered in the substructural lattice must be used exactly once. This binding was never used. A Linear binding represents a unique resource that must be consumed; Ordered adds ordering constraints. Check that the binding is referenced exactly once in its scope."
               },
               "helpUri": "https://paideia-os.org/diagnostics/S0900",

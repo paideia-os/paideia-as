@@ -181,6 +181,13 @@ pub enum Operand {
         /// Addend to apply to the label address (typically 0).
         addend: i32,
     },
+    /// Unresolved local binding variable: resolve_var_operands pass rewrites to Operand::Reg.
+    /// Phase 7 m2-003: used by unsafe.let-chain to reference local bindings.
+    /// Unknown bindings → T0528; successfully resolved → replaced with Operand::Reg.
+    Var {
+        /// Name of the local binding.
+        name: String,
+    },
 }
 
 /// x86_64 register identifier.

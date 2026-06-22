@@ -20,6 +20,7 @@ path = "src/bin/pax_introspect.rs"
 clap = { workspace = true }
 miette = { workspace = true }
 thiserror = { workspace = true }
+smallvec = { workspace = true }
 
 paideia-as-lexer = { path = "../paideia-as-lexer" }
 paideia-as-parser = { path = "../paideia-as-parser" }

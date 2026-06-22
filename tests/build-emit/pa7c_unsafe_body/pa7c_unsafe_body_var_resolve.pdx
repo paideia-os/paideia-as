@@ -1,0 +1,20 @@
+// Phase 7 m2-003 (PA7C-m2-003): Operand::Var resolution pass fixture.
+//
+// This fixture documents the future shape of let-chain + unsafe.block operand
+// integration where local bindings (let x) can be referenced in unsafe.instruction
+// operands via ${x} syntax. The resolve_var_operands pass will rewrite Operand::Var
+// to Operand::Reg by looking up the binding name in LocalBindingTable.
+//
+// Today, this fixture builds cleanly because EmitWalker directly assigns registers
+// at Let-emit time, so no Operand::Var entries are produced. The pass runs
+// successfully (finding zero matches) in preparation for future phases where the
+// operand syntax will be extended.
+
+module Pa7cUnsafeBodyVarResolve = structure {
+  let test_let_chain : () -> u64 !{} @{} = fn(_: ()) -> {
+    let a : u64 = 0x10
+    let b : u64 = 0x20
+    let c : u64 = 0x30
+    c
+  }
+}

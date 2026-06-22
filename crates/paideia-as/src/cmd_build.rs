@@ -32,6 +32,7 @@ pub enum BuildError {
 }
 
 use crate::det;
+use crate::resolve_var_operands;
 use paideia_as_ast::{AstArena, NodeId as AstNodeId, NodeKind, TypeData};
 use paideia_as_diagnostics::{
     Catalog, DiagnosticSink, HumanRenderer, HumanSink, Severity, SourceMap, VecSink,
@@ -375,6 +376,17 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                 &mut walker_sink,
                 record_layouts,
             );
+            // Phase-7-m2-003: Resolve Operand::Var references to Operand::Reg.
+            // Call resolve_var_operands on the arena's owned instruction table,
+            // then re-clone for the encoder pipeline.
+            let mut _resolve_diags = Vec::new();
+            resolve_var_operands::resolve_var_operands(
+                lowering.ir.instructions_mut(),
+                &emit_walker.state().local_bindings,
+                &mut _resolve_diags,
+            );
+            // TODO: wire _resolve_diags to walker_sink once T0528 diagnostic emission is standardized
+
             instruction_table = lowering.ir.instructions().clone();
             for d in unsafe_diags {
                 let _ = walker_sink.emit(d);
