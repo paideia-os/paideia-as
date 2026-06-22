@@ -1,0 +1,10 @@
+module UnsafeBodyCli = structure {
+  let cli_test : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "clear interrupt flag test",
+    block: {
+      cli
+    }
+  }
+}

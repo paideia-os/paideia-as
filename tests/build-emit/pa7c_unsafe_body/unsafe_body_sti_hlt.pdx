@@ -1,0 +1,11 @@
+module UnsafeBodyStiHlt = structure {
+  let sti_hlt_test : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "set interrupt flag and halt test",
+    block: {
+      sti;
+      hlt
+    }
+  }
+}

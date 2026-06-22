@@ -1,0 +1,6 @@
+Disassembly of section .text:
+
+0000000000000000 <mov_reg_imm_test>:
+   0:	90                   	nop
+   1:	90                   	nop
+   2:	90                   	nop

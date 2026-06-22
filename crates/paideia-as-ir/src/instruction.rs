@@ -279,6 +279,95 @@ impl Mnemonic {
             | Mnemonic::Movzx => 2,
         }
     }
+
+    /// Return a conservative upper bound on the encoded size in bytes for this mnemonic.
+    ///
+    /// Phase 7 m2-001 (PA7C-m2-001): This is used to estimate per-instruction byte offsets
+    /// during IR traversal before the encoding pass. The estimates are intentionally
+    /// conservative (upper bounds) to avoid off-by-one errors in offset calculations.
+    ///
+    /// The bounds cover:
+    /// - Zero-operand: Hlt/Cli/Nop = 1 byte
+    /// - System: Cpuid/Wrmsr/Rdmsr/Syscall = 2 bytes
+    /// - I/O: In/Out = 2 bytes
+    /// - Jumps: Jcc = 6 bytes (conditional), Jmp = 5 bytes (unconditional)
+    /// - Calls: Call = 5 bytes, Ret = 1 byte
+    /// - Privilege: Lgdt/Lidt = 7 bytes
+    /// - Moves: Mov = 10 bytes, Movzx = 10 bytes
+    /// - Arithmetic: Add/Sub/Cmp/Test = 10 bytes
+    /// - Addressing: Lea = 10 bytes
+    /// - String: RepMovsb = 2 bytes
+    /// - Others: 10 bytes (conservative default)
+    #[must_use]
+    pub fn estimated_size(&self, _operands: &[Operand]) -> u32 {
+        match self {
+            // Zero-arity, 1 byte
+            Mnemonic::Hlt | Mnemonic::Cli | Mnemonic::Nop => 1,
+
+            // Zero-arity system instructions, 2 bytes
+            Mnemonic::Cpuid | Mnemonic::Wrmsr | Mnemonic::Rdmsr | Mnemonic::Syscall => 2,
+
+            // One-arity I/O, 2 bytes
+            Mnemonic::In { .. } | Mnemonic::Out { .. } => 2,
+
+            // Ret, 1 byte
+            Mnemonic::Ret => 1,
+
+            // Conditional jump: 6 bytes (2-byte opcode + 4-byte offset)
+            Mnemonic::Jcc(_) => 6,
+
+            // Unconditional jump: 5 bytes (1-byte opcode + 4-byte offset)
+            Mnemonic::Jmp => 5,
+
+            // Call: 5 bytes (1-byte opcode + 4-byte offset)
+            Mnemonic::Call => 5,
+
+            // Privilege table loads: 7 bytes (REX + opcode + SIB + disp)
+            Mnemonic::Lgdt | Mnemonic::Lidt => 7,
+
+            // String operations: 2 bytes (prefix + opcode)
+            Mnemonic::RepMovsb => 2,
+
+            // Move: 10 bytes (REX + opcode + ModRM + SIB + disp32)
+            Mnemonic::Mov => 10,
+
+            // Move with zero-extend: 10 bytes
+            Mnemonic::Movzx => 10,
+
+            // Two-operand arithmetic/logic: 10 bytes
+            Mnemonic::Add | Mnemonic::Sub | Mnemonic::Cmp | Mnemonic::Test => 10,
+
+            // Load effective address: 10 bytes
+            Mnemonic::Lea => 10,
+
+            // Control register moves: assume 10 bytes
+            Mnemonic::MovCr { .. } | Mnemonic::MovDr { .. } => 10,
+
+            // Interrupt return: 1 byte
+            Mnemonic::Iret => 1,
+
+            // Interrupt return 64-bit: 1 byte
+            Mnemonic::Iretq => 1,
+
+            // System return: 1 byte
+            Mnemonic::Sysret => 1,
+
+            // Swap GS: 2 bytes
+            Mnemonic::Swapgs => 2,
+
+            // Set interrupt flag: 1 byte
+            Mnemonic::Sti => 1,
+
+            // RepStosq: 2 bytes
+            Mnemonic::RepStosq => 2,
+
+            // Software interrupt: 2 bytes
+            Mnemonic::Int => 2,
+
+            // Far jump: 7 bytes (1-byte opcode + 6-byte far address)
+            Mnemonic::FarJmp => 7,
+        }
+    }
 }
 
 /// Encoding hint that the encoder may consult.
@@ -562,5 +651,50 @@ mod tests {
         // Mnemonic includes Jcc(Cond) (1 byte tag + 1 byte data) and
         // MovCr/MovDr/In/Out with bool or u8 payloads. Max size is 4 bytes.
         assert!(size_of::<Mnemonic>() <= 4);
+    }
+
+    // ── Mnemonic::estimated_size tests ──────────────────────────────────
+
+    #[test]
+    fn estimated_size_nop_is_one_byte() {
+        let ops = [];
+        assert_eq!(Mnemonic::Nop.estimated_size(&ops), 1);
+    }
+
+    #[test]
+    fn estimated_size_mov_reg_reg_is_ten_bytes() {
+        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+        ops.push(Operand::Reg(RegId(0))); // rax
+        ops.push(Operand::Reg(RegId(1))); // rcx
+        assert_eq!(Mnemonic::Mov.estimated_size(&ops), 10);
+    }
+
+    #[test]
+    fn estimated_size_mov_reg_imm_is_ten_bytes() {
+        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+        ops.push(Operand::Reg(RegId(0))); // rax
+        ops.push(Operand::Imm64(0x80));
+        assert_eq!(Mnemonic::Mov.estimated_size(&ops), 10);
+    }
+
+    #[test]
+    fn estimated_size_jcc_is_six_bytes() {
+        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+        ops.push(Operand::Imm64(0));
+        assert_eq!(Mnemonic::Jcc(Cond::Eq).estimated_size(&ops), 6);
+    }
+
+    #[test]
+    fn estimated_size_jmp_is_five_bytes() {
+        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+        ops.push(Operand::Imm64(0));
+        assert_eq!(Mnemonic::Jmp.estimated_size(&ops), 5);
+    }
+
+    #[test]
+    fn estimated_size_call_is_five_bytes() {
+        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+        ops.push(Operand::Imm64(0));
+        assert_eq!(Mnemonic::Call.estimated_size(&ops), 5);
     }
 }

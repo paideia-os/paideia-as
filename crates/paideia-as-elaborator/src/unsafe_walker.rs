@@ -747,6 +747,11 @@ fn extract_integer_from_span(_ast: &AstArena, _literal_node: NodeId) -> Option<i
 /// - Control registers (cr0–cr8): 16–24 (compact encoding for m2-005 bridge)
 /// - Debug registers (dr0–dr7): 25–32 (compact encoding for m2-005 bridge)
 ///
+/// Phase 7 m2-001 (PA7C-m2-001): Sub-registers (32-bit, 16-bit, 8-bit) are supported
+/// and resolve to the same RegId as their 64-bit form. For example, "eax", "ax", and "al"
+/// all resolve to RegId(0). This maintains width-agnostic register handling; the encoder
+/// is responsible for width-aware MOV dispatch (follow-up issue PA7C-m2-001a).
+///
 /// The bridge in m2-005 will interpret values >= 16 as special registers and
 /// extract the control/debug register index accordingly.
 #[must_use]
@@ -769,6 +774,41 @@ fn register_name_to_regid(name: &str) -> Option<RegId> {
         "r13" => Some(RegId(13)),
         "r14" => Some(RegId(14)),
         "r15" => Some(RegId(15)),
+
+        // 32-bit sub-registers (resolve to same RegId as 64-bit form)
+        "eax" => Some(RegId(0)),
+        "ecx" => Some(RegId(1)),
+        "edx" => Some(RegId(2)),
+        "ebx" => Some(RegId(3)),
+        "esp" => Some(RegId(4)),
+        "ebp" => Some(RegId(5)),
+        "esi" => Some(RegId(6)),
+        "edi" => Some(RegId(7)),
+        "r8d" => Some(RegId(8)),
+        "r9d" => Some(RegId(9)),
+        "r10d" => Some(RegId(10)),
+        "r11d" => Some(RegId(11)),
+        "r12d" => Some(RegId(12)),
+        "r13d" => Some(RegId(13)),
+        "r14d" => Some(RegId(14)),
+        "r15d" => Some(RegId(15)),
+
+        // 16-bit sub-registers (resolve to same RegId as 64-bit form; r8w-r15w do not exist)
+        "ax" => Some(RegId(0)),
+        "cx" => Some(RegId(1)),
+        "dx" => Some(RegId(2)),
+        "bx" => Some(RegId(3)),
+        "sp" => Some(RegId(4)),
+        "bp" => Some(RegId(5)),
+        "si" => Some(RegId(6)),
+        "di" => Some(RegId(7)),
+
+        // 8-bit sub-registers (resolve to same RegId as 64-bit form; al-r15b, but only al-bl exist)
+        "al" => Some(RegId(0)),
+        "cl" => Some(RegId(1)),
+        "dl" => Some(RegId(2)),
+        "bl" => Some(RegId(3)),
+
         // Control registers (compact encoding: 16 + index)
         "cr0" => Some(RegId(16)),
         "cr1" => Some(RegId(17)),
@@ -779,6 +819,7 @@ fn register_name_to_regid(name: &str) -> Option<RegId> {
         "cr6" => Some(RegId(22)),
         "cr7" => Some(RegId(23)),
         "cr8" => Some(RegId(24)),
+
         // Debug registers (compact encoding: 25 + index)
         "dr0" => Some(RegId(25)),
         "dr1" => Some(RegId(26)),
@@ -788,6 +829,7 @@ fn register_name_to_regid(name: &str) -> Option<RegId> {
         "dr5" => Some(RegId(30)),
         "dr6" => Some(RegId(31)),
         "dr7" => Some(RegId(32)),
+
         _ => None,
     }
 }

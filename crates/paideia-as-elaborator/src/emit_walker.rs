@@ -769,6 +769,23 @@ impl EmitWalker {
                         // Emit the block body.
                         self.emit_block_body(body_id, arena);
                     }
+                    // Phase 7 m2-001 (PA7C-m2-001): Unsafe block body `unsafe { ... }`
+                    IrKind::Unsafe => {
+                        eprintln!(
+                            "[visit_lambda Unsafe] Lambda {} body=Unsafe",
+                            lambda_node_id.get()
+                        );
+
+                        // Record the lambda's starting offset BEFORE emitting.
+                        self.state
+                            .function_offsets
+                            .insert(lambda_node_id.get(), self.state.estimated_offset);
+                        // Mark this lambda as emitted.
+                        self.state.emitted_lambdas.insert(lambda_node_id.get());
+
+                        // Don't queue or recurse here — the top-level walk() loop will
+                        // encounter the Unsafe node and queue it for UnsafeWalker.
+                    }
                     _ => {
                         // Other lambda shapes deferred to m1-004+
                     }
@@ -1107,6 +1124,25 @@ impl EmitWalker {
                         // This is a StmtExpr (statement expression). Emit it and discard result.
                         eprintln!("[emit_block_body] StmtExpr at index {}", i);
                         // TODO: Emit the expression, discard result.
+                    }
+                    IrKind::RawInstruction => {
+                        // Phase 7 m2-001 (PA7C-m2-001): RawInstruction child of Action.
+                        // Look up the instruction payload in the side-table.
+                        eprintln!("[emit_block_body] RawInstruction at index {}", i);
+                        if let Some(inst) = arena.instructions().get(child_id) {
+                            // Clone the instruction and insert into state.
+                            let inst_clone = inst.clone();
+                            self.state.instructions.insert(child_id, inst_clone.clone());
+                            // Bump the estimated offset by the instruction's size.
+                            let size = inst_clone.mnemonic.estimated_size(&inst_clone.operands);
+                            self.state.estimated_offset += size;
+                        } else {
+                            // Instruction payload not found: emit T0526 diagnostic.
+                            self.diagnostics.push(format!(
+                                "T0526: Instruction payload not found in side-table for RawInstruction node {} (internal compiler error)",
+                                child_id.get()
+                            ));
+                        }
                     }
                     _ => {
                         // Unexpected statement kind.

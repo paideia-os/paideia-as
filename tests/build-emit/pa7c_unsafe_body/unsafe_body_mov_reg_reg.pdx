@@ -1,0 +1,12 @@
+module UnsafeBodyMovRegReg = structure {
+  let mov_reg_reg_test : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "register-to-register move test",
+    block: {
+      mov rax, rbx;
+      mov rcx, rdx;
+      mov rsi, rdi
+    }
+  }
+}

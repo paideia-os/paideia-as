@@ -1,0 +1,12 @@
+module UnsafeBodyMovRegImm = structure {
+  let mov_reg_imm_test : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "immediate-to-register move test placeholder",
+    block: {
+      nop;
+      nop;
+      nop
+    }
+  }
+}

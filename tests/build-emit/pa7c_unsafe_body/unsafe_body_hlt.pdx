@@ -1,0 +1,10 @@
+module UnsafeBodyHlt = structure {
+  let hlt_test : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "halt processor test",
+    block: {
+      hlt
+    }
+  }
+}

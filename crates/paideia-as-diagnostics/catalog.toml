@@ -838,3 +838,12 @@ brief = "break value not allowed in unit-typed loop contexts"
 description = "Phase 7 m1-008 (PA7-008): a while loop produces unit type () and cannot accept break values. Only infinite loops (loop { ... }) can return values via break. Either remove the value from the break statement, or restructure as a loop expression to return values."
 since = "0.11.0"
 deprecated = false
+
+[diagnostic.T0526]
+severity = "error"
+category = "type"
+title = "Instruction payload not found in side-table"
+brief = "RawInstruction node lacks corresponding instruction payload (internal compiler error)"
+description = "Phase 7 m2-001 (PA7C-m2-001): During IR traversal in emit_block_body, a RawInstruction child node was encountered but the instruction payload was not found in the InstructionSideTable. This indicates an internal compiler error: either the instruction was not properly registered during elaboration, or the side-table lookup failed. This is a structural invariant violation and should not occur in normal compilation."
+since = "0.12.0"
+deprecated = false

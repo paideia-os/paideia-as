@@ -1,0 +1,12 @@
+module UnsafeBodyOutb = structure {
+  let outb_test : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "I/O port write test (outb pattern placeholder)",
+    block: {
+      nop;
+      nop;
+      nop
+    }
+  }
+}

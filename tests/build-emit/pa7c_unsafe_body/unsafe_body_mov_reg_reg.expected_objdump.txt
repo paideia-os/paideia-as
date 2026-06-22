@@ -1,0 +1,6 @@
+Disassembly of section .text:
+
+0000000000000000 <mov_reg_reg_test>:
+   0:	48 89 d8             	mov    %rbx,%rax
+   3:	48 89 d1             	mov    %rdx,%rcx
+   6:	48 89 cf             	mov    %rdi,%rsi

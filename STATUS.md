@@ -1,6 +1,12 @@
+# paideia-as Phase 7 status (in-flight, m2 active)
+
+**Phase 7 m2-001 (PA7C-m2-001) implementation in-flight.** Entry gate G8 requirements met; Phase 7 activates byte-emit closures (instruction payload materialization + IR shape completion for unsafe blocks) and self-hosting Tier 1 foundations. **PA7C-m2-001**: `Mnemonic::estimated_size(&[Operand]) -> u32` for offset tracking in unsafe-block emission; extended `register_name_to_regid` with 8/16/32-bit sub-registers (al/cl/dl/bl, ax/cx/dx/bx/si/di/bp/sp, eax/ecx/.../r15d); IrKind::RawInstruction + IrKind::Unsafe arms in emit_walker for unsafe-lambda elaboration + instruction-payload lookup; T0526 diagnostic for missing instruction-side-table entries; 7 integration fixtures (outb, hlt, cli, mov_reg_reg, mov_reg_imm, swapgs, sti_hlt) with iced-x86 round-trip tests. Encoder width-agnostic MOV dispatch noted; follow-up PA7C-m2-001a filed for width-aware sub-register encoding (use wide-register forms in fixtures for now). Workspace test total: 2660+ (added 41 new tests across IR + elaborator).
+
+---
+
 # paideia-as Phase 6 status (decision gate G7-stamped, G8-ready)
 
-**Phase 6 substrate complete as of m7-004 (this PR).** All seven Phase 6 milestones (m1–m7) closed; 37 issues across PRs #737–#776. Phase 6 served two goals: (1) activate build-emit surface beyond Phase 5's narrow scope to reach full-program codegen (records, generics, traits, borrowed-refs, stdlib types); (2) begin self-hosting Tier 1 crate ports to `.pdx` and document Phase 7 entry gate (G8). Cross-repo escalation from paideia-os Phase 2 continued unbroken; no blockers reached m7 closure. See `design/toolchain/phase-transition-6.md` for the retrospective.
+**Phase 6 substrate complete as of m7-004 (prior).** All seven Phase 6 milestones (m1–m7) closed; 37 issues across PRs #737–#776. Phase 6 served two goals: (1) activate build-emit surface beyond Phase 5's narrow scope to reach full-program codegen (records, generics, traits, borrowed-refs, stdlib types); (2) begin self-hosting Tier 1 crate ports to `.pdx` and document Phase 7 entry gate (G8). Cross-repo escalation from paideia-os Phase 2 continued unbroken; no blockers reached m7 closure. See `design/toolchain/phase-transition-6.md` for the retrospective.
 
 ## Phase 6 milestone closure (m1–m7)
 

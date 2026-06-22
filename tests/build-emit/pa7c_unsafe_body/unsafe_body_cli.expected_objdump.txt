@@ -1,0 +1,4 @@
+Disassembly of section .text:
+
+0000000000000000 <cli_test>:
+   0:	fa                   	cli

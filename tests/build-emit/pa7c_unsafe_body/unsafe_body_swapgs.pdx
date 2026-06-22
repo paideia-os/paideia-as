@@ -1,0 +1,10 @@
+module UnsafeBodySwapgs = structure {
+  let swapgs_test : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "swap GS base register test",
+    block: {
+      swapgs
+    }
+  }
+}
