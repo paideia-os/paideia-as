@@ -125,6 +125,17 @@ pub enum ExprData {
         op: NodeId,
         /// Operand expression.
         expr: NodeId,
+        /// Operator identity.
+        ///
+        /// The `op` field points to a `NodeKind::Placeholder` node that only
+        /// carries the operator's source span; it does not record *which*
+        /// operator was written. `kind` preserves that identity so later
+        /// passes (lowering, emission) can distinguish e.g. prefix `~`
+        /// (bitwise NOT) from `!` / `-` without re-reading source text.
+        ///
+        /// Phase 7 m4-001 added this field to lower prefix `~` to
+        /// `IrKind::BitNot`.
+        kind: PrefixOp,
     },
 
     /// `expr op`.
@@ -459,6 +470,24 @@ pub struct SharingConstraint {
     pub right_path: Vec<String>,
     /// Source span of the constraint.
     pub span: Span,
+}
+
+/// Identity of a prefix unary operator.
+///
+/// Recorded on [`ExprData::Prefix`] so later passes can tell operators apart
+/// without source text. `&`/`&mut`/`*` are *not* represented here because the
+/// parser lowers them to dedicated nodes ([`ExprData::Borrow`] /
+/// [`ExprData::Deref`]) rather than the generic `ExprPrefix` path.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum PrefixOp {
+    /// Logical NOT `!`.
+    Not,
+    /// Arithmetic negation `-`.
+    Neg,
+    /// Bitwise NOT `~` (AffineMark in expression position, outside `quote`).
+    BitNot,
+    /// Any other prefix operator handled by the generic path (e.g. `$`).
+    Other,
 }
 
 /// Kind of loop construct.

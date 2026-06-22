@@ -238,6 +238,22 @@ pub fn encode_instruction(
         Mnemonic::RepStosq => encode_rep_stosq_inst(inst, buf),
         Mnemonic::FarJmp => encode_far_jmp_inst(inst, buf),
         Mnemonic::Movzx => encode_movzx(inst, buf),
+        Mnemonic::Not => encode_not(inst, buf),
+    }
+}
+
+/// Encode `not r64` (bitwise NOT / one's complement) — Phase 7 m4-001.
+///
+/// Expects exactly one register operand. Emits `REX.W F7 /2` via `not_reg64`.
+fn encode_not(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::Reg(dst)] => {
+            not_reg64(buf, reg64_from(*dst)?);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Not,
+        }),
     }
 }
 
@@ -1288,6 +1304,42 @@ mod tests {
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
         assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    #[test]
+    fn encode_not_rax_emits_48_f7_d0() {
+        // Mnemonic::Not with [Reg(rax)] dispatches to not_reg64 → 48 F7 D0
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Not,
+            operands: smallvec::smallvec![Operand::Reg(RegId(0))],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x48, 0xF7, 0xD0]);
+    }
+
+    #[test]
+    fn encode_not_rax_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Not,
+            operands: smallvec::smallvec![Operand::Reg(RegId(0))],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Not);
     }
 
     #[test]

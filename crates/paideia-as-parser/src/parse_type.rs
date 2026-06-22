@@ -1448,6 +1448,35 @@ mod tests {
     }
 
     #[test]
+    fn in_type_position_is_affine_marker() {
+        // `~ T` in TYPE position must parse as an affine marker (TypeLinearClass
+        // with LinClass::AffineMark), NOT as prefix bitwise NOT. Type parsing
+        // uses parse_type, which never consults the expression prefix table, so
+        // the m4-001 expression-position change does not affect this path.
+        let tokens = vec![
+            tok(TokenKind::AffineMark, 0), // ~
+            tok(TokenKind::Ident, 1),      // T
+            tok(TokenKind::Eof, 2),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(
+            ty_node.kind,
+            NodeKind::TypeLinearClass,
+            "~ in type position is an affine marker, not a prefix operator"
+        );
+        if let Some(TypeData::LinearClass { class, .. }) = arena.type_data(ty_id) {
+            assert_eq!(*class, LinClass::AffineMark);
+        } else {
+            panic!("expected TypeLinearClass with AffineMark");
+        }
+    }
+
+    #[test]
     fn parse_forall_quantified() {
         // `forall e. (T) -> T !{Io | e}` (bound var discarded in phase-1)
         // KwForall Ident Dot LParen Ident RParen Arrow Ident EffectOpen Ident Pipe Ident RBrace Eof

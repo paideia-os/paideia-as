@@ -200,6 +200,16 @@ pub enum IrKind {
     /// EmitPassState.labels (HashMap<name, byte_offset>). Duplicate labels → U1609;
     /// unknown references → U1610.
     Label,
+    /// Bitwise NOT (one's complement). Children = [operand].
+    /// Phase 7 m4-001: lowered from prefix `~` in expression position
+    /// (when `in_quote_depth == 0`). The emit pass evaluates the operand
+    /// into a register and emits `not r64` (REX.W F7 /2).
+    BitNot,
+    /// Arithmetic negation (two's complement). Children = [operand].
+    /// Phase 7 m4-001: reserved companion of `BitNot` for prefix `-`.
+    /// The emit pass evaluates the operand into a register and emits
+    /// `neg r64` (REX.W F7 /3).
+    Neg,
 }
 
 /// Per-node IR storage.

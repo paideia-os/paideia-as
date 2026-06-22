@@ -5,7 +5,7 @@
 //! uniformly: bump, allocate op node (Placeholder), recurse via parse_expr_bp,
 //! wrap in ExprPrefix.
 
-use paideia_as_ast::{ExprData, NodeId, NodeKind};
+use paideia_as_ast::{ExprData, NodeId, NodeKind, PrefixOp};
 use paideia_as_diagnostics::Span;
 
 use crate::parser::{ParseError, Parser};
@@ -26,6 +26,15 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     ///
     /// Returns appropriately typed prefix expression node.
     pub(crate) fn parse_prefix(&mut self) -> Result<NodeId, ParseError> {
+        // Context-sensitive `~` (AffineMark): in expression position with
+        // in_quote_depth == 0 it is prefix bitwise NOT (handled below via the
+        // generic ExprPrefix path). Inside a `quote { ... }` block it is an
+        // antiquote — delegate to parse_antiquote_expr, which consumes the `~`
+        // itself, so we must branch BEFORE bumping the operator token here.
+        if self.at(paideia_as_lexer::TokenKind::AffineMark) && self.in_quote_depth > 0 {
+            return self.parse_antiquote_expr();
+        }
+
         let op_tok = self
             .bump()
             .expect("parse_prefix called only when prefix_bp succeeded, so peek is Some");
@@ -97,7 +106,18 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 ))
             }
             _ => {
-                // For other prefix operators (!,  -, $): use generic ExprPrefix
+                // For other prefix operators (!,  -, ~, $): use generic ExprPrefix.
+
+                // Record the operator's identity in the ExprPrefix payload so
+                // later passes (lowering/emission) can distinguish e.g. prefix
+                // `~` (bitwise NOT) from `!`/`-` without source text. The `op`
+                // node itself remains a Placeholder carrying only the span.
+                let op_kind = match op_tok.kind {
+                    paideia_as_lexer::TokenKind::Bang => PrefixOp::Not,
+                    paideia_as_lexer::TokenKind::Minus => PrefixOp::Neg,
+                    paideia_as_lexer::TokenKind::AffineMark => PrefixOp::BitNot,
+                    _ => PrefixOp::Other,
+                };
 
                 // Allocate operator node as Placeholder
                 let op_node = self.arena_mut().alloc(NodeKind::Placeholder, op_span);
@@ -125,6 +145,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                     ExprData::Prefix {
                         op: op_node,
                         expr: operand,
+                        kind: op_kind,
                     },
                 ))
             }
@@ -195,6 +216,38 @@ mod tests {
         let root = result.unwrap();
         let node = arena.get(root).unwrap();
         assert_eq!(node.kind, NodeKind::ExprPrefix);
+    }
+
+    #[test]
+    fn prefix_bitwise_not() {
+        // ~a in expression position (in_quote_depth == 0) is prefix bitwise NOT.
+        let tokens = vec![
+            tok(TokenKind::AffineMark, 0), // ~
+            tok(TokenKind::Ident, 1),      // a
+            tok(TokenKind::Eof, 2),
+        ];
+        let (arena, result, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected for ~a");
+        assert!(result.is_ok());
+        let root = result.unwrap();
+        let node = arena.get(root).unwrap();
+        assert_eq!(
+            node.kind,
+            NodeKind::ExprPrefix,
+            "~ in expression position is a prefix operator"
+        );
+        // The operator identity must be recorded as BitNot.
+        match arena.expr_data(root) {
+            Some(ExprData::Prefix { kind, .. }) => {
+                assert_eq!(
+                    *kind,
+                    PrefixOp::BitNot,
+                    "~ must lower to PrefixOp::BitNot, not Not/Neg"
+                );
+            }
+            other => panic!("expected ExprData::Prefix, got {other:?}"),
+        }
     }
 
     #[test]

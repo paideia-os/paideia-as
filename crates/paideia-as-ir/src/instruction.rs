@@ -96,6 +96,9 @@ pub enum Mnemonic {
     /// Move with zero-extend: zero-extend smaller operand to larger width.
     /// Phase 6 m3-002: used for u8 field access; emits movzx rax, byte [rdi + offset].
     Movzx,
+    /// Bitwise NOT (one's complement) of a 64-bit register.
+    /// Phase 7 m4-001: emits `not r64` (REX.W F7 /2). One operand.
+    Not,
 }
 
 /// Condition code for Jcc instructions.
@@ -274,6 +277,7 @@ impl Mnemonic {
             | Mnemonic::In { .. }
             | Mnemonic::Out { .. }
             | Mnemonic::Int
+            | Mnemonic::Not
             | Mnemonic::FarJmp => 1,
 
             // Two-operand instructions
@@ -373,6 +377,9 @@ impl Mnemonic {
 
             // Far jump: 7 bytes (1-byte opcode + 6-byte far address)
             Mnemonic::FarJmp => 7,
+
+            // Bitwise NOT: 4 bytes upper bound (REX.W F7 /2 ModR/M)
+            Mnemonic::Not => 4,
         }
     }
 }

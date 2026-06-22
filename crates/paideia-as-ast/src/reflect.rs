@@ -254,7 +254,7 @@ impl<'a> Term<'a> {
                     result.push(Term::new(self.arena, *op));
                     result.push(Term::new(self.arena, *rhs));
                 }
-                ExprData::Prefix { op, expr } => {
+                ExprData::Prefix { op, expr, .. } => {
                     result.push(Term::new(self.arena, *op));
                     result.push(Term::new(self.arena, *expr));
                 }

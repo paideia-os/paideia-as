@@ -300,6 +300,24 @@ pub fn xor_reg64_reg64(buf: &mut CodeBuffer, dst: Reg64, src: Reg64) {
     buf.bytes.push(0xC0 | ((src_id & 7) << 3) | (dst_id & 7));
 }
 
+/// Encode `not reg64` (bitwise NOT / one's complement).
+///
+/// Instruction: REX.W F7 /2
+/// ModR/M: 0xC0 | (2 << 3) | (reg & 7) = 0xD0 | (reg & 7)
+/// (the reg field of ModR/M is the /2 opcode extension for NOT)
+/// REX.W=1 for 64-bit; REX.B=reg>>3 for extended registers (R8..R15).
+/// Bytes: `48+REX.B F7 (0xD0 | (reg & 7))`
+///
+/// Example: `not rax` → `48 f7 d0`
+/// Example: `not r8`  → `49 f7 d0`
+pub fn not_reg64(buf: &mut CodeBuffer, dst: Reg64) {
+    let reg_id = dst as u8;
+    let rex_byte = rex(true, false, false, (reg_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0xF7);
+    buf.bytes.push(0xD0 | (reg_id & 7));
+}
+
 /// Encode `cmp reg64, reg64`.
 ///
 /// Instruction: REX.W 39 /r
@@ -1283,6 +1301,34 @@ mod tests {
         let mut buf = CodeBuffer::new();
         xor_reg64_reg64(&mut buf, Reg64::Rax, Reg64::Rax);
         assert_eq!(buf.as_slice(), &[0x48, 0x31, 0xc0]);
+    }
+
+    #[test]
+    fn not_rax_emits_48_f7_d0() {
+        // not rax → REX.W F7 /2 → 48 F7 D0
+        let mut buf = CodeBuffer::new();
+        not_reg64(&mut buf, Reg64::Rax);
+        assert_eq!(buf.as_slice(), &[0x48, 0xF7, 0xD0]);
+    }
+
+    #[test]
+    fn not_r8_emits_49_f7_d0() {
+        // not r8 → REX.W+REX.B F7 /2 → 49 F7 D0 (REX.B extends r/m to r8)
+        let mut buf = CodeBuffer::new();
+        not_reg64(&mut buf, Reg64::R8);
+        assert_eq!(buf.as_slice(), &[0x49, 0xF7, 0xD0]);
+    }
+
+    #[test]
+    fn not_rax_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        not_reg64(&mut buf, Reg64::Rax);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Not);
     }
 
     #[test]

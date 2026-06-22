@@ -433,8 +433,8 @@ fn print_expr_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
         ExprData::Infix { lhs, op, rhs } => {
             format!("Infix {{ lhs: {}, op: {}, rhs: {} }}", lhs, op, rhs)
         }
-        ExprData::Prefix { op, expr: e } => {
-            format!("Prefix {{ op: {}, expr: {} }}", op, e)
+        ExprData::Prefix { op, expr: e, kind } => {
+            format!("Prefix {{ op: {}, expr: {}, kind: {:?} }}", op, e, kind)
         }
         ExprData::Postfix { expr: e, op } => {
             format!("Postfix {{ expr: {}, op: {} }}", e, op)

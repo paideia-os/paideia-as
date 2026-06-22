@@ -111,7 +111,20 @@ pub fn lower_ast_to_ir(ast: &AstArena) -> LoweringResult {
         // NodeId and IrNodeId both index from 1.
         let ast_id = NodeId::new((i + 1) as u32).expect("non-zero node id");
         let node = &ast[ast_id];
-        let ir_kind = map_node_kind(node.kind);
+        let mut ir_kind = map_node_kind(node.kind);
+        // Phase 7 m4-001: prefix `~` lowers to a dedicated `IrKind::BitNot`
+        // rather than the generic `App`. `map_node_kind` only sees the AST
+        // node kind, so refine the bucket here where the `PrefixOp` payload is
+        // available. `!`/`-`/other keep the generic `App` mapping.
+        if node.kind == paideia_as_ast::NodeKind::ExprPrefix {
+            if let Some(paideia_as_ast::ExprData::Prefix {
+                kind: paideia_as_ast::PrefixOp::BitNot,
+                ..
+            }) = ast.expr_data(ast_id)
+            {
+                ir_kind = IrKind::BitNot;
+            }
+        }
         let ir_id = ir.alloc(ir_kind, node.span);
         ast_to_ir.insert(ast_id, ir_id);
     }
@@ -151,10 +164,15 @@ pub fn lower_ast_to_ir(ast: &AstArena) -> LoweringResult {
                     // App structure: [callee (the +), arg0 (lhs), arg1 (rhs)]
                     vec![*op, *lhs, *rhs]
                 }
-                ExprData::Prefix { op, expr } => {
-                    // Prefix: op (unary operator), expr (argument)
-                    // App structure: [callee (the op), arg0 (expr)]
-                    vec![*op, *expr]
+                ExprData::Prefix { op, expr, kind } => {
+                    // Prefix `~` (BitNot) lowers to `IrKind::BitNot`, whose
+                    // sole child is the operand (no operator node). All other
+                    // prefix operators desugar to `App` with structure
+                    // [callee (the op), arg0 (expr)].
+                    match kind {
+                        paideia_as_ast::PrefixOp::BitNot => vec![*expr],
+                        _ => vec![*op, *expr],
+                    }
                 }
                 ExprData::Postfix { expr, op } => {
                     // Postfix: expr (argument), op (postfix operator)

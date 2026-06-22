@@ -122,8 +122,14 @@ pub fn infix_bp(kind: TokenKind) -> Option<InfixBp> {
 pub fn prefix_bp(kind: TokenKind) -> Option<u8> {
     use TokenKind::*;
     match kind {
-        // Tier 2: Prefix operators (!, -, &, *, $ as linear consume marker)
-        Bang | Minus | Amp | Star | LinearMark => Some(130),
+        // Tier 2: Prefix operators (!, -, &, *, $ as linear consume marker, ~ as bitwise NOT)
+        //
+        // `~` (AffineMark) is context-sensitive: in expression position with
+        // in_quote_depth == 0 it is prefix bitwise NOT; inside a `quote { ... }`
+        // block it is an antiquote; in type position it is an affine marker.
+        // parse_prefix disambiguates via in_quote_depth; the type-position case
+        // is handled entirely by parse_type and never reaches this table.
+        Bang | Minus | Amp | Star | LinearMark | AffineMark => Some(130),
         _ => None,
     }
 }

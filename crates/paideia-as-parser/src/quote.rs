@@ -296,6 +296,45 @@ mod tests {
     }
 
     #[test]
+    fn inside_quote_is_antiquote() {
+        // quote { ~(b) }
+        // Even though `~` now routes through parse_prefix (it is a prefix
+        // operator in prefix_bp), inside a quote (in_quote_depth > 0) it must
+        // be recognized as an antiquote, NOT as prefix bitwise NOT. The quote
+        // body must therefore be an ExprAntiquote node.
+        let tokens = vec![
+            tok(TokenKind::Ident, 0, 5),       // "quote"
+            tok(TokenKind::LBrace, 6, 1),      // "{"
+            tok(TokenKind::AffineMark, 8, 1),  // "~"
+            tok(TokenKind::LParen, 9, 1),      // "("
+            tok(TokenKind::Ident, 10, 1),      // "b"
+            tok(TokenKind::RParen, 11, 1),     // ")"
+            tok(TokenKind::RBrace, 13, 1),     // "}"
+            tok(TokenKind::Eof, 14, 0),
+        ];
+        let source = "quote { ~(b) }";
+        let (arena, result, diags) = parse_quote_tokens(tokens, source);
+
+        assert!(result.is_ok(), "quote with antiquote should parse");
+        assert_eq!(diags.len(), 0, "no diagnostics expected");
+        let quote_id = result.unwrap();
+        let quote_node = arena.get(quote_id).unwrap();
+        assert_eq!(quote_node.kind, NodeKind::ExprQuote);
+
+        // The quote body must be an antiquote, not a prefix bitwise-NOT.
+        if let Some(ExprData::Quote { body }) = arena.expr_data(quote_id) {
+            let body_node = arena.get(*body).unwrap();
+            assert_eq!(
+                body_node.kind,
+                NodeKind::ExprAntiquote,
+                "~(b) inside a quote must be an antiquote, not ExprPrefix"
+            );
+        } else {
+            panic!("expected Quote variant");
+        }
+    }
+
+    #[test]
     fn nested_quote_outer_span_encloses_inner() {
         // quote { quote { 1 } }
         // Outer span should encompass the entire expression.

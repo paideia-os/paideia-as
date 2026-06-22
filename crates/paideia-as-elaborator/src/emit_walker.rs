@@ -567,6 +567,21 @@ impl EmitWalker {
                         eprintln!("[emit_identity_lambda] Lambda {}", lambda_node_id.get());
                         self.emit_identity_lambda(lambda_node_id);
                     }
+                    // Phase 7 m4-001: bitwise-NOT `fn (x) -> ~x`.
+                    // BitNot has a single child (the operand). For the simple
+                    // single-parameter form the operand is the parameter Var,
+                    // which lives in RDI; emit `mov rax, rdi; not rax; ret`.
+                    IrKind::BitNot => {
+                        // Record the lambda's starting offset BEFORE emitting.
+                        self.state
+                            .function_offsets
+                            .insert(lambda_node_id.get(), self.state.estimated_offset);
+                        // Mark this lambda as emitted.
+                        self.state.emitted_lambdas.insert(lambda_node_id.get());
+
+                        eprintln!("[emit_bitnot_lambda] Lambda {}", lambda_node_id.get());
+                        self.emit_bitnot_lambda(lambda_node_id);
+                    }
                     // Case 2 & 3: Application `fn (x) -> x + ...` or `fn (x) -> ... + x`
                     // Phase 7 m1-001: Also handles inter-function calls `fn () -> foo()` or `fn (x) -> foo(x)`
                     IrKind::App => {
@@ -817,6 +832,60 @@ impl EmitWalker {
         // Ret: c3 (1 byte)
         // Emit ret as a separate instruction with node_id * 2 + 1 to sort right after
         let ret_id = IrNodeId::new(lambda_node_id.get() * 2 + 1).expect("ret virtual id");
+        let ret_inst = Instruction {
+            mnemonic: Mnemonic::Ret,
+            operands: SmallVec::new(),
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+        self.state.instructions.insert(ret_id, ret_inst);
+        self.state.estimated_offset += 1;
+    }
+
+    /// Emit bitwise-NOT lambda: `mov rax, rdi; not rax; ret` (7 bytes:
+    /// `48 89 f8` / `48 f7 d0` / `c3`).
+    ///
+    /// Phase 7 m4-001: lowers `fn (x) -> ~x`. The operand (parameter `x`)
+    /// arrives in RDI; we move it into RAX, complement it in place, and return.
+    ///
+    /// Unlike the 2-instruction emitters (which key on `node*2` / `node*2+1`),
+    /// this emits THREE instructions, so it keys on `node*3 + {0,1,2}` to keep
+    /// them adjacent and correctly ordered in the instruction map — matching
+    /// the convention used by the Branch emitter.
+    fn emit_bitnot_lambda(&mut self, lambda_node_id: IrNodeId) {
+        // mov rax, rdi: 48 89 f8 (3 bytes)
+        let mut mov_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        mov_operands.push(Operand::Reg(RegId(0))); // rax
+        mov_operands.push(Operand::Reg(RegId(7))); // rdi (arg0)
+
+        let mov_inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: mov_operands,
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let mov_id = IrNodeId::new(lambda_node_id.get() * 3).expect("mov instr virtual id");
+        self.state.instructions.insert(mov_id, mov_inst);
+        self.state.estimated_offset += 3;
+
+        // not rax: 48 f7 d0 (3 bytes) — REX.W F7 /2.
+        let mut not_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        not_operands.push(Operand::Reg(RegId(0))); // rax
+
+        let not_inst = Instruction {
+            mnemonic: Mnemonic::Not,
+            operands: not_operands,
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let not_id = IrNodeId::new(lambda_node_id.get() * 3 + 1).expect("not instr virtual id");
+        self.state.instructions.insert(not_id, not_inst);
+        self.state.estimated_offset += 3;
+
+        // ret: c3 (1 byte)
+        let ret_id = IrNodeId::new(lambda_node_id.get() * 3 + 2).expect("ret virtual id");
         let ret_inst = Instruction {
             mnemonic: Mnemonic::Ret,
             operands: SmallVec::new(),
@@ -2468,6 +2537,67 @@ mod tests {
         assert_eq!(walker.state().estimated_offset, 4);
 
         // Verify lambda offset recorded.
+        assert!(
+            walker
+                .state()
+                .function_offsets
+                .contains_key(&lambda_id.get())
+        );
+    }
+
+    #[test]
+    fn emit_walker_lambda_bitnot_emits_mov_rax_rdi_not_rax_ret() {
+        // Phase 7 m4-001: `fn (x) -> ~x` lowers to a Lambda whose body is a
+        // BitNot over the parameter. Expect `mov rax, rdi; not rax; ret`.
+        let mut arena = IrArena::new();
+
+        // Body: BitNot with the parameter Var as its single child.
+        let var_id = arena.alloc(IrKind::Var, span());
+        let bitnot_id = arena.alloc_with_children(IrKind::BitNot, span(), [var_id]);
+        let lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [bitnot_id]);
+
+        // Walk the arena.
+        let mut walker = EmitWalker::new();
+        walker.walk(&mut arena);
+
+        // The 3-instruction bitnot emitter keys on lambda*3 + {0,1,2}.
+        let mov_id = IrNodeId::new(lambda_id.get() * 3).expect("mov instr id");
+        let not_id = IrNodeId::new(lambda_id.get() * 3 + 1).expect("not instr id");
+        let ret_id = IrNodeId::new(lambda_id.get() * 3 + 2).expect("ret instr id");
+
+        // mov rax, rdi
+        let mov_inst = walker
+            .state()
+            .instructions
+            .get(mov_id)
+            .expect("mov instruction should be emitted");
+        assert_eq!(mov_inst.mnemonic, Mnemonic::Mov);
+        assert_eq!(mov_inst.operands.len(), 2);
+        assert_eq!(mov_inst.operands[0], Operand::Reg(RegId(0))); // rax
+        assert_eq!(mov_inst.operands[1], Operand::Reg(RegId(7))); // rdi
+
+        // not rax
+        let not_inst = walker
+            .state()
+            .instructions
+            .get(not_id)
+            .expect("not instruction should be emitted");
+        assert_eq!(not_inst.mnemonic, Mnemonic::Not);
+        assert_eq!(not_inst.operands.len(), 1);
+        assert_eq!(not_inst.operands[0], Operand::Reg(RegId(0))); // rax
+
+        // ret
+        let ret_inst = walker
+            .state()
+            .instructions
+            .get(ret_id)
+            .expect("ret instruction should be emitted");
+        assert_eq!(ret_inst.mnemonic, Mnemonic::Ret);
+
+        // Offset: 3 (mov) + 3 (not) + 1 (ret) = 7 bytes.
+        assert_eq!(walker.state().estimated_offset, 7);
+
+        // Lambda offset recorded.
         assert!(
             walker
                 .state()

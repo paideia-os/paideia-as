@@ -57,6 +57,8 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         Mnemonic::Mov | Mnemonic::Movzx => InstructionClass::AluReg,
         Mnemonic::Lea => InstructionClass::AluReg,
         Mnemonic::Add | Mnemonic::Sub | Mnemonic::Cmp | Mnemonic::Test => InstructionClass::AluReg,
+        // Phase 7 m4-001: bitwise NOT is a register ALU op.
+        Mnemonic::Not => InstructionClass::AluReg,
         Mnemonic::Jcc(_) | Mnemonic::Jmp | Mnemonic::Call | Mnemonic::Ret => {
             InstructionClass::Branch
         }
