@@ -140,8 +140,6 @@ pub enum TokenKind {
     KwUnrestricted,
 
     // ── Reserved words: effect system ───────────────────────────────────
-    /// `handle`
-    KwHandle,
     /// `perform`
     KwPerform,
     /// `resume`
@@ -412,7 +410,6 @@ pub fn keyword_kind(text: &str) -> Option<TokenKind> {
         "affine" => TokenKind::KwAffine,
         "unrestricted" => TokenKind::KwUnrestricted,
         // Effect system
-        "handle" => TokenKind::KwHandle,
         "perform" => TokenKind::KwPerform,
         "resume" => TokenKind::KwResume,
         "finally" => TokenKind::KwFinally,
@@ -455,7 +452,7 @@ pub fn keyword_kind(text: &str) -> Option<TokenKind> {
     })
 }
 
-/// All 69 reserved-word spellings from §3.4, in declaration order.
+/// All 70 reserved-word spellings from §3.4, in declaration order.
 ///
 /// Used by tests and tools (e.g., a `paideia-as` `--list-keywords` flag
 /// in a later PR). Updates here must stay in sync with `keyword_kind`
@@ -503,8 +500,7 @@ pub const RESERVED_WORDS: &[&str] = &[
     "linear",
     "affine",
     "unrestricted",
-    // Effect system (4)
-    "handle",
+    // Effect system (3)
     "perform",
     "resume",
     "finally",
@@ -569,9 +565,9 @@ mod tests {
 
     #[test]
     fn reserved_words_list_length() {
-        // 12 + 13 + 1 + 12 + 4 + 7 + 5 + 4 + 3 + 11 = 72
-        // (action moved to effect system section after control flow, record and impl added to type system, mut added to substructural)
-        assert_eq!(RESERVED_WORDS.len(), 72);
+        // 12 + 13 + 1 + 12 + 3 + 7 + 5 + 4 + 3 + 11 = 71
+        // (handle removed from reserved words, now a contextual keyword)
+        assert_eq!(RESERVED_WORDS.len(), 71);
     }
 
     #[test]

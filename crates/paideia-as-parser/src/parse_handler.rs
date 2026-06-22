@@ -14,7 +14,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// **Algorithm:**
     /// 1. Expect `KwWith`.
     /// 2. Parse handler expression via `parse_expr()`.
-    /// 3. Expect `KwHandle`.
+    /// 3. Expect contextual keyword `handle`.
     /// 4. Expect `Ident` (the bound name).
     /// 5. Parse block body and optional finally clause via `parse_handler_body()`.
     /// 6. Allocate `ExprData::WithHandler { handler, bind, block, finally }`.
@@ -27,8 +27,8 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         // Parse the handler expression
         let handler = self.parse_expr()?;
 
-        // Expect `handle`
-        self.expect(TokenKind::KwHandle)?;
+        // Expect contextual keyword `handle`
+        self.expect_contextual("handle")?;
 
         // Expect binding identifier
         let bind_tok = self.expect(TokenKind::Ident)?;
@@ -204,7 +204,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// Parse a handler-value expression: `handle Effect { arms }`.
     ///
     /// **Algorithm:**
-    /// 1. Expect `KwHandle`.
+    /// 1. Expect contextual keyword `handle`.
     /// 2. Parse effect name (path or ident) via `parse_path_or_ident()`.
     /// 3. Expect `{`.
     /// 4. Parse handler arms until `}`:
@@ -216,7 +216,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     ///
     /// Returns the `NodeId` of the allocated expression on success.
     pub(crate) fn parse_handler_value(&mut self) -> Result<NodeId, ParseError> {
-        let handle_tok = self.expect(TokenKind::KwHandle)?;
+        let handle_tok = self.expect_contextual("handle")?;
         let span_start = handle_tok.span;
 
         // Parse effect name
@@ -383,10 +383,11 @@ mod tests {
     fn parses_with_handler_finally() {
         // with h handle Io { x; finally => cleanup() }
         // Simplified as: with h handle e { i; finally => i }
+        const SRC: &str = "with h handle e { i; finally => i }";
         let tokens = vec![
             tok(paideia_as_lexer::TokenKind::KwWith, 0, 4),
             tok(paideia_as_lexer::TokenKind::Ident, 5, 1), // h
-            tok(paideia_as_lexer::TokenKind::KwHandle, 7, 6),
+            tok(paideia_as_lexer::TokenKind::Ident, 7, 6),  // handle (contextual)
             tok(paideia_as_lexer::TokenKind::Ident, 14, 1), // e
             tok(paideia_as_lexer::TokenKind::LBrace, 16, 1),
             tok(paideia_as_lexer::TokenKind::Ident, 17, 1), // i
@@ -399,7 +400,7 @@ mod tests {
         ];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
-        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+        let mut parser = Parser::new(&tokens, SRC, FileId::new(1).unwrap(), &mut arena, &mut sink);
 
         let result = parser.parse_with_handler();
         assert!(result.is_ok());
@@ -419,10 +420,11 @@ mod tests {
     #[test]
     fn finally_must_be_last_emits_p0162() {
         // with h handle e { finally => i; x }  <- something after finally
+        const SRC: &str = "with h handle e { finally => i; x }";
         let tokens = vec![
             tok(paideia_as_lexer::TokenKind::KwWith, 0, 4),
             tok(paideia_as_lexer::TokenKind::Ident, 5, 1),
-            tok(paideia_as_lexer::TokenKind::KwHandle, 7, 6),
+            tok(paideia_as_lexer::TokenKind::Ident, 7, 6),  // handle (contextual)
             tok(paideia_as_lexer::TokenKind::Ident, 14, 1),
             tok(paideia_as_lexer::TokenKind::LBrace, 16, 1),
             tok(paideia_as_lexer::TokenKind::KwFinally, 17, 7),
@@ -434,7 +436,7 @@ mod tests {
         ];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
-        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+        let mut parser = Parser::new(&tokens, SRC, FileId::new(1).unwrap(), &mut arena, &mut sink);
 
         let result = parser.parse_with_handler();
         assert!(result.is_err());
@@ -447,10 +449,11 @@ mod tests {
     #[test]
     fn with_handler_without_finally_unchanged() {
         // with h handle e { i }  <- no finally
+        const SRC: &str = "with h handle e { i }";
         let tokens = vec![
             tok(paideia_as_lexer::TokenKind::KwWith, 0, 4),
             tok(paideia_as_lexer::TokenKind::Ident, 5, 1),
-            tok(paideia_as_lexer::TokenKind::KwHandle, 7, 6),
+            tok(paideia_as_lexer::TokenKind::Ident, 7, 6),  // handle (contextual)
             tok(paideia_as_lexer::TokenKind::Ident, 14, 1),
             tok(paideia_as_lexer::TokenKind::LBrace, 16, 1),
             tok(paideia_as_lexer::TokenKind::Ident, 17, 1),
@@ -459,7 +462,7 @@ mod tests {
         ];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
-        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+        let mut parser = Parser::new(&tokens, SRC, FileId::new(1).unwrap(), &mut arena, &mut sink);
 
         let result = parser.parse_with_handler();
         assert!(result.is_ok());
@@ -476,10 +479,11 @@ mod tests {
     #[test]
     fn nested_perform_in_with() {
         // with h handle e { let s = perform Io::port_read(0x64); s }
+        const SRC: &str = "with h handle e { let s = perform Io::port_read(0x64); s }";
         let tokens = vec![
             tok(paideia_as_lexer::TokenKind::KwWith, 0, 4),
             tok(paideia_as_lexer::TokenKind::Ident, 5, 1),
-            tok(paideia_as_lexer::TokenKind::KwHandle, 7, 6),
+            tok(paideia_as_lexer::TokenKind::Ident, 7, 6),  // handle (contextual)
             tok(paideia_as_lexer::TokenKind::Ident, 14, 1),
             tok(paideia_as_lexer::TokenKind::LBrace, 16, 1),
             tok(paideia_as_lexer::TokenKind::KwLet, 17, 3),
@@ -499,7 +503,7 @@ mod tests {
         ];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
-        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+        let mut parser = Parser::new(&tokens, SRC, FileId::new(1).unwrap(), &mut arena, &mut sink);
 
         let result = parser.parse_with_handler();
         assert!(result.is_ok(), "nested perform should parse");
@@ -515,8 +519,9 @@ mod tests {
     #[test]
     fn parses_handler_value_one_op() {
         // handle Io { op read => 0 }
+        const SRC: &str = "handle Io { op read => 0 }";
         let tokens = vec![
-            tok(paideia_as_lexer::TokenKind::KwHandle, 0, 6),
+            tok(paideia_as_lexer::TokenKind::Ident, 0, 6),  // handle (contextual)
             tok(paideia_as_lexer::TokenKind::Ident, 7, 2), // Io
             tok(paideia_as_lexer::TokenKind::LBrace, 10, 1),
             tok(paideia_as_lexer::TokenKind::Ident, 12, 2), // op
@@ -528,7 +533,7 @@ mod tests {
         ];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
-        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+        let mut parser = Parser::new(&tokens, SRC, FileId::new(1).unwrap(), &mut arena, &mut sink);
 
         let result = parser.parse_handler_value();
         assert!(result.is_ok());
@@ -547,8 +552,9 @@ mod tests {
     #[test]
     fn parses_handler_value_two_ops() {
         // handle Io { op read => 0 ; op write => 1 }
+        const SRC: &str = "handle Io { op read => 0 ; op write => 1 }";
         let tokens = vec![
-            tok(paideia_as_lexer::TokenKind::KwHandle, 0, 6),
+            tok(paideia_as_lexer::TokenKind::Ident, 0, 6),  // handle (contextual)
             tok(paideia_as_lexer::TokenKind::Ident, 7, 2), // Io
             tok(paideia_as_lexer::TokenKind::LBrace, 10, 1),
             tok(paideia_as_lexer::TokenKind::Ident, 12, 2), // op
@@ -565,7 +571,7 @@ mod tests {
         ];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
-        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+        let mut parser = Parser::new(&tokens, SRC, FileId::new(1).unwrap(), &mut arena, &mut sink);
 
         let result = parser.parse_handler_value();
         assert!(result.is_ok());
@@ -583,8 +589,9 @@ mod tests {
     #[test]
     fn parses_handler_value_ops_then_finally() {
         // handle Io { op read => 0 ; finally => cleanup() }
+        const SRC: &str = "handle Io { op read => 0 ; finally => cleanup() }";
         let tokens = vec![
-            tok(paideia_as_lexer::TokenKind::KwHandle, 0, 6),
+            tok(paideia_as_lexer::TokenKind::Ident, 0, 6),  // handle (contextual)
             tok(paideia_as_lexer::TokenKind::Ident, 7, 2), // Io
             tok(paideia_as_lexer::TokenKind::LBrace, 10, 1),
             tok(paideia_as_lexer::TokenKind::Ident, 12, 2), // op
@@ -602,7 +609,7 @@ mod tests {
         ];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
-        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+        let mut parser = Parser::new(&tokens, SRC, FileId::new(1).unwrap(), &mut arena, &mut sink);
 
         let result = parser.parse_handler_value();
         assert!(result.is_ok());
@@ -620,8 +627,9 @@ mod tests {
     #[test]
     fn handler_value_finally_must_be_last_emits_p0164() {
         // handle Io { finally => x ; op read => 0 }  <- op after finally
+        const SRC: &str = "handle Io { finally => x ; op read => 0 }";
         let tokens = vec![
-            tok(paideia_as_lexer::TokenKind::KwHandle, 0, 6),
+            tok(paideia_as_lexer::TokenKind::Ident, 0, 6),  // handle (contextual)
             tok(paideia_as_lexer::TokenKind::Ident, 7, 2), // Io
             tok(paideia_as_lexer::TokenKind::LBrace, 10, 1),
             tok(paideia_as_lexer::TokenKind::KwFinally, 12, 7),
@@ -636,7 +644,7 @@ mod tests {
         ];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
-        let mut parser = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+        let mut parser = Parser::new(&tokens, SRC, FileId::new(1).unwrap(), &mut arena, &mut sink);
 
         let result = parser.parse_handler_value();
         assert!(result.is_err());

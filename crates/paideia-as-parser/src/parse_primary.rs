@@ -209,7 +209,6 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                     // Effect operations
                     TokenKind::KwPerform => self.parse_perform(),
                     TokenKind::KwResume => self.parse_resume(),
-                    TokenKind::KwHandle => self.parse_handler_value(),
 
                     // Antiquotation (only if followed by `(`)
                     TokenKind::AffineMark
@@ -218,7 +217,10 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                         self.parse_antiquote_expr()
                     }
 
-                    // Identifiers and paths (including contextual keyword "quote")
+                    // Identifiers and paths (including contextual keyword "handle" and "quote")
+                    TokenKind::Ident if self.peek_ident_text() == Some("handle") => {
+                        self.parse_handler_value()
+                    }
                     TokenKind::Ident => self.parse_path_or_ident(),
 
                     TokenKind::KwSelfType | TokenKind::KwSelfValue => {

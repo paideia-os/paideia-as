@@ -447,4 +447,17 @@ mod tests {
         assert_eq!(tokens[2].kind, TokenKind::IntLit);
         assert_eq!(tokens[3].kind, TokenKind::Eof);
     }
+
+    #[test]
+    fn handle_lexes_as_ident() {
+        // Verify that "handle" is now a contextual keyword (Ident, not KwHandle).
+        let (tokens, _) = lex("handle effect { }");
+        assert_eq!(tokens.len(), 5); // handle, effect, {, }, eof
+        // handle should now be an Ident, not a reserved keyword
+        assert_eq!(tokens[0].kind, TokenKind::Ident);
+        assert_eq!(tokens[1].kind, TokenKind::Ident);
+        assert_eq!(tokens[2].kind, TokenKind::LBrace);
+        assert_eq!(tokens[3].kind, TokenKind::RBrace);
+        assert_eq!(tokens[4].kind, TokenKind::Eof);
+    }
 }

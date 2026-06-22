@@ -13,7 +13,7 @@ use crate::token::{TokenKind, keyword_kind};
 
 pub use crate::token::RESERVED_WORDS;
 
-/// Returns `true` if `text` is one of the 68 reserved words from §3.4.
+/// Returns `true` if `text` is one of the 71 reserved words from §3.4.
 ///
 /// Equivalent to `crate::token::keyword_kind(text).is_some()`, exposed as
 /// a predicate for callers that don't need the `TokenKind`.

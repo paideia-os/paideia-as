@@ -122,6 +122,27 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         self.cursor.at(kind)
     }
 
+    /// Peek at the text of the current token if it is an identifier.
+    ///
+    /// Returns `Some(&str)` if the current token is `TokenKind::Ident`,
+    /// containing the identifier's source text. Returns `None` otherwise.
+    #[must_use]
+    pub(crate) fn peek_ident_text(&self) -> Option<&str> {
+        if self.at(TokenKind::Ident) {
+            let tok = self.peek()?;
+            let source = self.source();
+            let start = tok.span.byte_start() as usize;
+            let end = (tok.span.byte_start() + tok.span.byte_len()) as usize;
+            if start <= source.len() && end <= source.len() {
+                Some(&source[start..end])
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
     /// Consume and return the current token.
     pub fn bump(&mut self) -> Option<Token> {
         self.cursor.bump()
@@ -155,6 +176,57 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 .message(format!(
                     "expected {}, found {}",
                     debug_kind(kind),
+                    debug_kind(actual)
+                ))
+                .with_span(span)
+                .finish();
+            let _ = self.sink.emit(diag);
+            Err(ParseError)
+        }
+    }
+
+    /// Expect the current token to be a contextual keyword with the given text.
+    ///
+    /// A contextual keyword is an identifier that carries semantic meaning in a
+    /// specific parsing context. This method:
+    /// 1. Expects the current token to be `TokenKind::Ident`.
+    /// 2. Extracts the token's text from the source using its span.
+    /// 3. Compares it to the expected `text`.
+    /// 4. On mismatch, emits P0100 and returns `Err(())`.
+    /// 5. On success, consumes the token and returns `Ok(token)`.
+    pub fn expect_contextual(&mut self, text: &'static str) -> Result<Token, ParseError> {
+        if self.cursor.at(TokenKind::Ident) {
+            let tok = self.peek().expect("at(Ident) implies peek() is Some").clone();
+            let source = self.source();
+            let start = tok.span.byte_start() as usize;
+            let end = (tok.span.byte_start() + tok.span.byte_len()) as usize;
+            let ident_text = if start <= source.len() && end <= source.len() {
+                &source[start..end]
+            } else {
+                ""
+            };
+
+            if ident_text == text {
+                Ok(self.cursor.bump().expect("at(Ident) implies peek() is Some"))
+            } else {
+                let span = tok.span;
+                let diag = Diagnostic::error(p_code(100))
+                    .message(format!(
+                        "expected contextual keyword '{}', found '{}'",
+                        text, ident_text
+                    ))
+                    .with_span(span)
+                    .finish();
+                let _ = self.sink.emit(diag);
+                Err(ParseError)
+            }
+        } else {
+            let actual = self.cursor.current_kind();
+            let span = self.cursor.current_span();
+            let diag = Diagnostic::error(p_code(100))
+                .message(format!(
+                    "expected contextual keyword '{}', found {}",
+                    text,
                     debug_kind(actual)
                 ))
                 .with_span(span)
@@ -251,7 +323,6 @@ fn debug_kind(kind: TokenKind) -> &'static str {
         KwLinear => "`linear`",
         KwAffine => "`affine`",
         KwUnrestricted => "`unrestricted`",
-        KwHandle => "`handle`",
         KwPerform => "`perform`",
         KwResume => "`resume`",
         KwFinally => "`finally`",
