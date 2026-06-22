@@ -1,0 +1,77 @@
+// checkpoint2_orchestration.pdx — Phase 8 m7-001
+// Comprehensive fixture exercising m2-m5 milestones (V2-V11)
+// in a single cohesive end-to-end module.
+
+structure Checkpoint2Orchestration = struct
+    // m2-001: Module-level if-as-tail
+    let tail_if : () -> u64 = fn () ->
+        if true then 100u64 else 200u64
+
+    // m2-002: Array-literal init
+    let arr_init : () -> u64 = fn () ->
+        let xs : [u64; 3] = [1u64, 2u64, 3u64]
+        xs.[0u64]
+
+    // m2-003: Record-literal init
+    let rec_init : () -> u64 = fn () ->
+        let pt : { x: u64, y: u64 } = { x: 10u64, y: 20u64 }
+        pt.x
+
+    // m3-002: Cast operator
+    let cast_op : () -> u64 = fn () ->
+        let src : u32 = 42u32
+        let dst : u64 = (cast src : u64)
+        dst
+
+    // m3-003: Sub-register MOV (narrowing cast)
+    let sub_reg_mov : () -> u32 = fn () ->
+        let wide : u64 = 0xDEADBEEFu64
+        let narrow : u32 = (cast wide : u32)
+        narrow
+
+    // m4-001: Unsafe block with raw instructions
+    let unsafe_raw : () -> u64 = fn () ->
+        let result : u64 = 0u64
+        let unsafe_val : u64 = unsafe {
+            block: {
+                mov rax, 0xCAFEBABEu64;
+                result := rax
+            }
+        }
+        unsafe_val
+
+    // m5-001: Supervisor mnemonic (cli)
+    let supervisor_cli : () -> () = fn () ->
+        unsafe {
+            block: {
+                cli;
+            }
+        }
+
+    // m5-002: Memory operand (mov [base + disp])
+    let mem_operand : () -> u64 = fn () ->
+        let base : *u64 = (cast 0x1000u64 : *u64)
+        let val : u64 = 0u64
+        let unsafe_mem : u64 = unsafe {
+            block: {
+                mov rax, [base + 8u64];
+                val := rax
+            }
+        }
+        unsafe_mem
+
+    // m2-m5 orchestration: call multiple functions in sequence
+    let orchestrate : () -> u64 = fn () ->
+        let if_res : u64 = tail_if()
+        let arr_res : u64 = arr_init()
+        let rec_res : u64 = rec_init()
+        let cast_res : u64 = cast_op()
+        let sub_res : u32 = sub_reg_mov()
+        let wide_res : u64 = (cast sub_res : u64)
+        let unsafe_res : u64 = unsafe_raw()
+        supervisor_cli();
+        let mem_res : u64 = mem_operand()
+        // Sum all results to produce a final u64 combining all milestones
+        if_res + arr_res + rec_res + cast_res + wide_res + unsafe_res + mem_res
+
+end
