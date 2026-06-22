@@ -632,12 +632,29 @@ impl EmitWalker {
     ) {
         // Register this lambda's parameter
         if let Some(param_reg) = Self::param_index_to_reg(param_index) {
-            let param_name = format!("_param_{}", param_index);
+            // PA8-m1-001c: Try to extract the real parameter name from the binding_names table
+            let param_name = if let Some(param_nodes) = arena.lambda_params().get(lambda_node_id) {
+                if param_index < param_nodes.len() {
+                    let param_node_id = param_nodes[param_index];
+                    // Look up the binding name for this parameter pattern node
+                    if let Some(real_name) = arena.binding_names().get(param_node_id) {
+                        real_name.to_string()
+                    } else {
+                        // Fall back to synthetic name if no binding found
+                        format!("_param_{}", param_index)
+                    }
+                } else {
+                    format!("_param_{}", param_index)
+                }
+            } else {
+                format!("_param_{}", param_index)
+            };
+
             self.state
                 .local_bindings
                 .insert(param_name.clone(), param_reg);
             eprintln!(
-                "[visit_lambda PA8-m1-001b] Lambda {} param_index={} name={} → register {}",
+                "[visit_lambda PA8-m1-001c] Lambda {} param_index={} name={} → register {}",
                 lambda_node_id.get(),
                 param_index,
                 param_name,

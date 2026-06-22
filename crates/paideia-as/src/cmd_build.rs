@@ -320,6 +320,69 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
         }
     }
 
+    // PA8-m1-001c: Extract lambda parameter binding names from AST Lambda nodes
+    // and populate the IR's binding_names and lambda_params tables. This enables
+    // emit_walker to use actual parameter names (e.g., "foo", "bar") instead of
+    // generic "_param_<index>".
+    {
+        let content_ref = source_map.content(file);
+
+        // Walk AST to find all Lambda nodes and extract their parameter binding names
+        for i in 0..arena.len() {
+            if let Some(ast_id) = paideia_as_ast::NodeId::new((i + 1) as u32) {
+                if let Some(_node) = arena.get(ast_id) {
+                    if let Some(paideia_as_ast::ExprData::Lambda { params, .. }) =
+                        arena.expr_data(ast_id)
+                    {
+                        // Map Lambda IR node ID to parameter node IDs
+                        let ir_lambda_id = paideia_as_ir::IrNodeId::new(ast_id.get())
+                            .expect("valid ir node id from ast lambda");
+                        let ir_param_ids: Vec<paideia_as_ir::IrNodeId> = params
+                            .iter()
+                            .filter_map(|param_id| paideia_as_ir::IrNodeId::new(param_id.get()))
+                            .collect();
+                        lowering
+                            .ir
+                            .lambda_params_mut()
+                            .insert(ir_lambda_id, ir_param_ids);
+
+                        // Each parameter is a Pattern node ID
+                        // We need to extract the binding name from each pattern
+                        for param_id in params {
+                            // Check if this pattern is a simple Ident (most common case)
+                            if let Some(paideia_as_ast::PatternData::Ident {
+                                name: name_id, ..
+                            }) = arena.pattern_data(*param_id)
+                            {
+                                // Get the Ident node for the parameter binding name
+                                if let Some(name_node) = arena.get(*name_id) {
+                                    let span = name_node.span;
+                                    let start = span.byte_start() as usize;
+                                    let len = span.byte_len() as usize;
+                                    if start + len <= content_ref.len() {
+                                        let binding_text =
+                                            content_ref[start..start + len].to_string();
+                                        // Map AST pattern node ID to IR param node ID
+                                        // (AST and IR use same node IDs per lowering)
+                                        let ir_param_id =
+                                            paideia_as_ir::IrNodeId::new(param_id.get())
+                                                .expect("valid ir node id from ast param");
+                                        lowering
+                                            .ir
+                                            .binding_names_mut()
+                                            .insert(ir_param_id, binding_text);
+                                    }
+                                }
+                            }
+                            // For non-Ident patterns (e.g., wildcard, destructuring),
+                            // we fall back to synthetic _param_<index> in emit_walker.
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Run walkers over the IR to surface S/F/C diagnostics.
     // Phase-2-m1: walkers run with empty injection tables (from CLI), so only
     // diagnostics that depend on kind-only IR will fire (S0900/S0901/S0903).

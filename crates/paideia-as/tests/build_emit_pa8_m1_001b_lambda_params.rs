@@ -111,3 +111,88 @@ fn pa8_m1_001b_three_param_lambda_registers_all_params() {
     // Also verify that parameters were registered (we can see this from the diagnostic output)
     eprintln!("Test 2 diagnostics: {:?}", walker.diagnostics());
 }
+
+#[test]
+fn pa8_m1_001c_lambda_params_extract_real_names() {
+    // Test case: fn (foo) (bar) -> foo + bar
+    // Curried as: Lambda(foo) { Lambda(bar) { App(+, Var(foo), Var(bar)) } }
+    //
+    // Verify that real parameter names (foo, bar) are registered instead of
+    // synthetic (_param_0, _param_1)
+
+    let mut arena = IrArena::new();
+
+    // Create the parameter pattern nodes for "foo" and "bar"
+    let foo_param_id = arena.alloc(IrKind::Placeholder, span());
+    let bar_param_id = arena.alloc(IrKind::Placeholder, span());
+
+    // Register the binding names for these parameter nodes
+    arena
+        .binding_names_mut()
+        .insert(foo_param_id, "foo".to_string());
+    arena
+        .binding_names_mut()
+        .insert(bar_param_id, "bar".to_string());
+
+    // Create the two Var nodes for parameters foo and bar
+    let var_foo_id = arena.alloc(IrKind::Var, span());
+    let var_bar_id = arena.alloc(IrKind::Var, span());
+
+    // Create the + operator placeholder
+    let plus_id = arena.alloc(IrKind::Placeholder, span());
+
+    // Create the App: [+, foo, bar]
+    let app_id = arena.alloc_with_children(IrKind::App, span(), [plus_id, var_foo_id, var_bar_id]);
+
+    // Create the inner Lambda: Lambda(bar) { app }
+    let inner_lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [app_id]);
+
+    // Create the outer Lambda: Lambda(foo) { inner_lambda }
+    let outer_lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [inner_lambda_id]);
+
+    // Register the parameter nodes for each lambda in the lambda_params table
+    arena
+        .lambda_params_mut()
+        .insert(outer_lambda_id, vec![foo_param_id]);
+    arena
+        .lambda_params_mut()
+        .insert(inner_lambda_id, vec![bar_param_id]);
+
+    // Walk the arena with the emitter
+    let mut walker = EmitWalker::new();
+    walker.walk(&mut arena);
+
+    // Verify that the local_bindings contain the real parameter names
+    let bindings = &walker.state().local_bindings;
+    eprintln!("Local bindings: {:?}", bindings);
+
+    // We should have registered "foo" and "bar" (along with possibly other bindings)
+    // The diagnostic output should show the real names, not _param_0 and _param_1
+    let diagnostics = walker.diagnostics();
+    eprintln!("Diagnostics: {:?}", diagnostics);
+
+    // Check that the diagnostic messages contain the real names
+    let has_foo_binding = diagnostics.iter().any(|d| d.contains("name=foo"));
+    let has_bar_binding = diagnostics.iter().any(|d| d.contains("name=bar"));
+
+    assert!(
+        has_foo_binding || bindings.contains("foo"),
+        "Should register parameter 'foo'; bindings: {:?}",
+        bindings
+    );
+    assert!(
+        has_bar_binding || bindings.contains("bar"),
+        "Should register parameter 'bar'; bindings: {:?}",
+        bindings
+    );
+
+    // Verify no fatal encoder errors
+    let has_fatal_error = diagnostics
+        .iter()
+        .any(|d| d.contains("encoder failed") || d.contains("Unsupported(\"mov form"));
+    assert!(
+        !has_fatal_error,
+        "Should not have encoder errors; got: {:?}",
+        diagnostics
+    );
+}

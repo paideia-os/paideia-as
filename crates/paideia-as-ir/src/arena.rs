@@ -10,6 +10,7 @@ use crate::binding_name::BindingNameTable;
 use crate::constant_pool::ConstantPoolTable;
 use crate::data::DataSideTable;
 use crate::instruction::InstructionSideTable;
+use crate::lambda_param::LambdaParamTable;
 use crate::let_meta::LetMetaTable;
 use crate::literal_value::LiteralValueTable;
 use crate::loop_meta::LoopMetaTable;
@@ -42,6 +43,9 @@ pub struct IrArena {
     data_table: DataSideTable,
     /// Side-table: binding names for Let nodes indexed by Let node ID.
     binding_name_table: BindingNameTable,
+    /// Side-table: lambda parameter node IDs indexed by Lambda node ID.
+    /// PA8-m1-001c: tracks the parameter pattern nodes for each Lambda.
+    lambda_param_table: LambdaParamTable,
     /// Side-table: let binding mutability metadata indexed by Let node ID.
     /// Phase 6 m5-002: tracks whether a let binding is mutable (let mut x : T = ...).
     let_meta_table: LetMetaTable,
@@ -74,6 +78,7 @@ impl IrArena {
             literal_value_table: LiteralValueTable::new(),
             data_table: DataSideTable::new(),
             binding_name_table: BindingNameTable::new(),
+            lambda_param_table: LambdaParamTable::new(),
             let_meta_table: LetMetaTable::new(),
             symbol_table: SymbolTable::new(),
             field_access_table: FieldAccessSideTable::new(),
@@ -224,6 +229,18 @@ impl IrArena {
     /// Borrow the binding name side-table (mutable).
     pub fn binding_names_mut(&mut self) -> &mut BindingNameTable {
         &mut self.binding_name_table
+    }
+
+    /// Borrow the lambda parameter side-table (read-only).
+    /// PA8-m1-001c: provides access to parameter node IDs for Lambda nodes.
+    #[must_use]
+    pub fn lambda_params(&self) -> &LambdaParamTable {
+        &self.lambda_param_table
+    }
+
+    /// Borrow the lambda parameter side-table (mutable).
+    pub fn lambda_params_mut(&mut self) -> &mut LambdaParamTable {
+        &mut self.lambda_param_table
     }
 
     /// Borrow the let metadata side-table (read-only).

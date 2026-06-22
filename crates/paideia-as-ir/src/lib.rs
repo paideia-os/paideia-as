@@ -20,6 +20,7 @@ pub mod effect_rewrite;
 pub mod enum_layout;
 pub mod handler_value;
 pub mod instruction;
+pub mod lambda_param;
 pub mod let_meta;
 pub mod literal_value;
 pub mod load_store;
@@ -53,6 +54,7 @@ pub use instruction::{
     Cond, EncodingHint, Instruction, InstructionSideTable, IntWidth, Mnemonic, Operand, RegId,
     Scale,
 };
+pub use lambda_param::LambdaParamTable;
 pub use let_meta::{LetInfo, LetMetaTable};
 pub use literal_value::LiteralValueTable;
 pub use load_store::{
