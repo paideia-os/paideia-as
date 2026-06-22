@@ -1447,6 +1447,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "warning"
               },
               "fullDescription": {
+                "text": "Phase 8 m1-003: when emitting an ELF object file, the elaboration phase (EmitWalker) recorded offsets for function symbols, but this particular function symbol has no entry in the offset table. This can occur for lambdas with unsupported shapes (e.g., literal-body functions) that do not emit bytecode but still receive symbol table entries. The symbol is emitted with st_value=0 and st_size=0 as a placeholder."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/B1704",
+              "id": "B1704",
+              "name": "Function symbol has no recorded offset",
+              "shortDescription": {
+                "text": "function symbol has no recorded offset; emitted with st_value=0, st_size=0"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "fullDescription": {
                 "text": "Phase 4 m5-005: region (lifetime) elision. When a function's output borrow lacks an explicit lifetime, the elision rules attempt to infer it from input lifetimes: (1) if a single input borrow has an elided lifetime, use it; (2) if a single input lifetime exists (explicit or elided), assign it to all elided outputs; (3) for methods, all output lifetimes take the receiver's lifetime. This warning fires when the rules encounter an ambiguous situation: either multiple input lifetimes (ambiguous which to choose) or zero input lifetimes but an elided output (nothing to infer from). Resolve by explicitly annotating the output lifetime with the desired region."
               },
               "helpUri": "https://paideia-os.org/diagnostics/L2001",

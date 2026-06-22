@@ -263,6 +263,15 @@ description = "Phase 7 m1-002: when emitting the ELF symbol table, one or more s
 since = "0.11.0"
 deprecated = false
 
+[diagnostic.B1704]
+severity = "warning"
+category = "binary"
+title = "Function symbol has no recorded offset"
+brief = "function symbol has no recorded offset; emitted with st_value=0, st_size=0"
+description = "Phase 8 m1-003: when emitting an ELF object file, the elaboration phase (EmitWalker) recorded offsets for function symbols, but this particular function symbol has no entry in the offset table. This can occur for lambdas with unsupported shapes (e.g., literal-body functions) that do not emit bytecode but still receive symbol table entries. The symbol is emitted with st_value=0 and st_size=0 as a placeholder."
+since = "0.13.0"
+deprecated = false
+
 [diagnostic.B1701]
 severity = "error"
 category = "binary"
