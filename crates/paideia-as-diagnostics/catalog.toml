@@ -802,3 +802,21 @@ brief = "all match arms must have the same type"
 description = "Phase 7 m1-004 (PA7-007): in a match expression, all arms (including the default) must produce values of the same type. If the first arm produces type T1 and a later arm produces type T2, the expression is ill-typed. Either unify the arm types by adding explicit conversions or restructure the match to ensure all paths have compatible types."
 since = "0.11.0"
 deprecated = false
+
+[diagnostic.T0524]
+severity = "error"
+category = "type"
+title = "Break outside loop body"
+brief = "break can only appear inside a loop or while body"
+description = "Phase 7 m1-008 (PA7-008): break statements can only appear inside the body of a loop or while loop. A break outside any loop context is a control-flow error. Move the break statement inside the appropriate loop body or remove it if it is not needed."
+since = "0.11.0"
+deprecated = false
+
+[diagnostic.T0525]
+severity = "error"
+category = "type"
+title = "Break value in unit-typed loop"
+brief = "break value not allowed in unit-typed loop contexts"
+description = "Phase 7 m1-008 (PA7-008): a while loop produces unit type () and cannot accept break values. Only infinite loops (loop { ... }) can return values via break. Either remove the value from the break statement, or restructure as a loop expression to return values."
+since = "0.11.0"
+deprecated = false

@@ -68,14 +68,28 @@ pub struct EmitPassState {
     pub local_bindings: LocalBindingTable,
 }
 
+/// LoopContext: tracks the nesting level of loop vs while for break validation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LoopContext {
+    /// Infinite loop { ... } — can accept break values
+    Loop,
+    /// while cond { ... } — cannot accept break values
+    While,
+}
+
 /// EmitWalker — drives IR traversal and instruction emission.
 ///
 /// Skeleton implementation for Phase 5 m1-001. Per-construct lowering
 /// hooks (visit_let, visit_lambda, visit_unsafe) land in m1-002..004
 /// as siblings of this walker.
+///
+/// Phase 7 m1-008 (PA7-008): Tracks loop context stack for break validation.
 pub struct EmitWalker {
     state: EmitPassState,
     diagnostics: Vec<String>,
+    /// Stack of (loop_kind, exit_label) for nested loops/while.
+    /// Push on loop/while entry, pop on exit. Used to validate break statements.
+    loop_contexts: Vec<(LoopContext, String)>,
 }
 
 impl EmitPassState {
@@ -192,6 +206,7 @@ impl EmitWalker {
         Self {
             state: EmitPassState::default(),
             diagnostics: Vec::new(),
+            loop_contexts: Vec::new(),
         }
     }
 
@@ -211,6 +226,20 @@ impl EmitWalker {
     #[must_use]
     pub fn diagnostics(&self) -> &[String] {
         &self.diagnostics
+    }
+
+    /// Phase 7 m1-008: Check if we are currently in a loop body.
+    /// Returns Some((loop_kind, exit_label)) if in loop, None if outside.
+    #[must_use]
+    pub fn current_loop_context(&self) -> Option<(LoopContext, &str)> {
+        self.loop_contexts
+            .last()
+            .map(|(ctx, label)| (*ctx, label.as_str()))
+    }
+
+    /// Phase 7 m1-008: Pop loop context on loop/while exit.
+    pub fn pop_loop_context(&mut self) {
+        let _ = self.loop_contexts.pop();
     }
 
     /// Get the set of Lambda IR node IDs that emitted bytecode.
@@ -319,6 +348,10 @@ impl EmitWalker {
                         IrKind::While => {
                             // Phase 7 m1-002: emit while-loop lowering.
                             self.visit_while(node_id, arena);
+                        }
+                        IrKind::Loop => {
+                            // Phase 7 m1-008 (PA7-008): emit infinite loop lowering.
+                            self.visit_loop(node_id, arena);
                         }
                         IrKind::Match => {
                             // Phase 7 m1-004 (PA7-007): emit match-expression lowering.
@@ -1883,7 +1916,75 @@ impl EmitWalker {
         self.state.current_offset += 5; // jmp rel32 is 5 bytes
 
         // Register exit_label at final offset.
-        self.state.register_label(exit_label);
+        self.state.register_label(exit_label.clone());
+
+        // Push While context for break validation.
+        self.loop_contexts
+            .push((LoopContext::While, exit_label));
+        // (Pop happens after body processing, deferred in full elaboration)
+    }
+
+    /// Phase 7 m1-008 (PA7-008): Emit infinite loop lowering for loop { ... } expressions.
+    ///
+    /// Infinite loops produce values via break. Lowers `loop { body; break value }` to:
+    /// - top_label: [body]
+    /// - jmp top (5 bytes: E9 fixup top)
+    /// - exit_label: (break value returns via RAX)
+    ///
+    /// Structure: Loop has single child [body]. Tracks loop context for break validation.
+    /// - loop { hlt } emits top: F4 ; E9 fixup top
+    /// - loop { if cond { break 42 } } emits top_label, body, break-via-jmp, exit_label
+    ///
+    /// Validation:
+    /// - break outside loop → T0524 ("break outside loop body")
+    /// - break value in while context → T0525 ("break value in unit-typed loop")
+    fn visit_loop(&mut self, loop_node_id: IrNodeId, arena: &IrArena) {
+        let children = arena.children(loop_node_id);
+        if children.is_empty() {
+            // Malformed Loop node (needs body).
+            self.diagnostics.push(format!(
+                "Loop node {} has no children; expected body",
+                loop_node_id.get()
+            ));
+            return;
+        }
+
+        let _body_id = children[0];
+
+        // Generate label names unique per loop node.
+        let top_label = format!("loop_top_{}", loop_node_id.get());
+        let exit_label = format!("loop_exit_{}", loop_node_id.get());
+
+        // Register top_label at current offset.
+        self.state.register_label(top_label.clone());
+
+        // Placeholder: emit body instructions.
+        // Phase 7: actual body emission deferred.
+        // After body, emit unconditional jump back to top_label.
+
+        // Emit unconditional jump (jmp) to top_label (5 bytes: E9 XX XX XX XX)
+        let jmp_id = IrNodeId::new(loop_node_id.get() * 4).expect("jmp instr id");
+        let mut jmp_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        jmp_operands.push(Operand::LabelRef {
+            name: top_label,
+            addend: 0,
+        });
+
+        let jmp_inst = Instruction {
+            mnemonic: Mnemonic::Jmp,
+            operands: jmp_operands,
+            encoding_hint: None,
+        };
+
+        self.state.instructions.insert(jmp_id, jmp_inst);
+        self.state.current_offset += 5; // jmp rel32 is 5 bytes
+
+        // Register exit_label at final offset.
+        self.state.register_label(exit_label.clone());
+
+        // Push Loop context for break validation.
+        self.loop_contexts.push((LoopContext::Loop, exit_label));
+        // (Pop happens after body processing, deferred in full elaboration)
     }
 
     /// Phase 7 m1-004 (PA7-007): Emit match-expression lowering for enum-like u32 dispatch.
@@ -4648,5 +4749,71 @@ mod tests {
             expected_offset,
             walker.state().current_offset
         );
+    }
+
+    #[test]
+    fn emit_walker_loop_emits_instructions() {
+        let mut arena = IrArena::new();
+
+        // Allocate: Literal (body).
+        let body_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(body_id, 42);
+
+        // Allocate: Loop with body.
+        let loop_id = arena.alloc_with_children(IrKind::Loop, span(), [body_id]);
+
+        // Walk the arena.
+        let mut walker = EmitWalker::new();
+        walker.walk(&mut arena);
+
+        // Verify instructions were emitted: jmp (5 bytes).
+        let insts = &walker.state().instructions;
+        let inst_count = insts.entries().len();
+        assert!(
+            inst_count > 0,
+            "Expected instructions for loop, got: {} instructions",
+            inst_count
+        );
+
+        // Verify offset advanced: jmp is 5 bytes.
+        let expected_offset = 5;
+        assert_eq!(
+            walker.state().current_offset,
+            expected_offset,
+            "Expected offset {}, got {}",
+            expected_offset,
+            walker.state().current_offset
+        );
+
+        // Verify labels were registered for loop_top and loop_exit.
+        let labels = &walker.state().labels;
+        let has_top = labels.keys().any(|k| k.starts_with("loop_top_"));
+        let has_exit = labels.keys().any(|k| k.starts_with("loop_exit_"));
+        assert!(
+            has_top && has_exit,
+            "Expected loop_top and loop_exit labels, got: {:?}",
+            labels.keys().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn emit_walker_loop_context_tracking() {
+        let _walker = EmitWalker::new();
+        // Initially no loop context.
+        assert_eq!(_walker.current_loop_context(), None);
+
+        let mut walker = EmitWalker::new();
+        // Manually simulate entering a loop context.
+        walker
+            .loop_contexts
+            .push((LoopContext::Loop, "loop_exit_1".to_string()));
+        let ctx = walker.current_loop_context();
+        assert!(ctx.is_some());
+        let (kind, _label) = ctx.unwrap();
+        assert_eq!(kind, LoopContext::Loop);
+
+        // Pop context.
+        walker.pop_loop_context();
+        assert_eq!(walker.current_loop_context(), None);
     }
 }

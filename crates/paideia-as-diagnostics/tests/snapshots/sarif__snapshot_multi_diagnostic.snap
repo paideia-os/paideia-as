@@ -916,6 +916,34 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "Phase 7 m1-008 (PA7-008): break statements can only appear inside the body of a loop or while loop. A break outside any loop context is a control-flow error. Move the break statement inside the appropriate loop body or remove it if it is not needed."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0524",
+              "id": "T0524",
+              "name": "Break outside loop body",
+              "shortDescription": {
+                "text": "break can only appear inside a loop or while body"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase 7 m1-008 (PA7-008): a while loop produces unit type () and cannot accept break values. Only infinite loops (loop { ... }) can return values via break. Either remove the value from the break statement, or restructure as a loop expression to return values."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0525",
+              "id": "T0525",
+              "name": "Break value in unit-typed loop",
+              "shortDescription": {
+                "text": "break value not allowed in unit-typed loop contexts"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "A binding declared as Linear or Ordered in the substructural lattice must be used exactly once. This binding was never used. A Linear binding represents a unique resource that must be consumed; Ordered adds ordering constraints. Check that the binding is referenced exactly once in its scope."
               },
               "helpUri": "https://paideia-os.org/diagnostics/S0900",

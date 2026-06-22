@@ -1,0 +1,22 @@
+// Test 1: Simple infinite loop with break
+fn loop_with_break() {
+    loop {
+        break
+    }
+}
+
+// Test 2: Infinite loop with break and value
+fn loop_with_break_value() -> u64 {
+    loop {
+        break 42
+    }
+}
+
+// Test 3: Nested loop with break
+fn nested_loop_break() {
+    loop {
+        loop {
+            break
+        }
+    }
+}
