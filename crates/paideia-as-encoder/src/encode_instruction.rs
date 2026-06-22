@@ -602,17 +602,21 @@ fn encode_call(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput,
         }
         [Operand::SymbolRef { name, addend }] => {
             // call symbol → E8 <disp32_placeholder> + RelocSite with Plt32
-            // Phase 7 m1-001: Use RelocKind::Plt32 for PLT relocations
-            // Phase 7 m1-003: Use byte_offset_in_text for precise relocation offset
-            // instead of buf.bytes.len(), which can be off-by-one in multi-call bodies.
-            let reloc_offset = inst
-                .byte_offset_in_text
-                .expect("byte_offset_in_text must be set before encoding");
+            // Phase 7 m1-001: Use RelocKind::Plt32 for PLT relocations.
+            // Phase 7 m1-003: RelocSite::byte_offset is INSTRUCTION-LOCAL.
+            // emit_text_from_instructions translates it to .text-relative by
+            // adding `offset_before` (the buffer length at the start of this
+            // instruction). The rel32 displacement begins at byte +1 of the E8
+            // opcode. Previous code returned `byte_offset_in_text + 1`
+            // (already .text-relative), then the translator added
+            // `offset_before` again — double-counted, putting the reloc at
+            // 2*offset_before + 1 instead of offset_before + 1.
+            let _ = inst.byte_offset_in_text; // unused; translator owns the math
             buf.bytes.push(0xE8); // call rel32 opcode
             buf.bytes.extend([0, 0, 0, 0]); // placeholder disp32
             let mut output = EncodeOutput::new();
             output.add_reloc(RelocSite {
-                byte_offset: reloc_offset + 1,
+                byte_offset: 1, // rel32 starts at byte +1 of the instruction
                 symbol: name.clone(),
                 kind: RelocKind::Plt32,
                 addend: *addend,

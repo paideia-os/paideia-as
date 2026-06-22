@@ -33,6 +33,7 @@ pub fn insert_instruction(
     let inst = Instruction {
         mnemonic,
         operands: ops,
+        byte_offset_in_text: None,
         encoding_hint: None,
     };
     arena.instructions_mut().insert(node_id, inst);
