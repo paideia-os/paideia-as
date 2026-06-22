@@ -874,6 +874,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "Phase 7 m1-003 (PA7-006): a function call argument has a type that does not match the expected parameter type. Ensure that all arguments to a function match their respective parameter types. Check type annotations in the function signature and verify that the argument values have compatible types."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0521",
+              "id": "T0521",
+              "name": "Argument type mismatch at call site",
+              "shortDescription": {
+                "text": "function argument type does not match expected type"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "A binding declared as Linear or Ordered in the substructural lattice must be used exactly once. This binding was never used. A Linear binding represents a unique resource that must be consumed; Ordered adds ordering constraints. Check that the binding is referenced exactly once in its scope."
               },
               "helpUri": "https://paideia-os.org/diagnostics/S0900",

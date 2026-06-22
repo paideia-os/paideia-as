@@ -1,0 +1,28 @@
+/// PA7-006 multi-argument function call corpus test
+/// Tests 3, 4, 5, 6 argument function calls with various argument sources
+
+module MultiArgCall {
+    /// Function with 3 arguments: a, b, c
+    let add3 : fn(u64, u64, u64) -> u64 = fn (a, b, c) -> a + b + c;
+
+    /// Function with 4 arguments: a, b, c, d
+    let add4 : fn(u64, u64, u64, u64) -> u64 = fn (a, b, c, d) -> a + b + c + d;
+
+    /// Function with 5 arguments
+    let add5 : fn(u64, u64, u64, u64, u64) -> u64 = fn (a, b, c, d, e) -> a + b + c + d + e;
+
+    /// Function with 6 arguments
+    let add6 : fn(u64, u64, u64, u64, u64, u64) -> u64 = fn (a, b, c, d, e, f) -> a + b + c + d + e + f;
+
+    /// Test: call add3 with 3 literal arguments
+    let test_3_args : u64 = add3(1, 2, 3);
+
+    /// Test: call add4 with 4 literal arguments
+    let test_4_args : u64 = add4(1, 2, 3, 4);
+
+    /// Test: call add5 with 5 literal arguments
+    let test_5_args : u64 = add5(1, 2, 3, 4, 5);
+
+    /// Test: call add6 with 6 literal arguments
+    let test_6_args : u64 = add6(1, 2, 3, 4, 5, 6);
+}

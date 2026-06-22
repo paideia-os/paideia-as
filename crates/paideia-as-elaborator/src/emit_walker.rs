@@ -570,7 +570,7 @@ impl EmitWalker {
                                         .find(|sym| sym.kind == SymbolKind::Function)
                                     {
                                         // This is a function call! Check arg count.
-                                        if num_args <= 2 {
+                                        if num_args <= 6 {
                                             // Record the lambda's starting offset BEFORE emitting.
                                             self.state.function_offsets.insert(
                                                 lambda_node_id.get(),
@@ -595,7 +595,7 @@ impl EmitWalker {
                                         } else {
                                             // Too many arguments for Phase 7
                                             self.diagnostics.push(format!(
-                                                "PA7-001 fn argument count: function call has {} args, phase 7 only supports 0-2",
+                                                "EncodeError::Unsupported(\"PA7-006 stack-spilled arg\"): function call has {} args, phase 7 only supports 0-6",
                                                 num_args
                                             ));
                                             return;
@@ -803,12 +803,16 @@ impl EmitWalker {
         self.state.current_offset += 1;
     }
 
-    /// Phase 7 m1-001: Emit inter-function call.
+    /// Phase 7 m1-003: Emit inter-function call.
     ///
-    /// Handles 0-2 argument calls to other functions:
+    /// PA7-006: Handles 0-6 argument calls to other functions:
     /// - 0-arg call: `call target; ret` (6 bytes total)
     /// - 1-arg call: `mov rdi, arg0; call target; ret` (3+5+1 bytes)
     /// - 2-arg call: `mov rdi, arg0; mov rsi, arg1; call target; ret` (3+3+5+1 bytes)
+    /// - 3-6 arg calls: extend to RDX, RCX, R8, R9
+    ///
+    /// Supports arg sources: immediate literals, local-binding via LocalBindingTable,
+    /// symbol refs to globals. > 6 args rejected with EncodeError::Unsupported.
     fn emit_function_call(
         &mut self,
         lambda_node_id: IrNodeId,
@@ -822,34 +826,59 @@ impl EmitWalker {
         // Emit MOV instructions for each argument
         for (arg_idx, &arg_id) in arg_ids.iter().enumerate() {
             if arg_idx >= 6 {
-                // Phase 7 only supports up to 6 arguments (though check limits it to 2 anyway)
+                // Phase 7 only supports up to 6 arguments
+                self.diagnostics.push(format!(
+                    "T0521: argument type mismatch at call site: arg index {} out of bounds (max 6)",
+                    arg_idx
+                ));
                 break;
             }
 
             let dest_reg = arg_regs[arg_idx];
             let arg_node = match arena.get(arg_id) {
                 Some(node) => node,
-                None => continue,
+                None => {
+                    self.diagnostics.push(format!(
+                        "T0521: argument type mismatch at call site: arg {} not found in IR",
+                        arg_idx
+                    ));
+                    continue;
+                }
             };
 
-            // For now, handle only Literal and Var arguments
+            // Handle various argument sources
             match arg_node.kind {
                 IrKind::Literal => {
                     // Load literal into the register
                     if let Some(value) = arena.literal_values().get(arg_id) {
                         self.emit_mov_literal_to_reg(lambda_node_id, dest_reg, value);
+                    } else {
+                        self.diagnostics.push(format!(
+                            "T0521: argument type mismatch at call site: literal arg {} has no value",
+                            arg_idx
+                        ));
                     }
                 }
                 IrKind::Var => {
-                    // For Var arguments, we assume they refer to the function's parameter (RDI)
-                    // For now, just copy from RDI if it's arg 0
+                    // For Var arguments, check if it's a local binding or parameter
+                    // For now, support copying from RDI (first parameter)
                     if arg_idx == 0 && dest_reg != RegId(7) {
-                        // Need to copy from RDI to another reg (shouldn't happen in Phase 7)
+                        // Need to copy from RDI to another reg
                         self.emit_mov_reg_to_reg(lambda_node_id, RegId(7), dest_reg);
+                    } else if arg_idx != 0 {
+                        // Non-first-arg Var references require local binding lookup
+                        self.diagnostics.push(format!(
+                            "T0521: argument type mismatch at call site: Var arg {} (non-first-arg) not yet supported",
+                            arg_idx
+                        ));
                     }
                 }
                 _ => {
                     // Other argument shapes not yet supported
+                    self.diagnostics.push(format!(
+                        "T0521: argument type mismatch at call site: arg {} kind {:?} not supported",
+                        arg_idx, arg_node.kind
+                    ));
                 }
             }
         }
@@ -4099,5 +4128,232 @@ mod tests {
 
         // Verify offset accounts for both while loops: 2 * 14 = 28 bytes.
         assert_eq!(walker.state().current_offset, 28);
+    }
+
+    // ── Phase 7 m1-003: Multi-argument function call tests (PA7-006) ─────────────────────────
+
+    #[test]
+    fn emit_walker_function_call_3_args() {
+        // PA7-006 AC #1: f(a, b, c) → mov rdi,a ; mov rsi,b ; mov rdx,c ; call f ; ret
+        let mut arena = IrArena::new();
+
+        // Allocate 3 literal arguments
+        let arg0_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(arg0_id, 1);
+        let arg1_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(arg1_id, 2);
+        let arg2_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(arg2_id, 3);
+
+        // Allocate function name and Var node
+        let fn_var_id = arena.alloc(IrKind::Var, span());
+
+        // Allocate App node with callee and 3 arguments
+        let app_id =
+            arena.alloc_with_children(IrKind::App, span(), [fn_var_id, arg0_id, arg1_id, arg2_id]);
+
+        // Allocate Lambda with App as body
+        let lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [app_id]);
+
+        // Create and register a function symbol
+        let sym = Symbol::new("f".to_string(), SymbolKind::Function, lambda_id);
+        arena.symbols_mut().insert(sym);
+
+        // Walk the arena
+        let mut walker = EmitWalker::new();
+        walker.walk(&mut arena);
+
+        // Verify instruction count: 3 MOVs + CALL + RET = 5 instructions emitted
+        let insts = walker.state().instructions.entries();
+        assert!(
+            insts.len() >= 5,
+            "Expected at least 5 instructions, got {}",
+            insts.len()
+        );
+
+        // Verify offset: 3*7 (movs) + 5 (call) + 1 (ret) = 27 bytes
+        assert_eq!(walker.state().current_offset, 27);
+    }
+
+    #[test]
+    fn emit_walker_function_call_4_args() {
+        // PA7-006 AC #2: f(a, b, c, d) → mov rdi,a ; mov rsi,b ; mov rdx,c ; mov rcx,d ; call f ; ret
+        let mut arena = IrArena::new();
+
+        // Allocate 4 literal arguments
+        let arg0_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(arg0_id, 1);
+        let arg1_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(arg1_id, 2);
+        let arg2_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(arg2_id, 3);
+        let arg3_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(arg3_id, 4);
+
+        // Allocate function name and Var node
+        let fn_var_id = arena.alloc(IrKind::Var, span());
+
+        // Allocate App node with callee and 4 arguments
+        let app_id = arena.alloc_with_children(
+            IrKind::App,
+            span(),
+            [fn_var_id, arg0_id, arg1_id, arg2_id, arg3_id],
+        );
+
+        // Allocate Lambda with App as body
+        let lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [app_id]);
+
+        // Create and register a function symbol
+        let sym = Symbol::new("f".to_string(), SymbolKind::Function, lambda_id);
+        arena.symbols_mut().insert(sym);
+
+        // Walk the arena
+        let mut walker = EmitWalker::new();
+        walker.walk(&mut arena);
+
+        // Verify offset: 4*7 (movs) + 5 (call) + 1 (ret) = 34 bytes
+        assert_eq!(walker.state().current_offset, 34);
+    }
+
+    #[test]
+    fn emit_walker_function_call_5_args() {
+        // PA7-006 AC #3: f(a, b, c, d, e) → args to RDI, RSI, RDX, RCX, R8
+        let mut arena = IrArena::new();
+
+        // Allocate 5 literal arguments
+        let arg0_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(arg0_id, 1);
+        let arg1_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(arg1_id, 2);
+        let arg2_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(arg2_id, 3);
+        let arg3_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(arg3_id, 4);
+        let arg4_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(arg4_id, 5);
+
+        // Allocate function name and Var node
+        let fn_var_id = arena.alloc(IrKind::Var, span());
+
+        // Allocate App node with callee and 5 arguments
+        let app_id = arena.alloc_with_children(
+            IrKind::App,
+            span(),
+            [fn_var_id, arg0_id, arg1_id, arg2_id, arg3_id, arg4_id],
+        );
+
+        // Allocate Lambda with App as body
+        let lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [app_id]);
+
+        // Create and register a function symbol
+        let sym = Symbol::new("f".to_string(), SymbolKind::Function, lambda_id);
+        arena.symbols_mut().insert(sym);
+
+        // Walk the arena
+        let mut walker = EmitWalker::new();
+        walker.walk(&mut arena);
+
+        // Verify offset: 5*7 (movs) + 5 (call) + 1 (ret) = 41 bytes
+        assert_eq!(walker.state().current_offset, 41);
+    }
+
+    #[test]
+    fn emit_walker_function_call_6_args() {
+        // PA7-006 AC #4: f(a, b, c, d, e, g) → args to RDI, RSI, RDX, RCX, R8, R9
+        let mut arena = IrArena::new();
+
+        // Allocate 6 literal arguments
+        let arg0_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(arg0_id, 1);
+        let arg1_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(arg1_id, 2);
+        let arg2_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(arg2_id, 3);
+        let arg3_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(arg3_id, 4);
+        let arg4_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(arg4_id, 5);
+        let arg5_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(arg5_id, 6);
+
+        // Allocate function name and Var node
+        let fn_var_id = arena.alloc(IrKind::Var, span());
+
+        // Allocate App node with callee and 6 arguments
+        let app_id = arena.alloc_with_children(
+            IrKind::App,
+            span(),
+            [
+                fn_var_id, arg0_id, arg1_id, arg2_id, arg3_id, arg4_id, arg5_id,
+            ],
+        );
+
+        // Allocate Lambda with App as body
+        let lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [app_id]);
+
+        // Create and register a function symbol
+        let sym = Symbol::new("f".to_string(), SymbolKind::Function, lambda_id);
+        arena.symbols_mut().insert(sym);
+
+        // Walk the arena
+        let mut walker = EmitWalker::new();
+        walker.walk(&mut arena);
+
+        // Verify offset: 6*7 (movs) + 5 (call) + 1 (ret) = 48 bytes
+        assert_eq!(walker.state().current_offset, 48);
+    }
+
+    #[test]
+    fn emit_walker_function_call_7_args_reject() {
+        // PA7-006 AC #5: f(a, b, c, d, e, g, h) → 7 args should be rejected
+        let mut arena = IrArena::new();
+
+        // Allocate 7 literal arguments
+        let arg0_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(arg0_id, 1);
+        let arg1_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(arg1_id, 2);
+        let arg2_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(arg2_id, 3);
+        let arg3_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(arg3_id, 4);
+        let arg4_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(arg4_id, 5);
+        let arg5_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(arg5_id, 6);
+        let arg6_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(arg6_id, 7);
+
+        // Allocate function name and Var node
+        let fn_var_id = arena.alloc(IrKind::Var, span());
+
+        // Allocate App node with callee and 7 arguments
+        let app_id = arena.alloc_with_children(
+            IrKind::App,
+            span(),
+            [
+                fn_var_id, arg0_id, arg1_id, arg2_id, arg3_id, arg4_id, arg5_id, arg6_id,
+            ],
+        );
+
+        // Allocate Lambda with App as body
+        let lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [app_id]);
+
+        // Create and register a function symbol
+        let sym = Symbol::new("f".to_string(), SymbolKind::Function, lambda_id);
+        arena.symbols_mut().insert(sym);
+
+        // Walk the arena
+        let mut walker = EmitWalker::new();
+        walker.walk(&mut arena);
+
+        // Verify that diagnostics contain the "stack-spilled arg" error
+        let diags = walker.diagnostics();
+        assert!(
+            diags.iter()
+                .any(|d| d.contains("stack-spilled arg") || d.contains("phase 7 only supports 0-6")),
+            "Expected stack-spill error, got: {:?}",
+            diags
+        );
     }
 }

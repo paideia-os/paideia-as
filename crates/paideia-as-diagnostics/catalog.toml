@@ -775,3 +775,12 @@ brief = "bare-identifier symbol in call position is valid only for call/jmp mnem
 description = "Phase 6 m4-005: A bare-identifier symbol operand (e.g., `cap_alloc`) was used with a mnemonic that does not support symbol references. In Phase 6, only `call` and `jmp` (both conditional and unconditional) mnemonics support bare-identifier symbols in call position, which resolve to SymbolRef operands with PC-relative 32-bit relocations. Other mnemonics (mov, lea, etc.) require explicit syntax (e.g., `lea rax, [symbol]` for RIP-relative addressing). This restriction will be lifted in Phase 7+ with full symbol-address-of support. Either use call/jmp, or refactor to use supported addressing modes."
 since = "0.10.0"
 deprecated = false
+
+[diagnostic.T0521]
+severity = "error"
+category = "type"
+title = "Argument type mismatch at call site"
+brief = "function argument type does not match expected type"
+description = "Phase 7 m1-003 (PA7-006): a function call argument has a type that does not match the expected parameter type. Ensure that all arguments to a function match their respective parameter types. Check type annotations in the function signature and verify that the argument values have compatible types."
+since = "0.11.0"
+deprecated = false
