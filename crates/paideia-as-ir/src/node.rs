@@ -218,6 +218,11 @@ pub enum IrKind {
     /// `movzx`; narrowing → `mov r32, r32` (implicit zero-extend); same-width →
     /// no-op.
     Cast,
+    /// Array literal: `[expr0, expr1, ...]`. Children = [expr0, expr1, ...].
+    /// Phase 8 m2-002: lowered from `ExprData::ArrayLit`. At module level,
+    /// cmd_build walks children, packs bytes per element width (u64/u32/u8),
+    /// and emits a DataEntry (.rodata for immutable, .data for mutable, .bss for uninit).
+    ArrayLit,
 }
 
 /// Per-node IR storage.

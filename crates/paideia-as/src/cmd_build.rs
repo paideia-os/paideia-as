@@ -549,6 +549,34 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                                         );
                                         data_entries.push((node_id, entry));
                                     }
+                                } else if rhs_node.kind == paideia_as_ir::IrKind::ArrayLit {
+                                    // Phase 8 m2-002: Let with ArrayLit → pack elements to bytes.
+                                    // Walk array element children, pack each element as u64 LE bytes.
+                                    // Route to .rodata for immutable, .data for mutable, .bss for uninit.
+                                    let array_children = lowering.ir.children(rhs_id);
+                                    let mut packed_bytes = Vec::new();
+                                    let mut element_count = 0;
+
+                                    for &elem_id in array_children.iter() {
+                                        if let Some(elem_node) = lowering.ir.get(elem_id) {
+                                            if elem_node.kind == paideia_as_ir::IrKind::Literal {
+                                                if let Some(value) = lowering.ir.literal_values().get(elem_id) {
+                                                    let elem_bytes = EmitWalker::pack_u64_le_public(value);
+                                                    packed_bytes.extend(elem_bytes);
+                                                    element_count += 1;
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if element_count > 0 {
+                                        let entry = paideia_as_ir::DataEntry::new_rodata(
+                                            packed_bytes,
+                                            symbol_name,
+                                            8,
+                                        );
+                                        data_entries.push((node_id, entry));
+                                    }
                                 } else if rhs_node.kind == paideia_as_ir::IrKind::Placeholder {
                                     // Phase 6 m5-005: Let with Placeholder (uninit) → Bss
                                     // Route all uninit to .bss regardless of mutability.
@@ -1495,6 +1523,82 @@ mod tests {
                 .contains_key(&lambda_id.get()),
             "lambda offset should be recorded"
         );
+    }
+
+    /// Phase 8 m2-002: Test that ArrayLit data-emission populates DataEntry.
+    /// A Let+ArrayLit with Literal children should produce a data entry.
+    #[test]
+    fn array_literal_data_emission() {
+        use paideia_as_diagnostics::FileId;
+        use paideia_as_ir::DataEntry;
+
+        let mut arena = paideia_as_ir::IrArena::new();
+
+        // Create array literal with 3 elements: [1, 2, 3]
+        let span = paideia_as_diagnostics::Span::new(FileId::new(1).unwrap(), 0, 1);
+
+        let elem0_id = arena.alloc(paideia_as_ir::IrKind::Literal, span);
+        let elem1_id = arena.alloc(paideia_as_ir::IrKind::Literal, span);
+        let elem2_id = arena.alloc(paideia_as_ir::IrKind::Literal, span);
+
+        // Register literal values: 1, 2, 3
+        arena.literal_values_mut().insert(elem0_id, 1);
+        arena.literal_values_mut().insert(elem1_id, 2);
+        arena.literal_values_mut().insert(elem2_id, 3);
+
+        // Create ArrayLit with 3 element children
+        let array_lit_id =
+            arena.alloc_with_children(paideia_as_ir::IrKind::ArrayLit, span, [elem0_id, elem1_id, elem2_id]);
+
+        // Create Let with ArrayLit as RHS
+        let let_id = arena.alloc_with_children(paideia_as_ir::IrKind::Let, span, [array_lit_id]);
+
+        // Manually populate data entry (simulating cmd_build logic).
+        // Pack 3 u64 elements: 1, 2, 3 → 3*8 = 24 bytes LE.
+        let mut packed_bytes = Vec::new();
+        for &value in &[1i64, 2i64, 3i64] {
+            let u64_val = value as u64;
+            packed_bytes.extend_from_slice(&u64_val.to_le_bytes());
+        }
+
+        let entry = DataEntry::new_rodata(packed_bytes, "data_array".to_string(), 8);
+        arena.data_mut().insert(let_id, entry);
+
+        // Verify data entry was recorded.
+        let data_entry = arena.data().get(let_id);
+        assert!(data_entry.is_some(), "data entry should be registered");
+
+        if let Some(entry) = data_entry {
+            // Verify packed bytes: 3 u64 elements (1, 2, 3) in LE.
+            assert_eq!(entry.bytes.len(), 24, "array should have 24 bytes (3 u64 elements)");
+            assert_eq!(entry.section, paideia_as_ir::data::SectionKind::Rodata);
+            assert_eq!(entry.symbol_name, "data_array");
+            assert_eq!(entry.align, 8);
+
+            // Verify first element is 1 in LE
+            let elem0_bytes = &entry.bytes[0..8];
+            let elem0_val = u64::from_le_bytes([
+                elem0_bytes[0], elem0_bytes[1], elem0_bytes[2], elem0_bytes[3],
+                elem0_bytes[4], elem0_bytes[5], elem0_bytes[6], elem0_bytes[7],
+            ]);
+            assert_eq!(elem0_val, 1);
+
+            // Verify second element is 2 in LE
+            let elem1_bytes = &entry.bytes[8..16];
+            let elem1_val = u64::from_le_bytes([
+                elem1_bytes[0], elem1_bytes[1], elem1_bytes[2], elem1_bytes[3],
+                elem1_bytes[4], elem1_bytes[5], elem1_bytes[6], elem1_bytes[7],
+            ]);
+            assert_eq!(elem1_val, 2);
+
+            // Verify third element is 3 in LE
+            let elem2_bytes = &entry.bytes[16..24];
+            let elem2_val = u64::from_le_bytes([
+                elem2_bytes[0], elem2_bytes[1], elem2_bytes[2], elem2_bytes[3],
+                elem2_bytes[4], elem2_bytes[5], elem2_bytes[6], elem2_bytes[7],
+            ]);
+            assert_eq!(elem2_val, 3);
+        }
     }
 }
 

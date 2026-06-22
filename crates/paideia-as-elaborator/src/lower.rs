@@ -40,6 +40,7 @@
 //! | StmtExpr | Action | Statement-as-action |
 //! | StmtReturn | Action | Return placeholder; phase-1 does not model return in IR |
 //! | StmtInstruction | RawInstruction | Assembly instruction with persisted mnemonic + operand shape |
+//! | ExprArrayLit | ArrayLit | Array literal with element children |
 //! | Module | Module | Module declaration |
 //! | Signature | Module | Signature (module-like construct) |
 //! | Structure | Module | Module body |
@@ -301,6 +302,10 @@ pub fn lower_ast_to_ir(ast: &AstArena) -> LoweringResult {
                     children.extend(body.iter().copied());
                     children
                 }
+                ExprData::ArrayLit(elements) => {
+                    // ArrayLit: all element expressions as children
+                    elements.clone()
+                }
                 // TODO: Add Path, Ident, and other expression types as needed
                 // _ => Vec::new(),
                 _ => Vec::new(),
@@ -428,6 +433,10 @@ fn map_node_kind(kind: NodeKind) -> IrKind {
 
         // Control flow placeholders (phase-1 does not model these in IR yet)
         NodeKind::ExprLoop | NodeKind::StmtReturn => IrKind::Action,
+
+        // Array literal (Phase 8 m2-002): sequence of element expressions.
+        // cmd_build walks children, packs to bytes per element width.
+        NodeKind::ExprArrayLit => IrKind::ArrayLit,
 
         // Let bindings
         NodeKind::StmtLet | NodeKind::Let => IrKind::Let,
@@ -1008,5 +1017,85 @@ mod tests {
 
         assert_eq!(ptr_child_id, ptr_ir_id);
         assert_eq!(value_child_id, value_ir_id);
+    }
+
+    #[test]
+    fn lower_array_literal_produces_array_lit() {
+        // Phase 8 m2-002: array literal `[expr0, expr1, ...]` lowers to IrKind::ArrayLit
+        // with element children.
+        let mut ast = AstArena::new();
+
+        // Allocate element expressions (3 literals)
+        let elem0_id = ast.alloc(NodeKind::ExprLiteral, span());
+        let elem1_id = ast.alloc(NodeKind::ExprLiteral, span());
+        let elem2_id = ast.alloc(NodeKind::ExprLiteral, span());
+
+        // Allocate ExprArrayLit: [elem0, elem1, elem2]
+        let array_lit_id = ast.alloc_expr(
+            NodeKind::ExprArrayLit,
+            span(),
+            ExprData::ArrayLit(vec![elem0_id, elem1_id, elem2_id]),
+        );
+
+        // Lower the AST.
+        let result = lower_ast_to_ir(&ast);
+
+        // Verify we have 4 IR nodes: 3 Literals + 1 ArrayLit.
+        assert_eq!(result.ir.len(), 4);
+
+        // Verify the ArrayLit AST node maps to an ArrayLit IR node.
+        let ir_array_id = result.ast_to_ir[&array_lit_id];
+        assert_eq!(
+            result.ir[ir_array_id].kind,
+            IrKind::ArrayLit,
+            "ArrayLit should lower to IrKind::ArrayLit"
+        );
+
+        // Verify children order is preserved.
+        let children = result.ir.children(ir_array_id);
+        assert_eq!(children.len(), 3, "ArrayLit should have 3 element children");
+
+        let elem0_ir = result.ast_to_ir[&elem0_id];
+        let elem1_ir = result.ast_to_ir[&elem1_id];
+        let elem2_ir = result.ast_to_ir[&elem2_id];
+
+        assert_eq!(children[0], elem0_ir);
+        assert_eq!(children[1], elem1_ir);
+        assert_eq!(children[2], elem2_ir);
+
+        // Verify all element children are Literals.
+        assert_eq!(result.ir[elem0_ir].kind, IrKind::Literal);
+        assert_eq!(result.ir[elem1_ir].kind, IrKind::Literal);
+        assert_eq!(result.ir[elem2_ir].kind, IrKind::Literal);
+    }
+
+    #[test]
+    fn lower_empty_array_literal() {
+        // Phase 8 m2-002: empty array literal `[]` lowers to ArrayLit with no children.
+        let mut ast = AstArena::new();
+
+        // Allocate ExprArrayLit: []
+        let array_lit_id = ast.alloc_expr(
+            NodeKind::ExprArrayLit,
+            span(),
+            ExprData::ArrayLit(vec![]),
+        );
+
+        // Lower the AST.
+        let result = lower_ast_to_ir(&ast);
+
+        // Verify we have 1 IR node.
+        assert_eq!(result.ir.len(), 1);
+
+        // Verify the ArrayLit IR node exists and has no children.
+        let ir_array_id = result.ast_to_ir[&array_lit_id];
+        assert_eq!(result.ir[ir_array_id].kind, IrKind::ArrayLit);
+
+        let children = result.ir.children(ir_array_id);
+        assert_eq!(
+            children.len(),
+            0,
+            "Empty ArrayLit should have no children"
+        );
     }
 }
