@@ -125,6 +125,45 @@ pub fn lower_ast_to_ir(ast: &AstArena) -> LoweringResult {
                 ir_kind = IrKind::BitNot;
             }
         }
+        // Phase 7 m5-001 & m5-002: l-value assignment detection.
+        // Detect three patterns and lower them to Store instead of App:
+        // 1. a[i] = value (m5-001): LHS is ExprCall with 1 argument
+        // 2. *p = value (m5-002): LHS is ExprDeref
+        // 3. (*p).f = value (m5-002): LHS is ExprPostfix(FieldAccess) where expr is ExprDeref
+        if node.kind == paideia_as_ast::NodeKind::ExprInfix {
+            if let Some(paideia_as_ast::ExprData::Infix { op, lhs, .. }) = ast.expr_data(ast_id) {
+                let op_node = &ast[*op];
+                // Operator "=" is always 1 byte
+                if op_node.span.byte_len() == 1 {
+                    // Check if LHS is an l-value expression
+                    let is_lvalue = if let Some(paideia_as_ast::ExprData::Call { args, .. }) =
+                        ast.expr_data(*lhs)
+                    {
+                        // Pattern 1: a[i] = value
+                        args.len() == 1
+                    } else if let Some(paideia_as_ast::ExprData::Deref { .. }) = ast.expr_data(*lhs)
+                    {
+                        // Pattern 2: *p = value
+                        true
+                    } else if let Some(paideia_as_ast::ExprData::Postfix { expr, .. }) =
+                        ast.expr_data(*lhs)
+                    {
+                        // Pattern 3: (*p).f = value (field access on a deref)
+                        if let Some(paideia_as_ast::ExprData::Deref { .. }) = ast.expr_data(*expr) {
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+
+                    if is_lvalue {
+                        ir_kind = IrKind::Store;
+                    }
+                }
+            }
+        }
         let ir_id = ir.alloc(ir_kind, node.span);
         ast_to_ir.insert(ast_id, ir_id);
     }
@@ -160,9 +199,58 @@ pub fn lower_ast_to_ir(ast: &AstArena) -> LoweringResult {
                     children
                 }
                 ExprData::Infix { op, lhs, rhs } => {
-                    // Infix: op (usually a Var), lhs, rhs  (becomes App)
-                    // App structure: [callee (the +), arg0 (lhs), arg1 (rhs)]
-                    vec![*op, *lhs, *rhs]
+                    // Check if this is an l-value assignment.
+                    // Phase 7 m5-001 & m5-002: if this lowered to Store, rearrange children.
+                    // Store expects [addr, index_or_unused, value].
+                    let store_children = if let Some(ir_node) = ir.get(ir_id) {
+                        if ir_node.kind == IrKind::Store {
+                            // Try Pattern 1: a[i] = value (ExprCall on LHS)
+                            if let Some(paideia_as_ast::ExprData::Call { callee, args }) =
+                                ast.expr_data(*lhs)
+                            {
+                                if args.len() == 1 {
+                                    // callee is the base, args[0] is the index, rhs is the value
+                                    Some(vec![*callee, args[0], *rhs])
+                                } else {
+                                    None
+                                }
+                            }
+                            // Try Pattern 2: *p = value (ExprDeref on LHS)
+                            else if let Some(paideia_as_ast::ExprData::Deref { expr }) =
+                                ast.expr_data(*lhs)
+                            {
+                                // For deref store, children are [pointer, unused, value]
+                                Some(vec![*expr, *op, *rhs])
+                            }
+                            // Try Pattern 3: (*p).f = value (ExprPostfix(FieldAccess) on LHS)
+                            else if let Some(paideia_as_ast::ExprData::Postfix {
+                                expr: field_expr,
+                                ..
+                            }) = ast.expr_data(*lhs)
+                            {
+                                if let Some(paideia_as_ast::ExprData::Deref { expr: ptr }) =
+                                    ast.expr_data(*field_expr)
+                                {
+                                    // For field-access-of-deref store, children are [pointer, unused, value]
+                                    Some(vec![*ptr, *op, *rhs])
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
+                    // Use the special Store children if found, otherwise fall back to regular infix
+                    match store_children {
+                        Some(children) => children,
+                        None => vec![*op, *lhs, *rhs],
+                    }
                 }
                 ExprData::Prefix { op, expr, kind } => {
                     // Prefix `~` (BitNot) lowers to `IrKind::BitNot`, whose
@@ -682,5 +770,243 @@ mod tests {
         let ir_one_id = result.ast_to_ir[&one_id];
         assert_eq!(result.ir[ir_rax_id].kind, IrKind::Var); // OperandRegister -> Var
         assert_eq!(result.ir[ir_one_id].kind, IrKind::Literal); // ExprLiteral -> Literal
+    }
+
+    #[test]
+    fn lower_array_assign_produces_store() {
+        // Phase 7 m5-001: array-index assignment `a[i] = value`.
+        // Build: a[i] = x
+        // This tests that an assignment to an indexed expression lowers to IrKind::Store
+        // instead of IrKind::App.
+        let mut ast = AstArena::new();
+
+        // Allocate base variable: a
+        let base_var_id = ast.alloc(NodeKind::Ident, span());
+
+        // Allocate index variable: i
+        let index_var_id = ast.alloc(NodeKind::Ident, span());
+
+        // Allocate ExprCall: a[i]
+        // Indexing is represented as Call with 1 argument
+        let index_expr_id = ast.alloc_expr(
+            NodeKind::ExprCall,
+            span(),
+            ExprData::Call {
+                callee: base_var_id,
+                args: vec![index_var_id],
+            },
+        );
+
+        // Allocate value variable: x
+        let value_var_id = ast.alloc(NodeKind::Ident, span());
+
+        // Allocate the operator node (=) - a Placeholder with 1-byte span
+        let assign_op_id = ast.alloc(NodeKind::Placeholder, span());
+
+        // Allocate ExprInfix: a[i] = x
+        let assign_expr_id = ast.alloc_expr(
+            NodeKind::ExprInfix,
+            span(),
+            ExprData::Infix {
+                lhs: index_expr_id,
+                op: assign_op_id,
+                rhs: value_var_id,
+            },
+        );
+
+        // Lower the AST.
+        let result = lower_ast_to_ir(&ast);
+
+        // Verify the assignment lowered to Store instead of App.
+        let assign_ir_id = result.ast_to_ir[&assign_expr_id];
+        assert_eq!(
+            result.ir[assign_ir_id].kind,
+            IrKind::Store,
+            "Array assignment should lower to Store"
+        );
+
+        // Verify children are rearranged to [base, index, value]
+        let children = result.ir.children(assign_ir_id);
+        assert_eq!(children.len(), 3, "Store should have 3 children");
+
+        // Children should map to base_var, index_var, value_var
+        let base_child_id = children[0];
+        let index_child_id = children[1];
+        let value_child_id = children[2];
+
+        let base_ir_id = result.ast_to_ir[&base_var_id];
+        let index_ir_id = result.ast_to_ir[&index_var_id];
+        let value_ir_id = result.ast_to_ir[&value_var_id];
+
+        assert_eq!(base_child_id, base_ir_id);
+        assert_eq!(index_child_id, index_ir_id);
+        assert_eq!(value_child_id, value_ir_id);
+    }
+
+    #[test]
+    fn lower_regular_assign_produces_app() {
+        // Verify that regular assignment (not to an index) still lowers to App.
+        // Build: x = 5
+        let mut ast = AstArena::new();
+
+        // Allocate variable: x
+        let var_x_id = ast.alloc(NodeKind::Ident, span());
+
+        // Allocate literal: 5
+        let lit_5_id = ast.alloc(NodeKind::ExprLiteral, span());
+
+        // Allocate the operator node (=)
+        let assign_op_id = ast.alloc(NodeKind::Placeholder, span());
+
+        // Allocate ExprInfix: x = 5 (not an indexed assignment)
+        let assign_expr_id = ast.alloc_expr(
+            NodeKind::ExprInfix,
+            span(),
+            ExprData::Infix {
+                lhs: var_x_id,
+                op: assign_op_id,
+                rhs: lit_5_id,
+            },
+        );
+
+        // Lower the AST.
+        let result = lower_ast_to_ir(&ast);
+
+        // Verify the assignment lowered to App (regular operator desugaring)
+        let assign_ir_id = result.ast_to_ir[&assign_expr_id];
+        assert_eq!(
+            result.ir[assign_ir_id].kind,
+            IrKind::App,
+            "Regular assignment should lower to App"
+        );
+    }
+
+    #[test]
+    fn lower_deref_assign_produces_store() {
+        // Phase 7 m5-002: pointer-deref assignment `*p = value`.
+        // Build: *p = x
+        let mut ast = AstArena::new();
+
+        // Allocate pointer variable: p
+        let ptr_var_id = ast.alloc(NodeKind::Ident, span());
+
+        // Allocate ExprDeref: *p
+        let deref_expr_id = ast.alloc_expr(
+            NodeKind::ExprDeref,
+            span(),
+            ExprData::Deref { expr: ptr_var_id },
+        );
+
+        // Allocate value variable: x
+        let value_var_id = ast.alloc(NodeKind::Ident, span());
+
+        // Allocate the operator node (=)
+        let assign_op_id = ast.alloc(NodeKind::Placeholder, span());
+
+        // Allocate ExprInfix: *p = x
+        let assign_expr_id = ast.alloc_expr(
+            NodeKind::ExprInfix,
+            span(),
+            ExprData::Infix {
+                lhs: deref_expr_id,
+                op: assign_op_id,
+                rhs: value_var_id,
+            },
+        );
+
+        // Lower the AST.
+        let result = lower_ast_to_ir(&ast);
+
+        // Verify the assignment lowered to Store
+        let assign_ir_id = result.ast_to_ir[&assign_expr_id];
+        assert_eq!(
+            result.ir[assign_ir_id].kind,
+            IrKind::Store,
+            "Deref assignment should lower to Store"
+        );
+
+        // Verify children are [pointer, unused, value]
+        let children = result.ir.children(assign_ir_id);
+        assert_eq!(children.len(), 3, "Store should have 3 children");
+
+        let ptr_child_id = children[0];
+        let value_child_id = children[2];
+
+        let ptr_ir_id = result.ast_to_ir[&ptr_var_id];
+        let value_ir_id = result.ast_to_ir[&value_var_id];
+
+        assert_eq!(ptr_child_id, ptr_ir_id);
+        assert_eq!(value_child_id, value_ir_id);
+    }
+
+    #[test]
+    fn lower_field_deref_assign_produces_store() {
+        // Phase 7 m5-002: field-access-of-deref assignment `(*p).field = value`.
+        // Build: (*p).field = x
+        let mut ast = AstArena::new();
+
+        // Allocate pointer variable: p
+        let ptr_var_id = ast.alloc(NodeKind::Ident, span());
+
+        // Allocate ExprDeref: *p
+        let deref_expr_id = ast.alloc_expr(
+            NodeKind::ExprDeref,
+            span(),
+            ExprData::Deref { expr: ptr_var_id },
+        );
+
+        // Allocate field name: "field"
+        let field_op_id = ast.alloc(NodeKind::Ident, span());
+
+        // Allocate ExprPostfix: (*p).field
+        let field_access_id = ast.alloc_expr(
+            NodeKind::ExprPostfix,
+            span(),
+            ExprData::Postfix {
+                expr: deref_expr_id,
+                op: field_op_id,
+            },
+        );
+
+        // Allocate value variable: x
+        let value_var_id = ast.alloc(NodeKind::Ident, span());
+
+        // Allocate the operator node (=)
+        let assign_op_id = ast.alloc(NodeKind::Placeholder, span());
+
+        // Allocate ExprInfix: (*p).field = x
+        let assign_expr_id = ast.alloc_expr(
+            NodeKind::ExprInfix,
+            span(),
+            ExprData::Infix {
+                lhs: field_access_id,
+                op: assign_op_id,
+                rhs: value_var_id,
+            },
+        );
+
+        // Lower the AST.
+        let result = lower_ast_to_ir(&ast);
+
+        // Verify the assignment lowered to Store
+        let assign_ir_id = result.ast_to_ir[&assign_expr_id];
+        assert_eq!(
+            result.ir[assign_ir_id].kind,
+            IrKind::Store,
+            "Field-deref assignment should lower to Store"
+        );
+
+        // Verify children are [pointer, unused, value]
+        let children = result.ir.children(assign_ir_id);
+        assert_eq!(children.len(), 3, "Store should have 3 children");
+
+        let ptr_child_id = children[0];
+        let value_child_id = children[2];
+
+        let ptr_ir_id = result.ast_to_ir[&ptr_var_id];
+        let value_ir_id = result.ast_to_ir[&value_var_id];
+
+        assert_eq!(ptr_child_id, ptr_ir_id);
+        assert_eq!(value_child_id, value_ir_id);
     }
 }

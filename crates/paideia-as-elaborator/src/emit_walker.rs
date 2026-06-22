@@ -362,6 +362,10 @@ impl EmitWalker {
                             // Phase 6 m3-002: emit field access lowering for (*p).field shape.
                             self.visit_field_access(node_id, arena);
                         }
+                        IrKind::Store => {
+                            // Phase 7 m5-001: emit array-index assignment lowering for a[i] = expr.
+                            self.visit_store(node_id, arena);
+                        }
                         IrKind::RecordCons => {
                             // Phase 6 m3-004: emit record constructor lowering for cap-mint shape.
                             self.visit_record_cons(node_id, arena);
@@ -1913,6 +1917,92 @@ impl EmitWalker {
     /// imm32-sign-extended form: `48 C7 47 18 00 00 00 00` (8 bytes).
     ///
     /// Fires T0518 for unsupported shapes.
+    fn visit_store(&mut self, store_id: IrNodeId, arena: &IrArena) {
+        // Phase 7 m5-001 & m5-002: l-value assignment emission.
+        // Store has three children: [addr, index_or_unused, value].
+        // m5-001: a[i] = value → [base, index, value]
+        // m5-002: *p = value → [pointer, unused, value]
+        // m5-002: (*p).f = value → [pointer, unused, value] (offset handled later)
+        let children = arena.children(store_id);
+        if children.len() != 3 {
+            self.diagnostics.push(format!(
+                "Store node {} has {} children; expected 3",
+                store_id.get(),
+                children.len()
+            ));
+            return;
+        }
+
+        let addr_id = children[0];
+        let _index_or_unused_id = children[1];
+        let value_id = children[2];
+
+        let addr_node = arena.get(addr_id);
+        let value_node = arena.get(value_id);
+
+        if addr_node.map(|n| n.kind) != Some(IrKind::Var) {
+            self.diagnostics.push(format!(
+                "Store addr must be Var; got {:?}",
+                addr_node.map(|n| n.kind)
+            ));
+            return;
+        }
+
+        if value_node.map(|n| n.kind) != Some(IrKind::Var) {
+            self.diagnostics.push(format!(
+                "Store value must be Var; got {:?}",
+                value_node.map(|n| n.kind)
+            ));
+            return;
+        }
+
+        // Determine if this is m5-001 (array index) or m5-002 (deref).
+        // If the second child is a Var, it's m5-001 (index).
+        // If the second child is not a Var (e.g., Placeholder from operator), it's m5-002.
+        let is_array_store = arena
+            .get(_index_or_unused_id)
+            .map(|n| n.kind == IrKind::Var)
+            .unwrap_or(false);
+
+        let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+
+        if is_array_store {
+            // m5-001: a[i] = value
+            // Operands: [base, index, value] = [rdi, rsi, rdx]
+            // Emit: mov [rdi + rsi*8], rdx
+            operands.push(Operand::MemSib {
+                base: RegId(7),        // rdi (base)
+                index: Some(RegId(6)), // rsi (index)
+                scale: paideia_as_ir::instruction::Scale::X8,
+                disp: 0,
+            });
+            operands.push(Operand::Reg(RegId(2))); // rdx (value, source)
+        } else {
+            // m5-002: *p = value or (*p).f = value
+            // Operands: [pointer, value] = [rdi, rdx]
+            // Emit: mov [rdi], rdx (use MemSib with no index for [base] addressing)
+            operands.push(Operand::MemSib {
+                base: RegId(7),                               // rdi (pointer)
+                index: None,                                  // no index
+                scale: paideia_as_ir::instruction::Scale::X1, // ignored when no index
+                disp: 0,
+            });
+            operands.push(Operand::Reg(RegId(2))); // rdx (value, source)
+        }
+
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands,
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        self.state.instructions.insert(store_id, inst);
+
+        // Estimate size: mov with memory addressing is typically 3-6 bytes.
+        self.state.estimated_offset += 4;
+    }
+
     fn visit_record_cons(&mut self, record_cons_id: IrNodeId, arena: &IrArena) {
         // Look up the RecordTypeId for this RecordCons node.
         let type_id = match arena.record_layout_table().get(record_cons_id) {
