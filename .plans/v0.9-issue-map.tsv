@@ -1,0 +1,12 @@
+TaskID	Repo	Issue#	Title	Size	Milestone	Blocked File(s)
+PA9-m1-001	paideia-as	848	Parser+elaborator: bare if as unit-typed statement	S	pa9-substrate	core/cap/slab.pdx
+PA9-m1-002	paideia-as	849	Elaborator: nested array-repeat materialisation	M	pa9-substrate	core/ipc/channel.pdx
+PA9-m1-003	paideia-as	850	Encoder: general base+index*scale+disp SIB form for mov	S	pa9-substrate	core/sched/enqueue.pdx
+R7-rewrite-001	paideia-os	315	Rewrite core/ipc/slots.pdx to real .pdx	XS	r7-rewrite-checkpoint-2	core/ipc/slots.pdx
+R7-rewrite-002	paideia-os	316	Rewrite core/ipc/allocator.pdx to real .pdx	XS	r7-rewrite-checkpoint-2	core/ipc/allocator.pdx
+R7-rewrite-003	paideia-os	317	Rewrite core/ipc/dispatch.pdx to real .pdx	XS	r7-rewrite-checkpoint-2	core/ipc/dispatch.pdx
+R7-rewrite-004	paideia-os	318	Rewrite core/ipc/mpsc_lock.pdx to real .pdx	XS	r7-rewrite-checkpoint-2	core/ipc/mpsc_lock.pdx
+R7-rewrite-005	paideia-os	319	Rewrite core/ipc/destroy_channel.pdx to real .pdx	XS	r7-rewrite-checkpoint-2	core/ipc/destroy_channel.pdx
+PA9-m3-001	paideia-as	851	Bump workspace.version to 0.9.0; tag v0.9.0; submodule bump	XS	pa9-closure	(gating m4)
+R7-unquarantine-001	paideia-os	320	Batch-unquarantine 8 checkpoint-2 files; build.sh + smoke green	XS	r7-unquarantine	8 files
+PA9-m5-001	paideia-as	852	v0.9 retrospective + R6.5/D7 resume signal	XS	pa9-closure	(closure)
