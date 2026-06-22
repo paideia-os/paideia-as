@@ -269,19 +269,11 @@ impl EmitWalker {
     /// narrower `MovSized` form (e.g. `let x : u32 = 42` → 5-byte `B8 imm32`).
     /// Bindings without a recorded type, or non-integer types, fall back to the
     /// generic 64-bit `Mov` path, so behaviour is unchanged for untyped IR.
-    pub fn walk_with_typer(
-        &mut self,
-        arena: &mut IrArena,
-        typer: &paideia_as_types::TypeInterner,
-    ) {
+    pub fn walk_with_typer(&mut self, arena: &mut IrArena, typer: &paideia_as_types::TypeInterner) {
         self.walk_inner(arena, Some(typer));
     }
 
-    fn walk_inner(
-        &mut self,
-        arena: &mut IrArena,
-        typer: Option<&paideia_as_types::TypeInterner>,
-    ) {
+    fn walk_inner(&mut self, arena: &mut IrArena, typer: Option<&paideia_as_types::TypeInterner>) {
         // Iterate over all nodes, looking for Let, Lambda, and Unsafe nodes.
         for i in 1..=arena.len() as u32 {
             if let Some(node_id) = IrNodeId::new(i) {
@@ -2623,9 +2615,10 @@ mod tests {
         // Build a type interner with a u32 type and record it on the binding.
         let mut typer = TypeInterner::new();
         let u32_id = typer.uint(32);
-        arena
-            .let_meta_mut()
-            .insert(let_id, LetInfo::with_type(false, Some(IrTypeId(u32_id.get()))));
+        arena.let_meta_mut().insert(
+            let_id,
+            LetInfo::with_type(false, Some(IrTypeId(u32_id.get()))),
+        );
 
         let mut walker = EmitWalker::new();
         walker.walk_with_typer(&mut arena, &typer);
@@ -2659,9 +2652,10 @@ mod tests {
 
         let mut typer = TypeInterner::new();
         let u64_id = typer.uint(64);
-        arena
-            .let_meta_mut()
-            .insert(let_id, LetInfo::with_type(false, Some(IrTypeId(u64_id.get()))));
+        arena.let_meta_mut().insert(
+            let_id,
+            LetInfo::with_type(false, Some(IrTypeId(u64_id.get()))),
+        );
 
         let mut walker = EmitWalker::new();
         walker.walk_with_typer(&mut arena, &typer);
