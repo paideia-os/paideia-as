@@ -24,13 +24,77 @@ pub(crate) enum BlockKind {
 }
 
 impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
+    /// Check if an `else` keyword follows immediately after the closing brace of a block.
+    ///
+    /// This helper is used during `parse_if` to determine whether a bare `if` (without `else`)
+    /// should have its then-block parsed as `BlockKind::Statement` (unit-typed) instead of
+    /// the caller's expectation. A bare `if` is one that lacks an `else` clause.
+    ///
+    /// **Algorithm:**
+    /// 1. Use peek_at() starting from the current position to scan ahead.
+    /// 2. Expect `{` at the current position.
+    /// 3. Walk forward tracking `{`/`}` depth; skip over nested braces.
+    /// 4. When depth returns to 0, check if the next token is `KwElse`.
+    /// 5. Return the result without consuming any tokens.
+    ///
+    /// **Token handling:** The lexer yields string and char literals as single tokens, so
+    /// no special delimiter handling is needed.
+    fn peek_has_else_after_block(&self) -> bool {
+        // We expect to be at the opening brace `{`. Check that first.
+        if !self.at(TokenKind::LBrace) {
+            return false;
+        }
+
+        let mut depth = 0;
+        let mut pos = 0; // Position relative to current (0 = current token, which is `{`)
+
+        // Walk through tokens until we've matched the closing brace
+        loop {
+            match self.peek_at(pos) {
+                None => {
+                    break; // EOF before closing brace
+                }
+                Some(tok) => {
+                    match tok.kind {
+                        TokenKind::Eof => {
+                            break; // EOF
+                        }
+                        TokenKind::LBrace => {
+                            depth += 1;
+                            pos += 1;
+                        }
+                        TokenKind::RBrace => {
+                            if depth == 1 {
+                                // Found the matching closing brace; check next token
+                                if let Some(next_tok) = self.peek_at(pos + 1) {
+                                    return next_tok.kind == TokenKind::KwElse;
+                                }
+                                return false;
+                            } else {
+                                depth -= 1;
+                                pos += 1;
+                            }
+                        }
+                        _ => {
+                            pos += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
     /// Parse an if expression with the given block kind.
     ///
     /// Form: `if cond { then-block } else { else-block }` or just `if cond { then-block }`.
     /// The else-block can itself be another if (else-if chain).
     /// Returns a `NodeKind::ExprIf`.
     ///
-    /// The `kind` parameter is threaded to both then-block and else-block.
+    /// The `kind` parameter is threaded to both then-block and else-block for cases with `else`.
+    /// For bare `if` (no `else`), the then-block is always parsed as `BlockKind::Statement`
+    /// to make the entire `if` expression unit-typed.
     pub(crate) fn parse_if(
         &mut self,
         kind: BlockKind,
@@ -41,8 +105,16 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         // Parse condition
         let cond = self.parse_expr()?;
 
-        // Parse then-block with the given kind
-        let then_block = self.parse_block_kind(kind)?;
+        // Determine the block kind for the then-block:
+        // If there's no `else` following, the then-block must be unit-typed (Statement).
+        let then_kind = if !self.peek_has_else_after_block() {
+            BlockKind::Statement // bare if is always unit-typed
+        } else {
+            kind // preserve caller's expectation for if-else
+        };
+
+        // Parse then-block with the determined kind
+        let then_block = self.parse_block_kind(then_kind)?;
 
         // Optional else clause
         let else_block = if self.at(TokenKind::KwElse) {
@@ -857,8 +929,9 @@ mod tests {
     }
 
     #[test]
-    fn value_position_if_rejects_trailing_semi() {
-        // if cond { x; } (value position: should error P0158 - trailing ; with no tail)
+    fn if_else_rejects_trailing_semi_in_value_then() {
+        // if cond { x; } else { y } (value position: should error P0158 in then-block)
+        // With else present, the then-block stays as Value kind and should reject trailing ;
         let tokens = vec![
             tok(TokenKind::KwIf, 0, 2),
             tok(TokenKind::Ident, 3, 4), // cond
@@ -866,22 +939,27 @@ mod tests {
             tok(TokenKind::Ident, 10, 1),     // x
             tok(TokenKind::Semicolon, 11, 1), // trailing ;
             tok(TokenKind::RBrace, 12, 1),
-            tok(TokenKind::Eof, 13, 0),
+            tok(TokenKind::KwElse, 14, 4),    // else
+            tok(TokenKind::LBrace, 19, 1),
+            tok(TokenKind::Ident, 21, 1),     // y
+            tok(TokenKind::RBrace, 22, 1),
+            tok(TokenKind::Eof, 23, 0),
         ];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
         let result = {
             let mut p = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
-            // Parse as value-position if
+            // Parse as value-position if-else
             p.parse_if(BlockKind::Value)
         };
 
-        // Should fail
-        assert!(result.is_err());
         let diags = sink.diagnostics();
+
+        // Should fail: then-block is Value kind (because else follows), trailing ; is rejected
+        assert!(result.is_err());
         assert!(
             diags.iter().any(|d| d.code().number() == 158),
-            "P0158 on value-position block with trailing ;"
+            "P0158 on value-position block with trailing ; when else follows"
         );
     }
 
@@ -1018,5 +1096,133 @@ mod tests {
         assert_eq!(diags.len(), 0, "bare block should have no errors");
         let node = arena.get(root).unwrap();
         assert_eq!(node.kind, NodeKind::ExprBlock);
+    }
+
+    // PA9-m1-001: bare-if as unit-typed statement
+
+    #[test]
+    fn bare_if_tail_of_value_block_parses_as_unit() {
+        // fn body { if cond { stmts; } } — the bare if should parse with unit-typed then-block
+        // so it doesn't reject the trailing ; of the if statement in a value-position outer block.
+        // Simplified: bare if { 42; } should parse without P0158 when in statement position.
+        let tokens = vec![
+            tok(TokenKind::KwIf, 0, 2),    // if
+            tok(TokenKind::Ident, 3, 4),   // cond
+            tok(TokenKind::LBrace, 8, 1),  // {
+            tok(TokenKind::IntLit, 10, 2), // 42
+            tok(TokenKind::Semicolon, 12, 1), // ;
+            tok(TokenKind::RBrace, 13, 1), // }
+            tok(TokenKind::Eof, 14, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let root = {
+            let mut p = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+            p.parse_if(BlockKind::Value).expect("parse failed")
+        };
+        let diags = sink.diagnostics();
+
+        // Should have no P0158 because bare-if downgrades to Statement kind
+        assert!(
+            diags.iter().all(|d| d.code().number() != 158),
+            "bare if should not emit P0158"
+        );
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprIf);
+    }
+
+    #[test]
+    fn bare_if_midblock_unchanged() {
+        // Bare if { stmts; } followed by another stmt in BlockKind::Statement block.
+        // The if itself should parse without error (no P0158).
+        let tokens = vec![
+            tok(TokenKind::LBrace, 0, 1),  // outer {
+            tok(TokenKind::KwIf, 2, 2),    // if
+            tok(TokenKind::Ident, 5, 4),   // cond
+            tok(TokenKind::LBrace, 10, 1), // inner {
+            tok(TokenKind::IntLit, 12, 1), // x
+            tok(TokenKind::RBrace, 13, 1), // inner }
+            tok(TokenKind::Semicolon, 14, 1), // if statement ends with ;
+            tok(TokenKind::Ident, 16, 1),  // another stmt
+            tok(TokenKind::RBrace, 17, 1), // outer }
+            tok(TokenKind::Eof, 18, 0),
+        ];
+        let (arena, root, diags) = parse(tokens);
+
+        // The outer block should parse successfully; no P0158
+        assert!(
+            diags.iter().all(|d| d.code().number() != 158),
+            "bare if in statement block should not emit P0158"
+        );
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprBlock);
+    }
+
+    #[test]
+    fn nested_if_else_with_inner_bare_if() {
+        // if a { if b { x }; } else { ... }
+        // The inner bare-if downgrades its then-block to Statement (allows trailing ; on x);
+        // the if statement itself ends with ;, making the outer block have statements but no tail.
+        // In Statement position, this works fine.
+        let tokens = vec![
+            tok(TokenKind::KwIf, 0, 2),    // if a
+            tok(TokenKind::Ident, 3, 1),   // a
+            tok(TokenKind::LBrace, 5, 1),  // {
+            tok(TokenKind::KwIf, 7, 2),    // inner: if b
+            tok(TokenKind::Ident, 10, 1),  // b
+            tok(TokenKind::LBrace, 12, 1), // inner {
+            tok(TokenKind::IntLit, 14, 1), // 1
+            tok(TokenKind::RBrace, 15, 1), // inner }
+            tok(TokenKind::Semicolon, 16, 1), // ;
+            tok(TokenKind::RBrace, 17, 1), // outer then }
+            tok(TokenKind::KwElse, 19, 4), // else
+            tok(TokenKind::LBrace, 24, 1), // else {
+            tok(TokenKind::IntLit, 26, 1), // 99
+            tok(TokenKind::RBrace, 27, 1), // else }
+            tok(TokenKind::Eof, 28, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let root = {
+            let mut p = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+            // Parse in statement position to simplify
+            p.parse_if(BlockKind::Statement).expect("parse failed")
+        };
+        let diags = sink.diagnostics();
+
+        // Should have no P0158
+        assert!(
+            diags.iter().all(|d| d.code().number() != 158),
+            "nested bare if with else should not emit P0158"
+        );
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprIf);
+    }
+
+    #[test]
+    fn bare_if_with_tail_expr_then_block() {
+        // if cond { 42 } (no else, value-bound then-block becomes a stmt).
+        // The then-block should still parse as Statement (bare-if downgrade),
+        // and the 42 becomes the tail of a unit-typed block.
+        let tokens = vec![
+            tok(TokenKind::KwIf, 0, 2),    // if
+            tok(TokenKind::Ident, 3, 4),   // cond
+            tok(TokenKind::LBrace, 8, 1),  // {
+            tok(TokenKind::IntLit, 10, 2), // 42
+            tok(TokenKind::RBrace, 12, 1), // }
+            tok(TokenKind::Eof, 13, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let root = {
+            let mut p = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+            p.parse_if(BlockKind::Value).expect("parse failed")
+        };
+        let diags = sink.diagnostics();
+
+        // Should parse successfully
+        assert_eq!(diags.len(), 0, "bare if with tail expr should have no diagnostics");
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprIf);
     }
 }
