@@ -943,6 +943,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "Phase 7 m2-001 (PA7C-m2-001): During IR traversal in emit_block_body, a RawInstruction child node was encountered but the instruction payload was not found in the InstructionSideTable. This indicates an internal compiler error: either the instruction was not properly registered during elaboration, or the side-table lookup failed. This is a structural invariant violation and should not occur in normal compilation."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0526",
+              "id": "T0526",
+              "name": "Instruction payload not found in side-table",
+              "shortDescription": {
+                "text": "RawInstruction node lacks corresponding instruction payload (internal compiler error)"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "A binding declared as Linear or Ordered in the substructural lattice must be used exactly once. This binding was never used. A Linear binding represents a unique resource that must be consumed; Ordered adds ordering constraints. Check that the binding is referenced exactly once in its scope."
               },
               "helpUri": "https://paideia-os.org/diagnostics/S0900",
