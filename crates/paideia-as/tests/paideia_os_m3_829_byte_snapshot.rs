@@ -164,11 +164,7 @@ fn find_paideia_as() -> Option<PathBuf> {
         .parent()?
         .parent()?
         .join("target/release/paideia-as");
-    if p.exists() {
-        Some(p)
-    } else {
-        None
-    }
+    if p.exists() { Some(p) } else { None }
 }
 
 /// Build `src` to an elf64 object at `out`; return (success, stderr).
@@ -210,11 +206,7 @@ fn first_diff(a: &[u8], b: &[u8]) -> Option<usize> {
             return Some(i);
         }
     }
-    if a.len() != b.len() {
-        Some(n)
-    } else {
-        None
-    }
+    if a.len() != b.len() { Some(n) } else { None }
 }
 
 /// Build all four files and assert each `.text` matches its baseline.
@@ -254,7 +246,11 @@ fn paideia_os_m3_four_file_text_byte_snapshot() {
     for case in CASES {
         let src = kernel_dir.join(case.rel_path);
         if !src.exists() {
-            failures.push(format!("{}: source missing at {}", case.name, src.display()));
+            failures.push(format!(
+                "{}: source missing at {}",
+                case.name,
+                src.display()
+            ));
             continue;
         }
         let out = tmpdir.join(format!("pa8-m3-829-{}.o", case.name));

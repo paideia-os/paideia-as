@@ -314,6 +314,18 @@ pub fn lower_ast_to_ir(ast: &AstArena) -> LoweringResult {
                     }
                     children
                 }
+                ExprData::Unsafe {
+                    effects: _effects,
+                    capabilities: _capabilities,
+                    justification: _justification,
+                    block,
+                } => {
+                    // Unsafe block: the block's statements become children.
+                    // Phase 8 m4-001: walk the block's statements and emit each as an IR child.
+                    // The effects, capabilities, and justification are metadata preserved
+                    // separately and not exposed as structural children.
+                    block.clone()
+                }
                 // TODO: Add Path, Ident, and other expression types as needed
                 // _ => Vec::new(),
                 _ => Vec::new(),

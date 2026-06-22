@@ -38,7 +38,7 @@ pub mod last_use;
 pub mod lifetime_walker;
 pub mod linearity_ctx;
 pub mod local_binding_table;
-mod lower;
+pub mod lower;
 pub mod macro_expand;
 pub mod macro_match;
 pub mod modules;

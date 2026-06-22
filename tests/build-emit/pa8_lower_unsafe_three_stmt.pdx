@@ -1,0 +1,9 @@
+// Phase 8 m4-001: unsafe block with three mov/out instructions
+// Verifies that the lowering produces three RawInstruction IR children
+// which emit_walker processes to the expected 7-byte sequence.
+
+let test_three : () -> () = fn () -> unsafe {
+    mov al, 0x80;
+    mov dx, 0x3FB;
+    out dx, al
+};

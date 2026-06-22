@@ -4089,8 +4089,14 @@ mod tests {
     #[test]
     fn cast_plan_widening_unsigned_dispatches_movzx_or_mov32() {
         // u8/u16 → u64 use movzx (0F B6 / 0F B7); u32 → u64 uses a 32-bit mov.
-        assert_eq!(cast_plan(shape(1, 8, false, false)), CastPlan::ZeroExtend(1));
-        assert_eq!(cast_plan(shape(2, 8, false, false)), CastPlan::ZeroExtend(2));
+        assert_eq!(
+            cast_plan(shape(1, 8, false, false)),
+            CastPlan::ZeroExtend(1)
+        );
+        assert_eq!(
+            cast_plan(shape(2, 8, false, false)),
+            CastPlan::ZeroExtend(2)
+        );
         assert_eq!(cast_plan(shape(4, 8, false, false)), CastPlan::Mov32);
 
         // movzx u8 → Movzx/opcode 0xB6, 4 bytes.
@@ -4148,7 +4154,11 @@ mod tests {
         walker.emit_cast_lambda_with_shape(lambda_id, shape(8, 4, true, false));
 
         let mov_id = IrNodeId::new(lambda_id.get() * 2).expect("mov instr id");
-        let mov = walker.state().instructions.get(mov_id).expect("mov emitted");
+        let mov = walker
+            .state()
+            .instructions
+            .get(mov_id)
+            .expect("mov emitted");
         assert_eq!(mov.mnemonic, Mnemonic::Mov);
         assert_eq!(mov.encoding_hint.map(|h| h.operand_size), Some(4));
 
@@ -5747,8 +5757,7 @@ mod tests {
         let let_id = arena.alloc_with_children(IrKind::Let, span(), [lit_id]);
         let tail_var_id = arena.alloc(IrKind::Var, span());
         let stmt_expr_id = arena.alloc_with_children(IrKind::Action, span(), [tail_var_id]);
-        let block_id =
-            arena.alloc_with_children(IrKind::Action, span(), [let_id, stmt_expr_id]);
+        let block_id = arena.alloc_with_children(IrKind::Action, span(), [let_id, stmt_expr_id]);
         let _lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [block_id]);
 
         // Record the inner Let's declared type as u16.
@@ -5790,8 +5799,7 @@ mod tests {
         let let_id = arena.alloc_with_children(IrKind::Let, span(), [lit_id]);
         let tail_var_id = arena.alloc(IrKind::Var, span());
         let stmt_expr_id = arena.alloc_with_children(IrKind::Action, span(), [tail_var_id]);
-        let block_id =
-            arena.alloc_with_children(IrKind::Action, span(), [let_id, stmt_expr_id]);
+        let block_id = arena.alloc_with_children(IrKind::Action, span(), [let_id, stmt_expr_id]);
         let _lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [block_id]);
 
         let mut walker = EmitWalker::new();

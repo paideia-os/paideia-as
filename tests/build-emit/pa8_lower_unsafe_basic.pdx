@@ -1,0 +1,8 @@
+// Phase 8 m4-001: basic unsafe block with cli and hlt instructions
+// This tests that lower.rs walks the unsafe block body and emits
+// RawInstruction IR children that emit_walker can then process.
+
+let test_unsafe : () -> () = fn () -> unsafe {
+    cli;
+    hlt
+};
