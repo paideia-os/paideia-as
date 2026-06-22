@@ -29,7 +29,7 @@ pub enum BuildError {
 use crate::det;
 use paideia_as_ast::{AstArena, NodeId as AstNodeId, NodeKind, TypeData};
 use paideia_as_diagnostics::{
-    Catalog, Category, Diagnostic, DiagnosticCode, DiagnosticSink, HumanRenderer, HumanSink,
+    Catalog, DiagnosticSink, HumanRenderer, HumanSink,
     Severity, SourceMap, VecSink,
 };
 use paideia_as_elaborator::{
@@ -628,7 +628,7 @@ fn build_elf_object(
     _source_map: &SourceMap,
     file: paideia_as_diagnostics::FileId,
     encoder_warn: bool,
-    sink: &mut dyn DiagnosticSink,
+    _sink: &mut dyn DiagnosticSink,
 ) -> Result<Vec<u8>, BuildError> {
     let mut writer = ElfWriter::new(Arch::X86_64, Kind::Relocatable);
 
@@ -781,22 +781,12 @@ fn build_elf_object(
         }
     }
 
-    // Phase 7 m1-001: Emit diagnostic B1702 only if BOTH no symbols were
-    // exported AND .text is empty. Top-level `let x = unsafe { … }` bindings
-    // emit real bytes into .text without registering a Function symbol; those
-    // are legitimate Phase-3-style fixtures and should not trigger B1702.
-    // The diagnostic is intended for the "user wrote a file with no executable
-    // content at all" case.
-    if !emitted_any_symbol && text_bytes.is_empty() {
-        let code = DiagnosticCode::new(Category::B, Severity::Error, 1702)
-            .unwrap_or_else(|_| panic!("B1702 code construction failed"));
-        let span = paideia_as_diagnostics::Span::new(file, 0, 1);
-        let diagnostic = Diagnostic::error(code)
-            .with_span(span)
-            .message("no exported symbols")
-            .finish();
-        let _ = sink.emit(diagnostic);
-    }
+    // Phase 7 m1-001: B1702 is defined in the catalog but not currently
+    // emitted. A legitimately empty source (no fn, no unsafe block, no data,
+    // no .bss) is rare and produces an obvious empty .o; the linker's own
+    // diagnostics are more useful than ours. The catalog entry exists for
+    // future use by a stricter `paideia-as check --pedantic` mode.
+    let _ = emitted_any_symbol; // reserved for future B1702 logic
 
     // Phase-5-m4-004: Emit relocations collected from instruction encoding.
     use paideia_as_emitter_elf::RelocEntry;

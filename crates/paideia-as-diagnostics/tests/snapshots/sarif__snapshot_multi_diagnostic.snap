@@ -1,6 +1,5 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
-assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -1371,6 +1370,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "Unbound capability",
               "shortDescription": {
                 "text": "unbound capability — no export matches an import"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase 7 m1-001: when building an ELF object file, the elaboration phase produced no top-level function or object bindings to export. The resulting ELF would have no named symbols. Ensure the module contains at least one top-level `let` binding (e.g., `let _start : () -> () = fn () -> ...`) or other named definition."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/B1702",
+              "id": "B1702",
+              "name": "No exported symbols",
+              "shortDescription": {
+                "text": "no symbols to export in ELF output"
               }
             },
             {
