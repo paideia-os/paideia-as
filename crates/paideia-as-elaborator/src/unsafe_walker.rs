@@ -1097,8 +1097,14 @@ impl UnsafeWalker {
             let mut operand_error = false;
 
             for &operand_id in operand_ids {
-                match parse_operand_from_ast(ast, operand_id, source_map, record_layouts, mnemonic, local_bindings)
-                {
+                match parse_operand_from_ast(
+                    ast,
+                    operand_id,
+                    source_map,
+                    record_layouts,
+                    mnemonic,
+                    local_bindings,
+                ) {
                     Ok(operand) => {
                         parsed_operands.push(operand);
                     }

@@ -612,6 +612,73 @@ impl EmitWalker {
         self.visit_field_access_with_reg(field_access_id, scratch_reg, arena);
     }
 
+    /// Register nested lambda parameters in local_bindings.
+    ///
+    /// For curried lambdas like `fn (a) (b) (c) -> body`, the nesting structure is:
+    /// Lambda(a) { body: Lambda(b) { body: Lambda(c) { body } } }
+    ///
+    /// This function walks the chain to register parameters:
+    /// - Outer lambda param (index 0) → RDI
+    /// - Nested lambda param (index 1) → RSI
+    /// - Deeper lambda param (index 2) → RDX
+    /// etc.
+    ///
+    /// PA8-m1-001b: This enables resolve_var_operands to rewrite parameter Vars later.
+    fn register_nested_lambda_params(
+        &mut self,
+        lambda_node_id: IrNodeId,
+        arena: &IrArena,
+        param_index: usize,
+    ) {
+        // Register this lambda's parameter
+        if let Some(param_reg) = Self::param_index_to_reg(param_index) {
+            let param_name = format!("_param_{}", param_index);
+            self.state
+                .local_bindings
+                .insert(param_name.clone(), param_reg);
+            eprintln!(
+                "[visit_lambda PA8-m1-001b] Lambda {} param_index={} name={} → register {}",
+                lambda_node_id.get(),
+                param_index,
+                param_name,
+                param_reg.0
+            );
+        }
+
+        // If this lambda's body is another lambda, register its parameters too
+        let children = arena.children(lambda_node_id);
+        if let Some(&body_id) = children.first() {
+            if let Some(body_node) = arena.get(body_id) {
+                if body_node.kind == IrKind::Lambda {
+                    // Recursively register nested lambda's parameters
+                    self.register_nested_lambda_params(body_id, arena, param_index + 1);
+                }
+            }
+        }
+    }
+
+    /// Get the System V calling-convention register for parameter index.
+    ///
+    /// Map parameter index to register per x86-64 calling convention:
+    /// 0 → RDI (RegId(7))
+    /// 1 → RSI (RegId(6))
+    /// 2 → RDX (RegId(2))
+    /// 3 → RCX (RegId(1))
+    /// 4 → R8  (RegId(8))
+    /// 5 → R9  (RegId(9))
+    /// 6+ → stack (not supported in phase-8 m1)
+    fn param_index_to_reg(param_index: usize) -> Option<RegId> {
+        match param_index {
+            0 => Some(RegId(7)), // RDI
+            1 => Some(RegId(6)), // RSI
+            2 => Some(RegId(2)), // RDX
+            3 => Some(RegId(1)), // RCX
+            4 => Some(RegId(8)), // R8
+            5 => Some(RegId(9)), // R9
+            _ => None,           // Stack spill (not supported yet)
+        }
+    }
+
     /// Emit instructions for Lambda body lowering (m1-003).
     ///
     /// Handles three cases:
@@ -619,7 +686,14 @@ impl EmitWalker {
     /// 2. Double: `fn (x) -> x + x` → `lea rax, [rdi + rdi]; ret` (5 bytes: `48 8d 04 3f c3`)
     /// 3. Add-immediate: `fn (x) -> x + N` → `lea rax, [rdi + N]; ret` (5 bytes: `48 8d 47 NN c3`)
     /// Other lambda shapes are deferred to m1-004+.
+    ///
+    /// PA8-m1-001b: For multi-parameter lambdas, populate LocalBindingTable with parameter
+    /// names mapped to their calling-convention registers before processing the body.
     fn visit_lambda(&mut self, lambda_node_id: IrNodeId, arena: &IrArena) {
+        // PA8-m1-001b: Register this lambda's parameters and any nested lambdas' parameters.
+        // This enables resolve_var_operands to rewrite Operand::Var { name } to Operand::Reg.
+        // Outer lambda has param_index=0 (RDI), nested ones increment (RSI, RDX, RCX, R8, R9).
+        self.register_nested_lambda_params(lambda_node_id, arena, 0);
         // Get the body (Lambda has exactly one child).
         let children = arena.children(lambda_node_id);
         if let Some(&body_id) = children.first() {
@@ -1431,7 +1505,10 @@ impl EmitWalker {
                         // Phase 7 m2-003: Bare identifier in statement position (e.g., `x;`).
                         // This is a statement-form variable reference with no side effects.
                         // Simply skip it — it's a statement expression that doesn't emit code.
-                        eprintln!("[emit_block_body] Var (bare identifier) at index {} — skipped", i);
+                        eprintln!(
+                            "[emit_block_body] Var (bare identifier) at index {} — skipped",
+                            i
+                        );
                     }
                     _ => {
                         // Unexpected statement kind.
