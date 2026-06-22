@@ -1163,6 +1163,7 @@ impl UnsafeWalker {
             mnemonic,
             operands: parsed_operands,
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
         arena.instructions_mut().insert(ir_node_id, inst);
     }

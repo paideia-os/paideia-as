@@ -94,6 +94,7 @@ fn populate_one(ctx: &PopulateContext, id: IrNodeId, table: &mut InstructionSide
                     opcode: 0x8B,
                     operand_size: info.width.bytes() as u8,
                 }),
+                byte_offset_in_text: None,
             };
             table.insert(id, inst);
             true
@@ -126,6 +127,7 @@ fn populate_one(ctx: &PopulateContext, id: IrNodeId, table: &mut InstructionSide
                     opcode: 0x89,
                     operand_size: info.width.bytes() as u8,
                 }),
+                byte_offset_in_text: None,
             };
             table.insert(id, inst);
             true
@@ -200,6 +202,7 @@ fn synthesise_intrinsic_instruction(
                     opcode: 0x8B,
                     operand_size: 8,
                 }),
+                byte_offset_in_text: None,
             }
         }
         "index_u64_set" => {
@@ -225,6 +228,7 @@ fn synthesise_intrinsic_instruction(
                     opcode: 0x89,
                     operand_size: 8,
                 }),
+                byte_offset_in_text: None,
             }
         }
         "ptr_sub_bytes_u64" => {
@@ -245,6 +249,7 @@ fn synthesise_intrinsic_instruction(
                     opcode: 0x29,
                     operand_size: 8,
                 }),
+                byte_offset_in_text: None,
             }
         }
         _ => {
@@ -259,6 +264,7 @@ fn synthesise_intrinsic_instruction(
                     opcode: 0x89,
                     operand_size: 8,
                 }),
+                byte_offset_in_text: None,
             }
         }
     };

@@ -62,8 +62,10 @@ pub struct EmitResult {
 /// .debug_line with post-rewrite instruction offsets.
 /// Phase-5-m4-004: Relocation sites are collected for linking .text references
 /// to .rodata / .data symbols.
+/// Phase-7-m1-003: Records byte_offset_in_text for each instruction before encoding,
+/// enabling precise relocation offset computation.
 pub fn emit_text_from_instructions(
-    table: &InstructionSideTable,
+    table: &mut InstructionSideTable,
     output: &mut Vec<u8>,
 ) -> Result<EmitResult, TextEmitterError> {
     let mut buf = CodeBuffer::new();
@@ -73,13 +75,22 @@ pub fn emit_text_from_instructions(
     let mut label_fixups = Vec::new();
 
     // Iterate over all instructions in the side-table, tracking byte offsets.
-    // We collect and sort entries by node_id to ensure deterministic order
+    // We collect and sort node IDs to ensure deterministic order
     // across invocations (HashMap iteration is not ordered).
-    let mut entries: Vec<_> = table.entries().iter().collect();
-    entries.sort_by_key(|&(&node_id, _)| node_id);
+    let mut node_ids: Vec<_> = table.entries().keys().copied().collect();
+    node_ids.sort();
 
-    for (&node_id, instruction) in entries {
-        let offset_before = buf.bytes.len() as u64;
+    for node_id in node_ids {
+        let offset_before = buf.bytes.len() as u32;
+
+        // Phase-7-m1-003: Record byte_offset_in_text before encoding.
+        // This is the ground truth for relocation offset computation.
+        if let Some(inst_mut) = table.get_mut(node_id) {
+            inst_mut.byte_offset_in_text = Some(offset_before);
+        }
+
+        // Get the immutable instruction for encoding
+        let instruction = table.get(node_id).unwrap();
         let encode_output = encode_instruction(instruction, &mut buf, &mut stats)
             .map_err(|e| TextEmitterError::EncodeError(format!("{:?}", e)))?;
 
@@ -87,7 +98,7 @@ pub fn emit_text_from_instructions(
         // Each RelocSite has a byte_offset relative to the instruction's start.
         // We adjust it to be relative to the start of .text section.
         for mut site in encode_output.reloc_sites {
-            site.byte_offset = (offset_before as u32) + site.byte_offset;
+            site.byte_offset = offset_before + site.byte_offset;
             reloc_sites.push(site);
         }
 
@@ -95,11 +106,11 @@ pub fn emit_text_from_instructions(
         // Each LabelFixup has a byte_offset relative to the instruction's start.
         // We adjust it to be relative to the start of .text section.
         for mut fixup in encode_output.label_fixups {
-            fixup.byte_offset = (offset_before as u32) + fixup.byte_offset;
+            fixup.byte_offset = offset_before + fixup.byte_offset;
             label_fixups.push(fixup);
         }
 
-        offset_map.insert(node_id, offset_before);
+        offset_map.insert(node_id, offset_before as u64);
     }
 
     // Append the accumulated bytes to the output.
@@ -120,9 +131,9 @@ mod tests {
 
     #[test]
     fn emit_empty_instruction_table_produces_empty_text() {
-        let table = InstructionSideTable::new();
+        let mut table = InstructionSideTable::new();
         let mut output = Vec::new();
-        let result = emit_text_from_instructions(&table, &mut output);
+        let result = emit_text_from_instructions(&mut table, &mut output);
         assert!(result.is_ok());
         let emit_result = result.unwrap();
         assert_eq!(output.len(), 0);
@@ -140,12 +151,13 @@ mod tests {
             mnemonic: Mnemonic::Mov,
             operands: vec![Operand::Reg(RegId(0)), Operand::Reg(RegId(3))].into(),
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
         let node_id = IrNodeId::new(1).unwrap();
         table.insert(node_id, inst);
 
         let mut output = Vec::new();
-        let result = emit_text_from_instructions(&table, &mut output);
+        let result = emit_text_from_instructions(&mut table, &mut output);
         assert!(result.is_ok());
         let emit_result = result.unwrap();
         // mov r64, r64 is 3 bytes: 48 89 <ModR/M>
@@ -164,6 +176,7 @@ mod tests {
             mnemonic: Mnemonic::Mov,
             operands: vec![Operand::Reg(RegId(0)), Operand::Reg(RegId(3))].into(),
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
         let node_id_1 = IrNodeId::new(1).unwrap();
         table.insert(node_id_1, inst1);
@@ -173,12 +186,13 @@ mod tests {
             mnemonic: Mnemonic::Add,
             operands: vec![Operand::Reg(RegId(0)), Operand::Reg(RegId(1))].into(),
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
         let node_id_2 = IrNodeId::new(2).unwrap();
         table.insert(node_id_2, inst2);
 
         let mut output = Vec::new();
-        let result = emit_text_from_instructions(&table, &mut output);
+        let result = emit_text_from_instructions(&mut table, &mut output);
         assert!(result.is_ok());
         let emit_result = result.unwrap();
         // Both instructions should be encoded and concatenated
@@ -200,6 +214,7 @@ mod tests {
             mnemonic: Mnemonic::Mov,
             operands: vec![Operand::Reg(RegId(0)), Operand::Reg(RegId(3))].into(),
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
         table.insert(IrNodeId::new(1).unwrap(), inst1);
 
@@ -207,12 +222,13 @@ mod tests {
             mnemonic: Mnemonic::Ret,
             operands: SmallVec::new(),
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
         table.insert(IrNodeId::new(2).unwrap(), inst2);
 
         let mut output = Vec::new();
         let emit_result =
-            emit_text_from_instructions(&table, &mut output).expect("encoding should succeed");
+            emit_text_from_instructions(&mut table, &mut output).expect("encoding should succeed");
         assert_eq!(emit_result.encode_stats.total, 2);
         // Verify offset map contains both instructions
         assert_eq!(emit_result.offset_map.len(), 2);

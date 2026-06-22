@@ -305,6 +305,11 @@ pub struct Instruction {
     pub operands: SmallVec<[Operand; 3]>,
     /// Optional encoding hint for the encoder.
     pub encoding_hint: Option<EncodingHint>,
+    /// Byte offset in .text section where this instruction was emitted.
+    /// Populated during encoding pass (phase-7-m1-003). Used to compute
+    /// relocation offsets precisely, avoiding off-by-one errors that occur
+    /// when encoder reads buf.bytes.len() after encoding.
+    pub byte_offset_in_text: Option<u32>,
 }
 
 /// Side-table mapping IrNodeId → Instruction payload.
@@ -484,6 +489,7 @@ mod tests {
                 opcode: 0x8B,
                 operand_size: 8,
             }),
+            byte_offset_in_text: None,
         };
 
         assert_eq!(inst.operands.len(), 3);
@@ -511,6 +517,7 @@ mod tests {
                 opcode: 0x8B,
                 operand_size: 8,
             }),
+            byte_offset_in_text: None,
         };
 
         table.insert(inst_id, inst.clone());
@@ -534,6 +541,7 @@ mod tests {
                 ops
             },
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         table.insert(inst_id, inst.clone());

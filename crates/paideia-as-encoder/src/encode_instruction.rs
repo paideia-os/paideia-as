@@ -603,7 +603,11 @@ fn encode_call(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput,
         [Operand::SymbolRef { name, addend }] => {
             // call symbol → E8 <disp32_placeholder> + RelocSite with Plt32
             // Phase 7 m1-001: Use RelocKind::Plt32 for PLT relocations
-            let reloc_offset = buf.bytes.len() as u32;
+            // Phase 7 m1-003: Use byte_offset_in_text for precise relocation offset
+            // instead of buf.bytes.len(), which can be off-by-one in multi-call bodies.
+            let reloc_offset = inst
+                .byte_offset_in_text
+                .expect("byte_offset_in_text must be set before encoding");
             buf.bytes.push(0xE8); // call rel32 opcode
             buf.bytes.extend([0, 0, 0, 0]); // placeholder disp32
             let mut output = EncodeOutput::new();
@@ -1268,6 +1272,7 @@ mod tests {
             mnemonic: Mnemonic::Mov,
             operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(7))],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1290,6 +1295,7 @@ mod tests {
                 Operand::Imm64(0x1234567890ABCDEF)
             ],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1309,6 +1315,7 @@ mod tests {
             mnemonic: Mnemonic::Add,
             operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(7))],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1328,6 +1335,7 @@ mod tests {
             mnemonic: Mnemonic::Sub,
             operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(7))],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1347,6 +1355,7 @@ mod tests {
             mnemonic: Mnemonic::Ret,
             operands: smallvec::smallvec![],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1366,6 +1375,7 @@ mod tests {
             mnemonic: Mnemonic::RepMovsb,
             operands: smallvec::smallvec![],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1385,6 +1395,7 @@ mod tests {
             mnemonic: Mnemonic::RepStosq,
             operands: smallvec::smallvec![],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1415,6 +1426,7 @@ mod tests {
                 }
             ],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1435,6 +1447,7 @@ mod tests {
                 Operand::MemDisp { disp: 0x1000 },
             ],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1457,6 +1470,7 @@ mod tests {
             mnemonic: Mnemonic::Add,
             operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Imm64(42)],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1481,6 +1495,7 @@ mod tests {
             mnemonic: Mnemonic::Add,
             operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Imm64(0x1000)],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1504,6 +1519,7 @@ mod tests {
             mnemonic: Mnemonic::Jcc(paideia_as_ir::Cond::Eq),
             operands: smallvec::smallvec![Operand::Imm64(50)],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1527,6 +1543,7 @@ mod tests {
             mnemonic: Mnemonic::Jcc(paideia_as_ir::Cond::Ne),
             operands: smallvec::smallvec![Operand::Imm64(0x1000)],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1571,6 +1588,7 @@ mod tests {
             mnemonic: Mnemonic::Nop,
             operands: smallvec::smallvec![],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1592,6 +1610,7 @@ mod tests {
             mnemonic: Mnemonic::Hlt,
             operands: smallvec::smallvec![],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1613,6 +1632,7 @@ mod tests {
             mnemonic: Mnemonic::Cli,
             operands: smallvec::smallvec![],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1634,6 +1654,7 @@ mod tests {
             mnemonic: Mnemonic::Sti,
             operands: smallvec::smallvec![],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1655,6 +1676,7 @@ mod tests {
             mnemonic: Mnemonic::Swapgs,
             operands: smallvec::smallvec![],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1676,6 +1698,7 @@ mod tests {
             mnemonic: Mnemonic::Cpuid,
             operands: smallvec::smallvec![],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1699,6 +1722,7 @@ mod tests {
             mnemonic: Mnemonic::In { width: 1 },
             operands: smallvec::smallvec![Operand::Reg(RegId(0))], // al
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1720,6 +1744,7 @@ mod tests {
             mnemonic: Mnemonic::In { width: 2 },
             operands: smallvec::smallvec![Operand::Reg(RegId(0))], // ax
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1741,6 +1766,7 @@ mod tests {
             mnemonic: Mnemonic::In { width: 4 },
             operands: smallvec::smallvec![Operand::Reg(RegId(0))], // eax
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1762,6 +1788,7 @@ mod tests {
             mnemonic: Mnemonic::Out { width: 1 },
             operands: smallvec::smallvec![Operand::Reg(RegId(0))], // al
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1783,6 +1810,7 @@ mod tests {
             mnemonic: Mnemonic::Out { width: 2 },
             operands: smallvec::smallvec![Operand::Reg(RegId(0))], // ax
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1804,6 +1832,7 @@ mod tests {
             mnemonic: Mnemonic::Out { width: 4 },
             operands: smallvec::smallvec![Operand::Reg(RegId(0))], // eax
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1827,6 +1856,7 @@ mod tests {
             mnemonic: Mnemonic::Wrmsr,
             operands: smallvec::smallvec![],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1848,6 +1878,7 @@ mod tests {
             mnemonic: Mnemonic::Rdmsr,
             operands: smallvec::smallvec![],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1869,6 +1900,7 @@ mod tests {
             mnemonic: Mnemonic::Int,
             operands: smallvec::smallvec![Operand::Imm64(0x20)],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1893,6 +1925,7 @@ mod tests {
             mnemonic: Mnemonic::MovCr { write: true },
             operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(0))], // mov cr0, rax
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1914,6 +1947,7 @@ mod tests {
             mnemonic: Mnemonic::MovCr { write: true },
             operands: smallvec::smallvec![Operand::Reg(RegId(3)), Operand::Reg(RegId(0))], // mov cr3, rax
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1935,6 +1969,7 @@ mod tests {
             mnemonic: Mnemonic::MovCr { write: true },
             operands: smallvec::smallvec![Operand::Reg(RegId(4)), Operand::Reg(RegId(0))], // mov cr4, rax
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1956,6 +1991,7 @@ mod tests {
             mnemonic: Mnemonic::MovCr { write: true },
             operands: smallvec::smallvec![Operand::Reg(RegId(8)), Operand::Reg(RegId(0))], // mov cr8, rax
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1975,6 +2011,7 @@ mod tests {
             mnemonic: Mnemonic::MovCr { write: true },
             operands: smallvec::smallvec![Operand::Reg(RegId(2)), Operand::Reg(RegId(0))], // mov cr2, rax (not supported)
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -1992,6 +2029,7 @@ mod tests {
             mnemonic: Mnemonic::MovCr { write: false },
             operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(0))], // mov rax, cr0
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2013,6 +2051,7 @@ mod tests {
             mnemonic: Mnemonic::MovCr { write: false },
             operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(3))], // mov rax, cr3
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2034,6 +2073,7 @@ mod tests {
             mnemonic: Mnemonic::MovCr { write: false },
             operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(4))], // mov rax, cr4
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2055,6 +2095,7 @@ mod tests {
             mnemonic: Mnemonic::MovCr { write: false },
             operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(8))], // mov rax, cr8
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2074,6 +2115,7 @@ mod tests {
             mnemonic: Mnemonic::MovCr { write: false },
             operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(2))], // mov rax, cr2 (not supported)
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2097,6 +2139,7 @@ mod tests {
                 disp: 0,
             }],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2124,6 +2167,7 @@ mod tests {
                 disp: 8,
             }],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2151,6 +2195,7 @@ mod tests {
                 disp: -128,
             }],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2178,6 +2223,7 @@ mod tests {
                 disp: 0,
             }],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2205,6 +2251,7 @@ mod tests {
                 disp: 16,
             }],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2232,6 +2279,7 @@ mod tests {
                 disp: -128,
             }],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2256,6 +2304,7 @@ mod tests {
             mnemonic: Mnemonic::Iret,
             operands: smallvec::smallvec![],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2279,6 +2328,7 @@ mod tests {
             mnemonic: Mnemonic::Iretq,
             operands: smallvec::smallvec![],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2301,6 +2351,7 @@ mod tests {
             mnemonic: Mnemonic::Sysret,
             operands: smallvec::smallvec![],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2329,6 +2380,7 @@ mod tests {
                 disp: 0,
             }],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2359,6 +2411,7 @@ mod tests {
                 disp: 8,
             }],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2385,6 +2438,7 @@ mod tests {
             mnemonic: Mnemonic::FarJmp,
             operands: smallvec::smallvec![Operand::MemRipRel { disp: 0x1000 }],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2417,6 +2471,7 @@ mod tests {
                 }
             ],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2447,6 +2502,7 @@ mod tests {
                 addend: 0,
             }],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2479,6 +2535,7 @@ mod tests {
                 }
             ],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2509,6 +2566,7 @@ mod tests {
                 addend: 0,
             }],
             encoding_hint: None,
+            byte_offset_in_text: Some(0),
         };
 
         let mut stats = EncodeStats::new();
@@ -2540,6 +2598,7 @@ mod tests {
             mnemonic: Mnemonic::Mov,
             operands: smallvec::smallvec![Operand::Reg(RegId(19)), Operand::Reg(RegId(7))],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2556,6 +2615,7 @@ mod tests {
             mnemonic: Mnemonic::Mov,
             operands: smallvec::smallvec![Operand::Reg(RegId(20)), Operand::Reg(RegId(1))],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2572,6 +2632,7 @@ mod tests {
             mnemonic: Mnemonic::Mov,
             operands: smallvec::smallvec![Operand::Reg(RegId(16)), Operand::Reg(RegId(0))],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2588,6 +2649,7 @@ mod tests {
             mnemonic: Mnemonic::Mov,
             operands: smallvec::smallvec![Operand::Reg(RegId(7)), Operand::Reg(RegId(19))],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2604,6 +2666,7 @@ mod tests {
             mnemonic: Mnemonic::Mov,
             operands: smallvec::smallvec![Operand::Reg(RegId(1)), Operand::Reg(RegId(20))],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2620,6 +2683,7 @@ mod tests {
             mnemonic: Mnemonic::Mov,
             operands: smallvec::smallvec![Operand::Reg(RegId(24)), Operand::Reg(RegId(0))],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2641,6 +2705,7 @@ mod tests {
             mnemonic: Mnemonic::Mov,
             operands: smallvec::smallvec![Operand::Reg(RegId(25)), Operand::Reg(RegId(0))],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2657,6 +2722,7 @@ mod tests {
             mnemonic: Mnemonic::Mov,
             operands: smallvec::smallvec![Operand::Reg(RegId(26)), Operand::Reg(RegId(7))],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2673,6 +2739,7 @@ mod tests {
             mnemonic: Mnemonic::Mov,
             operands: smallvec::smallvec![Operand::Reg(RegId(32)), Operand::Reg(RegId(1))],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2689,6 +2756,7 @@ mod tests {
             mnemonic: Mnemonic::Mov,
             operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(25))],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2705,6 +2773,7 @@ mod tests {
             mnemonic: Mnemonic::Mov,
             operands: smallvec::smallvec![Operand::Reg(RegId(7)), Operand::Reg(RegId(26))],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2721,6 +2790,7 @@ mod tests {
             mnemonic: Mnemonic::Mov,
             operands: smallvec::smallvec![Operand::Reg(RegId(1)), Operand::Reg(RegId(32))],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2737,6 +2807,7 @@ mod tests {
             mnemonic: Mnemonic::Mov,
             operands: smallvec::smallvec![Operand::Reg(RegId(8)), Operand::Reg(RegId(25))],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut stats = EncodeStats::new();
@@ -2853,6 +2924,7 @@ mod jcc_tests {
             mnemonic: Mnemonic::Jcc(IrCond::Eq),
             operands: smallvec::smallvec![Operand::Imm64(0x100)],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -2875,6 +2947,7 @@ mod jcc_tests {
             mnemonic: Mnemonic::Jcc(IrCond::Ne),
             operands: smallvec::smallvec![Operand::Imm64(0x1000)], // Large displacement
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -2896,6 +2969,7 @@ mod jcc_tests {
             mnemonic: Mnemonic::Jcc(IrCond::Lt),
             operands: smallvec::smallvec![Operand::Imm64(0x200)],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -2916,6 +2990,7 @@ mod jcc_tests {
             mnemonic: Mnemonic::Jcc(IrCond::Gt),
             operands: smallvec::smallvec![Operand::Imm64(0x300)],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -2936,6 +3011,7 @@ mod jcc_tests {
             mnemonic: Mnemonic::Jcc(IrCond::Le),
             operands: smallvec::smallvec![Operand::Imm64(0x400)],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -2956,6 +3032,7 @@ mod jcc_tests {
             mnemonic: Mnemonic::Jcc(IrCond::Ge),
             operands: smallvec::smallvec![Operand::Imm64(-5000i64)], // Large negative displacement
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -2976,6 +3053,7 @@ mod jcc_tests {
             mnemonic: Mnemonic::Jcc(IrCond::Below),
             operands: smallvec::smallvec![Operand::Imm64(0x500)],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -2996,6 +3074,7 @@ mod jcc_tests {
             mnemonic: Mnemonic::Jcc(IrCond::BelowOrEqual),
             operands: smallvec::smallvec![Operand::Imm64(0x600)],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -3016,6 +3095,7 @@ mod jcc_tests {
             mnemonic: Mnemonic::Jcc(IrCond::Above),
             operands: smallvec::smallvec![Operand::Imm64(0x700)],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -3036,6 +3116,7 @@ mod jcc_tests {
             mnemonic: Mnemonic::Jcc(IrCond::AboveOrEqual),
             operands: smallvec::smallvec![Operand::Imm64(0x800)],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -3056,6 +3137,7 @@ mod jcc_tests {
             mnemonic: Mnemonic::Jcc(IrCond::Zero),
             operands: smallvec::smallvec![Operand::Imm64(0x100)],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -3077,6 +3159,7 @@ mod jcc_tests {
             mnemonic: Mnemonic::Jcc(IrCond::NonZero),
             operands: smallvec::smallvec![Operand::Imm64(0x200)],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -3098,6 +3181,7 @@ mod jcc_tests {
             mnemonic: Mnemonic::Jcc(IrCond::Sign),
             operands: smallvec::smallvec![Operand::Imm64(0x300)],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -3118,6 +3202,7 @@ mod jcc_tests {
             mnemonic: Mnemonic::Jcc(IrCond::NotSign),
             operands: smallvec::smallvec![Operand::Imm64(0x400)],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -3138,6 +3223,7 @@ mod jcc_tests {
             mnemonic: Mnemonic::Jcc(IrCond::Overflow),
             operands: smallvec::smallvec![Operand::Imm64(0x500)],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -3158,6 +3244,7 @@ mod jcc_tests {
             mnemonic: Mnemonic::Jcc(IrCond::NotOverflow),
             operands: smallvec::smallvec![Operand::Imm64(0x600)],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -3181,6 +3268,7 @@ mod jcc_tests {
                 addend: 0,
             }],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
         let mut stats = EncodeStats::new();
         let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -3211,6 +3299,7 @@ mod jcc_tests {
                 addend: 0,
             }],
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
         let mut stats = EncodeStats::new();
         let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");

@@ -416,6 +416,7 @@ mod tests {
                 ops
             },
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         arena.instructions_mut().insert(id, inst);

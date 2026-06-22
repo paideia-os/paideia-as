@@ -29,10 +29,12 @@ pub struct EmitPassState {
     /// IrNodeId of the function currently being lowered (or 0 if none).
     pub current_function: u32,
 
-    /// Byte offset within the current function. Reset to 0 on each
-    /// new function entry. m5 (symbols + relocs) will consume this
-    /// to populate function-symbol size metadata.
-    pub current_offset: u32,
+    /// Estimated byte offset within the current function. Reset to 0 on each
+    /// new function entry. This is an advisory estimate based on instruction
+    /// mnemonics and is verified to match the actual encoded byte count at
+    /// the end of the build (phase-7-m1-003). m5 (symbols + relocs) will consume
+    /// the actual offsets from Instruction.byte_offset_in_text.
+    pub estimated_offset: u32,
 
     /// IrNodeId of the lambda/function -> first instruction's IrNodeId.
     /// Allows m6 end-to-end smoke to verify byte offsets.
@@ -103,7 +105,7 @@ impl EmitPassState {
     /// Called during unsafe block lowering when a label definition is encountered.
     /// The label can then be referenced by forward or backward Jcc/Jmp instructions.
     pub fn register_label(&mut self, name: String) {
-        self.labels.insert(name, self.current_offset);
+        self.labels.insert(name, self.estimated_offset);
     }
 
     /// Phase 6 m4-003: Compute rel32 displacement for a label reference.
@@ -480,6 +482,7 @@ impl EmitWalker {
             mnemonic: Mnemonic::Mov,
             operands,
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         // Calculate instruction size:
@@ -492,7 +495,7 @@ impl EmitWalker {
         };
 
         // Record function entry on first emission if needed.
-        if self.state.current_function > 0 && self.state.current_offset == 0 {
+        if self.state.current_function > 0 && self.state.estimated_offset == 0 {
             self.state
                 .function_offsets
                 .insert(self.state.current_function, let_node_id.get());
@@ -502,7 +505,7 @@ impl EmitWalker {
         self.state.instructions.insert(let_node_id, inst);
 
         // Bump offset.
-        self.state.current_offset += inst_size;
+        self.state.estimated_offset += inst_size;
     }
 
     /// Phase 6 m3-003: Emit instruction for Let with FieldAccess RHS.
@@ -557,7 +560,7 @@ impl EmitWalker {
                         // Record the lambda's starting offset BEFORE emitting.
                         self.state
                             .function_offsets
-                            .insert(lambda_node_id.get(), self.state.current_offset);
+                            .insert(lambda_node_id.get(), self.state.estimated_offset);
                         // Mark this lambda as emitted
                         self.state.emitted_lambdas.insert(lambda_node_id.get());
 
@@ -611,7 +614,7 @@ impl EmitWalker {
                                             // Record the lambda's starting offset BEFORE emitting.
                                             self.state.function_offsets.insert(
                                                 lambda_node_id.get(),
-                                                self.state.current_offset,
+                                                self.state.estimated_offset,
                                             );
                                             // Mark this lambda as emitted
                                             self.state.emitted_lambdas.insert(lambda_node_id.get());
@@ -685,7 +688,7 @@ impl EmitWalker {
                                                     // Record offset before emitting
                                                     self.state.function_offsets.insert(
                                                         lambda_node_id.get(),
-                                                        self.state.current_offset,
+                                                        self.state.estimated_offset,
                                                     );
                                                     // Mark this lambda as emitted
                                                     self.state
@@ -706,7 +709,7 @@ impl EmitWalker {
                                                     // Record offset before emitting
                                                     self.state.function_offsets.insert(
                                                         lambda_node_id.get(),
-                                                        self.state.current_offset,
+                                                        self.state.estimated_offset,
                                                     );
                                                     // Mark this lambda as emitted
                                                     self.state
@@ -728,7 +731,7 @@ impl EmitWalker {
                                                     // Record offset before emitting
                                                     self.state.function_offsets.insert(
                                                         lambda_node_id.get(),
-                                                        self.state.current_offset,
+                                                        self.state.estimated_offset,
                                                     );
                                                     // Mark this lambda as emitted
                                                     self.state
@@ -756,7 +759,7 @@ impl EmitWalker {
                         // Record the lambda's starting offset BEFORE emitting.
                         self.state
                             .function_offsets
-                            .insert(lambda_node_id.get(), self.state.current_offset);
+                            .insert(lambda_node_id.get(), self.state.estimated_offset);
                         // Mark this lambda as emitted
                         self.state.emitted_lambdas.insert(lambda_node_id.get());
 
@@ -785,13 +788,14 @@ impl EmitWalker {
             mnemonic: Mnemonic::Mov,
             operands: mov_operands,
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         // Use node_id * 2 for main instruction, * 2 + 1 for ret
         // This ensures proper sort order when emitting instructions
         let main_id = IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
         self.state.instructions.insert(main_id, mov_inst);
-        self.state.current_offset += 3;
+        self.state.estimated_offset += 3;
 
         // Ret: c3 (1 byte)
         // Emit ret as a separate instruction with node_id * 2 + 1 to sort right after
@@ -800,9 +804,10 @@ impl EmitWalker {
             mnemonic: Mnemonic::Ret,
             operands: SmallVec::new(),
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
         self.state.instructions.insert(ret_id, ret_inst);
-        self.state.current_offset += 1;
+        self.state.estimated_offset += 1;
     }
 
     /// Emit double lambda: `lea rax, [rdi + rdi]; ret` (5 bytes).
@@ -821,12 +826,13 @@ impl EmitWalker {
             mnemonic: Mnemonic::Lea,
             operands: lea_operands,
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         // Use node_id * 2 for main instruction, * 2 + 1 for ret
         let main_id = IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
         self.state.instructions.insert(main_id, lea_inst);
-        self.state.current_offset += 4;
+        self.state.estimated_offset += 4;
 
         // Ret: c3 (1 byte)
         // Emit ret as a separate instruction with node_id * 2 + 1 to sort right after
@@ -835,9 +841,10 @@ impl EmitWalker {
             mnemonic: Mnemonic::Ret,
             operands: SmallVec::new(),
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
         self.state.instructions.insert(ret_id, ret_inst);
-        self.state.current_offset += 1;
+        self.state.estimated_offset += 1;
     }
 
     /// Phase 7 m1-003: Emit inter-function call.
@@ -932,10 +939,11 @@ impl EmitWalker {
             mnemonic: Mnemonic::Call,
             operands: call_operands,
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         self.state.instructions.insert(call_id, call_inst);
-        self.state.current_offset += 5; // E8 + 4-byte rel32 placeholder
+        self.state.estimated_offset += 5; // E8 + 4-byte rel32 placeholder
 
         // Emit RET instruction
         let ret_id = IrNodeId::new(lambda_node_id.get() * 2 + 1).expect("ret instr id");
@@ -943,9 +951,10 @@ impl EmitWalker {
             mnemonic: Mnemonic::Ret,
             operands: SmallVec::new(),
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
         self.state.instructions.insert(ret_id, ret_inst);
-        self.state.current_offset += 1; // C3
+        self.state.estimated_offset += 1; // C3
     }
 
     /// Emit MOV of a literal value into a register.
@@ -963,6 +972,7 @@ impl EmitWalker {
             mnemonic: Mnemonic::Mov,
             operands,
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         self.state.instructions.insert(inst_id, inst);
@@ -973,7 +983,7 @@ impl EmitWalker {
         } else {
             10
         };
-        self.state.current_offset += size;
+        self.state.estimated_offset += size;
     }
 
     /// Emit MOV from one register to another.
@@ -991,10 +1001,11 @@ impl EmitWalker {
             mnemonic: Mnemonic::Mov,
             operands,
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         self.state.instructions.insert(inst_id, inst);
-        self.state.current_offset += 3; // mov r64, r64 is 3 bytes (48 89 c0 + variants)
+        self.state.estimated_offset += 3; // mov r64, r64 is 3 bytes (48 89 c0 + variants)
     }
 
     /// Emit add-immediate lambda: `lea rax, [rdi + imm]; ret`.
@@ -1023,12 +1034,13 @@ impl EmitWalker {
             mnemonic: Mnemonic::Lea,
             operands: lea_operands,
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         // Use node_id * 2 for main instruction, * 2 + 1 for ret
         let main_id = IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
         self.state.instructions.insert(main_id, lea_inst);
-        self.state.current_offset += 4;
+        self.state.estimated_offset += 4;
 
         // Ret: c3 (1 byte)
         // Emit ret as a separate instruction with node_id * 2 + 1 to sort right after
@@ -1037,9 +1049,10 @@ impl EmitWalker {
             mnemonic: Mnemonic::Ret,
             operands: SmallVec::new(),
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
         self.state.instructions.insert(ret_id, ret_inst);
-        self.state.current_offset += 1;
+        self.state.estimated_offset += 1;
     }
 
     /// Phase 7 m1-001: Emit multi-statement block body.
@@ -1112,10 +1125,11 @@ impl EmitWalker {
             mnemonic: Mnemonic::Ret,
             operands: SmallVec::new(),
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
         let ret_id = IrNodeId::new(block_id.get() * 2).expect("ret virtual id");
         self.state.instructions.insert(ret_id, ret_inst);
-        self.state.current_offset += 1;
+        self.state.estimated_offset += 1;
     }
 
     /// Phase 6 m3-002: Emit field access lowering for (*p).field shape.
@@ -1260,6 +1274,7 @@ impl EmitWalker {
             mnemonic: Mnemonic::Mov,
             operands,
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         self.state.instructions.insert(field_access_id, inst);
@@ -1270,7 +1285,7 @@ impl EmitWalker {
         } else {
             7
         };
-        self.state.current_offset += size;
+        self.state.estimated_offset += size;
     }
 
     /// Emit u32 field access: mov eax, [rdi + offset] (3-6 bytes).
@@ -1289,6 +1304,7 @@ impl EmitWalker {
             mnemonic: Mnemonic::Mov,
             operands,
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         self.state.instructions.insert(field_access_id, inst);
@@ -1299,7 +1315,7 @@ impl EmitWalker {
         } else {
             6
         };
-        self.state.current_offset += size;
+        self.state.estimated_offset += size;
     }
 
     /// Emit u8 field access: movzx rax, byte [rdi + offset] (4-7 bytes).
@@ -1318,6 +1334,7 @@ impl EmitWalker {
             mnemonic: Mnemonic::Movzx,
             operands,
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         self.state.instructions.insert(field_access_id, inst);
@@ -1328,7 +1345,7 @@ impl EmitWalker {
         } else {
             7
         };
-        self.state.current_offset += size;
+        self.state.estimated_offset += size;
     }
 
     /// Phase 6 m3-003: Emit field access with a specified scratch register.
@@ -1486,6 +1503,7 @@ impl EmitWalker {
             mnemonic: Mnemonic::Mov,
             operands,
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         self.state.instructions.insert(field_access_id, inst);
@@ -1496,7 +1514,7 @@ impl EmitWalker {
         } else {
             7
         };
-        self.state.current_offset += size;
+        self.state.estimated_offset += size;
     }
 
     /// Emit u32 field access to a specified register: mov <reg_32>, [rdi + offset].
@@ -1519,6 +1537,7 @@ impl EmitWalker {
             mnemonic: Mnemonic::Mov,
             operands,
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         self.state.instructions.insert(field_access_id, inst);
@@ -1529,7 +1548,7 @@ impl EmitWalker {
         } else {
             6
         };
-        self.state.current_offset += size;
+        self.state.estimated_offset += size;
     }
 
     /// Emit u8 field access to a specified register: movzx <reg>, byte [rdi + offset].
@@ -1552,6 +1571,7 @@ impl EmitWalker {
             mnemonic: Mnemonic::Movzx,
             operands,
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         self.state.instructions.insert(field_access_id, inst);
@@ -1562,7 +1582,7 @@ impl EmitWalker {
         } else {
             7
         };
-        self.state.current_offset += size;
+        self.state.estimated_offset += size;
     }
 
     /// Phase 6 m3-004: Emit record constructor lowering for cap-mint shape.
@@ -1684,13 +1704,14 @@ impl EmitWalker {
                     mnemonic: Mnemonic::Mov,
                     operands,
                     encoding_hint: None,
+                    byte_offset_in_text: None,
                 };
 
                 // Virtual ID: record_cons_id * 10 + field_idx to sort in order.
                 let inst_id = IrNodeId::new(record_cons_id.get() * 10 + field_idx as u32)
                     .expect("virtual id");
                 self.state.instructions.insert(inst_id, inst);
-                self.state.current_offset += 8; // mov [rdi+disp8], imm32
+                self.state.estimated_offset += 8; // mov [rdi+disp8], imm32
             } else {
                 // Emit: mov [rdi + offset], arg_reg via MemSib.
                 // Encoding: 48 89 47 NN (4 bytes for small offsets)
@@ -1707,13 +1728,14 @@ impl EmitWalker {
                     mnemonic: Mnemonic::Mov,
                     operands,
                     encoding_hint: None,
+                    byte_offset_in_text: None,
                 };
 
                 // Virtual ID: record_cons_id * 10 + field_idx to sort in order.
                 let inst_id = IrNodeId::new(record_cons_id.get() * 10 + field_idx as u32)
                     .expect("virtual id");
                 self.state.instructions.insert(inst_id, inst);
-                self.state.current_offset += 4; // mov [rdi+disp8], reg
+                self.state.estimated_offset += 4; // mov [rdi+disp8], reg
             }
         }
     }
@@ -1765,10 +1787,11 @@ impl EmitWalker {
             mnemonic: Mnemonic::Test,
             operands: test_operands,
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         self.state.instructions.insert(test_id, test_inst);
-        self.state.current_offset += 3; // test r64, r64 is 3 bytes (48 85 c0 + variants)
+        self.state.estimated_offset += 3; // test r64, r64 is 3 bytes (48 85 c0 + variants)
 
         // Emit conditional jump (jz): Jump if zero to else-label (or end if no else).
         let target_label = if else_id.is_some() {
@@ -1787,10 +1810,11 @@ impl EmitWalker {
             mnemonic: Mnemonic::Jcc(Cond::Zero),
             operands: jz_operands,
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         self.state.instructions.insert(jz_id, jz_inst);
-        self.state.current_offset += 6; // jcc rel32 is 6 bytes (0F 8X XX XX XX XX)
+        self.state.estimated_offset += 6; // jcc rel32 is 6 bytes (0F 8X XX XX XX XX)
 
         // Register then_label at current offset.
         self.state.register_label(then_label);
@@ -1812,10 +1836,11 @@ impl EmitWalker {
                 mnemonic: Mnemonic::Jmp,
                 operands: jmp_operands,
                 encoding_hint: None,
+                byte_offset_in_text: None,
             };
 
             self.state.instructions.insert(jmp_id, jmp_inst);
-            self.state.current_offset += 5; // jmp rel32 is 5 bytes (E9 XX XX XX XX)
+            self.state.estimated_offset += 5; // jmp rel32 is 5 bytes (E9 XX XX XX XX)
 
             // Register else_label.
             self.state.register_label(else_label);
@@ -1872,10 +1897,11 @@ impl EmitWalker {
             mnemonic: Mnemonic::Test,
             operands: test_operands,
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         self.state.instructions.insert(test_id, test_inst);
-        self.state.current_offset += 3;
+        self.state.estimated_offset += 3;
 
         // Emit conditional jump (jnz): Jump if NOT zero to exit_label.
         let jnz_id = IrNodeId::new(while_node_id.get() * 4 + 1).expect("jnz instr id");
@@ -1889,10 +1915,11 @@ impl EmitWalker {
             mnemonic: Mnemonic::Jcc(Cond::NonZero),
             operands: jnz_operands,
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         self.state.instructions.insert(jnz_id, jnz_inst);
-        self.state.current_offset += 6; // jcc rel32 is 6 bytes
+        self.state.estimated_offset += 6; // jcc rel32 is 6 bytes
 
         // Placeholder: emit body instructions.
         // Phase 7: actual body emission deferred.
@@ -1910,10 +1937,11 @@ impl EmitWalker {
             mnemonic: Mnemonic::Jmp,
             operands: jmp_operands,
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         self.state.instructions.insert(jmp_id, jmp_inst);
-        self.state.current_offset += 5; // jmp rel32 is 5 bytes
+        self.state.estimated_offset += 5; // jmp rel32 is 5 bytes
 
         // Register exit_label at final offset.
         self.state.register_label(exit_label.clone());
@@ -1973,10 +2001,11 @@ impl EmitWalker {
             mnemonic: Mnemonic::Jmp,
             operands: jmp_operands,
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         self.state.instructions.insert(jmp_id, jmp_inst);
-        self.state.current_offset += 5; // jmp rel32 is 5 bytes
+        self.state.estimated_offset += 5; // jmp rel32 is 5 bytes
 
         // Register exit_label at final offset.
         self.state.register_label(exit_label.clone());
@@ -2063,10 +2092,11 @@ impl EmitWalker {
                 mnemonic: Mnemonic::Cmp,
                 operands: cmp_operands,
                 encoding_hint: None,
+                byte_offset_in_text: None,
             };
 
             self.state.instructions.insert(cmp_id, cmp_inst);
-            self.state.current_offset += 7; // cmp rdi, imm32 is typically 7 bytes (48 81 3F NN NN NN NN)
+            self.state.estimated_offset += 7; // cmp rdi, imm32 is typically 7 bytes (48 81 3F NN NN NN NN)
 
             // Emit: je arm_label (6 bytes: 0F 84 XX XX XX XX)
             let je_id = IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10 + 1)
@@ -2081,10 +2111,11 @@ impl EmitWalker {
                 mnemonic: Mnemonic::Jcc(Cond::Eq),
                 operands: je_operands,
                 encoding_hint: None,
+                byte_offset_in_text: None,
             };
 
             self.state.instructions.insert(je_id, je_inst);
-            self.state.current_offset += 6; // jcc rel32 is 6 bytes
+            self.state.estimated_offset += 6; // jcc rel32 is 6 bytes
         }
 
         // If no default arm found, check for T0522 (non-exhaustive).
@@ -2111,10 +2142,11 @@ impl EmitWalker {
             mnemonic: Mnemonic::Jmp,
             operands: jmp_operands,
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         self.state.instructions.insert(jmp_default_id, jmp_inst);
-        self.state.current_offset += 5; // jmp rel32 is 5 bytes
+        self.state.estimated_offset += 5; // jmp rel32 is 5 bytes
 
         // Emit arm bodies with labels.
         for (idx, _arm_id) in arm_ids.iter().enumerate() {
@@ -2132,10 +2164,11 @@ impl EmitWalker {
                 mnemonic: Mnemonic::Nop,
                 operands: SmallVec::new(),
                 encoding_hint: None,
+                byte_offset_in_text: None,
             };
 
             self.state.instructions.insert(nop_id, nop_inst);
-            self.state.current_offset += 1;
+            self.state.estimated_offset += 1;
 
             // Emit: jmp end_label (5 bytes: E9 XX XX XX XX)
             let jmp_end_id = IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10 + 3)
@@ -2150,10 +2183,11 @@ impl EmitWalker {
                 mnemonic: Mnemonic::Jmp,
                 operands: jmp_end_operands,
                 encoding_hint: None,
+                byte_offset_in_text: None,
             };
 
             self.state.instructions.insert(jmp_end_id, jmp_end_inst);
-            self.state.current_offset += 5;
+            self.state.estimated_offset += 5;
         }
 
         // Register default_label and emit default arm body.
@@ -2167,12 +2201,13 @@ impl EmitWalker {
             mnemonic: Mnemonic::Nop,
             operands: SmallVec::new(),
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         self.state
             .instructions
             .insert(default_nop_id, default_nop_inst);
-        self.state.current_offset += 1;
+        self.state.estimated_offset += 1;
 
         // Register end_label.
         self.state.register_label(end_label);
@@ -2199,7 +2234,7 @@ mod tests {
         let walker = EmitWalker::new();
         assert!(walker.state().instructions.is_empty());
         assert_eq!(walker.state().current_function, 0);
-        assert_eq!(walker.state().current_offset, 0);
+        assert_eq!(walker.state().estimated_offset, 0);
         assert!(walker.state().function_offsets.is_empty());
     }
 
@@ -2216,7 +2251,7 @@ mod tests {
         let state = EmitPassState::default();
         assert!(state.instructions.is_empty());
         assert_eq!(state.current_function, 0);
-        assert_eq!(state.current_offset, 0);
+        assert_eq!(state.estimated_offset, 0);
         assert!(state.function_offsets.is_empty());
     }
 
@@ -2247,7 +2282,7 @@ mod tests {
         assert_eq!(inst.operands[1], Operand::Imm64(42));
 
         // Verify offset advanced by 7 bytes (32-bit immediate encoding).
-        assert_eq!(walker.state().current_offset, 7);
+        assert_eq!(walker.state().estimated_offset, 7);
     }
 
     #[test]
@@ -2278,7 +2313,7 @@ mod tests {
         assert_eq!(inst.operands[1], Operand::Imm64(value));
 
         // Verify offset advanced by 10 bytes (64-bit immediate encoding).
-        assert_eq!(walker.state().current_offset, 10);
+        assert_eq!(walker.state().estimated_offset, 10);
     }
 
     // ── Lambda lowering tests (m1-003) ──────────────────────────────────
@@ -2319,7 +2354,7 @@ mod tests {
         assert_eq!(ret_inst.mnemonic, Mnemonic::Ret);
 
         // Verify offset: 3 bytes for mov + 1 byte for ret = 4 bytes.
-        assert_eq!(walker.state().current_offset, 4);
+        assert_eq!(walker.state().estimated_offset, 4);
 
         // Verify lambda offset recorded.
         assert!(
@@ -2392,7 +2427,7 @@ mod tests {
         assert_eq!(ret_inst.mnemonic, Mnemonic::Ret);
 
         // Verify offset: 4 bytes for lea + 1 byte for ret = 5 bytes.
-        assert_eq!(walker.state().current_offset, 5);
+        assert_eq!(walker.state().estimated_offset, 5);
 
         // Verify lambda offset recorded.
         assert!(
@@ -2461,7 +2496,7 @@ mod tests {
         assert_eq!(ret_inst.mnemonic, Mnemonic::Ret);
 
         // Verify offset: 4 bytes for lea + 1 byte for ret = 5 bytes.
-        assert_eq!(walker.state().current_offset, 5);
+        assert_eq!(walker.state().estimated_offset, 5);
 
         // Verify lambda offset recorded.
         assert!(
@@ -3533,7 +3568,7 @@ mod tests {
         }
 
         // Verify offset advanced by 8 bytes per store (4 stores × 8 = 32 bytes).
-        assert_eq!(walker.state().current_offset, 32);
+        assert_eq!(walker.state().estimated_offset, 32);
 
         // Verify no diagnostics.
         assert!(
@@ -3603,7 +3638,7 @@ mod tests {
         }
 
         // Verify offset: 4 stores × 4 bytes each = 16 bytes (for non-literal).
-        assert_eq!(walker.state().current_offset, 16);
+        assert_eq!(walker.state().estimated_offset, 16);
 
         // Verify no diagnostics.
         assert!(walker.diagnostics().is_empty());
@@ -3961,7 +3996,7 @@ mod tests {
 
         // Verify offset is 1 (only ret).
         assert_eq!(
-            walker.state().current_offset,
+            walker.state().estimated_offset,
             1,
             "Empty body should only emit ret (1 byte)"
         );
@@ -4031,7 +4066,7 @@ mod tests {
         assert_eq!(ret_inst.mnemonic, Mnemonic::Ret);
 
         // Verify offset: 5 bytes for call + 1 byte for ret = 6 bytes
-        assert_eq!(walker.state().current_offset, 6);
+        assert_eq!(walker.state().estimated_offset, 6);
     }
 
     #[test]
@@ -4079,9 +4114,9 @@ mod tests {
         // Total should be 7+5+1=13 or 10+5+1=16
         let expected_offset = 7 + 5 + 1; // Conservative estimate: 13 bytes
         assert!(
-            walker.state().current_offset >= expected_offset - 5,
+            walker.state().estimated_offset >= expected_offset - 5,
             "Offset should account for mov + call + ret instructions (got {})",
-            walker.state().current_offset
+            walker.state().estimated_offset
         );
     }
 
@@ -4148,7 +4183,7 @@ mod tests {
         );
 
         // Verify offset: 3 bytes for test + 6 bytes for jz = 9 bytes.
-        assert_eq!(walker.state().current_offset, 9);
+        assert_eq!(walker.state().estimated_offset, 9);
     }
 
     #[test]
@@ -4238,7 +4273,7 @@ mod tests {
         );
 
         // Verify offset: 3 bytes for test + 6 bytes for jz + 5 bytes for jmp = 14 bytes.
-        assert_eq!(walker.state().current_offset, 14);
+        assert_eq!(walker.state().estimated_offset, 14);
     }
 
     #[test]
@@ -4288,7 +4323,7 @@ mod tests {
         assert_ne!(outer_end_label, inner_end_label);
 
         // Verify offset accounts for both branches: 2 * (test + jz + jmp) = 2 * 14 = 28 bytes
-        assert_eq!(walker.state().current_offset, 28);
+        assert_eq!(walker.state().estimated_offset, 28);
     }
 
     // ── While-loop lowering tests (m1-002) ─────────────────────────────────
@@ -4346,7 +4381,7 @@ mod tests {
         assert!(walker.state().labels.contains_key(&exit_label));
 
         // Verify offset: test (3) + jnz (6) + jmp (5) = 14 bytes.
-        assert_eq!(walker.state().current_offset, 14);
+        assert_eq!(walker.state().estimated_offset, 14);
     }
 
     #[test]
@@ -4423,7 +4458,7 @@ mod tests {
         assert_ne!(outer_exit_label, inner_exit_label);
 
         // Verify offset accounts for both while loops: 2 * 14 = 28 bytes.
-        assert_eq!(walker.state().current_offset, 28);
+        assert_eq!(walker.state().estimated_offset, 28);
     }
 
     // ── Phase 7 m1-003: Multi-argument function call tests (PA7-006) ─────────────────────────
@@ -4468,7 +4503,7 @@ mod tests {
         );
 
         // Verify offset: 3*7 (movs) + 5 (call) + 1 (ret) = 27 bytes
-        assert_eq!(walker.state().current_offset, 27);
+        assert_eq!(walker.state().estimated_offset, 27);
     }
 
     #[test]
@@ -4508,7 +4543,7 @@ mod tests {
         walker.walk(&mut arena);
 
         // Verify offset: 4*7 (movs) + 5 (call) + 1 (ret) = 34 bytes
-        assert_eq!(walker.state().current_offset, 34);
+        assert_eq!(walker.state().estimated_offset, 34);
     }
 
     #[test]
@@ -4550,7 +4585,7 @@ mod tests {
         walker.walk(&mut arena);
 
         // Verify offset: 5*7 (movs) + 5 (call) + 1 (ret) = 41 bytes
-        assert_eq!(walker.state().current_offset, 41);
+        assert_eq!(walker.state().estimated_offset, 41);
     }
 
     #[test]
@@ -4596,7 +4631,7 @@ mod tests {
         walker.walk(&mut arena);
 
         // Verify offset: 6*7 (movs) + 5 (call) + 1 (ret) = 48 bytes
-        assert_eq!(walker.state().current_offset, 48);
+        assert_eq!(walker.state().estimated_offset, 48);
     }
 
     #[test]
@@ -4703,11 +4738,11 @@ mod tests {
         // Verify offset advanced (cmp 7 + je 6 + jmp 5 + arm nop 1 + arm jmp 5 + default nop 1).
         let expected_offset = 7 + 6 + 5 + 1 + 5 + 1;
         assert_eq!(
-            walker.state().current_offset,
+            walker.state().estimated_offset,
             expected_offset,
             "Expected offset {}, got {}",
             expected_offset,
-            walker.state().current_offset
+            walker.state().estimated_offset
         );
     }
 
@@ -4742,11 +4777,11 @@ mod tests {
         // = 2*(13) + 5 + 2*(6) + 1 = 26 + 5 + 12 + 1 = 44
         let expected_offset = 2 * 13 + 5 + 2 * 6 + 1;
         assert_eq!(
-            walker.state().current_offset,
+            walker.state().estimated_offset,
             expected_offset,
             "Expected offset {}, got {}",
             expected_offset,
-            walker.state().current_offset
+            walker.state().estimated_offset
         );
     }
 
@@ -4777,11 +4812,11 @@ mod tests {
         // Verify offset advanced: jmp is 5 bytes.
         let expected_offset = 5;
         assert_eq!(
-            walker.state().current_offset,
+            walker.state().estimated_offset,
             expected_offset,
             "Expected offset {}, got {}",
             expected_offset,
-            walker.state().current_offset
+            walker.state().estimated_offset
         );
 
         // Verify labels were registered for loop_top and loop_exit.

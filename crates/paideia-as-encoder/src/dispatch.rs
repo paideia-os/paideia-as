@@ -204,6 +204,7 @@ mod tests {
             mnemonic: Mnemonic::Mov,
             operands,
             encoding_hint: None,
+            byte_offset_in_text: None,
         }
     }
 
@@ -216,6 +217,7 @@ mod tests {
             mnemonic: Mnemonic::Mov,
             operands,
             encoding_hint: None,
+            byte_offset_in_text: None,
         }
     }
 
@@ -225,6 +227,7 @@ mod tests {
             mnemonic: Mnemonic::Cli,
             operands: SmallVec::new(),
             encoding_hint: None,
+            byte_offset_in_text: None,
         }
     }
 
@@ -234,6 +237,7 @@ mod tests {
             mnemonic: Mnemonic::Lgdt,
             operands: SmallVec::new(),
             encoding_hint: None,
+            byte_offset_in_text: None,
         }
     }
 

@@ -519,7 +519,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
             } else {
                 build_elf_object(
                     &lowering.ir,
-                    &instruction_table,
+                    &mut instruction_table,
                     &emit_walker,
                     &source_map,
                     file,
@@ -545,7 +545,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
             let result = if preview {
                 Ok(None)
             } else {
-                build_pe_object(&lowering.ir, &source_map, file, encoder_warn).map(Some)
+                build_pe_object(&mut lowering.ir, &source_map, file, encoder_warn).map(Some)
             };
             match result {
                 Ok(bytes) => finish_pe(&source_map, catalog, sink, bytes, input, output),
@@ -627,7 +627,7 @@ fn patch_label_fixups(
 /// Phase-7-m1-001: Emits B0007 diagnostic when no symbols are exported.
 fn build_elf_object(
     arena: &paideia_as_ir::IrArena,
-    instruction_table: &InstructionSideTable,
+    instruction_table: &mut InstructionSideTable,
     emit_walker: &paideia_as_elaborator::EmitWalker,
     _source_map: &SourceMap,
     file: paideia_as_diagnostics::FileId,
@@ -702,6 +702,17 @@ fn build_elf_object(
     )?;
 
     writer.add_text_bytes(&text_bytes);
+
+    // Phase-7-m1-003: Verify that estimated offsets match actual encoded byte count.
+    // This assertion validates that the byte_offset_in_text tracking was accurate
+    // and that emit_walker's estimated_offset did not diverge from reality.
+    assert_eq!(
+        emit_walker.state().estimated_offset as usize,
+        text_bytes.len(),
+        "Estimated offset mismatch: expected {} bytes, got {}",
+        emit_walker.state().estimated_offset,
+        text_bytes.len()
+    );
 
     // Phase-5-m4-003: Emit data entries from the data side-table.
     // Also create symbols for each data entry so relocations can reference them.
@@ -1021,7 +1032,7 @@ pub fn functors_from_modules(
 /// .text section populated from InstructionSideTable.
 /// Phase-6-m1-004: Propagates encoder failures as BuildError::Encoder.
 fn build_pe_object(
-    arena: &paideia_as_ir::IrArena,
+    arena: &mut paideia_as_ir::IrArena,
     _source_map: &SourceMap,
     file: paideia_as_diagnostics::FileId,
     encoder_warn: bool,
@@ -1045,7 +1056,7 @@ fn build_pe_object(
     // Phase-4 honesty: emit all instructions from the table into .text
     // Phase-4-m2-002: emit_text_from_instructions now returns EmitResult with offset_map
     // Phase-6-m1-004: Propagate encoder failures as BuildError::Encoder.
-    let emit_result = match emit_text_from_instructions(arena.instructions(), &mut text_bytes) {
+    let emit_result = match emit_text_from_instructions(arena.instructions_mut(), &mut text_bytes) {
         Ok(result) => result,
         Err(e) => {
             if let Some(failed_node_id) = find_failing_instruction(arena.instructions()) {

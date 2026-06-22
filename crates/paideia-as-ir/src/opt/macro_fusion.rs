@@ -94,6 +94,7 @@ mod tests {
             mnemonic: Mnemonic::Cmp,
             operands,
             encoding_hint: None,
+            byte_offset_in_text: None,
         }
     }
 
@@ -104,6 +105,7 @@ mod tests {
             mnemonic: Mnemonic::Jcc(crate::instruction::Cond::Eq),
             operands,
             encoding_hint: None,
+            byte_offset_in_text: None,
         }
     }
 

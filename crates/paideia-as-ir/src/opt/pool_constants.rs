@@ -132,6 +132,7 @@ mod tests {
             mnemonic: crate::instruction::Mnemonic::Mov,
             operands: operands1,
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut operands2 = SmallVec::new();
@@ -140,6 +141,7 @@ mod tests {
             mnemonic: crate::instruction::Mnemonic::Mov,
             operands: operands2,
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         arena.instructions_mut().insert(inst1_id, inst1);
@@ -169,6 +171,7 @@ mod tests {
             mnemonic: crate::instruction::Mnemonic::Mov,
             operands: operands1,
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut operands2 = SmallVec::new();
@@ -177,6 +180,7 @@ mod tests {
             mnemonic: crate::instruction::Mnemonic::Add,
             operands: operands2,
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut operands3 = SmallVec::new();
@@ -186,6 +190,7 @@ mod tests {
             mnemonic: crate::instruction::Mnemonic::Sub,
             operands: operands3,
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         arena.instructions_mut().insert(inst1_id, inst1);
@@ -241,6 +246,7 @@ mod tests {
             mnemonic: crate::instruction::Mnemonic::Mov,
             operands: operands1,
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         let mut operands2 = SmallVec::new();
@@ -249,6 +255,7 @@ mod tests {
             mnemonic: crate::instruction::Mnemonic::Add,
             operands: operands2,
             encoding_hint: None,
+            byte_offset_in_text: None,
         };
 
         arena.instructions_mut().insert(inst1_id, inst1);

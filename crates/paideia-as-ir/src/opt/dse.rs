@@ -337,6 +337,7 @@ mod tests {
                     ops
                 },
                 encoding_hint: None,
+            byte_offset_in_text: None,
             },
         );
 
@@ -352,6 +353,7 @@ mod tests {
                     ops
                 },
                 encoding_hint: None,
+            byte_offset_in_text: None,
             },
         );
 
@@ -411,6 +413,7 @@ mod tests {
                         ops
                     },
                     encoding_hint: None,
+            byte_offset_in_text: None,
                 },
             );
             // n1: mov [rax], r2 (second store to [rax], clobbering the first)
@@ -430,6 +433,7 @@ mod tests {
                         ops
                     },
                     encoding_hint: None,
+            byte_offset_in_text: None,
                 },
             );
         }
@@ -482,6 +486,7 @@ mod tests {
                         ops
                     },
                     encoding_hint: None,
+            byte_offset_in_text: None,
                 },
             );
             // n1: mov [rbx], r2 (store to [rbx], different address)
@@ -501,6 +506,7 @@ mod tests {
                         ops
                     },
                     encoding_hint: None,
+            byte_offset_in_text: None,
                 },
             );
         }

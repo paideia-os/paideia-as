@@ -94,6 +94,7 @@ mod tests {
             mnemonic: Mnemonic::Jcc(Cond::Eq),
             operands,
             encoding_hint: None,
+            byte_offset_in_text: None,
         }
     }
 
@@ -104,6 +105,7 @@ mod tests {
             mnemonic: Mnemonic::Jmp,
             operands,
             encoding_hint: None,
+            byte_offset_in_text: None,
         }
     }
 
