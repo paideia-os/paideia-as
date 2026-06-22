@@ -847,3 +847,12 @@ brief = "RawInstruction node lacks corresponding instruction payload (internal c
 description = "Phase 7 m2-001 (PA7C-m2-001): During IR traversal in emit_block_body, a RawInstruction child node was encountered but the instruction payload was not found in the InstructionSideTable. This indicates an internal compiler error: either the instruction was not properly registered during elaboration, or the side-table lookup failed. This is a structural invariant violation and should not occur in normal compilation."
 since = "0.12.0"
 deprecated = false
+
+[diagnostic.T0527]
+severity = "error"
+category = "type"
+title = "Register pressure exceeded in Phase 7 Let-literal bindings"
+brief = "more than 4 in-flight let-literal bindings in multi-statement function body"
+description = "Phase 7 m2-002 (PA7C-m2-002): EmitWalker Let-literal lowering in emit_block_body assigns scratch registers in sequence: RAX(0), RCX(1), RDX(2), R8(8). The calling convention provides exactly 4 caller-save scratch registers. When more than 4 let-literal bindings appear in a single function body, the elaborator cannot assign a scratch register. Restructure your function to use fewer than 5 let-literal bindings, or defer the assignment of later bindings to a later phase."
+since = "0.12.1"
+deprecated = false

@@ -1,0 +1,8 @@
+module Pa7cUnsafeBodyLetScratch = structure {
+  let test_three_lets : () -> u64 !{} @{} = fn(_: ()) -> {
+    let a : u64 = 0x10
+    let b : u64 = 0x20
+    let c : u64 = 0x30
+    c
+  }
+}

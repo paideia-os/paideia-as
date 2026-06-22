@@ -1098,25 +1098,100 @@ impl EmitWalker {
                         // This is a let binding. Emit the value expression.
                         // The Let node's child is the RHS expression.
                         let let_children = arena.children(child_id);
-                        if let_children.first().is_some() {
-                            // Assign next scratch register if available.
-                            if self.state.scratch_assignment.len() < scratch_regs.len() {
+                        if let Some(&rhs_id) = let_children.first() {
+                            if let Some(rhs_node) = arena.get(rhs_id) {
+                                // Assign next scratch register if available.
+                                if self.state.scratch_assignment.len() >= scratch_regs.len() {
+                                    // Register pressure exceeded.
+                                    self.diagnostics.push(format!(
+                                        "T0527: register pressure exceeded in Phase 7 Let-literal bindings: more than {} in-flight bindings",
+                                        scratch_regs.len()
+                                    ));
+                                    return;
+                                }
+
                                 let scratch_reg = scratch_regs[self.state.scratch_assignment.len()];
                                 self.state.scratch_assignment.push(scratch_reg);
 
-                                // TODO: Emit the value expression to scratch_reg.
-                                // For now, we just advance the offset as a placeholder.
+                                // Get binding name from arena.binding_names()
+                                let binding_name = arena
+                                    .binding_names()
+                                    .get(child_id)
+                                    .map(|s| s.to_string())
+                                    .unwrap_or_else(|| format!("_let_{}", child_id.get()));
+
+                                // Edit A: Handle Literal RHS
+                                if rhs_node.kind == IrKind::Literal {
+                                    if let Some(value) = arena.literal_values().get(rhs_id) {
+                                        // Allocate scratch register and emit mov instruction
+                                        self.state
+                                            .local_bindings
+                                            .insert(binding_name.clone(), scratch_reg);
+
+                                        // Emit: mov scratch_reg, imm64
+                                        let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                                        operands.push(Operand::Reg(scratch_reg));
+                                        operands.push(Operand::Imm64(value));
+
+                                        let inst = Instruction {
+                                            mnemonic: Mnemonic::Mov,
+                                            operands,
+                                            encoding_hint: None,
+                                            byte_offset_in_text: None,
+                                        };
+
+                                        // Calculate instruction size
+                                        let inst_size = if value >= i32::MIN as i64
+                                            && value <= i32::MAX as i64
+                                        {
+                                            7
+                                        } else {
+                                            10
+                                        };
+
+                                        // Use virtual ID: child_id * 3 + offset to ensure proper sorting
+                                        let inst_id = IrNodeId::new(child_id.get() * 3)
+                                            .expect("let literal instr id");
+                                        self.state.instructions.insert(inst_id, inst);
+                                        self.state.estimated_offset += inst_size;
+                                    }
+                                }
+                                // Edit B: Handle Unsafe RHS
+                                else if matches!(rhs_node.kind, IrKind::Unsafe { .. }) {
+                                    // Record binding in local_bindings but don't emit instruction
+                                    // UnsafeWalker will handle the body via existing pending queue
+                                    self.state
+                                        .local_bindings
+                                        .insert(binding_name.clone(), scratch_reg);
+                                }
+                                // Edit C: Handle RawInstruction RHS (future lowering placeholder)
+                                else if rhs_node.kind == IrKind::RawInstruction {
+                                    if let Some(inst) = arena.instructions().get(rhs_id) {
+                                        // Check if this is a value-producing Mov instruction
+                                        if inst.mnemonic == Mnemonic::Mov {
+                                            // Clone the instruction with rewritten destination
+                                            let mut cloned = inst.clone();
+                                            if let Some(first_op) = cloned.operands.get_mut(0) {
+                                                *first_op = Operand::Reg(scratch_reg);
+                                            }
+
+                                            self.state
+                                                .local_bindings
+                                                .insert(binding_name.clone(), scratch_reg);
+
+                                            // Insert at virtual child_id
+                                            self.state.instructions.insert(rhs_id, cloned.clone());
+                                            let size =
+                                                cloned.mnemonic.estimated_size(&cloned.operands);
+                                            self.state.estimated_offset += size;
+                                        }
+                                    }
+                                }
+
                                 eprintln!(
-                                    "[emit_block_body] Let binding uses scratch reg {:?}",
-                                    scratch_reg
+                                    "[emit_block_body] Let binding {} uses scratch reg {:?}",
+                                    binding_name, scratch_reg
                                 );
-                            } else {
-                                // Register pressure exceeded.
-                                self.diagnostics.push(format!(
-                                    "T0517: register pressure exceeded in Phase 7 multi-stmt: more than {} in-flight bindings",
-                                    scratch_regs.len()
-                                ));
-                                return;
                             }
                         }
                     }
@@ -4885,5 +4960,211 @@ mod tests {
         // Pop context.
         walker.pop_loop_context();
         assert_eq!(walker.current_loop_context(), None);
+    }
+
+    // ── PA7C-m2-002: Let-literal scratch binding tests ──────────────────────
+
+    /// Test 1: Single Let with Literal(0x10) RHS assigns first scratch register.
+    #[test]
+    fn pa7c_m2_002_let_literal_assigns_first_scratch_reg() {
+        let mut arena = IrArena::new();
+
+        // Allocate: Literal node, then Let with Literal as child.
+        let lit_id = arena.alloc(IrKind::Literal, span());
+        let let_id = arena.alloc_with_children(IrKind::Let, span(), [lit_id]);
+
+        // Register binding name
+        arena.binding_names_mut().insert(let_id, "x".to_string());
+
+        // Register the literal value 0x10
+        arena.literal_values_mut().insert(lit_id, 0x10);
+
+        // Create a block containing the let statement
+        let action_id = arena.alloc_with_children(IrKind::Action, span(), [let_id]);
+
+        // Create a lambda with the action as its body
+        let _lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [action_id]);
+
+        // Walk the arena
+        let mut walker = EmitWalker::new();
+        walker.walk(&mut arena);
+
+        // Verify scratch_assignment[0] == RAX (RegId(0))
+        assert_eq!(
+            walker.state().scratch_assignment.len(),
+            1,
+            "Should have 1 scratch assignment"
+        );
+        assert_eq!(
+            walker.state().scratch_assignment[0],
+            RegId(0),
+            "First scratch should be RAX"
+        );
+
+        // Verify local_bindings.get("x") == Some(RAX)
+        assert_eq!(
+            walker.state().local_bindings.get("x"),
+            Some(RegId(0)),
+            "Binding 'x' should map to RAX"
+        );
+
+        // Verify 1 Mov instruction was emitted (plus the final Ret from emit_block_body)
+        let mut mov_count = 0;
+        for (_, inst) in walker.state().instructions.entries().iter() {
+            if inst.mnemonic == Mnemonic::Mov {
+                mov_count += 1;
+            }
+        }
+        assert_eq!(mov_count, 1, "Should have emitted 1 Mov instruction");
+    }
+
+    /// Test 2: Three Lets (a, b, c) with Literal RHS assign distinct scratch regs.
+    #[test]
+    fn pa7c_m2_002_three_let_chain_assigns_distinct_scratch_regs() {
+        let mut arena = IrArena::new();
+
+        // Allocate three Let nodes with Literal RHS
+        let lit_a = arena.alloc(IrKind::Literal, span());
+        let let_a = arena.alloc_with_children(IrKind::Let, span(), [lit_a]);
+        arena.binding_names_mut().insert(let_a, "a".to_string());
+        arena.literal_values_mut().insert(lit_a, 0x10);
+
+        let lit_b = arena.alloc(IrKind::Literal, span());
+        let let_b = arena.alloc_with_children(IrKind::Let, span(), [lit_b]);
+        arena.binding_names_mut().insert(let_b, "b".to_string());
+        arena.literal_values_mut().insert(lit_b, 0x20);
+
+        let lit_c = arena.alloc(IrKind::Literal, span());
+        let let_c = arena.alloc_with_children(IrKind::Let, span(), [lit_c]);
+        arena.binding_names_mut().insert(let_c, "c".to_string());
+        arena.literal_values_mut().insert(lit_c, 0x30);
+
+        // Create a block containing the three let statements
+        let action_id = arena.alloc_with_children(IrKind::Action, span(), [let_a, let_b, let_c]);
+
+        // Create a lambda with the action as its body
+        let _lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [action_id]);
+
+        // Walk the arena
+        let mut walker = EmitWalker::new();
+        walker.walk(&mut arena);
+
+        // Verify scratch_assignment has 3 entries
+        assert_eq!(
+            walker.state().scratch_assignment.len(),
+            3,
+            "Should have 3 scratch assignments"
+        );
+
+        // Verify they are RAX, RCX, RDX
+        assert_eq!(
+            walker.state().scratch_assignment[0],
+            RegId(0),
+            "First should be RAX"
+        );
+        assert_eq!(
+            walker.state().scratch_assignment[1],
+            RegId(1),
+            "Second should be RCX"
+        );
+        assert_eq!(
+            walker.state().scratch_assignment[2],
+            RegId(2),
+            "Third should be RDX"
+        );
+
+        // Verify local_bindings
+        assert_eq!(
+            walker.state().local_bindings.get("a"),
+            Some(RegId(0)),
+            "Binding 'a' should map to RAX"
+        );
+        assert_eq!(
+            walker.state().local_bindings.get("b"),
+            Some(RegId(1)),
+            "Binding 'b' should map to RCX"
+        );
+        assert_eq!(
+            walker.state().local_bindings.get("c"),
+            Some(RegId(2)),
+            "Binding 'c' should map to RDX"
+        );
+
+        // Verify at least 3 Mov instructions were emitted (for the 3 lets)
+        // Note: there may be additional Mov instructions depending on the walk's side effects
+        let mut mov_count = 0;
+        for (_, inst) in walker.state().instructions.entries().iter() {
+            if inst.mnemonic == Mnemonic::Mov {
+                mov_count += 1;
+            }
+        }
+        assert!(
+            mov_count >= 3,
+            "Should have emitted at least 3 Mov instructions, got {}",
+            mov_count
+        );
+    }
+
+    /// Test 3: Five Lets exhaust the 4-register pool and emit T0527.
+    #[test]
+    fn pa7c_m2_002_five_let_chain_exhausts_pool_and_emits_t0527() {
+        let mut arena = IrArena::new();
+
+        // Allocate five Let nodes with Literal RHS
+        let mut let_ids = Vec::new();
+        for i in 1..=5 {
+            let lit = arena.alloc(IrKind::Literal, span());
+            let let_node = arena.alloc_with_children(IrKind::Let, span(), [lit]);
+            let name = format!("var_{}", i);
+            arena.binding_names_mut().insert(let_node, name);
+            arena.literal_values_mut().insert(lit, (i as i64) * 0x10);
+            let_ids.push(let_node);
+        }
+
+        // Create a block containing the five let statements
+        let action_id = arena.alloc_with_children(IrKind::Action, span(), let_ids);
+
+        // Create a lambda with the action as its body
+        let _lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [action_id]);
+
+        // Walk the arena
+        let mut walker = EmitWalker::new();
+        walker.walk(&mut arena);
+
+        // Verify T0527 was emitted in diagnostics
+        let has_t0527 = walker.diagnostics().iter().any(|d| d.contains("T0527"));
+        assert!(
+            has_t0527,
+            "Should emit T0527 diagnostic for register exhaustion"
+        );
+
+        // Verify scratch_assignment stopped at 4 registers
+        assert_eq!(
+            walker.state().scratch_assignment.len(),
+            4,
+            "Should have only 4 scratch assignments"
+        );
+
+        // Verify they are RAX, RCX, RDX, R8
+        assert_eq!(
+            walker.state().scratch_assignment[0],
+            RegId(0),
+            "First should be RAX"
+        );
+        assert_eq!(
+            walker.state().scratch_assignment[1],
+            RegId(1),
+            "Second should be RCX"
+        );
+        assert_eq!(
+            walker.state().scratch_assignment[2],
+            RegId(2),
+            "Third should be RDX"
+        );
+        assert_eq!(
+            walker.state().scratch_assignment[3],
+            RegId(8),
+            "Fourth should be R8"
+        );
     }
 }

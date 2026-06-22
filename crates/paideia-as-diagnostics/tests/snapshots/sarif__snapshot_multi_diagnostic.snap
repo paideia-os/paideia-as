@@ -1,5 +1,6 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
+assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -950,6 +951,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "Instruction payload not found in side-table",
               "shortDescription": {
                 "text": "RawInstruction node lacks corresponding instruction payload (internal compiler error)"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase 7 m2-002 (PA7C-m2-002): EmitWalker Let-literal lowering in emit_block_body assigns scratch registers in sequence: RAX(0), RCX(1), RDX(2), R8(8). The calling convention provides exactly 4 caller-save scratch registers. When more than 4 let-literal bindings appear in a single function body, the elaborator cannot assign a scratch register. Restructure your function to use fewer than 5 let-literal bindings, or defer the assignment of later bindings to a later phase."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0527",
+              "id": "T0527",
+              "name": "Register pressure exceeded in Phase 7 Let-literal bindings",
+              "shortDescription": {
+                "text": "more than 4 in-flight let-literal bindings in multi-statement function body"
               }
             },
             {
