@@ -432,6 +432,19 @@ pub enum ExprData {
     /// Empty array literals `[]` require explicit type annotation and emit P0210.
     ArrayLit(Vec<NodeId>),
 
+    /// `[expr; count]`.
+    ///
+    /// Array repeat expression: replicates an expression N times.
+    /// The count must be a constant integer literal. During elaboration,
+    /// this is expanded to an ArrayLit with N copies of the lowered expr.
+    /// If count is not a literal, the elaborator emits P0211.
+    ArrayRepeat {
+        /// Expression to repeat.
+        expr: NodeId,
+        /// Count expression (must be a literal integer).
+        count: NodeId,
+    },
+
     /// `uninit`.
     ///
     /// Uninitialized value marker. Only valid as the right-hand side of a

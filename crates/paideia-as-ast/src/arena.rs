@@ -129,6 +129,8 @@ pub enum NodeKind {
     ExprDeref,
     /// `[expr1, expr2, ...]` (array literal).
     ExprArrayLit,
+    /// `[expr; count]` (array repeat expression).
+    ExprArrayRepeat,
     /// `uninit` (uninitialized value marker for `let mut` bindings).
     ExprUninit,
 

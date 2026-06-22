@@ -629,6 +629,10 @@ fn print_expr_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
             format!("ArrayLit([{}])", elements_str)
         }
 
+        ExprData::ArrayRepeat { expr, count } => {
+            format!("ArrayRepeat {{ expr: {}, count: {} }}", expr, count)
+        }
+
         ExprData::Uninit => "Uninit".to_string(),
     };
 

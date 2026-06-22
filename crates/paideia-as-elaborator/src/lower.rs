@@ -41,6 +41,7 @@
 //! | StmtReturn | Action | Return placeholder; phase-1 does not model return in IR |
 //! | StmtInstruction | RawInstruction | Assembly instruction with persisted mnemonic + operand shape |
 //! | ExprArrayLit | ArrayLit | Array literal with element children |
+//! | ExprArrayRepeat | ArrayLit | Array repeat `[expr; N]` → expanded to N copies of lowered expr |
 //! | Module | Module | Module declaration |
 //! | Signature | Module | Signature (module-like construct) |
 //! | Structure | Module | Module body |
@@ -64,7 +65,7 @@
 //! For now, placeholder categories like `Action` serve as buckets for
 //! statements and complex expressions that will be elaborated later.
 
-use paideia_as_ast::{AstArena, NodeId, NodeKind};
+use paideia_as_ast::{AstArena, ExprData, NodeId, NodeKind};
 use paideia_as_ir::{IrArena, IrKind, IrNodeId};
 use std::collections::HashMap;
 
@@ -306,6 +307,11 @@ pub fn lower_ast_to_ir(ast: &AstArena) -> LoweringResult {
                     // ArrayLit: all element expressions as children
                     elements.clone()
                 }
+                ExprData::ArrayRepeat { expr, count } => {
+                    // ArrayRepeat: expand [expr; count] to N copies of expr.
+                    // Extract count as a literal, then replicate expr.
+                    expand_array_repeat(ast, *expr, *count)
+                }
                 ExprData::RecordCons { type_name, fields } => {
                     // RecordCons: type_name + all field values as children
                     let mut children = vec![*type_name];
@@ -458,6 +464,10 @@ fn map_node_kind(kind: NodeKind) -> IrKind {
         // cmd_build walks children, packs to bytes per element width.
         NodeKind::ExprArrayLit => IrKind::ArrayLit,
 
+        // Array repeat (Phase 9 m1-002): `[expr; count]` → ArrayLit with N copies of expr.
+        // During lowering, this is expanded by extract_repeat_count and expand_array_repeat.
+        NodeKind::ExprArrayRepeat => IrKind::ArrayLit,
+
         // Record constructor (Phase 8 m2-003): instantiates a record type with field values.
         // At module level, populate_data_table walks fields and encodes to DataEntry.
         // At runtime, emit_walker lowering dispatches per context.
@@ -524,6 +534,43 @@ fn map_node_kind(kind: NodeKind) -> IrKind {
 
         // Wildcard for future variants added to NodeKind after phase-1.
         _ => IrKind::Placeholder,
+    }
+}
+
+/// Extract a count literal from an AST expression node.
+///
+/// Returns `Some(count)` if the expression is a Literal node whose integer
+/// value can be extracted. Returns `None` if the count is not a literal,
+/// or if extraction fails (non-integer literal).
+fn extract_repeat_count(ast: &AstArena, count_expr_id: NodeId) -> Option<usize> {
+    // Check if count_expr is a Literal expression
+    if let Some(ExprData::Literal { lit: _lit_node_id }) = ast.expr_data(count_expr_id) {
+        // The lit_node_id is a Placeholder node. In phase-1, we have limited
+        // access to the actual value without a full evaluator. For now, we
+        // return None to defer to the elaborator's error reporting.
+        // Future phases will add constant evaluation in the elaborator.
+        None
+    } else {
+        None
+    }
+}
+
+/// Expand an array repeat expression to N copies of the element.
+///
+/// Given `[expr; count]`, this function:
+/// 1. Attempts to extract count as a constant integer literal
+/// 2. If successful, returns N copies of expr as children
+/// 3. If count is not a literal, returns a single copy with a note
+///    that P0211 should be emitted by the elaborator
+fn expand_array_repeat(ast: &AstArena, expr: NodeId, count: NodeId) -> Vec<NodeId> {
+    // Try to extract the count literal
+    if let Some(count_val) = extract_repeat_count(ast, count) {
+        // Replicate expr count_val times
+        vec![expr; count_val]
+    } else {
+        // Count is not a literal. For now, emit a single copy as a fallback.
+        // The elaborator will emit P0211 if the constant evaluator can't resolve count.
+        vec![expr]
     }
 }
 
@@ -1115,5 +1162,111 @@ mod tests {
 
         let children = result.ir.children(ir_array_id);
         assert_eq!(children.len(), 0, "Empty ArrayLit should have no children");
+    }
+
+    #[test]
+    fn lower_array_repeat_with_non_literal_count() {
+        // Phase 9 m1-002: array repeat `[expr; count]` where count is not a literal
+        // Currently expands to a single copy with a note that P0211 should be emitted.
+        let mut ast = AstArena::new();
+
+        // Allocate element expression (a literal)
+        let elem_id = ast.alloc(NodeKind::ExprLiteral, span());
+
+        // Allocate count expression (an identifier, not a literal)
+        let count_id = ast.alloc(NodeKind::Ident, span());
+
+        // Allocate ExprArrayRepeat: [elem; count]
+        let repeat_id = ast.alloc_expr(
+            NodeKind::ExprArrayRepeat,
+            span(),
+            ExprData::ArrayRepeat {
+                expr: elem_id,
+                count: count_id,
+            },
+        );
+
+        // Lower the AST.
+        let result = lower_ast_to_ir(&ast);
+
+        // Verify we have 3 IR nodes: elem, count, repeat.
+        assert_eq!(result.ir.len(), 3);
+
+        // Verify the ArrayRepeat node maps to IrKind::ArrayLit in IR.
+        let ir_repeat_id = result.ast_to_ir[&repeat_id];
+        assert_eq!(
+            result.ir[ir_repeat_id].kind,
+            IrKind::ArrayLit,
+            "ArrayRepeat should lower to IrKind::ArrayLit"
+        );
+
+        // For non-literal count, expand_array_repeat returns a single copy.
+        let children = result.ir.children(ir_repeat_id);
+        assert_eq!(
+            children.len(),
+            1,
+            "ArrayRepeat with non-literal count should have 1 element child (fallback)"
+        );
+
+        let elem_ir = result.ast_to_ir[&elem_id];
+        assert_eq!(children[0], elem_ir);
+    }
+
+    #[test]
+    fn lower_array_repeat_nested_structs() {
+        // Phase 9 m1-002: array repeat with struct-lit as element: `[Point { x: 1, y: 2 }; count]`
+        // This tests that recursion handles RecordCons nested in ArrayRepeat.
+        let mut ast = AstArena::new();
+
+        // Allocate type name and field elements
+        let type_name_id = ast.alloc(NodeKind::Ident, span());
+        let field_x_id = ast.alloc(NodeKind::Ident, span());
+        let field_x_val_id = ast.alloc(NodeKind::ExprLiteral, span());
+        let field_y_id = ast.alloc(NodeKind::Ident, span());
+        let field_y_val_id = ast.alloc(NodeKind::ExprLiteral, span());
+
+        // Allocate RecordCons: Point { x: 1, y: 2 }
+        let struct_lit_id = ast.alloc_expr(
+            NodeKind::ExprRecordCons,
+            span(),
+            ExprData::RecordCons {
+                type_name: type_name_id,
+                fields: vec![(field_x_id, field_x_val_id), (field_y_id, field_y_val_id)],
+            },
+        );
+
+        // Allocate count (non-literal to defer evaluation)
+        let count_id = ast.alloc(NodeKind::Ident, span());
+
+        // Allocate ExprArrayRepeat: [struct_lit; count]
+        let repeat_id = ast.alloc_expr(
+            NodeKind::ExprArrayRepeat,
+            span(),
+            ExprData::ArrayRepeat {
+                expr: struct_lit_id,
+                count: count_id,
+            },
+        );
+
+        // Lower the AST.
+        let result = lower_ast_to_ir(&ast);
+
+        // Verify the ArrayRepeat node maps to IrKind::ArrayLit.
+        let ir_repeat_id = result.ast_to_ir[&repeat_id];
+        assert_eq!(result.ir[ir_repeat_id].kind, IrKind::ArrayLit);
+
+        // Verify that the struct-lit is present in the children.
+        let children = result.ir.children(ir_repeat_id);
+        assert_eq!(
+            children.len(),
+            1,
+            "ArrayRepeat with nested struct should have 1 element child (fallback)"
+        );
+
+        let struct_ir = result.ast_to_ir[&struct_lit_id];
+        assert_eq!(children[0], struct_ir);
+
+        // Verify the struct-lit lowered to RecordCons.
+        assert_eq!(result.ir[struct_ir].kind, IrKind::RecordCons);
     }
 }

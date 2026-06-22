@@ -424,6 +424,10 @@ impl<'a> Term<'a> {
                         result.push(Term::new(self.arena, *element));
                     }
                 }
+                ExprData::ArrayRepeat { expr, count } => {
+                    result.push(Term::new(self.arena, *expr));
+                    result.push(Term::new(self.arena, *count));
+                }
                 ExprData::Uninit => {
                     // No children for uninit
                 }
