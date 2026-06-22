@@ -1,0 +1,22 @@
+TaskID	Issue	Title	Size	UnblocksParPath
+PA7C-m1-001	797	cmd_build: walk SymbolTable using binding names, kill add_one fallback	S	kernel_main.pdx, int/exceptions.pdx, int/idt.pdx, mm/pt_walk.pdx
+PA7C-m1-002	798	emitter-elf: assert symbol-name uniqueness and non-overlapping ranges	XS	none
+PA7C-m1-003	799	encoder + walker: collapse byte-position counters into single source of truth	M	kernel_main.pdx, int/exceptions.pdx, int/idt.pdx, mm/pt_walk.pdx
+PA7C-m1-004	800	tests: PLT32 round-trip via iced-x86 disassembly and ld rejection witness	S	none
+PA7C-m2-001	801	emit_walker: recognise IrKind::RawInstruction inside Action and forward to side-table	M	kernel_main.pdx, int/exceptions.pdx, int/idt.pdx, mm/pt_walk.pdx
+PA7C-m2-002	802	emit_walker: recognise IrKind::Let with RawInstruction RHS and propagate dest reg	S	none
+PA7C-m2-003	803	emit_walker: Var(name) inside RawInstruction operands resolves to scratch reg	S	none
+PA7C-m2-004	804	tests: PaideiaOS R1.5/R2.5 four-file re-build regression suite	XS	kernel_main.pdx, int/exceptions.pdx, int/idt.pdx, mm/pt_walk.pdx
+PA7C-m3-001	805	lexer: free handle as a user identifier	XS	none
+PA7C-m3-002	806	parser: make -> optional before { ... } body in fn-literal grammar	S	none
+PA7C-m3-003	807	parser: unit-typed blocks accept trailing-semi without requiring ()	S	cap/slab.pdx, ipc/*, ipi/tlb_shootdown.pdx, sched/enqueue.pdx
+PA7C-m4-001	808	lexer + parser: unary bitwise NOT prefix ~	S	cap/verify.pdx
+PA7C-m4-002	809	parser + IR: EXPR as TYPE cast operator	S	mm/pt_walk.pdx
+PA7C-m4-003	810	encoder: thread IntWidth from IR through DispatchKind to RegId size	S	cap/slab.pdx, ipc/*, sched/enqueue.pdx
+PA7C-m4-004	811	tests: round-trip-via-iced-x86 for the m4 expression surface	XS	none
+PA7C-m5-001	812	parser + IR + encoder: array-index l-value a[i] = expr	M	cap/slab.pdx, ipc/*, ipi/tlb_shootdown.pdx, sched/enqueue.pdx
+PA7C-m5-002	813	parser + IR + encoder: pointer-deref l-value *p = expr and (*p).f = expr	S	ipc/channel.pdx, ipc/destroy_channel.pdx
+PA7C-m6-001	814	e2e: boot_orchestration_v2 smoke test + paideia-os submodule pin verification	S	all 13 quarantined files
+PA7C-m6-002	815	PA7-completion round: close issue and verify test count growth	XS	none
+PA7C-m6-003	816	design: phase-transition-7.md retrospective	S	none
+PA7C-m6-004	817	tag v0.7.0 and bump paideia-os submodule	XS	none
