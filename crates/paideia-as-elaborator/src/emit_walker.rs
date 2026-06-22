@@ -909,13 +909,15 @@ impl EmitWalker {
             self.state
                 .local_bindings
                 .insert(param_name.clone(), param_reg);
-            eprintln!(
-                "[visit_lambda PA8-m1-001c] Lambda {} param_index={} name={} → register {}",
-                lambda_node_id.get(),
-                param_index,
-                param_name,
-                param_reg.0
-            );
+            if cfg!(debug_assertions) {
+                eprintln!(
+                    "[visit_lambda PA8-m1-001c] Lambda {} param_index={} name={} → register {}",
+                    lambda_node_id.get(),
+                    param_index,
+                    param_name,
+                    param_reg.0
+                );
+            }
         }
 
         // If this lambda's body is another lambda, register its parameters too
@@ -995,7 +997,9 @@ impl EmitWalker {
                         // Mark this lambda as emitted
                         self.state.emitted_lambdas.insert(lambda_node_id.get());
 
-                        eprintln!("[emit_identity_lambda] Lambda {}", lambda_node_id.get());
+                        if cfg!(debug_assertions) {
+                            eprintln!("[emit_identity_lambda] Lambda {}", lambda_node_id.get());
+                        }
                         self.emit_identity_lambda(lambda_node_id);
                     }
                     // Phase 7 m4-001: bitwise-NOT `fn (x) -> ~x`.
@@ -1010,7 +1014,9 @@ impl EmitWalker {
                         // Mark this lambda as emitted.
                         self.state.emitted_lambdas.insert(lambda_node_id.get());
 
-                        eprintln!("[emit_bitnot_lambda] Lambda {}", lambda_node_id.get());
+                        if cfg!(debug_assertions) {
+                            eprintln!("[emit_bitnot_lambda] Lambda {}", lambda_node_id.get());
+                        }
                         self.emit_bitnot_lambda(lambda_node_id);
                     }
                     // Phase 7 m4-002: cast `fn (x) -> x as TYPE`.
@@ -1026,30 +1032,38 @@ impl EmitWalker {
                         // Mark this lambda as emitted.
                         self.state.emitted_lambdas.insert(lambda_node_id.get());
 
-                        eprintln!("[emit_cast_lambda] Lambda {}", lambda_node_id.get());
+                        if cfg!(debug_assertions) {
+                            eprintln!("[emit_cast_lambda] Lambda {}", lambda_node_id.get());
+                        }
                         self.emit_cast_lambda(lambda_node_id);
                     }
                     // Case 2 & 3: Application `fn (x) -> x + ...` or `fn (x) -> ... + x`
                     // Phase 7 m1-001: Also handles inter-function calls `fn () -> foo()` or `fn (x) -> foo(x)`
                     IrKind::App => {
-                        eprintln!(
-                            "[visit_lambda App] Lambda {} body={}",
-                            lambda_node_id.get(),
-                            body_id.get()
-                        );
-                        let app_children = arena.children(body_id);
-                        eprintln!(
-                            "[visit_lambda App] Lambda {} App body={} has {} children",
-                            lambda_node_id.get(),
-                            body_id.get(),
-                            app_children.len()
-                        );
-                        if app_children.len() > 0 {
+                        if cfg!(debug_assertions) {
                             eprintln!(
-                                "[visit_lambda App] Lambda {} child[0]={}",
+                                "[visit_lambda App] Lambda {} body={}",
                                 lambda_node_id.get(),
-                                app_children[0].get()
+                                body_id.get()
                             );
+                        }
+                        let app_children = arena.children(body_id);
+                        if cfg!(debug_assertions) {
+                            eprintln!(
+                                "[visit_lambda App] Lambda {} App body={} has {} children",
+                                lambda_node_id.get(),
+                                body_id.get(),
+                                app_children.len()
+                            );
+                        }
+                        if app_children.len() > 0 {
+                            if cfg!(debug_assertions) {
+                                eprintln!(
+                                    "[visit_lambda App] Lambda {} child[0]={}",
+                                    lambda_node_id.get(),
+                                    app_children[0].get()
+                                );
+                            }
                         }
                         // App has structure: [callee, arg0, arg1, ...]
 
@@ -1081,12 +1095,14 @@ impl EmitWalker {
                                             // Mark this lambda as emitted
                                             self.state.emitted_lambdas.insert(lambda_node_id.get());
 
-                                            eprintln!(
-                                                "[emit_function_call] Lambda {} calling function {} with {} args",
-                                                lambda_node_id.get(),
-                                                symbol.name,
-                                                num_args
-                                            );
+                                            if cfg!(debug_assertions) {
+                                                eprintln!(
+                                                    "[emit_function_call] Lambda {} calling function {} with {} args",
+                                                    lambda_node_id.get(),
+                                                    symbol.name,
+                                                    num_args
+                                                );
+                                            }
                                             self.emit_function_call(
                                                 lambda_node_id,
                                                 symbol.name.clone(),
@@ -1114,24 +1130,28 @@ impl EmitWalker {
 
                             // Check if callee is the + builtin.
                             if let Some(callee_node) = arena.get(callee_id) {
-                                eprintln!(
-                                    "[visit_lambda] Lambda {} App callee[{}] kind: {:?}",
-                                    lambda_node_id.get(),
-                                    callee_id.get(),
-                                    callee_node.kind
-                                );
+                                if cfg!(debug_assertions) {
+                                    eprintln!(
+                                        "[visit_lambda] Lambda {} App callee[{}] kind: {:?}",
+                                        lambda_node_id.get(),
+                                        callee_id.get(),
+                                        callee_node.kind
+                                    );
+                                }
                                 if matches!(callee_node.kind, IrKind::Var | IrKind::Placeholder) {
                                     // We assume this is +; ideally we'd check a builtin registry.
                                     // For now, we inspect the arguments.
                                     if let (Some(arg0_node), Some(arg1_node)) =
                                         (arena.get(arg0_id), arena.get(arg1_id))
                                     {
-                                        eprintln!(
-                                            "[visit_lambda] Lambda {} App args: {:?}, {:?}",
-                                            lambda_node_id.get(),
-                                            arg0_node.kind,
-                                            arg1_node.kind
-                                        );
+                                        if cfg!(debug_assertions) {
+                                            eprintln!(
+                                                "[visit_lambda] Lambda {} App args: {:?}, {:?}",
+                                                lambda_node_id.get(),
+                                                arg0_node.kind,
+                                                arg1_node.kind
+                                            );
+                                        }
                                         match (arg0_node.kind, arg1_node.kind) {
                                             // Case 2: x + x (double) or x << y (shift by var) — both args are Var
                                             // Heuristic: For single-param lambdas like |x| x + x, both args are Vars.
@@ -1169,16 +1189,20 @@ impl EmitWalker {
                                                     };
 
                                                     if op_hint == Some("<<") {
-                                                        eprintln!(
-                                                            "[emit_shl_var_lambda] Lambda {}",
-                                                            lambda_node_id.get()
-                                                        );
+                                                        if cfg!(debug_assertions) {
+                                                            eprintln!(
+                                                                "[emit_shl_var_lambda] Lambda {}",
+                                                                lambda_node_id.get()
+                                                            );
+                                                        }
                                                         self.emit_shl_var_lambda(lambda_node_id);
                                                     } else {
-                                                        eprintln!(
-                                                            "[emit_double_lambda] Lambda {}",
-                                                            lambda_node_id.get()
-                                                        );
+                                                        if cfg!(debug_assertions) {
+                                                            eprintln!(
+                                                                "[emit_double_lambda] Lambda {}",
+                                                                lambda_node_id.get()
+                                                            );
+                                                        }
                                                         self.emit_double_lambda(lambda_node_id);
                                                     }
                                                 }
@@ -1210,21 +1234,25 @@ impl EmitWalker {
                                                     };
 
                                                     if op_hint == Some("<<") {
-                                                        eprintln!(
-                                                            "[emit_shl_imm_lambda] Lambda {} emit_shl_imm with value {}",
-                                                            lambda_node_id.get(),
-                                                            value
-                                                        );
+                                                        if cfg!(debug_assertions) {
+                                                            eprintln!(
+                                                                "[emit_shl_imm_lambda] Lambda {} emit_shl_imm with value {}",
+                                                                lambda_node_id.get(),
+                                                                value
+                                                            );
+                                                        }
                                                         self.emit_shl_imm_lambda(
                                                             lambda_node_id,
                                                             value,
                                                         );
                                                     } else {
-                                                        eprintln!(
-                                                            "[emit_add_imm_lambda] Lambda {} emit_add_imm with value {}",
-                                                            lambda_node_id.get(),
-                                                            value
-                                                        );
+                                                        if cfg!(debug_assertions) {
+                                                            eprintln!(
+                                                                "[emit_add_imm_lambda] Lambda {} emit_add_imm with value {}",
+                                                                lambda_node_id.get(),
+                                                                value
+                                                            );
+                                                        }
                                                         self.emit_add_imm_lambda(
                                                             lambda_node_id,
                                                             value,
@@ -1261,11 +1289,13 @@ impl EmitWalker {
 
                                                     if op_hint == Some("<<") {
                                                         // PAGE_SIZE << order: constant value needs to be loaded into rax first
-                                                        eprintln!(
-                                                            "[emit_shl_const_var_lambda] Lambda {} with const {} << var",
-                                                            lambda_node_id.get(),
-                                                            value
-                                                        );
+                                                        if cfg!(debug_assertions) {
+                                                            eprintln!(
+                                                                "[emit_shl_const_var_lambda] Lambda {} with const {} << var",
+                                                                lambda_node_id.get(),
+                                                                value
+                                                            );
+                                                        }
                                                         self.emit_shl_const_var_lambda(
                                                             lambda_node_id,
                                                             value,
@@ -1290,10 +1320,12 @@ impl EmitWalker {
                     }
                     // Phase 7 m1-001: Block body `fn() { let x = 1; x + 1 }`
                     IrKind::Action => {
-                        eprintln!(
-                            "[visit_lambda Action] Lambda {} body=Action",
-                            lambda_node_id.get()
-                        );
+                        if cfg!(debug_assertions) {
+                            eprintln!(
+                                "[visit_lambda Action] Lambda {} body=Action",
+                                lambda_node_id.get()
+                            );
+                        }
 
                         // Record the lambda's starting offset BEFORE emitting.
                         self.state
@@ -1310,10 +1342,12 @@ impl EmitWalker {
                     }
                     // Phase 7 m2-001 (PA7C-m2-001): Unsafe block body `unsafe { ... }`
                     IrKind::Unsafe => {
-                        eprintln!(
-                            "[visit_lambda Unsafe] Lambda {} body=Unsafe",
-                            lambda_node_id.get()
-                        );
+                        if cfg!(debug_assertions) {
+                            eprintln!(
+                                "[visit_lambda Unsafe] Lambda {} body=Unsafe",
+                                lambda_node_id.get()
+                            );
+                        }
 
                         // Record the lambda's starting offset BEFORE emitting.
                         self.state
@@ -1979,11 +2013,13 @@ impl EmitWalker {
         typer: Option<&paideia_as_types::TypeInterner>,
     ) {
         let block_children = arena.children(block_id);
-        eprintln!(
-            "[emit_block_body] Block {} has {} children",
-            block_id.get(),
-            block_children.len()
-        );
+        if cfg!(debug_assertions) {
+            eprintln!(
+                "[emit_block_body] Block {} has {} children",
+                block_id.get(),
+                block_children.len()
+            );
+        }
 
         // Scratch register sequence for in-block let bindings.
         let scratch_regs = [RegId(0), RegId(1), RegId(2), RegId(8)]; // RAX, RCX, RDX, R8
@@ -1993,7 +2029,9 @@ impl EmitWalker {
             if let Some(child_node) = arena.get(child_id) {
                 match child_node.kind {
                     IrKind::Let => {
-                        eprintln!("[emit_block_body] Let statement at index {}", i);
+                        if cfg!(debug_assertions) {
+                            eprintln!("[emit_block_body] Let statement at index {}", i);
+                        }
                         // This is a let binding. Emit the value expression.
                         // The Let node's child is the RHS expression.
                         let let_children = arena.children(child_id);
@@ -2114,22 +2152,28 @@ impl EmitWalker {
                                     }
                                 }
 
-                                eprintln!(
-                                    "[emit_block_body] Let binding {} uses scratch reg {:?}",
-                                    binding_name, scratch_reg
-                                );
+                                if cfg!(debug_assertions) {
+                                    eprintln!(
+                                        "[emit_block_body] Let binding {} uses scratch reg {:?}",
+                                        binding_name, scratch_reg
+                                    );
+                                }
                             }
                         }
                     }
                     IrKind::Action => {
                         // This is a StmtExpr (statement expression). Emit it and discard result.
-                        eprintln!("[emit_block_body] StmtExpr at index {}", i);
+                        if cfg!(debug_assertions) {
+                            eprintln!("[emit_block_body] StmtExpr at index {}", i);
+                        }
                         // TODO: Emit the expression, discard result.
                     }
                     IrKind::RawInstruction => {
                         // Phase 7 m2-001 (PA7C-m2-001): RawInstruction child of Action.
                         // Look up the instruction payload in the side-table.
-                        eprintln!("[emit_block_body] RawInstruction at index {}", i);
+                        if cfg!(debug_assertions) {
+                            eprintln!("[emit_block_body] RawInstruction at index {}", i);
+                        }
                         if let Some(inst) = arena.instructions().get(child_id) {
                             // Clone the instruction and insert into state.
                             let inst_clone = inst.clone();
@@ -2149,16 +2193,20 @@ impl EmitWalker {
                         // Phase 7 m2-003: Bare identifier in statement position (e.g., `x;`).
                         // This is a statement-form variable reference with no side effects.
                         // Simply skip it — it's a statement expression that doesn't emit code.
-                        eprintln!(
-                            "[emit_block_body] Var (bare identifier) at index {} — skipped",
-                            i
-                        );
+                        if cfg!(debug_assertions) {
+                            eprintln!(
+                                "[emit_block_body] Var (bare identifier) at index {} — skipped",
+                                i
+                            );
+                        }
                     }
                     IrKind::Branch => {
                         // PA8-m2-001: Branch as the final expression of a unit-typed block.
                         // When a Branch appears in emit_block_body, it's the value-returning expression.
                         // We need to emit the test, conditional jumps, and arm bodies WITHOUT emitting ret.
-                        eprintln!("[emit_block_body] Branch at index {} (final expression)", i);
+                        if cfg!(debug_assertions) {
+                            eprintln!("[emit_block_body] Branch at index {} (final expression)", i);
+                        }
 
                         let branch_children = arena.children(child_id);
                         if branch_children.len() < 2 {
@@ -2239,10 +2287,12 @@ impl EmitWalker {
                                 }
                                 _ => {
                                     // Single expression in then arm: emit it directly.
-                                    eprintln!(
-                                        "[emit_block_body] Branch then arm is non-Action: {:?}",
-                                        then_node.kind
-                                    );
+                                    if cfg!(debug_assertions) {
+                                        eprintln!(
+                                            "[emit_block_body] Branch then arm is non-Action: {:?}",
+                                            then_node.kind
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -2280,10 +2330,12 @@ impl EmitWalker {
                                     }
                                     _ => {
                                         // Single expression in else arm: emit it directly.
-                                        eprintln!(
-                                            "[emit_block_body] Branch else arm is non-Action: {:?}",
-                                            else_node.kind
-                                        );
+                                        if cfg!(debug_assertions) {
+                                            eprintln!(
+                                                "[emit_block_body] Branch else arm is non-Action: {:?}",
+                                                else_node.kind
+                                            );
+                                        }
                                     }
                                 }
                             }
@@ -2300,10 +2352,12 @@ impl EmitWalker {
                     }
                     _ => {
                         // Unexpected statement kind.
-                        eprintln!(
-                            "[emit_block_body] Unexpected child kind: {:?}",
-                            child_node.kind
-                        );
+                        if cfg!(debug_assertions) {
+                            eprintln!(
+                                "[emit_block_body] Unexpected child kind: {:?}",
+                                child_node.kind
+                            );
+                        }
                     }
                 }
             }
@@ -2334,11 +2388,13 @@ impl EmitWalker {
         typer: Option<&paideia_as_types::TypeInterner>,
     ) {
         let block_children = arena.children(block_id);
-        eprintln!(
-            "[emit_block_body_arm] Block {} has {} children",
-            block_id.get(),
-            block_children.len()
-        );
+        if cfg!(debug_assertions) {
+            eprintln!(
+                "[emit_block_body_arm] Block {} has {} children",
+                block_id.get(),
+                block_children.len()
+            );
+        }
 
         // Scratch register sequence for in-block let bindings.
         let scratch_regs = [RegId(0), RegId(1), RegId(2), RegId(8)]; // RAX, RCX, RDX, R8
@@ -2348,7 +2404,9 @@ impl EmitWalker {
             if let Some(child_node) = arena.get(child_id) {
                 match child_node.kind {
                     IrKind::Let => {
-                        eprintln!("[emit_block_body_arm] Let statement at index {}", i);
+                        if cfg!(debug_assertions) {
+                            eprintln!("[emit_block_body_arm] Let statement at index {}", i);
+                        }
                         // This is a let binding. Emit the value expression.
                         // The Let node's child is the RHS expression.
                         let let_children = arena.children(child_id);
@@ -2463,22 +2521,28 @@ impl EmitWalker {
                                     }
                                 }
 
-                                eprintln!(
-                                    "[emit_block_body_arm] Let binding {} uses scratch reg {:?}",
-                                    binding_name, scratch_reg
-                                );
+                                if cfg!(debug_assertions) {
+                                    eprintln!(
+                                        "[emit_block_body_arm] Let binding {} uses scratch reg {:?}",
+                                        binding_name, scratch_reg
+                                    );
+                                }
                             }
                         }
                     }
                     IrKind::Action => {
                         // This is a StmtExpr (statement expression). Emit it and discard result.
-                        eprintln!("[emit_block_body_arm] StmtExpr at index {}", i);
+                        if cfg!(debug_assertions) {
+                            eprintln!("[emit_block_body_arm] StmtExpr at index {}", i);
+                        }
                         // TODO: Emit the expression, discard result.
                     }
                     IrKind::RawInstruction => {
                         // Phase 7 m2-001 (PA7C-m2-001): RawInstruction child of Action.
                         // Look up the instruction payload in the side-table.
-                        eprintln!("[emit_block_body_arm] RawInstruction at index {}", i);
+                        if cfg!(debug_assertions) {
+                            eprintln!("[emit_block_body_arm] RawInstruction at index {}", i);
+                        }
                         if let Some(inst) = arena.instructions().get(child_id) {
                             // Clone the instruction and insert into state.
                             let inst_clone = inst.clone();
@@ -2498,17 +2562,21 @@ impl EmitWalker {
                         // Phase 7 m2-003: Bare identifier in statement position (e.g., `x;`).
                         // This is a statement-form variable reference with no side effects.
                         // Simply skip it — it's a statement expression that doesn't emit code.
-                        eprintln!(
-                            "[emit_block_body_arm] Var (bare identifier) at index {} — skipped",
-                            i
-                        );
+                        if cfg!(debug_assertions) {
+                            eprintln!(
+                                "[emit_block_body_arm] Var (bare identifier) at index {} — skipped",
+                                i
+                            );
+                        }
                     }
                     _ => {
                         // Unexpected statement kind.
-                        eprintln!(
-                            "[emit_block_body_arm] Unexpected child kind: {:?}",
-                            child_node.kind
-                        );
+                        if cfg!(debug_assertions) {
+                            eprintln!(
+                                "[emit_block_body_arm] Unexpected child kind: {:?}",
+                                child_node.kind
+                            );
+                        }
                     }
                 }
             }
