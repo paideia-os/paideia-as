@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.9.0 — Phase 9 m1–m3 substrate closure (bare-if/nested-ArrayRepeat/SIB encoder + full paideia-os unquarantine)
+
+**Released:** Tag pushed at m3-003 closure (v0.9.0 release).
+
+paideia-as PA9 v0.9 round closes 3 issues across m1–m3. Scope: gap fixes to bare-if (no-else), nested ArrayRepeat, general SIB MOV encoder; 9 paideia-os checkpoint-2 kernel files unquarantined; and 5-file rewrite campaign on paideia-os side. First complete Phase-2-capability-system + Phase-3-IPC kernel build.
+
+### Milestones
+
+- **m1 — substrate fixes** — PA9-m1-001: Bare-if without else arm (single-path control flow); PA9-m1-002: nested ArrayRepeat in IR elaboration (multi-level array init); PA9-m1-003: general SIB form encoder for [base + index*scale + disp] addressing modes.
+- **m2 — paideia-os rewrite campaign** — 5 checkpoint-2 kernel file rewrites to native paideia-as; removal of legacy syntax workarounds; cross-file consistency audit.
+- **m3 — unquarantine + cleanup** — Restore 9 quarantined paideia-os kernel files (.quarantine/src/kernel/* → src/kernel/*); workspace test regen (2834 → 2857+ tests); version bump 0.8.0 → 0.9.0; phase-transition-9.md retrospective.
+
+### Highlights
+
+- **2857+ workspace tests** (+23 from v0.8.0 baseline; all-green including paideia-os checkpoint-2 fixtures).
+- **9 paideia-os files unquarantined**: checkpoint-2 kernel build now produces clean kernel.elf (44864 bytes) with full Phase-2 + Phase-3 structures.
+- **SIB encoder complete**: general x86-64 addressing [base + index*scale + disp] now supported; enables complex memory operands in kernel code.
+- **Bare-if control flow**: enables simpler kernel control structures without forced else-arm workarounds.
+- **Cross-repo verification**: kernel.elf end-to-end smoke test passed with Phase-2 capability system + Phase-3 IPC messaging in place.
+
+### Operational deferrals (Phase 9 m4+ carryover)
+
+- **paideia-os R6.5 IRQ subsystem**: resumed after Phase 9 m3 close.
+- **paideia-os D7 driver backlog**: resumed after Phase 9 m3 close.
+
 ## v0.8.0 — Phase 8 checkpoint (elaborator gap closure + regression verification)
 
 **Released:** Tag pushed at m7-003 closure (v0.8.0 release).
