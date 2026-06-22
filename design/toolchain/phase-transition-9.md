@@ -12,7 +12,7 @@ PA9 v0.9 delivers:
 3. **General SIB encoder** — x86-64 addressing [base + index*scale + disp] now fully supported; handles all kernel addressing modes.
 4. **Paideia-os rewrite campaign** — 5 checkpoint-2 kernel files rewritten to native paideia-as syntax; removal of legacy workarounds.
 5. **Full checkpoint-2 unquarantine** — All 9 quarantined kernel files restored to src/kernel/; kernel.elf 44864 bytes, clean build with Phase-2 + Phase-3 structures in place.
-6. **Workspace growth** — Tests expanded 2834 → 2857+ (all-green); first complete Phase-2-capability-system + Phase-3-IPC kernel.
+6. **Workspace stability** — Tests stable at 2834 (baseline from Phase 8 continuation work); feature implementation (bare-if, ArrayRepeat, SIB encoder) completed in prior commits; all-green with full Phase-2-capability-system + Phase-3-IPC kernel.
 
 ## Milestones Completed
 
@@ -154,15 +154,14 @@ PA9 v0.9 delivers:
 
 ## Test Metrics
 
-| Category | v0.8.0 | v0.9.0 | Δ |
+| Category | v0.8.0 baseline | v0.9.0 current | Notes |
 |----------|--------|--------|-------|
-| Total workspace tests | 2834 | 2857+ | +23 |
-| Elaborator tests | 630 | 653+ | +23 |
-| Encoder tests | ~150 | ~153+ | +3 (SIB coverage) |
-| Integration tests (checkpoint-2) | 0 | 9 | +9 |
-| Bare-if tests | 0 | 12 | +12 |
-| Nested ArrayRepeat tests | 0 | 8 | +8 |
-| Files in src/kernel/ | 0 (all quarantined) | 9 (all restored) | +9 |
+| Total workspace tests | 2483 | 2834 | +351 from Phase 8 start; all-green |
+| Elaborator tests | 618 | 618 | Stable (feature tests in prior commits) |
+| Encoder tests | ~150 | ~150 | Stable (SIB encoder in prior commits) |
+| Integration tests (checkpoint-2) | 1 (fixture) | 1 (fixture) | checkpoint2_orchestration.pdx |
+| Diagnostic codes catalogued | 98 | 98 | Stable from v0.8.0 |
+| Files in src/kernel/ | 0 (all quarantined) | 9 (all restored) | Full checkpoint-2 unquarantine |
 
 ## Design Decisions & Rationale
 
@@ -190,6 +189,6 @@ PA9 v0.9 delivers:
 
 ## Conclusion
 
-PA9 v0.9 successfully delivers substrate fixes (bare-if, nested ArrayRepeat, SIB encoder), completes the paideia-os rewrite campaign, and achieves full checkpoint-2 unquarantine. kernel.elf now demonstrates Phase-2 capability system and Phase-3 IPC messaging end-to-end. Workspace tests expand to 2857+ (all-green). v0.9.0 tag marks a major milestone: first clean Phase-2 + Phase-3 capable kernel from paideia-as.
+PA9 v0.9 successfully delivers substrate fixes (bare-if, nested ArrayRepeat, SIB encoder), completes the paideia-os rewrite campaign, and achieves full checkpoint-2 unquarantine. Feature implementation occurred in prior commits; v0.9.0 tag closes Phase 9 m1–m3 with version bump, CHANGELOG update, and SARIF regen. kernel.elf now demonstrates Phase-2 capability system and Phase-3 IPC messaging end-to-end. Workspace tests stable at 2834 (all-green). v0.9.0 tag marks a major milestone: first clean Phase-2 + Phase-3 capable kernel from paideia-as.
 
-**Status:** ✅ PHASE 2–3 KERNEL COMPLETE; RESUME PHASE 9 m4+ (IRQ/driver backlog)
+**Status:** ✅ PHASE 2–3 KERNEL COMPLETE; READY FOR PHASE 9 m4+ (IRQ/driver backlog)
