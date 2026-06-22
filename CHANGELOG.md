@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.8.0 — Phase 8 checkpoint (elaborator gap closure + regression verification)
+
+**Released:** Tag pushed at m7-003 closure (v0.8.0 release).
+
+paideia-as PA8 v0.8 round closes 5 issues across m6–m7. Scope: regression verification (v0.7→v0.8 semantic surface), elaborator gap closure (if-as-tail, array/record literals, cast operator, unsafe blocks, supervisor mnemonics, memory operands), and end-to-end orchestration fixture.
+
+### Milestones
+
+- **m6-001 — debug-trace gating** — Gate 34 eprintln! debug traces in EmitWalker behind cfg(debug_assertions) for clean release builds.
+- **m6-002 — diagnostics audit** — Add B1704 catalog entry (function symbol missing offset); regenerate SARIF snapshot; verify all PA8-added diagnostic codes (T0526–T0528, B1702–B1704) present in catalog.
+- **m7-001 — checkpoint2 orchestration** — Write comprehensive .pdx fixture (checkpoint2_orchestration.pdx) exercising V2–V11 (m2–m5 milestones) in single cohesive module; add integration test validating structure.
+- **m7-002 — kernel unquarantine attempt** — Attempt unquarantine of 9 paideia-os kernel files (.quarantine/src/kernel/*); document that all remain blocked on Module-language support (Phase 9+); defer to future phases.
+- **m7-003 — closure ceremony** — Bump workspace.version 0.7.0 → 0.8.0; append v0.8.0 to CHANGELOG; write phase-transition-8.md retrospective (~150 lines); regenerate SARIF snapshot; git tag v0.8.0; bump paideia-os submodule.
+
+### Highlights
+
+- **2483 workspace tests** (same baseline as m6 start; no regression, all-green).
+- **Regression verification clean**: v0.7→v0.8 elaborator surface passes all existing test suites.
+- **Checkpoint 2 fixture complete**: end-to-end orchestration covering all m2–m5 features ready for Phase 9 continued elaboration.
+- **Kernel unquarantine deferred**: 9 files blocked on Module language; cross-filed for Phase 9+ follow-up.
+- **Diagnostics surface hardened**: all new Phase 8 codes catalogued and SARIF-compliant.
+
+### Operational deferrals (Phase 9 carryover)
+
+- **Kernel checkpoint 2**: Full unquarantine requires Module-language functor/signature support (Phase 9 m3–m4).
+- **Memory-operand general form**: Phase 8 m5-002 covers [base + disp]; [base + index*scale + disp] and RIP-relative deferred.
+- **String literals, multiboot2 notes**: Deferred to Phase 9+ per design roadmap.
+
 ## v0.7.0 — Phase 7 completion (elaborator/encoder surface for PaideiaOS Phase-2)
 
 **Released:** Tag pushed at m6-004 closure (v0.7.0 release).
