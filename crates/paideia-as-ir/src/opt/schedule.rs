@@ -55,6 +55,8 @@ impl InstructionClass {
 fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
     match mnemonic {
         Mnemonic::Mov | Mnemonic::Movzx => InstructionClass::AluReg,
+        // Phase 7 m4-003: width-threaded immediate move is a register ALU op.
+        Mnemonic::MovSized { .. } => InstructionClass::AluReg,
         // Phase 7 m4-002: move with sign-extend is a register ALU op.
         Mnemonic::Movsx => InstructionClass::AluReg,
         Mnemonic::Lea => InstructionClass::AluReg,

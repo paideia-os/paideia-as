@@ -179,6 +179,64 @@ pub fn mov_reg64_imm64(buf: &mut CodeBuffer, dst: Reg64, imm: u64) {
     buf.bytes.extend(imm.to_le_bytes());
 }
 
+/// Encode `mov reg32, imm32` (32-bit move, implicit zero-extend to 64-bit).
+///
+/// Phase 7 m4-003 (PA7C-m4-003): width-threaded form for typed integer-literal
+/// `let` bindings. Writing a 32-bit register zero-extends into the full 64-bit
+/// register, so no REX.W is required.
+///
+/// Instruction: B8+rd id (no REX.W; REX.B only for r8d–r15d)
+/// Bytes: `[41] B8+(reg&7) imm32_le`
+///
+/// Example: `mov eax, 42` → `b8 2a 00 00 00` (5 bytes)
+pub fn mov_reg32_imm32(buf: &mut CodeBuffer, dst: Reg64, imm: u32) {
+    let reg_id = dst as u8;
+    // REX.B only needed to reach r8d–r15d; no REX.W for 32-bit operand size.
+    if (reg_id >> 3) != 0 {
+        buf.bytes.push(rex(false, false, false, true));
+    }
+    buf.bytes.push(0xB8 + (reg_id & 7));
+    buf.bytes.extend(imm.to_le_bytes());
+}
+
+/// Encode `mov reg16, imm16` (16-bit move via operand-size override).
+///
+/// Phase 7 m4-003 (PA7C-m4-003): width-threaded form for typed `u16`/`i16`
+/// integer-literal `let` bindings. The `66` prefix selects 16-bit operand size.
+///
+/// Instruction: 66 B8+rd iw (REX.B only for r8w–r15w)
+/// Bytes: `66 [41] B8+(reg&7) imm16_le`
+///
+/// Example: `mov ax, 42` → `66 b8 2a 00` (4 bytes)
+pub fn mov_reg16_imm16(buf: &mut CodeBuffer, dst: Reg64, imm: u16) {
+    let reg_id = dst as u8;
+    buf.bytes.push(0x66);
+    if (reg_id >> 3) != 0 {
+        buf.bytes.push(rex(false, false, false, true));
+    }
+    buf.bytes.push(0xB8 + (reg_id & 7));
+    buf.bytes.extend(imm.to_le_bytes());
+}
+
+/// Encode `mov reg8, imm8` (8-bit move).
+///
+/// Phase 7 m4-003 (PA7C-m4-003): width-threaded form for typed `u8`/`i8`
+/// integer-literal `let` bindings.
+///
+/// Instruction: B0+rb ib (REX.B for r8b–r15b; a bare REX would also be needed
+/// to address spl/bpl/sil/dil, but those are not produced here)
+/// Bytes: `[41] B0+(reg&7) imm8`
+///
+/// Example: `mov al, 42` → `b0 2a` (2 bytes)
+pub fn mov_reg8_imm8(buf: &mut CodeBuffer, dst: Reg64, imm: u8) {
+    let reg_id = dst as u8;
+    if (reg_id >> 3) != 0 {
+        buf.bytes.push(rex(false, false, false, true));
+    }
+    buf.bytes.push(0xB0 + (reg_id & 7));
+    buf.bytes.push(imm);
+}
+
 /// Encode `mov reg64, reg64`.
 ///
 /// Instruction: REX.W 89 /r
@@ -1440,6 +1498,101 @@ mod tests {
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
         assert_eq!(instr.mnemonic(), IcedMnem::Not);
+    }
+
+    // ── Width-threaded immediate moves (Phase 7 m4-003) ─────────────────
+
+    #[test]
+    fn encode_mov_r32_imm32_emits_b8_imm32() {
+        // mov eax, 42 → B8 2A 00 00 00 (5 bytes, no REX.W, implicit zero-extend)
+        let mut buf = CodeBuffer::new();
+        mov_reg32_imm32(&mut buf, Reg64::Rax, 42);
+        assert_eq!(buf.as_slice(), &[0xB8, 0x2A, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn encode_mov_r32_imm32_rcx_emits_b9() {
+        // mov ecx, 42 → B9 2A 00 00 00 (B8 + reg index 1)
+        let mut buf = CodeBuffer::new();
+        mov_reg32_imm32(&mut buf, Reg64::Rcx, 42);
+        assert_eq!(buf.as_slice(), &[0xB9, 0x2A, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn encode_mov_r32_imm32_r8_uses_rex_b() {
+        // mov r8d, 1 → 41 B8 01 00 00 00 (REX.B reaches r8d; still no REX.W)
+        let mut buf = CodeBuffer::new();
+        mov_reg32_imm32(&mut buf, Reg64::R8, 1);
+        assert_eq!(buf.as_slice(), &[0x41, 0xB8, 0x01, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn encode_mov_r16_imm16_emits_66_b8_imm16() {
+        // mov ax, 42 → 66 B8 2A 00 (4 bytes, operand-size override)
+        let mut buf = CodeBuffer::new();
+        mov_reg16_imm16(&mut buf, Reg64::Rax, 42);
+        assert_eq!(buf.as_slice(), &[0x66, 0xB8, 0x2A, 0x00]);
+    }
+
+    #[test]
+    fn encode_mov_r8_imm8_emits_b0_imm8() {
+        // mov al, 42 → B0 2A (2 bytes)
+        let mut buf = CodeBuffer::new();
+        mov_reg8_imm8(&mut buf, Reg64::Rax, 42);
+        assert_eq!(buf.as_slice(), &[0xB0, 0x2A]);
+    }
+
+    #[test]
+    fn encode_mov_r8_imm8_r8_uses_rex_b() {
+        // mov r8b, 42 → 41 B0 2A (3 bytes; REX.B reaches r8b)
+        let mut buf = CodeBuffer::new();
+        mov_reg8_imm8(&mut buf, Reg64::R8, 42);
+        assert_eq!(buf.as_slice(), &[0x41, 0xB0, 0x2A]);
+    }
+
+    #[test]
+    fn encode_mov_r32_imm32_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem, OpKind, Register};
+
+        let mut buf = CodeBuffer::new();
+        mov_reg32_imm32(&mut buf, Reg64::Rax, 42);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+        assert_eq!(instr.op0_register(), Register::EAX);
+        assert_eq!(instr.op1_kind(), OpKind::Immediate32);
+        assert_eq!(instr.immediate32(), 42);
+        // 5-byte encoding confirms the narrow form (vs 7-byte 48 C7 ... 64-bit).
+        assert_eq!(buf.len(), 5);
+    }
+
+    #[test]
+    fn encode_mov_r16_imm16_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem, Register};
+
+        let mut buf = CodeBuffer::new();
+        mov_reg16_imm16(&mut buf, Reg64::Rax, 42);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+        assert_eq!(instr.op0_register(), Register::AX);
+        assert_eq!(instr.immediate16(), 42);
+    }
+
+    #[test]
+    fn encode_mov_r8_imm8_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem, Register};
+
+        let mut buf = CodeBuffer::new();
+        mov_reg8_imm8(&mut buf, Reg64::Rax, 42);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+        assert_eq!(instr.op0_register(), Register::AL);
+        assert_eq!(instr.immediate8(), 42);
     }
 
     #[test]

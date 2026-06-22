@@ -23,7 +23,7 @@ pub use kind_inference::{infer_kind_for_generic_param, kind_of_type_constructor}
 pub use kinds::{
     HrKind, Kind, ModuleKind, SigDeclKind, SignatureKind, kind_functor, kind_signature, type_kind,
 };
-pub use layout::{Layout, layout_of};
+pub use layout::{Layout, bit_width, layout_of};
 pub use regions::{RegionGraph, RegionId, RegionInterner};
 pub use subst::Subst;
 pub use types::{CapSetId, EnumPayload, SIZE_WIDTH_SENTINEL, TyVar, Type, TypeId};

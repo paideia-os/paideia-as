@@ -50,7 +50,8 @@ pub use effect_rewrite::{
 pub use enum_layout::{EnumConsInfo, EnumConsSideTable, EnumDiscriminantSideTable, EnumTypeId};
 pub use handler_value::{HandlerInfo, HandlerSideTable, pretty_handler};
 pub use instruction::{
-    Cond, EncodingHint, Instruction, InstructionSideTable, Mnemonic, Operand, RegId, Scale,
+    Cond, EncodingHint, Instruction, InstructionSideTable, IntWidth, Mnemonic, Operand, RegId,
+    Scale,
 };
 pub use let_meta::{LetInfo, LetMetaTable};
 pub use literal_value::LiteralValueTable;

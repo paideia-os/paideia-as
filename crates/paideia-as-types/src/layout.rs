@@ -23,6 +23,22 @@ impl Layout {
     }
 }
 
+/// Return the integer bit-width of a type, if it is an integer type.
+///
+/// Phase 7 m4-003 (PA7C-m4-003): used to width-thread integer-literal `let`
+/// bindings. Returns `Some(n)` for `UInt(n)` / `SInt(n)` (the declared bit
+/// width), and `None` for every non-integer type (so callers fall back to the
+/// generic 64-bit move path). The sentinel widths `0xFFFF` (machine-word
+/// `usize`/`isize`) report as 64, matching their `layout_of` size of 8 bytes.
+#[must_use]
+pub fn bit_width(interner: &TypeInterner, ty: TypeId) -> Option<u16> {
+    match interner.get(ty) {
+        Type::UInt(0xFFFF) | Type::SInt(0xFFFF) => Some(64),
+        Type::UInt(n) | Type::SInt(n) => Some(*n),
+        _ => None,
+    }
+}
+
 /// Compute the memory layout of a type.
 ///
 /// For primitive types, returns their standard sizes (u8=1, u16=2, u32=4, u64=8, ptr=8).
@@ -483,6 +499,48 @@ mod tests {
             "Mixed enum should be 16 bytes (discriminant + max payload)"
         );
         assert_eq!(layout.alignment, 8, "Mixed enum should have alignment 8");
+    }
+
+    // ── bit_width tests (Phase 7 m4-003) ────────────────────────────────
+
+    #[test]
+    fn bit_width_of_unsigned_integers() {
+        let mut interner = TypeInterner::new();
+        let u8_id = interner.uint(8);
+        let u16_id = interner.uint(16);
+        let u32_id = interner.uint(32);
+        let u64_id = interner.uint(64);
+        assert_eq!(bit_width(&interner, u8_id), Some(8));
+        assert_eq!(bit_width(&interner, u16_id), Some(16));
+        assert_eq!(bit_width(&interner, u32_id), Some(32));
+        assert_eq!(bit_width(&interner, u64_id), Some(64));
+    }
+
+    #[test]
+    fn bit_width_of_signed_integers() {
+        let mut interner = TypeInterner::new();
+        let s8_id = interner.sint(8);
+        let s32_id = interner.sint(32);
+        assert_eq!(bit_width(&interner, s8_id), Some(8));
+        assert_eq!(bit_width(&interner, s32_id), Some(32));
+    }
+
+    #[test]
+    fn bit_width_of_word_sentinel_is_64() {
+        let mut interner = TypeInterner::new();
+        let usize_id = interner.uint(0xFFFF);
+        let isize_id = interner.sint(0xFFFF);
+        assert_eq!(bit_width(&interner, usize_id), Some(64));
+        assert_eq!(bit_width(&interner, isize_id), Some(64));
+    }
+
+    #[test]
+    fn bit_width_of_non_integer_is_none() {
+        let mut interner = TypeInterner::new();
+        let bool_id = interner.intern(Type::Bool);
+        let unit_id = interner.unit();
+        assert_eq!(bit_width(&interner, bool_id), None);
+        assert_eq!(bit_width(&interner, unit_id), None);
     }
 
     #[test]

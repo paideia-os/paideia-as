@@ -5,7 +5,7 @@
 //! populates an InstructionSideTable + tracks per-function offsets.
 
 use paideia_as_ir::instruction::{
-    Cond, Instruction, InstructionSideTable, Mnemonic, Operand, RegId,
+    Cond, Instruction, InstructionSideTable, IntWidth, Mnemonic, Operand, RegId,
 };
 use paideia_as_ir::record_layout::{FieldLayout, RecordLayout, RecordTypeId};
 use paideia_as_ir::{
@@ -259,6 +259,29 @@ impl EmitWalker {
     /// m5-001: populates SymbolTable for module-level Let bindings.
     /// m3-003: processes Let → FieldAccess bindings, assigning scratch registers in sequence.
     pub fn walk(&mut self, arena: &mut IrArena) {
+        self.walk_inner(arena, None);
+    }
+
+    /// Drive the walker with a type interner available for width threading.
+    ///
+    /// Phase 7 m4-003 (PA7C-m4-003): identical to [`walk`](Self::walk) but the
+    /// supplied `typer` lets typed integer-literal `let` bindings emit the
+    /// narrower `MovSized` form (e.g. `let x : u32 = 42` → 5-byte `B8 imm32`).
+    /// Bindings without a recorded type, or non-integer types, fall back to the
+    /// generic 64-bit `Mov` path, so behaviour is unchanged for untyped IR.
+    pub fn walk_with_typer(
+        &mut self,
+        arena: &mut IrArena,
+        typer: &paideia_as_types::TypeInterner,
+    ) {
+        self.walk_inner(arena, Some(typer));
+    }
+
+    fn walk_inner(
+        &mut self,
+        arena: &mut IrArena,
+        typer: Option<&paideia_as_types::TypeInterner>,
+    ) {
         // Iterate over all nodes, looking for Let, Lambda, and Unsafe nodes.
         for i in 1..=arena.len() as u32 {
             if let Some(node_id) = IrNodeId::new(i) {
@@ -312,7 +335,15 @@ impl EmitWalker {
                                 // Handle Literal RHS: emit instructions for m1-002.
                                 if rhs_kind == IrKind::Literal && has_literal_value {
                                     if let Some(value) = literal_value {
-                                        self.visit_let_literal(node_id, value);
+                                        // Phase 7 m4-003: width-thread typed integer literals.
+                                        // Resolve the binding's declared type (if recorded) to a
+                                        // bit-width and map it to an IntWidth. Untyped bindings, a
+                                        // missing typer, or non-integer / unsupported widths yield
+                                        // None, preserving the generic 64-bit Mov path.
+                                        let width = typer.and_then(|typer| {
+                                            Self::resolve_let_width(arena, node_id, typer)
+                                        });
+                                        self.visit_let_literal(node_id, value, width);
                                     }
                                 }
 
@@ -464,12 +495,45 @@ impl EmitWalker {
         ]
     }
 
+    /// Resolve the bound integer width for a Let node, if width-threadable.
+    ///
+    /// Phase 7 m4-003 (PA7C-m4-003): reads the binding's recorded
+    /// [`LetInfo::ty`](paideia_as_ir::LetInfo) from the arena's let-meta table,
+    /// bridges the IR-local `TypeId` to the type interner's `TypeId`, and maps
+    /// the resulting bit-width to an [`IntWidth`]. Returns `None` when the
+    /// binding has no recorded type, the type is non-integer, or the width is
+    /// not one of 8/16/32/64 — in every such case the caller keeps the generic
+    /// 64-bit `Mov` path.
+    fn resolve_let_width(
+        arena: &IrArena,
+        let_node_id: IrNodeId,
+        typer: &paideia_as_types::TypeInterner,
+    ) -> Option<IntWidth> {
+        let ir_ty = arena.let_meta().get(let_node_id).and_then(|info| info.ty)?;
+        // The IR-local TypeId mirrors the interner's TypeId raw value (the
+        // interner index + 1); bridge across the crate boundary by raw value.
+        let types_ty = paideia_as_types::TypeId::new(ir_ty.0)?;
+        let bits = paideia_as_types::bit_width(typer, types_ty)?;
+        IntWidth::from_bits(bits)
+    }
+
     /// Emit instruction for Let with Literal RHS.
     ///
     /// Lowers `let x : u64 = imm` to:
     /// - `mov rax, imm32` (7 bytes) if imm fits in i32
     /// - `mov rax, imm64` (10 bytes) if imm requires full 64 bits
-    fn visit_let_literal(&mut self, let_node_id: IrNodeId, value: i64) {
+    ///
+    /// Phase 7 m4-003 (PA7C-m4-003): when `width` resolves to a sub-64-bit
+    /// integer width (`W8`/`W16`/`W32`), emit the narrower `MovSized` form
+    /// instead — e.g. `let x : u32 = 42` becomes the 5-byte `B8 imm32` move
+    /// rather than the generic 10-byte 64-bit move. `width` is `None`, or
+    /// `Some(W64)`, for untyped/64-bit bindings, which keep the generic path.
+    ///
+    /// NOTE (deferred follow-up): only this literal-`let` site is width-threaded.
+    /// Peer immediate-`Mov` sites (lambda bodies, function-call argument setup,
+    /// block-body lets) still emit the generic 64-bit move and are intentionally
+    /// left untouched in this milestone.
+    fn visit_let_literal(&mut self, let_node_id: IrNodeId, value: i64, width: Option<IntWidth>) {
         let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
 
         // Destination: rax (RegId(0)).
@@ -478,20 +542,30 @@ impl EmitWalker {
         // Source: immediate value.
         operands.push(Operand::Imm64(value));
 
+        // Choose mnemonic + size. A sub-64-bit width emits MovSized; otherwise
+        // (None or W64) we preserve the established generic 64-bit Mov path.
+        let (mnemonic, inst_size) = match width {
+            Some(w @ (IntWidth::W8 | IntWidth::W16 | IntWidth::W32)) => {
+                (Mnemonic::MovSized { width: w }, w.estimated_size())
+            }
+            _ => {
+                // Generic 64-bit Mov:
+                // - i32 encoding: 7 bytes (48 c7 c0 <imm32 LE>)
+                // - i64 encoding: 10 bytes (48 b8 <imm64 LE>)
+                let size = if value >= i32::MIN as i64 && value <= i32::MAX as i64 {
+                    7
+                } else {
+                    10
+                };
+                (Mnemonic::Mov, size)
+            }
+        };
+
         let inst = Instruction {
-            mnemonic: Mnemonic::Mov,
+            mnemonic,
             operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-        };
-
-        // Calculate instruction size:
-        // - i32 encoding: 7 bytes (48 c7 c0 <imm32 LE>)
-        // - i64 encoding: 10 bytes (48 b8 <imm64 LE>)
-        let inst_size = if value >= i32::MIN as i64 && value <= i32::MAX as i64 {
-            7
-        } else {
-            10
         };
 
         // Record function entry on first emission if needed.
@@ -2531,6 +2605,90 @@ mod tests {
         assert_eq!(inst.operands[1], Operand::Imm64(42));
 
         // Verify offset advanced by 7 bytes (32-bit immediate encoding).
+        assert_eq!(walker.state().estimated_offset, 7);
+    }
+
+    /// Phase 7 m4-003: `let x : u32 = 42` (typed) emits the narrow MovSized
+    /// form (5-byte `B8 imm32`), not the generic 64-bit move.
+    #[test]
+    fn emit_walker_typed_u32_let_emits_mov_sized_w32() {
+        use paideia_as_ir::{IntWidth, LetInfo, TypeId as IrTypeId};
+        use paideia_as_types::TypeInterner;
+
+        let mut arena = IrArena::new();
+        let lit_id = arena.alloc(IrKind::Literal, span());
+        let let_id = arena.alloc_with_children(IrKind::Let, span(), [lit_id]);
+        arena.literal_values_mut().insert(lit_id, 42);
+
+        // Build a type interner with a u32 type and record it on the binding.
+        let mut typer = TypeInterner::new();
+        let u32_id = typer.uint(32);
+        arena
+            .let_meta_mut()
+            .insert(let_id, LetInfo::with_type(false, Some(IrTypeId(u32_id.get()))));
+
+        let mut walker = EmitWalker::new();
+        walker.walk_with_typer(&mut arena, &typer);
+
+        let inst = walker
+            .state()
+            .instructions
+            .get(let_id)
+            .expect("instruction should be emitted");
+        assert_eq!(
+            inst.mnemonic,
+            Mnemonic::MovSized {
+                width: IntWidth::W32
+            }
+        );
+        assert_eq!(inst.operands[1], Operand::Imm64(42));
+        // 5-byte narrow form (B8 imm32), not the 7-byte 64-bit form.
+        assert_eq!(walker.state().estimated_offset, 5);
+    }
+
+    /// Phase 7 m4-003: a `u64`-typed binding keeps the generic 64-bit Mov path.
+    #[test]
+    fn emit_walker_typed_u64_let_keeps_generic_mov() {
+        use paideia_as_ir::{LetInfo, TypeId as IrTypeId};
+        use paideia_as_types::TypeInterner;
+
+        let mut arena = IrArena::new();
+        let lit_id = arena.alloc(IrKind::Literal, span());
+        let let_id = arena.alloc_with_children(IrKind::Let, span(), [lit_id]);
+        arena.literal_values_mut().insert(lit_id, 42);
+
+        let mut typer = TypeInterner::new();
+        let u64_id = typer.uint(64);
+        arena
+            .let_meta_mut()
+            .insert(let_id, LetInfo::with_type(false, Some(IrTypeId(u64_id.get()))));
+
+        let mut walker = EmitWalker::new();
+        walker.walk_with_typer(&mut arena, &typer);
+
+        let inst = walker.state().instructions.get(let_id).unwrap();
+        // W64 falls through to the generic Mov path (7 bytes for imm32-range 42).
+        assert_eq!(inst.mnemonic, Mnemonic::Mov);
+        assert_eq!(walker.state().estimated_offset, 7);
+    }
+
+    /// Phase 7 m4-003: untyped bindings (no LetInfo.ty) keep the generic path,
+    /// even when a typer is supplied — preserving backward compatibility.
+    #[test]
+    fn emit_walker_untyped_let_with_typer_keeps_generic_mov() {
+        use paideia_as_types::TypeInterner;
+
+        let mut arena = IrArena::new();
+        let lit_id = arena.alloc(IrKind::Literal, span());
+        let let_id = arena.alloc_with_children(IrKind::Let, span(), [lit_id]);
+        arena.literal_values_mut().insert(lit_id, 42);
+
+        let typer = TypeInterner::new();
+        let mut walker = EmitWalker::new();
+        walker.walk_with_typer(&mut arena, &typer);
+
+        let inst = walker.state().instructions.get(let_id).unwrap();
+        assert_eq!(inst.mnemonic, Mnemonic::Mov);
         assert_eq!(walker.state().estimated_offset, 7);
     }
 

@@ -103,6 +103,72 @@ pub enum Mnemonic {
     /// Bitwise NOT (one's complement) of a 64-bit register.
     /// Phase 7 m4-001: emits `not r64` (REX.W F7 /2). One operand.
     Not,
+    /// Width-aware immediate-to-register move.
+    /// Phase 7 m4-003 (PA7C-m4-003): used for typed integer-literal `let`
+    /// bindings so `let x : u32 = 42` emits the 5-byte `B8 imm32` form
+    /// (implicit zero-extend, no REX.W) instead of the generic 10-byte
+    /// `48 C7 C0 imm32` 64-bit move. The `width` selects the operand size:
+    /// - W64 delegates to the existing generic `Mov` encoding path.
+    /// - W32 → `B8+rd imm32` (5 bytes, implicit zero-extend to r64).
+    /// - W16 → `66 B8+rd imm16` (4 bytes).
+    /// - W8  → `B0+rb imm8` (2 bytes; 3 with REX.B for r8–r15).
+    ///
+    /// Arity 2 (dst reg, imm). Only the literal-`let` site emits this today;
+    /// peer `Mov` immediate sites are a deferred follow-up.
+    MovSized {
+        /// Operand width selecting the encoded form.
+        width: IntWidth,
+    },
+}
+
+/// Integer operand width for width-threaded immediate moves.
+///
+/// Phase 7 m4-003 (PA7C-m4-003): maps a bound integer literal's bit-width
+/// (from its declared type) to the encoded move form. `from_bits` converts
+/// a layout bit-width (8/16/32/64) into the corresponding variant.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum IntWidth {
+    /// 8-bit operand (`B0+rb imm8`).
+    W8,
+    /// 16-bit operand (`66 B8+rd imm16`).
+    W16,
+    /// 32-bit operand (`B8+rd imm32`, implicit zero-extend).
+    W32,
+    /// 64-bit operand (delegates to the generic `Mov` path).
+    W64,
+}
+
+impl IntWidth {
+    /// Map a bit-width (8/16/32/64) to an `IntWidth`.
+    ///
+    /// Returns `None` for any other bit-width (e.g. 128, or non-power-of-two
+    /// widths), in which case callers fall back to the generic 64-bit path.
+    #[must_use]
+    pub fn from_bits(bits: u16) -> Option<Self> {
+        match bits {
+            8 => Some(IntWidth::W8),
+            16 => Some(IntWidth::W16),
+            32 => Some(IntWidth::W32),
+            64 => Some(IntWidth::W64),
+            _ => None,
+        }
+    }
+
+    /// Conservative upper bound on the encoded byte length for this width.
+    ///
+    /// - W8  → 3 bytes (`REX.B B0+rb imm8`, REX present only for r8–r15)
+    /// - W16 → 4 bytes (`66 B8+rd imm16`)
+    /// - W32 → 5 bytes (`B8+rd imm32`)
+    /// - W64 → 10 bytes (generic `Mov` upper bound)
+    #[must_use]
+    pub fn estimated_size(self) -> u32 {
+        match self {
+            IntWidth::W8 => 3,
+            IntWidth::W16 => 4,
+            IntWidth::W32 => 5,
+            IntWidth::W64 => 10,
+        }
+    }
 }
 
 /// Condition code for Jcc instructions.
@@ -292,7 +358,8 @@ impl Mnemonic {
             | Mnemonic::Test
             | Mnemonic::Lea
             | Mnemonic::Movzx
-            | Mnemonic::Movsx => 2,
+            | Mnemonic::Movsx
+            | Mnemonic::MovSized { .. } => 2,
         }
     }
 
@@ -386,6 +453,11 @@ impl Mnemonic {
 
             // Bitwise NOT: 4 bytes upper bound (REX.W F7 /2 ModR/M)
             Mnemonic::Not => 4,
+
+            // Width-threaded immediate move: size depends on the operand width.
+            // W8=3 (REX.B B0+rb imm8), W16=4 (66 B8 imm16), W32=5 (B8 imm32),
+            // W64=10 (generic Mov upper bound).
+            Mnemonic::MovSized { width } => width.estimated_size(),
         }
     }
 }
@@ -709,6 +781,61 @@ mod tests {
         let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
         ops.push(Operand::Imm64(0));
         assert_eq!(Mnemonic::Jmp.estimated_size(&ops), 5);
+    }
+
+    // ── IntWidth / MovSized tests (Phase 7 m4-003) ──────────────────────
+
+    #[test]
+    fn int_width_from_bits_maps_canonical_widths() {
+        assert_eq!(IntWidth::from_bits(8), Some(IntWidth::W8));
+        assert_eq!(IntWidth::from_bits(16), Some(IntWidth::W16));
+        assert_eq!(IntWidth::from_bits(32), Some(IntWidth::W32));
+        assert_eq!(IntWidth::from_bits(64), Some(IntWidth::W64));
+    }
+
+    #[test]
+    fn int_width_from_bits_rejects_non_canonical() {
+        assert_eq!(IntWidth::from_bits(1), None);
+        assert_eq!(IntWidth::from_bits(24), None);
+        assert_eq!(IntWidth::from_bits(128), None);
+    }
+
+    #[test]
+    fn int_width_estimated_sizes() {
+        assert_eq!(IntWidth::W8.estimated_size(), 3);
+        assert_eq!(IntWidth::W16.estimated_size(), 4);
+        assert_eq!(IntWidth::W32.estimated_size(), 5);
+        assert_eq!(IntWidth::W64.estimated_size(), 10);
+    }
+
+    #[test]
+    fn mov_sized_arity_is_two() {
+        assert_eq!(
+            Mnemonic::MovSized {
+                width: IntWidth::W32
+            }
+            .arity(),
+            2
+        );
+    }
+
+    #[test]
+    fn mov_sized_estimated_size_tracks_width() {
+        let ops = [Operand::Reg(RegId(0)), Operand::Imm64(42)];
+        assert_eq!(
+            Mnemonic::MovSized {
+                width: IntWidth::W32
+            }
+            .estimated_size(&ops),
+            5
+        );
+        assert_eq!(
+            Mnemonic::MovSized {
+                width: IntWidth::W8
+            }
+            .estimated_size(&ops),
+            3
+        );
     }
 
     #[test]

@@ -7,7 +7,7 @@
 
 use crate::dispatch::{DispatchKind, classify};
 use crate::encode::*;
-use paideia_as_ir::{Cond as IrCond, Instruction, Mnemonic, Operand, RegId, Scale};
+use paideia_as_ir::{Cond as IrCond, Instruction, IntWidth, Mnemonic, Operand, RegId, Scale};
 
 /// Whether a 64-bit ADD with the given operand can be shortened to 32-bit.
 ///
@@ -240,6 +240,46 @@ pub fn encode_instruction(
         Mnemonic::Movzx => encode_movzx(inst, buf),
         Mnemonic::Movsx => encode_movsx(inst, buf),
         Mnemonic::Not => encode_not(inst, buf),
+        Mnemonic::MovSized { width } => encode_mov_sized(inst, buf, *width),
+    }
+}
+
+/// Encode a width-threaded immediate-to-register move — Phase 7 m4-003.
+///
+/// Expects `[Operand::Reg(dst), Operand::Imm64(imm)]`. The `width` selects the
+/// encoded form:
+/// - W64 → delegates to the generic `encode_mov` path (`48 C7`/`48 B8`),
+///   preserving the existing 64-bit behaviour.
+/// - W32 → `B8+rd imm32` (5 bytes, no REX.W; implicit zero-extend to r64).
+/// - W16 → `66 B8+rd imm16` (4 bytes).
+/// - W8  → `B0+rb imm8` (2 bytes; 3 with REX.B for r8–r15).
+///
+/// The immediate is truncated to the operand width before encoding, matching
+/// the semantics of a typed integer-literal binding.
+fn encode_mov_sized(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+    width: IntWidth,
+) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::Reg(dst), Operand::Imm64(imm)] => {
+            let dst_reg = reg64_from(*dst)?;
+            let imm = *imm as u64;
+            match width {
+                // W64 reuses the established 64-bit move path verbatim.
+                IntWidth::W64 => mov_reg64_imm64(buf, dst_reg, imm),
+                IntWidth::W32 => mov_reg32_imm32(buf, dst_reg, imm as u32),
+                IntWidth::W16 => mov_reg16_imm16(buf, dst_reg, imm as u16),
+                IntWidth::W8 => mov_reg8_imm8(buf, dst_reg, imm as u8),
+            }
+            Ok(EncodeOutput::new())
+        }
+        operands if operands.iter().any(|op| matches!(op, Operand::Var { .. })) => {
+            unreachable!("Operand::Var reached encoder — resolve_var_operands pass was skipped")
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::MovSized { width },
+        }),
     }
 }
 
@@ -1341,6 +1381,79 @@ mod tests {
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
         assert_eq!(instr.mnemonic(), IcedMnem::Not);
+    }
+
+    #[test]
+    fn encode_mov_sized_w32_dispatches_to_b8_imm32() {
+        // Mnemonic::MovSized { W32 } with [Reg(rax), Imm64(42)] → B8 2A 00 00 00.
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::MovSized {
+                width: IntWidth::W32,
+            },
+            operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Imm64(42)],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0xB8, 0x2A, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn encode_mov_sized_w16_dispatches_to_66_b8_imm16() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::MovSized {
+                width: IntWidth::W16,
+            },
+            operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Imm64(42)],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x66, 0xB8, 0x2A, 0x00]);
+    }
+
+    #[test]
+    fn encode_mov_sized_w8_dispatches_to_b0_imm8() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::MovSized {
+                width: IntWidth::W8,
+            },
+            operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Imm64(42)],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0xB0, 0x2A]);
+    }
+
+    #[test]
+    fn encode_mov_sized_w64_delegates_to_generic_mov() {
+        // W64 must reproduce the established 64-bit immediate move (48 B8 ...).
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::MovSized {
+                width: IntWidth::W64,
+            },
+            operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Imm64(42)],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(
+            buf.as_slice(),
+            &[0x48, 0xB8, 0x2A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+        );
     }
 
     #[test]
