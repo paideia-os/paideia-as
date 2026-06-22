@@ -781,8 +781,13 @@ fn build_elf_object(
         }
     }
 
-    // Phase 7 m1-001: Emit diagnostic B1702 if no symbols were exported.
-    if !emitted_any_symbol {
+    // Phase 7 m1-001: Emit diagnostic B1702 only if BOTH no symbols were
+    // exported AND .text is empty. Top-level `let x = unsafe { … }` bindings
+    // emit real bytes into .text without registering a Function symbol; those
+    // are legitimate Phase-3-style fixtures and should not trigger B1702.
+    // The diagnostic is intended for the "user wrote a file with no executable
+    // content at all" case.
+    if !emitted_any_symbol && text_bytes.is_empty() {
         let code = DiagnosticCode::new(Category::B, Severity::Error, 1702)
             .unwrap_or_else(|_| panic!("B1702 code construction failed"));
         let span = paideia_as_diagnostics::Span::new(file, 0, 1);
