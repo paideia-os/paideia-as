@@ -15,6 +15,152 @@ use std::collections::HashMap;
 
 use crate::LocalBindingTable;
 
+/// The `(src, dst)` width-and-signedness shape of an integer cast.
+///
+/// PA8 m3-002 (#826). Widths are in bytes (1, 2, 4, or 8). Signedness selects
+/// between sign-extension (`movsx`) and zero-extension (`movzx` / 32-bit `mov`)
+/// for widening conversions; for narrowing and same-width conversions the
+/// signedness of the *source* is irrelevant to the emitted instruction (the
+/// low bits are reinterpreted unchanged) but is retained for completeness.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CastShape {
+    /// Source operand width in bytes (1, 2, 4, 8).
+    pub src_width: u8,
+    /// Destination operand width in bytes (1, 2, 4, 8).
+    pub dst_width: u8,
+    /// `true` if the source type is signed.
+    pub src_signed: bool,
+    /// `true` if the destination type is signed.
+    pub dst_signed: bool,
+}
+
+/// The lowered plan for a single integer cast: which conversion instruction
+/// (if any) realises the [`CastShape`].
+///
+/// PA8 m3-002 (#826). Produced by [`cast_plan`]. `Nop` is a same-width
+/// reinterpret that emits no conversion instruction.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CastPlan {
+    /// Sign-extend a 1/2/4-byte source into a 64-bit register (`movsx{b,w}q`,
+    /// `movsxd`). The `u8` is the source width carried in `operand_size`.
+    SignExtend(u8),
+    /// Zero-extend a 1/2-byte source into a 64-bit register (`movzx`). The `u8`
+    /// is the source width carried in `operand_size`.
+    ZeroExtend(u8),
+    /// 32-bit register move (`mov r32, r32`): used for unsigned widening of a
+    /// 4-byte source — the 32-bit write implicitly clears bits 63:32.
+    Mov32,
+    /// Narrowing register move: write the low `u8` bytes of the destination
+    /// (`mov r{8,16,32}`). The `u8` is the destination width.
+    Narrow(u8),
+    /// Same-width reinterpret: no instruction emitted.
+    Nop,
+}
+
+impl CastPlan {
+    /// Lower this plan to `(mnemonic, encoding_hint, estimated_byte_size)`, or
+    /// `None` for a [`CastPlan::Nop`].
+    ///
+    /// Estimated sizes match the encoder:
+    /// - `movsxd` (4-byte src): REX.W + 0x63 + ModRM = 3 bytes
+    /// - `movsx{b,w}q` (1/2-byte src): REX.W + 0x0F + opcode + ModRM = 4 bytes
+    /// - `movzx` (1/2-byte src): REX.W + 0x0F + opcode + ModRM = 4 bytes
+    /// - `mov r32, r32`: opcode + ModRM = 2 bytes (no REX.W for RAX/RDI)
+    /// - narrowing `mov`: opcode + ModRM = 2 bytes (low registers)
+    #[must_use]
+    pub fn instruction(self) -> Option<(Mnemonic, Option<paideia_as_ir::EncodingHint>, u32)> {
+        match self {
+            CastPlan::SignExtend(src_width) => {
+                // operand_size selects 0x0F BE (1) / 0x0F BF (2) / 0x63 (4).
+                let opcode = if src_width == 4 { 0x63 } else { 0x0F };
+                let size = if src_width == 4 { 3 } else { 4 };
+                Some((
+                    Mnemonic::Movsx,
+                    Some(paideia_as_ir::EncodingHint {
+                        opcode,
+                        operand_size: src_width,
+                    }),
+                    size,
+                ))
+            }
+            CastPlan::ZeroExtend(src_width) => {
+                // movzx is only the 1/2-byte form here; 0F B6 (1) / 0F B7 (2).
+                let opcode = if src_width == 1 { 0xB6 } else { 0xB7 };
+                Some((
+                    Mnemonic::Movzx,
+                    Some(paideia_as_ir::EncodingHint {
+                        opcode,
+                        operand_size: src_width,
+                    }),
+                    4,
+                ))
+            }
+            CastPlan::Mov32 => Some((
+                Mnemonic::Mov,
+                Some(paideia_as_ir::EncodingHint {
+                    opcode: 0x8B,
+                    operand_size: 4,
+                }),
+                2,
+            )),
+            CastPlan::Narrow(dst_width) => Some((
+                Mnemonic::Mov,
+                Some(paideia_as_ir::EncodingHint {
+                    opcode: 0x8B,
+                    operand_size: dst_width,
+                }),
+                2,
+            )),
+            CastPlan::Nop => None,
+        }
+    }
+}
+
+/// Dispatch an integer [`CastShape`] to its [`CastPlan`].
+///
+/// PA8 m3-002 (#826). Replaces the prior "always `movsxd`" behaviour with the
+/// real x86_64 dispatch table keyed by `(src_width, dst_width, src_signed,
+/// dst_signed)`:
+///
+/// | condition                          | plan                  |
+/// |------------------------------------|-----------------------|
+/// | `dst_width < src_width` (narrowing)| `Narrow(dst_width)`   |
+/// | `dst_width == src_width`           | `Nop`                 |
+/// | widening, `src_signed`             | `SignExtend(src_width)`|
+/// | widening, unsigned, `src_width==4` | `Mov32`               |
+/// | widening, unsigned, `src_width<4`  | `ZeroExtend(src_width)`|
+///
+/// Note narrowing and same-width are signedness-agnostic: the low bits are
+/// reinterpreted unchanged, so no sign/zero extension is required. Widening's
+/// extension is governed by the *source* signedness (an `i8` widens by sign,
+/// a `u8` by zero), independent of the destination's signedness.
+#[must_use]
+pub fn cast_plan(shape: CastShape) -> CastPlan {
+    let CastShape {
+        src_width,
+        dst_width,
+        src_signed,
+        ..
+    } = shape;
+
+    if dst_width < src_width {
+        // Narrowing: keep the low dst_width bytes, no extension.
+        CastPlan::Narrow(dst_width)
+    } else if dst_width == src_width {
+        // Same-width reinterpret: nothing to emit.
+        CastPlan::Nop
+    } else if src_signed {
+        // Widening signed: sign-extend the source into the 64-bit dest.
+        CastPlan::SignExtend(src_width)
+    } else if src_width == 4 {
+        // Widening unsigned 32→64: a 32-bit mov zero-extends implicitly.
+        CastPlan::Mov32
+    } else {
+        // Widening unsigned 8/16 → wider: explicit movzx.
+        CastPlan::ZeroExtend(src_width)
+    }
+}
+
 /// Tracks emission state during IR traversal.
 ///
 /// Accumulates instructions keyed by IrNodeId and tracks byte offsets
@@ -1279,46 +1425,70 @@ impl EmitWalker {
         self.state.estimated_offset += 1;
     }
 
-    /// Emit cast lambda: `movsx rax, edi; ret` (4 bytes: `48 63 f8` / `c3`).
+    /// Emit cast lambda: a single width-conversion instruction then `ret`.
     ///
-    /// Phase 7 m4-002: lowers `fn (x) -> x as TYPE`. The operand (parameter
-    /// `x`) arrives in RDI; this emits the canonical widening *signed* cast
-    /// (`i32 as i64`) by sign-extending the 32-bit source EDI into the 64-bit
-    /// destination RAX, then returns.
+    /// Phase 7 m4-002 / PA8 m3-002 (#826). Lowers `fn (x) -> x as TYPE`. The
+    /// operand (parameter `x`) arrives in RDI; the result is produced in RAX,
+    /// then the function returns.
     ///
-    /// The encoder selects the concrete form from the source width carried in
-    /// `EncodingHint.operand_size`; here we emit the 4-byte-source MOVSXD form
-    /// (`48 63 f8`).
+    /// The conversion instruction is no longer hard-wired to MOVSXD. It is
+    /// selected by [`cast_plan`] from the `(src, dst)` [`CastShape`]:
     ///
-    /// Width / signedness selection per the target type (widening unsigned →
-    /// `movzx`; narrowing → `mov r32, r32`; same-width → no-op) is a documented
-    /// follow-up: the minimal m4-002 IR pipeline does not yet resolve the
-    /// `CastSideTable` `TypeId` to a concrete `(width, signedness)`, so the emit
-    /// path commits to the canonical signed-widening case. Once type resolution
-    /// is wired in, this method should read the `CastSideTable` entry and branch
-    /// on `(src_width, dst_width, signedness)`.
+    /// - widening signed   → `movsx{b,w}q` / `movsxd` (`Mnemonic::Movsx`,
+    ///   `operand_size` = source width selects the 0x0F BE / 0x0F BF / 0x63 form)
+    /// - widening unsigned, 1/2-byte source → `movzx` (`Mnemonic::Movzx`)
+    /// - widening unsigned, 4-byte source   → `mov r32, r32` (`Mnemonic::Mov`,
+    ///   the 32-bit write implicitly zero-extends bits 63:32)
+    /// - narrowing (to a smaller width)      → `mov r{8,16,32}` selecting the
+    ///   destination size (`Mnemonic::Mov`, `operand_size` = dst width)
+    /// - same-width reinterpret              → no-op (no conversion instruction)
+    ///
+    /// IR-pipeline callers do not yet resolve the `CastSideTable` `TypeId` to a
+    /// concrete `(width, signedness)`; the structural-cast call site therefore
+    /// passes the canonical `i32 as i64` shape. Once type resolution is wired in,
+    /// the caller threads the real `CastShape` here and the full table applies.
     ///
     /// Like the other 2-instruction emitters, this keys on `node*2` / `node*2+1`.
     fn emit_cast_lambda(&mut self, lambda_node_id: IrNodeId) {
-        // movsx rax, edi: 48 63 f8 (3 bytes) — MOVSXD r64, r/m32.
-        // operand_size = 4 selects the MOVSXD (0x63) form in the encoder.
-        let mut movsx_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        movsx_operands.push(Operand::Reg(RegId(0))); // rax (dst)
-        movsx_operands.push(Operand::Reg(RegId(7))); // rdi/edi (arg0, src)
+        // Canonical structural-cast shape until TypeId resolution lands:
+        // signed 32-bit source widened to a signed 64-bit destination.
+        self.emit_cast_lambda_with_shape(
+            lambda_node_id,
+            CastShape {
+                src_width: 4,
+                dst_width: 8,
+                src_signed: true,
+                dst_signed: true,
+            },
+        );
+    }
 
-        let movsx_inst = Instruction {
-            mnemonic: Mnemonic::Movsx,
-            operands: movsx_operands,
-            encoding_hint: Some(paideia_as_ir::EncodingHint {
-                opcode: 0x63,
-                operand_size: 4,
-            }),
-            byte_offset_in_text: None,
-        };
+    /// Emit a cast lambda for an explicit [`CastShape`], dispatching on width
+    /// and signedness via [`cast_plan`].
+    ///
+    /// RAX (RegId 0) is the destination, RDI (RegId 7) the incoming argument.
+    /// A `CastOp::Nop` shape (same-width reinterpret) emits no conversion
+    /// instruction — only the trailing `ret`.
+    fn emit_cast_lambda_with_shape(&mut self, lambda_node_id: IrNodeId, shape: CastShape) {
+        let dst = RegId(0); // rax
+        let src = RegId(7); // rdi/edi
 
-        let movsx_id = IrNodeId::new(lambda_node_id.get() * 2).expect("movsx instr virtual id");
-        self.state.instructions.insert(movsx_id, movsx_inst);
-        self.state.estimated_offset += 3;
+        let plan = cast_plan(shape);
+        // First slot keyed on node*2; ret on node*2+1.
+        if let Some((mnemonic, hint, size)) = plan.instruction() {
+            let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+            operands.push(Operand::Reg(dst));
+            operands.push(Operand::Reg(src));
+            let inst = Instruction {
+                mnemonic,
+                operands,
+                encoding_hint: hint,
+                byte_offset_in_text: None,
+            };
+            let inst_id = IrNodeId::new(lambda_node_id.get() * 2).expect("cast instr virtual id");
+            self.state.instructions.insert(inst_id, inst);
+            self.state.estimated_offset += size;
+        }
 
         // ret: c3 (1 byte)
         let ret_id = IrNodeId::new(lambda_node_id.get() * 2 + 1).expect("ret virtual id");
@@ -3881,6 +4051,133 @@ mod tests {
                 .function_offsets
                 .contains_key(&lambda_id.get())
         );
+    }
+
+    // ---- PA8 m3-002 (#826): cast dispatch table ----
+
+    fn shape(src_width: u8, dst_width: u8, src_signed: bool, dst_signed: bool) -> CastShape {
+        CastShape {
+            src_width,
+            dst_width,
+            src_signed,
+            dst_signed,
+        }
+    }
+
+    #[test]
+    fn cast_plan_widening_signed_dispatches_movsx() {
+        // i8/i16 → i64 use the 0F BE / 0F BF movsx forms; i32 → i64 uses MOVSXD.
+        assert_eq!(cast_plan(shape(1, 8, true, true)), CastPlan::SignExtend(1));
+        assert_eq!(cast_plan(shape(2, 8, true, true)), CastPlan::SignExtend(2));
+        assert_eq!(cast_plan(shape(4, 8, true, true)), CastPlan::SignExtend(4));
+
+        // movsxd (4-byte src) lowers to Movsx/opcode 0x63, 3 bytes.
+        let (m, hint, size) = cast_plan(shape(4, 8, true, true)).instruction().unwrap();
+        assert_eq!(m, Mnemonic::Movsx);
+        assert_eq!(hint.unwrap().opcode, 0x63);
+        assert_eq!(hint.unwrap().operand_size, 4);
+        assert_eq!(size, 3);
+
+        // movsxbq (1-byte src) lowers to Movsx/opcode 0x0F, 4 bytes.
+        let (m, hint, size) = cast_plan(shape(1, 8, true, true)).instruction().unwrap();
+        assert_eq!(m, Mnemonic::Movsx);
+        assert_eq!(hint.unwrap().opcode, 0x0F);
+        assert_eq!(hint.unwrap().operand_size, 1);
+        assert_eq!(size, 4);
+    }
+
+    #[test]
+    fn cast_plan_widening_unsigned_dispatches_movzx_or_mov32() {
+        // u8/u16 → u64 use movzx (0F B6 / 0F B7); u32 → u64 uses a 32-bit mov.
+        assert_eq!(cast_plan(shape(1, 8, false, false)), CastPlan::ZeroExtend(1));
+        assert_eq!(cast_plan(shape(2, 8, false, false)), CastPlan::ZeroExtend(2));
+        assert_eq!(cast_plan(shape(4, 8, false, false)), CastPlan::Mov32);
+
+        // movzx u8 → Movzx/opcode 0xB6, 4 bytes.
+        let (m, hint, size) = cast_plan(shape(1, 8, false, false)).instruction().unwrap();
+        assert_eq!(m, Mnemonic::Movzx);
+        assert_eq!(hint.unwrap().opcode, 0xB6);
+        assert_eq!(size, 4);
+
+        // 32-bit mov implicitly zero-extends → Mov, operand_size 4, 2 bytes.
+        let (m, hint, size) = cast_plan(shape(4, 8, false, false)).instruction().unwrap();
+        assert_eq!(m, Mnemonic::Mov);
+        assert_eq!(hint.unwrap().operand_size, 4);
+        assert_eq!(size, 2);
+    }
+
+    #[test]
+    fn cast_plan_narrowing_dispatches_mov_dest_width() {
+        // Any → smaller width truncates via a destination-sized mov, regardless
+        // of signedness.
+        assert_eq!(cast_plan(shape(8, 4, true, false)), CastPlan::Narrow(4));
+        assert_eq!(cast_plan(shape(8, 2, false, false)), CastPlan::Narrow(2));
+        assert_eq!(cast_plan(shape(4, 1, true, true)), CastPlan::Narrow(1));
+
+        let (m, hint, size) = cast_plan(shape(8, 1, true, true)).instruction().unwrap();
+        assert_eq!(m, Mnemonic::Mov);
+        assert_eq!(hint.unwrap().operand_size, 1);
+        assert_eq!(size, 2);
+    }
+
+    #[test]
+    fn cast_plan_same_width_is_nop() {
+        // Same-width reinterpret (incl. signed<->unsigned of equal width) emits
+        // no conversion instruction.
+        for w in [1u8, 2, 4, 8] {
+            assert_eq!(cast_plan(shape(w, w, true, true)), CastPlan::Nop);
+            assert_eq!(cast_plan(shape(w, w, true, false)), CastPlan::Nop);
+            assert_eq!(cast_plan(shape(w, w, false, true)), CastPlan::Nop);
+        }
+        assert!(CastPlan::Nop.instruction().is_none());
+    }
+
+    #[test]
+    fn emit_cast_lambda_with_shape_narrowing_emits_single_mov_then_ret() {
+        // Narrowing emits exactly one conversion mov (2 bytes) + ret (1 byte).
+        let mut arena = IrArena::new();
+        let var_id = arena.alloc(IrKind::Var, span());
+        let cast_id = arena.alloc_with_children(IrKind::Cast, span(), [var_id]);
+        let lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [cast_id]);
+
+        let mut walker = EmitWalker::new();
+        walker
+            .state
+            .function_offsets
+            .insert(lambda_id.get(), walker.state.estimated_offset);
+        walker.emit_cast_lambda_with_shape(lambda_id, shape(8, 4, true, false));
+
+        let mov_id = IrNodeId::new(lambda_id.get() * 2).expect("mov instr id");
+        let mov = walker.state().instructions.get(mov_id).expect("mov emitted");
+        assert_eq!(mov.mnemonic, Mnemonic::Mov);
+        assert_eq!(mov.encoding_hint.map(|h| h.operand_size), Some(4));
+
+        // mov (2) + ret (1) = 3 bytes.
+        assert_eq!(walker.state().estimated_offset, 3);
+    }
+
+    #[test]
+    fn emit_cast_lambda_with_shape_same_width_emits_only_ret() {
+        // A same-width reinterpret emits no conversion instruction, only ret.
+        let mut arena = IrArena::new();
+        let var_id = arena.alloc(IrKind::Var, span());
+        let cast_id = arena.alloc_with_children(IrKind::Cast, span(), [var_id]);
+        let lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [cast_id]);
+
+        let mut walker = EmitWalker::new();
+        walker.emit_cast_lambda_with_shape(lambda_id, shape(8, 8, true, false));
+
+        // No conversion instruction at node*2.
+        let conv_id = IrNodeId::new(lambda_id.get() * 2).expect("conv id");
+        assert!(walker.state().instructions.get(conv_id).is_none());
+
+        // ret present at node*2+1; offset is just 1 byte.
+        let ret_id = IrNodeId::new(lambda_id.get() * 2 + 1).expect("ret id");
+        assert_eq!(
+            walker.state().instructions.get(ret_id).map(|i| i.mnemonic),
+            Some(Mnemonic::Ret)
+        );
+        assert_eq!(walker.state().estimated_offset, 1);
     }
 
     #[test]
