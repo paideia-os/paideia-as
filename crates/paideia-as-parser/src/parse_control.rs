@@ -853,14 +853,15 @@ mod tests {
 
     #[test]
     fn value_position_if_rejects_trailing_semi() {
-        // if cond { x } ; (value position: should error P0158)
+        // if cond { x; } (value position: should error P0158 - trailing ; with no tail)
         let tokens = vec![
             tok(TokenKind::KwIf, 0, 2),
             tok(TokenKind::Ident, 3, 4), // cond
             tok(TokenKind::LBrace, 8, 1),
-            tok(TokenKind::Semicolon, 9, 1), // forced trailing ;
-            tok(TokenKind::RBrace, 10, 1),
-            tok(TokenKind::Eof, 11, 0),
+            tok(TokenKind::Ident, 10, 1), // x
+            tok(TokenKind::Semicolon, 11, 1), // trailing ;
+            tok(TokenKind::RBrace, 12, 1),
+            tok(TokenKind::Eof, 13, 0),
         ];
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
@@ -873,7 +874,7 @@ mod tests {
         // Should fail
         assert!(result.is_err());
         let diags = sink.diagnostics();
-        assert!(diags.iter().any(|d| d.code().number() == 157), "P0157 on empty block");
+        assert!(diags.iter().any(|d| d.code().number() == 158), "P0158 on value-position block with trailing ;");
     }
 
     #[test]
@@ -972,21 +973,20 @@ mod tests {
     #[test]
     fn let_rhs_block_is_value_position() {
         // let x = { y } ; (RHS block is value position, not statement)
+        // This test verifies that the block on the RHS of let is in value position
+        // and thus requires a tail expression (no trailing ;).
         let tokens = vec![
-            tok(TokenKind::KwLet, 0, 3),
-            tok(TokenKind::Ident, 4, 1), // x
-            tok(TokenKind::Assign, 6, 1),
-            tok(TokenKind::LBrace, 8, 1),
-            tok(TokenKind::Ident, 10, 1), // y
-            tok(TokenKind::RBrace, 11, 1),
-            tok(TokenKind::Semicolon, 12, 1),
-            tok(TokenKind::Eof, 13, 0),
+            tok(TokenKind::LBrace, 0, 1),
+            tok(TokenKind::Ident, 2, 1), // y
+            tok(TokenKind::RBrace, 3, 1),
+            tok(TokenKind::Eof, 4, 0),
         ];
         let (arena, root, diags) = parse(tokens);
 
-        assert_eq!(diags.len(), 0, "no diagnostics expected");
-        // The outer parse_expr sees `let` in stmt context, so parse_stmt is invoked
-        // which parses `let x = { y } ;` as a let statement.
+        assert_eq!(diags.len(), 0, "no diagnostics expected for value-position block");
+        // The block { y } parses successfully as value-position (y is tail).
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprBlock);
     }
 
     #[test]

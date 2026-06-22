@@ -67,11 +67,17 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             }
         }
 
-        // Expect `->` before the body
-        self.expect(TokenKind::Arrow)?;
-
-        // Parse body expression
-        let body = self.parse_expr()?;
+        // Optional `->` before the body (m3-002):
+        // If the next token is `{`, treat it as a block body without explicit arrow.
+        // Otherwise, expect `->` and parse the body as before.
+        let body = if self.at(TokenKind::LBrace) {
+            // Block body without arrow: fn (x: T) { ... }
+            self.parse_expr()?
+        } else {
+            // Arrow present: fn (x: T) -> expr
+            self.expect(TokenKind::Arrow)?;
+            self.parse_expr()?
+        };
 
         // Compute span covering the entire lambda
         let body_span = self.arena().get(body).map(|nd| nd.span).unwrap_or(fn_span);
@@ -397,6 +403,138 @@ mod tests {
                 let body_node = arena.get(*body).unwrap();
                 // Body should be a call expression
                 assert_eq!(body_node.kind, NodeKind::ExprCall);
+            } else {
+                panic!("expected ExprLambda");
+            }
+        }
+    }
+
+    // m3-002 tests: optional arrow before block body
+
+    #[test]
+    fn fn_block_body_arrow_elided() {
+        // fn (x: i32) { x } (no arrow, block body)
+        let tokens = vec![
+            tok(TokenKind::KwFn, 0, 2),
+            tok(TokenKind::LParen, 3, 1),
+            tok(TokenKind::Ident, 4, 1), // x
+            tok(TokenKind::Colon, 5, 1),
+            tok(TokenKind::Ident, 7, 3), // i32
+            tok(TokenKind::RParen, 10, 1),
+            tok(TokenKind::LBrace, 12, 1),
+            tok(TokenKind::Ident, 14, 1), // x
+            tok(TokenKind::RBrace, 15, 1),
+            tok(TokenKind::Eof, 16, 0),
+        ];
+        let (arena, root, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0);
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprLambda);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Lambda { body, pipe_form, .. } = expr_data {
+                assert!(!pipe_form);
+                let body_node = arena.get(*body).unwrap();
+                assert_eq!(body_node.kind, NodeKind::ExprBlock);
+            } else {
+                panic!("expected ExprLambda");
+            }
+        }
+    }
+
+    #[test]
+    fn fn_block_body_arrow_present() {
+        // fn (x: i32) -> { x } (arrow present, block body)
+        let tokens = vec![
+            tok(TokenKind::KwFn, 0, 2),
+            tok(TokenKind::LParen, 3, 1),
+            tok(TokenKind::Ident, 4, 1), // x
+            tok(TokenKind::Colon, 5, 1),
+            tok(TokenKind::Ident, 7, 3), // i32
+            tok(TokenKind::RParen, 10, 1),
+            tok(TokenKind::Arrow, 12, 2),
+            tok(TokenKind::LBrace, 15, 1),
+            tok(TokenKind::Ident, 17, 1), // x
+            tok(TokenKind::RBrace, 18, 1),
+            tok(TokenKind::Eof, 19, 0),
+        ];
+        let (arena, root, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0);
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprLambda);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Lambda { body, pipe_form, .. } = expr_data {
+                assert!(!pipe_form);
+                let body_node = arena.get(*body).unwrap();
+                assert_eq!(body_node.kind, NodeKind::ExprBlock);
+            } else {
+                panic!("expected ExprLambda");
+            }
+        }
+    }
+
+    #[test]
+    fn fn_arrow_then_record_constructor_unchanged() {
+        // fn (x: i32) -> Foo { x: 1 } (record constructor on Foo, unchanged)
+        let tokens = vec![
+            tok(TokenKind::KwFn, 0, 2),
+            tok(TokenKind::LParen, 3, 1),
+            tok(TokenKind::Ident, 4, 1), // x
+            tok(TokenKind::Colon, 5, 1),
+            tok(TokenKind::Ident, 7, 3), // i32
+            tok(TokenKind::RParen, 10, 1),
+            tok(TokenKind::Arrow, 12, 2),
+            tok(TokenKind::Ident, 15, 3), // Foo
+            tok(TokenKind::LBrace, 19, 1),
+            tok(TokenKind::Ident, 21, 1), // x
+            tok(TokenKind::Colon, 22, 1),
+            tok(TokenKind::IntLit, 24, 1), // 1
+            tok(TokenKind::RBrace, 25, 1),
+            tok(TokenKind::Eof, 26, 0),
+        ];
+        let (arena, root, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0);
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprLambda);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Lambda { body, .. } = expr_data {
+                let body_node = arena.get(*body).unwrap();
+                // Body should be a record constructor (ExprRecordCons)
+                assert_eq!(body_node.kind, NodeKind::ExprRecordCons);
+            } else {
+                panic!("expected ExprLambda");
+            }
+        }
+    }
+
+    #[test]
+    fn fn_arrow_present_non_block_body() {
+        // fn (x: i32) -> x + 1 (arrow required for non-block expression)
+        let tokens = vec![
+            tok(TokenKind::KwFn, 0, 2),
+            tok(TokenKind::LParen, 3, 1),
+            tok(TokenKind::Ident, 4, 1), // x
+            tok(TokenKind::Colon, 5, 1),
+            tok(TokenKind::Ident, 7, 3), // i32
+            tok(TokenKind::RParen, 10, 1),
+            tok(TokenKind::Arrow, 12, 2),
+            tok(TokenKind::Ident, 15, 1), // x
+            tok(TokenKind::Plus, 17, 1),
+            tok(TokenKind::IntLit, 19, 1), // 1
+            tok(TokenKind::Eof, 20, 0),
+        ];
+        let (arena, root, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0);
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprLambda);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Lambda { body, .. } = expr_data {
+                let body_node = arena.get(*body).unwrap();
+                // Body should be an infix expression (x + 1)
+                assert_eq!(body_node.kind, NodeKind::ExprInfix);
             } else {
                 panic!("expected ExprLambda");
             }
