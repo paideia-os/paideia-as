@@ -368,6 +368,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
             // Take pending unsafe blocks from EmitWalker state and process them.
             let pending = emit_walker.state_mut().take_pending_unsafe();
             let record_layouts = &emit_walker.state().record_layouts;
+            let local_bindings = &emit_walker.state().local_bindings;
             let unsafe_diags = UnsafeWalker::run(
                 &mut lowering.ir,
                 &arena,
@@ -375,6 +376,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                 &source_map,
                 &mut walker_sink,
                 record_layouts,
+                local_bindings,
             );
             // Phase-7-m2-003: Resolve Operand::Var references to Operand::Reg.
             // Call resolve_var_operands on the arena's owned instruction table,

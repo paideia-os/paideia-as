@@ -4,7 +4,7 @@
 
 use paideia_as_ast::{AstArena, ExprData, NodeKind, StmtData};
 use paideia_as_diagnostics::{SourceMap, Span, VecSink};
-use paideia_as_elaborator::unsafe_walker::UnsafeWalker;
+use paideia_as_elaborator::{unsafe_walker::UnsafeWalker, LocalBindingTable};
 use paideia_as_ir::IrArena;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -64,6 +64,7 @@ fn test_lgdt_memory_operand() {
     // Run UnsafeWalker
     let mut sink = VecSink::new();
     let record_layouts = HashMap::new();
+    let local_bindings = LocalBindingTable::new();
     let _diags = UnsafeWalker::run(
         &mut ir,
         &ast,
@@ -71,6 +72,7 @@ fn test_lgdt_memory_operand() {
         &source_map,
         &mut sink,
         &record_layouts,
+        &local_bindings,
     );
 
     // Check that no errors were emitted (in a real test with proper AST nodes, this would work)
@@ -122,6 +124,7 @@ fn test_unknown_mnemonic_foozle() {
     // Run UnsafeWalker
     let mut sink = VecSink::new();
     let record_layouts = HashMap::new();
+    let local_bindings = LocalBindingTable::new();
     let _diags = UnsafeWalker::run(
         &mut ir,
         &ast,
@@ -129,6 +132,7 @@ fn test_unknown_mnemonic_foozle() {
         &source_map,
         &mut sink,
         &record_layouts,
+        &local_bindings,
     );
 
     // Check that a U1605 diagnostic was emitted
@@ -199,6 +203,7 @@ fn test_malformed_operand_incomplete_memory() {
     // Run UnsafeWalker
     let mut sink = VecSink::new();
     let record_layouts = HashMap::new();
+    let local_bindings = LocalBindingTable::new();
     let _diags = UnsafeWalker::run(
         &mut ir,
         &ast,
@@ -206,6 +211,7 @@ fn test_malformed_operand_incomplete_memory() {
         &source_map,
         &mut sink,
         &record_layouts,
+        &local_bindings,
     );
 
     // Check that a U1606 diagnostic was emitted

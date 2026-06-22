@@ -35,6 +35,7 @@
 //! The m2-005 bridge reconciles these: if RegId >= 16 and < 25, extract cr_idx = RegId - 16;
 //! if >= 25 and < 33, extract dr_idx = RegId - 25.
 
+use crate::LocalBindingTable;
 use paideia_as_ast::{AstArena, ExprData, NodeId, NodeKind, StmtData};
 use paideia_as_diagnostics::{
     Category, Diagnostic, DiagnosticCode, DiagnosticSink, Severity, Span,
@@ -204,6 +205,7 @@ pub fn parse_operand_from_ast(
     source_map: &paideia_as_diagnostics::SourceMap,
     record_layouts: &HashMap<RecordTypeId, RecordLayout>,
     mnemonic: Mnemonic,
+    local_bindings: &LocalBindingTable,
 ) -> Result<Operand, OperandError> {
     let node = ast.get(operand_node).ok_or(OperandError::MalformedOperand(
         ast.get(operand_node).map(|n| n.span).unwrap_or_else(|| {
@@ -213,11 +215,19 @@ pub fn parse_operand_from_ast(
 
     match node.kind {
         NodeKind::Ident => {
-            // Try to parse as register name first, then fall through to symbol if not a register
+            // Try to parse as register name first
             match parse_register_from_ident(ast, operand_node, source_map) {
                 Ok(op) => Ok(op),
                 Err(_) => {
-                    // Not a register: check if this mnemonic supports symbol references
+                    // Not a register: check if it's a local binding (Phase 7 m2-003)
+                    if let Some(name) = get_register_name(ast, operand_node, source_map) {
+                        if local_bindings.get(&name).is_some() {
+                            // This is a local binding: emit Operand::Var for later resolution
+                            return Ok(Operand::Var { name });
+                        }
+                    }
+
+                    // Not a local binding: check if mnemonic supports symbol references
                     if supports_symbol_ref(mnemonic) {
                         // This is a bare identifier symbol reference (Phase 6 m4-005)
                         parse_symbol_ref_from_ident(ast, operand_node, source_map)
@@ -232,11 +242,19 @@ pub fn parse_operand_from_ast(
             // Register operand from parsed instruction: extract the register reference
             match ast.expr_data(operand_node) {
                 Some(ExprData::OperandRegister { reg }) => {
-                    // Try to parse as register name first, then fall through to symbol if not a register
+                    // Try to parse as register name first
                     match parse_register_from_ident(ast, *reg, source_map) {
                         Ok(op) => Ok(op),
                         Err(_) => {
-                            // Not a register: check if this mnemonic supports symbol references
+                            // Not a register: check if it's a local binding (Phase 7 m2-003)
+                            if let Some(name) = get_register_name(ast, *reg, source_map) {
+                                if local_bindings.get(&name).is_some() {
+                                    // This is a local binding: emit Operand::Var for later resolution
+                                    return Ok(Operand::Var { name });
+                                }
+                            }
+
+                            // Not a local binding: check if mnemonic supports symbol references
                             if supports_symbol_ref(mnemonic) {
                                 // This is a bare identifier symbol reference (Phase 6 m4-005)
                                 parse_symbol_ref_from_ident(ast, *reg, source_map)
@@ -879,6 +897,7 @@ impl UnsafeWalker {
     /// * `source_map` - The source map for resolving file content from spans.
     /// * `sink` - Diagnostic sink for emitting errors.
     /// * `record_layouts` - Record layout table for field offset resolution (Phase 6 m3-005).
+    /// * `local_bindings` - LocalBindingTable from EmitWalker (Phase 7 m2-003): maps let-binding names to scratch registers.
     ///
     /// # Returns
     ///
@@ -894,6 +913,7 @@ impl UnsafeWalker {
         source_map: &paideia_as_diagnostics::SourceMap,
         sink: &mut dyn DiagnosticSink,
         record_layouts: &HashMap<RecordTypeId, RecordLayout>,
+        local_bindings: &LocalBindingTable,
     ) -> Vec<Diagnostic> {
         let mut diags = Vec::new();
 
@@ -978,6 +998,7 @@ impl UnsafeWalker {
                                                 source_map,
                                                 record_layouts,
                                                 &labels,
+                                                local_bindings,
                                             );
                                         }
                                     }
@@ -1006,6 +1027,7 @@ impl UnsafeWalker {
         source_map: &paideia_as_diagnostics::SourceMap,
         record_layouts: &HashMap<RecordTypeId, RecordLayout>,
         labels: &HashMap<String, u32>,
+        local_bindings: &LocalBindingTable,
     ) {
         // Get the statement data.
         let stmt_data = match ast.stmt_data(stmt_id) {
@@ -1075,7 +1097,7 @@ impl UnsafeWalker {
             let mut operand_error = false;
 
             for &operand_id in operand_ids {
-                match parse_operand_from_ast(ast, operand_id, source_map, record_layouts, mnemonic)
+                match parse_operand_from_ast(ast, operand_id, source_map, record_layouts, mnemonic, local_bindings)
                 {
                     Ok(operand) => {
                         parsed_operands.push(operand);

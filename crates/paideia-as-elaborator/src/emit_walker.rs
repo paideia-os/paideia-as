@@ -1427,6 +1427,12 @@ impl EmitWalker {
                             ));
                         }
                     }
+                    IrKind::Var => {
+                        // Phase 7 m2-003: Bare identifier in statement position (e.g., `x;`).
+                        // This is a statement-form variable reference with no side effects.
+                        // Simply skip it — it's a statement expression that doesn't emit code.
+                        eprintln!("[emit_block_body] Var (bare identifier) at index {} — skipped", i);
+                    }
                     _ => {
                         // Unexpected statement kind.
                         eprintln!(
