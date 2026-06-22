@@ -13,7 +13,7 @@ use object::{
     },
 };
 use static_assertions::const_assert_eq;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::mem::size_of;
 
 // Verify that ELF64 file header is 64 bytes per ELF specification.
@@ -48,6 +48,16 @@ pub struct ElfWriter {
     /// Symbol table entries accumulated during construction.
     /// Mapped by symbol name for deduplication and symbol ID lookup.
     symbols: HashMap<String, (SymbolEntry, SymbolId)>,
+    /// Track cumulative sizes of sections (phase 7 m1-002 validation).
+    section_sizes: HashMap<SectionId, u64>,
+    /// Cached section IDs for quick lookups (phase 7 m1-002).
+    text_section_id: SectionId,
+    rodata_section_id: SectionId,
+    data_section_id: SectionId,
+    bss_section_id: SectionId,
+    /// All symbol names added, in order, for duplicate detection (phase 7 m1-002).
+    /// Note: symbols HashMap deduplicates by name, but this list preserves all additions.
+    symbol_names_added: Vec<String>,
 }
 
 impl ElfWriter {
@@ -87,10 +97,22 @@ impl ElfWriter {
             sections.push((name.to_string(), sid));
         }
 
+        // Cache section IDs for validation (phase 7 m1-002).
+        let text_section_id = obj.section_id(StandardSection::Text);
+        let rodata_section_id = obj.section_id(StandardSection::ReadOnlyData);
+        let data_section_id = obj.section_id(StandardSection::Data);
+        let bss_section_id = obj.section_id(StandardSection::UninitializedData);
+
         Self {
             obj,
             sections,
             symbols: HashMap::new(),
+            section_sizes: HashMap::new(),
+            text_section_id,
+            rodata_section_id,
+            data_section_id,
+            bss_section_id,
+            symbol_names_added: Vec::new(),
         }
     }
 
@@ -129,7 +151,13 @@ impl ElfWriter {
     /// per-function bytes payload + automatic symbol binding.
     pub fn add_text_bytes(&mut self, bytes: &[u8]) -> u64 {
         let text_section = self.text_section_id();
-        self.obj.append_section_data(text_section, bytes, 1)
+        let offset = self.obj.append_section_data(text_section, bytes, 1);
+        let new_size = offset + bytes.len() as u64;
+        self.section_sizes
+            .entry(text_section)
+            .and_modify(|sz| *sz = (*sz).max(new_size))
+            .or_insert(new_size);
+        offset
     }
 
     /// Append `bytes` to the `.rodata` section with the specified alignment.
@@ -137,8 +165,15 @@ impl ElfWriter {
     /// Phase-1 helper used for read-only data (constants, GDT descriptors, etc).
     pub fn add_rodata_bytes(&mut self, bytes: &[u8], align: u8) -> u64 {
         let rodata_section = self.rodata_section_id();
-        self.obj
-            .append_section_data(rodata_section, bytes, align as u64)
+        let offset = self
+            .obj
+            .append_section_data(rodata_section, bytes, align as u64);
+        let new_size = offset + bytes.len() as u64;
+        self.section_sizes
+            .entry(rodata_section)
+            .and_modify(|sz| *sz = (*sz).max(new_size))
+            .or_insert(new_size);
+        offset
     }
 
     /// Append `bytes` to the `.data` section with the specified alignment.
@@ -146,8 +181,15 @@ impl ElfWriter {
     /// Phase-1 helper used for initialized mutable data (Phase 6+).
     pub fn add_data_bytes(&mut self, bytes: &[u8], align: u8) -> u64 {
         let data_section = self.obj.section_id(StandardSection::Data);
-        self.obj
-            .append_section_data(data_section, bytes, align as u64)
+        let offset = self
+            .obj
+            .append_section_data(data_section, bytes, align as u64);
+        let new_size = offset + bytes.len() as u64;
+        self.section_sizes
+            .entry(data_section)
+            .and_modify(|sz| *sz = (*sz).max(new_size))
+            .or_insert(new_size);
+        offset
     }
 
     /// Allocate space in the `.bss` section with the specified alignment and size.
@@ -159,8 +201,16 @@ impl ElfWriter {
         let bss_section = self.obj.section_id(StandardSection::UninitializedData);
         // Use the Section::append_bss() method which allocates space without writing to file.
         // This ensures .bss is properly marked as SHT_NOBITS with no file payload growth.
-        let section = self.obj.section_mut(bss_section);
-        section.append_bss(size, align as u64)
+        let offset = {
+            let section = self.obj.section_mut(bss_section);
+            section.append_bss(size, align as u64)
+        };
+        let new_size = offset + size;
+        self.section_sizes
+            .entry(bss_section)
+            .and_modify(|sz| *sz = (*sz).max(new_size))
+            .or_insert(new_size);
+        offset
     }
 
     /// Add a symbol to the symbol table.
@@ -217,7 +267,8 @@ impl ElfWriter {
             flags: SymbolFlags::None,
         });
 
-        self.symbols.insert(sym_name, (entry, sym_id));
+        self.symbols.insert(sym_name.clone(), (entry, sym_id));
+        self.symbol_names_added.push(sym_name);
         Ok(())
     }
 
@@ -258,6 +309,7 @@ impl ElfWriter {
 
         // Cache the symbol for future lookups.
         self.symbols.insert(name.to_string(), (entry, sym_id));
+        self.symbol_names_added.push(name.to_string());
 
         sym_id
     }
@@ -354,9 +406,98 @@ impl ElfWriter {
 
     /// Finalize and write the ELF object to bytes.
     ///
-    /// Returns a vector of bytes representing a valid, parseable ELF64 object file.
-    pub fn finalize(&self) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        Ok(self.obj.write()?)
+    /// Before emitting the symbol table, validates three invariants:
+    /// (a) Every symbol's range `[st_value, st_value + st_size)` lies within
+    ///     its declared section's bounds.
+    /// (b) Symbol names are unique (no two symbols share the same name).
+    /// (c) Overlap detection defers to Phase 7 m1-003 when symbols have distinct
+    ///     non-zero st_values; this phase accepts multiple symbols at st_value=0.
+    ///
+    /// Returns a vector of bytes representing a valid, parseable ELF64 object file,
+    /// or [`EmitterError::SymbolLayoutInvalid`] if invariants are violated.
+    ///
+    /// # Errors
+    ///
+    /// Returns `EmitterError::SymbolLayoutInvalid` if symbol bounds checking fails.
+    pub fn finalize(&self) -> Result<Vec<u8>, crate::EmitterError> {
+        // Validate symbol layout invariants before emitting the symbol table.
+        self.validate_symbol_layout()?;
+
+        self.obj
+            .write()
+            .map_err(|e| crate::EmitterError::SymbolLayoutInvalid {
+                message: format!("ELF write failed: {}", e),
+            })
+    }
+
+    /// Validate symbol layout invariants.
+    ///
+    /// Phase 7 m1-002 checks:
+    /// - (b) No two symbols share the same name.
+    /// - (a) Each symbol's range `[st_value, st_value + st_size)` is within its section bounds
+    ///       (deferred to m1-003 for overlap detection when symbols have distinct st_values).
+    ///
+    /// Note: We track section sizes as bytes/space are appended to catch violations early.
+    fn validate_symbol_layout(&self) -> Result<(), crate::EmitterError> {
+        // Track symbol names to detect duplicates (checking all additions, not just current map).
+        let mut seen_names = HashSet::new();
+
+        for sym_name in &self.symbol_names_added {
+            // Check (b): Symbol names must be unique across all defined symbols.
+            // This catches regressions from m1-001 where duplicate symbol names could escape.
+            if !seen_names.insert(sym_name.clone()) {
+                return Err(crate::EmitterError::SymbolLayoutInvalid {
+                    message: format!("duplicate symbol name: `{}`", sym_name),
+                });
+            }
+        }
+
+        // Check (a): Each symbol's range must fit within its section.
+        for (sym_name, (entry, _sym_id)) in &self.symbols {
+            // Skip undefined symbols (they have no defined section).
+            if entry.offset.is_none() {
+                continue;
+            }
+
+            let st_value = entry.offset.unwrap_or(0);
+            let st_size = entry.size;
+
+            // Determine which section this symbol belongs to and look up its ID.
+            let section_id = if let Some(section_kind) = entry.section {
+                match section_kind {
+                    paideia_as_ir::SectionKind::Rodata => self.rodata_section_id,
+                    paideia_as_ir::SectionKind::Data => self.data_section_id,
+                    paideia_as_ir::SectionKind::Bss => self.bss_section_id,
+                }
+            } else if entry.kind == SymKind::Func {
+                self.text_section_id
+            } else {
+                // Unknown section, skip this check (shouldn't happen in practice).
+                continue;
+            };
+
+            // Look up the section size from our tracking map.
+            if let Some(&section_size) = self.section_sizes.get(&section_id) {
+                let end = st_value.saturating_add(st_size);
+                if end > section_size {
+                    // Get section name for error message.
+                    let section_name = self
+                        .sections
+                        .iter()
+                        .find(|(_, sid)| *sid == section_id)
+                        .map(|(name, _)| name.as_str())
+                        .unwrap_or("unknown");
+                    return Err(crate::EmitterError::SymbolLayoutInvalid {
+                        message: format!(
+                            "symbol `{}` range [{}, {}) exceeds {} section size {}",
+                            sym_name, st_value, end, section_name, section_size
+                        ),
+                    });
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -743,5 +884,94 @@ mod tests {
             .filter(|sym| sym.name().unwrap_or("") == "extern_fn")
             .count();
         assert_eq!(count, 1, "should have exactly one extern_fn symbol");
+    }
+
+    // Phase 7 m1-002: Synthetic tests for symbol layout validation.
+
+    #[test]
+    fn symbol_layout_rejects_duplicate_names() {
+        let mut writer = ElfWriter::new(Arch::X86_64, Kind::Relocatable);
+
+        // Add two symbols with the same name.
+        let sym1 = SymbolEntry::func("main", 0, 10);
+        writer
+            .add_symbol(sym1)
+            .expect("adding first symbol should succeed");
+
+        let sym2 = SymbolEntry::func("main", 20, 5);
+        writer
+            .add_symbol(sym2)
+            .expect("adding duplicate-name symbol should succeed during add_symbol");
+
+        // Finalize should fail due to duplicate names.
+        let result = writer.finalize();
+        assert!(
+            result.is_err(),
+            "finalize should reject duplicate symbol names"
+        );
+        match result {
+            Err(crate::EmitterError::SymbolLayoutInvalid { message }) => {
+                assert!(
+                    message.contains("duplicate symbol name"),
+                    "error message should mention duplicate name: {}",
+                    message
+                );
+            }
+            _ => panic!("expected SymbolLayoutInvalid error"),
+        }
+    }
+
+    #[test]
+    fn symbol_layout_rejects_out_of_bounds_range() {
+        let mut writer = ElfWriter::new(Arch::X86_64, Kind::Relocatable);
+
+        // Add a symbol whose range exceeds the section bounds.
+        // .text is typically created with minimal size, so add a large symbol.
+        let _text_offset = writer.add_text_bytes(&[0; 10]); // Add 10 bytes to .text
+
+        // Try to add a symbol that extends past the end.
+        let sym = SymbolEntry::func("overflow", 5, 20); // [5, 25) exceeds [0, 10)
+        writer
+            .add_symbol(sym)
+            .expect("adding out-of-bounds symbol should succeed during add_symbol");
+
+        // Finalize should fail due to out-of-bounds range.
+        let result = writer.finalize();
+        assert!(
+            result.is_err(),
+            "finalize should reject out-of-bounds symbol range"
+        );
+        match result {
+            Err(crate::EmitterError::SymbolLayoutInvalid { message }) => {
+                assert!(
+                    message.contains("exceeds") || message.contains("range"),
+                    "error message should mention bounds violation: {}",
+                    message
+                );
+            }
+            _ => panic!("expected SymbolLayoutInvalid error"),
+        }
+    }
+
+    #[test]
+    fn symbol_layout_accepts_undefined_symbols() {
+        let mut writer = ElfWriter::new(Arch::X86_64, Kind::Relocatable);
+
+        // Add some defined symbols.
+        let sym1 = SymbolEntry::func("main", 0, 5);
+        writer
+            .add_symbol(sym1)
+            .expect("adding function symbol should succeed");
+
+        // Add an undefined symbol (no offset).
+        let sym2 = SymbolEntry::undefined("printf");
+        writer
+            .add_symbol(sym2)
+            .expect("adding undefined symbol should succeed");
+
+        // Finalize should succeed because undefined symbols are not bounds-checked.
+        let _bytes = writer
+            .finalize()
+            .expect("finalize should accept undefined symbols");
     }
 }

@@ -24,19 +24,23 @@ pub enum BuildError {
         /// Encoder error message.
         encoder_message: String,
     },
+    /// ELF emitter validation failed (Phase 7 m1-002).
+    Emitter {
+        /// Diagnostic message from emitter.
+        message: String,
+    },
 }
 
 use crate::det;
 use paideia_as_ast::{AstArena, NodeId as AstNodeId, NodeKind, TypeData};
 use paideia_as_diagnostics::{
-    Catalog, DiagnosticSink, HumanRenderer, HumanSink,
-    Severity, SourceMap, VecSink,
+    Catalog, DiagnosticSink, HumanRenderer, HumanSink, Severity, SourceMap, VecSink,
 };
 use paideia_as_elaborator::{
     CapWalker, EffectRowWalker, EmitWalker, LinearityWalker, UnsafeWalker, lower_ast_to_ir,
     placeholder_for, validate_file_module_mapping,
 };
-use paideia_as_emitter_elf::{Arch, ElfWriter, Kind, SymKind, SymbolEntry};
+use paideia_as_emitter_elf::{Arch, ElfWriter, EmitterError, Kind, SymKind, SymbolEntry};
 use paideia_as_emitter_pax::{
     Architecture, FunctorsSection, PAX_HEADER_SIZE, PaxHeader, SectionTable, compute_content_hash,
 };
@@ -802,7 +806,10 @@ fn build_elf_object(
         let _ = writer.add_relocation(text_section, entry);
     }
 
-    Ok(writer.finalize().unwrap_or_default())
+    // Phase 7 m1-002: Finalize and validate symbol layout invariants.
+    writer.finalize().map_err(|err| match err {
+        EmitterError::SymbolLayoutInvalid { message } => BuildError::Emitter { message },
+    })
 }
 
 /// Phase-6-m1-004: Find the first instruction in the table (since we encode sequentially,
@@ -874,6 +881,10 @@ fn finish_build_error(
                 source_span.byte_start(),
                 source_span.byte_end()
             );
+        }
+        BuildError::Emitter { message } => {
+            // Phase 7 m1-002: Report symbol layout validation failures as B1703.
+            eprintln!("error: symbol layout invalid: {}", message);
         }
     }
 

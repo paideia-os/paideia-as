@@ -18,6 +18,27 @@ pub mod symtab;
 pub mod sysv_bridge;
 mod writer;
 
+/// Error type for ELF emission.
+///
+/// Represents errors that occur during ELF object file construction,
+/// such as symbol layout invariants violations (Phase 7 m1-002).
+#[derive(Debug, Clone)]
+pub enum EmitterError {
+    /// Symbol layout validation failed (Phase 7 m1-002).
+    ///
+    /// This error is returned by [`writer::ElfWriter::finalize`] when one or more
+    /// symbol layout invariants are violated:
+    /// - Symbol ranges extend beyond section bounds.
+    /// - Symbol names are not unique.
+    ///
+    /// Note: overlap detection defers to Phase 7 m1-003, when symbols have distinct
+    /// non-zero st_values. Until then, multiple symbols at st_value=0 are accepted.
+    SymbolLayoutInvalid {
+        /// Diagnostic message describing the invariant violation.
+        message: String,
+    },
+}
+
 pub use encode::{
     CodeBuffer, Cond, Reg32, Reg64, add_reg64_reg64, call_rel32, cmp_reg64_reg64,
     emit_indexed_load, emit_indexed_store, jcc_rel32, jmp_rel8, jmp_rel32, mov_mem_rbp_disp_reg64,
