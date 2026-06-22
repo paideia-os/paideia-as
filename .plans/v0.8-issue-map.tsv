@@ -1,25 +1,25 @@
 TaskID	Issue	Title	Size	UnblocksParPath
-PA8-m1-001	TBD	Verify the alleged m5-002 regression; bisect to the offending commit if real	S	(submodule gate)
-PA8-m1-002	TBD	cmd_build: thread function_offsets into per-symbol st_value	S	(structural)
-PA8-m1-003	TBD	emit_walker: assert function_offsets is populated for every top-level lambda	XS	(structural)
-PA8-m2-001	TBD	emit_block_body: accept Branch as the final expression of unit-typed blocks	M	cap/slab.pdx
-PA8-m2-002	TBD	parser + IR + cmd_build: module-level constant array-literal initialisers	M	cap/slab.pdx
-PA8-m2-003	TBD	lower.rs + cmd_build: pointer operand binding in module-level let initialiser	M	ipc/channel.pdx,ipc/dispatch.pdx
-PA8-m2-004	TBD	tests: PaideiaOS checkpoint-2 elaborator regression suite (3-file canary)	XS	cap/slab.pdx,ipc/channel.pdx,sched/enqueue.pdx
-PA8-m3-001	TBD	emit_walker: width-thread the 11 peer Mov sites through MovSized	M	cap/slab.pdx,ipc/channel.pdx,ipc/destroy_channel.pdx,sched/enqueue.pdx
-PA8-m3-002	TBD	encoder: cast lowering by (src_width, dst_width, signedness)	M	core/mm/pt_walk.pdx,cap/slab.pdx
-PA8-m3-003	TBD	encoder: sub-register encoder width-awareness for the MOV family	M	cap/slab.pdx,ipi/tlb_shootdown.pdx,ipc/dispatch.pdx
-PA8-m3-004	TBD	tests: round-trip-via-iced-x86 for the m3 corrected encoder surface	XS	(regression)
-PA8-m3-005	TBD	cross-repo: PaideiaOS R6.5 checkpoint-1 byte-identical regression sweep	S	(regression)
-PA8-m4-001	TBD	lower.rs: lower ExprData::Unsafe block body to IrKind::RawInstruction children	M	(all 9)
-PA8-m4-002	TBD	emit_walker: deprecate the dead-code arms or document them as live	S	(cleanup)
-PA8-m4-003	TBD	tests: PaideiaOS unsafe-block-heavy file regression	XS	ipi/tlb_shootdown.pdx
-PA8-m5-001	TBD	unsafe_walker: complete the per-mnemonic dispatch table	M	ipi/tlb_shootdown.pdx
-PA8-m5-002	TBD	encoder + IR: general memory operand mov [base + disp]	M	ipc/channel.pdx,ipc/destroy_channel.pdx,sched/enqueue.pdx
-PA8-m5-003	TBD	tests: PaideiaOS LAPIC/IPI byte-sequence regression	XS	(regression)
-PA8-m5-004	TBD	tests: round-trip-via-iced-x86 for m5 (memops + supervisor surface)	XS	(regression)
-PA8-m6-001	TBD	emit_walker: remove or gate the debug eprintln traces	XS	(cleanup)
-PA8-m6-002	TBD	diagnostics + workspace audit: catalog entries + SARIF regen + test-count	XS	(bookkeeping)
-PA8-m7-001	TBD	fixture: checkpoint2_orchestration.pdx exercises V2-V11 end-to-end	S	(integration)
-PA8-m7-002	TBD	cross-repo: PaideiaOS 9-file unquarantine + kernel.elf re-build + QEMU smoke	S	(all 9)
-PA8-m7-003	TBD	closure: STATUS.md + v0.8.0 tag + CHANGELOG + retrospective + submodule pin	S	(round closure)
+PA8-m1-001	818	Verify the alleged m5-002 regression; bisect to the offending commit if real	S	(submodule gate)
+PA8-m1-002	819	cmd_build: thread function_offsets into per-symbol st_value	S	(structural)
+PA8-m1-003	820	emit_walker: assert function_offsets is populated for every top-level lambda	XS	(structural)
+PA8-m2-001	821	emit_block_body: accept Branch as the final expression of unit-typed blocks	M	cap/slab.pdx
+PA8-m2-002	822	parser + IR + cmd_build: module-level constant array-literal initialisers	M	cap/slab.pdx
+PA8-m2-003	823	lower.rs + cmd_build: pointer operand binding in module-level let initialiser	M	ipc/channel.pdx,ipc/dispatch.pdx
+PA8-m2-004	824	tests: PaideiaOS checkpoint-2 elaborator regression suite (3-file canary)	XS	cap/slab.pdx,ipc/channel.pdx,sched/enqueue.pdx
+PA8-m3-001	825	emit_walker: width-thread the 11 peer Mov sites through MovSized	M	cap/slab.pdx,ipc/channel.pdx,ipc/destroy_channel.pdx,sched/enqueue.pdx
+PA8-m3-002	826	encoder: cast lowering by (src_width, dst_width, signedness)	M	core/mm/pt_walk.pdx,cap/slab.pdx
+PA8-m3-003	827	encoder: sub-register encoder width-awareness for the MOV family	M	cap/slab.pdx,ipi/tlb_shootdown.pdx,ipc/dispatch.pdx
+PA8-m3-004	828	tests: round-trip-via-iced-x86 for the m3 corrected encoder surface	XS	(regression)
+PA8-m3-005	829	cross-repo: PaideiaOS R6.5 checkpoint-1 byte-identical regression sweep	S	(regression)
+PA8-m4-001	830	lower.rs: lower ExprData::Unsafe block body to IrKind::RawInstruction children	M	(all 9)
+PA8-m4-002	831	emit_walker: deprecate the dead-code arms or document them as live	S	(cleanup)
+PA8-m4-003	832	tests: PaideiaOS unsafe-block-heavy file regression	XS	ipi/tlb_shootdown.pdx
+PA8-m5-001	833	unsafe_walker: complete the per-mnemonic dispatch table	M	ipi/tlb_shootdown.pdx
+PA8-m5-002	834	encoder + IR: general memory operand mov [base + disp]	M	ipc/channel.pdx,ipc/destroy_channel.pdx,sched/enqueue.pdx
+PA8-m5-003	835	tests: PaideiaOS LAPIC/IPI byte-sequence regression	XS	(regression)
+PA8-m5-004	836	tests: round-trip-via-iced-x86 for m5 (memops + supervisor surface)	XS	(regression)
+PA8-m6-001	837	emit_walker: remove or gate the debug eprintln traces	XS	(cleanup)
+PA8-m6-002	838	diagnostics + workspace audit: catalog entries + SARIF regen + test-count	XS	(bookkeeping)
+PA8-m7-001	839	fixture: checkpoint2_orchestration.pdx exercises V2-V11 end-to-end	S	(integration)
+PA8-m7-002	840	cross-repo: PaideiaOS 9-file unquarantine + kernel.elf re-build + QEMU smoke	S	(all 9)
+PA8-m7-003	841	closure: STATUS.md + v0.8.0 tag + CHANGELOG + retrospective + submodule pin	S	(round closure)
