@@ -119,6 +119,27 @@ pub enum Mnemonic {
         /// Operand width selecting the encoded form.
         width: IntWidth,
     },
+    /// Shift left (logical). Operands: dst, shift_count.
+    /// Phase 8 m1-001d: emits `shl r64, imm8` or `shl r64, cl`.
+    Shl,
+    /// Shift right (logical). Operands: dst, shift_count.
+    /// Phase 8 m1-001d: emits `shr r64, imm8` or `shr r64, cl`.
+    Shr,
+    /// Arithmetic shift right. Operands: dst, shift_count.
+    /// Phase 8 m1-001d: emits `sar r64, imm8` or `sar r64, cl`.
+    Sar,
+    /// Integer multiply. Operands: dst, src1 [, src2/imm].
+    /// Phase 8 m1-001d: emits `imul r64, r64` (2 operands) or `imul r64, r64, imm` (3 operands).
+    Imul,
+    /// Bitwise AND. Operands: dst, src.
+    /// Phase 8 m1-001d: emits `and r64, r64` or `and r64, imm`.
+    And,
+    /// Bitwise OR. Operands: dst, src.
+    /// Phase 8 m1-001d: emits `or r64, r64` or `or r64, imm`.
+    Or,
+    /// Bitwise XOR. Operands: dst, src.
+    /// Phase 8 m1-001d: emits `xor r64, r64` or `xor r64, imm`.
+    Xor,
 }
 
 /// Integer operand width for width-threaded immediate moves.
@@ -359,7 +380,14 @@ impl Mnemonic {
             | Mnemonic::Lea
             | Mnemonic::Movzx
             | Mnemonic::Movsx
-            | Mnemonic::MovSized { .. } => 2,
+            | Mnemonic::MovSized { .. }
+            | Mnemonic::Shl
+            | Mnemonic::Shr
+            | Mnemonic::Sar
+            | Mnemonic::Imul
+            | Mnemonic::And
+            | Mnemonic::Or
+            | Mnemonic::Xor => 2,
         }
     }
 
@@ -453,6 +481,15 @@ impl Mnemonic {
 
             // Bitwise NOT: 4 bytes upper bound (REX.W F7 /2 ModR/M)
             Mnemonic::Not => 4,
+
+            // Shift operations: 4 bytes upper bound (REX.W C1 r/m, imm8 or REX.W D3 r/m for CL variant)
+            Mnemonic::Shl | Mnemonic::Shr | Mnemonic::Sar => 4,
+
+            // Multiply (imul): 10 bytes upper bound for r64, r64, imm32
+            Mnemonic::Imul => 10,
+
+            // Bitwise AND/OR/XOR: 10 bytes upper bound
+            Mnemonic::And | Mnemonic::Or | Mnemonic::Xor => 10,
 
             // Width-threaded immediate move: size depends on the operand width.
             // W8=3 (REX.B B0+rb imm8), W16=4 (66 B8 imm16), W32=5 (B8 imm32),

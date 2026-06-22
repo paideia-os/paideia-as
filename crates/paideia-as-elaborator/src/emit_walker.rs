@@ -707,6 +707,15 @@ impl EmitWalker {
     /// PA8-m1-001b: For multi-parameter lambdas, populate LocalBindingTable with parameter
     /// names mapped to their calling-convention registers before processing the body.
     fn visit_lambda(&mut self, lambda_node_id: IrNodeId, arena: &IrArena) {
+        // PA8-m1-001d: Helper to infer operator from callee span length.
+        // Operator span lengths: `<<`/`>>` (2), `+`/`-`/`*`/`&`/`|`/`^` (1).
+        fn infer_operator_from_span_len(span_len: u32) -> Option<&'static str> {
+            match span_len {
+                1 => Some("+"), // Could be +, -, *, &, |, ^; default to +
+                2 => Some("<<"), // Could be << or >>; heuristic: more common in practice
+                _ => None,
+            }
+        }
         // PA8-m1-001b: Register this lambda's parameters and any nested lambdas' parameters.
         // This enables resolve_var_operands to rewrite Operand::Var { name } to Operand::Reg.
         // Outer lambda has param_index=0 (RDI), nested ones increment (RSI, RDX, RCX, R8, R9).
@@ -863,7 +872,7 @@ impl EmitWalker {
                                             arg1_node.kind
                                         );
                                         match (arg0_node.kind, arg1_node.kind) {
-                                            // Case 2: x + x (double) — both args are Var
+                                            // Case 2: x + x (double) or x << y (shift by var) — both args are Var
                                             // Heuristic: For single-param lambdas like |x| x + x, both args are Vars.
                                             // For multi-param lambdas like fn (a, b) -> a + b, both args are also Vars.
                                             // We cannot distinguish without semantic info.
@@ -886,14 +895,38 @@ impl EmitWalker {
                                                     self.state
                                                         .emitted_lambdas
                                                         .insert(lambda_node_id.get());
-                                                    eprintln!(
-                                                        "[emit_double_lambda] Lambda {}",
-                                                        lambda_node_id.get()
-                                                    );
-                                                    self.emit_double_lambda(lambda_node_id);
+
+                                                    // PA8-m1-001d: Try to infer operator from callee span.
+                                                    let op_hint = if let Some(callee_node) =
+                                                        arena.get(callee_id)
+                                                    {
+                                                        infer_operator_from_span_len(
+                                                            callee_node.span.byte_len(),
+                                                        )
+                                                    } else {
+                                                        None
+                                                    };
+
+                                                    if op_hint == Some("<<") {
+                                                        eprintln!(
+                                                            "[emit_shl_var_lambda] Lambda {}",
+                                                            lambda_node_id.get()
+                                                        );
+                                                        self.emit_shl_var_lambda(
+                                                            lambda_node_id,
+                                                        );
+                                                    } else {
+                                                        eprintln!(
+                                                            "[emit_double_lambda] Lambda {}",
+                                                            lambda_node_id.get()
+                                                        );
+                                                        self.emit_double_lambda(
+                                                            lambda_node_id,
+                                                        );
+                                                    }
                                                 }
                                             }
-                                            // Case 3: x + literal
+                                            // Case 3: x + literal or x << literal
                                             (IrKind::Var, IrKind::Literal) => {
                                                 if let Some(value) =
                                                     arena.literal_values().get(arg1_id)
@@ -907,15 +940,42 @@ impl EmitWalker {
                                                     self.state
                                                         .emitted_lambdas
                                                         .insert(lambda_node_id.get());
-                                                    eprintln!(
-                                                        "[emit_add_imm_lambda] Lambda {} emit_add_imm with value {}",
-                                                        lambda_node_id.get(),
-                                                        value
-                                                    );
-                                                    self.emit_add_imm_lambda(lambda_node_id, value);
+
+                                                    // PA8-m1-001d: Try to infer operator from callee span.
+                                                    let op_hint = if let Some(callee_node) =
+                                                        arena.get(callee_id)
+                                                    {
+                                                        infer_operator_from_span_len(
+                                                            callee_node.span.byte_len(),
+                                                        )
+                                                    } else {
+                                                        None
+                                                    };
+
+                                                    if op_hint == Some("<<") {
+                                                        eprintln!(
+                                                            "[emit_shl_imm_lambda] Lambda {} emit_shl_imm with value {}",
+                                                            lambda_node_id.get(),
+                                                            value
+                                                        );
+                                                        self.emit_shl_imm_lambda(
+                                                            lambda_node_id,
+                                                            value,
+                                                        );
+                                                    } else {
+                                                        eprintln!(
+                                                            "[emit_add_imm_lambda] Lambda {} emit_add_imm with value {}",
+                                                            lambda_node_id.get(),
+                                                            value
+                                                        );
+                                                        self.emit_add_imm_lambda(
+                                                            lambda_node_id,
+                                                            value,
+                                                        );
+                                                    }
                                                 }
                                             }
-                                            // Case 3 (reversed): literal + x
+                                            // Case 3 (reversed): literal + x or literal << x
                                             (IrKind::Literal, IrKind::Var) => {
                                                 if let Some(value) =
                                                     arena.literal_values().get(arg0_id)
@@ -929,7 +989,37 @@ impl EmitWalker {
                                                     self.state
                                                         .emitted_lambdas
                                                         .insert(lambda_node_id.get());
-                                                    self.emit_add_imm_lambda(lambda_node_id, value);
+
+                                                    // PA8-m1-001d: Try to infer operator from callee span.
+                                                    let op_hint = if let Some(callee_node) =
+                                                        arena.get(callee_id)
+                                                    {
+                                                        // Span length heuristic: <</>>=2, single-char ops=1
+                                                        infer_operator_from_span_len(
+                                                            callee_node.span.byte_len(),
+                                                        )
+                                                    } else {
+                                                        None
+                                                    };
+
+                                                    if op_hint == Some("<<") {
+                                                        // PAGE_SIZE << order: constant value needs to be loaded into rax first
+                                                        eprintln!(
+                                                            "[emit_shl_const_var_lambda] Lambda {} with const {} << var",
+                                                            lambda_node_id.get(),
+                                                            value
+                                                        );
+                                                        self.emit_shl_const_var_lambda(
+                                                            lambda_node_id,
+                                                            value,
+                                                        );
+                                                    } else {
+                                                        // Default to add
+                                                        self.emit_add_imm_lambda(
+                                                            lambda_node_id,
+                                                            value,
+                                                        );
+                                                    }
                                                 }
                                             }
                                             _ => {
@@ -1361,6 +1451,200 @@ impl EmitWalker {
         // Ret: c3 (1 byte)
         // Emit ret as a separate instruction with node_id * 2 + 1 to sort right after
         let ret_id = IrNodeId::new(lambda_node_id.get() * 2 + 1).expect("ret virtual id");
+        let ret_inst = Instruction {
+            mnemonic: Mnemonic::Ret,
+            operands: SmallVec::new(),
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+        self.state.instructions.insert(ret_id, ret_inst);
+        self.state.estimated_offset += 1;
+    }
+
+    /// Phase 8 m1-001d: Emit shift-left constant-by-variable lambda: `mov rax, const; mov rcx, rdi; shl rax, cl; ret`.
+    ///
+    /// Handles `fn (order: u64) -> PAGE_SIZE << order` where PAGE_SIZE is a constant.
+    /// The constant is moved into RAX, the variable shift count (in parameter register) is moved to RCX,
+    /// then SHL is performed with CL as the count.
+    /// Uses 4 instructions (~13 bytes).
+    fn emit_shl_const_var_lambda(&mut self, lambda_node_id: IrNodeId, const_val: i64) {
+        // Mov rax, imm64: 48 b8 XXXXXXXX XXXXXXXX (10 bytes, or fewer for smaller immediates)
+        let mut mov1_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        mov1_operands.push(Operand::Reg(RegId(0))); // rax
+        mov1_operands.push(Operand::Imm64(const_val));
+
+        let mov1_inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: mov1_operands,
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let mov1_id = IrNodeId::new(lambda_node_id.get() * 4).expect("mov1 instr virtual id");
+        self.state.instructions.insert(mov1_id, mov1_inst);
+        // Conservative estimate: 10 bytes for 64-bit immediate
+        self.state.estimated_offset += 10;
+
+        // Mov rcx, rdi: 48 89 f9 (3 bytes)
+        // RDI holds the shift count (parameter 0)
+        let mut mov2_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        mov2_operands.push(Operand::Reg(RegId(1))); // rcx
+        mov2_operands.push(Operand::Reg(RegId(7))); // rdi (arg0)
+
+        let mov2_inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: mov2_operands,
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let mov2_id = IrNodeId::new(lambda_node_id.get() * 4 + 1).expect("mov2 instr virtual id");
+        self.state.instructions.insert(mov2_id, mov2_inst);
+        self.state.estimated_offset += 3;
+
+        // Shl rax, cl: 48 d3 e0 (3 bytes)
+        let mut shl_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        shl_operands.push(Operand::Reg(RegId(0))); // rax
+        shl_operands.push(Operand::Reg(RegId(1))); // rcx (implicit for variable shifts)
+
+        let shl_inst = Instruction {
+            mnemonic: Mnemonic::Shl,
+            operands: shl_operands,
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let shl_id = IrNodeId::new(lambda_node_id.get() * 4 + 2).expect("shl instr virtual id");
+        self.state.instructions.insert(shl_id, shl_inst);
+        self.state.estimated_offset += 3;
+
+        // Ret: c3 (1 byte)
+        let ret_id = IrNodeId::new(lambda_node_id.get() * 4 + 3).expect("ret virtual id");
+        let ret_inst = Instruction {
+            mnemonic: Mnemonic::Ret,
+            operands: SmallVec::new(),
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+        self.state.instructions.insert(ret_id, ret_inst);
+        self.state.estimated_offset += 1;
+    }
+
+    /// Phase 8 m1-001d: Emit shift-left immediate lambda: `mov rax, rdi; shl rax, imm8; ret`.
+    ///
+    /// Handles `fn (x) -> x << N` for immediate shift count.
+    /// Operands: destination register (RAX), shift count.
+    /// Uses 3 instructions: mov + shl + ret (~8 bytes).
+    fn emit_shl_imm_lambda(&mut self, lambda_node_id: IrNodeId, shift_count: i64) {
+        // Clamp shift to disp8 range (0-63 for 64-bit shifts).
+        let shift = if shift_count >= 0 && shift_count <= 63 {
+            shift_count as u8
+        } else {
+            // Out of range; skip emission
+            self.diagnostics
+                .push(format!("PA8-m1-001d shift count {} out of range [0..63]", shift_count));
+            return;
+        };
+
+        // Mov rax, rdi: 48 89 f8 (3 bytes)
+        let mut mov_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        mov_operands.push(Operand::Reg(RegId(0))); // rax
+        mov_operands.push(Operand::Reg(RegId(7))); // rdi (arg0)
+
+        let mov_inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: mov_operands,
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let mov_id = IrNodeId::new(lambda_node_id.get() * 3).expect("mov instr virtual id");
+        self.state.instructions.insert(mov_id, mov_inst);
+        self.state.estimated_offset += 3;
+
+        // Shl rax, imm8: 48 c1 e0 NN (4 bytes)
+        let mut shl_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        shl_operands.push(Operand::Reg(RegId(0))); // rax
+        shl_operands.push(Operand::Imm64(shift as i64));
+
+        let shl_inst = Instruction {
+            mnemonic: Mnemonic::Shl,
+            operands: shl_operands,
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let shl_id = IrNodeId::new(lambda_node_id.get() * 3 + 1).expect("shl instr virtual id");
+        self.state.instructions.insert(shl_id, shl_inst);
+        self.state.estimated_offset += 4;
+
+        // Ret: c3 (1 byte)
+        let ret_id = IrNodeId::new(lambda_node_id.get() * 3 + 2).expect("ret virtual id");
+        let ret_inst = Instruction {
+            mnemonic: Mnemonic::Ret,
+            operands: SmallVec::new(),
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+        self.state.instructions.insert(ret_id, ret_inst);
+        self.state.estimated_offset += 1;
+    }
+
+    /// Phase 8 m1-001d: Emit shift-left variable lambda: `mov rax, rdi; mov rcx, rsi; shl rax, cl; ret`.
+    ///
+    /// Handles `fn (x) -> x << y` where y is the second parameter (in RSI).
+    /// Uses variable shift count in CL register. Uses 4 instructions (~12 bytes).
+    fn emit_shl_var_lambda(&mut self, lambda_node_id: IrNodeId) {
+        // Mov rax, rdi: 48 89 f8 (3 bytes)
+        let mut mov1_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        mov1_operands.push(Operand::Reg(RegId(0))); // rax
+        mov1_operands.push(Operand::Reg(RegId(7))); // rdi (arg0)
+
+        let mov1_inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: mov1_operands,
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let mov1_id = IrNodeId::new(lambda_node_id.get() * 4).expect("mov1 instr virtual id");
+        self.state.instructions.insert(mov1_id, mov1_inst);
+        self.state.estimated_offset += 3;
+
+        // Mov rcx, rsi: 48 89 f1 (3 bytes)
+        let mut mov2_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        mov2_operands.push(Operand::Reg(RegId(1))); // rcx
+        mov2_operands.push(Operand::Reg(RegId(6))); // rsi (arg1)
+
+        let mov2_inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: mov2_operands,
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let mov2_id = IrNodeId::new(lambda_node_id.get() * 4 + 1).expect("mov2 instr virtual id");
+        self.state.instructions.insert(mov2_id, mov2_inst);
+        self.state.estimated_offset += 3;
+
+        // Shl rax, cl: 48 d3 e0 (3 bytes)
+        let mut shl_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        shl_operands.push(Operand::Reg(RegId(0))); // rax
+        shl_operands.push(Operand::Reg(RegId(1))); // rcx (implicit for variable shifts)
+
+        let shl_inst = Instruction {
+            mnemonic: Mnemonic::Shl,
+            operands: shl_operands,
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let shl_id = IrNodeId::new(lambda_node_id.get() * 4 + 2).expect("shl instr virtual id");
+        self.state.instructions.insert(shl_id, shl_inst);
+        self.state.estimated_offset += 3;
+
+        // Ret: c3 (1 byte)
+        let ret_id = IrNodeId::new(lambda_node_id.get() * 4 + 3).expect("ret virtual id");
         let ret_inst = Instruction {
             mnemonic: Mnemonic::Ret,
             operands: SmallVec::new(),

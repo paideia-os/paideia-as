@@ -241,6 +241,15 @@ pub fn encode_instruction(
         Mnemonic::Movsx => encode_movsx(inst, buf),
         Mnemonic::Not => encode_not(inst, buf),
         Mnemonic::MovSized { width } => encode_mov_sized(inst, buf, *width),
+        // Phase 8 m1-001d: shift operations
+        Mnemonic::Shl => encode_shl(inst, buf),
+        Mnemonic::Shr => encode_shr(inst, buf),
+        Mnemonic::Sar => encode_sar(inst, buf),
+        // Phase 8 m1-001d: multiply and bitwise operations
+        Mnemonic::Imul => encode_imul(inst, buf),
+        Mnemonic::And => encode_and(inst, buf),
+        Mnemonic::Or => encode_or(inst, buf),
+        Mnemonic::Xor => encode_xor(inst, buf),
     }
 }
 
@@ -295,6 +304,182 @@ fn encode_not(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
         _ => Err(EncodeError::OperandShape {
             mnemonic: Mnemonic::Not,
         }),
+    }
+}
+
+/// Phase 8 m1-001d: Encode shift-left instruction.
+/// Supports: shl r64, imm8 or shl r64, rcx (via r64 operand)
+fn encode_shl(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::Reg(dst), Operand::Imm64(imm)] => {
+            // shl r64, imm8 → 48 C1 E0 NN
+            let dst_id = reg64_from(*dst)? as u8;
+            let rex_byte = rex(true, false, false, (dst_id >> 3) != 0);
+            buf.bytes.push(rex_byte);
+            buf.bytes.push(0xC1);
+            buf.bytes.push(0xE0 | (dst_id & 7));
+            buf.bytes.push(*imm as u8);
+            Ok(EncodeOutput::new())
+        }
+        [Operand::Reg(dst), Operand::Reg(src)] => {
+            // shl r64, rcx (variable shift count, src must be RCX)
+            if reg64_from(*src)? != Reg64::Rcx {
+                return Err(EncodeError::Unsupported(
+                    "shl with variable count requires CL register",
+                ));
+            }
+            let dst_id = reg64_from(*dst)? as u8;
+            let rex_byte = rex(true, false, false, (dst_id >> 3) != 0);
+            buf.bytes.push(rex_byte);
+            buf.bytes.push(0xD3);
+            buf.bytes.push(0xE0 | (dst_id & 7));
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::Unsupported(
+            "shl form not supported in phase 8 m1-001d",
+        )),
+    }
+}
+
+/// Phase 8 m1-001d: Encode shift-right (logical) instruction.
+fn encode_shr(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::Reg(dst), Operand::Imm64(imm)] => {
+            // shr r64, imm8 → 48 C1 E8 NN
+            let dst_id = reg64_from(*dst)? as u8;
+            let rex_byte = rex(true, false, false, (dst_id >> 3) != 0);
+            buf.bytes.push(rex_byte);
+            buf.bytes.push(0xC1);
+            buf.bytes.push(0xE8 | (dst_id & 7));
+            buf.bytes.push(*imm as u8);
+            Ok(EncodeOutput::new())
+        }
+        [Operand::Reg(dst), Operand::Reg(src)] => {
+            // shr r64, rcx (variable shift count)
+            if reg64_from(*src)? != Reg64::Rcx {
+                return Err(EncodeError::Unsupported(
+                    "shr with variable count requires CL register",
+                ));
+            }
+            let dst_id = reg64_from(*dst)? as u8;
+            let rex_byte = rex(true, false, false, (dst_id >> 3) != 0);
+            buf.bytes.push(rex_byte);
+            buf.bytes.push(0xD3);
+            buf.bytes.push(0xE8 | (dst_id & 7));
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::Unsupported(
+            "shr form not supported in phase 8 m1-001d",
+        )),
+    }
+}
+
+/// Phase 8 m1-001d: Encode arithmetic shift-right instruction.
+fn encode_sar(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::Reg(dst), Operand::Imm64(imm)] => {
+            // sar r64, imm8 → 48 C1 F8 NN
+            let dst_id = reg64_from(*dst)? as u8;
+            let rex_byte = rex(true, false, false, (dst_id >> 3) != 0);
+            buf.bytes.push(rex_byte);
+            buf.bytes.push(0xC1);
+            buf.bytes.push(0xF8 | (dst_id & 7));
+            buf.bytes.push(*imm as u8);
+            Ok(EncodeOutput::new())
+        }
+        [Operand::Reg(dst), Operand::Reg(src)] => {
+            // sar r64, rcx (variable shift count)
+            if reg64_from(*src)? != Reg64::Rcx {
+                return Err(EncodeError::Unsupported(
+                    "sar with variable count requires CL register",
+                ));
+            }
+            let dst_id = reg64_from(*dst)? as u8;
+            let rex_byte = rex(true, false, false, (dst_id >> 3) != 0);
+            buf.bytes.push(rex_byte);
+            buf.bytes.push(0xD3);
+            buf.bytes.push(0xF8 | (dst_id & 7));
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::Unsupported(
+            "sar form not supported in phase 8 m1-001d",
+        )),
+    }
+}
+
+/// Phase 8 m1-001d: Encode multiply (imul) instruction.
+fn encode_imul(inst: &Instruction, _buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::Reg(_), Operand::Reg(_)] => {
+            Err(EncodeError::Unsupported(
+                "imul r64, r64 form deferred to phase 8 m1-001e",
+            ))
+        }
+        [Operand::Reg(_), Operand::Reg(_), Operand::Imm64(_)] => {
+            Err(EncodeError::Unsupported(
+                "imul r64, r64, imm form deferred to phase 8 m1-001e",
+            ))
+        }
+        _ => Err(EncodeError::Unsupported(
+            "imul form not supported in phase 8 m1-001d",
+        )),
+    }
+}
+
+/// Phase 8 m1-001d: Encode bitwise AND instruction.
+fn encode_and(inst: &Instruction, _buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::Reg(_), Operand::Reg(_)] => {
+            Err(EncodeError::Unsupported(
+                "and r64, r64 form deferred to phase 8 m1-001e",
+            ))
+        }
+        [Operand::Reg(_), Operand::Imm64(_)] => {
+            Err(EncodeError::Unsupported(
+                "and r64, imm form deferred to phase 8 m1-001e",
+            ))
+        }
+        _ => Err(EncodeError::Unsupported(
+            "and form not supported in phase 8 m1-001d",
+        )),
+    }
+}
+
+/// Phase 8 m1-001d: Encode bitwise OR instruction.
+fn encode_or(inst: &Instruction, _buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::Reg(_), Operand::Reg(_)] => {
+            Err(EncodeError::Unsupported(
+                "or r64, r64 form deferred to phase 8 m1-001e",
+            ))
+        }
+        [Operand::Reg(_), Operand::Imm64(_)] => {
+            Err(EncodeError::Unsupported(
+                "or r64, imm form deferred to phase 8 m1-001e",
+            ))
+        }
+        _ => Err(EncodeError::Unsupported(
+            "or form not supported in phase 8 m1-001d",
+        )),
+    }
+}
+
+/// Phase 8 m1-001d: Encode bitwise XOR instruction.
+fn encode_xor(inst: &Instruction, _buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::Reg(_), Operand::Reg(_)] => {
+            Err(EncodeError::Unsupported(
+                "xor r64, r64 form deferred to phase 8 m1-001e",
+            ))
+        }
+        [Operand::Reg(_), Operand::Imm64(_)] => {
+            Err(EncodeError::Unsupported(
+                "xor r64, imm form deferred to phase 8 m1-001e",
+            ))
+        }
+        _ => Err(EncodeError::Unsupported(
+            "xor form not supported in phase 8 m1-001d",
+        )),
     }
 }
 
