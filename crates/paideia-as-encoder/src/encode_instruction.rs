@@ -410,16 +410,12 @@ fn encode_sar(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
 /// Phase 8 m1-001d: Encode multiply (imul) instruction.
 fn encode_imul(inst: &Instruction, _buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
     match inst.operands.as_slice() {
-        [Operand::Reg(_), Operand::Reg(_)] => {
-            Err(EncodeError::Unsupported(
-                "imul r64, r64 form deferred to phase 8 m1-001e",
-            ))
-        }
-        [Operand::Reg(_), Operand::Reg(_), Operand::Imm64(_)] => {
-            Err(EncodeError::Unsupported(
-                "imul r64, r64, imm form deferred to phase 8 m1-001e",
-            ))
-        }
+        [Operand::Reg(_), Operand::Reg(_)] => Err(EncodeError::Unsupported(
+            "imul r64, r64 form deferred to phase 8 m1-001e",
+        )),
+        [Operand::Reg(_), Operand::Reg(_), Operand::Imm64(_)] => Err(EncodeError::Unsupported(
+            "imul r64, r64, imm form deferred to phase 8 m1-001e",
+        )),
         _ => Err(EncodeError::Unsupported(
             "imul form not supported in phase 8 m1-001d",
         )),
@@ -429,16 +425,12 @@ fn encode_imul(inst: &Instruction, _buf: &mut CodeBuffer) -> Result<EncodeOutput
 /// Phase 8 m1-001d: Encode bitwise AND instruction.
 fn encode_and(inst: &Instruction, _buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
     match inst.operands.as_slice() {
-        [Operand::Reg(_), Operand::Reg(_)] => {
-            Err(EncodeError::Unsupported(
-                "and r64, r64 form deferred to phase 8 m1-001e",
-            ))
-        }
-        [Operand::Reg(_), Operand::Imm64(_)] => {
-            Err(EncodeError::Unsupported(
-                "and r64, imm form deferred to phase 8 m1-001e",
-            ))
-        }
+        [Operand::Reg(_), Operand::Reg(_)] => Err(EncodeError::Unsupported(
+            "and r64, r64 form deferred to phase 8 m1-001e",
+        )),
+        [Operand::Reg(_), Operand::Imm64(_)] => Err(EncodeError::Unsupported(
+            "and r64, imm form deferred to phase 8 m1-001e",
+        )),
         _ => Err(EncodeError::Unsupported(
             "and form not supported in phase 8 m1-001d",
         )),
@@ -448,16 +440,12 @@ fn encode_and(inst: &Instruction, _buf: &mut CodeBuffer) -> Result<EncodeOutput,
 /// Phase 8 m1-001d: Encode bitwise OR instruction.
 fn encode_or(inst: &Instruction, _buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
     match inst.operands.as_slice() {
-        [Operand::Reg(_), Operand::Reg(_)] => {
-            Err(EncodeError::Unsupported(
-                "or r64, r64 form deferred to phase 8 m1-001e",
-            ))
-        }
-        [Operand::Reg(_), Operand::Imm64(_)] => {
-            Err(EncodeError::Unsupported(
-                "or r64, imm form deferred to phase 8 m1-001e",
-            ))
-        }
+        [Operand::Reg(_), Operand::Reg(_)] => Err(EncodeError::Unsupported(
+            "or r64, r64 form deferred to phase 8 m1-001e",
+        )),
+        [Operand::Reg(_), Operand::Imm64(_)] => Err(EncodeError::Unsupported(
+            "or r64, imm form deferred to phase 8 m1-001e",
+        )),
         _ => Err(EncodeError::Unsupported(
             "or form not supported in phase 8 m1-001d",
         )),
@@ -467,16 +455,12 @@ fn encode_or(inst: &Instruction, _buf: &mut CodeBuffer) -> Result<EncodeOutput, 
 /// Phase 8 m1-001d: Encode bitwise XOR instruction.
 fn encode_xor(inst: &Instruction, _buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
     match inst.operands.as_slice() {
-        [Operand::Reg(_), Operand::Reg(_)] => {
-            Err(EncodeError::Unsupported(
-                "xor r64, r64 form deferred to phase 8 m1-001e",
-            ))
-        }
-        [Operand::Reg(_), Operand::Imm64(_)] => {
-            Err(EncodeError::Unsupported(
-                "xor r64, imm form deferred to phase 8 m1-001e",
-            ))
-        }
+        [Operand::Reg(_), Operand::Reg(_)] => Err(EncodeError::Unsupported(
+            "xor r64, r64 form deferred to phase 8 m1-001e",
+        )),
+        [Operand::Reg(_), Operand::Imm64(_)] => Err(EncodeError::Unsupported(
+            "xor r64, imm form deferred to phase 8 m1-001e",
+        )),
         _ => Err(EncodeError::Unsupported(
             "xor form not supported in phase 8 m1-001d",
         )),

@@ -1,0 +1,28 @@
+//! PA8-m2-001: Fixture for if-expression as final expression in block.
+//!
+//! Tests the pattern from paideia-os cap/slab.pdx where an if-then-else
+//! expression IS the final expression and value-bearing in a unit-typed block.
+//!
+//! Expected disassembly:
+//! - mov rax, <cond_value>
+//! - test rax, rax
+//! - jz else_label
+//! [then block: mov rax, <then_value>]
+//! - jmp end_label
+//! else_label:
+//! [else block: mov rax, <else_value>]
+//! end_label:
+//! - ret
+
+module cap_slab {
+  // Simulating free_head and free_list from paideia-os slab.pdx
+  // For this fixture, we use simple literal values.
+
+  let test_slab_alloc : () -> u64 = fn () -> {
+    if 1 {
+      256
+    } else {
+      0
+    }
+  }
+}

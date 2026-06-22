@@ -64,8 +64,13 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         // Phase 7 m4-001: bitwise NOT is a register ALU op.
         Mnemonic::Not => InstructionClass::AluReg,
         // Phase 8 m1-001d: shift, multiply, and bitwise operations are register ALU ops.
-        Mnemonic::Shl | Mnemonic::Shr | Mnemonic::Sar | Mnemonic::Imul | Mnemonic::And
-        | Mnemonic::Or | Mnemonic::Xor => InstructionClass::AluReg,
+        Mnemonic::Shl
+        | Mnemonic::Shr
+        | Mnemonic::Sar
+        | Mnemonic::Imul
+        | Mnemonic::And
+        | Mnemonic::Or
+        | Mnemonic::Xor => InstructionClass::AluReg,
         Mnemonic::Jcc(_) | Mnemonic::Jmp | Mnemonic::Call | Mnemonic::Ret => {
             InstructionClass::Branch
         }

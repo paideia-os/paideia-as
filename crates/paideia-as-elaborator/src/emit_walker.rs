@@ -711,7 +711,7 @@ impl EmitWalker {
         // Operator span lengths: `<<`/`>>` (2), `+`/`-`/`*`/`&`/`|`/`^` (1).
         fn infer_operator_from_span_len(span_len: u32) -> Option<&'static str> {
             match span_len {
-                1 => Some("+"), // Could be +, -, *, &, |, ^; default to +
+                1 => Some("+"),  // Could be +, -, *, &, |, ^; default to +
                 2 => Some("<<"), // Could be << or >>; heuristic: more common in practice
                 _ => None,
             }
@@ -912,17 +912,13 @@ impl EmitWalker {
                                                             "[emit_shl_var_lambda] Lambda {}",
                                                             lambda_node_id.get()
                                                         );
-                                                        self.emit_shl_var_lambda(
-                                                            lambda_node_id,
-                                                        );
+                                                        self.emit_shl_var_lambda(lambda_node_id);
                                                     } else {
                                                         eprintln!(
                                                             "[emit_double_lambda] Lambda {}",
                                                             lambda_node_id.get()
                                                         );
-                                                        self.emit_double_lambda(
-                                                            lambda_node_id,
-                                                        );
+                                                        self.emit_double_lambda(lambda_node_id);
                                                     }
                                                 }
                                             }
@@ -1541,8 +1537,10 @@ impl EmitWalker {
             shift_count as u8
         } else {
             // Out of range; skip emission
-            self.diagnostics
-                .push(format!("PA8-m1-001d shift count {} out of range [0..63]", shift_count));
+            self.diagnostics.push(format!(
+                "PA8-m1-001d shift count {} out of range [0..63]",
+                shift_count
+            ));
             return;
         };
 
@@ -1811,6 +1809,150 @@ impl EmitWalker {
                             i
                         );
                     }
+                    IrKind::Branch => {
+                        // PA8-m2-001: Branch as the final expression of a unit-typed block.
+                        // When a Branch appears in emit_block_body, it's the value-returning expression.
+                        // We need to emit the test, conditional jumps, and arm bodies WITHOUT emitting ret.
+                        eprintln!("[emit_block_body] Branch at index {} (final expression)", i);
+
+                        let branch_children = arena.children(child_id);
+                        if branch_children.len() < 2 {
+                            self.diagnostics.push(format!(
+                                "Branch node {} has {} children; expected at least 2 (condition + then_body)",
+                                child_id.get(),
+                                branch_children.len()
+                            ));
+                            return;
+                        }
+
+                        let _cond_id = branch_children[0];
+                        let _then_id = branch_children[1];
+                        let else_id = if branch_children.len() > 2 {
+                            Some(branch_children[2])
+                        } else {
+                            None
+                        };
+
+                        // Generate unique label names per branch node.
+                        let then_label = format!("if_then_{}", child_id.get());
+                        let else_label = format!("if_else_{}", child_id.get());
+                        let end_label = format!("if_end_{}", child_id.get());
+
+                        // Emit TEST instruction: test rax, rax (3 bytes)
+                        // Assume condition result is in RAX from prior expression evaluation.
+                        let test_id =
+                            IrNodeId::new(child_id.get() * 3).expect("branch test instr id");
+                        let mut test_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                        test_operands.push(Operand::Reg(RegId(0))); // rax
+                        test_operands.push(Operand::Reg(RegId(0))); // rax
+
+                        let test_inst = Instruction {
+                            mnemonic: Mnemonic::Test,
+                            operands: test_operands,
+                            encoding_hint: None,
+                            byte_offset_in_text: None,
+                        };
+
+                        self.state.instructions.insert(test_id, test_inst);
+                        self.state.estimated_offset += 3;
+
+                        // Emit conditional jump (jz): jump to else-label or end-label if condition is zero
+                        let target_label = if else_id.is_some() {
+                            &else_label
+                        } else {
+                            &end_label
+                        };
+                        let jz_id =
+                            IrNodeId::new(child_id.get() * 3 + 1).expect("branch jz instr id");
+                        let mut jz_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                        jz_operands.push(Operand::LabelRef {
+                            name: target_label.clone(),
+                            addend: 0,
+                        });
+
+                        let jz_inst = Instruction {
+                            mnemonic: Mnemonic::Jcc(Cond::Zero),
+                            operands: jz_operands,
+                            encoding_hint: None,
+                            byte_offset_in_text: None,
+                        };
+
+                        self.state.instructions.insert(jz_id, jz_inst);
+                        self.state.estimated_offset += 6;
+
+                        // Register then_label at current offset.
+                        self.state.register_label(then_label);
+
+                        // Emit then_body: recursively process children without emitting ret.
+                        // The then_id is an Action or Block node containing statements/expressions.
+                        if let Some(then_node) = arena.get(_then_id) {
+                            match then_node.kind {
+                                IrKind::Action => {
+                                    // Then body is an Action block: emit its children recursively
+                                    // (without the final ret from emit_block_body).
+                                    self.emit_block_body_arm(_then_id, arena);
+                                }
+                                _ => {
+                                    // Single expression in then arm: emit it directly.
+                                    eprintln!(
+                                        "[emit_block_body] Branch then arm is non-Action: {:?}",
+                                        then_node.kind
+                                    );
+                                }
+                            }
+                        }
+
+                        // If else branch exists, emit jmp to end_label
+                        if else_id.is_some() {
+                            let jmp_id =
+                                IrNodeId::new(child_id.get() * 3 + 2).expect("branch jmp instr id");
+                            let mut jmp_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                            jmp_operands.push(Operand::LabelRef {
+                                name: end_label.clone(),
+                                addend: 0,
+                            });
+
+                            let jmp_inst = Instruction {
+                                mnemonic: Mnemonic::Jmp,
+                                operands: jmp_operands,
+                                encoding_hint: None,
+                                byte_offset_in_text: None,
+                            };
+
+                            self.state.instructions.insert(jmp_id, jmp_inst);
+                            self.state.estimated_offset += 5;
+
+                            // Register else_label at current offset.
+                            self.state.register_label(else_label);
+
+                            // Emit else_body: recursively process children without emitting ret.
+                            if let Some(else_node) = arena.get(else_id.unwrap()) {
+                                match else_node.kind {
+                                    IrKind::Action => {
+                                        // Else body is an Action block: emit its children recursively
+                                        // (without the final ret from emit_block_body).
+                                        self.emit_block_body_arm(else_id.unwrap(), arena);
+                                    }
+                                    _ => {
+                                        // Single expression in else arm: emit it directly.
+                                        eprintln!(
+                                            "[emit_block_body] Branch else arm is non-Action: {:?}",
+                                            else_node.kind
+                                        );
+                                    }
+                                }
+                            }
+                        }
+
+                        // Register end_label at current offset.
+                        self.state.register_label(end_label);
+
+                        // Note: Branch result is expected in RAX from whichever arm executed.
+                        // No ret instruction is emitted here — the enclosing function's ret
+                        // will consume the value in RAX.
+                        // We return early to skip the ret emission below.
+                        return;
+                    }
                     _ => {
                         // Unexpected statement kind.
                         eprintln!(
@@ -1833,6 +1975,174 @@ impl EmitWalker {
         let ret_id = IrNodeId::new(block_id.get() * 2).expect("ret virtual id");
         self.state.instructions.insert(ret_id, ret_inst);
         self.state.estimated_offset += 1;
+    }
+
+    /// PA8-m2-001: Emit block body for branch arm (same as emit_block_body but WITHOUT final ret).
+    ///
+    /// Used when a Branch node appears as the final expression in a block.
+    /// This helper emits the arm's statements/expressions but suppresses the final ret,
+    /// allowing the enclosing block's ret to consume the arm's result in RAX.
+    fn emit_block_body_arm(&mut self, block_id: IrNodeId, arena: &IrArena) {
+        let block_children = arena.children(block_id);
+        eprintln!(
+            "[emit_block_body_arm] Block {} has {} children",
+            block_id.get(),
+            block_children.len()
+        );
+
+        // Scratch register sequence for in-block let bindings.
+        let scratch_regs = [RegId(0), RegId(1), RegId(2), RegId(8)]; // RAX, RCX, RDX, R8
+
+        // Walk all children: statements + optional tail.
+        for (i, &child_id) in block_children.iter().enumerate() {
+            if let Some(child_node) = arena.get(child_id) {
+                match child_node.kind {
+                    IrKind::Let => {
+                        eprintln!("[emit_block_body_arm] Let statement at index {}", i);
+                        // This is a let binding. Emit the value expression.
+                        // The Let node's child is the RHS expression.
+                        let let_children = arena.children(child_id);
+                        if let Some(&rhs_id) = let_children.first() {
+                            if let Some(rhs_node) = arena.get(rhs_id) {
+                                // Assign next scratch register if available.
+                                if self.state.scratch_assignment.len() >= scratch_regs.len() {
+                                    // Register pressure exceeded.
+                                    self.diagnostics.push(format!(
+                                        "T0527: register pressure exceeded in Phase 7 Let-literal bindings: more than {} in-flight bindings",
+                                        scratch_regs.len()
+                                    ));
+                                    return;
+                                }
+
+                                let scratch_reg = scratch_regs[self.state.scratch_assignment.len()];
+                                self.state.scratch_assignment.push(scratch_reg);
+
+                                // Get binding name from arena.binding_names()
+                                let binding_name = arena
+                                    .binding_names()
+                                    .get(child_id)
+                                    .map(|s| s.to_string())
+                                    .unwrap_or_else(|| format!("_let_{}", child_id.get()));
+
+                                // Edit A: Handle Literal RHS
+                                if rhs_node.kind == IrKind::Literal {
+                                    if let Some(value) = arena.literal_values().get(rhs_id) {
+                                        // Allocate scratch register and emit mov instruction
+                                        self.state
+                                            .local_bindings
+                                            .insert(binding_name.clone(), scratch_reg);
+
+                                        // Emit: mov scratch_reg, imm64
+                                        let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                                        operands.push(Operand::Reg(scratch_reg));
+                                        operands.push(Operand::Imm64(value));
+
+                                        let inst = Instruction {
+                                            mnemonic: Mnemonic::Mov,
+                                            operands,
+                                            encoding_hint: None,
+                                            byte_offset_in_text: None,
+                                        };
+
+                                        // Calculate instruction size
+                                        let inst_size = if value >= i32::MIN as i64
+                                            && value <= i32::MAX as i64
+                                        {
+                                            7
+                                        } else {
+                                            10
+                                        };
+
+                                        // Use virtual ID: child_id * 3 + offset to ensure proper sorting
+                                        let inst_id = IrNodeId::new(child_id.get() * 3)
+                                            .expect("let literal instr id");
+                                        self.state.instructions.insert(inst_id, inst);
+                                        self.state.estimated_offset += inst_size;
+                                    }
+                                }
+                                // Edit B: Handle Unsafe RHS
+                                else if matches!(rhs_node.kind, IrKind::Unsafe { .. }) {
+                                    // Record binding in local_bindings but don't emit instruction
+                                    // UnsafeWalker will handle the body via existing pending queue
+                                    self.state
+                                        .local_bindings
+                                        .insert(binding_name.clone(), scratch_reg);
+                                }
+                                // Edit C: Handle RawInstruction RHS (future lowering placeholder)
+                                else if rhs_node.kind == IrKind::RawInstruction {
+                                    if let Some(inst) = arena.instructions().get(rhs_id) {
+                                        // Check if this is a value-producing Mov instruction
+                                        if inst.mnemonic == Mnemonic::Mov {
+                                            // Clone the instruction with rewritten destination
+                                            let mut cloned = inst.clone();
+                                            if let Some(first_op) = cloned.operands.get_mut(0) {
+                                                *first_op = Operand::Reg(scratch_reg);
+                                            }
+
+                                            self.state
+                                                .local_bindings
+                                                .insert(binding_name.clone(), scratch_reg);
+
+                                            // Insert at virtual child_id
+                                            self.state.instructions.insert(rhs_id, cloned.clone());
+                                            let size =
+                                                cloned.mnemonic.estimated_size(&cloned.operands);
+                                            self.state.estimated_offset += size;
+                                        }
+                                    }
+                                }
+
+                                eprintln!(
+                                    "[emit_block_body_arm] Let binding {} uses scratch reg {:?}",
+                                    binding_name, scratch_reg
+                                );
+                            }
+                        }
+                    }
+                    IrKind::Action => {
+                        // This is a StmtExpr (statement expression). Emit it and discard result.
+                        eprintln!("[emit_block_body_arm] StmtExpr at index {}", i);
+                        // TODO: Emit the expression, discard result.
+                    }
+                    IrKind::RawInstruction => {
+                        // Phase 7 m2-001 (PA7C-m2-001): RawInstruction child of Action.
+                        // Look up the instruction payload in the side-table.
+                        eprintln!("[emit_block_body_arm] RawInstruction at index {}", i);
+                        if let Some(inst) = arena.instructions().get(child_id) {
+                            // Clone the instruction and insert into state.
+                            let inst_clone = inst.clone();
+                            self.state.instructions.insert(child_id, inst_clone.clone());
+                            // Bump the estimated offset by the instruction's size.
+                            let size = inst_clone.mnemonic.estimated_size(&inst_clone.operands);
+                            self.state.estimated_offset += size;
+                        } else {
+                            // Instruction payload not found: emit T0526 diagnostic.
+                            self.diagnostics.push(format!(
+                                "T0526: Instruction payload not found in side-table for RawInstruction node {} (internal compiler error)",
+                                child_id.get()
+                            ));
+                        }
+                    }
+                    IrKind::Var => {
+                        // Phase 7 m2-003: Bare identifier in statement position (e.g., `x;`).
+                        // This is a statement-form variable reference with no side effects.
+                        // Simply skip it — it's a statement expression that doesn't emit code.
+                        eprintln!(
+                            "[emit_block_body_arm] Var (bare identifier) at index {} — skipped",
+                            i
+                        );
+                    }
+                    _ => {
+                        // Unexpected statement kind.
+                        eprintln!(
+                            "[emit_block_body_arm] Unexpected child kind: {:?}",
+                            child_node.kind
+                        );
+                    }
+                }
+            }
+        }
+        // Note: NO ret instruction is emitted here — that's left to the caller.
     }
 
     /// Phase 6 m3-002: Emit field access lowering for (*p).field shape.
