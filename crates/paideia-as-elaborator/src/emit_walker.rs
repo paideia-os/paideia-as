@@ -351,7 +351,9 @@ impl EmitWalker {
                             self.state.current_function = node_id.get();
 
                             // Lambda lowering: emit Mov/Lea/Ret for simple cases.
-                            self.visit_lambda(node_id, arena);
+                            // PA8-m3-001: thread the typer so in-block let-literal
+                            // bindings can width-route to MovSized.
+                            self.visit_lambda(node_id, arena, typer);
                         }
                         IrKind::Unsafe => {
                             // Record unsafe node for later processing by UnsafeWalker (m3).
@@ -629,10 +631,14 @@ impl EmitWalker {
     /// rather than the generic 10-byte 64-bit move. `width` is `None`, or
     /// `Some(W64)`, for untyped/64-bit bindings, which keep the generic path.
     ///
-    /// NOTE (deferred follow-up): only this literal-`let` site is width-threaded.
-    /// Peer immediate-`Mov` sites (lambda bodies, function-call argument setup,
-    /// block-body lets) still emit the generic 64-bit move and are intentionally
-    /// left untouched in this milestone.
+    /// PA8-m3-001: this width-routing is now shared with the in-block let-literal
+    /// sites (`emit_block_body` / `emit_block_body_arm`), which resolve their Let
+    /// node's width via the same [`resolve_let_width`] helper. The remaining
+    /// immediate-`Mov` sites cannot be routed without further infrastructure:
+    /// synthetic lambda-body moves carry no Let/binding width, function-call
+    /// argument setup has no callee-signature table to read the parameter width
+    /// from, and every other peer site is a reg-reg or memory move that the
+    /// `(Reg, Imm64)`-only `MovSized` form cannot encode at all.
     fn visit_let_literal(&mut self, let_node_id: IrNodeId, value: i64, width: Option<IntWidth>) {
         let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
 
@@ -810,7 +816,12 @@ impl EmitWalker {
     ///
     /// PA8-m1-001b: For multi-parameter lambdas, populate LocalBindingTable with parameter
     /// names mapped to their calling-convention registers before processing the body.
-    fn visit_lambda(&mut self, lambda_node_id: IrNodeId, arena: &IrArena) {
+    fn visit_lambda(
+        &mut self,
+        lambda_node_id: IrNodeId,
+        arena: &IrArena,
+        typer: Option<&paideia_as_types::TypeInterner>,
+    ) {
         // PA8-m1-001d: Helper to infer operator from callee span length.
         // Operator span lengths: `<<`/`>>` (2), `+`/`-`/`*`/`&`/`|`/`^` (1).
         fn infer_operator_from_span_len(span_len: u32) -> Option<&'static str> {
@@ -1149,7 +1160,7 @@ impl EmitWalker {
                         self.state.local_bindings.clear();
 
                         // Emit the block body.
-                        self.emit_block_body(body_id, arena);
+                        self.emit_block_body(body_id, arena, typer);
                     }
                     // Phase 7 m2-001 (PA7C-m2-001): Unsafe block body `unsafe { ... }`
                     IrKind::Unsafe => {
@@ -1178,6 +1189,9 @@ impl EmitWalker {
 
     /// Emit identity lambda: `mov rax, rdi; ret` (5 bytes).
     fn emit_identity_lambda(&mut self, lambda_node_id: IrNodeId) {
+        // PA8-m3-001 (generic Mov retained): this is a register-to-register move
+        // (`mov rax, rdi`). MovSized only encodes the `(Reg, Imm64)` shape, so it
+        // cannot lower reg-reg moves; the generic Mov path is the only valid one.
         // Mov rax, rdi: 48 89 f8 (3 bytes)
         let mut mov_operands: SmallVec<[Operand; 3]> = SmallVec::new();
         mov_operands.push(Operand::Reg(RegId(0))); // rax
@@ -1220,6 +1234,8 @@ impl EmitWalker {
     /// them adjacent and correctly ordered in the instruction map — matching
     /// the convention used by the Branch emitter.
     fn emit_bitnot_lambda(&mut self, lambda_node_id: IrNodeId) {
+        // PA8-m3-001 (generic Mov retained): reg-to-reg move (`mov rax, rdi`);
+        // not MovSized-encodable (MovSized is `(Reg, Imm64)` only).
         // mov rax, rdi: 48 89 f8 (3 bytes)
         let mut mov_operands: SmallVec<[Operand; 3]> = SmallVec::new();
         mov_operands.push(Operand::Reg(RegId(0))); // rax
@@ -1465,6 +1481,16 @@ impl EmitWalker {
 
     /// Emit MOV of a literal value into a register.
     fn emit_mov_literal_to_reg(&mut self, lambda_node_id: IrNodeId, dest_reg: RegId, value: i64) {
+        // PA8-m3-001 (width not available — generic Mov retained): the operand
+        // shape here IS `(Reg, Imm64)`, so this site is MovSized-encodable in
+        // principle. But its sole caller is emit_function_call lowering a call
+        // *argument*: the relevant width is the callee parameter's declared type,
+        // which the current IR does not resolve at the call site (no callee
+        // signature table is threaded into emit_function_call). Until that
+        // call-site type resolution exists, the conservative 64-bit move is
+        // correct (zero-extends the literal into the full arg register). Once a
+        // callee-signature lookup lands, thread the per-arg IntWidth in here and
+        // mirror the visit_let_literal width-routing.
         // Virtual ID: use a large base ID to avoid collisions
         // Use 1000000 + (lambda_id * 100) + dest_reg to create unique IDs
         let inst_id = IrNodeId::new(1000000 + lambda_node_id.get() * 100 + dest_reg.0 as u32)
@@ -1494,6 +1520,7 @@ impl EmitWalker {
 
     /// Emit MOV from one register to another.
     fn emit_mov_reg_to_reg(&mut self, lambda_node_id: IrNodeId, src_reg: RegId, dest_reg: RegId) {
+        // PA8-m3-001 (generic Mov retained): reg-to-reg move; not MovSized-encodable.
         // Virtual ID: use a large base ID to avoid collisions
         // Use 2000000 + (lambda_id * 100) to create unique IDs
         let inst_id = IrNodeId::new(2000000 + lambda_node_id.get() * 100)
@@ -1568,6 +1595,14 @@ impl EmitWalker {
     /// then SHL is performed with CL as the count.
     /// Uses 4 instructions (~13 bytes).
     fn emit_shl_const_var_lambda(&mut self, lambda_node_id: IrNodeId, const_val: i64) {
+        // PA8-m3-001 (width not available — generic Mov retained): the first move
+        // (`mov rax, const`) is `(Reg, Imm64)` and so MovSized-encodable in shape,
+        // but this is a *synthetic* lowering of the fixed `CONST << var` pattern.
+        // No Let/binding node carries this immediate, so there is no IR width to
+        // resolve. The shifted result must also be 64-bit-clean for the `shl
+        // rax, cl` that follows, so the full-width move is the safe choice. The
+        // two later moves (mov rcx, rdi / shl operands) are reg-reg and cannot be
+        // MovSized at all.
         // Mov rax, imm64: 48 b8 XXXXXXXX XXXXXXXX (10 bytes, or fewer for smaller immediates)
         let mut mov1_operands: SmallVec<[Operand; 3]> = SmallVec::new();
         mov1_operands.push(Operand::Reg(RegId(0))); // rax
@@ -1635,6 +1670,8 @@ impl EmitWalker {
     /// Handles `fn (x) -> x << N` for immediate shift count.
     /// Operands: destination register (RAX), shift count.
     /// Uses 3 instructions: mov + shl + ret (~8 bytes).
+    // PA8-m3-001 (generic Mov retained): the `mov rax, rdi` here is reg-to-reg
+    // and not MovSized-encodable; the shift operand is an immediate to SHL, not MOV.
     fn emit_shl_imm_lambda(&mut self, lambda_node_id: IrNodeId, shift_count: i64) {
         // Clamp shift to disp8 range (0-63 for 64-bit shifts).
         let shift = if shift_count >= 0 && shift_count <= 63 {
@@ -1697,6 +1734,8 @@ impl EmitWalker {
     /// Handles `fn (x) -> x << y` where y is the second parameter (in RSI).
     /// Uses variable shift count in CL register. Uses 4 instructions (~12 bytes).
     fn emit_shl_var_lambda(&mut self, lambda_node_id: IrNodeId) {
+        // PA8-m3-001 (generic Mov retained): both moves here (`mov rax, rdi` /
+        // `mov rcx, rsi`) are reg-to-reg and not MovSized-encodable.
         // Mov rax, rdi: 48 89 f8 (3 bytes)
         let mut mov1_operands: SmallVec<[Operand; 3]> = SmallVec::new();
         mov1_operands.push(Operand::Reg(RegId(0))); // rax
@@ -1763,7 +1802,12 @@ impl EmitWalker {
     /// - For each `Let` statement child: emit value expression, bind result to next scratch reg
     /// - For each `StmtExpr` statement child: emit expression, discard result
     /// - For the final expression (tail): emit to RAX as return value
-    fn emit_block_body(&mut self, block_id: IrNodeId, arena: &IrArena) {
+    fn emit_block_body(
+        &mut self,
+        block_id: IrNodeId,
+        arena: &IrArena,
+        typer: Option<&paideia_as_types::TypeInterner>,
+    ) {
         let block_children = arena.children(block_id);
         eprintln!(
             "[emit_block_body] Block {} has {} children",
@@ -1813,25 +1857,46 @@ impl EmitWalker {
                                             .local_bindings
                                             .insert(binding_name.clone(), scratch_reg);
 
-                                        // Emit: mov scratch_reg, imm64
+                                        // PA8-m3-001: this is a (Reg, Imm64) move — the one
+                                        // operand shape MovSized accepts — and `child_id` is the
+                                        // Let node, so its declared width is recoverable from the
+                                        // let-meta table. Resolve it and width-route exactly as
+                                        // visit_let_literal does; untyped bindings (no typer, no
+                                        // recorded type, or W64) keep the generic 64-bit path.
+                                        let width = typer.and_then(|typer| {
+                                            Self::resolve_let_width(arena, child_id, typer)
+                                        });
+
+                                        // Emit: mov scratch_reg, imm64 (or MovSized for sub-64-bit).
                                         let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
                                         operands.push(Operand::Reg(scratch_reg));
                                         operands.push(Operand::Imm64(value));
 
+                                        let (mnemonic, inst_size) = match width {
+                                            Some(
+                                                w @ (IntWidth::W8 | IntWidth::W16 | IntWidth::W32),
+                                            ) => (
+                                                Mnemonic::MovSized { width: w },
+                                                w.estimated_size(),
+                                            ),
+                                            _ => {
+                                                // Generic 64-bit Mov: i32 → 7 bytes, i64 → 10.
+                                                let size = if value >= i32::MIN as i64
+                                                    && value <= i32::MAX as i64
+                                                {
+                                                    7
+                                                } else {
+                                                    10
+                                                };
+                                                (Mnemonic::Mov, size)
+                                            }
+                                        };
+
                                         let inst = Instruction {
-                                            mnemonic: Mnemonic::Mov,
+                                            mnemonic,
                                             operands,
                                             encoding_hint: None,
                                             byte_offset_in_text: None,
-                                        };
-
-                                        // Calculate instruction size
-                                        let inst_size = if value >= i32::MIN as i64
-                                            && value <= i32::MAX as i64
-                                        {
-                                            7
-                                        } else {
-                                            10
                                         };
 
                                         // Use virtual ID: child_id * 3 + offset to ensure proper sorting
@@ -1854,7 +1919,13 @@ impl EmitWalker {
                                     if let Some(inst) = arena.instructions().get(rhs_id) {
                                         // Check if this is a value-producing Mov instruction
                                         if inst.mnemonic == Mnemonic::Mov {
-                                            // Clone the instruction with rewritten destination
+                                            // PA8-m3-001 (not width-routed): this Mov is *cloned*
+                                            // from a pre-lowered RawInstruction whose mnemonic and
+                                            // operand shape are fixed upstream; we only rewrite its
+                                            // destination register. The original operand shape is
+                                            // unknown here (it may be reg-reg or a memory form that
+                                            // MovSized cannot encode), so the generic mnemonic is
+                                            // preserved verbatim.
                                             let mut cloned = inst.clone();
                                             if let Some(first_op) = cloned.operands.get_mut(0) {
                                                 *first_op = Operand::Reg(scratch_reg);
@@ -1994,7 +2065,7 @@ impl EmitWalker {
                                 IrKind::Action => {
                                     // Then body is an Action block: emit its children recursively
                                     // (without the final ret from emit_block_body).
-                                    self.emit_block_body_arm(_then_id, arena);
+                                    self.emit_block_body_arm(_then_id, arena, typer);
                                 }
                                 _ => {
                                     // Single expression in then arm: emit it directly.
@@ -2035,7 +2106,7 @@ impl EmitWalker {
                                     IrKind::Action => {
                                         // Else body is an Action block: emit its children recursively
                                         // (without the final ret from emit_block_body).
-                                        self.emit_block_body_arm(else_id.unwrap(), arena);
+                                        self.emit_block_body_arm(else_id.unwrap(), arena, typer);
                                     }
                                     _ => {
                                         // Single expression in else arm: emit it directly.
@@ -2086,7 +2157,12 @@ impl EmitWalker {
     /// Used when a Branch node appears as the final expression in a block.
     /// This helper emits the arm's statements/expressions but suppresses the final ret,
     /// allowing the enclosing block's ret to consume the arm's result in RAX.
-    fn emit_block_body_arm(&mut self, block_id: IrNodeId, arena: &IrArena) {
+    fn emit_block_body_arm(
+        &mut self,
+        block_id: IrNodeId,
+        arena: &IrArena,
+        typer: Option<&paideia_as_types::TypeInterner>,
+    ) {
         let block_children = arena.children(block_id);
         eprintln!(
             "[emit_block_body_arm] Block {} has {} children",
@@ -2136,25 +2212,43 @@ impl EmitWalker {
                                             .local_bindings
                                             .insert(binding_name.clone(), scratch_reg);
 
-                                        // Emit: mov scratch_reg, imm64
+                                        // PA8-m3-001: (Reg, Imm64) move with a recoverable Let
+                                        // width — width-route to MovSized exactly as the main
+                                        // block-body path does.
+                                        let width = typer.and_then(|typer| {
+                                            Self::resolve_let_width(arena, child_id, typer)
+                                        });
+
+                                        // Emit: mov scratch_reg, imm64 (or MovSized for sub-64-bit).
                                         let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
                                         operands.push(Operand::Reg(scratch_reg));
                                         operands.push(Operand::Imm64(value));
 
+                                        let (mnemonic, inst_size) = match width {
+                                            Some(
+                                                w @ (IntWidth::W8 | IntWidth::W16 | IntWidth::W32),
+                                            ) => (
+                                                Mnemonic::MovSized { width: w },
+                                                w.estimated_size(),
+                                            ),
+                                            _ => {
+                                                // Generic 64-bit Mov: i32 → 7 bytes, i64 → 10.
+                                                let size = if value >= i32::MIN as i64
+                                                    && value <= i32::MAX as i64
+                                                {
+                                                    7
+                                                } else {
+                                                    10
+                                                };
+                                                (Mnemonic::Mov, size)
+                                            }
+                                        };
+
                                         let inst = Instruction {
-                                            mnemonic: Mnemonic::Mov,
+                                            mnemonic,
                                             operands,
                                             encoding_hint: None,
                                             byte_offset_in_text: None,
-                                        };
-
-                                        // Calculate instruction size
-                                        let inst_size = if value >= i32::MIN as i64
-                                            && value <= i32::MAX as i64
-                                        {
-                                            7
-                                        } else {
-                                            10
                                         };
 
                                         // Use virtual ID: child_id * 3 + offset to ensure proper sorting
@@ -2177,7 +2271,10 @@ impl EmitWalker {
                                     if let Some(inst) = arena.instructions().get(rhs_id) {
                                         // Check if this is a value-producing Mov instruction
                                         if inst.mnemonic == Mnemonic::Mov {
-                                            // Clone the instruction with rewritten destination
+                                            // PA8-m3-001 (not width-routed): cloned from a
+                                            // pre-lowered RawInstruction; only the destination is
+                                            // rewritten. Operand shape is fixed upstream and may
+                                            // not be MovSized-encodable, so the mnemonic is kept.
                                             let mut cloned = inst.clone();
                                             if let Some(first_op) = cloned.operands.get_mut(0) {
                                                 *first_op = Operand::Reg(scratch_reg);
@@ -2377,6 +2474,9 @@ impl EmitWalker {
 
     /// Emit u64 field access: mov rax, [rdi + offset] (3 bytes: 48 8b 47 NN or 48 8b 87 NNNNNNNN).
     fn emit_field_access_u64(&mut self, field_access_id: IrNodeId, offset: i32) {
+        // PA8-m3-001 (generic Mov retained): memory-load move (`mov rax, [rdi+off]`).
+        // MovSized encodes `(Reg, Imm64)` only and cannot lower a memory source;
+        // load-width selection is the encoder's job, not MovSized's. (u64 load.)
         // mov rax, [rdi + offset]
         let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
         operands.push(Operand::Reg(RegId(0))); // rax (destination)
@@ -2407,6 +2507,9 @@ impl EmitWalker {
 
     /// Emit u32 field access: mov eax, [rdi + offset] (3-6 bytes).
     fn emit_field_access_u32(&mut self, field_access_id: IrNodeId, offset: i32) {
+        // PA8-m3-001 (generic Mov retained): memory-load move (`mov eax, [rdi+off]`).
+        // Already a 32-bit load, but it is a memory-source form, not the
+        // reg-immediate shape MovSized encodes; the encoder selects the load width.
         // mov eax, [rdi + offset]
         let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
         operands.push(Operand::Reg(RegId(0))); // eax (32-bit destination)
@@ -2607,6 +2710,7 @@ impl EmitWalker {
         offset: i32,
         dest_reg: RegId,
     ) {
+        // PA8-m3-001 (generic Mov retained): memory-load move; not MovSized-encodable.
         let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
         operands.push(Operand::Reg(dest_reg)); // destination register
         operands.push(Operand::MemSib {
@@ -2641,6 +2745,7 @@ impl EmitWalker {
         offset: i32,
         dest_reg: RegId,
     ) {
+        // PA8-m3-001 (generic Mov retained): memory-load move; not MovSized-encodable.
         let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
         operands.push(Operand::Reg(dest_reg)); // destination register (32-bit)
         operands.push(Operand::MemSib {
@@ -2788,6 +2893,10 @@ impl EmitWalker {
             operands.push(Operand::Reg(RegId(2))); // rdx (value, source)
         }
 
+        // PA8-m3-001 (generic Mov retained): memory-*store* move (`mov [rdi], rdx`).
+        // The destination is memory, not a register, so MovSized (which encodes a
+        // register-destination immediate move) does not apply; store width is the
+        // encoder's concern.
         let inst = Instruction {
             mnemonic: Mnemonic::Mov,
             operands,
@@ -2903,6 +3012,9 @@ impl EmitWalker {
                 });
                 operands.push(Operand::Imm64(0));
 
+                // PA8-m3-001 (generic Mov retained): memory-store immediate
+                // (`mov [rdi+off], 0`). Destination is memory; MovSized encodes a
+                // register-destination immediate move only, so it does not apply.
                 let inst = Instruction {
                     mnemonic: Mnemonic::Mov,
                     operands,
@@ -2927,6 +3039,8 @@ impl EmitWalker {
                 });
                 operands.push(Operand::Reg(arg_reg));
 
+                // PA8-m3-001 (generic Mov retained): memory-store reg move
+                // (`mov [rdi+off], reg`). Destination is memory; not MovSized-encodable.
                 let inst = Instruction {
                     mnemonic: Mnemonic::Mov,
                     operands,
@@ -5314,6 +5428,89 @@ mod tests {
         if let Some(ret_inst) = walker.state().instructions.get(ret_id) {
             assert_eq!(ret_inst.mnemonic, Mnemonic::Ret);
         }
+    }
+
+    /// PA8-m3-001: an in-block `let q : u16 = 7` binding emits the narrow
+    /// `MovSized { W16 }` form, proving the typer is threaded through
+    /// `visit_lambda` → `emit_block_body` and the block-body let-literal Mov
+    /// site is width-routed (not just the top-level `visit_let_literal`).
+    #[test]
+    fn emit_walker_pa8_m3_001_in_block_typed_let_emits_mov_sized() {
+        use paideia_as_ir::{IntWidth, LetInfo, TypeId as IrTypeId};
+        use paideia_as_types::TypeInterner;
+
+        let mut arena = IrArena::new();
+
+        // Build IR: Lambda(Action([Let(Literal(7)), StmtExpr])).
+        // The trailing StmtExpr spaces block_id away from let_id so the
+        // virtual-ID schemes (let_id*3 vs block_id*2) do not collide — mirroring
+        // how real multi-statement bodies are laid out.
+        let lit_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(lit_id, 7);
+        let let_id = arena.alloc_with_children(IrKind::Let, span(), [lit_id]);
+        let tail_var_id = arena.alloc(IrKind::Var, span());
+        let stmt_expr_id = arena.alloc_with_children(IrKind::Action, span(), [tail_var_id]);
+        let block_id =
+            arena.alloc_with_children(IrKind::Action, span(), [let_id, stmt_expr_id]);
+        let _lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [block_id]);
+
+        // Record the inner Let's declared type as u16.
+        let mut typer = TypeInterner::new();
+        let u16_id = typer.uint(16);
+        arena.let_meta_mut().insert(
+            let_id,
+            LetInfo::with_type(false, Some(IrTypeId(u16_id.get()))),
+        );
+
+        let mut walker = EmitWalker::new();
+        walker.walk_with_typer(&mut arena, &typer);
+
+        // The block-body let-literal keys its instruction at let_id * 3.
+        let inst_id = IrNodeId::new(let_id.get() * 3).expect("in-block let instr id");
+        let inst = walker
+            .state()
+            .instructions
+            .get(inst_id)
+            .expect("in-block let instruction should be emitted");
+        assert_eq!(
+            inst.mnemonic,
+            Mnemonic::MovSized {
+                width: IntWidth::W16
+            },
+            "in-block typed u16 let should width-route to MovSized {{ W16 }}"
+        );
+        assert_eq!(inst.operands[1], Operand::Imm64(7));
+    }
+
+    /// PA8-m3-001: without a typer, the same in-block let keeps the generic Mov
+    /// path — confirming the new routing is purely additive.
+    #[test]
+    fn emit_walker_pa8_m3_001_in_block_untyped_let_keeps_generic_mov() {
+        let mut arena = IrArena::new();
+
+        let lit_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(lit_id, 7);
+        let let_id = arena.alloc_with_children(IrKind::Let, span(), [lit_id]);
+        let tail_var_id = arena.alloc(IrKind::Var, span());
+        let stmt_expr_id = arena.alloc_with_children(IrKind::Action, span(), [tail_var_id]);
+        let block_id =
+            arena.alloc_with_children(IrKind::Action, span(), [let_id, stmt_expr_id]);
+        let _lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [block_id]);
+
+        let mut walker = EmitWalker::new();
+        walker.walk(&mut arena); // no typer
+
+        let inst_id = IrNodeId::new(let_id.get() * 3).expect("in-block let instr id");
+        let inst = walker
+            .state()
+            .instructions
+            .get(inst_id)
+            .expect("in-block let instruction should be emitted");
+        assert_eq!(
+            inst.mnemonic,
+            Mnemonic::Mov,
+            "untyped in-block let should keep the generic 64-bit Mov path"
+        );
     }
 
     #[test]
