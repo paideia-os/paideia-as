@@ -1,0 +1,12 @@
+// Phase 8 m4-002: unsafe block with let scratch binding
+// This tests that the Let → RawInstruction operand resolution path (PA7C-m2-002)
+// is exercised when a local binding inside an unsafe block is used as an operand.
+//
+// Current status (m4-002): the lowering and basic RawInstruction reception work;
+// the operand-var resolution will be activated in m5-001/m5-002.
+
+let test_scratch : () -> () = fn () -> unsafe {
+    let port : u16 = 0x3FB;
+    mov al, 0x80;
+    out port, al
+};
