@@ -1,0 +1,23 @@
+// Two sequential calls (2 calls)
+module SimpleLoopCall = structure {
+  let tgt_a : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "target a",
+    block: { ret }
+  }
+
+  let tgt_b : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "target b",
+    block: { ret }
+  }
+
+  let caller : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "two sequential calls",
+    block: { call tgt_a; call tgt_b; ret }
+  }
+}

@@ -217,7 +217,7 @@ mod tests {
                     ops
                 },
                 encoding_hint: None,
-            byte_offset_in_text: None,
+                byte_offset_in_text: None,
             },
         );
 
@@ -246,7 +246,7 @@ mod tests {
                     ops
                 },
                 encoding_hint: None,
-            byte_offset_in_text: None,
+                byte_offset_in_text: None,
             },
         );
 
@@ -257,7 +257,7 @@ mod tests {
                 mnemonic: Mnemonic::Ret,
                 operands: SmallVec::new(),
                 encoding_hint: None,
-            byte_offset_in_text: None,
+                byte_offset_in_text: None,
             },
         );
 
@@ -295,7 +295,7 @@ mod tests {
                     ops
                 },
                 encoding_hint: None,
-            byte_offset_in_text: None,
+                byte_offset_in_text: None,
             },
         );
 
@@ -306,7 +306,7 @@ mod tests {
                 mnemonic: Mnemonic::Ret,
                 operands: SmallVec::new(),
                 encoding_hint: None,
-            byte_offset_in_text: None,
+                byte_offset_in_text: None,
             },
         );
 
@@ -346,7 +346,7 @@ mod tests {
                     ops
                 },
                 encoding_hint: None,
-            byte_offset_in_text: None,
+                byte_offset_in_text: None,
             },
         );
 
@@ -362,7 +362,7 @@ mod tests {
                     ops
                 },
                 encoding_hint: None,
-            byte_offset_in_text: None,
+                byte_offset_in_text: None,
             },
         );
 

@@ -1885,6 +1885,7 @@ name = "paideia-as"
 version = "0.6.0"
 dependencies = [
  "clap",
+ "iced-x86",
  "miette",
  "object",
  "paideia-as-ast",

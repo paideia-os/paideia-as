@@ -1,0 +1,37 @@
+// Chained calls: Two functions with calls (3 calls)
+module ChainedCalls = structure {
+  let tgt_a : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "target a",
+    block: { ret }
+  }
+
+  let tgt_b : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "target b",
+    block: { ret }
+  }
+
+  let tgt_c : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "target c",
+    block: { ret }
+  }
+
+  let helper : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "helper function",
+    block: { call tgt_b; ret }
+  }
+
+  let caller : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "calling multiple targets",
+    block: { call tgt_a; call helper; call tgt_c; ret }
+  }
+}

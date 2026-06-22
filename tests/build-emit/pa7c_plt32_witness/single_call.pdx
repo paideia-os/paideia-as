@@ -1,0 +1,16 @@
+// Single call to internal function (1 call)
+module SingleCall = structure {
+  let tgt_a : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "target function",
+    block: { ret }
+  }
+
+  let caller : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "calling internal function",
+    block: { call tgt_a; ret }
+  }
+}

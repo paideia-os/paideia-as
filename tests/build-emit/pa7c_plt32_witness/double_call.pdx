@@ -1,0 +1,16 @@
+// Double call variant (2 calls to same function)
+module DoubleCall = structure {
+  let tgt_a : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "target a",
+    block: { ret }
+  }
+
+  let caller : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "double call",
+    block: { call tgt_a; call tgt_a; ret }
+  }
+}

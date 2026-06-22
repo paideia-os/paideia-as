@@ -1,0 +1,30 @@
+// Multi-call variant (3 calls)
+module CallInBranch = structure {
+  let tgt_a : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "target a",
+    block: { ret }
+  }
+
+  let tgt_b : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "target b",
+    block: { ret }
+  }
+
+  let tgt_c : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "target c",
+    block: { ret }
+  }
+
+  let caller : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "multi-call",
+    block: { call tgt_a; call tgt_b; call tgt_c; ret }
+  }
+}

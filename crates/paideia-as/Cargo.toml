@@ -39,3 +39,4 @@ paideia-fmt = { path = "../paideia-fmt" }
 object = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
+iced-x86 = { workspace = true }

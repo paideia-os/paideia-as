@@ -4,7 +4,9 @@
 //! allowing relocation sites to use the precise instruction byte offset rather than
 //! computing it after encoding.
 
-use paideia_as_ir::{Instruction, InstructionSideTable, IrNodeId, Mnemonic, Operand, RegId, SmallVec};
+use paideia_as_ir::{
+    Instruction, InstructionSideTable, IrNodeId, Mnemonic, Operand, RegId, SmallVec,
+};
 
 macro_rules! sv {
     ($($item:expr),*) => {{
@@ -60,10 +62,7 @@ fn interleaved_calls_have_distinct_offsets() {
     // Mov instruction at offset 5 (call is 5 bytes: E8 + 4 bytes)
     let mov = Instruction {
         mnemonic: Mnemonic::Mov,
-        operands: sv![
-            Operand::Reg(RegId(0)),
-            Operand::Reg(RegId(1))
-        ],
+        operands: sv![Operand::Reg(RegId(0)), Operand::Reg(RegId(1))],
         encoding_hint: None,
         byte_offset_in_text: None,
     };
@@ -141,11 +140,11 @@ fn mixed_instructions_maintain_correct_offsets() {
     let mut table = InstructionSideTable::new();
 
     let instructions = vec![
-        (1, Mnemonic::Call, 0),      // call at 0
-        (2, Mnemonic::Mov, 5),       // mov at 5 (call is 5 bytes)
-        (3, Mnemonic::Call, 8),      // call at 8 (mov is 3 bytes)
-        (4, Mnemonic::Add, 13),      // add at 13 (call is 5 bytes)
-        (5, Mnemonic::Call, 16),     // call at 16 (add is 3 bytes)
+        (1, Mnemonic::Call, 0),  // call at 0
+        (2, Mnemonic::Mov, 5),   // mov at 5 (call is 5 bytes)
+        (3, Mnemonic::Call, 8),  // call at 8 (mov is 3 bytes)
+        (4, Mnemonic::Add, 13),  // add at 13 (call is 5 bytes)
+        (5, Mnemonic::Call, 16), // call at 16 (add is 3 bytes)
     ];
 
     for (id, mnem, offset) in instructions {
@@ -158,10 +157,7 @@ fn mixed_instructions_maintain_correct_offsets() {
                 }]
             }
             Mnemonic::Mov | Mnemonic::Add => {
-                sv![
-                    Operand::Reg(RegId(0)),
-                    Operand::Reg(RegId(1))
-                ]
+                sv![Operand::Reg(RegId(0)), Operand::Reg(RegId(1))]
             }
             _ => unreachable!(),
         };
@@ -240,10 +236,7 @@ fn after_encoding_offset_would_be_incorrect() {
 
     let mut mov = Instruction {
         mnemonic: Mnemonic::Mov,
-        operands: sv![
-            Operand::Reg(RegId(0)),
-            Operand::Reg(RegId(3))
-        ],
+        operands: sv![Operand::Reg(RegId(0)), Operand::Reg(RegId(3))],
         encoding_hint: None,
         byte_offset_in_text: None,
     };

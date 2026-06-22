@@ -1,0 +1,23 @@
+// Call in while loop (2 calls: one in loop, one after)
+module CallInWhile = structure {
+  let tgt_a : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "target a",
+    block: { ret }
+  }
+
+  let tgt_b : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "target b",
+    block: { ret }
+  }
+
+  let caller : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "calling in loop",
+    block: { while false { call tgt_a }; call tgt_b; ret }
+  }
+}
