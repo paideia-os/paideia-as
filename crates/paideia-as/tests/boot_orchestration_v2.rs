@@ -96,7 +96,10 @@ fn boot_orchestration_v2_smoke() {
         elf_size
     );
 
-    eprintln!("boot_orchestration_v2_smoke: kernel.elf = {} bytes", elf_size);
+    eprintln!(
+        "boot_orchestration_v2_smoke: kernel.elf = {} bytes",
+        elf_size
+    );
 
     // Count .pdx files processed from build output
     let mut pdx_count = 0;

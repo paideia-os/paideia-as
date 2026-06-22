@@ -767,24 +767,40 @@ fn build_elf_object(
     let function_offsets = &emit_walker.state().function_offsets;
     let _emitted_lambdas = emit_walker.emitted_lambdas();
     let mut emitted_any_symbol = false;
+
+    // PA8-m1-002: Pre-compute sorted, deduplicated offsets once to avoid O(N²) lookup.
+    let mut sorted_offsets: Vec<u32> = function_offsets.values().copied().collect();
+    sorted_offsets.sort_unstable();
+    sorted_offsets.dedup();
+
     for symbol in arena.symbols().iter() {
         match symbol.kind {
             paideia_as_ir::SymbolKind::Function => {
                 // Phase 7 m1-001: Emit symbols for all function bindings, regardless of whether
                 // they emitted bytecode. If a lambda didn't emit (e.g., unsupported shape),
                 // use offset 0 and size 0 as a placeholder.
-                let offset = function_offsets
-                    .get(&symbol.ir_node.get())
-                    .copied()
-                    .unwrap_or(0);
-
-                // Compute size: distance to next function, or to end of text.
-                let size = if let Some(&next_offset) =
-                    function_offsets.values().filter(|&&o| o > offset).min()
-                {
-                    (next_offset - offset) as u64
-                } else {
-                    (text_bytes.len() as u32 - offset) as u64
+                // PA8-m1-002: Fix defect A by looking up recorded offset and computing size
+                // via binary search rather than picking an unrelated lambda's offset.
+                let recorded = function_offsets.get(&symbol.ir_node.get()).copied();
+                let (offset, size) = match recorded {
+                    Some(off) => {
+                        // Find the next offset in sorted order and use it as the exclusive upper bound.
+                        let idx = sorted_offsets.partition_point(|&o| o <= off);
+                        let end = sorted_offsets
+                            .get(idx)
+                            .copied()
+                            .unwrap_or(text_bytes.len() as u32);
+                        (off, (end - off) as u64)
+                    }
+                    None => {
+                        eprintln!(
+                            "[PA8-m1-002] warning: function symbol `{}` (ir_node {}) has no \
+                             function_offsets entry — emitting with st_value=0, st_size=0",
+                            symbol.name,
+                            symbol.ir_node.get()
+                        );
+                        (0u32, 0u64)
+                    }
                 };
 
                 let sym_entry = SymbolEntry {
