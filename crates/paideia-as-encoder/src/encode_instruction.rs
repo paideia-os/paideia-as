@@ -4116,4 +4116,258 @@ mod jcc_tests {
         let instr = decoder.decode();
         assert_eq!(instr.mnemonic(), IcedMnem::Mov);
     }
+
+    // ── Phase 8 m5-004: comprehensive iced-x86 round-trip fixtures ──────────────
+    // ≥12 fixtures covering m5-001 supervisor mnemonics + m5-002 memory operands
+
+    #[test]
+    fn encode_lgdt_rax_disp0_round_trips() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Lgdt,
+            operands: smallvec::smallvec![Operand::MemSib {
+                base: RegId(0), // rax
+                index: None,
+                scale: Scale::X1,
+                disp: 0,
+            }],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Lgdt);
+    }
+
+    #[test]
+    fn encode_lidt_rbx_disp32_round_trips() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Lidt,
+            operands: smallvec::smallvec![Operand::MemSib {
+                base: RegId(3), // rbx
+                index: None,
+                scale: Scale::X1,
+                disp: 256,
+            }],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Lidt);
+    }
+
+    #[test]
+    fn encode_wrmsr_round_trips() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Wrmsr,
+            operands: smallvec::smallvec![],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Wrmsr);
+    }
+
+    #[test]
+    fn encode_rdmsr_round_trips() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Rdmsr,
+            operands: smallvec::smallvec![],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Rdmsr);
+    }
+
+    #[test]
+    fn encode_iretq_round_trips_m5_004() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Iretq,
+            operands: smallvec::smallvec![],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Iretq);
+    }
+
+    #[test]
+    fn encode_swapgs_round_trips_m5_004() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Swapgs,
+            operands: smallvec::smallvec![],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Swapgs);
+    }
+
+    #[test]
+    fn encode_int_0x21_round_trips_m5_004() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Int,
+            operands: smallvec::smallvec![Operand::Imm64(0x21)],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Int);
+    }
+
+    #[test]
+    fn encode_mov_rax_mem_rsi_disp512_round_trips() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![
+                Operand::Reg(RegId(0)), // rax
+                Operand::MemSib {
+                    base: RegId(6), // rsi
+                    index: None,
+                    scale: Scale::X1,
+                    disp: 512,
+                }
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    #[test]
+    fn encode_mov_mem_r13_disp8_r14_round_trips() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![
+                Operand::MemSib {
+                    base: RegId(13), // r13
+                    index: None,
+                    scale: Scale::X1,
+                    disp: 16,
+                },
+                Operand::Reg(RegId(14)), // r14
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    #[test]
+    fn encode_invlpg_rcx_disp128_round_trips() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Invlpg,
+            operands: smallvec::smallvec![Operand::MemSib {
+                base: RegId(1), // rcx
+                index: None,
+                scale: Scale::X1,
+                disp: 128,
+            }],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Invlpg);
+    }
+
+    #[test]
+    fn encode_rdtsc_m5_004_round_trips() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Rdtsc,
+            operands: smallvec::smallvec![],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Rdtsc);
+    }
 }
