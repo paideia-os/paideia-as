@@ -511,6 +511,75 @@ pub fn cmp_reg64_reg64(buf: &mut CodeBuffer, dst: Reg64, src: Reg64) {
 /// - Otherwise: mod=10, disp32 (4 bytes for disp)
 ///
 /// Example: `cmp [rdi + 24], rcx` → `48 39 4F 18`
+/// Encode `mov dst, [base + disp]` — Phase 8 m5-002: general memory operand.
+///
+/// Instruction: REX.W 8B /r
+/// Operand-size: 64-bit (register is r64, memory is r/m64)
+/// ModR/M: depends on displacement encoding (no disp, disp8, or disp32)
+///
+/// Examples:
+/// - `mov rax, [rdi]`: `48 8B 07`
+/// - `mov rax, [rdi + 8]`: `48 8B 47 08`
+/// - `mov rax, [rdi + 256]`: `48 8B 87 00 01 00 00`
+pub fn mov_reg64_mem_reg64_disp(buf: &mut CodeBuffer, dst: Reg64, base: Reg64, disp: i32) {
+    let dst_id = dst as u8;
+    let base_id = base as u8;
+    let rex_byte = rex(true, (dst_id >> 3) != 0, false, (base_id >> 3) != 0);
+
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x8B); // mov r64, r/m64
+
+    if disp == 0 {
+        // Use mod=00, no displacement
+        buf.bytes.push(0x00 | ((dst_id & 7) << 3) | (base_id & 7));
+    } else if (-128..=127).contains(&disp) {
+        // Use mod=01, disp8
+        buf.bytes.push(0x40 | ((dst_id & 7) << 3) | (base_id & 7));
+        buf.bytes.push(disp as u8);
+    } else {
+        // Use mod=10, disp32
+        buf.bytes.push(0x80 | ((dst_id & 7) << 3) | (base_id & 7));
+        buf.bytes.extend(disp.to_le_bytes());
+    }
+}
+
+/// Encode `mov [base + disp], src` — Phase 8 m5-002: general memory operand.
+///
+/// Instruction: REX.W 89 /r
+/// Operand-size: 64-bit (register is r64, memory is r/m64)
+/// ModR/M: depends on displacement encoding (no disp, disp8, or disp32)
+///
+/// Examples:
+/// - `mov [rdi], rax`: `48 89 07`
+/// - `mov [rdi + 8], rax`: `48 89 47 08`
+/// - `mov [rdi + 256], rax`: `48 89 87 00 01 00 00`
+pub fn mov_mem_reg64_disp_reg64(buf: &mut CodeBuffer, base: Reg64, disp: i32, src: Reg64) {
+    let base_id = base as u8;
+    let src_id = src as u8;
+    let rex_byte = rex(true, (src_id >> 3) != 0, false, (base_id >> 3) != 0);
+
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x89); // mov r/m64, r64
+
+    if disp == 0 {
+        // Use mod=00, no displacement
+        buf.bytes.push(0x00 | ((src_id & 7) << 3) | (base_id & 7));
+    } else if (-128..=127).contains(&disp) {
+        // Use mod=01, disp8
+        buf.bytes.push(0x40 | ((src_id & 7) << 3) | (base_id & 7));
+        buf.bytes.push(disp as u8);
+    } else {
+        // Use mod=10, disp32
+        buf.bytes.push(0x80 | ((src_id & 7) << 3) | (base_id & 7));
+        buf.bytes.extend(disp.to_le_bytes());
+    }
+}
+
+/// Encode `cmp [base + disp], src` (compare memory with register).
+///
+/// Instruction: REX.W 39 /r
+/// Operand-size: 64-bit
+/// ModR/M: depends on displacement encoding (disp8 or disp32)
 pub fn cmp_mem_reg64_reg64(buf: &mut CodeBuffer, base: Reg64, disp: i32, src: Reg64) {
     let base_id = base as u8;
     let src_id = src as u8;
