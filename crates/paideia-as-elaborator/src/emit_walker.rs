@@ -1919,8 +1919,7 @@ impl EmitWalker {
         self.state.register_label(exit_label.clone());
 
         // Push While context for break validation.
-        self.loop_contexts
-            .push((LoopContext::While, exit_label));
+        self.loop_contexts.push((LoopContext::While, exit_label));
         // (Pop happens after body processing, deferred in full elaboration)
     }
 

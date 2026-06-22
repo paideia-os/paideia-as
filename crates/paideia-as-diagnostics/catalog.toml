@@ -245,6 +245,15 @@ description = "A symbol is marked as undefined (section_index=0xFFFFFFFF) in the
 since = "0.1.0"
 deprecated = false
 
+[diagnostic.B1702]
+severity = "error"
+category = "binary"
+title = "No exported symbols"
+brief = "no symbols to export in ELF output"
+description = "Phase 7 m1-001: when building an ELF object file, the elaboration phase produced no top-level function or object bindings to export. The resulting ELF would have no named symbols. Ensure the module contains at least one top-level `let` binding (e.g., `let _start : () -> () = fn () -> ...`) or other named definition."
+since = "0.11.0"
+deprecated = false
+
 [diagnostic.B1701]
 severity = "error"
 category = "binary"

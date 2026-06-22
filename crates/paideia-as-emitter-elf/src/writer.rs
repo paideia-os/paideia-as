@@ -3,7 +3,7 @@
 use crate::relocs::RelocEntry;
 use crate::relocs::RelocKind;
 use crate::sections::PAIDEIA_SECTIONS;
-use crate::symtab::{SymbolEntry, SymbolIndex};
+use crate::symtab::{SymKind, SymbolEntry, SymbolIndex};
 use object::{
     Architecture, BinaryFormat, Endianness, RelocationEncoding, RelocationFlags, RelocationKind,
     SectionKind, SymbolScope,
@@ -177,6 +177,8 @@ impl ElfWriter {
 
         // Determine the section for the symbol.
         // Phase 6 m5-003: if entry.section is set, use the corresponding section ID.
+        // Phase 7 m1-001: if entry has an offset but no explicit section, and it's a function,
+        // place it in the .text section.
         let symbol_section = if let Some(section_kind) = entry.section {
             match section_kind {
                 paideia_as_ir::SectionKind::Rodata => {
@@ -189,11 +191,14 @@ impl ElfWriter {
                     SymbolSection::Section(self.obj.section_id(StandardSection::UninitializedData))
                 }
             }
-        } else if entry.offset.is_some() {
-            // For defined symbols without explicit section, use Undefined.
-            // This maintains backward compatibility.
+        } else if entry.offset.is_some() && entry.kind == SymKind::Func {
+            // Functions with offsets go in .text section
+            SymbolSection::Section(self.obj.section_id(StandardSection::Text))
+        } else if entry.offset.is_none() {
+            // Undefined symbols
             SymbolSection::Undefined
         } else {
+            // Other defined symbols without explicit section (shouldn't happen)
             SymbolSection::Undefined
         };
 

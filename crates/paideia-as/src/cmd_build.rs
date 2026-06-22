@@ -29,7 +29,8 @@ pub enum BuildError {
 use crate::det;
 use paideia_as_ast::{AstArena, NodeId as AstNodeId, NodeKind, TypeData};
 use paideia_as_diagnostics::{
-    Catalog, DiagnosticSink, HumanRenderer, HumanSink, Severity, SourceMap, VecSink,
+    Catalog, Category, Diagnostic, DiagnosticCode, DiagnosticSink, HumanRenderer, HumanSink,
+    Severity, SourceMap, VecSink,
 };
 use paideia_as_elaborator::{
     CapWalker, EffectRowWalker, EmitWalker, LinearityWalker, UnsafeWalker, lower_ast_to_ir,
@@ -519,6 +520,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                     &source_map,
                     file,
                     encoder_warn,
+                    &mut sink,
                 )
                 .map(Some)
             };
@@ -618,6 +620,7 @@ fn patch_label_fixups(
 /// them to the .rela.text section.
 /// Phase-6-m1-004: Propagates encoder failures as BuildError::Encoder instead of silently falling back.
 /// Phase-6-m4-004: Applies label fixups after .text encoding completes.
+/// Phase-7-m1-001: Emits B0007 diagnostic when no symbols are exported.
 fn build_elf_object(
     arena: &paideia_as_ir::IrArena,
     instruction_table: &InstructionSideTable,
@@ -625,6 +628,7 @@ fn build_elf_object(
     _source_map: &SourceMap,
     file: paideia_as_diagnostics::FileId,
     encoder_warn: bool,
+    sink: &mut dyn DiagnosticSink,
 ) -> Result<Vec<u8>, BuildError> {
     let mut writer = ElfWriter::new(Arch::X86_64, Kind::Relocatable);
 
@@ -729,18 +733,14 @@ fn build_elf_object(
     // Phase-5-m5-003: Emit real symbols from SymbolTable.
     // Iterate over arena.symbols().iter() and emit one symbol per entry.
     let function_offsets = &emit_walker.state().function_offsets;
-    let emitted_lambdas = emit_walker.emitted_lambdas();
+    let _emitted_lambdas = emit_walker.emitted_lambdas();
     let mut emitted_any_symbol = false;
     for symbol in arena.symbols().iter() {
         match symbol.kind {
             paideia_as_ir::SymbolKind::Function => {
-                // Skip symbols for lambdas that didn't emit bytecode
-                if !emitted_lambdas.contains(&symbol.ir_node.get()) {
-                    continue;
-                }
-
-                // For function symbols, look up the byte offset from function_offsets.
-                // The size is computed as: next function offset - this offset (or text_bytes.len()).
+                // Phase 7 m1-001: Emit symbols for all function bindings, regardless of whether
+                // they emitted bytecode. If a lambda didn't emit (e.g., unsupported shape),
+                // use offset 0 and size 0 as a placeholder.
                 let offset = function_offsets
                     .get(&symbol.ir_node.get())
                     .copied()
@@ -781,10 +781,16 @@ fn build_elf_object(
         }
     }
 
-    // Fallback: if no symbols were emitted from the SymbolTable, emit a placeholder
-    // for backward compatibility. This ensures existing tests still pass.
+    // Phase 7 m1-001: Emit diagnostic B1702 if no symbols were exported.
     if !emitted_any_symbol {
-        let _ = writer.add_symbol(SymbolEntry::func("add_one", 0, text_bytes.len() as u64));
+        let code = DiagnosticCode::new(Category::B, Severity::Error, 1702)
+            .unwrap_or_else(|_| panic!("B1702 code construction failed"));
+        let span = paideia_as_diagnostics::Span::new(file, 0, 1);
+        let diagnostic = Diagnostic::error(code)
+            .with_span(span)
+            .message("no exported symbols")
+            .finish();
+        let _ = sink.emit(diagnostic);
     }
 
     // Phase-5-m4-004: Emit relocations collected from instruction encoding.
