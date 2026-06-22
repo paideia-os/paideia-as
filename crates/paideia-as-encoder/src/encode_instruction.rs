@@ -238,6 +238,7 @@ pub fn encode_instruction(
         Mnemonic::RepStosq => encode_rep_stosq_inst(inst, buf),
         Mnemonic::FarJmp => encode_far_jmp_inst(inst, buf),
         Mnemonic::Movzx => encode_movzx(inst, buf),
+        Mnemonic::Movsx => encode_movsx(inst, buf),
         Mnemonic::Not => encode_not(inst, buf),
     }
 }
@@ -1340,6 +1341,46 @@ mod tests {
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
         assert_eq!(instr.mnemonic(), IcedMnem::Not);
+    }
+
+    #[test]
+    fn encode_movsx_default_width_emits_48_63() {
+        // Mnemonic::Movsx with [Reg(rax), Reg(rcx)] and no hint defaults to a
+        // 4-byte source → MOVSXD → 48 63 C1.
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Movsx,
+            operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(1))],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x48, 0x63, 0xC1]);
+    }
+
+    #[test]
+    fn encode_movsx_width1_via_hint_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+        use paideia_as_ir::EncodingHint;
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Movsx,
+            operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(1))],
+            encoding_hint: Some(EncodingHint {
+                opcode: 0x0FBE,
+                operand_size: 1,
+            }),
+            byte_offset_in_text: None,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x48, 0x0F, 0xBE, 0xC1]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Movsx);
     }
 
     #[test]
@@ -2965,6 +3006,35 @@ fn encode_movzx(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput
         buf.bytes.push(((disp >> 24) & 0xFF) as u8);
     }
     Ok(EncodeOutput::new())
+}
+
+/// Phase 7 m4-002: Encode MOVSX (move with sign-extend), register-to-register.
+///
+/// MOVSX r64, r/m8/r/m16/r/m32 — sign-extends a smaller source register into a
+/// 64-bit destination. Used by the cast emit path for *widening signed* casts.
+///
+/// Operands: `[Reg(dst), Reg(src)]`. The source width (1, 2, or 4 bytes) is
+/// taken from `encoding_hint.operand_size`; if no hint is present we default to
+/// 4 bytes (the common `i32 as i64` widening).
+///
+/// Opcodes (see `movsx_reg64`): width 1 → `0F BE`, width 2 → `0F BF`,
+/// width 4 → `63` (MOVSXD), all with `REX.W`.
+fn encode_movsx(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::Reg(dst), Operand::Reg(src)] => {
+            let src_width = inst.encoding_hint.map(|h| h.operand_size).unwrap_or(4);
+            if movsx_reg64(buf, reg64_from(*dst)?, reg64_from(*src)?, src_width) {
+                Ok(EncodeOutput::new())
+            } else {
+                Err(EncodeError::Unsupported(
+                    "MOVSX: source width must be 1, 2, or 4 bytes",
+                ))
+            }
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Movsx,
+        }),
+    }
 }
 
 // Phase 6 m4-003: Jcc encoder tests (16 condition variants + label support)

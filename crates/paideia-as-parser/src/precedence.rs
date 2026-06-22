@@ -149,6 +149,15 @@ pub fn postfix_bp(kind: TokenKind) -> Option<u8> {
     match kind {
         // Tier 1: Postfix operators (calls (), indexing [], field access ., and ?)
         LParen | LBracket | Dot | Question => Some(140),
+
+        // Cast `expr as type` (Phase 7 m4-002): a postfix operator with
+        // binding power 105 — between additive (`+`/`-`, left 100) and
+        // multiplicative (`*`/`/`/`%`, left 110). This makes `a + b as T`
+        // parse as `a + (b as T)` while `a * b as T` parses as `(a * b) as T`.
+        // Unlike the Tier-1 postfix operators above, `as` does not bind
+        // tightest; the dedicated bp keeps cast precedence aligned with §7.
+        KwAs => Some(105),
+
         _ => None,
     }
 }

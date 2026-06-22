@@ -75,6 +75,8 @@ pub enum NodeKind {
     ExprPrefix,
     /// `expr op` (postfix operator expression: `.field`, `[idx]`, `?`, etc.).
     ExprPostfix,
+    /// `expr as type` (cast expression). Phase 7 m4-002.
+    ExprCast,
     /// Literal (Int/Float/Char/String/Byte/ByteString/Unit/Bool).
     ExprLiteral,
     /// `path::to::name` or simple `name`.

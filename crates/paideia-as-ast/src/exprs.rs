@@ -148,6 +148,24 @@ pub enum ExprData {
         op: NodeId,
     },
 
+    /// `expr as type`.
+    ///
+    /// Cast expression: converts the result of `expr` to `target_ty`.
+    ///
+    /// `as` is a postfix operator (bp 105, between additive and multiplicative)
+    /// so it binds tighter than `+`/`-` and looser than `*`/`/`/`%`. The
+    /// elaborator records the target type in the IR `CastSideTable` and the
+    /// emit pass chooses `movsx` / `movzx` / `mov` per the source and
+    /// destination widths.
+    ///
+    /// Phase 7 m4-002.
+    Cast {
+        /// Expression whose value is converted.
+        expr: NodeId,
+        /// Target type node (a `Type*` node produced by `parse_type`).
+        target_ty: NodeId,
+    },
+
     /// Literal expression.
     ///
     /// Wraps a literal node (Int, Float, Char, String, Byte, ByteString,

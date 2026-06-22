@@ -303,13 +303,13 @@ mod tests {
         // be recognized as an antiquote, NOT as prefix bitwise NOT. The quote
         // body must therefore be an ExprAntiquote node.
         let tokens = vec![
-            tok(TokenKind::Ident, 0, 5),       // "quote"
-            tok(TokenKind::LBrace, 6, 1),      // "{"
-            tok(TokenKind::AffineMark, 8, 1),  // "~"
-            tok(TokenKind::LParen, 9, 1),      // "("
-            tok(TokenKind::Ident, 10, 1),      // "b"
-            tok(TokenKind::RParen, 11, 1),     // ")"
-            tok(TokenKind::RBrace, 13, 1),     // "}"
+            tok(TokenKind::Ident, 0, 5),      // "quote"
+            tok(TokenKind::LBrace, 6, 1),     // "{"
+            tok(TokenKind::AffineMark, 8, 1), // "~"
+            tok(TokenKind::LParen, 9, 1),     // "("
+            tok(TokenKind::Ident, 10, 1),     // "b"
+            tok(TokenKind::RParen, 11, 1),    // ")"
+            tok(TokenKind::RBrace, 13, 1),    // "}"
             tok(TokenKind::Eof, 14, 0),
         ];
         let source = "quote { ~(b) }";

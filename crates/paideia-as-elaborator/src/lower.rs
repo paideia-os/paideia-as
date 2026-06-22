@@ -179,6 +179,12 @@ pub fn lower_ast_to_ir(ast: &AstArena) -> LoweringResult {
                     // App structure: [callee (the op), arg0 (expr)]
                     vec![*op, *expr]
                 }
+                ExprData::Cast { expr, .. } => {
+                    // Cast lowers to IrKind::Cast with a single child (the
+                    // operand). The target type is metadata recorded out-of-band
+                    // in the CastSideTable, not a structural child.
+                    vec![*expr]
+                }
                 ExprData::Literal { .. } => {
                     // Literal: no children
                     Vec::new()
@@ -293,6 +299,11 @@ fn map_node_kind(kind: NodeKind) -> IrKind {
 
         // Operators (all desugared to applications)
         NodeKind::ExprInfix | NodeKind::ExprPrefix | NodeKind::ExprPostfix => IrKind::App,
+
+        // Cast `expr as type` lowers to a dedicated IrKind::Cast (Phase 7 m4-002).
+        // The target type is recorded separately in the CastSideTable; the emit
+        // pass chooses movsx/movzx/mov per the source and destination widths.
+        NodeKind::ExprCast => IrKind::Cast,
 
         // Function application
         NodeKind::ExprCall => IrKind::App,

@@ -35,6 +35,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 TokenKind::Dot => self.parse_field_or_method(lhs),
                 TokenKind::LBrace => self.parse_record_cons_or_err(lhs),
                 TokenKind::Question => self.parse_question_postfix(lhs),
+                TokenKind::KwAs => self.parse_cast(lhs),
                 _ => Err(ParseError), // Shouldn't happen if called from postfix_bp
             },
         }
@@ -329,6 +330,41 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             },
         ))
     }
+
+    /// Parse a cast: `expr as type` → ExprCast (Phase 7 m4-002).
+    ///
+    /// Consumes the `as` keyword, parses the target type via `parse_type`,
+    /// and allocates an `ExprCast` whose span runs from `lhs.span.start` to
+    /// the end of the parsed type.
+    fn parse_cast(&mut self, lhs: NodeId) -> Result<NodeId, ParseError> {
+        let as_tok = self.bump().expect("KwAs already peeked");
+        let as_span = as_tok.span;
+
+        // Parse the target type on the right-hand side of `as`.
+        let target_ty = self.parse_type()?;
+
+        // Compute span from lhs start to the end of the target type.
+        let lhs_span = self.arena().get(lhs).map(|nd| nd.span).unwrap_or(as_span);
+        let ty_span = self
+            .arena()
+            .get(target_ty)
+            .map(|nd| nd.span)
+            .unwrap_or(as_span);
+        let cast_span = Span::new(
+            lhs_span.file(),
+            lhs_span.byte_start(),
+            ty_span.byte_start() + ty_span.byte_len() - lhs_span.byte_start(),
+        );
+
+        Ok(self.arena_mut().alloc_expr(
+            NodeKind::ExprCast,
+            cast_span,
+            ExprData::Cast {
+                expr: lhs,
+                target_ty,
+            },
+        ))
+    }
 }
 
 // Helper to get mutable sink access (requires Parser to expose it)
@@ -550,6 +586,140 @@ mod tests {
         let root = result.unwrap();
         let node = arena.get(root).unwrap();
         assert_eq!(node.kind, NodeKind::ExprPostfix);
+    }
+
+    #[test]
+    fn cast_simple() {
+        // x as u32  → ExprCast { expr: x, target_ty: u32 }
+        let tokens = vec![
+            tok(TokenKind::Ident, 0), // x
+            tok(TokenKind::KwAs, 2),  // as
+            tok(TokenKind::Ident, 5), // u32
+            tok(TokenKind::Eof, 8),
+        ];
+        let (arena, result, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected");
+        assert!(result.is_ok());
+        let root = result.unwrap();
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprCast);
+
+        // The Cast payload should reference an ExprPath operand and a Type target.
+        match arena.expr_data(root).expect("cast expr data") {
+            ExprData::Cast { expr, target_ty } => {
+                assert_eq!(
+                    arena.get(*expr).unwrap().kind,
+                    NodeKind::ExprPath,
+                    "operand is a path expression"
+                );
+                assert_eq!(
+                    arena.get(*target_ty).unwrap().kind,
+                    NodeKind::TypeName,
+                    "target is a type-name node"
+                );
+            }
+            other => panic!("expected Cast, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn cast_binds_tighter_than_additive() {
+        // a + b as u32  → Infix { lhs: a, rhs: Cast { b as u32 } }
+        // `as` (bp 105) binds tighter than `+` (left 100), so the cast attaches
+        // to `b`, not to the whole sum.
+        let tokens = vec![
+            tok(TokenKind::Ident, 0), // a
+            tok(TokenKind::Plus, 2),  // +
+            tok(TokenKind::Ident, 4), // b
+            tok(TokenKind::KwAs, 6),  // as
+            tok(TokenKind::Ident, 9), // u32
+            tok(TokenKind::Eof, 12),
+        ];
+        let (arena, result, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let root = result.unwrap();
+        assert_eq!(
+            arena.get(root).unwrap().kind,
+            NodeKind::ExprInfix,
+            "top is the additive infix"
+        );
+        match arena.expr_data(root).expect("infix expr data") {
+            ExprData::Infix { rhs, .. } => {
+                assert_eq!(
+                    arena.get(*rhs).unwrap().kind,
+                    NodeKind::ExprCast,
+                    "rhs of `+` is the cast (b as u32)"
+                );
+            }
+            other => panic!("expected Infix, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn cast_binds_looser_than_multiplicative() {
+        // a * b as u32  → Cast { expr: Infix { a * b }, target_ty: u32 }
+        // `*` (left 110) binds tighter than `as` (105), so the product forms
+        // first and the cast wraps the whole product.
+        let tokens = vec![
+            tok(TokenKind::Ident, 0), // a
+            tok(TokenKind::Star, 2),  // *
+            tok(TokenKind::Ident, 4), // b
+            tok(TokenKind::KwAs, 6),  // as
+            tok(TokenKind::Ident, 9), // u32
+            tok(TokenKind::Eof, 12),
+        ];
+        let (arena, result, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let root = result.unwrap();
+        assert_eq!(
+            arena.get(root).unwrap().kind,
+            NodeKind::ExprCast,
+            "top is the cast"
+        );
+        match arena.expr_data(root).expect("cast expr data") {
+            ExprData::Cast { expr, .. } => {
+                assert_eq!(
+                    arena.get(*expr).unwrap().kind,
+                    NodeKind::ExprInfix,
+                    "cast operand is the product (a * b)"
+                );
+            }
+            other => panic!("expected Cast, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn cast_chained() {
+        // x as u16 as u32  → Cast { Cast { x as u16 } as u32 }
+        let tokens = vec![
+            tok(TokenKind::Ident, 0),  // x
+            tok(TokenKind::KwAs, 2),   // as
+            tok(TokenKind::Ident, 5),  // u16
+            tok(TokenKind::KwAs, 9),   // as
+            tok(TokenKind::Ident, 12), // u32
+            tok(TokenKind::Eof, 15),
+        ];
+        let (arena, result, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let root = result.unwrap();
+        assert_eq!(arena.get(root).unwrap().kind, NodeKind::ExprCast);
+        match arena.expr_data(root).expect("outer cast expr data") {
+            ExprData::Cast { expr, .. } => {
+                assert_eq!(
+                    arena.get(*expr).unwrap().kind,
+                    NodeKind::ExprCast,
+                    "outer cast operand is the inner cast (x as u16)"
+                );
+            }
+            other => panic!("expected Cast, got {other:?}"),
+        }
     }
 
     #[test]

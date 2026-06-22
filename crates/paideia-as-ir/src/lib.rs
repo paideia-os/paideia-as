@@ -13,6 +13,7 @@ mod arena;
 pub mod binding_name;
 pub mod borrow;
 pub mod call_meta;
+pub mod cast_meta;
 pub mod constant_pool;
 pub mod data;
 pub mod effect_rewrite;
@@ -39,6 +40,7 @@ pub use arena::IrArena;
 pub use binding_name::BindingNameTable;
 pub use borrow::{BorrowMeta, BorrowSideTable};
 pub use call_meta::{CallMeta, CallSideTable};
+pub use cast_meta::CastSideTable;
 pub use constant_pool::ConstantPoolTable;
 pub use data::{DataEntry, DataSideTable, SectionKind};
 pub use effect_rewrite::{
@@ -59,7 +61,7 @@ pub use loop_meta::{LoopMeta, LoopMetaTable};
 pub use modules::{
     FieldKind, FunctorInfo, ModuleField, ModuleInfo, ModuleSideTable, pretty_module,
 };
-pub use monomorphisation::{MonoKey, MonomorphisationTable};
+pub use monomorphisation::{MonoKey, MonomorphisationTable, TypeId};
 pub use node::{EffectRowId, IrKind, IrNodeData, IrNodeId, LinClass};
 pub use record_layout::{FieldAccessInfo, FieldAccessSideTable, RecordLayoutTable, RecordTypeId};
 pub use string_literal::{StringLiteralInfo, StringLiteralTable};

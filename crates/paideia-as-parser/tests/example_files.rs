@@ -192,6 +192,53 @@ fn test_example_15_unsafe() {
 }
 
 #[test]
+fn test_cast_in_let_value() {
+    // Phase 7 m4-002: `EXPR as TYPE` cast in a let binding's RHS parses cleanly.
+    let (_arena, _err, diags) = parse_source("let y : i64 = x as i64");
+    let errors: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code().severity() == Severity::Error)
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "let binding with a cast value should parse without errors, got: {:?}",
+        errors
+    );
+}
+
+#[test]
+fn test_cast_precedence_with_arithmetic() {
+    // `a + b as i64` and `a * b as i64` exercise the cast binding power
+    // (105: tighter than `+`, looser than `*`). Both must parse cleanly.
+    let (_arena, _err, diags) = parse_source("let z : i64 = a + b as i64 * c as i64");
+    let errors: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code().severity() == Severity::Error)
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "mixed arithmetic and casts should parse without errors, got: {:?}",
+        errors
+    );
+}
+
+#[test]
+fn test_cast_in_fn_literal_body() {
+    // `fn (x : i32) -> x as i64` — the lambda body is a cast. This is the
+    // shape the emit pass lowers to `movsx rax, edi; ret`.
+    let (_arena, _err, diags) = parse_source("let widen = fn (x : i32) -> x as i64");
+    let errors: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code().severity() == Severity::Error)
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "fn literal with a cast body should parse without errors, got: {:?}",
+        errors
+    );
+}
+
+#[test]
 fn test_trait_simple() {
     let (_arena, _err, diags) = parse_source("trait Eq { fn eq(a: T, b: T) -> bool; }");
     let errors: Vec<_> = diags

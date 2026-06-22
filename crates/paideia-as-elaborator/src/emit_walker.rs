@@ -582,6 +582,22 @@ impl EmitWalker {
                         eprintln!("[emit_bitnot_lambda] Lambda {}", lambda_node_id.get());
                         self.emit_bitnot_lambda(lambda_node_id);
                     }
+                    // Phase 7 m4-002: cast `fn (x) -> x as TYPE`.
+                    // Cast has a single child (the operand). For the simple
+                    // single-parameter form the operand is the parameter Var,
+                    // which lives in RDI; emit a widening sign-extend into RAX
+                    // (`movsx rax, edi`) then `ret`.
+                    IrKind::Cast => {
+                        // Record the lambda's starting offset BEFORE emitting.
+                        self.state
+                            .function_offsets
+                            .insert(lambda_node_id.get(), self.state.estimated_offset);
+                        // Mark this lambda as emitted.
+                        self.state.emitted_lambdas.insert(lambda_node_id.get());
+
+                        eprintln!("[emit_cast_lambda] Lambda {}", lambda_node_id.get());
+                        self.emit_cast_lambda(lambda_node_id);
+                    }
                     // Case 2 & 3: Application `fn (x) -> x + ...` or `fn (x) -> ... + x`
                     // Phase 7 m1-001: Also handles inter-function calls `fn () -> foo()` or `fn (x) -> foo(x)`
                     IrKind::App => {
@@ -886,6 +902,59 @@ impl EmitWalker {
 
         // ret: c3 (1 byte)
         let ret_id = IrNodeId::new(lambda_node_id.get() * 3 + 2).expect("ret virtual id");
+        let ret_inst = Instruction {
+            mnemonic: Mnemonic::Ret,
+            operands: SmallVec::new(),
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+        self.state.instructions.insert(ret_id, ret_inst);
+        self.state.estimated_offset += 1;
+    }
+
+    /// Emit cast lambda: `movsx rax, edi; ret` (4 bytes: `48 63 f8` / `c3`).
+    ///
+    /// Phase 7 m4-002: lowers `fn (x) -> x as TYPE`. The operand (parameter
+    /// `x`) arrives in RDI; this emits the canonical widening *signed* cast
+    /// (`i32 as i64`) by sign-extending the 32-bit source EDI into the 64-bit
+    /// destination RAX, then returns.
+    ///
+    /// The encoder selects the concrete form from the source width carried in
+    /// `EncodingHint.operand_size`; here we emit the 4-byte-source MOVSXD form
+    /// (`48 63 f8`).
+    ///
+    /// Width / signedness selection per the target type (widening unsigned →
+    /// `movzx`; narrowing → `mov r32, r32`; same-width → no-op) is a documented
+    /// follow-up: the minimal m4-002 IR pipeline does not yet resolve the
+    /// `CastSideTable` `TypeId` to a concrete `(width, signedness)`, so the emit
+    /// path commits to the canonical signed-widening case. Once type resolution
+    /// is wired in, this method should read the `CastSideTable` entry and branch
+    /// on `(src_width, dst_width, signedness)`.
+    ///
+    /// Like the other 2-instruction emitters, this keys on `node*2` / `node*2+1`.
+    fn emit_cast_lambda(&mut self, lambda_node_id: IrNodeId) {
+        // movsx rax, edi: 48 63 f8 (3 bytes) — MOVSXD r64, r/m32.
+        // operand_size = 4 selects the MOVSXD (0x63) form in the encoder.
+        let mut movsx_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        movsx_operands.push(Operand::Reg(RegId(0))); // rax (dst)
+        movsx_operands.push(Operand::Reg(RegId(7))); // rdi/edi (arg0, src)
+
+        let movsx_inst = Instruction {
+            mnemonic: Mnemonic::Movsx,
+            operands: movsx_operands,
+            encoding_hint: Some(paideia_as_ir::EncodingHint {
+                opcode: 0x63,
+                operand_size: 4,
+            }),
+            byte_offset_in_text: None,
+        };
+
+        let movsx_id = IrNodeId::new(lambda_node_id.get() * 2).expect("movsx instr virtual id");
+        self.state.instructions.insert(movsx_id, movsx_inst);
+        self.state.estimated_offset += 3;
+
+        // ret: c3 (1 byte)
+        let ret_id = IrNodeId::new(lambda_node_id.get() * 2 + 1).expect("ret virtual id");
         let ret_inst = Instruction {
             mnemonic: Mnemonic::Ret,
             operands: SmallVec::new(),
@@ -2596,6 +2665,60 @@ mod tests {
 
         // Offset: 3 (mov) + 3 (not) + 1 (ret) = 7 bytes.
         assert_eq!(walker.state().estimated_offset, 7);
+
+        // Lambda offset recorded.
+        assert!(
+            walker
+                .state()
+                .function_offsets
+                .contains_key(&lambda_id.get())
+        );
+    }
+
+    #[test]
+    fn emit_walker_lambda_cast_emits_movsx_rax_edi_ret() {
+        // Phase 7 m4-002: `fn (x) -> x as i64` lowers to a Lambda whose body is
+        // a Cast over the parameter. Expect `movsx rax, edi; ret`.
+        let mut arena = IrArena::new();
+
+        // Body: Cast with the parameter Var as its single child.
+        let var_id = arena.alloc(IrKind::Var, span());
+        let cast_id = arena.alloc_with_children(IrKind::Cast, span(), [var_id]);
+        let lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [cast_id]);
+
+        let mut walker = EmitWalker::new();
+        walker.walk(&mut arena);
+
+        // The 2-instruction cast emitter keys on lambda*2 + {0,1}.
+        let movsx_id = IrNodeId::new(lambda_id.get() * 2).expect("movsx instr id");
+        let ret_id = IrNodeId::new(lambda_id.get() * 2 + 1).expect("ret instr id");
+
+        // movsx rax, edi
+        let movsx_inst = walker
+            .state()
+            .instructions
+            .get(movsx_id)
+            .expect("movsx instruction should be emitted");
+        assert_eq!(movsx_inst.mnemonic, Mnemonic::Movsx);
+        assert_eq!(movsx_inst.operands.len(), 2);
+        assert_eq!(movsx_inst.operands[0], Operand::Reg(RegId(0))); // rax
+        assert_eq!(movsx_inst.operands[1], Operand::Reg(RegId(7))); // rdi/edi
+        assert_eq!(
+            movsx_inst.encoding_hint.map(|h| h.operand_size),
+            Some(4),
+            "canonical i32 as i64 widening reads a 4-byte source"
+        );
+
+        // ret
+        let ret_inst = walker
+            .state()
+            .instructions
+            .get(ret_id)
+            .expect("ret instruction should be emitted");
+        assert_eq!(ret_inst.mnemonic, Mnemonic::Ret);
+
+        // Offset: 3 (movsx) + 1 (ret) = 4 bytes.
+        assert_eq!(walker.state().estimated_offset, 4);
 
         // Lambda offset recorded.
         assert!(

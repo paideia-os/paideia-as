@@ -262,6 +262,10 @@ impl<'a> Term<'a> {
                     result.push(Term::new(self.arena, *expr));
                     result.push(Term::new(self.arena, *op));
                 }
+                ExprData::Cast { expr, target_ty } => {
+                    result.push(Term::new(self.arena, *expr));
+                    result.push(Term::new(self.arena, *target_ty));
+                }
                 ExprData::Literal { lit } => {
                     result.push(Term::new(self.arena, *lit));
                 }

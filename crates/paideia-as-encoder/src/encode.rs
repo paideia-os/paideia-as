@@ -318,6 +318,117 @@ pub fn not_reg64(buf: &mut CodeBuffer, dst: Reg64) {
     buf.bytes.push(0xD0 | (reg_id & 7));
 }
 
+/// Encode `movsx dst64, src` (move with sign-extend, register-to-register).
+///
+/// Phase 7 m4-002: used for widening *signed* casts. The source register is
+/// read at `src_width` bytes (1, 2, or 4) and sign-extended into the 64-bit
+/// destination.
+///
+/// Opcode by source width:
+/// - 1 byte (r/m8 → r64):  `REX.W 0F BE /r`
+/// - 2 bytes (r/m16 → r64): `REX.W 0F BF /r`
+/// - 4 bytes (r/m32 → r64): `REX.W 63 /r` (MOVSXD; single-byte opcode)
+///
+/// ModR/M: mod=11 (register direct), reg = dst, r/m = src.
+///
+/// Example: `movsx rax, ecx` (4-byte src) → `48 63 c1`
+/// Example: `movsx rax, cl`  (1-byte src) → `48 0f be c1`
+///
+/// Returns `false` (emitting nothing) if `src_width` is not 1, 2, or 4.
+pub fn movsx_reg64(buf: &mut CodeBuffer, dst: Reg64, src: Reg64, src_width: u8) -> bool {
+    let dst_id = dst as u8;
+    let src_id = src as u8;
+    // dst is the ModR/M.reg field (R extension); src is r/m (B extension).
+    let rex_byte = rex(true, (dst_id >> 3) != 0, false, (src_id >> 3) != 0);
+    let modrm = 0xC0 | ((dst_id & 7) << 3) | (src_id & 7);
+    match src_width {
+        1 => {
+            buf.bytes.push(rex_byte);
+            buf.bytes.push(0x0F);
+            buf.bytes.push(0xBE);
+            buf.bytes.push(modrm);
+            true
+        }
+        2 => {
+            buf.bytes.push(rex_byte);
+            buf.bytes.push(0x0F);
+            buf.bytes.push(0xBF);
+            buf.bytes.push(modrm);
+            true
+        }
+        4 => {
+            buf.bytes.push(rex_byte);
+            buf.bytes.push(0x63);
+            buf.bytes.push(modrm);
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Encode `movzx dst64, src` (move with zero-extend, register-to-register).
+///
+/// Phase 7 m4-002: used for widening *unsigned* casts of 1- or 2-byte
+/// sources. For 4-byte sources, a plain `mov r32, r32` already zero-extends,
+/// so callers should use that instead (this returns `false` for width 4).
+///
+/// Opcode by source width:
+/// - 1 byte (r/m8 → r64):  `REX.W 0F B6 /r`
+/// - 2 bytes (r/m16 → r64): `REX.W 0F B7 /r`
+///
+/// ModR/M: mod=11 (register direct), reg = dst, r/m = src.
+///
+/// Example: `movzx rax, cl` (1-byte src) → `48 0f b6 c1`
+///
+/// Returns `false` (emitting nothing) if `src_width` is not 1 or 2.
+pub fn movzx_reg64(buf: &mut CodeBuffer, dst: Reg64, src: Reg64, src_width: u8) -> bool {
+    let dst_id = dst as u8;
+    let src_id = src as u8;
+    let rex_byte = rex(true, (dst_id >> 3) != 0, false, (src_id >> 3) != 0);
+    let modrm = 0xC0 | ((dst_id & 7) << 3) | (src_id & 7);
+    match src_width {
+        1 => {
+            buf.bytes.push(rex_byte);
+            buf.bytes.push(0x0F);
+            buf.bytes.push(0xB6);
+            buf.bytes.push(modrm);
+            true
+        }
+        2 => {
+            buf.bytes.push(rex_byte);
+            buf.bytes.push(0x0F);
+            buf.bytes.push(0xB7);
+            buf.bytes.push(modrm);
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Encode `mov dst32, src32` (32-bit register move).
+///
+/// Phase 7 m4-002: used for narrowing casts and for unsigned widening of a
+/// 4-byte source — writing a 32-bit register implicitly zero-extends the high
+/// 32 bits of the destination per the x86_64 architecture.
+///
+/// Instruction: `8B /r` (no REX.W). REX is emitted only when an extended
+/// register (R8..R15) participates.
+///
+/// ModR/M: mod=11, reg = dst, r/m = src.
+///
+/// Example: `mov eax, ecx` → `89 c8` (here encoded via 8B form: `8b c1`)
+pub fn mov_reg32_reg32(buf: &mut CodeBuffer, dst: Reg64, src: Reg64) {
+    let dst_id = dst as u8;
+    let src_id = src as u8;
+    // No REX.W; only emit REX if an extended register is used.
+    if (dst_id >> 3) != 0 || (src_id >> 3) != 0 {
+        buf.bytes
+            .push(rex(false, (dst_id >> 3) != 0, false, (src_id >> 3) != 0));
+    }
+    buf.bytes.push(0x8B);
+    buf.bytes.push(0xC0 | ((dst_id & 7) << 3) | (src_id & 7));
+}
+
 /// Encode `cmp reg64, reg64`.
 ///
 /// Instruction: REX.W 39 /r
@@ -1329,6 +1440,99 @@ mod tests {
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
         assert_eq!(instr.mnemonic(), IcedMnem::Not);
+    }
+
+    #[test]
+    fn movsx_rax_ecx_width4_emits_48_63_c1() {
+        // movsx rax, ecx (MOVSXD r64, r/m32) → REX.W 63 /r → 48 63 C1
+        let mut buf = CodeBuffer::new();
+        assert!(movsx_reg64(&mut buf, Reg64::Rax, Reg64::Rcx, 4));
+        assert_eq!(buf.as_slice(), &[0x48, 0x63, 0xC1]);
+    }
+
+    #[test]
+    fn movsx_rax_cl_width1_emits_48_0f_be_c1() {
+        // movsx rax, cl (r/m8 → r64) → REX.W 0F BE /r → 48 0F BE C1
+        let mut buf = CodeBuffer::new();
+        assert!(movsx_reg64(&mut buf, Reg64::Rax, Reg64::Rcx, 1));
+        assert_eq!(buf.as_slice(), &[0x48, 0x0F, 0xBE, 0xC1]);
+    }
+
+    #[test]
+    fn movsx_rax_cx_width2_emits_48_0f_bf_c1() {
+        // movsx rax, cx (r/m16 → r64) → REX.W 0F BF /r → 48 0F BF C1
+        let mut buf = CodeBuffer::new();
+        assert!(movsx_reg64(&mut buf, Reg64::Rax, Reg64::Rcx, 2));
+        assert_eq!(buf.as_slice(), &[0x48, 0x0F, 0xBF, 0xC1]);
+    }
+
+    #[test]
+    fn movsx_rejects_unsupported_width() {
+        let mut buf = CodeBuffer::new();
+        assert!(!movsx_reg64(&mut buf, Reg64::Rax, Reg64::Rcx, 8));
+        assert!(buf.as_slice().is_empty());
+    }
+
+    #[test]
+    fn movsx_width4_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+        let mut buf = CodeBuffer::new();
+        movsx_reg64(&mut buf, Reg64::Rax, Reg64::Rcx, 4);
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Movsxd);
+    }
+
+    #[test]
+    fn movsx_width1_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+        let mut buf = CodeBuffer::new();
+        movsx_reg64(&mut buf, Reg64::Rax, Reg64::Rcx, 1);
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Movsx);
+    }
+
+    #[test]
+    fn movzx_rax_cl_width1_emits_48_0f_b6_c1() {
+        // movzx rax, cl (r/m8 → r64) → REX.W 0F B6 /r → 48 0F B6 C1
+        let mut buf = CodeBuffer::new();
+        assert!(movzx_reg64(&mut buf, Reg64::Rax, Reg64::Rcx, 1));
+        assert_eq!(buf.as_slice(), &[0x48, 0x0F, 0xB6, 0xC1]);
+    }
+
+    #[test]
+    fn movzx_rax_cx_width2_emits_48_0f_b7_c1() {
+        // movzx rax, cx (r/m16 → r64) → REX.W 0F B7 /r → 48 0F B7 C1
+        let mut buf = CodeBuffer::new();
+        assert!(movzx_reg64(&mut buf, Reg64::Rax, Reg64::Rcx, 2));
+        assert_eq!(buf.as_slice(), &[0x48, 0x0F, 0xB7, 0xC1]);
+    }
+
+    #[test]
+    fn movzx_rejects_width4() {
+        // 4-byte source uses plain `mov r32, r32` (implicit zero-extend) instead.
+        let mut buf = CodeBuffer::new();
+        assert!(!movzx_reg64(&mut buf, Reg64::Rax, Reg64::Rcx, 4));
+        assert!(buf.as_slice().is_empty());
+    }
+
+    #[test]
+    fn mov_reg32_reg32_eax_ecx_emits_8b_c1() {
+        // mov eax, ecx → 8B /r (no REX.W) → 8B C1; implicitly zero-extends rax.
+        let mut buf = CodeBuffer::new();
+        mov_reg32_reg32(&mut buf, Reg64::Rax, Reg64::Rcx);
+        assert_eq!(buf.as_slice(), &[0x8B, 0xC1]);
+    }
+
+    #[test]
+    fn mov_reg32_reg32_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+        let mut buf = CodeBuffer::new();
+        mov_reg32_reg32(&mut buf, Reg64::Rax, Reg64::Rcx);
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
     }
 
     #[test]

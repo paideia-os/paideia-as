@@ -96,6 +96,10 @@ pub enum Mnemonic {
     /// Move with zero-extend: zero-extend smaller operand to larger width.
     /// Phase 6 m3-002: used for u8 field access; emits movzx rax, byte [rdi + offset].
     Movzx,
+    /// Move with sign-extend: sign-extend smaller operand to larger width.
+    /// Phase 7 m4-002: used for widening signed casts; emits e.g.
+    /// `movsx rax, r32` (REX.W 63 /r for r/m32 → r64).
+    Movsx,
     /// Bitwise NOT (one's complement) of a 64-bit register.
     /// Phase 7 m4-001: emits `not r64` (REX.W F7 /2). One operand.
     Not,
@@ -287,7 +291,8 @@ impl Mnemonic {
             | Mnemonic::Cmp
             | Mnemonic::Test
             | Mnemonic::Lea
-            | Mnemonic::Movzx => 2,
+            | Mnemonic::Movzx
+            | Mnemonic::Movsx => 2,
         }
     }
 
@@ -344,6 +349,7 @@ impl Mnemonic {
 
             // Move with zero-extend: 10 bytes
             Mnemonic::Movzx => 10,
+            Mnemonic::Movsx => 10,
 
             // Two-operand arithmetic/logic: 10 bytes
             Mnemonic::Add | Mnemonic::Sub | Mnemonic::Cmp | Mnemonic::Test => 10,

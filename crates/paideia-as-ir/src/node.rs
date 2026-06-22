@@ -210,6 +210,14 @@ pub enum IrKind {
     /// The emit pass evaluates the operand into a register and emits
     /// `neg r64` (REX.W F7 /3).
     Neg,
+    /// Type cast (`expr as type`). Children = [operand].
+    /// Phase 7 m4-002: lowered from `ExprData::Cast`. The target type is
+    /// recorded in the `CastSideTable` (IrNodeId → TypeId). The emit pass
+    /// evaluates the operand into a register and dispatches on the source and
+    /// destination widths: widening signed → `movsx`; widening unsigned →
+    /// `movzx`; narrowing → `mov r32, r32` (implicit zero-extend); same-width →
+    /// no-op.
+    Cast,
 }
 
 /// Per-node IR storage.

@@ -439,6 +439,9 @@ fn print_expr_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
         ExprData::Postfix { expr: e, op } => {
             format!("Postfix {{ expr: {}, op: {} }}", e, op)
         }
+        ExprData::Cast { expr: e, target_ty } => {
+            format!("Cast {{ expr: {}, target_ty: {} }}", e, target_ty)
+        }
         ExprData::Literal { lit } => {
             format!("Literal {{ lit: {} }}", lit)
         }

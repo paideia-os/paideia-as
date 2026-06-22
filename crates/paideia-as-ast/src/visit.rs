@@ -97,6 +97,8 @@ pub trait ExprVisitor {
     fn visit_expr_prefix(&mut self, _arena: &AstArena, _id: NodeId) {}
     /// Visit a Postfix expression.
     fn visit_expr_postfix(&mut self, _arena: &AstArena, _id: NodeId) {}
+    /// Visit a Cast expression (`expr as type`).
+    fn visit_expr_cast(&mut self, _arena: &AstArena, _id: NodeId) {}
     /// Visit a Literal expression.
     fn visit_expr_literal(&mut self, _arena: &AstArena, _id: NodeId) {}
     /// Visit a Path expression.
@@ -156,6 +158,7 @@ pub fn walk_expr<V: ExprVisitor>(visitor: &mut V, arena: &AstArena, id: NodeId) 
         NodeKind::ExprInfix => visitor.visit_expr_infix(arena, id),
         NodeKind::ExprPrefix => visitor.visit_expr_prefix(arena, id),
         NodeKind::ExprPostfix => visitor.visit_expr_postfix(arena, id),
+        NodeKind::ExprCast => visitor.visit_expr_cast(arena, id),
         NodeKind::ExprLiteral => visitor.visit_expr_literal(arena, id),
         NodeKind::ExprPath => visitor.visit_expr_path(arena, id),
         NodeKind::ExprCall => visitor.visit_expr_call(arena, id),
