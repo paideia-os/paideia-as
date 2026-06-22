@@ -17,6 +17,7 @@ use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Spa
 use paideia_as_lexer::TokenKind;
 
 use crate::parser::{ParseError, Parser};
+use crate::parse_control::BlockKind;
 
 impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// Parse a statement: let binding, return, expression, or instruction.
@@ -166,10 +167,26 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     }
 
     /// Parse an expression statement: `Expr ;?`
+    ///
+    /// When expression is a control structure (`if`, `while`, `loop`, `for`, `{`),
+    /// dispatch to statement-position parsing (BlockKind::Statement), allowing
+    /// trailing semicolons to be synthesized as unit literals.
     fn parse_expr_stmt(&mut self) -> Result<NodeId, ParseError> {
         let expr_start = self.peek().map(|tok| tok.span).ok_or(ParseError)?;
 
-        let expr = self.parse_expr()?;
+        // Check if expression is a statement-position control structure
+        let expr = if let Some(tok) = self.peek() {
+            match tok.kind {
+                TokenKind::KwIf => self.parse_if(BlockKind::Statement)?,
+                TokenKind::KwWhile | TokenKind::KwLoop | TokenKind::KwFor => {
+                    self.parse_loop_form()?
+                }
+                TokenKind::LBrace => self.parse_block_kind(BlockKind::Statement)?,
+                _ => self.parse_expr()?,
+            }
+        } else {
+            self.parse_expr()?
+        };
 
         // Consume optional `;`
         self.eat(TokenKind::Semicolon);

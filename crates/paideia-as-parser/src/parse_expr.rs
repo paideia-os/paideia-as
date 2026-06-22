@@ -9,6 +9,7 @@ use paideia_as_diagnostics::Span;
 use paideia_as_lexer::TokenKind;
 
 use crate::parser::{ParseError, Parser};
+use crate::parse_control::BlockKind;
 use crate::precedence::{infix_bp, postfix_bp, prefix_bp};
 
 impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
@@ -68,7 +69,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                     return self.parse_match();
                 }
                 paideia_as_lexer::TokenKind::KwIf => {
-                    return self.parse_if();
+                    return self.parse_if(BlockKind::Value);
                 }
                 paideia_as_lexer::TokenKind::KwLoop
                 | paideia_as_lexer::TokenKind::KwWhile
@@ -76,7 +77,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                     return self.parse_loop_form();
                 }
                 paideia_as_lexer::TokenKind::LBrace => {
-                    return self.parse_block();
+                    return self.parse_block_kind(BlockKind::Value);
                 }
                 paideia_as_lexer::TokenKind::Pipe => {
                     // Pipe-form lambda: |x, y| body

@@ -177,6 +177,11 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             return Err(ParseError);
         }
 
+        // NOTE (m3-003 carve-out): Handler body validation (P0158 on trailing `;`)
+        // is OUT OF SCOPE for m3-003. Handler blocks remain value-position only.
+        // If/loop bodies in statement position (parse_control.rs) will synthesize
+        // unit literals on trailing `;`, but handler bodies do not yet benefit from
+        // this relaxation. See design/toolchain/reserved-word-policy.md for context.
         if !stmts.is_empty() && tail.is_none() && finally_expr.is_none() {
             use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity};
             let code =
