@@ -96,7 +96,10 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         | Mnemonic::Int
         | Mnemonic::Nop
         | Mnemonic::RepStosq
-        | Mnemonic::FarJmp => InstructionClass::Other,
+        | Mnemonic::FarJmp
+        // Phase 8 m5-001: supervisor TLB and timing mnemonics
+        | Mnemonic::Invlpg
+        | Mnemonic::Rdtsc => InstructionClass::Other,
     }
 }
 

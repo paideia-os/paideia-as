@@ -140,6 +140,10 @@ pub enum Mnemonic {
     /// Bitwise XOR. Operands: dst, src.
     /// Phase 8 m1-001d: emits `xor r64, r64` or `xor r64, imm`.
     Xor,
+    /// Invalidate TLB entry. Phase 8 m5-001: emits `invlpg [mem]` (0F 01 /7).
+    Invlpg,
+    /// Read time-stamp counter. Phase 8 m5-001: emits `rdtsc` (0F 31), returns in RDX:RAX.
+    Rdtsc,
 }
 
 /// Integer operand width for width-threaded immediate moves.
@@ -353,7 +357,8 @@ impl Mnemonic {
             | Mnemonic::Iretq
             | Mnemonic::Sysret
             | Mnemonic::Syscall
-            | Mnemonic::RepStosq => 0,
+            | Mnemonic::RepStosq
+            | Mnemonic::Rdtsc => 0,
 
             // One-operand instructions
             Mnemonic::Call
@@ -369,7 +374,8 @@ impl Mnemonic {
             | Mnemonic::Out { .. }
             | Mnemonic::Int
             | Mnemonic::Not
-            | Mnemonic::FarJmp => 1,
+            | Mnemonic::FarJmp
+            | Mnemonic::Invlpg => 1,
 
             // Two-operand instructions
             Mnemonic::Mov
@@ -416,7 +422,11 @@ impl Mnemonic {
             Mnemonic::Hlt | Mnemonic::Cli | Mnemonic::Nop => 1,
 
             // Zero-arity system instructions, 2 bytes
-            Mnemonic::Cpuid | Mnemonic::Wrmsr | Mnemonic::Rdmsr | Mnemonic::Syscall => 2,
+            Mnemonic::Cpuid
+            | Mnemonic::Wrmsr
+            | Mnemonic::Rdmsr
+            | Mnemonic::Syscall
+            | Mnemonic::Rdtsc => 2,
 
             // One-arity I/O, 2 bytes
             Mnemonic::In { .. } | Mnemonic::Out { .. } => 2,
@@ -435,6 +445,9 @@ impl Mnemonic {
 
             // Privilege table loads: 7 bytes (REX + opcode + SIB + disp)
             Mnemonic::Lgdt | Mnemonic::Lidt => 7,
+
+            // TLB invalidate: 7 bytes (opcode + SIB + disp)
+            Mnemonic::Invlpg => 7,
 
             // String operations: 2 bytes (prefix + opcode)
             Mnemonic::RepMovsb => 2,

@@ -1433,6 +1433,59 @@ pub fn encode_far_jmp(buf: &mut CodeBuffer, base: Option<Reg64>, disp: i32) {
     }
 }
 
+/// Encode read timestamp counter instruction: `rdtsc` (no operands).
+///
+/// Reads the processor's time-stamp counter into RDX:RAX. Returns the current
+/// cycle count as a 64-bit value split between EDX (high 32 bits) and EAX (low 32 bits).
+///
+/// # Instructions
+/// - `rdtsc`: `0F 31` (2 bytes)
+///
+/// # Arguments
+/// - `buf`: code buffer to append instruction to
+pub fn encode_rdtsc(buf: &mut CodeBuffer) {
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0x31);
+}
+
+/// Encode invalidate TLB entry instruction: `invlpg [base + disp]`.
+///
+/// Invalidates a single entry in the TLB for the linear address specified.
+/// The operand is a memory address [base + disp].
+///
+/// # Instructions
+/// - `invlpg [base + disp]`: `0F 01 /7` (variable length depending on encoding)
+///
+/// # Arguments
+/// - `buf`: code buffer to append instructions to
+/// - `base_reg`: base register ID (0-15 for GPRs)
+/// - `disp`: displacement from base (-2^31..2^31-1)
+pub fn encode_invlpg(buf: &mut CodeBuffer, base_reg: Reg64, disp: i32) {
+    let base_id = base_reg as u8;
+
+    // Emit two-byte opcode
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0x01);
+
+    // Encode displacement and ModR/M byte using /7 digit in reg field
+    let reg_digit = 7u8;
+    if disp == 0 {
+        // Use mod=00, no displacement
+        let modrm = ((reg_digit & 7) << 3) | (base_id & 7);
+        buf.bytes.push(modrm);
+    } else if (-128..=127).contains(&disp) {
+        // Use mod=01, disp8
+        let modrm = 0x40 | ((reg_digit & 7) << 3) | (base_id & 7);
+        buf.bytes.push(modrm);
+        buf.bytes.push(disp as u8);
+    } else {
+        // Use mod=10, disp32
+        let modrm = 0x80 | ((reg_digit & 7) << 3) | (base_id & 7);
+        buf.bytes.push(modrm);
+        buf.bytes.extend(disp.to_le_bytes());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

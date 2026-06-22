@@ -130,6 +130,9 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     ("out_ax", Mnemonic::Out { width: 2 }),
     ("out_eax", Mnemonic::Out { width: 4 }),
     // Note: Int (software interrupt) uses int3 as canonical (see resolve_mnemonic)
+    // Phase 8 m5-001: Additional supervisor mnemonics
+    ("invlpg", Mnemonic::Invlpg),
+    ("rdtsc", Mnemonic::Rdtsc),
 ];
 
 /// Resolve a mnemonic name to an IR Mnemonic enum variant.
@@ -1750,6 +1753,30 @@ mod tests {
     #[test]
     fn resolve_mnemonic_unknown_empty() {
         assert_eq!(resolve_mnemonic(""), None);
+    }
+
+    // --- Phase 8 m5-001: Supervisor mnemonics ---
+
+    #[test]
+    fn resolve_mnemonic_invlpg() {
+        assert_eq!(resolve_mnemonic("invlpg"), Some(Mnemonic::Invlpg));
+    }
+
+    #[test]
+    fn resolve_mnemonic_invlpg_case_insensitive() {
+        assert_eq!(resolve_mnemonic("INVLPG"), Some(Mnemonic::Invlpg));
+        assert_eq!(resolve_mnemonic("Invlpg"), Some(Mnemonic::Invlpg));
+    }
+
+    #[test]
+    fn resolve_mnemonic_rdtsc() {
+        assert_eq!(resolve_mnemonic("rdtsc"), Some(Mnemonic::Rdtsc));
+    }
+
+    #[test]
+    fn resolve_mnemonic_rdtsc_case_insensitive() {
+        assert_eq!(resolve_mnemonic("RDTSC"), Some(Mnemonic::Rdtsc));
+        assert_eq!(resolve_mnemonic("Rdtsc"), Some(Mnemonic::Rdtsc));
     }
 
     // --- Phase 6 m3-005: Field access operand parsing tests ---

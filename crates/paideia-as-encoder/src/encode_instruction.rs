@@ -250,6 +250,9 @@ pub fn encode_instruction(
         Mnemonic::And => encode_and(inst, buf),
         Mnemonic::Or => encode_or(inst, buf),
         Mnemonic::Xor => encode_xor(inst, buf),
+        // Phase 8 m5-001: supervisor TLB and timing mnemonics
+        Mnemonic::Invlpg => encode_invlpg_inst(inst, buf),
+        Mnemonic::Rdtsc => encode_rdtsc_inst(inst, buf),
     }
 }
 
@@ -1487,6 +1490,52 @@ fn encode_far_jmp_inst(
         }
         _ => Err(EncodeError::OperandShape {
             mnemonic: Mnemonic::FarJmp,
+        }),
+    }
+}
+
+fn encode_rdtsc_inst(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+) -> Result<EncodeOutput, EncodeError> {
+    // rdtsc expects exactly 0 operands (implicitly reads time-stamp counter into RDX:RAX)
+    if !inst.operands.is_empty() {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::Rdtsc,
+            expected: 0,
+            got: inst.operands.len(),
+        });
+    }
+    encode_rdtsc(buf);
+    Ok(EncodeOutput::new())
+}
+
+fn encode_invlpg_inst(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+) -> Result<EncodeOutput, EncodeError> {
+    // invlpg expects exactly 1 operand: memory address
+    if inst.operands.len() != 1 {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::Invlpg,
+            expected: 1,
+            got: inst.operands.len(),
+        });
+    }
+
+    match &inst.operands[0] {
+        Operand::MemSib {
+            base,
+            index: None,
+            scale: Scale::X1,
+            disp,
+        } => {
+            // [base + disp] form
+            encode_invlpg(buf, reg64_from(*base)?, *disp);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Invlpg,
         }),
     }
 }
@@ -3775,5 +3824,116 @@ mod jcc_tests {
 
         // `mov ecx, 0x2a` → B8+1 2a 00 00 00 = B9 2A 00 00 00.
         assert_eq!(buf.as_slice(), &[0xB9, 0x2A, 0x00, 0x00, 0x00]);
+    }
+
+    // ── Phase 8 m5-001: supervisor TLB and timing mnemonics ─────────────────
+
+    #[test]
+    fn encode_rdtsc_zero_operands_emits_0f31() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Rdtsc,
+            operands: smallvec::smallvec![],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expect: 0F 31 (2 bytes)
+        assert_eq!(buf.as_slice(), &[0x0F, 0x31]);
+    }
+
+    #[test]
+    fn encode_rdtsc_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Rdtsc,
+            operands: smallvec::smallvec![],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0x0F, 0x31]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Rdtsc);
+    }
+
+    #[test]
+    fn encode_invlpg_mem_rdi_emits_0f017f() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Invlpg,
+            operands: smallvec::smallvec![Operand::MemSib {
+                base: RegId(7), // rdi
+                index: None,
+                scale: Scale::X1,
+                disp: 0,
+            }],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expect: 0F 01 /7 = 0F 01 3F (3 bytes)
+        // ModR/M: mod=00, reg=7, rm=7 (rdi) = 00_111_111 = 0x3F
+        assert_eq!(buf.as_slice(), &[0x0F, 0x01, 0x3F]);
+    }
+
+    #[test]
+    fn encode_invlpg_mem_rdi_plus_8_emits_0f01777f08() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Invlpg,
+            operands: smallvec::smallvec![Operand::MemSib {
+                base: RegId(7), // rdi
+                index: None,
+                scale: Scale::X1,
+                disp: 8,
+            }],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expect: 0F 01 /7 + disp8 = 0F 01 7F 08 (4 bytes)
+        // ModR/M: mod=01, reg=7, rm=7 (rdi) = 01_111_111 = 0x7F, disp=0x08
+        assert_eq!(buf.as_slice(), &[0x0F, 0x01, 0x7F, 0x08]);
+    }
+
+    #[test]
+    fn encode_invlpg_mem_rdi_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Invlpg,
+            operands: smallvec::smallvec![Operand::MemSib {
+                base: RegId(7), // rdi
+                index: None,
+                scale: Scale::X1,
+                disp: 0,
+            }],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0x0F, 0x01, 0x3F]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Invlpg);
     }
 }
