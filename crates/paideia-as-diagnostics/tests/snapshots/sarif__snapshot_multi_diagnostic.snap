@@ -888,6 +888,34 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "Phase 7 m1-004 (PA7-007): a match expression on an enum-like u32 value requires an exhaustive set of patterns. Since the code generation uses compare-and-jump dispatch, the default arm (_) is mandatory to handle all unmatched cases. Add a default arm with `_ => <expr>` to make the match exhaustive."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0522",
+              "id": "T0522",
+              "name": "Match expression is non-exhaustive",
+              "shortDescription": {
+                "text": "match expression must have a default arm for all unmatched patterns"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase 7 m1-004 (PA7-007): in a match expression, all arms (including the default) must produce values of the same type. If the first arm produces type T1 and a later arm produces type T2, the expression is ill-typed. Either unify the arm types by adding explicit conversions or restructure the match to ensure all paths have compatible types."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0523",
+              "id": "T0523",
+              "name": "Match arm type mismatch",
+              "shortDescription": {
+                "text": "all match arms must have the same type"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "A binding declared as Linear or Ordered in the substructural lattice must be used exactly once. This binding was never used. A Linear binding represents a unique resource that must be consumed; Ordered adds ordering constraints. Check that the binding is referenced exactly once in its scope."
               },
               "helpUri": "https://paideia-os.org/diagnostics/S0900",

@@ -1,0 +1,32 @@
+// Phase 7 m1-004 (PA7-007): Match expression lowering for enum-like u32 dispatch.
+// Tests basic match-on-integer patterns with compare-and-jump codegen.
+
+// Test 1: Simple match with single arm and default
+// Dispatches on u32 value to either specific case or default
+fn match_single(kind: u32) -> u64 {
+    match kind {
+        1 => 10
+        _ => 0
+    }
+}
+
+// Test 2: Match with two arms and default
+// Tests cmp-je-cmp-je-jmp-default dispatch sequence
+fn match_two_arms(kind: u32) -> u64 {
+    match kind {
+        1 => 100
+        2 => 200
+        _ => 0
+    }
+}
+
+// Test 3: Match with three arms and default
+// Tests longer cmp-je chain before default
+fn match_three_arms(kind: u32) -> u64 {
+    match kind {
+        1 => 1000
+        2 => 2000
+        3 => 3000
+        _ => 9999
+    }
+}

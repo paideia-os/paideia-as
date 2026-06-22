@@ -784,3 +784,21 @@ brief = "function argument type does not match expected type"
 description = "Phase 7 m1-003 (PA7-006): a function call argument has a type that does not match the expected parameter type. Ensure that all arguments to a function match their respective parameter types. Check type annotations in the function signature and verify that the argument values have compatible types."
 since = "0.11.0"
 deprecated = false
+
+[diagnostic.T0522]
+severity = "error"
+category = "type"
+title = "Match expression is non-exhaustive"
+brief = "match expression must have a default arm for all unmatched patterns"
+description = "Phase 7 m1-004 (PA7-007): a match expression on an enum-like u32 value requires an exhaustive set of patterns. Since the code generation uses compare-and-jump dispatch, the default arm (_) is mandatory to handle all unmatched cases. Add a default arm with `_ => <expr>` to make the match exhaustive."
+since = "0.11.0"
+deprecated = false
+
+[diagnostic.T0523]
+severity = "error"
+category = "type"
+title = "Match arm type mismatch"
+brief = "all match arms must have the same type"
+description = "Phase 7 m1-004 (PA7-007): in a match expression, all arms (including the default) must produce values of the same type. If the first arm produces type T1 and a later arm produces type T2, the expression is ill-typed. Either unify the arm types by adding explicit conversions or restructure the match to ensure all paths have compatible types."
+since = "0.11.0"
+deprecated = false
