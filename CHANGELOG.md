@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.7.0 — Phase 7 completion (elaborator/encoder surface for PaideiaOS Phase-2)
+
+**Released:** Tag pushed at m6-004 closure (v0.7.0 release).
+
+paideia-as PA7-completion round closes 20 issues across 6 milestones (m1–m6). Scope: implement missing elaborator/encoder surface to accept real PaideiaOS kernel code (checkpoint 1 unquarantine) and prepare for checkpoint 2 (capability/IPC/scheduling structures).
+
+### Milestones
+
+- **m1 — symbol export + PLT32** — unsafe_exported_fn IR node; PLT32 relocation off-by-one fix; symbol export parser/encoder closure. Enables PaideiaOS checkpoint 1 boot-layer unquarantine (4 G2-blocked files).
+- **m2 — operand resolution** — unsafe-body IR lowering; Let-literal scratch binding; Operand::Var structural resolution; PaideiaOS R1.5/R2.5 four-file rebuild regression suite.
+- **m3 — parser quality** — free `handle` identifier; optional arrow in fn-literals; unit-typed block trailing `;` support.
+- **m4 — expression surface** — bitwise NOT prefix operator; EXPR as TYPE cast syntax; width-threaded integer literals; iced-x86 cast/arith round-trip witness.
+- **m5 — l-value assignment** — pointer-deref l-values (`*p = expr`); field l-values (`(*p).f = expr`) via chained Deref IR.
+- **m6 — round closure** — PaideiaOS boot_orchestration_v2 integration smoke test; PA7-completion verification script; phase-transition-7.md retrospective; v0.7.0 tag + submodule bump.
+
+### Highlights
+
+- **2760+ workspace tests** (+109 from v0.6.0 at 2651, +4.1%).
+- **Checkpoint 1 unquarantined**: 4 PaideiaOS G2-blocked files now build cleanly.
+- **Elaborator/encoder milestones complete**: symbol export, unsafe blocks, operand binding, l-value assignment all realized.
+- **Checkpoint 2 awaiting**: 9 PaideiaOS capability/IPC/scheduler files remain quarantined; require unit-block-expr and module-level-const elaboration (Phase 8).
+- 7 new diagnostic codes: P0158, T0527, P0101.
+- Integration with PaideiaOS stabilized via tools/paideia-as submodule pin + smoke test gate.
+
+### Operational deferrals (Phase 8+ carryover)
+
+- **G11–G15**: Supervisor mnemonics, memory operand general form, array initializers, string literals, Multiboot2 ELF Note generation. Documented in design/DESIGN.md roadmap.
+- **Checkpoint 2 elaboration**: Unit-typed blocks with if-statement-as-final-expression (emit_block_body Branch handling); module-level constant syntax/elaboration.
+
 ## v0.6.0 — Phase 6 (build-emit surface expansion + self-hosting groundwork)
 
 **Released:** Tag pushed at m7-003 closure (this PR).
