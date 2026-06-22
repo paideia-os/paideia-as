@@ -40,7 +40,7 @@ use paideia_as_ast::{AstArena, ExprData, NodeId, NodeKind, StmtData};
 use paideia_as_diagnostics::{
     Category, Diagnostic, DiagnosticCode, DiagnosticSink, Severity, Span,
 };
-use paideia_as_ir::instruction::{Cond, Instruction, Mnemonic, Operand, RegId, Scale};
+use paideia_as_ir::instruction::{Cond, Instruction, IntWidth, Mnemonic, Operand, RegId, Scale};
 use paideia_as_ir::record_layout::{RecordLayout, RecordTypeId};
 use paideia_as_ir::{IrArena, IrNodeId, SmallVec};
 use std::collections::HashMap;
@@ -852,6 +852,44 @@ fn register_name_to_regid(name: &str) -> Option<RegId> {
     }
 }
 
+/// Map a GPR register name to the operand width its spelling implies.
+///
+/// PA8 m3-003 (#827): `register_name_to_regid` collapses every sub-register
+/// spelling onto its 64-bit `RegId`, so the destination width of a
+/// width-distinguishing `mov` (`mov al, …` vs `mov eax, …`) is lost by the
+/// time operands reach the encoder. This helper recovers that width from the
+/// register *name* alone, before the collapse, so a `mov reg, imm` site can be
+/// retargeted to the width-aware `Mnemonic::MovSized` encoder path.
+///
+/// Returns:
+/// - `W8`  for the 8-bit GPR low bytes (`al`–`bl`).
+/// - `W16` for the 16-bit GPRs (`ax`–`di`).
+/// - `W32` for the 32-bit GPRs (`eax`–`edi`, `r8d`–`r15d`).
+/// - `W64` for the 64-bit GPRs (`rax`–`r15`).
+///
+/// Non-GPR names (control/debug registers) and unknown names return `None`;
+/// callers treat that as "no width retarget" and keep the generic `mov` path.
+#[must_use]
+fn register_name_width(name: &str) -> Option<IntWidth> {
+    match name {
+        // 64-bit GPRs.
+        "rax" | "rcx" | "rdx" | "rbx" | "rsp" | "rbp" | "rsi" | "rdi" | "r8" | "r9" | "r10"
+        | "r11" | "r12" | "r13" | "r14" | "r15" => Some(IntWidth::W64),
+
+        // 32-bit sub-registers.
+        "eax" | "ecx" | "edx" | "ebx" | "esp" | "ebp" | "esi" | "edi" | "r8d" | "r9d" | "r10d"
+        | "r11d" | "r12d" | "r13d" | "r14d" | "r15d" => Some(IntWidth::W32),
+
+        // 16-bit sub-registers.
+        "ax" | "cx" | "dx" | "bx" | "sp" | "bp" | "si" | "di" => Some(IntWidth::W16),
+
+        // 8-bit sub-registers (only al–bl currently spell-able).
+        "al" | "cl" | "dl" | "bl" => Some(IntWidth::W8),
+
+        _ => None,
+    }
+}
+
 /// Diagnostic code for unknown mnemonic (U1605).
 pub const U_UNKNOWN_MNEMONIC: u16 = 1605;
 
@@ -1229,6 +1267,35 @@ impl UnsafeWalker {
         // Use IrKind::Placeholder as a generic container for the instruction side-table entry.
         let ir_node_id = arena.alloc(paideia_as_ir::IrKind::Placeholder, stmt_span);
 
+        // PA8 m3-003 (#827): width-aware `mov reg, imm` retarget.
+        //
+        // `register_name_to_regid` collapses sub-register spellings onto their
+        // 64-bit `RegId`, so `mov al, 5` and `mov eax, 5` and `mov rax, 5` reach
+        // the encoder as the same width-agnostic `Mnemonic::Mov`. The encoder's
+        // generic `mov reg, imm` path always emits the 10-byte 64-bit form. Here
+        // we recover the destination width from the register *name* (before the
+        // collapse) and retarget to `Mnemonic::MovSized { width }`, whose encoder
+        // path already emits the narrow `B0+rb imm8` / `B8+rd imm32` forms.
+        //
+        // SHIP MINIMUM: only the r8 (W8) and r32 (W32) immediate forms are wired
+        // here. r16 (`66 B8 imm16`) and the r64 imm32/imm64 forms are a documented
+        // follow-up — the generic `mov` path keeps handling r64 (its existing
+        // `48 B8 imm64` behaviour is preserved), and r16 falls through unchanged.
+        let mnemonic = if matches!(mnemonic, Mnemonic::Mov)
+            && matches!(
+                parsed_operands.as_slice(),
+                [Operand::Reg(_), Operand::Imm64(_)]
+            ) {
+            operand_ids
+                .first()
+                .and_then(|&dst_id| get_register_name(ast, dst_id, source_map))
+                .and_then(|name| register_name_width(&name))
+                .filter(|w| matches!(w, IntWidth::W8 | IntWidth::W32))
+                .map_or(mnemonic, |width| Mnemonic::MovSized { width })
+        } else {
+            mnemonic
+        };
+
         let inst = Instruction {
             mnemonic,
             operands: parsed_operands,
@@ -1310,6 +1377,28 @@ mod tests {
             let expected = RegId((25 + i) as u8);
             assert_eq!(register_name_to_regid(&name), Some(expected));
         }
+    }
+
+    // ── PA8 m3-003 (#827): register-name width recovery ───────────────────
+
+    #[test]
+    fn register_name_width_recovers_operand_width_from_spelling() {
+        // 8-bit low bytes.
+        assert_eq!(register_name_width("al"), Some(IntWidth::W8));
+        assert_eq!(register_name_width("bl"), Some(IntWidth::W8));
+        // 16-bit.
+        assert_eq!(register_name_width("ax"), Some(IntWidth::W16));
+        assert_eq!(register_name_width("di"), Some(IntWidth::W16));
+        // 32-bit, both legacy and r8d–r15d spellings.
+        assert_eq!(register_name_width("eax"), Some(IntWidth::W32));
+        assert_eq!(register_name_width("r10d"), Some(IntWidth::W32));
+        // 64-bit.
+        assert_eq!(register_name_width("rax"), Some(IntWidth::W64));
+        assert_eq!(register_name_width("r15"), Some(IntWidth::W64));
+        // Non-GPR and unknown names carry no width.
+        assert_eq!(register_name_width("cr0"), None);
+        assert_eq!(register_name_width("dr7"), None);
+        assert_eq!(register_name_width("xax"), None);
     }
 
     // Placeholder unit tests for operand parsing (require full AST construction)

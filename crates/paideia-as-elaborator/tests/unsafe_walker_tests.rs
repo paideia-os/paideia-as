@@ -6,6 +6,7 @@ use paideia_as_ast::{AstArena, ExprData, NodeKind, StmtData};
 use paideia_as_diagnostics::{SourceMap, Span, VecSink};
 use paideia_as_elaborator::{LocalBindingTable, unsafe_walker::UnsafeWalker};
 use paideia_as_ir::IrArena;
+use paideia_as_ir::instruction::{IntWidth, Mnemonic};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -15,6 +16,136 @@ mod unsafe_walker;
 /// Helper to create a test span.
 fn test_span() -> Span {
     Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 0, 1)
+}
+
+/// PA8 m3-003 (#827): drive `mov <reg>, 0` through the unsafe walker against
+/// real source text and return the resulting Instruction's mnemonic.
+///
+/// The register name is read back from the source span by `get_register_name`,
+/// so the source layout must place `reg_name` immediately after `"mov "`. The
+/// immediate is the literal `0` (the elaborator's `extract_integer_from_span`
+/// placeholder), which is sufficient: this harness verifies the *mnemonic
+/// retarget*, not the immediate value.
+fn mov_reg_imm_mnemonic(reg_name: &str) -> Mnemonic {
+    let source = format!("mov {reg_name}, 0");
+    // `reg` occupies bytes [4, 4 + reg_name.len()) in `source`.
+    let reg_start = 4u32;
+    let reg_len = reg_name.len() as u32;
+
+    let mut ast = AstArena::new();
+    let mut ir = IrArena::new();
+
+    let file_id = paideia_as_diagnostics::FileId::new(1).unwrap();
+    let stmt_span = test_span();
+    let reg_span = Span::new(file_id, reg_start, reg_len);
+
+    let justification = ast.alloc(NodeKind::ExprString, stmt_span);
+
+    // Destination register operand: OperandRegister wrapping an Ident whose
+    // span points at `reg_name` in the source.
+    let reg_ident = ast.alloc(NodeKind::Ident, reg_span);
+    let reg_operand = ast.alloc_expr(
+        NodeKind::OperandRegister,
+        reg_span,
+        ExprData::OperandRegister { reg: reg_ident },
+    );
+
+    // Immediate operand `0`: ExprLiteral wrapping a placeholder literal node.
+    let lit_placeholder = ast.alloc(NodeKind::Placeholder, stmt_span);
+    let imm_operand = ast.alloc_expr(
+        NodeKind::ExprLiteral,
+        stmt_span,
+        ExprData::Literal {
+            lit: lit_placeholder,
+        },
+    );
+
+    let mnemonic_id = ast.intern_mnemonic("mov");
+    let inst_stmt = ast.alloc_stmt(
+        NodeKind::StmtInstruction,
+        stmt_span,
+        StmtData::Instruction {
+            mnemonic: mnemonic_id,
+            operands: vec![reg_operand, imm_operand],
+        },
+    );
+
+    let _unsafe_expr = ast.alloc_expr(
+        NodeKind::ExprUnsafe,
+        stmt_span,
+        ExprData::Unsafe {
+            effects: vec![],
+            capabilities: vec![],
+            justification,
+            block: vec![inst_stmt],
+        },
+    );
+
+    let ir_unsafe = ir.alloc(paideia_as_ir::IrKind::Unsafe, stmt_span);
+
+    let mut source_map = SourceMap::new();
+    let _ = source_map.add_file(PathBuf::from("test.pdx"), source);
+
+    let mut sink = VecSink::new();
+    let record_layouts = HashMap::new();
+    let local_bindings = LocalBindingTable::new();
+    let _diags = UnsafeWalker::run(
+        &mut ir,
+        &ast,
+        vec![ir_unsafe.get()],
+        &source_map,
+        &mut sink,
+        &record_layouts,
+        &local_bindings,
+    );
+
+    assert_eq!(
+        ir.instructions().len(),
+        1,
+        "expected exactly one instruction for `mov {reg_name}, 0`"
+    );
+    ir.instructions()
+        .entries()
+        .values()
+        .next()
+        .expect("instruction present")
+        .mnemonic
+}
+
+/// `mov al, 0` retargets to the width-aware r8 immediate move.
+#[test]
+fn mov_r8_imm_retargets_to_movsized_w8() {
+    assert_eq!(
+        mov_reg_imm_mnemonic("al"),
+        Mnemonic::MovSized {
+            width: IntWidth::W8
+        }
+    );
+}
+
+/// `mov eax, 0` retargets to the width-aware r32 immediate move.
+#[test]
+fn mov_r32_imm_retargets_to_movsized_w32() {
+    assert_eq!(
+        mov_reg_imm_mnemonic("eax"),
+        Mnemonic::MovSized {
+            width: IntWidth::W32
+        }
+    );
+}
+
+/// `mov rax, 0` stays the generic 64-bit `Mov` (r64 imm path is the documented
+/// follow-up, not part of the #827 ship-minimum retarget).
+#[test]
+fn mov_r64_imm_stays_generic_mov() {
+    assert_eq!(mov_reg_imm_mnemonic("rax"), Mnemonic::Mov);
+}
+
+/// `mov ax, 0` (r16) is intentionally NOT retargeted in the ship-minimum: the
+/// `66 B8 imm16` form is deferred follow-up, so it stays generic `Mov`.
+#[test]
+fn mov_r16_imm_stays_generic_mov_deferred() {
+    assert_eq!(mov_reg_imm_mnemonic("ax"), Mnemonic::Mov);
 }
 
 /// Test 1: `lgdt [rdi]` produces one Instruction with Mnemonic::Lgdt and one MemSib operand.

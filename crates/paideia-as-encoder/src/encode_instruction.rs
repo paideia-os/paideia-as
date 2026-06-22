@@ -3728,4 +3728,52 @@ mod jcc_tests {
         assert_eq!(fixup.addend, 0);
         assert_eq!(fixup.instruction_size, 5);
     }
+
+    // ── PA8 m3-003 (#827): width-aware mov reg, imm via MovSized ─────────
+    //
+    // The elaborator retargets `mov al, imm` → MovSized{W8} and
+    // `mov eax, imm` → MovSized{W32} (see unsafe_walker::register_name_width).
+    // These two tests pin the encoded bytes the retarget produces, so the
+    // narrow r8/r32 immediate forms can never silently regress to the generic
+    // 10-byte 64-bit move.
+
+    // mov al/cl, imm8 → B0+rb imm8 (2 bytes, no REX.W).
+    #[test]
+    fn movsized_w8_reg_imm_emits_b0_plus_rb_imm8() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::MovSized {
+                width: IntWidth::W8,
+            },
+            // RegId(1) = rcx, so the 8-bit low byte is `cl`.
+            operands: smallvec::smallvec![Operand::Reg(RegId(1)), Operand::Imm64(0x2a)],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // `mov cl, 0x2a` → B0+1 2a = B1 2A.
+        assert_eq!(buf.as_slice(), &[0xB1, 0x2A]);
+    }
+
+    // mov eax/ecx, imm32 → B8+rd imm32 (5 bytes, no REX.W, implicit zero-extend).
+    #[test]
+    fn movsized_w32_reg_imm_emits_b8_plus_rd_imm32() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::MovSized {
+                width: IntWidth::W32,
+            },
+            // RegId(1) = rcx, so the 32-bit sub-register is `ecx`.
+            operands: smallvec::smallvec![Operand::Reg(RegId(1)), Operand::Imm64(0x2a)],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // `mov ecx, 0x2a` → B8+1 2a 00 00 00 = B9 2A 00 00 00.
+        assert_eq!(buf.as_slice(), &[0xB9, 0x2A, 0x00, 0x00, 0x00]);
+    }
 }
