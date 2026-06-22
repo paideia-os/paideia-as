@@ -560,8 +560,11 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                                     for &elem_id in array_children.iter() {
                                         if let Some(elem_node) = lowering.ir.get(elem_id) {
                                             if elem_node.kind == paideia_as_ir::IrKind::Literal {
-                                                if let Some(value) = lowering.ir.literal_values().get(elem_id) {
-                                                    let elem_bytes = EmitWalker::pack_u64_le_public(value);
+                                                if let Some(value) =
+                                                    lowering.ir.literal_values().get(elem_id)
+                                                {
+                                                    let elem_bytes =
+                                                        EmitWalker::pack_u64_le_public(value);
                                                     packed_bytes.extend(elem_bytes);
                                                     element_count += 1;
                                                 }
@@ -1547,8 +1550,11 @@ mod tests {
         arena.literal_values_mut().insert(elem2_id, 3);
 
         // Create ArrayLit with 3 element children
-        let array_lit_id =
-            arena.alloc_with_children(paideia_as_ir::IrKind::ArrayLit, span, [elem0_id, elem1_id, elem2_id]);
+        let array_lit_id = arena.alloc_with_children(
+            paideia_as_ir::IrKind::ArrayLit,
+            span,
+            [elem0_id, elem1_id, elem2_id],
+        );
 
         // Create Let with ArrayLit as RHS
         let let_id = arena.alloc_with_children(paideia_as_ir::IrKind::Let, span, [array_lit_id]);
@@ -1570,7 +1576,11 @@ mod tests {
 
         if let Some(entry) = data_entry {
             // Verify packed bytes: 3 u64 elements (1, 2, 3) in LE.
-            assert_eq!(entry.bytes.len(), 24, "array should have 24 bytes (3 u64 elements)");
+            assert_eq!(
+                entry.bytes.len(),
+                24,
+                "array should have 24 bytes (3 u64 elements)"
+            );
             assert_eq!(entry.section, paideia_as_ir::data::SectionKind::Rodata);
             assert_eq!(entry.symbol_name, "data_array");
             assert_eq!(entry.align, 8);
@@ -1578,24 +1588,42 @@ mod tests {
             // Verify first element is 1 in LE
             let elem0_bytes = &entry.bytes[0..8];
             let elem0_val = u64::from_le_bytes([
-                elem0_bytes[0], elem0_bytes[1], elem0_bytes[2], elem0_bytes[3],
-                elem0_bytes[4], elem0_bytes[5], elem0_bytes[6], elem0_bytes[7],
+                elem0_bytes[0],
+                elem0_bytes[1],
+                elem0_bytes[2],
+                elem0_bytes[3],
+                elem0_bytes[4],
+                elem0_bytes[5],
+                elem0_bytes[6],
+                elem0_bytes[7],
             ]);
             assert_eq!(elem0_val, 1);
 
             // Verify second element is 2 in LE
             let elem1_bytes = &entry.bytes[8..16];
             let elem1_val = u64::from_le_bytes([
-                elem1_bytes[0], elem1_bytes[1], elem1_bytes[2], elem1_bytes[3],
-                elem1_bytes[4], elem1_bytes[5], elem1_bytes[6], elem1_bytes[7],
+                elem1_bytes[0],
+                elem1_bytes[1],
+                elem1_bytes[2],
+                elem1_bytes[3],
+                elem1_bytes[4],
+                elem1_bytes[5],
+                elem1_bytes[6],
+                elem1_bytes[7],
             ]);
             assert_eq!(elem1_val, 2);
 
             // Verify third element is 3 in LE
             let elem2_bytes = &entry.bytes[16..24];
             let elem2_val = u64::from_le_bytes([
-                elem2_bytes[0], elem2_bytes[1], elem2_bytes[2], elem2_bytes[3],
-                elem2_bytes[4], elem2_bytes[5], elem2_bytes[6], elem2_bytes[7],
+                elem2_bytes[0],
+                elem2_bytes[1],
+                elem2_bytes[2],
+                elem2_bytes[3],
+                elem2_bytes[4],
+                elem2_bytes[5],
+                elem2_bytes[6],
+                elem2_bytes[7],
             ]);
             assert_eq!(elem2_val, 3);
         }

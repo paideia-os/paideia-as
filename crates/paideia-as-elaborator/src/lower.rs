@@ -306,6 +306,14 @@ pub fn lower_ast_to_ir(ast: &AstArena) -> LoweringResult {
                     // ArrayLit: all element expressions as children
                     elements.clone()
                 }
+                ExprData::RecordCons { type_name, fields } => {
+                    // RecordCons: type_name + all field values as children
+                    let mut children = vec![*type_name];
+                    for (_field_name, field_value) in fields {
+                        children.push(*field_value);
+                    }
+                    children
+                }
                 // TODO: Add Path, Ident, and other expression types as needed
                 // _ => Vec::new(),
                 _ => Vec::new(),
@@ -437,6 +445,11 @@ fn map_node_kind(kind: NodeKind) -> IrKind {
         // Array literal (Phase 8 m2-002): sequence of element expressions.
         // cmd_build walks children, packs to bytes per element width.
         NodeKind::ExprArrayLit => IrKind::ArrayLit,
+
+        // Record constructor (Phase 8 m2-003): instantiates a record type with field values.
+        // At module level, populate_data_table walks fields and encodes to DataEntry.
+        // At runtime, emit_walker lowering dispatches per context.
+        NodeKind::ExprRecordCons => IrKind::RecordCons,
 
         // Let bindings
         NodeKind::StmtLet | NodeKind::Let => IrKind::Let,
@@ -1075,11 +1088,8 @@ mod tests {
         let mut ast = AstArena::new();
 
         // Allocate ExprArrayLit: []
-        let array_lit_id = ast.alloc_expr(
-            NodeKind::ExprArrayLit,
-            span(),
-            ExprData::ArrayLit(vec![]),
-        );
+        let array_lit_id =
+            ast.alloc_expr(NodeKind::ExprArrayLit, span(), ExprData::ArrayLit(vec![]));
 
         // Lower the AST.
         let result = lower_ast_to_ir(&ast);
@@ -1092,10 +1102,6 @@ mod tests {
         assert_eq!(result.ir[ir_array_id].kind, IrKind::ArrayLit);
 
         let children = result.ir.children(ir_array_id);
-        assert_eq!(
-            children.len(),
-            0,
-            "Empty ArrayLit should have no children"
-        );
+        assert_eq!(children.len(), 0, "Empty ArrayLit should have no children");
     }
 }

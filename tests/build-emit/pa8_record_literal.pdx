@@ -1,0 +1,11 @@
+// Phase 8 m2-003 test: basic record literal at module level.
+
+module Pa8RecordLiteral = structure {
+  struct Pair {
+    x: u64,
+    y: u64
+  }
+
+  // Module-level record literal with two u64 fields
+  let pair_data : Pair = Pair { x: 42, y: 100 }
+}

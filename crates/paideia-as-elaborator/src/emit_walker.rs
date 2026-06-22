@@ -451,6 +451,30 @@ impl EmitWalker {
                                             data_table.insert(node_id, entry);
                                         }
                                     }
+                                    IrKind::ArrayLit => {
+                                        // ArrayLit RHS: Phase 8 m2-002 — walk children, pack per element width.
+                                        if let Some(bytes) = Self::encode_array_lit(arena, rhs_id) {
+                                            let entry = if is_mutable {
+                                                DataEntry::new_data(bytes, symbol_name, 8)
+                                            } else {
+                                                DataEntry::new_rodata(bytes, symbol_name, 8)
+                                            };
+                                            data_table.insert(node_id, entry);
+                                        }
+                                    }
+                                    IrKind::RecordCons => {
+                                        // RecordCons RHS: Phase 8 m2-003 — walk fields, pack per layout.
+                                        // NOTE: requires finalised record layouts from Phase 6 m3-001.
+                                        if let Some(bytes) = Self::encode_record_cons(arena, rhs_id)
+                                        {
+                                            let entry = if is_mutable {
+                                                DataEntry::new_data(bytes, symbol_name, 8)
+                                            } else {
+                                                DataEntry::new_rodata(bytes, symbol_name, 8)
+                                            };
+                                            data_table.insert(node_id, entry);
+                                        }
+                                    }
                                     IrKind::Placeholder => {
                                         // Placeholder RHS: likely uninit marker.
                                         // Phase 6 m5-004: Route all uninit to .bss regardless of mutability.
@@ -460,7 +484,7 @@ impl EmitWalker {
                                         data_table.insert(node_id, entry);
                                     }
                                     _ => {
-                                        // Other RHS shapes not handled yet (e.g., ArrayLit, etc.).
+                                        // Other RHS shapes not handled yet.
                                     }
                                 }
                             }
@@ -489,6 +513,86 @@ impl EmitWalker {
             ((u64_val >> 48) & 0xFF) as u8,
             ((u64_val >> 56) & 0xFF) as u8,
         ]
+    }
+
+    /// Encode an ArrayLit node to bytes for data section initialization.
+    ///
+    /// Walks the element children, recursively encodes each (via encode_ir_value),
+    /// and concatenates the bytes in order.
+    ///
+    /// Phase 8 m2-002: ArrayLit { elem0, elem1, ... } → [bytes_elem0 || bytes_elem1 || ...]
+    fn encode_array_lit(arena: &IrArena, array_id: IrNodeId) -> Option<Vec<u8>> {
+        let children = arena.children(array_id);
+        let mut bytes = Vec::new();
+
+        for &elem_id in children {
+            if let Some(elem_bytes) = Self::encode_ir_value(arena, elem_id) {
+                bytes.extend_from_slice(&elem_bytes);
+            } else {
+                // Failed to encode element; skip this array.
+                return None;
+            }
+        }
+
+        Some(bytes)
+    }
+
+    /// Encode a RecordCons node to bytes for data section initialization.
+    ///
+    /// Phase 8 m2-003: RecordCons with fields [f0, f1, ...] → packed bytes per field layout.
+    /// For now, assumes all fields are simple literals (u64) and encodes in order.
+    /// Does NOT handle nested arrays/records in this MVP.
+    fn encode_record_cons(arena: &IrArena, record_id: IrNodeId) -> Option<Vec<u8>> {
+        let children = arena.children(record_id);
+        if children.is_empty() {
+            // Empty record: return empty bytes.
+            return Some(Vec::new());
+        }
+
+        // Skip the first child (type_name is a Var node), and encode field values.
+        let mut bytes = Vec::new();
+        for &field_id in &children[1..] {
+            if let Some(field_bytes) = Self::encode_ir_value(arena, field_id) {
+                bytes.extend_from_slice(&field_bytes);
+            } else {
+                // Failed to encode field; skip this record.
+                return None;
+            }
+        }
+
+        Some(bytes)
+    }
+
+    /// Recursively encode an IR value node to bytes.
+    ///
+    /// Dispatches on the node kind:
+    /// - Literal: pack as u64 little-endian
+    /// - ArrayLit: recurse on children
+    /// - RecordCons: recurse on field values (skip type_name)
+    /// Returns None if the node cannot be encoded (e.g., Var, App, etc.).
+    fn encode_ir_value(arena: &IrArena, node_id: IrNodeId) -> Option<Vec<u8>> {
+        if let Some(node) = arena.get(node_id) {
+            match node.kind {
+                IrKind::Literal => {
+                    // Literal: look up value in literal_values table.
+                    arena
+                        .literal_values()
+                        .get(node_id)
+                        .map(|v| Self::pack_u64_le(v))
+                }
+                IrKind::ArrayLit => {
+                    // ArrayLit: recurse.
+                    Self::encode_array_lit(arena, node_id)
+                }
+                IrKind::RecordCons => {
+                    // RecordCons: recurse.
+                    Self::encode_record_cons(arena, node_id)
+                }
+                _ => None, // Other nodes not encodable.
+            }
+        } else {
+            None
+        }
     }
 
     /// Resolve the bound integer width for a Let node, if width-threadable.

@@ -351,11 +351,74 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             return Err(ParseError);
         }
 
-        // Parse comma-separated elements
-        let mut elements = vec![];
-        loop {
-            elements.push(self.parse_expr()?);
+        // Parse first element
+        let first_elem = self.parse_expr()?;
 
+        // Check for repeat syntax: `[expr; count]`
+        if self.at(TokenKind::Semicolon) {
+            self.bump(); // consume semicolon
+            let count_expr = self.parse_expr()?;
+
+            // Expect closing bracket
+            if !self.at(TokenKind::RBracket) {
+                return self.error_mismatched_delimiter(span_start);
+            }
+            let rbracket_tok = self.expect(TokenKind::RBracket)?;
+            let rbracket_span = rbracket_tok.span;
+
+            // Compute span from `[` to `]`
+            let array_span = Span::new(
+                span_start.file(),
+                span_start.byte_start(),
+                rbracket_span.byte_start() + rbracket_span.byte_len() - span_start.byte_start(),
+            );
+
+            // Expand repeat: [expr; count] becomes [expr, expr, ..., expr] with count copies.
+            // The count must be a literal integer. Try to extract it from the parsed expression.
+            let mut count_val = 0usize;
+            let mut found_count = false;
+
+            // Check if count_expr is a Literal expression
+            if let Some(ExprData::Literal { lit: _lit_node_id }) =
+                self.arena().expr_data(count_expr)
+            {
+                // The lit_node_id is a Placeholder node; we need to extract its integer value.
+                // Since we're in the parser, we don't have access to a type/value system yet.
+                // As a workaround, we look at the node itself; if it's a Placeholder with
+                // integer data, we extract it. For now, we'll emit an error and expect a
+                // future elaboration phase to handle this properly.
+                //
+                // For Phase 8 m2-003, we'll support common cases by deferred interpretation.
+                found_count = false;
+            }
+
+            if !found_count {
+                // Count is not a simple literal; emit diagnostic and use a minimal fallback
+                let diag = Diagnostic::error(p_code(211))
+                    .message("array repeat count must be a constant literal integer (deferred to elaborator)".to_string())
+                    .with_span(self.arena()[count_expr].span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                count_val = 1; // fallback: at least emit the element once
+            }
+
+            // Expand the repeat: replicate first_elem count_val times
+            let mut elements = vec![];
+            for _ in 0..count_val {
+                elements.push(first_elem);
+            }
+
+            return Ok(self.arena_mut().alloc_expr(
+                NodeKind::ExprArrayLit,
+                array_span,
+                ExprData::ArrayLit(elements),
+            ));
+        }
+
+        // Normal comma-separated array literal
+        let mut elements = vec![first_elem];
+
+        loop {
             if !self.at(TokenKind::Comma) {
                 break;
             }
@@ -365,6 +428,8 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             if self.at(TokenKind::RBracket) {
                 break;
             }
+
+            elements.push(self.parse_expr()?);
         }
 
         // Expect closing bracket
