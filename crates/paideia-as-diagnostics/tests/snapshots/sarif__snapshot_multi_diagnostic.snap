@@ -1388,6 +1388,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
             },
             {
               "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase 7 m1-002: when emitting the ELF symbol table, one or more symbols violated layout invariants: (a) a symbol's range [st_value, st_value + st_size) exceeded its section's bounds, or (b) two symbols share the same name. Symbol names must be unique, and each symbol must fit within its containing section. This usually indicates a bug in the encoder or elaborator."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/B1703",
+              "id": "B1703",
+              "name": "Symbol layout invalid",
+              "shortDescription": {
+                "text": "symbol layout invalid (duplicate names or out-of-bounds ranges)"
+              }
+            },
+            {
+              "defaultConfiguration": {
                 "level": "warning"
               },
               "fullDescription": {
