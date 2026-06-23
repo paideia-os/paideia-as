@@ -703,13 +703,13 @@ fn test_lgdt_rip_relative_symbol() {
     //   - "target" at 12-18
     //   - "]" at 18
     let source = "lgdt [rip + target]";
-    
+
     let mut ast = AstArena::new();
     let mut ir = IrArena::new();
 
     let file_id = paideia_as_diagnostics::FileId::new(1).unwrap();
     let stmt_span = test_span();
-    
+
     let justification = ast.alloc(NodeKind::ExprString, stmt_span);
 
     // Build the AST for [rip + target]:
@@ -784,7 +784,11 @@ fn test_lgdt_rip_relative_symbol() {
     );
 
     // Verify the instruction was elaborated
-    assert_eq!(ir.instructions().len(), 1, "expected exactly one instruction");
+    assert_eq!(
+        ir.instructions().len(),
+        1,
+        "expected exactly one instruction"
+    );
 
     let instruction = ir
         .instructions()
@@ -794,7 +798,11 @@ fn test_lgdt_rip_relative_symbol() {
         .expect("instruction present");
 
     // Verify the mnemonic is Lgdt
-    assert_eq!(instruction.mnemonic, Mnemonic::Lgdt, "expected Lgdt mnemonic");
+    assert_eq!(
+        instruction.mnemonic,
+        Mnemonic::Lgdt,
+        "expected Lgdt mnemonic"
+    );
 
     // Verify the operand is SymbolRef { name: "target", addend: 0 }
     assert_eq!(

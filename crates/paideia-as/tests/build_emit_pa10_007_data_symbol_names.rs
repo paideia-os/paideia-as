@@ -11,8 +11,7 @@ use std::process::Command;
 use tempfile::TempDir;
 
 fn fixture_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/build-emit/pa10_007")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/build-emit/pa10_007")
 }
 
 /// Compile a PDX file to an ELF object file.
@@ -26,10 +25,7 @@ fn compile_pdx_to_elf(pdx_file: &str, output_file: &str) -> Result<(), String> {
         .join("paideia-as");
 
     if !paideia_as.exists() {
-        return Err(format!(
-            "paideia-as binary not found at {:?}",
-            paideia_as
-        ));
+        return Err(format!("paideia-as binary not found at {:?}", paideia_as));
     }
 
     let fixture_path = fixture_dir().join(pdx_file);
@@ -106,14 +102,10 @@ fn test_data_symbol_uses_binding_name() {
         .expect("Failed to compile data_provider.pdx");
 
     // Verify the object file was created
-    assert!(
-        obj_file.exists(),
-        "Object file should have been created"
-    );
+    assert!(obj_file.exists(), "Object file should have been created");
 
     // Use readelf to inspect symbols
-    let symbols = readelf_symbols(obj_file.to_str().unwrap())
-        .expect("Failed to run readelf");
+    let symbols = readelf_symbols(obj_file.to_str().unwrap()).expect("Failed to run readelf");
 
     // Check that the symbol `target` exists (not `data_<N>`)
     assert!(
@@ -159,8 +151,5 @@ fn test_cross_file_data_relocation_resolves() {
     .expect("Linking should succeed when data symbol names are correct");
 
     // Verify the linked file was created
-    assert!(
-        linked.exists(),
-        "Linked ELF file should have been created"
-    );
+    assert!(linked.exists(), "Linked ELF file should have been created");
 }

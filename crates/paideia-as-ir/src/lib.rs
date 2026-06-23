@@ -22,6 +22,7 @@ pub mod handler_value;
 pub mod instruction;
 pub mod lambda_param;
 pub mod let_meta;
+pub mod literal_bytes;
 pub mod literal_value;
 pub mod load_store;
 pub mod loop_meta;
@@ -43,7 +44,7 @@ pub use borrow::{BorrowMeta, BorrowSideTable};
 pub use call_meta::{CallMeta, CallSideTable};
 pub use cast_meta::CastSideTable;
 pub use constant_pool::ConstantPoolTable;
-pub use data::{DataEntry, DataSideTable, SectionKind};
+pub use data::{DataEntry, DataSideTable, RelocSpec, SectionKind};
 pub use effect_rewrite::{
     HandlerTable, PerformRewrite, WithRewrite, rewrite_perform, rewrite_unsafe_passthrough,
     rewrite_with_save_restore,
@@ -56,6 +57,7 @@ pub use instruction::{
 };
 pub use lambda_param::LambdaParamTable;
 pub use let_meta::{LetInfo, LetMetaTable};
+pub use literal_bytes::LiteralBytesTable;
 pub use literal_value::LiteralValueTable;
 pub use load_store::{
     LoadStoreInfo, LoadStoreSideTable, Signedness, Width, alloc_load, alloc_store,

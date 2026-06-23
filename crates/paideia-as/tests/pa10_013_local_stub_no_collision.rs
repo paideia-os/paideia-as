@@ -145,7 +145,10 @@ uart_puts:
             "linker failed: {}",
             String::from_utf8_lossy(&link_cmd.stderr)
         );
-        panic!("linker failed: {}", String::from_utf8_lossy(&link_cmd.stderr));
+        panic!(
+            "linker failed: {}",
+            String::from_utf8_lossy(&link_cmd.stderr)
+        );
     }
 
     // Verify the linked object has uart_puts GLOBAL (promoted from LOCAL during linking).

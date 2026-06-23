@@ -631,6 +631,29 @@ impl EmitWalker {
                                         let entry = DataEntry::new_bss(symbol_name, 8, 8);
                                         data_table.insert(node_id, entry);
                                     }
+                                    IrKind::StringLiteral => {
+                                        // PA10-002: String literal RHS with interned .rodata symbol.
+                                        // Look up the byte payload from the literal_bytes table.
+                                        if let Some(bytes) = arena.literal_bytes().get(rhs_id) {
+                                            // All strings are immutable and go to .rodata (ignore is_mutable flag).
+                                            // Create an 8-byte .rodata entry holding a pointer to the interned string symbol.
+                                            let rodata_bytes = vec![0u8; 8]; // Placeholder; will be back-filled by emitter.
+                                            let reloc = paideia_as_ir::RelocSpec::new(
+                                                0, // Offset 0: the entire 8 bytes hold the pointer
+                                                format!(
+                                                    "__str_{:016x}",
+                                                    crate::string_intern::fnv1a_64(bytes)
+                                                ),
+                                            );
+                                            let entry = DataEntry::new_rodata_with_relocs(
+                                                rodata_bytes,
+                                                symbol_name,
+                                                8,
+                                                vec![reloc],
+                                            );
+                                            data_table.insert(node_id, entry);
+                                        }
+                                    }
                                     _ => {
                                         // Other RHS shapes not handled yet.
                                     }

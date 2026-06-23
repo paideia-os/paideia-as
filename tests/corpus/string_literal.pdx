@@ -1,0 +1,12 @@
+// PA10-002: string literal lowering to .rodata
+// Test: `let name : *const u8 = "banner"` should emit a .rodata symbol
+// with relocation.
+
+let banner : *const u8 = "banner"
+let hello  : *const u8 = "hello world"
+let other  : *const u8 = "banner"  // Duplicate; should dedup to same symbol
+
+#[export]
+fn test_string_symbols() -> *const u8 {
+    banner
+}

@@ -7,6 +7,26 @@
 use crate::node::IrNodeId;
 use std::collections::HashMap;
 
+/// A relocation entry within a data section.
+///
+/// Specifies that an 8-byte slot at a given offset should be patched
+/// with the address of a symbol (PA10-002: string intern symbols).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RelocSpec {
+    /// Byte offset within the data entry where the relocation applies.
+    pub offset: u64,
+    /// Target symbol name to be relocated (resolved by the linker).
+    pub symbol: String,
+}
+
+impl RelocSpec {
+    /// Construct a new relocation entry.
+    #[must_use]
+    pub fn new(offset: u64, symbol: String) -> Self {
+        Self { offset, symbol }
+    }
+}
+
 /// Section kind for data entries.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Default)]
 pub enum SectionKind {
@@ -35,6 +55,9 @@ pub struct DataEntry {
     pub align: u8,
     /// Size hint in bytes. For .rodata and .data: bytes.len(). For .bss: computed from type.
     pub size_hint: u64,
+    /// Relocations within this data entry (PA10-002: string intern symbols).
+    /// Empty vec if no relocations are needed.
+    pub relocations: Vec<RelocSpec>,
 }
 
 impl DataEntry {
@@ -53,6 +76,32 @@ impl DataEntry {
             symbol_name,
             align,
             size_hint,
+            relocations: Vec::new(),
+        }
+    }
+
+    /// Construct a new data entry for .rodata with relocations (PA10-002).
+    ///
+    /// # Arguments
+    /// * `bytes` - little-endian packed bytes
+    /// * `symbol_name` - C-friendly symbol identifier
+    /// * `align` - power-of-2 alignment (e.g., 8 for 8-byte aligned)
+    /// * `relocations` - vector of relocation entries within the data
+    #[must_use]
+    pub fn new_rodata_with_relocs(
+        bytes: Vec<u8>,
+        symbol_name: String,
+        align: u8,
+        relocations: Vec<RelocSpec>,
+    ) -> Self {
+        let size_hint = bytes.len() as u64;
+        Self {
+            section: SectionKind::Rodata,
+            bytes,
+            symbol_name,
+            align,
+            size_hint,
+            relocations,
         }
     }
 
@@ -66,6 +115,7 @@ impl DataEntry {
             symbol_name,
             align,
             size_hint,
+            relocations: Vec::new(),
         }
     }
 
@@ -83,6 +133,7 @@ impl DataEntry {
             symbol_name,
             align,
             size_hint,
+            relocations: Vec::new(),
         }
     }
 }

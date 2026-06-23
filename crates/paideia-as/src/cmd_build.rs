@@ -385,6 +385,46 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
         }
     }
 
+    // PA10-002: Extract string and byte string literals from AST nodes
+    // and populate the IR's literal_bytes table. This enables the emitter
+    // to intern byte sequences and emit .rodata symbols with relocations.
+    {
+        let _content_ref = source_map.content(file);
+
+        // Walk AST to find all ExprString and ExprByteString nodes and extract their payloads
+        for i in 0..arena.len() {
+            if let Some(ast_id) = paideia_as_ast::NodeId::new((i + 1) as u32) {
+                if let Some(node) = arena.get(ast_id) {
+                    match node.kind {
+                        paideia_as_ast::NodeKind::ExprString => {
+                            if let Some(paideia_as_ast::ExprData::StringLiteral(s)) =
+                                arena.expr_data(ast_id)
+                            {
+                                let bytes = s.as_bytes().to_vec();
+                                let ir_string_id = paideia_as_ir::IrNodeId::new(ast_id.get())
+                                    .expect("valid ir node id from ast string literal");
+                                lowering.ir.literal_bytes_mut().insert(ir_string_id, bytes);
+                            }
+                        }
+                        paideia_as_ast::NodeKind::ExprByteString => {
+                            if let Some(paideia_as_ast::ExprData::ByteStringLiteral(bytes)) =
+                                arena.expr_data(ast_id)
+                            {
+                                let ir_bytestring_id = paideia_as_ir::IrNodeId::new(ast_id.get())
+                                    .expect("valid ir node id from ast byte string literal");
+                                lowering
+                                    .ir
+                                    .literal_bytes_mut()
+                                    .insert(ir_bytestring_id, bytes.clone());
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
     // Run walkers over the IR to surface S/F/C diagnostics.
     // Phase-2-m1: walkers run with empty injection tables (from CLI), so only
     // diagnostics that depend on kind-only IR will fire (S0900/S0901/S0903).
@@ -540,7 +580,10 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                         if let Some(&rhs_id) = children.first() {
                             if let Some(rhs_node) = lowering.ir.get(rhs_id) {
                                 // PA10-007 m1-001: Use actual binding name from binding_names table
-                                let symbol_name = lowering.ir.binding_names().get(node_id)
+                                let symbol_name = lowering
+                                    .ir
+                                    .binding_names()
+                                    .get(node_id)
                                     .map(|s| s.to_string())
                                     .unwrap_or_else(|| format!("data_{}", node_id.get()));
 

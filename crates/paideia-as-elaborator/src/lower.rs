@@ -279,6 +279,11 @@ pub fn lower_ast_to_ir(ast: &AstArena) -> LoweringResult {
                     // Literal: no children
                     Vec::new()
                 }
+                ExprData::StringLiteral(_) | ExprData::ByteStringLiteral(_) => {
+                    // StringLiteral (PA10-002): no structural children.
+                    // Byte payload is stored in literal_bytes side-table by the elaborator.
+                    Vec::new()
+                }
                 ExprData::Block { stmts, tail } => {
                     // Block: all statements + optional tail expression
                     let mut children = stmts.iter().copied().collect::<Vec<_>>();
@@ -415,6 +420,10 @@ fn map_node_kind(kind: NodeKind) -> IrKind {
 
         // Literals
         NodeKind::ExprLiteral => IrKind::Literal,
+
+        // String and byte string literals (PA10-002): lowered to StringLiteral IR nodes
+        // with byte payloads stored in the literal_bytes side-table.
+        NodeKind::ExprString | NodeKind::ExprByteString => IrKind::StringLiteral,
 
         // Operators (all desugared to applications)
         NodeKind::ExprInfix | NodeKind::ExprPrefix | NodeKind::ExprPostfix => IrKind::App,

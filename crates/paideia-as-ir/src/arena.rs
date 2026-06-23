@@ -12,6 +12,7 @@ use crate::data::DataSideTable;
 use crate::instruction::InstructionSideTable;
 use crate::lambda_param::LambdaParamTable;
 use crate::let_meta::LetMetaTable;
+use crate::literal_bytes::LiteralBytesTable;
 use crate::literal_value::LiteralValueTable;
 use crate::loop_meta::LoopMetaTable;
 use crate::node::{IrKind, IrNodeData, IrNodeId};
@@ -39,6 +40,9 @@ pub struct IrArena {
     constant_pool_table: ConstantPoolTable,
     /// Side-table: literal values (i64) indexed by Literal node ID.
     literal_value_table: LiteralValueTable,
+    /// Side-table: literal byte payloads indexed by StringLiteral node ID.
+    /// PA10-002: populated by elaborator; consumed by emitter for string interning.
+    literal_bytes_table: LiteralBytesTable,
     /// Side-table: data entries (.rodata/.data/.bss) indexed by Let node ID.
     data_table: DataSideTable,
     /// Side-table: binding names for Let nodes indexed by Let node ID.
@@ -76,6 +80,7 @@ impl IrArena {
             loop_meta_table: LoopMetaTable::new(),
             constant_pool_table: ConstantPoolTable::new(),
             literal_value_table: LiteralValueTable::new(),
+            literal_bytes_table: LiteralBytesTable::new(),
             data_table: DataSideTable::new(),
             binding_name_table: BindingNameTable::new(),
             lambda_param_table: LambdaParamTable::new(),
@@ -207,6 +212,18 @@ impl IrArena {
     /// Borrow the literal value side-table (mutable).
     pub fn literal_values_mut(&mut self) -> &mut LiteralValueTable {
         &mut self.literal_value_table
+    }
+
+    /// Borrow the literal bytes side-table (read-only).
+    /// PA10-002: provides access to raw byte payloads for StringLiteral nodes.
+    #[must_use]
+    pub fn literal_bytes(&self) -> &LiteralBytesTable {
+        &self.literal_bytes_table
+    }
+
+    /// Borrow the literal bytes side-table (mutable).
+    pub fn literal_bytes_mut(&mut self) -> &mut LiteralBytesTable {
+        &mut self.literal_bytes_table
     }
 
     /// Borrow the data side-table (read-only).

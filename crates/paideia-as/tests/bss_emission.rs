@@ -229,6 +229,7 @@ fn data_table_bss_emission_with_symbols() {
         symbol_name: "uninit_buffer".to_string(),
         align: 16,
         size_hint: 256,
+        relocations: vec![],
     };
     data_table.insert(IrNodeId::new(1).unwrap(), bss_entry);
 

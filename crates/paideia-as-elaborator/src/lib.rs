@@ -57,6 +57,7 @@ pub mod resolve;
 pub mod sharing;
 pub mod sig_match;
 pub mod splice;
+pub mod string_intern;
 pub mod term_eval;
 pub mod two_phase;
 pub mod unsafe_walker;
