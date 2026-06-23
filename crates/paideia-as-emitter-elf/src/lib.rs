@@ -12,6 +12,7 @@ pub mod lower;
 pub mod notes;
 pub mod opt;
 pub mod prologue;
+pub mod pvh_note;
 pub mod relocs;
 mod sections;
 pub mod symtab;
@@ -51,6 +52,9 @@ pub use lower::{
     lower_handler_call, lower_ir_to_bytes, lower_let_literal, lower_local_load,
 };
 pub use prologue::{FrameLayout, STACK_ALIGN, STACK_PROBE_THRESHOLD, emit_epilogue, emit_prologue};
+pub use pvh_note::{
+    PVH_DEFAULT_ENTRY_ADDR, PVH_NOTE_NAME, XEN_ELFNOTE_PHYS32_ENTRY, encode_pvh_note,
+};
 pub use relocs::{RelocEntry, RelocKind};
 pub use sections::{PAIDEIA_SECTIONS, STANDARD_SECTIONS, all_sections};
 pub use symtab::{SymKind, SymbolEntry};

@@ -41,7 +41,9 @@ use paideia_as_elaborator::{
     CapWalker, EffectRowWalker, EmitWalker, LinearityWalker, UnsafeWalker, lower_ast_to_ir,
     placeholder_for, validate_file_module_mapping,
 };
-use paideia_as_emitter_elf::{Arch, ElfWriter, EmitterError, Kind, SymKind, SymbolEntry};
+use paideia_as_emitter_elf::{
+    Arch, ElfWriter, EmitterError, Kind, PVH_DEFAULT_ENTRY_ADDR, SymKind, SymbolEntry,
+};
 use paideia_as_emitter_pax::{
     Architecture, FunctorsSection, PAX_HEADER_SIZE, PaxHeader, SectionTable, compute_content_hash,
 };
@@ -945,6 +947,10 @@ fn build_elf_object(
         };
         let _ = writer.add_relocation(text_section, entry);
     }
+
+    // PA10-001: Emit PVH note section for QEMU `-kernel` acceptance.
+    // The linker script controls whether the note is retained in the executable.
+    let _ = writer.add_pvh_note_section(PVH_DEFAULT_ENTRY_ADDR);
 
     // Phase 7 m1-002: Finalize and validate symbol layout invariants.
     writer.finalize().map_err(|err| match err {

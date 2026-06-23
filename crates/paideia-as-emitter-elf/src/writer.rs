@@ -404,6 +404,59 @@ impl ElfWriter {
         Ok(())
     }
 
+    /// Add a `.note.Xen` PVH section for QEMU `-kernel` acceptance.
+    ///
+    /// PA10-001: Emits a Xen PVH entry point note with SHF_ALLOC flag so QEMU
+    /// accepts the ELF object as a valid kernel via `-kernel` option.
+    ///
+    /// Per ELF specification, the note has:
+    /// - `n_namesz = 4` (b"Xen\0")
+    /// - `n_descsz = 8` (ELFCLASS64 entry address)
+    /// - `n_type = 18` (XEN_ELFNOTE_PHYS32_ENTRY)
+    /// - Total payload: 24 bytes, 4-aligned
+    ///
+    /// The critical difference from `.note.paideia` is the SHF_ALLOC flag,
+    /// which marks the section as part of the loadable image (PT_LOAD segment).
+    /// The linker script determines whether the note actually appears in the executable.
+    ///
+    /// # Arguments
+    ///
+    /// * `entry_addr` - Physical entry point address (typically 0x100000)
+    ///
+    /// # Notes
+    ///
+    /// Always emitted; the linker script controls keep-vs-discard via KEEP().
+    pub fn add_pvh_note_section(
+        &mut self,
+        entry_addr: u32,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use crate::pvh_note::encode_pvh_note;
+
+        // Create a `.note.Xen` section with SectionKind::Note.
+        // The `object` crate automatically marks it as SHT_NOTE.
+        let pvh_section = self.obj.add_section(
+            vec![], // Empty segment name
+            b".note.Xen".to_vec(),
+            object::SectionKind::Note,
+        );
+
+        // CRITICAL: Override flags to include SHF_ALLOC (0x2).
+        // This ensures the section participates in PT_LOAD even though it's a note.
+        // SHF_ALLOC = 0x2 in the ELF specification.
+        {
+            let section = self.obj.section_mut(pvh_section);
+            section.flags = object::SectionFlags::Elf {
+                sh_flags: 0x2, // SHF_ALLOC
+            };
+        }
+
+        // Encode and append the PVH note data (24 bytes, 4-aligned).
+        let note_bytes = encode_pvh_note(entry_addr);
+        self.obj.append_section_data(pvh_section, &note_bytes, 4);
+
+        Ok(())
+    }
+
     /// Finalize and write the ELF object to bytes.
     ///
     /// Before emitting the symbol table, validates three invariants:
