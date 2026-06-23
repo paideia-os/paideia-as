@@ -262,7 +262,7 @@ impl ElfWriter {
             } else {
                 SymbolScope::Compilation
             },
-            weak: false,
+            weak: entry.kind == SymKind::Data,  // PA10-007: Data symbols are weak to allow multiple definitions
             section: symbol_section,
             flags: SymbolFlags::None,
         });
