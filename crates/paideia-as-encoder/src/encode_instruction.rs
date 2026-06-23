@@ -444,14 +444,38 @@ fn encode_and(inst: &Instruction, _buf: &mut CodeBuffer) -> Result<EncodeOutput,
 }
 
 /// Phase 8 m1-001d: Encode bitwise OR instruction.
-fn encode_or(inst: &Instruction, _buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+fn encode_or(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
     match inst.operands.as_slice() {
         [Operand::Reg(_), Operand::Reg(_)] => Err(EncodeError::Unsupported(
             "or r64, r64 form deferred to phase 8 m1-001e",
         )),
-        [Operand::Reg(_), Operand::Imm64(_)] => Err(EncodeError::Unsupported(
-            "or r64, imm form deferred to phase 8 m1-001e",
-        )),
+        [Operand::Reg(dst), Operand::Imm64(imm)] => {
+            let dst_reg = reg64_from(*dst)?;
+            let imm_i64 = *imm;
+
+            // Apply the sign-extension trap guard: only use the shorter form
+            // if the immediate round-trips correctly through the intermediate type.
+            // This prevents silent truncation that would change the semantic meaning.
+
+            // Try imm8 form first: REX.W 83 /1 ib
+            // The immediate is sign-extended to 64 bits, so it must round-trip through i8.
+            if imm_i64 == (imm_i64 as i8 as i64) {
+                or_reg64_imm8(buf, dst_reg, imm_i64 as i8);
+                return Ok(EncodeOutput::new());
+            }
+
+            // Try imm32 form: REX.W 81 /1 id
+            // The immediate is sign-extended to 64 bits, so it must round-trip through i32.
+            if imm_i64 == (imm_i64 as i32 as i64) {
+                or_reg64_imm32(buf, dst_reg, imm_i64 as i32);
+                return Ok(EncodeOutput::new());
+            }
+
+            // imm64 out-of-range: x86_64 has no OR r/m64, imm64 form
+            Err(EncodeError::Unsupported(
+                "or r64, imm64: x86_64 has no OR r/m64, imm64 form — load to register and use OR r/m64, r64 instead",
+            ))
+        }
         _ => Err(EncodeError::Unsupported(
             "or form not supported in phase 8 m1-001d",
         )),

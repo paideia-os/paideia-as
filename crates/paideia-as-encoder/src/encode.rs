@@ -358,6 +358,46 @@ pub fn xor_reg64_reg64(buf: &mut CodeBuffer, dst: Reg64, src: Reg64) {
     buf.bytes.push(0xC0 | ((src_id & 7) << 3) | (dst_id & 7));
 }
 
+/// Encode `or reg64, imm8` (8-bit immediate, sign-extended to 64-bit).
+///
+/// Instruction: REX.W 83 /1 ib
+/// ModR/M: 0xC8 | (reg & 7) (register 1 in the reg field means OR)
+/// Bytes: `48+REX.B 83 (0xC8 | (reg&7)) imm8`
+///
+/// WARNING: Sign-extension trap. `83 /1 ib` sign-extends the immediate to 64 bits.
+/// Only use this form if `imm == (imm as i8 as i64)` (round-trip through i8).
+///
+/// Example: `or rax, 0x20` → `48 83 c8 20`
+/// Example: `or r15, 0x7f` → `49 83 cf 7f` (imm8 boundary)
+pub fn or_reg64_imm8(buf: &mut CodeBuffer, dst: Reg64, imm: i8) {
+    let reg_id = dst as u8;
+    let rex_byte = rex(true, false, false, (reg_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x83);
+    buf.bytes.push(0xC8 | (reg_id & 7));
+    buf.bytes.push(imm as u8);
+}
+
+/// Encode `or reg64, imm32` (32-bit immediate, sign-extended to 64-bit).
+///
+/// Instruction: REX.W 81 /1 id
+/// ModR/M: 0xC8 | (reg & 7) (register 1 in the reg field means OR)
+/// Bytes: `48+REX.B 81 (0xC8 | (reg&7)) imm32_le`
+///
+/// WARNING: Sign-extension trap. `81 /1 id` sign-extends the immediate to 64 bits.
+/// Only use this form if `imm == (imm as i32 as i64)` (round-trip through i32).
+///
+/// Example: `or rax, 0x100` → `48 81 c8 00 01 00 00`
+/// Example: `or r8, 0x80000001` → `49 81 c8 01 00 00 80` (high bit set)
+pub fn or_reg64_imm32(buf: &mut CodeBuffer, dst: Reg64, imm: i32) {
+    let reg_id = dst as u8;
+    let rex_byte = rex(true, false, false, (reg_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x81);
+    buf.bytes.push(0xC8 | (reg_id & 7));
+    buf.bytes.extend(imm.to_le_bytes());
+}
+
 /// Encode `not reg64` (bitwise NOT / one's complement).
 ///
 /// Instruction: REX.W F7 /2
@@ -1756,6 +1796,89 @@ mod tests {
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
         assert_eq!(instr.mnemonic(), IcedMnem::Not);
+    }
+
+    // ── Bitwise OR immediate forms (Path α — value-driven, Phase 8 m1-001d) ─
+
+    #[test]
+    fn or_rax_0x20_imm8() {
+        // or rax, 0x20 → 48 83 c8 20 (imm8 form, 4 bytes)
+        let mut buf = CodeBuffer::new();
+        or_reg64_imm8(&mut buf, Reg64::Rax, 0x20);
+        assert_eq!(buf.as_slice(), &[0x48, 0x83, 0xc8, 0x20]);
+    }
+
+    #[test]
+    fn or_rax_0x7f_imm8_boundary() {
+        // or rax, 0x7f → 48 83 c8 7f (imm8 boundary, 4 bytes)
+        let mut buf = CodeBuffer::new();
+        or_reg64_imm8(&mut buf, Reg64::Rax, 0x7f);
+        assert_eq!(buf.as_slice(), &[0x48, 0x83, 0xc8, 0x7f]);
+    }
+
+    #[test]
+    fn or_rax_0x80_imm32_sign_extension() {
+        // or rax, 0x80 → 48 81 c8 80 00 00 00 (imm32 form, 7 bytes)
+        // Cannot use imm8 form because 0x80 sign-extends to 0xFFFFFFFFFFFFFF80
+        let mut buf = CodeBuffer::new();
+        or_reg64_imm32(&mut buf, Reg64::Rax, 0x80);
+        assert_eq!(buf.as_slice(), &[0x48, 0x81, 0xc8, 0x80, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn or_rax_0x100_imm32() {
+        // or rax, 0x100 → 48 81 c8 00 01 00 00 (imm32 form, 7 bytes)
+        let mut buf = CodeBuffer::new();
+        or_reg64_imm32(&mut buf, Reg64::Rax, 0x100);
+        assert_eq!(buf.as_slice(), &[0x48, 0x81, 0xc8, 0x00, 0x01, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn or_r15_0x7f_imm8_rex_b() {
+        // or r15, 0x7f → 49 83 cf 7f (imm8 + REX.B, 4 bytes)
+        let mut buf = CodeBuffer::new();
+        or_reg64_imm8(&mut buf, Reg64::R15, 0x7f);
+        assert_eq!(buf.as_slice(), &[0x49, 0x83, 0xcf, 0x7f]);
+    }
+
+    #[test]
+    fn or_r8_0x100_imm32_rex_b() {
+        // or r8, 0x100 → 49 81 c8 00 01 00 00 (imm32 + REX.B, 7 bytes)
+        let mut buf = CodeBuffer::new();
+        or_reg64_imm32(&mut buf, Reg64::R8, 0x100);
+        assert_eq!(buf.as_slice(), &[0x49, 0x81, 0xc8, 0x00, 0x01, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn or_rax_0x7fffffff_imm32_max_signed() {
+        // or rax, 0x7fffffff (i32::MAX) → 48 81 c8 ff ff ff 7f (imm32)
+        let mut buf = CodeBuffer::new();
+        or_reg64_imm32(&mut buf, Reg64::Rax, i32::MAX);
+        assert_eq!(buf.as_slice(), &[0x48, 0x81, 0xc8, 0xff, 0xff, 0xff, 0x7f]);
+    }
+
+    #[test]
+    fn or_rax_0x20_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        or_reg64_imm8(&mut buf, Reg64::Rax, 0x20);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Or);
+    }
+
+    #[test]
+    fn or_rax_0x100_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        or_reg64_imm32(&mut buf, Reg64::Rax, 0x100);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Or);
     }
 
     // ── Width-threaded immediate moves (Phase 7 m4-003) ─────────────────
