@@ -1537,7 +1537,7 @@ fn encode_far_jmp_inst(
                     let mut output = EncodeOutput::new();
                     encode_far_jmp_imm_sym(buf, selector);
                     output.add_reloc(RelocSite {
-                        byte_offset: (buf.len() - 6) as u32, // EA + 4-byte imm offset location
+                        byte_offset: 1, // imm32 starts at byte +1 of the EA instruction (instruction-local); translator adds offset_before
                         symbol: name.clone(),
                         kind: RelocKind::Abs32,
                         addend: *addend,
