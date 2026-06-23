@@ -885,7 +885,7 @@ fn build_elf_object(
     // Phase-5-m4-003: Emit data entries from the data side-table.
     // Also create symbols for each data entry so relocations can reference them.
     let data_table = arena.data();
-    for (id, entry) in data_table.iter() {
+    for (_, entry) in data_table.iter() {
         let data_offset = match entry.section {
             paideia_as_ir::SectionKind::Rodata => {
                 writer.add_rodata_bytes(&entry.bytes, entry.align)
@@ -909,7 +909,7 @@ fn build_elf_object(
             offset: Some(data_offset),
             size,
             kind: SymKind::Data,
-            is_global: true,  // PA10-007: Data symbols must be global for cross-module linkage
+            is_global: true, // PA10-007: Data symbols must be global for cross-module linkage
             section: Some(entry.section),
         });
     }
