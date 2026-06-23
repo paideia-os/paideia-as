@@ -425,6 +425,24 @@ description = "Phase 6 m5-001: The uninit keyword can only be used as the right-
 since = "0.9.0"
 deprecated = false
 
+[diagnostic.P0230]
+severity = "error"
+category = "parser"
+title = "address-of requires identifier in static initializer"
+brief = "& must be applied to a simple symbol identifier"
+description = "PA10-006u: In static initializers (module-level let bindings), & can only be applied directly to a symbol name, not to arbitrary expressions. For example, `let p: u64 = & target;` is valid, but `let p: u64 = & (expr);` is not. Address-of-expression patterns must be used in runtime contexts, not static initialization."
+since = "1.0.0"
+deprecated = false
+
+[diagnostic.P0231]
+severity = "error"
+category = "parser"
+title = "mutable reference forbidden in static initializer"
+brief = "& mut cannot be used in static initializers"
+description = "PA10-006u: Mutable references (& mut) are not allowed in static initializers (module-level let bindings). Only immutable addresses are supported. Use `let p: u64 = & symbol;` (without mut)."
+since = "1.0.0"
+deprecated = false
+
 [diagnostic.O1500]
 severity = "note"
 category = "optimization"

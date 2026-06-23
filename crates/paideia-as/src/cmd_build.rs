@@ -1030,7 +1030,9 @@ fn build_elf_object(
     // Phase-5-m4-003: Emit data entries from the data side-table.
     // Also create symbols for each data entry so relocations can reference them.
     let data_table = arena.data();
-    for (_, entry) in data_table.iter() {
+    let mut data_offsets: std::collections::HashMap<IrNodeId, u64> =
+        std::collections::HashMap::new();
+    for (node_id, entry) in data_table.iter() {
         let data_offset = match entry.section {
             paideia_as_ir::SectionKind::Rodata => {
                 writer.add_rodata_bytes(&entry.bytes, entry.align)
@@ -1041,6 +1043,7 @@ fn build_elf_object(
                 writer.add_bss_space(entry.size_hint, entry.align)
             }
         };
+        data_offsets.insert(*node_id, data_offset);
         // Phase-5-m4-003: Create a symbol for the data entry so relocations can reference it
         // Phase 6 m5-003: include section information for .bss symbols
         // PA10-007 FIX: Use actual binding name from data entry, not hardcoded data_<id>
@@ -1057,6 +1060,41 @@ fn build_elf_object(
             is_global: true, // PA10-007: Data symbols must be global for cross-module linkage
             section: Some(entry.section),
         });
+    }
+
+    // PA10-006u (LOAD-BEARING): Emit relocations for data sections.
+    // Iterate entry.relocations and call writer.add_relocation for each.
+    // This was missing in PA10-002, leaving string-literal pointers unpatched.
+    for (node_id, entry) in data_table.iter() {
+        if !entry.relocations.is_empty() {
+            let data_offset = data_offsets
+                .get(node_id)
+                .copied()
+                .expect("data_offset must exist for every entry");
+            let target_section = match entry.section {
+                paideia_as_ir::SectionKind::Rodata => writer.rodata_section_id(),
+                paideia_as_ir::SectionKind::Data => writer.data_section_id(),
+                paideia_as_ir::SectionKind::Bss => writer.bss_section_id(),
+            };
+            for spec in &entry.relocations {
+                let reloc_offset = data_offset + spec.offset;
+                let reloc_kind = match spec.width {
+                    paideia_as_ir::RelocWidth::W32 => {
+                        paideia_as_emitter_elf::relocs::RelocKind::Abs32
+                    }
+                    paideia_as_ir::RelocWidth::W64 => {
+                        paideia_as_emitter_elf::relocs::RelocKind::Abs64
+                    }
+                };
+                let reloc_entry = paideia_as_emitter_elf::relocs::RelocEntry {
+                    offset: reloc_offset,
+                    target: spec.symbol.clone(),
+                    kind: reloc_kind,
+                    addend: spec.addend,
+                };
+                let _ = writer.add_relocation(target_section, reloc_entry);
+            }
+        }
     }
 
     // Phase-5-m5-003: Emit real symbols from SymbolTable.

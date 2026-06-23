@@ -7,23 +7,56 @@
 use crate::node::IrNodeId;
 use std::collections::HashMap;
 
+/// Relocation width specifier per PA10-006u.
+///
+/// Indicates the size of the relocation slot in the data section.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum RelocWidth {
+    /// 32-bit (4-byte) relocation slot.
+    W32,
+    /// 64-bit (8-byte) relocation slot.
+    W64,
+}
+
 /// A relocation entry within a data section.
 ///
-/// Specifies that an 8-byte slot at a given offset should be patched
-/// with the address of a symbol (PA10-002: string intern symbols).
+/// Specifies that a slot at a given offset should be patched
+/// with the address of a symbol (PA10-002: string intern symbols;
+/// PA10-006u: address-of static initializers).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RelocSpec {
     /// Byte offset within the data entry where the relocation applies.
     pub offset: u64,
     /// Target symbol name to be relocated (resolved by the linker).
     pub symbol: String,
+    /// Width of the relocation slot (W32 or W64).
+    pub width: RelocWidth,
+    /// Addend: adjustment to the relocation value.
+    /// For simple address relocations, this is typically 0.
+    pub addend: i64,
 }
 
 impl RelocSpec {
     /// Construct a new relocation entry.
     #[must_use]
     pub fn new(offset: u64, symbol: String) -> Self {
-        Self { offset, symbol }
+        Self {
+            offset,
+            symbol,
+            width: RelocWidth::W64,
+            addend: 0,
+        }
+    }
+
+    /// Construct a new relocation entry with explicit width and addend (PA10-006u).
+    #[must_use]
+    pub fn with_width(offset: u64, symbol: String, width: RelocWidth, addend: i64) -> Self {
+        Self {
+            offset,
+            symbol,
+            width,
+            addend,
+        }
     }
 }
 
@@ -357,5 +390,61 @@ mod tests {
         assert_eq!(rodata_entry.size_hint, 2);
         assert_eq!(data_entry.size_hint, 3);
         assert_eq!(bss_entry.size_hint, 64);
+    }
+
+    // PA10-006u tests
+    #[test]
+    fn reloc_spec_width_and_addend_roundtrip() {
+        let spec = RelocSpec::with_width(0, "target".to_string(), RelocWidth::W64, 0);
+        assert_eq!(spec.offset, 0);
+        assert_eq!(spec.symbol, "target");
+        assert_eq!(spec.width, RelocWidth::W64);
+        assert_eq!(spec.addend, 0);
+
+        let spec32 = RelocSpec::with_width(4, "other".to_string(), RelocWidth::W32, 16);
+        assert_eq!(spec32.offset, 4);
+        assert_eq!(spec32.symbol, "other");
+        assert_eq!(spec32.width, RelocWidth::W32);
+        assert_eq!(spec32.addend, 16);
+    }
+
+    #[test]
+    fn reloc_spec_default_width_is_w64() {
+        let spec = RelocSpec::new(0, "target".to_string());
+        assert_eq!(spec.width, RelocWidth::W64);
+        assert_eq!(spec.addend, 0);
+    }
+
+    #[test]
+    fn addr_of_static_init_single_symbol() {
+        // let p : u64 = & target → 8 zero bytes + reloc at offset 0
+        let bytes = vec![0u8; 8];
+        let reloc = RelocSpec::with_width(0, "target".to_string(), RelocWidth::W64, 0);
+        let entry = DataEntry::new_rodata_with_relocs(bytes, "p".to_string(), 8, vec![reloc]);
+
+        assert_eq!(entry.bytes.len(), 8);
+        assert!(entry.bytes.iter().all(|&b| b == 0));
+        assert_eq!(entry.relocations.len(), 1);
+        assert_eq!(entry.relocations[0].symbol, "target");
+        assert_eq!(entry.relocations[0].offset, 0);
+        assert_eq!(entry.relocations[0].width, RelocWidth::W64);
+    }
+
+    #[test]
+    fn addr_of_static_init_array_of_symbols() {
+        // let arr : [u64; 2] = [& a, & b] → 16 zero bytes + 2 relocs at offsets 0, 8
+        let bytes = vec![0u8; 16];
+        let relocs = vec![
+            RelocSpec::with_width(0, "a".to_string(), RelocWidth::W64, 0),
+            RelocSpec::with_width(8, "b".to_string(), RelocWidth::W64, 0),
+        ];
+        let entry = DataEntry::new_rodata_with_relocs(bytes, "arr".to_string(), 8, relocs);
+
+        assert_eq!(entry.bytes.len(), 16);
+        assert_eq!(entry.relocations.len(), 2);
+        assert_eq!(entry.relocations[0].offset, 0);
+        assert_eq!(entry.relocations[0].symbol, "a");
+        assert_eq!(entry.relocations[1].offset, 8);
+        assert_eq!(entry.relocations[1].symbol, "b");
     }
 }

@@ -6,6 +6,7 @@ use paideia_as_diagnostics::Span;
 use smallvec::SmallVec;
 use std::ops::Index;
 
+use crate::addr_of::AddrOfSideTable;
 use crate::binding_name::BindingNameTable;
 use crate::constant_pool::ConstantPoolTable;
 use crate::data::DataSideTable;
@@ -61,6 +62,9 @@ pub struct IrArena {
     /// Side-table: record constructor type mapping indexed by RecordCons node ID.
     /// Phase 6 m3-004: maps RecordCons nodes to their RecordTypeId for layout lookup.
     record_layout_table: RecordLayoutTable,
+    /// Side-table: address-of metadata indexed by Borrow node ID.
+    /// PA10-006u: populated by elaborator for `& sym` in static initializers.
+    addr_of_table: AddrOfSideTable,
 }
 
 impl IrArena {
@@ -88,6 +92,7 @@ impl IrArena {
             symbol_table: SymbolTable::new(),
             field_access_table: FieldAccessSideTable::new(),
             record_layout_table: RecordLayoutTable::new(),
+            addr_of_table: AddrOfSideTable::new(),
         }
     }
 
@@ -305,6 +310,18 @@ impl IrArena {
     /// Borrow the record layout table (mutable).
     pub fn record_layout_table_mut(&mut self) -> &mut RecordLayoutTable {
         &mut self.record_layout_table
+    }
+
+    /// Borrow the address-of side-table (read-only).
+    /// PA10-006u: provides access to AddrOfMeta for Borrow nodes in static initializers.
+    #[must_use]
+    pub fn addr_of(&self) -> &AddrOfSideTable {
+        &self.addr_of_table
+    }
+
+    /// Borrow the address-of side-table (mutable).
+    pub fn addr_of_mut(&mut self) -> &mut AddrOfSideTable {
+        &mut self.addr_of_table
     }
 }
 

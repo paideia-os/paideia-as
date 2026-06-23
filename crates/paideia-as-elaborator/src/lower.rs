@@ -337,6 +337,15 @@ pub fn lower_ast_to_ir(ast: &AstArena) -> LoweringResult {
                     // separately and not exposed as structural children.
                     block.clone()
                 }
+                ExprData::Borrow { expr, .. } => {
+                    // Borrow (& and &mut): single child is the inner expression.
+                    // PA10-006u: metadata (symbol, mutable) handled separately by elaborator.
+                    vec![*expr]
+                }
+                ExprData::Deref { expr } => {
+                    // Deref (*): single child is the reference expression.
+                    vec![*expr]
+                }
                 // TODO: Add Path, Ident, and other expression types as needed
                 // _ => Vec::new(),
                 _ => Vec::new(),
@@ -506,12 +515,15 @@ fn map_node_kind(kind: NodeKind) -> IrKind {
         // Placeholders and unknown nodes
         NodeKind::Placeholder => IrKind::Placeholder,
 
-        // TODO: phase-4-m4-005 — Borrow / BorrowMut / Deref:
-        // When AST types ExprBorrow and ExprBorrowMut are added (phase-4-m5 or later),
-        // lower ExprBorrow → IrKind::Borrow with BorrowSideTable.insert(id, BorrowMeta { ... }).
-        // Lower ExprBorrowMut → IrKind::BorrowMut with BorrowSideTable.insert(id, BorrowMeta { ... }).
-        // Lower ExprDeref → IrKind::Deref.
-        // Real wiring with borrow checker activates in phase-4-m6.
+        // Borrow (phase-4-m5): & and &mut expressions → IrKind::Borrow.
+        // PA10-006u: in static-init context, address-of-symbol constants are handled specially
+        // by the elaborator (populate AddrOfSideTable); elsewhere they are runtime borrows.
+        // Note: ExprBorrow covers both immutable (&) and mutable (&mut); the mutable flag
+        // is in ExprData::Borrow { expr, mutable }, not a separate NodeKind.
+        NodeKind::ExprBorrow => IrKind::Borrow,
+
+        // Deref (*expr): dereference a reference.
+        NodeKind::ExprDeref => IrKind::Deref,
 
         // Operands (OperandRegister, OperandImmediate, OperandMemoryRef)
         // These do not appear as top-level nodes in phase-1, but map to Var

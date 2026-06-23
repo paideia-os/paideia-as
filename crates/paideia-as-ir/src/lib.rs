@@ -8,6 +8,7 @@
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+pub mod addr_of;
 pub mod anf;
 mod arena;
 pub mod binding_name;
@@ -37,6 +38,7 @@ pub mod symbol;
 pub mod walker;
 pub mod walker_ctx;
 
+pub use addr_of::{AddrOfMeta, AddrOfSideTable};
 pub use anf::{AnfRewrite, is_atomic, normalise_operands};
 pub use arena::IrArena;
 pub use binding_name::BindingNameTable;
@@ -44,7 +46,7 @@ pub use borrow::{BorrowMeta, BorrowSideTable};
 pub use call_meta::{CallMeta, CallSideTable};
 pub use cast_meta::CastSideTable;
 pub use constant_pool::ConstantPoolTable;
-pub use data::{DataEntry, DataSideTable, RelocSpec, SectionKind};
+pub use data::{DataEntry, DataSideTable, RelocSpec, RelocWidth, SectionKind};
 pub use effect_rewrite::{
     HandlerTable, PerformRewrite, WithRewrite, rewrite_perform, rewrite_unsafe_passthrough,
     rewrite_with_save_restore,

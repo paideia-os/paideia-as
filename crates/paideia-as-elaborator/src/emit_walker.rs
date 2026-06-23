@@ -655,6 +655,43 @@ impl EmitWalker {
                                             data_table.insert(node_id, entry);
                                         }
                                     }
+                                    IrKind::Borrow => {
+                                        // PA10-006u: Address-of static initializer (& sym).
+                                        // Get the child expression (the inner operand).
+                                        let borrow_children = arena.children(rhs_id);
+                                        if let Some(&inner_id) = borrow_children.first() {
+                                            if let Some(inner_node) = arena.get(inner_id) {
+                                                // Check if inner expression is a Var (symbol identifier).
+                                                if inner_node.kind == IrKind::Var {
+                                                    // Create 8-byte .rodata entry with relocation to the symbol.
+                                                    let rodata_bytes = vec![0u8; 8];
+                                                    // Get the symbol name from binding_names or construct a generic one.
+                                                    let target_symbol = arena
+                                                        .binding_names()
+                                                        .get(inner_id)
+                                                        .map(|s| s.to_string())
+                                                        .unwrap_or_else(|| {
+                                                            format!("sym_{}", inner_id.get())
+                                                        });
+
+                                                    let reloc =
+                                                        paideia_as_ir::RelocSpec::with_width(
+                                                            0,
+                                                            target_symbol,
+                                                            paideia_as_ir::RelocWidth::W64,
+                                                            0,
+                                                        );
+                                                    let entry = DataEntry::new_rodata_with_relocs(
+                                                        rodata_bytes,
+                                                        symbol_name,
+                                                        8,
+                                                        vec![reloc],
+                                                    );
+                                                    data_table.insert(node_id, entry);
+                                                }
+                                            }
+                                        }
+                                    }
                                     _ => {
                                         // Other RHS shapes not handled yet.
                                     }

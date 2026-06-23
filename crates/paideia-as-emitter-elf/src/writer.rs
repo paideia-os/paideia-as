@@ -138,6 +138,13 @@ impl ElfWriter {
         self.obj.section_id(StandardSection::ReadOnlyData)
     }
 
+    /// Get the `.data` section ID.
+    ///
+    /// PA10-006u: Used to add relocations for mutable data entries.
+    pub fn data_section_id(&mut self) -> SectionId {
+        self.obj.section_id(StandardSection::Data)
+    }
+
     /// Get the `.bss` section ID.
     ///
     /// Phase-6-m5-003: Used for symbol bindings to .bss.
