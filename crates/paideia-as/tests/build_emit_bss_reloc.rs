@@ -244,24 +244,22 @@ fn bss_symbol_exists_and_references_bss_section() {
     }
     let bss_idx = bss_section_idx.expect(".bss section should exist");
 
-    // Look for a symbol that references .bss (will be named "data_<NodeId>")
+    // Look for any symbol that references .bss.
+    // PA10-007 m1-001 replaced the old "data_<NodeId>" synthetic names with
+    // actual binding names (e.g. "cap_table"), so we match by section only.
     let mut found_bss_symbol = false;
     for sym in file.symbols() {
-        if let Ok(sym_name) = sym.name() {
-            if sym_name.starts_with("data_") {
-                if let Some(sym_section_idx) = sym.section_index() {
-                    if sym_section_idx == bss_idx {
-                        found_bss_symbol = true;
-                        break;
-                    }
-                }
+        if let Some(sym_section_idx) = sym.section_index() {
+            if sym_section_idx == bss_idx {
+                found_bss_symbol = true;
+                break;
             }
         }
     }
 
     assert!(
         found_bss_symbol,
-        "symbol table should contain a .bss-referencing symbol (data_*)"
+        "symbol table should contain at least one symbol referencing the .bss section"
     );
 
     let _ = std::fs::remove_file(&tmp);
