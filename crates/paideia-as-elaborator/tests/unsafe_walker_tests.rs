@@ -84,7 +84,7 @@ fn mov_reg_imm_mnemonic(reg_name: &str) -> Mnemonic {
     let ir_unsafe = ir.alloc(paideia_as_ir::IrKind::Unsafe, stmt_span);
 
     let mut source_map = SourceMap::new();
-    let _ = source_map.add_file(PathBuf::from("test.pdx"), source);
+    let _ = source_map.add_file(PathBuf::from("test.pdx"), source.to_string());
 
     let mut sink = VecSink::new();
     let record_layouts = HashMap::new();
@@ -437,7 +437,7 @@ fn parse_instruction_with_imm(
     let ir_unsafe = ir.alloc(paideia_as_ir::IrKind::Unsafe, stmt_span);
 
     let mut source_map = SourceMap::new();
-    let _ = source_map.add_file(PathBuf::from("test.pdx"), source);
+    let _ = source_map.add_file(PathBuf::from("test.pdx"), source.to_string());
 
     let mut sink = VecSink::new();
     let record_layouts = HashMap::new();
@@ -615,7 +615,7 @@ fn parse_ljmp_instruction(
     let ir_unsafe = ir.alloc(paideia_as_ir::IrKind::Unsafe, stmt_span);
 
     let mut source_map = SourceMap::new();
-    let _ = source_map.add_file(PathBuf::from("test.pdx"), source);
+    let _ = source_map.add_file(PathBuf::from("test.pdx"), source.to_string());
 
     let mut sink = VecSink::new();
     let record_layouts = HashMap::new();
@@ -684,5 +684,133 @@ fn test_ljmp_imm_symbol() {
             assert_eq!(addend, 0, "expected addend 0");
         }
         _ => panic!("expected SymbolRef operand for offset"),
+    }
+}
+
+/// PA10-006j: Parse [rip + symbol] memory operand for RIP-relative addressing.
+///
+/// Tests that `lgdt [rip + target]` correctly parses the infix expression
+/// with rip as the base register and target as a symbol reference.
+#[test]
+fn test_lgdt_rip_relative_symbol() {
+    // Source: `lgdt [rip + target]`
+    // Breakdown:
+    // - "lgdt " = 5 bytes
+    // - "[rip + target]" starting at byte 5
+    //   - "[" at 5
+    //   - "rip" at 6-9
+    //   - " + " at 9-12
+    //   - "target" at 12-18
+    //   - "]" at 18
+    let source = "lgdt [rip + target]";
+    
+    let mut ast = AstArena::new();
+    let mut ir = IrArena::new();
+
+    let file_id = paideia_as_diagnostics::FileId::new(1).unwrap();
+    let stmt_span = test_span();
+    
+    let justification = ast.alloc(NodeKind::ExprString, stmt_span);
+
+    // Build the AST for [rip + target]:
+    // - lhs = "rip" (Ident at byte 6, len 3)
+    let rip_span = Span::new(file_id, 6, 3);
+    let rip_ident = ast.alloc(NodeKind::Ident, rip_span);
+
+    // - op = "+" (Placeholder at byte 10, len 1)
+    let op_span = Span::new(file_id, 10, 1);
+    let op_node = ast.alloc(NodeKind::Placeholder, op_span);
+
+    // - rhs = "target" (Ident at byte 12, len 6)
+    let target_span = Span::new(file_id, 12, 6);
+    let target_ident = ast.alloc(NodeKind::Ident, target_span);
+
+    // - ExprInfix: rip + target
+    let infix_expr = ast.alloc_expr(
+        NodeKind::ExprInfix,
+        Span::new(file_id, 6, 12),
+        ExprData::Infix {
+            lhs: rip_ident,
+            op: op_node,
+            rhs: target_ident,
+        },
+    );
+
+    // - OperandMemoryRef: [rip + target]
+    let memref_operand = ast.alloc_expr(
+        NodeKind::OperandMemoryRef,
+        Span::new(file_id, 5, 13),
+        ExprData::OperandMemoryRef { addr: infix_expr },
+    );
+
+    // Build the instruction: lgdt [rip + target]
+    let mnemonic_id = ast.intern_mnemonic("lgdt");
+    let inst_stmt = ast.alloc_stmt(
+        NodeKind::StmtInstruction,
+        stmt_span,
+        StmtData::Instruction {
+            mnemonic: mnemonic_id,
+            operands: vec![memref_operand],
+        },
+    );
+
+    let _unsafe_expr = ast.alloc_expr(
+        NodeKind::ExprUnsafe,
+        stmt_span,
+        ExprData::Unsafe {
+            effects: vec![],
+            capabilities: vec![],
+            justification,
+            block: vec![inst_stmt],
+        },
+    );
+
+    let ir_unsafe = ir.alloc(paideia_as_ir::IrKind::Unsafe, stmt_span);
+
+    let mut source_map = SourceMap::new();
+    let _ = source_map.add_file(PathBuf::from("test.pdx"), source.to_string());
+
+    let mut sink = VecSink::new();
+    let record_layouts = HashMap::new();
+    let local_bindings = LocalBindingTable::new();
+    let _diags = UnsafeWalker::run(
+        &mut ir,
+        &ast,
+        vec![ir_unsafe.get()],
+        &source_map,
+        &mut sink,
+        &record_layouts,
+        &local_bindings,
+    );
+
+    // Verify the instruction was elaborated
+    assert_eq!(ir.instructions().len(), 1, "expected exactly one instruction");
+
+    let instruction = ir
+        .instructions()
+        .entries()
+        .values()
+        .next()
+        .expect("instruction present");
+
+    // Verify the mnemonic is Lgdt
+    assert_eq!(instruction.mnemonic, Mnemonic::Lgdt, "expected Lgdt mnemonic");
+
+    // Verify the operand is SymbolRef { name: "target", addend: 0 }
+    assert_eq!(
+        instruction.operands.len(),
+        1,
+        "expected 1 operand for lgdt instruction"
+    );
+
+    match &instruction.operands[0] {
+        paideia_as_ir::instruction::Operand::SymbolRef { name, addend } => {
+            assert_eq!(name, "target", "expected symbol 'target'");
+            assert_eq!(*addend, 0, "expected addend 0");
+        }
+        _ => panic!(
+            "expected SymbolRef operand for [rip + symbol], got {:?}",
+            instruction.operands[0]
+        ),
     }
 }

@@ -321,6 +321,7 @@ pub fn parse_operand_from_ast(
 /// Phase 6 m4-005: Only `call` and `jmp` (conditional and unconditional)
 /// mnemonics support symbol references in operand position.
 /// PA10-006h: Also `ljmp`/`farjmp` for far-jump target offsets.
+/// PA10-006j: Also `lgdt` and `lidt` for RIP-relative memory operands with symbols.
 fn supports_symbol_ref(mnemonic: Mnemonic) -> bool {
     matches!(
         mnemonic,
@@ -330,6 +331,8 @@ fn supports_symbol_ref(mnemonic: Mnemonic) -> bool {
             | Mnemonic::Mov
             | Mnemonic::Lea
             | Mnemonic::FarJmp
+            | Mnemonic::Lgdt
+            | Mnemonic::Lidt
     )
 }
 
@@ -592,8 +595,8 @@ fn try_parse_symbol_memory(
         NodeKind::Ident => {
             let name = get_register_name(ast, addr_node, source_map)
                 .ok_or(OperandError::MalformedOperand(span))?;
-            // Check if it's a known register (if so, not a symbol)
-            if register_name_to_regid(&name).is_some() {
+            // Check if it's a known register or special register (if so, not a symbol)
+            if register_name_to_regid(&name).is_some() || name == "rip" {
                 return Err(OperandError::MalformedOperand(span));
             }
             // It's a symbol reference
@@ -605,8 +608,8 @@ fn try_parse_symbol_memory(
                 Some(ExprData::Path { segments }) if segments.len() == 1 => {
                     let name = get_register_name(ast, segments[0], source_map)
                         .ok_or(OperandError::MalformedOperand(span))?;
-                    // Check if it's a known register (if so, not a symbol)
-                    if register_name_to_regid(&name).is_some() {
+                    // Check if it's a known register or special register (if so, not a symbol)
+                    if register_name_to_regid(&name).is_some() || name == "rip" {
                         return Err(OperandError::MalformedOperand(span));
                     }
                     // It's a symbol reference
@@ -641,8 +644,8 @@ fn try_parse_symbol_memory(
                         NodeKind::Ident => {
                             let name = get_register_name(ast, symbol_side, source_map)
                                 .ok_or(OperandError::MalformedOperand(span))?;
-                            // Check if it's a known register (if so, not a symbol)
-                            if register_name_to_regid(&name).is_some() {
+                            // Check if it's a known register or special register (if so, not a symbol)
+                            if register_name_to_regid(&name).is_some() || name == "rip" {
                                 return Err(OperandError::MalformedOperand(span));
                             }
                             Ok(Operand::SymbolRef { name, addend: 0 })
@@ -652,8 +655,8 @@ fn try_parse_symbol_memory(
                                 Some(ExprData::Path { segments }) if segments.len() == 1 => {
                                     let name = get_register_name(ast, segments[0], source_map)
                                         .ok_or(OperandError::MalformedOperand(span))?;
-                                    // Check if it's a known register (if so, not a symbol)
-                                    if register_name_to_regid(&name).is_some() {
+                                    // Check if it's a known register or special register (if so, not a symbol)
+                                    if register_name_to_regid(&name).is_some() || name == "rip" {
                                         return Err(OperandError::MalformedOperand(span));
                                     }
                                     Ok(Operand::SymbolRef { name, addend: 0 })
@@ -907,43 +910,41 @@ fn get_infix_op_name(
     source_map: &paideia_as_diagnostics::SourceMap,
 ) -> Option<&'static str> {
     let node = ast.get(op_node)?;
-    match node.kind {
-        NodeKind::Ident => {
-            // Extract operator symbol from the source text via the span
-            let span = node.span;
-            let file_id = span.file();
-            let source = source_map.content(file_id);
 
-            // Extract the text from the span
-            let start = span.byte_start() as usize;
-            let end = start + span.byte_len() as usize;
-            if end > source.len() {
-                return None;
-            }
+    // Extract the operator span (works for both Ident and Placeholder nodes).
+    // PA10-006g: The parser creates Placeholder nodes for operators with the operator span.
+    // This allows us to extract the operator text regardless of node kind.
+    let span = node.span;
+    let file_id = span.file();
+    let source = source_map.content(file_id);
 
-            let text = &source[start..end];
+    // Extract the text from the span
+    let start = span.byte_start() as usize;
+    let end = start + span.byte_len() as usize;
+    if end > source.len() {
+        return None;
+    }
 
-            // Match common operators
-            match text {
-                "+" => Some("+"),
-                "-" => Some("-"),
-                "*" => Some("*"),
-                "/" => Some("/"),
-                "%" => Some("%"),
-                "&" => Some("&"),
-                "|" => Some("|"),
-                "^" => Some("^"),
-                "==" => Some("=="),
-                "!=" => Some("!="),
-                "<" => Some("<"),
-                ">" => Some(">"),
-                "<=" => Some("<="),
-                ">=" => Some(">="),
-                "<<" => Some("<<"),
-                ">>" => Some(">>"),
-                _ => None,
-            }
-        }
+    let text = &source[start..end];
+
+    // Match common operators
+    match text {
+        "+" => Some("+"),
+        "-" => Some("-"),
+        "*" => Some("*"),
+        "/" => Some("/"),
+        "%" => Some("%"),
+        "&" => Some("&"),
+        "|" => Some("|"),
+        "^" => Some("^"),
+        "==" => Some("=="),
+        "!=" => Some("!="),
+        "<" => Some("<"),
+        ">" => Some(">"),
+        "<=" => Some("<="),
+        ">=" => Some(">="),
+        "<<" => Some("<<"),
+        ">>" => Some(">>"),
         _ => None,
     }
 }
@@ -1123,6 +1124,12 @@ fn register_name_to_regid(name: &str) -> Option<RegId> {
         "dr5" => Some(RegId(30)),
         "dr6" => Some(RegId(31)),
         "dr7" => Some(RegId(32)),
+
+        // Special register: RIP (Instruction Pointer) for RIP-relative addressing
+        // PA10-006j: Must be recognized as a register to allow fallback to parse_address_to_sib
+        // when try_parse_symbol_memory doesn't match [rip + symbol] pattern.
+        // Returns sentinel value 0xFF which is outside all normal register ranges.
+        "rip" => Some(RegId(0xFF)),
 
         _ => None,
     }

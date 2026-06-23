@@ -1,0 +1,7 @@
+module Pa10006jRiprel = structure {
+  let target : u64 = 42
+  let f : () -> () = fn(_: ()) -> unsafe {
+    effects: {sysreg}, capabilities: {boot}, justification: "test",
+    block: { lgdt [rip + target] }
+  }
+}
