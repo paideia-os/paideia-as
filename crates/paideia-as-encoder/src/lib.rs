@@ -7,6 +7,8 @@
 
 pub mod dispatch;
 pub mod encode;
+pub mod encode_and_or_xor;
+pub mod encode_imul;
 pub mod encode_instruction;
 pub use dispatch::{DispatchKind, classify};
 pub use encode::*;
