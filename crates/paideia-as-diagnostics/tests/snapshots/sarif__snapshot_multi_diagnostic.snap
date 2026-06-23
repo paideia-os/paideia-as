@@ -621,6 +621,34 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "PA10-006u: In static initializers (module-level let bindings), & can only be applied directly to a symbol name, not to arbitrary expressions. For example, `let p: u64 = & target;` is valid, but `let p: u64 = & (expr);` is not. Address-of-expression patterns must be used in runtime contexts, not static initialization."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0230",
+              "id": "P0230",
+              "name": "address-of requires identifier in static initializer",
+              "shortDescription": {
+                "text": "& must be applied to a simple symbol identifier"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "PA10-006u: Mutable references (& mut) are not allowed in static initializers (module-level let bindings). Only immutable addresses are supported. Use `let p: u64 = & symbol;` (without mut)."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0231",
+              "id": "P0231",
+              "name": "mutable reference forbidden in static initializer",
+              "shortDescription": {
+                "text": "& mut cannot be used in static initializers"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "Signature ascription requires the structure to define a named type/val/module that is absent."
               },
               "helpUri": "https://paideia-os.org/diagnostics/M0301",
