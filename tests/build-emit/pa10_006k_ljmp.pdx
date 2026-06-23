@@ -1,0 +1,11 @@
+module Pa10006kLjmp = structure {
+  let target : () -> () = fn() -> 0;
+  let _start : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "PA10-006k: ljmp two-operand selector:offset form",
+    block: {
+      ljmp 0x08, target
+    }
+  }
+}
