@@ -146,7 +146,9 @@ fn mov_r64_imm_stays_generic_mov() {
 fn mov_r16_imm_routes_through_movsized_w16() {
     assert_eq!(
         mov_reg_imm_mnemonic("ax"),
-        Mnemonic::MovSized { width: IntWidth::W16 }
+        Mnemonic::MovSized {
+            width: IntWidth::W16
+        }
     );
 }
 
@@ -364,4 +366,165 @@ fn test_malformed_operand_incomplete_memory() {
         0,
         "should not insert instruction for malformed operand"
     );
+}
+
+// PA10-006f: Integer literal as immediate operand
+//
+// Helper to parse a two-operand instruction with an immediate operand and return its operands.
+fn parse_instruction_with_imm(
+    mnemonic_str: &str,
+    reg_name: &str,
+    imm_value: &str,
+) -> (
+    paideia_as_ir::instruction::Operand,
+    paideia_as_ir::instruction::Operand,
+) {
+    let source = format!("{} {}, {}", mnemonic_str, reg_name, imm_value);
+    let reg_start = (mnemonic_str.len() + 1) as u32;
+    let reg_len = reg_name.len() as u32;
+    let imm_start = (mnemonic_str.len() + 1 + reg_name.len() + 2) as u32;
+    let imm_len = imm_value.len() as u32;
+
+    let mut ast = AstArena::new();
+    let mut ir = IrArena::new();
+
+    let file_id = paideia_as_diagnostics::FileId::new(1).unwrap();
+    let stmt_span = test_span();
+    let reg_span = Span::new(file_id, reg_start, reg_len);
+    let imm_span = Span::new(file_id, imm_start, imm_len);
+
+    let justification = ast.alloc(NodeKind::ExprString, stmt_span);
+
+    // Destination register operand
+    let reg_ident = ast.alloc(NodeKind::Ident, reg_span);
+    let reg_operand = ast.alloc_expr(
+        NodeKind::OperandRegister,
+        reg_span,
+        ExprData::OperandRegister { reg: reg_ident },
+    );
+
+    // Immediate operand (with proper span pointing to the literal text)
+    let lit_placeholder = ast.alloc(NodeKind::Placeholder, imm_span);
+    let imm_operand = ast.alloc_expr(
+        NodeKind::ExprLiteral,
+        imm_span,
+        ExprData::Literal {
+            lit: lit_placeholder,
+        },
+    );
+
+    let mnemonic_id = ast.intern_mnemonic(mnemonic_str);
+    let inst_stmt = ast.alloc_stmt(
+        NodeKind::StmtInstruction,
+        stmt_span,
+        StmtData::Instruction {
+            mnemonic: mnemonic_id,
+            operands: vec![reg_operand, imm_operand],
+        },
+    );
+
+    let _unsafe_expr = ast.alloc_expr(
+        NodeKind::ExprUnsafe,
+        stmt_span,
+        ExprData::Unsafe {
+            effects: vec![],
+            capabilities: vec![],
+            justification,
+            block: vec![inst_stmt],
+        },
+    );
+
+    let ir_unsafe = ir.alloc(paideia_as_ir::IrKind::Unsafe, stmt_span);
+
+    let mut source_map = SourceMap::new();
+    let _ = source_map.add_file(PathBuf::from("test.pdx"), source);
+
+    let mut sink = VecSink::new();
+    let record_layouts = HashMap::new();
+    let local_bindings = LocalBindingTable::new();
+    let _diags = UnsafeWalker::run(
+        &mut ir,
+        &ast,
+        vec![ir_unsafe.get()],
+        &source_map,
+        &mut sink,
+        &record_layouts,
+        &local_bindings,
+    );
+
+    assert_eq!(
+        ir.instructions().len(),
+        1,
+        "expected exactly one instruction for `{} {}, {}`",
+        mnemonic_str,
+        reg_name,
+        imm_value
+    );
+
+    let instruction = ir
+        .instructions()
+        .entries()
+        .values()
+        .next()
+        .expect("instruction present");
+
+    assert_eq!(
+        instruction.operands.len(),
+        2,
+        "expected 2 operands for two-operand instruction"
+    );
+
+    (
+        instruction.operands[0].clone(),
+        instruction.operands[1].clone(),
+    )
+}
+
+/// PA10-006f Test 1: `or eax, 0x20` with hexadecimal immediate operand.
+#[test]
+fn test_or_eax_hex_immediate() {
+    let (_reg_op, imm_op) = parse_instruction_with_imm("or", "eax", "0x20");
+    // The operand should be parsed as Imm64(0x20) = Imm64(32)
+    match imm_op {
+        paideia_as_ir::instruction::Operand::Imm64(val) => {
+            assert_eq!(val, 0x20, "expected immediate 0x20");
+        }
+        _ => panic!("expected Imm64 operand"),
+    }
+}
+
+/// PA10-006f Test 2: `add rax, 1` with decimal immediate operand.
+#[test]
+fn test_add_rax_decimal_immediate() {
+    let (_reg_op, imm_op) = parse_instruction_with_imm("add", "rax", "1");
+    match imm_op {
+        paideia_as_ir::instruction::Operand::Imm64(val) => {
+            assert_eq!(val, 1, "expected immediate 1");
+        }
+        _ => panic!("expected Imm64 operand"),
+    }
+}
+
+/// PA10-006f Test 3: `mov ecx, 0xC0000080` with large hexadecimal immediate operand.
+#[test]
+fn test_mov_ecx_large_hex_immediate() {
+    let (_reg_op, imm_op) = parse_instruction_with_imm("mov", "ecx", "0xC0000080");
+    match imm_op {
+        paideia_as_ir::instruction::Operand::Imm64(val) => {
+            assert_eq!(val, 0xC0000080i64, "expected immediate 0xC0000080");
+        }
+        _ => panic!("expected Imm64 operand"),
+    }
+}
+
+/// PA10-006f Test 4: `and rax, 0xFF` with hexadecimal immediate operand.
+#[test]
+fn test_and_rax_hex_immediate() {
+    let (_reg_op, imm_op) = parse_instruction_with_imm("and", "rax", "0xFF");
+    match imm_op {
+        paideia_as_ir::instruction::Operand::Imm64(val) => {
+            assert_eq!(val, 0xFF, "expected immediate 0xFF");
+        }
+        _ => panic!("expected Imm64 operand"),
+    }
 }

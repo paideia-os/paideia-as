@@ -133,6 +133,14 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     // Phase 8 m5-001: Additional supervisor mnemonics
     ("invlpg", Mnemonic::Invlpg),
     ("rdtsc", Mnemonic::Rdtsc),
+    // Phase 10 m2-001 (PA10-006b): Bitwise operation mnemonics
+    ("and", Mnemonic::And),
+    ("or", Mnemonic::Or),
+    ("xor", Mnemonic::Xor),
+    ("shl", Mnemonic::Shl),
+    ("shr", Mnemonic::Shr),
+    ("sar", Mnemonic::Sar),
+    ("imul", Mnemonic::Imul),
 ];
 
 /// Resolve a mnemonic name to an IR Mnemonic enum variant.
@@ -273,7 +281,7 @@ pub fn parse_operand_from_ast(
         }
         NodeKind::ExprLiteral => {
             // Immediate operand: extract integer literal
-            parse_immediate_from_literal(ast, operand_node)
+            parse_immediate_from_literal(ast, operand_node, source_map)
         }
         NodeKind::OperandMemoryRef => {
             // Memory operand: parse memory reference with SIB addressing
@@ -485,6 +493,7 @@ fn parse_deref_operand(
 fn parse_immediate_from_literal(
     ast: &AstArena,
     literal_node: NodeId,
+    source_map: &paideia_as_diagnostics::SourceMap,
 ) -> Result<Operand, OperandError> {
     let span = ast.get(literal_node).map(|n| n.span).unwrap_or_else(|| {
         paideia_as_diagnostics::Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 0, 1)
@@ -498,7 +507,7 @@ fn parse_immediate_from_literal(
             // The `lit` node is a Placeholder holding the literal value.
             // For phase-1, we assume the parser has already validated the literal.
             // Extract the integer value from the source span or use a default.
-            let value = extract_integer_from_span(ast, *lit).unwrap_or(0);
+            let value = extract_integer_from_span(ast, *lit, source_map).unwrap_or(0);
             Ok(Operand::Imm64(value))
         }
         _ => Err(OperandError::MalformedOperand(span)),
@@ -802,7 +811,7 @@ fn combine_additive_terms(
         }
         Some(NodeKind::ExprLiteral) => {
             // Right is an immediate: treat as displacement
-            let right_disp = extract_integer_from_span(ast, right).unwrap_or(0) as i32;
+            let right_disp = extract_integer_from_span(ast, right, source_map).unwrap_or(0) as i32;
             let final_disp = if is_sub {
                 left_disp - right_disp
             } else {
@@ -856,7 +865,7 @@ fn extract_index_scale(
         _ => return Err(OperandError::MalformedOperand(span)),
     };
 
-    let scale_factor = extract_integer_from_span(ast, right).unwrap_or(1) as u32;
+    let scale_factor = extract_integer_from_span(ast, right, source_map).unwrap_or(1) as u32;
     Ok((idx_reg, scale_factor))
 }
 
@@ -898,10 +907,65 @@ fn get_register_name(
 }
 
 /// Extract an integer value from a span/literal node.
-fn extract_integer_from_span(_ast: &AstArena, _literal_node: NodeId) -> Option<i64> {
-    // For phase-1, return 0 as a placeholder
-    // A full implementation would extract the actual value from the source text
-    Some(0)
+///
+/// PA10-006f: Parses integer literals from their source text representation.
+/// Supports decimal, hexadecimal (0x), octal (0o), and binary (0b) formats.
+/// Returns the parsed u64 value, or None if parsing fails.
+fn extract_integer_from_span(
+    ast: &AstArena,
+    literal_node: NodeId,
+    source_map: &paideia_as_diagnostics::SourceMap,
+) -> Option<i64> {
+    // Get the span of the literal node
+    let node = ast.get(literal_node)?;
+    let span = node.span;
+
+    // Look up the file content in the source map
+    let file_id = span.file();
+    let source = source_map.content(file_id);
+
+    // Extract the text from the span
+    let start = span.byte_start() as usize;
+    let end = start + span.byte_len() as usize;
+    if end > source.len() {
+        return None;
+    }
+
+    let text = &source[start..end];
+
+    // Parse the integer literal
+    // Support decimal, hex (0x), octal (0o), and binary (0b) formats
+    if let Ok(val) = text.parse::<i64>() {
+        return Some(val);
+    }
+
+    // Try parsing as hex
+    if text.starts_with("0x") || text.starts_with("0X") {
+        if let Ok(val) = i64::from_str_radix(&text[2..], 16) {
+            return Some(val);
+        }
+    }
+
+    // Try parsing as octal
+    if text.starts_with("0o") || text.starts_with("0O") {
+        if let Ok(val) = i64::from_str_radix(&text[2..], 8) {
+            return Some(val);
+        }
+    }
+
+    // Try parsing as binary
+    if text.starts_with("0b") || text.starts_with("0B") {
+        if let Ok(val) = i64::from_str_radix(&text[2..], 2) {
+            return Some(val);
+        }
+    }
+
+    // Try parsing as unsigned and converting to signed
+    if let Ok(val) = text.parse::<u64>() {
+        return Some(val as i64);
+    }
+
+    None
 }
 
 /// Map register names to RegId values.
