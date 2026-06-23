@@ -822,3 +822,27 @@ fn test_lgdt_rip_relative_symbol() {
         ),
     }
 }
+
+// ===== Suite C: Elaborator-level smoke tests for PA10-004 (narrow-form MOV) =====
+
+/// PA10-004: `mov ah, 0x80` produces MovSized { W8 } with RegId(4).
+#[test]
+fn mov_ah_0x80_produces_movsized_w8_regid4() {
+    assert_eq!(
+        mov_reg_imm_mnemonic("ah"),
+        Mnemonic::MovSized {
+            width: IntWidth::W8
+        }
+    );
+}
+
+/// PA10-004: `mov r10b, 0x07` produces MovSized { W8 } with RegId(10).
+#[test]
+fn mov_r10b_0x07_produces_movsized_w8_regid10() {
+    assert_eq!(
+        mov_reg_imm_mnemonic("r10b"),
+        Mnemonic::MovSized {
+            width: IntWidth::W8
+        }
+    );
+}

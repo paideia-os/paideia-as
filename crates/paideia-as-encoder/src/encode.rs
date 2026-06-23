@@ -228,6 +228,16 @@ pub fn mov_reg16_imm16(buf: &mut CodeBuffer, dst: Reg64, imm: u16) {
 /// Bytes: `[41] B0+(reg&7) imm8`
 ///
 /// Example: `mov al, 42` → `b0 2a` (2 bytes)
+///
+/// PA10-004 CONTRACT: RegIds 0–3 emit without REX, producing the classic 8-bit forms:
+/// - RegId(0–3) with NO REX → B0–B3 + imm8 → al, cl, dl, bl (low-byte low-reg)
+/// - HIGH-BYTE REGS ah–bh also map to RegId(4–7), and they ALSO emit without REX,
+///   producing B4–B7 + imm8 (distinguished by the AST context only, not the bytes).
+/// - RegId(8–15) with REX.B (0x41) → 41 B0–B7 + imm8 → r8b–r15b (extended low-byte)
+///
+/// If spl/bpl/sil/dil are added in a later phase, they require a different entry
+/// point or special handling to preserve the high-byte aliasing trap: they also
+/// need ids 4–7 but WITH bare REX (not REX.B).
 pub fn mov_reg8_imm8(buf: &mut CodeBuffer, dst: Reg64, imm: u8) {
     let reg_id = dst as u8;
     if (reg_id >> 3) != 0 {

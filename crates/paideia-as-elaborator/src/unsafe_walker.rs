@@ -1104,6 +1104,24 @@ fn register_name_to_regid(name: &str) -> Option<RegId> {
         "dl" => Some(RegId(2)),
         "bl" => Some(RegId(3)),
 
+        // High-byte sub-registers: share 64-bit RegId of low-byte sibling.
+        // Distinguished from spl/bpl/sil/dil by ABSENCE of REX prefix at encode time.
+        // PA10-004 deliberately omits spl/bpl/sil/dil.
+        "ah" => Some(RegId(4)),
+        "ch" => Some(RegId(5)),
+        "dh" => Some(RegId(6)),
+        "bh" => Some(RegId(7)),
+
+        // Extended low-byte sub-registers (require REX.B).
+        "r8b" => Some(RegId(8)),
+        "r9b" => Some(RegId(9)),
+        "r10b" => Some(RegId(10)),
+        "r11b" => Some(RegId(11)),
+        "r12b" => Some(RegId(12)),
+        "r13b" => Some(RegId(13)),
+        "r14b" => Some(RegId(14)),
+        "r15b" => Some(RegId(15)),
+
         // Control registers (compact encoding: 16 + index)
         "cr0" => Some(RegId(16)),
         "cr1" => Some(RegId(17)),
@@ -1166,8 +1184,9 @@ fn register_name_width(name: &str) -> Option<IntWidth> {
         // 16-bit sub-registers.
         "ax" | "cx" | "dx" | "bx" | "sp" | "bp" | "si" | "di" => Some(IntWidth::W16),
 
-        // 8-bit sub-registers (only al–bl currently spell-able).
-        "al" | "cl" | "dl" | "bl" => Some(IntWidth::W8),
+        // 8-bit sub-registers (al–bl low-byte and ah–bh high-byte).
+        "al" | "cl" | "dl" | "bl" | "ah" | "ch" | "dh" | "bh" | "r8b" | "r9b" | "r10b" | "r11b"
+        | "r12b" | "r13b" | "r14b" | "r15b" => Some(IntWidth::W8),
 
         _ => None,
     }
