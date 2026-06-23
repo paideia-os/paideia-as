@@ -898,7 +898,8 @@ fn build_elf_object(
         };
         // Phase-5-m4-003: Create a symbol for the data entry so relocations can reference it
         // Phase 6 m5-003: include section information for .bss symbols
-        let sym_name = format!("data_{}", id.get());
+        // PA10-007 FIX: Use actual binding name from data entry, not hardcoded data_<id>
+        let sym_name = entry.symbol_name.clone();
         let size = match entry.section {
             paideia_as_ir::SectionKind::Bss => entry.size_hint,
             _ => entry.bytes.len() as u64,
@@ -908,7 +909,7 @@ fn build_elf_object(
             offset: Some(data_offset),
             size,
             kind: SymKind::Data,
-            is_global: false,
+            is_global: true,  // PA10-007: Data symbols must be global for cross-module linkage
             section: Some(entry.section),
         });
     }
