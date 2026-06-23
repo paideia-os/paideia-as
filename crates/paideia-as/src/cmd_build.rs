@@ -524,6 +524,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
 
     // Phase-5-m4-003: Populate data side-table for module-level data bindings.
     // This must run after walker passes and before emit format selection.
+    // PA10-007 m1-001: Use actual binding names for data symbols instead of "data_<id>".
     if !lowering.ir.is_empty() {
         // Due to Rust borrowing rules, we need to collect the arena state before
         // calling data_mut(). We'll use a temporary struct to hold the necessary data.
@@ -538,7 +539,10 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                         let children = lowering.ir.children(node_id);
                         if let Some(&rhs_id) = children.first() {
                             if let Some(rhs_node) = lowering.ir.get(rhs_id) {
-                                let symbol_name = format!("data_{}", node_id.get());
+                                // PA10-007 m1-001: Use actual binding name from binding_names table
+                                let symbol_name = lowering.ir.binding_names().get(&node_id)
+                                    .cloned()
+                                    .unwrap_or_else(|| format!("data_{}", node_id.get()));
 
                                 if rhs_node.kind == paideia_as_ir::IrKind::Literal {
                                     // Phase 5: Let with Literal → Rodata

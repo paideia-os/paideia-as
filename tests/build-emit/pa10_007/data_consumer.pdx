@@ -1,0 +1,7 @@
+; PA10-007: Cross-file data reference
+; References external symbol `target` defined in another file
+
+let f = fn() -> unsafe {
+  let x : u64 = 0
+  x
+}

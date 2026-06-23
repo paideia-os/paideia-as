@@ -1,0 +1,4 @@
+; PA10-007: Data symbol with binding name
+; Defines `target : u64 = 42` so the ELF symbol should be named "target"
+
+let target : u64 = 42
