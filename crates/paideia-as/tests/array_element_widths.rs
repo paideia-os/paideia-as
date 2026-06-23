@@ -74,11 +74,7 @@ fn build_and_check_symbol_size(fixture_name: &str, symbol_name: &str, expected_s
         }
     }
 
-    assert!(
-        found,
-        "{}: {} symbol not found",
-        fixture_name, symbol_name
-    );
+    assert!(found, "{}: {} symbol not found", fixture_name, symbol_name);
 }
 
 #[test]

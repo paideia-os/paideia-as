@@ -173,12 +173,9 @@ fn compute_bss_size_from_type(
                     // Parse the array length.
                     if let Ok(array_len) = parse_integer_literal(literal_text) {
                         // PA10-006s: Use element byte width instead of hardcoded 8.
-                        let element_width = array_element_byte_width(
-                            ir_node_id,
-                            ast_arena,
-                            source_map,
-                            file_id,
-                        ).unwrap_or(8);
+                        let element_width =
+                            array_element_byte_width(ir_node_id, ast_arena, source_map, file_id)
+                                .unwrap_or(8);
                         return (array_len as u64) * (element_width as u64);
                     }
                 }
@@ -402,7 +399,6 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
     }
 
     // Phase 6 m2-004: Extract binding names from AST Let nodes and populate the IR's binding_names table.
-    // PA10-006s: Also extract from StmtLet nodes (statement-level lets).
     // This enables emit_walker to use actual binding names (_start, _anchor, etc.) instead of generic _let_<nodeid>.
     {
         let content_ref = source_map.content(file);
@@ -411,7 +407,6 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
         for i in 0..arena.len() {
             if let Some(ast_id) = paideia_as_ast::NodeId::new((i + 1) as u32) {
                 if let Some(node) = arena.get(ast_id) {
-                    // PA10-006s: Handle both Let (top-level) and StmtLet (statement-level)
                     if node.kind == paideia_as_ast::NodeKind::Let {
                         if let Some(paideia_as_ast::ItemData::Let { name: name_id, .. }) =
                             arena.item_data(ast_id)
@@ -426,27 +421,6 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                                     // Map AST Let node ID to IR Let node ID (1-to-1 mapping)
                                     let ir_let_id = paideia_as_ir::IrNodeId::new(ast_id.get())
                                         .expect("valid ir node id from ast let node");
-                                    lowering
-                                        .ir
-                                        .binding_names_mut()
-                                        .insert(ir_let_id, binding_text);
-                                }
-                            }
-                        }
-                    } else if node.kind == paideia_as_ast::NodeKind::StmtLet {
-                        if let Some(paideia_as_ast::StmtData::Let { name: name_id, .. }) =
-                            arena.stmt_data(ast_id)
-                        {
-                            // Get the Ident node for the binding name
-                            if let Some(name_node) = arena.get(*name_id) {
-                                let span = name_node.span;
-                                let start = span.byte_start() as usize;
-                                let len = span.byte_len() as usize;
-                                if start + len <= content_ref.len() {
-                                    let binding_text = content_ref[start..start + len].to_string();
-                                    // Map AST StmtLet node ID to IR Let node ID (1-to-1 mapping)
-                                    let ir_let_id = paideia_as_ir::IrNodeId::new(ast_id.get())
-                                        .expect("valid ir node id from ast stmt let node");
                                     lowering
                                         .ir
                                         .binding_names_mut()
@@ -738,7 +712,9 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                         }
 
                         // Try ArrayLit first, then fall back to Literal
-                        let rhs_id = array_lit_id.or(literal_id).or_else(|| children.first().copied());
+                        let rhs_id = array_lit_id
+                            .or(literal_id)
+                            .or_else(|| children.first().copied());
 
                         if let Some(rhs_id) = rhs_id {
                             if let Some(rhs_node) = lowering.ir.get(rhs_id) {
@@ -749,7 +725,6 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                                     .get(node_id)
                                     .map(|s| s.to_string())
                                     .unwrap_or_else(|| format!("data_{}", node_id.get()));
-
 
                                 if rhs_node.kind == paideia_as_ir::IrKind::Literal {
                                     // Phase 5: Let with Literal → Rodata
@@ -777,7 +752,8 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                                         &arena,
                                         &source_map,
                                         file,
-                                    ).unwrap_or(8);
+                                    )
+                                    .unwrap_or(8);
 
                                     for &elem_id in array_children.iter() {
                                         if let Some(elem_node) = lowering.ir.get(elem_id) {
@@ -785,8 +761,10 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                                                 if let Some(value) =
                                                     lowering.ir.literal_values().get(elem_id)
                                                 {
-                                                    let elem_bytes =
-                                                        EmitWalker::pack_int_le_public(value, element_width);
+                                                    let elem_bytes = EmitWalker::pack_int_le_public(
+                                                        value,
+                                                        element_width,
+                                                    );
                                                     packed_bytes.extend(elem_bytes);
                                                     element_count += 1;
                                                 }
