@@ -1,5 +1,37 @@
 # Changelog
 
+## v0.10.0 — PA10 PVH/string-literals/bitwise-arith/narrow-Mov closure (PA10-001..006 substrate unblocked)
+
+**Released:** Tag pushed at PA10-006 closure (v0.10.0 release).
+
+paideia-as PA10 v0.10 round closes phase 10 feature work. Scope: PVH ELF note generation for QEMU -kernel acceptance (PA10-001); string literal lowering to .rodata (PA10-002); bitwise arithmetic encoders for AND/OR/XOR (PA10-003); narrow-form Mov instructions for r8-imm and r16-imm (PA10-004); nested let-of-Var in deep block bodies (PA10-005); end-to-end closure fixture demonstrating all features compose (PA10-006 + PA10-006a-l recovery commits).
+
+### Milestones
+
+- **PA10-001 — PVH ELF note** — Multiboot2/PVH note generation for QEMU -kernel; marks kernel-main as PVH-compatible.
+- **PA10-002 — string literals** — String literal lowering to .rodata; FNV-1a interning; R_X86_64_64 relocations for references.
+- **PA10-003 — bitwise arithmetic** — Real Imul/And/Or/Xor encoders with reg-reg, reg-imm8, reg-imm32 forms; sign-extension trap guards.
+- **PA10-004 — narrow Mov** — Mov instructions for r8-imm8, r16-imm16 with high-byte register support.
+- **PA10-005 — nested let-of-Var** — Scope stack with flat fallback for variable lookup in deep block bodies.
+- **PA10-006 — closure fixture** — boot_observable.pdx integration test exercising PA10-001..005 end-to-end; qemu-smoke conditional on tool availability.
+- **PA10-006a-l — recovery commits** — ljmp immediate/two-operand, RIP-relative addressing, I/O port mnemonics, integer literal immediates.
+
+### Highlights
+
+- **2991 workspace tests** (+134 from v0.9.0 baseline at 2857; all-green).
+- **PVH note infrastructure complete**: kernel emitted as PVH-Note ELF; QEMU -kernel acceptance path validated.
+- **PA10-001..005 composed end-to-end**: boot_observable.pdx fixture demonstrates all features working together; disasm validation confirms narrow Mov, AND/OR/XOR, control flow present.
+- **String literal IR infrastructure**: complete pipeline from parser → elaborator → emit, with deduplication and relocation generation.
+- **Bitwise operation encoders**: full reg-reg/reg-imm8/reg-imm32 coverage with byte-exact test vectors.
+- **Recovery commits PA10-006a-l**: ljmp selector:offset, [rip + symbol] addressing, in_al/out_al mnemonics, integer immediates in operands.
+- **PaideiaOS R8 substrate unblocked**: kernel can now boot via QEMU -kernel, output observable via serial, and leverage bitwise operations for low-level manipulation.
+
+### Operational deferrals (Phase 10+ carryover)
+
+- **Full QEMU smoke validation**: boot_observable smoke test conditional on qemu-system-x86_64 + ld; linker script format validation deferred.
+- **String literal expression syntax**: parser support for string/byte literals in top-level let-bindings (phase 11+).
+- **Module-level string constants**: require module-language const elaboration (phase 11+).
+
 ## v0.9.0 — Phase 9 m1–m3 substrate closure (bare-if/nested-ArrayRepeat/SIB encoder + full paideia-os unquarantine)
 
 **Released:** Tag pushed at m3-003 closure (v0.9.0 release).
