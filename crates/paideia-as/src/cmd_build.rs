@@ -540,8 +540,8 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                         if let Some(&rhs_id) = children.first() {
                             if let Some(rhs_node) = lowering.ir.get(rhs_id) {
                                 // PA10-007 m1-001: Use actual binding name from binding_names table
-                                let symbol_name = lowering.ir.binding_names().get(&node_id)
-                                    .cloned()
+                                let symbol_name = lowering.ir.binding_names().get(node_id)
+                                    .map(|s| s.to_string())
                                     .unwrap_or_else(|| format!("data_{}", node_id.get()));
 
                                 if rhs_node.kind == paideia_as_ir::IrKind::Literal {
