@@ -273,6 +273,7 @@ mod tests {
     }
 
     // Acceptance criteria test 2: let add_one : (u64) -> u64 = fn ... → one Function symbol
+    // PA10-009 m1-001: Function symbols are now global by default.
     #[test]
     fn ac_test_function_binding() {
         let mut st = SymbolTable::new();
@@ -283,7 +284,7 @@ mod tests {
         assert_eq!(st.len(), 1);
         let found = st.lookup_by_name("add_one").unwrap();
         assert_eq!(found.kind, SymbolKind::Function);
-        assert!(!found.global);
+        assert!(found.global); // PA10-009: functions are global
     }
 
     // Acceptance criteria test 3: let _start : () -> () = fn () -> ... → marked as entry-point
