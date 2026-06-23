@@ -874,3 +874,12 @@ brief = "unresolved local binding referenced in unsafe.instruction operand"
 description = "Phase 7 m2-003 (PA7C-m2-003): An unsafe.instruction operand references a local binding name (e.g., ${x} in let-chain unsafe.block) that was not found in the function's local binding table. This occurs when a binding has either not been declared, has gone out of scope, or the resolve_var_operands pass is not wired into the build pipeline. Ensure the binding is declared before use in the unsafe block operand."
 since = "0.12.2"
 deprecated = false
+
+[diagnostic.T0531]
+severity = "error"
+category = "type"
+title = "Local binding not found; checking module SymbolTable"
+brief = "variable reference found in module scope but not local scope"
+description = "Phase 10 m1-001 (PA10-005): PA10-005 nested var lookup. When resolve_var_operands fails to find a binding in the local binding table, it checks the module's SymbolTable. If found there, this diagnostic is emitted instead of T0528. This indicates the variable is module-scoped (e.g., a global let-fn or let-const) and cannot be directly accessed within function-local unsafe blocks without explicit capture or higher-level binding. Either move the reference outside the unsafe block, or declare a local let binding that captures the module-scoped value."
+since = "0.13.0"
+deprecated = false

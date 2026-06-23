@@ -52,7 +52,7 @@ impl Symbol {
 ///
 /// Maintains insertion order, a by-name lookup map, and tracks the `_start`
 /// entry-point (if present).
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct SymbolTable {
     /// Symbols in insertion order.
     symbols: Vec<Symbol>,

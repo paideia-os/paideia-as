@@ -486,13 +486,19 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
             // Phase-7-m2-003: Resolve Operand::Var references to Operand::Reg.
             // Call resolve_var_operands on the arena's owned instruction table,
             // then re-clone for the encoder pipeline.
-            let mut _resolve_diags = Vec::new();
-            resolve_var_operands::resolve_var_operands(
-                lowering.ir.instructions_mut(),
-                &emit_walker.state().local_bindings,
-                &mut _resolve_diags,
-            );
-            // TODO: wire _resolve_diags to walker_sink once T0528 diagnostic emission is standardized
+            // PA10-005 §3.5: Thread SymbolTable through for T0531 diagnostic.
+            {
+                let symbol_table_clone = lowering.ir.symbols().clone();
+                let bindings = &emit_walker.state().local_bindings;
+                let mut _resolve_diags = Vec::new();
+                resolve_var_operands::resolve_var_operands(
+                    lowering.ir.instructions_mut(),
+                    bindings,
+                    Some(symbol_table_clone),
+                    &mut _resolve_diags,
+                );
+                // TODO: wire _resolve_diags to walker_sink once T0528/T0531 diagnostic emission is standardized
+            }
 
             instruction_table = lowering.ir.instructions().clone();
             for d in unsafe_diags {

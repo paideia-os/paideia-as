@@ -1,0 +1,66 @@
+// PA10-005: nested var lookup in deep block bodies — fixture tests.
+// Tests nested bindings in if/else and match arms, with outer-scope visibility.
+
+// Test 1: Simple if-then with nested let in arm
+fn if_then_nested_let(x: u64) -> u64 {
+    let a: u64 = 10;
+    if x {
+        let b: u64 = 20;
+        b
+    } else {
+        a
+    }
+}
+
+// Test 2: If-else with nested lets in both arms
+fn if_else_both_arms(x: u64) -> u64 {
+    let outer: u64 = 5;
+    if x == 0 {
+        let then_val: u64 = outer + 10;
+        then_val
+    } else {
+        let else_val: u64 = outer + 20;
+        else_val
+    }
+}
+
+// Test 3: Nested if-else (deeply nested scopes)
+fn deeply_nested_if(x: u64, y: u64) -> u64 {
+    let a: u64 = 1;
+    if x {
+        let b: u64 = a + 10;
+        if y {
+            let c: u64 = b + 100;
+            c
+        } else {
+            b
+        }
+    } else {
+        a
+    }
+}
+
+// Test 4: Match expression with nested let in arm
+fn match_nested_let(kind: u32) -> u64 {
+    let base: u64 = 100;
+    match kind {
+        1 => {
+            let arm_val: u64 = base + 1;
+            arm_val
+        }
+        _ => {
+            base
+        }
+    }
+}
+
+// Test 5: Inner let shadows outer (same name)
+fn shadow_binding(x: u64) -> u64 {
+    let val: u64 = 10;
+    if x {
+        let val: u64 = 20;
+        val
+    } else {
+        val
+    }
+}
