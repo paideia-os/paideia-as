@@ -11,6 +11,10 @@ use crate::encode_and_or_xor;
 use crate::encode_imul;
 use paideia_as_ir::{Cond as IrCond, Instruction, IntWidth, Mnemonic, Operand, RegId, Scale};
 
+/// SysV AMD64 ABI: R_X86_64_PC32/PLT32 callers must supply addend = -4 so that
+/// `S + A - P` resolves to `S - RIP_after_disp32` (matches CPU RIP semantics).
+const PC32_FIELD_BIAS: i32 = -4;
+
 /// Whether a 64-bit ADD with the given operand can be shortened to 32-bit.
 ///
 /// True when the high 32 bits are known to be zero/unused (e.g., the
@@ -565,7 +569,7 @@ fn encode_mov(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
                 byte_offset: 3, // disp32 starts at byte +3 of the mov instruction (instruction-local); translator adds offset_before
                 symbol: name.clone(),
                 kind: RelocKind::PcRel32,
-                addend: *addend,
+                addend: addend.wrapping_add(PC32_FIELD_BIAS),
             });
             Ok(output)
         }
@@ -873,7 +877,7 @@ fn encode_call(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput,
                 byte_offset: 1, // rel32 starts at byte +1 of the instruction
                 symbol: name.clone(),
                 kind: RelocKind::Plt32,
-                addend: *addend,
+                addend: addend.wrapping_add(PC32_FIELD_BIAS),
             });
             Ok(output)
         }
@@ -1010,7 +1014,7 @@ fn encode_lea(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
                 byte_offset: 3, // disp32 starts at byte +3 of the lea instruction (instruction-local); translator adds offset_before
                 symbol: name.clone(),
                 kind: RelocKind::PcRel32,
-                addend: *addend,
+                addend: addend.wrapping_add(PC32_FIELD_BIAS),
             });
             Ok(output)
         }
@@ -1329,7 +1333,7 @@ fn encode_lgdt_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOu
                 byte_offset: 3, // disp32 starts at byte +3 of the lgdt instruction (instruction-local); translator adds offset_before
                 symbol: name.clone(),
                 kind: RelocKind::PcRel32,
-                addend: *addend,
+                addend: addend.wrapping_add(PC32_FIELD_BIAS),
             });
             Ok(output)
         }
@@ -1380,7 +1384,7 @@ fn encode_lidt_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOu
                 byte_offset: 3, // disp32 starts at byte +3 of the lidt instruction (instruction-local); translator adds offset_before
                 symbol: name.clone(),
                 kind: RelocKind::PcRel32,
-                addend: *addend,
+                addend: addend.wrapping_add(PC32_FIELD_BIAS),
             });
             Ok(output)
         }
@@ -2979,7 +2983,7 @@ mod tests {
         assert_eq!(output.reloc_sites[0].byte_offset, 3);
         assert_eq!(output.reloc_sites[0].symbol, "gdt_descriptor");
         assert_eq!(output.reloc_sites[0].kind, RelocKind::PcRel32);
-        assert_eq!(output.reloc_sites[0].addend, 0);
+        assert_eq!(output.reloc_sites[0].addend, -4); // PC32_FIELD_BIAS: IR addend 0 → reloc addend -4
     }
 
     #[test]
@@ -3009,7 +3013,7 @@ mod tests {
         assert_eq!(output.reloc_sites[0].byte_offset, 3);
         assert_eq!(output.reloc_sites[0].symbol, "gdt_descriptor");
         assert_eq!(output.reloc_sites[0].kind, RelocKind::PcRel32);
-        assert_eq!(output.reloc_sites[0].addend, 0);
+        assert_eq!(output.reloc_sites[0].addend, -4); // PC32_FIELD_BIAS: IR addend 0 → reloc addend -4
     }
 
     #[test]
@@ -3043,7 +3047,7 @@ mod tests {
         assert_eq!(output.reloc_sites[0].byte_offset, 3);
         assert_eq!(output.reloc_sites[0].symbol, "table");
         assert_eq!(output.reloc_sites[0].kind, RelocKind::PcRel32);
-        assert_eq!(output.reloc_sites[0].addend, 8);
+        assert_eq!(output.reloc_sites[0].addend, 4); // PC32_FIELD_BIAS: IR addend 8 → reloc addend 8 + (-4) = 4
     }
 
     #[test]
@@ -3072,7 +3076,7 @@ mod tests {
         assert_eq!(output.reloc_sites[0].byte_offset, 1);
         assert_eq!(output.reloc_sites[0].symbol, "kernel_main_64");
         assert_eq!(output.reloc_sites[0].kind, RelocKind::Plt32);
-        assert_eq!(output.reloc_sites[0].addend, 0);
+        assert_eq!(output.reloc_sites[0].addend, -4); // PC32_FIELD_BIAS: IR addend 0 → reloc addend -4
     }
 
     // Phase 6 m1-002: CR move dispatch tests

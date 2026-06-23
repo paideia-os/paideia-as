@@ -284,3 +284,319 @@ fn lidt_symbol_encodes_7_bytes() {
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).unwrap();
     assert_eq!(buf.as_slice().len(), 7, "lidt [idt] should be 7 bytes");
 }
+
+// ===== PA10-006v: PC32_FIELD_BIAS tests =====
+// SysV AMD64 ABI: R_X86_64_PC32/PLT32 addend = -4 ensures S + A - P = S - RIP_after_disp32
+
+// === mov r64, [symbol] ===
+#[test]
+fn mov_reloc_addend_is_minus_4_for_zero_input() {
+    // IR addend 0 → reloc addend = -4
+    let inst = Instruction {
+        mnemonic: Mnemonic::Mov,
+        operands: smallvec![
+            Operand::Reg(RegId(0)),
+            Operand::SymbolRef {
+                name: "test_sym".to_string(),
+                addend: 0,
+            }
+        ],
+        byte_offset_in_text: None,
+        encoding_hint: None,
+    };
+
+    let mut buf = CodeBuffer::new();
+    let mut stats = EncodeStats::new();
+    let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
+        .expect("encoding failed for mov with addend=0");
+
+    let relocs = &output.reloc_sites;
+    assert_eq!(relocs.len(), 1);
+    assert_eq!(
+        relocs[0].addend, -4,
+        "mov: IR addend 0 should yield reloc addend -4"
+    );
+}
+
+#[test]
+fn mov_reloc_addend_offsets_ir_addend() {
+    // IR addend 8 → reloc addend = 8 + (-4) = 4
+    let inst = Instruction {
+        mnemonic: Mnemonic::Mov,
+        operands: smallvec![
+            Operand::Reg(RegId(0)),
+            Operand::SymbolRef {
+                name: "test_sym".to_string(),
+                addend: 8,
+            }
+        ],
+        byte_offset_in_text: None,
+        encoding_hint: None,
+    };
+
+    let mut buf = CodeBuffer::new();
+    let mut stats = EncodeStats::new();
+    let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
+        .expect("encoding failed for mov with addend=8");
+
+    let relocs = &output.reloc_sites;
+    assert_eq!(relocs.len(), 1);
+    assert_eq!(
+        relocs[0].addend, 4,
+        "mov: IR addend 8 should yield reloc addend 4"
+    );
+}
+
+// === lea r64, [symbol] ===
+#[test]
+fn lea_reloc_addend_is_minus_4_for_zero_input() {
+    // IR addend 0 → reloc addend = -4
+    let inst = Instruction {
+        mnemonic: Mnemonic::Lea,
+        operands: smallvec![
+            Operand::Reg(RegId(0)),
+            Operand::SymbolRef {
+                name: "test_sym".to_string(),
+                addend: 0,
+            }
+        ],
+        byte_offset_in_text: None,
+        encoding_hint: None,
+    };
+
+    let mut buf = CodeBuffer::new();
+    let mut stats = EncodeStats::new();
+    let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
+        .expect("encoding failed for lea with addend=0");
+
+    let relocs = &output.reloc_sites;
+    assert_eq!(relocs.len(), 1);
+    assert_eq!(
+        relocs[0].addend, -4,
+        "lea: IR addend 0 should yield reloc addend -4"
+    );
+}
+
+#[test]
+fn lea_reloc_addend_offsets_ir_addend() {
+    // IR addend 8 → reloc addend = 8 + (-4) = 4
+    let inst = Instruction {
+        mnemonic: Mnemonic::Lea,
+        operands: smallvec![
+            Operand::Reg(RegId(0)),
+            Operand::SymbolRef {
+                name: "test_sym".to_string(),
+                addend: 8,
+            }
+        ],
+        byte_offset_in_text: None,
+        encoding_hint: None,
+    };
+
+    let mut buf = CodeBuffer::new();
+    let mut stats = EncodeStats::new();
+    let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
+        .expect("encoding failed for lea with addend=8");
+
+    let relocs = &output.reloc_sites;
+    assert_eq!(relocs.len(), 1);
+    assert_eq!(
+        relocs[0].addend, 4,
+        "lea: IR addend 8 should yield reloc addend 4"
+    );
+}
+
+// === lgdt [symbol] ===
+#[test]
+fn lgdt_reloc_addend_is_minus_4_for_zero_input() {
+    // IR addend 0 → reloc addend = -4
+    let inst = Instruction {
+        mnemonic: Mnemonic::Lgdt,
+        operands: smallvec![Operand::SymbolRef {
+            name: "gdt_sym".to_string(),
+            addend: 0,
+        }],
+        byte_offset_in_text: None,
+        encoding_hint: None,
+    };
+
+    let mut buf = CodeBuffer::new();
+    let mut stats = EncodeStats::new();
+    let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
+        .expect("encoding failed for lgdt with addend=0");
+
+    let relocs = &output.reloc_sites;
+    assert_eq!(relocs.len(), 1);
+    assert_eq!(
+        relocs[0].addend, -4,
+        "lgdt: IR addend 0 should yield reloc addend -4"
+    );
+}
+
+#[test]
+fn lgdt_reloc_addend_offsets_ir_addend() {
+    // IR addend 8 → reloc addend = 8 + (-4) = 4
+    let inst = Instruction {
+        mnemonic: Mnemonic::Lgdt,
+        operands: smallvec![Operand::SymbolRef {
+            name: "gdt_sym".to_string(),
+            addend: 8,
+        }],
+        byte_offset_in_text: None,
+        encoding_hint: None,
+    };
+
+    let mut buf = CodeBuffer::new();
+    let mut stats = EncodeStats::new();
+    let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
+        .expect("encoding failed for lgdt with addend=8");
+
+    let relocs = &output.reloc_sites;
+    assert_eq!(relocs.len(), 1);
+    assert_eq!(
+        relocs[0].addend, 4,
+        "lgdt: IR addend 8 should yield reloc addend 4"
+    );
+}
+
+// === lidt [symbol] ===
+#[test]
+fn lidt_reloc_addend_is_minus_4_for_zero_input() {
+    // IR addend 0 → reloc addend = -4
+    let inst = Instruction {
+        mnemonic: Mnemonic::Lidt,
+        operands: smallvec![Operand::SymbolRef {
+            name: "idt_sym".to_string(),
+            addend: 0,
+        }],
+        byte_offset_in_text: None,
+        encoding_hint: None,
+    };
+
+    let mut buf = CodeBuffer::new();
+    let mut stats = EncodeStats::new();
+    let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
+        .expect("encoding failed for lidt with addend=0");
+
+    let relocs = &output.reloc_sites;
+    assert_eq!(relocs.len(), 1);
+    assert_eq!(
+        relocs[0].addend, -4,
+        "lidt: IR addend 0 should yield reloc addend -4"
+    );
+}
+
+#[test]
+fn lidt_reloc_addend_offsets_ir_addend() {
+    // IR addend 8 → reloc addend = 8 + (-4) = 4
+    let inst = Instruction {
+        mnemonic: Mnemonic::Lidt,
+        operands: smallvec![Operand::SymbolRef {
+            name: "idt_sym".to_string(),
+            addend: 8,
+        }],
+        byte_offset_in_text: None,
+        encoding_hint: None,
+    };
+
+    let mut buf = CodeBuffer::new();
+    let mut stats = EncodeStats::new();
+    let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
+        .expect("encoding failed for lidt with addend=8");
+
+    let relocs = &output.reloc_sites;
+    assert_eq!(relocs.len(), 1);
+    assert_eq!(
+        relocs[0].addend, 4,
+        "lidt: IR addend 8 should yield reloc addend 4"
+    );
+}
+
+// === call sym ===
+#[test]
+fn call_reloc_addend_is_minus_4_for_zero_input() {
+    // IR addend 0 → reloc addend = -4
+    let inst = Instruction {
+        mnemonic: Mnemonic::Call,
+        operands: smallvec![Operand::SymbolRef {
+            name: "func_sym".to_string(),
+            addend: 0,
+        }],
+        byte_offset_in_text: None,
+        encoding_hint: None,
+    };
+
+    let mut buf = CodeBuffer::new();
+    let mut stats = EncodeStats::new();
+    let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
+        .expect("encoding failed for call with addend=0");
+
+    let relocs = &output.reloc_sites;
+    assert_eq!(relocs.len(), 1);
+    assert_eq!(
+        relocs[0].addend, -4,
+        "call: IR addend 0 should yield reloc addend -4"
+    );
+}
+
+#[test]
+fn call_reloc_addend_offsets_ir_addend() {
+    // IR addend 8 → reloc addend = 8 + (-4) = 4
+    let inst = Instruction {
+        mnemonic: Mnemonic::Call,
+        operands: smallvec![Operand::SymbolRef {
+            name: "func_sym".to_string(),
+            addend: 8,
+        }],
+        byte_offset_in_text: None,
+        encoding_hint: None,
+    };
+
+    let mut buf = CodeBuffer::new();
+    let mut stats = EncodeStats::new();
+    let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
+        .expect("encoding failed for call with addend=8");
+
+    let relocs = &output.reloc_sites;
+    assert_eq!(relocs.len(), 1);
+    assert_eq!(
+        relocs[0].addend, 4,
+        "call: IR addend 8 should yield reloc addend 4"
+    );
+}
+
+// === ljmp imm16:sym (Abs32 - should NOT apply PC32_FIELD_BIAS) ===
+#[test]
+fn ljmp_imm16_symbol_reloc_addend_is_unchanged() {
+    // ljmp uses R_X86_64_32 (Abs32), no -4 compensation
+    // IR addend 0 → reloc addend = 0 (unchanged)
+    let inst = Instruction {
+        mnemonic: Mnemonic::FarJmp,
+        operands: smallvec![
+            Operand::Imm64(0x08), // selector
+            Operand::SymbolRef {
+                name: "ljmp_target".to_string(),
+                addend: 0,
+            }
+        ],
+        byte_offset_in_text: None,
+        encoding_hint: None,
+    };
+
+    let mut buf = CodeBuffer::new();
+    let mut stats = EncodeStats::new();
+    let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
+        .expect("encoding failed for ljmp");
+
+    let relocs = &output.reloc_sites;
+    assert_eq!(relocs.len(), 1);
+    assert_eq!(
+        relocs[0].kind,
+        RelocKind::Abs32,
+        "ljmp should use Abs32 relocation"
+    );
+    assert_eq!(
+        relocs[0].addend, 0,
+        "ljmp: IR addend 0 should yield reloc addend 0 (no compensation)"
+    );
+}
