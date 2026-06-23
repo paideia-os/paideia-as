@@ -36,9 +36,10 @@ impl Symbol {
     #[must_use]
     pub fn new(name: String, kind: SymbolKind, ir_node: IrNodeId) -> Self {
         // PA10-013: Revert PA10-009's over-broad STB_GLOBAL marking.
-        // Restore local-by-default: only _start is global.
+        // Restore local-by-default: only _start and long_mode_entry are global.
+        // B2-003 (paideia-os) requires long_mode_entry to be global for cross-module ljmp.
         // Long-term fix: add 'pub' modifier for explicit export (filed as v1.1 follow-up).
-        let global = name == "_start";
+        let global = name == "_start" || name == "long_mode_entry";
         Self {
             name,
             kind,
