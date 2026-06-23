@@ -506,6 +506,13 @@ fn parse_immediate_from_literal(
 }
 
 /// Parse a memory operand from an OperandMemoryRef node.
+///
+/// PA10-006c: Support both traditional SIB addressing and RIP-relative symbol references.
+/// Handles:
+/// - `[base + disp]` → MemSib
+/// - `[base + index*scale + disp]` → MemSib
+/// - `[symbol]` → SymbolRef (RIP-relative)
+/// - `[rip + symbol]` → SymbolRef (RIP-relative)
 fn parse_memory_from_memref(
     ast: &AstArena,
     memref_node: NodeId,
@@ -517,10 +524,146 @@ fn parse_memory_from_memref(
 
     match ast.expr_data(memref_node) {
         Some(ExprData::OperandMemoryRef { addr }) => {
-            // Parse the address expression to extract SIB components
+            // First, check if this is a bare symbol or [rip + symbol] form
+            if let Ok(symbol_operand) = try_parse_symbol_memory(ast, *addr, source_map) {
+                return Ok(symbol_operand);
+            }
+            // Otherwise, fall back to standard SIB addressing
             parse_address_to_sib(ast, *addr, source_map)
         }
         _ => Err(OperandError::MalformedOperand(span)),
+    }
+}
+
+/// Try to parse a memory operand as a symbol reference (bare symbol or [rip + symbol]).
+///
+/// PA10-006c: Support both `[symbol]` and `[rip + symbol]` syntax for RIP-relative addressing.
+/// Returns Ok(SymbolRef) if successful, Err if not a symbol memory operand.
+fn try_parse_symbol_memory(
+    ast: &AstArena,
+    addr_node: NodeId,
+    source_map: &paideia_as_diagnostics::SourceMap,
+) -> Result<Operand, OperandError> {
+    let span = ast.get(addr_node).map(|n| n.span).unwrap_or_else(|| {
+        paideia_as_diagnostics::Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 0, 1)
+    });
+
+    let node = ast
+        .get(addr_node)
+        .ok_or(OperandError::MalformedOperand(span))?;
+
+    match node.kind {
+        // Bare symbol: [symbol_name]
+        NodeKind::Ident => {
+            let name = get_register_name(ast, addr_node, source_map)
+                .ok_or(OperandError::MalformedOperand(span))?;
+            // Check if it's a known register (if so, not a symbol)
+            if register_name_to_regid(&name).is_some() {
+                return Err(OperandError::MalformedOperand(span));
+            }
+            // It's a symbol reference
+            Ok(Operand::SymbolRef { name, addend: 0 })
+        }
+        // Bare symbol via path: [symbol_name] (single-segment path)
+        NodeKind::ExprPath => {
+            match ast.expr_data(addr_node) {
+                Some(ExprData::Path { segments }) if segments.len() == 1 => {
+                    let name = get_register_name(ast, segments[0], source_map)
+                        .ok_or(OperandError::MalformedOperand(span))?;
+                    // Check if it's a known register (if so, not a symbol)
+                    if register_name_to_regid(&name).is_some() {
+                        return Err(OperandError::MalformedOperand(span));
+                    }
+                    // It's a symbol reference
+                    Ok(Operand::SymbolRef { name, addend: 0 })
+                }
+                _ => Err(OperandError::MalformedOperand(span)),
+            }
+        }
+        // [rip + symbol] form: ExprInfix with "rip" on one side
+        NodeKind::ExprInfix => {
+            match ast.expr_data(addr_node) {
+                Some(ExprData::Infix { op, lhs, rhs }) => {
+                    let op_str = get_infix_op_name(ast, *op);
+                    if op_str.as_deref() != Some("+") {
+                        return Err(OperandError::MalformedOperand(span));
+                    }
+
+                    // Check if either side is "rip"
+                    let symbol_side = if is_rip_identifier(ast, *lhs, source_map) {
+                        *rhs
+                    } else if is_rip_identifier(ast, *rhs, source_map) {
+                        *lhs
+                    } else {
+                        return Err(OperandError::MalformedOperand(span));
+                    };
+
+                    // Parse the symbol side
+                    let symbol_node = ast
+                        .get(symbol_side)
+                        .ok_or(OperandError::MalformedOperand(span))?;
+                    match symbol_node.kind {
+                        NodeKind::Ident => {
+                            let name = get_register_name(ast, symbol_side, source_map)
+                                .ok_or(OperandError::MalformedOperand(span))?;
+                            // Check if it's a known register (if so, not a symbol)
+                            if register_name_to_regid(&name).is_some() {
+                                return Err(OperandError::MalformedOperand(span));
+                            }
+                            Ok(Operand::SymbolRef { name, addend: 0 })
+                        }
+                        NodeKind::ExprPath => {
+                            match ast.expr_data(symbol_side) {
+                                Some(ExprData::Path { segments }) if segments.len() == 1 => {
+                                    let name = get_register_name(ast, segments[0], source_map)
+                                        .ok_or(OperandError::MalformedOperand(span))?;
+                                    // Check if it's a known register (if so, not a symbol)
+                                    if register_name_to_regid(&name).is_some() {
+                                        return Err(OperandError::MalformedOperand(span));
+                                    }
+                                    Ok(Operand::SymbolRef { name, addend: 0 })
+                                }
+                                _ => Err(OperandError::MalformedOperand(span)),
+                            }
+                        }
+                        _ => Err(OperandError::MalformedOperand(span)),
+                    }
+                }
+                _ => Err(OperandError::MalformedOperand(span)),
+            }
+        }
+        _ => Err(OperandError::MalformedOperand(span)),
+    }
+}
+
+/// Check if an AST node is the "rip" identifier (special x86_64 register for RIP-relative addressing).
+fn is_rip_identifier(
+    ast: &AstArena,
+    node_id: NodeId,
+    source_map: &paideia_as_diagnostics::SourceMap,
+) -> bool {
+    let node = match ast.get(node_id) {
+        Some(n) => n,
+        None => return false,
+    };
+
+    match node.kind {
+        NodeKind::Ident => {
+            matches!(
+                get_register_name(ast, node_id, source_map).as_deref(),
+                Some("rip")
+            )
+        }
+        NodeKind::ExprPath => match ast.expr_data(node_id) {
+            Some(ExprData::Path { segments }) if segments.len() == 1 => {
+                matches!(
+                    get_register_name(ast, segments[0], source_map).as_deref(),
+                    Some("rip")
+                )
+            }
+            _ => false,
+        },
+        _ => false,
     }
 }
 
