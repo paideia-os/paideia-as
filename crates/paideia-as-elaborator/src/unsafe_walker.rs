@@ -593,7 +593,7 @@ fn try_parse_symbol_memory(
         NodeKind::ExprInfix => {
             match ast.expr_data(addr_node) {
                 Some(ExprData::Infix { op, lhs, rhs }) => {
-                    let op_str = get_infix_op_name(ast, *op);
+                    let op_str = get_infix_op_name(ast, *op, source_map);
                     if op_str.as_deref() != Some("+") {
                         return Err(OperandError::MalformedOperand(span));
                     }
@@ -737,7 +737,7 @@ fn extract_sib_components(
             match ast.expr_data(expr_node) {
                 Some(ExprData::Infix { op, lhs, rhs }) => {
                     // Get operator symbol
-                    let op_str = get_infix_op_name(ast, *op);
+                    let op_str = get_infix_op_name(ast, *op, source_map);
 
                     match op_str.as_deref() {
                         Some("+") | Some("-") => {
@@ -827,7 +827,7 @@ fn combine_additive_terms(
                     lhs: mul_lhs,
                     rhs: mul_rhs,
                 }) => {
-                    let op_str = get_infix_op_name(ast, *op);
+                    let op_str = get_infix_op_name(ast, *op, source_map);
                     if op_str == Some("*") {
                         // Extract index and scale from multiplication
                         match extract_index_scale(ast, *mul_lhs, *mul_rhs, source_map)? {
@@ -870,15 +870,55 @@ fn extract_index_scale(
 }
 
 /// Get the infix operator name from an operator node.
-fn get_infix_op_name(ast: &AstArena, op_node: NodeId) -> Option<&'static str> {
+/// Extract infix operator name from an operator node.
+///
+/// PA10-006g: Parses infix operator names from their source text representation.
+/// Supports +, -, *, /, %, &, |, ^, <<, >>, ==, !=, <, >, <=, >=.
+/// Returns the canonical operator string, or None if extraction fails.
+fn get_infix_op_name(
+    ast: &AstArena,
+    op_node: NodeId,
+    source_map: &paideia_as_diagnostics::SourceMap,
+) -> Option<&'static str> {
     let node = ast.get(op_node)?;
-    if node.kind == NodeKind::Ident {
-        // Extract operator symbol from Ident node
-        // For phase-1, return a representative operator string
-        // A full implementation would look up the source text
-        None
-    } else {
-        None
+    match node.kind {
+        NodeKind::Ident => {
+            // Extract operator symbol from the source text via the span
+            let span = node.span;
+            let file_id = span.file();
+            let source = source_map.content(file_id);
+
+            // Extract the text from the span
+            let start = span.byte_start() as usize;
+            let end = start + span.byte_len() as usize;
+            if end > source.len() {
+                return None;
+            }
+
+            let text = &source[start..end];
+
+            // Match common operators
+            match text {
+                "+" => Some("+"),
+                "-" => Some("-"),
+                "*" => Some("*"),
+                "/" => Some("/"),
+                "%" => Some("%"),
+                "&" => Some("&"),
+                "|" => Some("|"),
+                "^" => Some("^"),
+                "==" => Some("=="),
+                "!=" => Some("!="),
+                "<" => Some("<"),
+                ">" => Some(">"),
+                "<=" => Some("<="),
+                ">=" => Some(">="),
+                "<<" => Some("<<"),
+                ">>" => Some(">>"),
+                _ => None,
+            }
+        }
+        _ => None,
     }
 }
 
