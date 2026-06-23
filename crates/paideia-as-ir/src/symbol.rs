@@ -35,10 +35,10 @@ impl Symbol {
     /// Construct a new symbol.
     #[must_use]
     pub fn new(name: String, kind: SymbolKind, ir_node: IrNodeId) -> Self {
-        // PA10-009 m1-001: Mark all function symbols as global by default.
-        // Functions need to be globally visible for linker relocation resolution.
-        // Data symbols (Object kind) are local by default but can be overridden.
-        let global = matches!(kind, SymbolKind::Function);
+        // PA10-013: Revert PA10-009's over-broad STB_GLOBAL marking.
+        // Restore local-by-default: only _start is global.
+        // Long-term fix: add 'pub' modifier for explicit export (filed as v1.1 follow-up).
+        let global = name == "_start";
         Self {
             name,
             kind,
@@ -273,7 +273,7 @@ mod tests {
     }
 
     // Acceptance criteria test 2: let add_one : (u64) -> u64 = fn ... → one Function symbol
-    // PA10-009 m1-001: Function symbols are now global by default.
+    // PA10-013: Function symbols are local by default (unless explicitly exported via 'pub').
     #[test]
     fn ac_test_function_binding() {
         let mut st = SymbolTable::new();
@@ -284,7 +284,7 @@ mod tests {
         assert_eq!(st.len(), 1);
         let found = st.lookup_by_name("add_one").unwrap();
         assert_eq!(found.kind, SymbolKind::Function);
-        assert!(found.global); // PA10-009: functions are global
+        assert!(!found.global); // PA10-013: functions are local by default
     }
 
     // Acceptance criteria test 3: let _start : () -> () = fn () -> ... → marked as entry-point
