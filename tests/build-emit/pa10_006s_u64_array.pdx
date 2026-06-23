@@ -1,0 +1,10 @@
+module Pa10006sU64Array = structure {
+  let _start : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "PA10-006s: u64 array element width",
+    block: {
+      let arr: [u64; 2] = [1, 2]
+    }
+  }
+}

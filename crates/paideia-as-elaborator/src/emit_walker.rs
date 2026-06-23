@@ -674,17 +674,25 @@ impl EmitWalker {
 
     /// Pack a u64 value as little-endian bytes (public helper for external use).
     pub fn pack_u64_le_public(value: i64) -> Vec<u8> {
+        Self::pack_int_le_public(value, 8)
+    }
+
+    /// PA10-006s: Pack an integer value as little-endian bytes with specified width.
+    ///
+    /// Packs the given i64 value as little-endian bytes with the specified byte width.
+    /// Unused high bits are truncated for widths < 8.
+    ///
+    /// # Arguments
+    /// * `value` - The i64 value to pack
+    /// * `width_bytes` - Number of bytes to emit (1, 2, 4, or 8)
+    ///
+    /// # Panics
+    /// Width must be 1, 2, 4, or 8. Panics on invalid widths.
+    pub fn pack_int_le_public(value: i64, width_bytes: u8) -> Vec<u8> {
         let u64_val = value as u64;
-        vec![
-            (u64_val & 0xFF) as u8,
-            ((u64_val >> 8) & 0xFF) as u8,
-            ((u64_val >> 16) & 0xFF) as u8,
-            ((u64_val >> 24) & 0xFF) as u8,
-            ((u64_val >> 32) & 0xFF) as u8,
-            ((u64_val >> 40) & 0xFF) as u8,
-            ((u64_val >> 48) & 0xFF) as u8,
-            ((u64_val >> 56) & 0xFF) as u8,
-        ]
+        let full_bytes = u64_val.to_le_bytes();
+        // Slice to the requested width and convert to Vec
+        full_bytes[..width_bytes as usize].to_vec()
     }
 
     /// Encode an ArrayLit node to bytes for data section initialization.
