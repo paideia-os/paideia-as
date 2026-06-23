@@ -1,0 +1,10 @@
+module Pa10006iImm = structure {
+  let _start : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "PA10-006i: integer literal immediate in mov operand",
+    block: {
+      mov al, 0x42
+    }
+  }
+}

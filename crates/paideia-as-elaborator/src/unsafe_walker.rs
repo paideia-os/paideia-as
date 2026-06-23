@@ -280,6 +280,25 @@ pub fn parse_operand_from_ast(
                 _ => Err(OperandError::MalformedOperand(node.span)),
             }
         }
+        NodeKind::OperandImmediate => {
+            // PA10-006i: Immediate operand from parsed instruction (e.g., `mov al, 0x42`).
+            // The operand is wrapped in OperandImmediate, which contains an inner expression.
+            // Unwrap and recurse to parse the inner expression.
+            match ast.expr_data(operand_node) {
+                Some(ExprData::OperandImmediate { expr }) => {
+                    // Recursively parse the inner expression as an operand
+                    parse_operand_from_ast(
+                        ast,
+                        *expr,
+                        source_map,
+                        record_layouts,
+                        mnemonic,
+                        local_bindings,
+                    )
+                }
+                _ => Err(OperandError::MalformedOperand(node.span)),
+            }
+        }
         NodeKind::ExprLiteral => {
             // Immediate operand: extract integer literal
             parse_immediate_from_literal(ast, operand_node, source_map)
