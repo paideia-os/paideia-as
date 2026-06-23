@@ -9,6 +9,9 @@ use paideia_as_encoder::RelocKind as EncoderRelocKind;
 pub enum RelocKind {
     /// PC-relative calls and references (4-byte), e.g., `[R_X86_64_PC32]`.
     PC32,
+    /// 32-bit absolute references, e.g., `[R_X86_64_32]`.
+    /// PA10-006a: used for ljmp imm32:imm16 direct form with symbol reference.
+    Abs32,
     /// 64-bit absolute references, e.g., `[R_X86_64_64]`.
     Abs64,
     /// PLT-relative 32-bit references for external function symbols.
@@ -23,6 +26,7 @@ impl RelocKind {
     pub fn from_encoder(kind: EncoderRelocKind) -> Self {
         match kind {
             EncoderRelocKind::PcRel32 => Self::PC32,
+            EncoderRelocKind::Abs32 => Self::Abs32,
             EncoderRelocKind::Plt32 => Self::PLT32,
             EncoderRelocKind::Abs64 => Self::Abs64,
         }

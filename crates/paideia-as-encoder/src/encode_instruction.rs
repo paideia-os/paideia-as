@@ -81,6 +81,9 @@ pub enum RelocKind {
     PcRel32,
     /// PLT 32-bit relocation (x86_64 R_X86_64_PLT32).
     Plt32,
+    /// Absolute 32-bit relocation (x86_64 R_X86_64_32).
+    /// PA10-006a: used for ljmp imm32:imm16 direct form with symbol reference.
+    Abs32,
     /// Absolute 64-bit relocation (x86_64 R_X86_64_64).
     Abs64,
 }
@@ -1541,33 +1544,73 @@ fn encode_far_jmp_inst(
     inst: &Instruction,
     buf: &mut CodeBuffer,
 ) -> Result<EncodeOutput, EncodeError> {
-    // jmp far expects exactly 1 operand: memory (SIB or RIP-relative)
-    if inst.operands.len() != 1 {
-        return Err(EncodeError::OperandCount {
+    // ljmp supports two forms:
+    // 1. Memory indirect: [base + disp] or [rip + disp] — expects 1 operand
+    // 2. Direct immediate: ljmp selector:offset — expects 2 operands (selector, offset)
+    match inst.operands.len() {
+        1 => {
+            // Memory indirect form
+            match &inst.operands[0] {
+                Operand::MemSib {
+                    base,
+                    index: None,
+                    scale: Scale::X1,
+                    disp,
+                } => {
+                    // [base + disp] form
+                    encode_far_jmp(buf, Some(reg64_from(*base)?), *disp);
+                    Ok(EncodeOutput::new())
+                }
+                Operand::MemRipRel { disp } => {
+                    // [rip + disp32] form
+                    encode_far_jmp(buf, None, *disp);
+                    Ok(EncodeOutput::new())
+                }
+                _ => Err(EncodeError::OperandShape {
+                    mnemonic: Mnemonic::FarJmp,
+                }),
+            }
+        }
+        2 => {
+            // Direct immediate form: ljmp selector:offset
+            // Operand[0] = selector (imm16, encoded as Imm64)
+            // Operand[1] = offset (imm32, encoded as Imm64 or symbol reference)
+            let selector = match &inst.operands[0] {
+                Operand::Imm64(imm) => *imm as u16,
+                _ => {
+                    return Err(EncodeError::OperandShape {
+                        mnemonic: Mnemonic::FarJmp,
+                    });
+                }
+            };
+
+            match &inst.operands[1] {
+                Operand::Imm64(imm) => {
+                    // Direct immediate: opcode EA + imm32 offset + imm16 selector
+                    encode_far_jmp_imm(buf, *imm as u32, selector);
+                    Ok(EncodeOutput::new())
+                }
+                Operand::SymbolRef { name, addend } => {
+                    // Symbol reference: emit R_X86_64_32 relocation
+                    let mut output = EncodeOutput::new();
+                    encode_far_jmp_imm_sym(buf, selector);
+                    output.add_reloc(RelocSite {
+                        byte_offset: (buf.len() - 6) as u32, // EA + 4-byte imm offset location
+                        symbol: name.clone(),
+                        kind: RelocKind::Abs32,
+                        addend: *addend,
+                    });
+                    Ok(output)
+                }
+                _ => Err(EncodeError::OperandShape {
+                    mnemonic: Mnemonic::FarJmp,
+                }),
+            }
+        }
+        _ => Err(EncodeError::OperandCount {
             mnemonic: Mnemonic::FarJmp,
             expected: 1,
             got: inst.operands.len(),
-        });
-    }
-
-    match &inst.operands[0] {
-        Operand::MemSib {
-            base,
-            index: None,
-            scale: Scale::X1,
-            disp,
-        } => {
-            // [base + disp] form
-            encode_far_jmp(buf, Some(reg64_from(*base)?), *disp);
-            Ok(EncodeOutput::new())
-        }
-        Operand::MemRipRel { disp } => {
-            // [rip + disp32] form
-            encode_far_jmp(buf, None, *disp);
-            Ok(EncodeOutput::new())
-        }
-        _ => Err(EncodeError::OperandShape {
-            mnemonic: Mnemonic::FarJmp,
         }),
     }
 }
@@ -4421,5 +4464,81 @@ mod jcc_tests {
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
         assert_eq!(instr.mnemonic(), IcedMnem::Rdtsc);
+    }
+
+    // PA10-006a: ljmp immediate form tests
+    #[test]
+    fn encode_ljmp_imm_selector_offset_emits_ea_form() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::FarJmp,
+            operands: smallvec::smallvec![
+                Operand::Imm64(0x0008),     // selector
+                Operand::Imm64(0x12345678), // offset
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expected: EA 78 56 34 12 08 00
+        // EA = opcode, 78 56 34 12 = offset in LE, 08 00 = selector in LE
+        assert_eq!(buf.as_slice(), &[0xEA, 0x78, 0x56, 0x34, 0x12, 0x08, 0x00]);
+    }
+
+    #[test]
+    fn encode_ljmp_imm_produces_correct_length() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::FarJmp,
+            operands: smallvec::smallvec![
+                Operand::Imm64(0x0008),     // selector
+                Operand::Imm64(0xdeadbeef), // offset
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Verify length: EA + imm32 + imm16 = 7 bytes
+        assert_eq!(buf.len(), 7);
+
+        // Verify first byte is EA opcode
+        assert_eq!(buf.as_slice()[0], 0xEA);
+    }
+
+    #[test]
+    fn encode_ljmp_imm_with_symbol_ref_emits_reloc() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::FarJmp,
+            operands: smallvec::smallvec![
+                Operand::Imm64(0x0008), // selector
+                Operand::SymbolRef {
+                    name: "kernel_entry".to_string(),
+                    addend: 0,
+                },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+        };
+
+        let mut stats = EncodeStats::new();
+        let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Verify bytecode: EA + 4 zero placeholder + selector
+        assert_eq!(buf.as_slice(), &[0xEA, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00]);
+
+        // Verify relocation site at byte offset 1 (after EA opcode)
+        assert_eq!(output.reloc_sites.len(), 1);
+        let reloc = &output.reloc_sites[0];
+        assert_eq!(reloc.byte_offset, 1);
+        assert_eq!(reloc.symbol, "kernel_entry");
+        assert_eq!(reloc.kind, RelocKind::Abs32);
+        assert_eq!(reloc.addend, 0);
     }
 }

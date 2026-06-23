@@ -322,6 +322,7 @@ impl ElfWriter {
     ///
     /// Maps paideia-as relocation kinds to `object` crate kinds:
     /// - [`RelocKind::PC32`] → [`RelocationKind::Relative`] (32-bit PC-relative)
+    /// - [`RelocKind::Abs32`] → [`RelocationKind::Absolute`] (32-bit absolute)
     /// - [`RelocKind::Abs64`] → [`RelocationKind::Absolute`] (64-bit absolute)
     ///
     /// # Errors
@@ -344,6 +345,11 @@ impl ElfWriter {
             RelocKind::PC32 => RelocationFlags::Generic {
                 kind: RelocationKind::Relative,
                 encoding: RelocationEncoding::X86Branch,
+                size: 32,
+            },
+            RelocKind::Abs32 => RelocationFlags::Generic {
+                kind: RelocationKind::Absolute,
+                encoding: RelocationEncoding::Generic,
                 size: 32,
             },
             RelocKind::PLT32 => RelocationFlags::Generic {

@@ -1606,6 +1606,38 @@ pub fn encode_far_jmp(buf: &mut CodeBuffer, base: Option<Reg64>, disp: i32) {
     }
 }
 
+/// Encode direct far jump with immediate operands: `ljmp selector:offset`.
+///
+/// This is the EA form (direct far jump):
+/// - Opcode: EA
+/// - Operand: imm32 (offset) + imm16 (selector)
+///
+/// Total: 7 bytes (1 opcode + 4 offset + 2 selector)
+///
+/// # Arguments
+/// - `buf`: code buffer to append instruction to
+/// - `offset`: 32-bit offset within the segment
+/// - `selector`: 16-bit segment selector
+pub fn encode_far_jmp_imm(buf: &mut CodeBuffer, offset: u32, selector: u16) {
+    buf.bytes.push(0xEA); // opcode
+    buf.bytes.extend(offset.to_le_bytes()); // imm32 offset
+    buf.bytes.extend(selector.to_le_bytes()); // imm16 selector
+}
+
+/// Encode direct far jump with symbolic offset (for relocation): `ljmp selector:symbol`.
+///
+/// Emits the EA form with a placeholder for the 32-bit offset.
+/// The caller must emit a relocation site for the 4-byte offset field.
+///
+/// # Arguments
+/// - `buf`: code buffer to append instruction to
+/// - `selector`: 16-bit segment selector
+pub fn encode_far_jmp_imm_sym(buf: &mut CodeBuffer, selector: u16) {
+    buf.bytes.push(0xEA); // opcode
+    buf.bytes.extend([0u8; 4]); // placeholder for imm32 offset (relocation target)
+    buf.bytes.extend(selector.to_le_bytes()); // imm16 selector
+}
+
 /// Encode read timestamp counter instruction: `rdtsc` (no operands).
 ///
 /// Reads the processor's time-stamp counter into RDX:RAX. Returns the current
