@@ -141,11 +141,13 @@ fn mov_r64_imm_stays_generic_mov() {
     assert_eq!(mov_reg_imm_mnemonic("rax"), Mnemonic::Mov);
 }
 
-/// `mov ax, 0` (r16) is intentionally NOT retargeted in the ship-minimum: the
-/// `66 B8 imm16` form is deferred follow-up, so it stays generic `Mov`.
+/// PA10-006d landed: `66 B8 imm16` form now routes through MovSized { width: W16 }.
 #[test]
-fn mov_r16_imm_stays_generic_mov_deferred() {
-    assert_eq!(mov_reg_imm_mnemonic("ax"), Mnemonic::Mov);
+fn mov_r16_imm_routes_through_movsized_w16() {
+    assert_eq!(
+        mov_reg_imm_mnemonic("ax"),
+        Mnemonic::MovSized { width: IntWidth::W16 }
+    );
 }
 
 /// Test 1: `lgdt [rdi]` produces one Instruction with Mnemonic::Lgdt and one MemSib operand.
