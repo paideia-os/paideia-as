@@ -1421,12 +1421,10 @@ impl UnsafeWalker {
         // generic `mov reg, imm` path always emits the 10-byte 64-bit form. Here
         // we recover the destination width from the register *name* (before the
         // collapse) and retarget to `Mnemonic::MovSized { width }`, whose encoder
-        // path already emits the narrow `B0+rb imm8` / `B8+rd imm32` forms.
+        // path already emits the narrow `B0+rb imm8` / `66 B8 imm16` / `B8+rd imm32` forms.
         //
-        // SHIP MINIMUM: only the r8 (W8) and r32 (W32) immediate forms are wired
-        // here. r16 (`66 B8 imm16`) and the r64 imm32/imm64 forms are a documented
-        // follow-up — the generic `mov` path keeps handling r64 (its existing
-        // `48 B8 imm64` behaviour is preserved), and r16 falls through unchanged.
+        // PA10-006d: Support W8, W16, and W32 immediate forms. The r64 imm32/imm64 forms
+        // remain in the generic `mov` path (its existing `48 B8 imm64` behavior is preserved).
         let mnemonic = if matches!(mnemonic, Mnemonic::Mov)
             && matches!(
                 parsed_operands.as_slice(),
@@ -1436,7 +1434,7 @@ impl UnsafeWalker {
                 .first()
                 .and_then(|&dst_id| get_register_name(ast, dst_id, source_map))
                 .and_then(|name| register_name_width(&name))
-                .filter(|w| matches!(w, IntWidth::W8 | IntWidth::W32))
+                .filter(|w| matches!(w, IntWidth::W8 | IntWidth::W16 | IntWidth::W32))
                 .map_or(mnemonic, |width| Mnemonic::MovSized { width })
         } else {
             mnemonic
