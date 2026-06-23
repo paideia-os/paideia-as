@@ -558,12 +558,11 @@ fn encode_mov(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
             // RIP-relative addressing: mod=00, r/m=5
             buf.bytes.push(0x05 | ((dest_id & 7) << 3)); // ModR/M with rip-relative form
 
-            let reloc_offset = buf.bytes.len() as u32;
             buf.bytes.extend([0, 0, 0, 0]); // placeholder disp32
 
             let mut output = EncodeOutput::new();
             output.add_reloc(RelocSite {
-                byte_offset: reloc_offset,
+                byte_offset: 3, // disp32 starts at byte +3 of the mov instruction (instruction-local); translator adds offset_before
                 symbol: name.clone(),
                 kind: RelocKind::PcRel32,
                 addend: *addend,
@@ -1004,12 +1003,11 @@ fn encode_lea(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
             // RIP-relative addressing: mod=00, r/m=5
             buf.bytes.push(0x05 | ((dest_id & 7) << 3)); // ModR/M with rip-relative form
 
-            let reloc_offset = buf.bytes.len() as u32;
             buf.bytes.extend([0, 0, 0, 0]); // placeholder disp32
 
             let mut output = EncodeOutput::new();
             output.add_reloc(RelocSite {
-                byte_offset: reloc_offset,
+                byte_offset: 3, // disp32 starts at byte +3 of the lea instruction (instruction-local); translator adds offset_before
                 symbol: name.clone(),
                 kind: RelocKind::PcRel32,
                 addend: *addend,
@@ -1324,12 +1322,11 @@ fn encode_lgdt_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOu
             // RIP-relative addressing: mod=00, /2 for lgdt
             buf.bytes.push(0x15); // 0x05 | (2 << 3) = rip-relative with /2
 
-            let reloc_offset = buf.bytes.len() as u32;
             buf.bytes.extend([0, 0, 0, 0]); // placeholder disp32
 
             let mut output = EncodeOutput::new();
             output.add_reloc(RelocSite {
-                byte_offset: reloc_offset,
+                byte_offset: 3, // disp32 starts at byte +3 of the lgdt instruction (instruction-local); translator adds offset_before
                 symbol: name.clone(),
                 kind: RelocKind::PcRel32,
                 addend: *addend,
@@ -1376,12 +1373,11 @@ fn encode_lidt_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOu
             // RIP-relative addressing: mod=00, /3 for lidt
             buf.bytes.push(0x1D); // 0x05 | (3 << 3) = rip-relative with /3
 
-            let reloc_offset = buf.bytes.len() as u32;
             buf.bytes.extend([0, 0, 0, 0]); // placeholder disp32
 
             let mut output = EncodeOutput::new();
             output.add_reloc(RelocSite {
-                byte_offset: reloc_offset,
+                byte_offset: 3, // disp32 starts at byte +3 of the lidt instruction (instruction-local); translator adds offset_before
                 symbol: name.clone(),
                 kind: RelocKind::PcRel32,
                 addend: *addend,
