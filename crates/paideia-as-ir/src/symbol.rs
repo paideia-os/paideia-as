@@ -35,8 +35,10 @@ impl Symbol {
     /// Construct a new symbol.
     #[must_use]
     pub fn new(name: String, kind: SymbolKind, ir_node: IrNodeId) -> Self {
-        // Auto-flag _start as global/entry-point.
-        let global = name == "_start";
+        // PA10-009 m1-001: Mark all function symbols as global by default.
+        // Functions need to be globally visible for linker relocation resolution.
+        // Data symbols (Object kind) are local by default but can be overridden.
+        let global = matches!(kind, SymbolKind::Function);
         Self {
             name,
             kind,
