@@ -553,3 +553,136 @@ fn test_extract_operator_name_plus() {
     // fact that the code compiles and the get_register_name function uses the same
     // pattern means operator extraction should work correctly.
 }
+
+// PA10-006h: Two-operand ljmp (farjmp) dispatch
+//
+// Helper to test ljmp with two operands (selector, offset).
+fn parse_ljmp_instruction(
+    selector_value: &str,
+    target_symbol: &str,
+) -> (
+    paideia_as_ir::instruction::Operand,
+    paideia_as_ir::instruction::Operand,
+) {
+    let source = format!("ljmp {}, {}", selector_value, target_symbol);
+    let sel_start = 5u32; // "ljmp "
+    let sel_len = selector_value.len() as u32;
+    let offset_start = (5 + selector_value.len() + 2) as u32; // "ljmp X, "
+    let offset_len = target_symbol.len() as u32;
+
+    let mut ast = AstArena::new();
+    let mut ir = IrArena::new();
+
+    let file_id = paideia_as_diagnostics::FileId::new(1).unwrap();
+    let stmt_span = test_span();
+    let sel_span = Span::new(file_id, sel_start, sel_len);
+    let offset_span = Span::new(file_id, offset_start, offset_len);
+
+    let justification = ast.alloc(NodeKind::ExprString, stmt_span);
+
+    // First operand: immediate selector (e.g., 0x08)
+    let sel_literal = ast.alloc(NodeKind::Placeholder, sel_span);
+    let sel_operand = ast.alloc_expr(
+        NodeKind::ExprLiteral,
+        sel_span,
+        ExprData::Literal { lit: sel_literal },
+    );
+
+    // Second operand: symbol reference (e.g., long_mode_entry)
+    let offset_ident = ast.alloc(NodeKind::Ident, offset_span);
+
+    let mnemonic_id = ast.intern_mnemonic("ljmp");
+    let inst_stmt = ast.alloc_stmt(
+        NodeKind::StmtInstruction,
+        stmt_span,
+        StmtData::Instruction {
+            mnemonic: mnemonic_id,
+            operands: vec![sel_operand, offset_ident],
+        },
+    );
+
+    let _unsafe_expr = ast.alloc_expr(
+        NodeKind::ExprUnsafe,
+        stmt_span,
+        ExprData::Unsafe {
+            effects: vec![],
+            capabilities: vec![],
+            justification,
+            block: vec![inst_stmt],
+        },
+    );
+
+    let ir_unsafe = ir.alloc(paideia_as_ir::IrKind::Unsafe, stmt_span);
+
+    let mut source_map = SourceMap::new();
+    let _ = source_map.add_file(PathBuf::from("test.pdx"), source);
+
+    let mut sink = VecSink::new();
+    let record_layouts = HashMap::new();
+    let local_bindings = LocalBindingTable::new();
+    let _diags = UnsafeWalker::run(
+        &mut ir,
+        &ast,
+        vec![ir_unsafe.get()],
+        &source_map,
+        &mut sink,
+        &record_layouts,
+        &local_bindings,
+    );
+
+    assert_eq!(
+        ir.instructions().len(),
+        1,
+        "expected exactly one instruction for `ljmp {}, {}`",
+        selector_value,
+        target_symbol
+    );
+
+    let instruction = ir
+        .instructions()
+        .entries()
+        .values()
+        .next()
+        .expect("instruction present");
+
+    assert_eq!(
+        instruction.operands.len(),
+        2,
+        "expected 2 operands for ljmp instruction"
+    );
+
+    // Verify the mnemonic is FarJmp
+    assert_eq!(
+        instruction.mnemonic,
+        Mnemonic::FarJmp,
+        "expected FarJmp mnemonic"
+    );
+
+    (
+        instruction.operands[0].clone(),
+        instruction.operands[1].clone(),
+    )
+}
+
+/// PA10-006h Test 1: `ljmp 0x08, long_mode_entry` with immediate selector and symbol offset.
+#[test]
+fn test_ljmp_imm_symbol() {
+    let (sel_op, offset_op) = parse_ljmp_instruction("0x08", "long_mode_entry");
+
+    // First operand should be Imm16(0x08)
+    match sel_op {
+        paideia_as_ir::instruction::Operand::Imm64(val) => {
+            assert_eq!(val, 0x08, "expected selector immediate 0x08");
+        }
+        _ => panic!("expected Imm64 operand for selector"),
+    }
+
+    // Second operand should be SymbolRef
+    match offset_op {
+        paideia_as_ir::instruction::Operand::SymbolRef { name, addend } => {
+            assert_eq!(name, "long_mode_entry", "expected symbol 'long_mode_entry'");
+            assert_eq!(addend, 0, "expected addend 0");
+        }
+        _ => panic!("expected SymbolRef operand for offset"),
+    }
+}

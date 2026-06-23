@@ -98,6 +98,7 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     ("hlt", Mnemonic::Hlt),
     ("rep_stosq", Mnemonic::RepStosq),
     ("farjmp", Mnemonic::FarJmp),
+    ("ljmp", Mnemonic::FarJmp), // PA10-006h: ljmp alias for farjmp (two-operand form)
     // Jcc (conditional jump) variants (16 forms)
     ("je", Mnemonic::Jcc(Cond::Eq)),
     ("jne", Mnemonic::Jcc(Cond::Ne)),
@@ -300,10 +301,16 @@ pub fn parse_operand_from_ast(
 ///
 /// Phase 6 m4-005: Only `call` and `jmp` (conditional and unconditional)
 /// mnemonics support symbol references in operand position.
+/// PA10-006h: Also `ljmp`/`farjmp` for far-jump target offsets.
 fn supports_symbol_ref(mnemonic: Mnemonic) -> bool {
     matches!(
         mnemonic,
-        Mnemonic::Call | Mnemonic::Jmp | Mnemonic::Jcc(_) | Mnemonic::Mov | Mnemonic::Lea
+        Mnemonic::Call
+            | Mnemonic::Jmp
+            | Mnemonic::Jcc(_)
+            | Mnemonic::Mov
+            | Mnemonic::Lea
+            | Mnemonic::FarJmp
     )
 }
 
