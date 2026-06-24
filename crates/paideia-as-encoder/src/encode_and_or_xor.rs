@@ -112,6 +112,27 @@ pub fn encode_or(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutpu
             let dst_reg = reg64_from(*dst)?;
             let imm_i64 = *imm;
 
+            // Mode32: operate on 32-bit register operand, no REX.W
+            if inst.mode == paideia_as_ir::InstrMode::Mode32 {
+                // Try imm8 form first: 83 /1 ib
+                if imm_i64 == (imm_i64 as i8 as i64) {
+                    or_reg32_imm8(buf, dst_reg, imm_i64 as i8);
+                    return Ok(EncodeOutput::new());
+                }
+
+                // Try imm32 form: 81 /1 id
+                if imm_i64 == (imm_i64 as i32 as i64) {
+                    or_reg32_imm32(buf, dst_reg, imm_i64 as i32);
+                    return Ok(EncodeOutput::new());
+                }
+
+                // imm out-of-range for 32-bit
+                return Err(EncodeError::Unsupported(
+                    "or r32, imm: immediate out of 32-bit range",
+                ));
+            }
+
+            // Mode64: operate on 64-bit register operand, REX.W required
             // Apply the sign-extension trap guard: only use the shorter form
             // if the immediate round-trips correctly through the intermediate type.
             // This prevents silent truncation that would change the semantic meaning.

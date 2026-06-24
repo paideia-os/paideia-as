@@ -408,6 +408,47 @@ pub fn or_reg64_imm32(buf: &mut CodeBuffer, dst: Reg64, imm: i32) {
     buf.bytes.extend(imm.to_le_bytes());
 }
 
+/// Encode `or reg32, imm8` (8-bit immediate, zero-extended to 32-bit).
+///
+/// Instruction: 83 /1 ib
+/// ModR/M: 0xC8 | (reg & 7) (register 1 in the reg field means OR)
+/// Bytes: `rex_if_needed 83 (0xC8 | (reg&7)) imm8`
+///
+/// WARNING: When the high bit is set in the register ID (r8–r15), we emit REX.B.
+/// Only use this form if `imm == (imm as i8 as i32)` (round-trip through i8).
+///
+/// Example: `or eax, 0x03` → `83 c8 03`
+/// Example: `or r8d, 0x20` → `41 83 c8 20` (imm8 boundary with REX.B)
+pub fn or_reg32_imm8(buf: &mut CodeBuffer, dst: Reg64, imm: i8) {
+    let reg_id = dst as u8;
+    if (reg_id >> 3) != 0 {
+        buf.bytes.push(rex(false, false, false, true));
+    }
+    buf.bytes.push(0x83);
+    buf.bytes.push(0xC8 | (reg_id & 7));
+    buf.bytes.push(imm as u8);
+}
+
+/// Encode `or reg32, imm32` (32-bit immediate).
+///
+/// Instruction: 81 /1 id
+/// ModR/M: 0xC8 | (reg & 7)
+/// Bytes: `rex_if_needed 81 (0xC8 | (reg&7)) imm32_le`
+///
+/// When the high bit is set in the register ID (r8–r15), we emit REX.B.
+///
+/// Example: `or eax, 0x100` → `81 c8 00 01 00 00`
+/// Example: `or r8d, 0x80000001` → `41 81 c8 01 00 00 80`
+pub fn or_reg32_imm32(buf: &mut CodeBuffer, dst: Reg64, imm: i32) {
+    let reg_id = dst as u8;
+    if (reg_id >> 3) != 0 {
+        buf.bytes.push(rex(false, false, false, true));
+    }
+    buf.bytes.push(0x81);
+    buf.bytes.push(0xC8 | (reg_id & 7));
+    buf.bytes.extend(imm.to_le_bytes());
+}
+
 /// Encode `and reg64, reg64`.
 ///
 /// Instruction: REX.W 21 /r
