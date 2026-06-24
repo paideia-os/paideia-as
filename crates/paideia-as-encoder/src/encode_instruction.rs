@@ -471,6 +471,32 @@ fn encode_mov(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
                 mov_reg32_reg32(buf, reg64_from(*dst)?, reg64_from(*src)?);
                 return Ok(EncodeOutput::new());
             }
+            // Phase 15 m3-002: mov r32, [abs32]
+            [Operand::Reg(dst), Operand::SymbolRef { name, addend }] => {
+                let byte_offset = mov_reg32_mem_abs32(buf, reg64_from(*dst)?);
+
+                let mut output = EncodeOutput::new();
+                output.add_reloc(RelocSite {
+                    byte_offset,
+                    symbol: name.clone(),
+                    kind: RelocKind::Abs32,
+                    addend: *addend,
+                });
+                return Ok(output);
+            }
+            // Phase 15 m3-002: mov [abs32], r32
+            [Operand::SymbolRef { name, addend }, Operand::Reg(src)] => {
+                let byte_offset = mov_mem_abs32_reg32(buf, reg64_from(*src)?);
+
+                let mut output = EncodeOutput::new();
+                output.add_reloc(RelocSite {
+                    byte_offset,
+                    symbol: name.clone(),
+                    kind: RelocKind::Abs32,
+                    addend: *addend,
+                });
+                return Ok(output);
+            }
             _ => {} // fall through
         }
     }

@@ -761,6 +761,72 @@ pub fn mov_reg32_reg32(buf: &mut CodeBuffer, dst: Reg64, src: Reg64) {
     buf.bytes.push(0xC0 | ((src_id & 7) << 3) | (dst_id & 7));
 }
 
+/// Encode `mov r32, [abs32]` — Phase 15 m3-002: 32-bit mov from absolute address.
+///
+/// Instruction: 8B /r, ModR/M with mod=00, r/m=5 (absolute addressing), disp32
+/// Bytes: `[41] 8B 05 disp32_le` (REX.B if reg ∈ r8..r15)
+///
+/// Returns the instruction-local byte offset of the disp32 placeholder.
+/// For registers eax..edi, disp32 starts at byte 2 of the instruction.
+/// For r8d..r15d, disp32 starts at byte 3 (after REX.B).
+///
+/// # Arguments
+/// - `buf`: code buffer to append instruction to
+/// - `dst`: destination register (32-bit operand size)
+///
+/// # Returns
+/// Instruction-local byte offset of the disp32 field (2 or 3).
+pub fn mov_reg32_mem_abs32(buf: &mut CodeBuffer, dst: Reg64) -> u32 {
+    let reg_id = dst as u8;
+    let byte_offset_before = buf.len() as u32;
+
+    // REX.B only needed for r8d..r15d; no REX.W for 32-bit operand size.
+    if (reg_id >> 3) != 0 {
+        buf.bytes.push(0x41); // REX.B
+    }
+
+    buf.bytes.push(0x8B); // mov r32, r/m32 opcode
+    buf.bytes.push(0x05 | ((reg_id & 7) << 3)); // ModR/M: mod=00, r/m=5 (absolute), reg=reg_id
+
+    let byte_offset_disp32 = (buf.len() as u32) - byte_offset_before;
+    buf.bytes.extend([0, 0, 0, 0]); // placeholder disp32
+
+    byte_offset_disp32
+}
+
+/// Encode `mov [abs32], r32` — Phase 15 m3-002: 32-bit mov to absolute address.
+///
+/// Instruction: 89 /r, ModR/M with mod=00, r/m=5 (absolute addressing), disp32
+/// Bytes: `[41] 89 05 disp32_le` (REX.B if reg ∈ r8..r15)
+///
+/// Returns the instruction-local byte offset of the disp32 placeholder.
+/// For registers eax..edi, disp32 starts at byte 2 of the instruction.
+/// For r8d..r15d, disp32 starts at byte 3 (after REX.B).
+///
+/// # Arguments
+/// - `buf`: code buffer to append instruction to
+/// - `src`: source register (32-bit operand size)
+///
+/// # Returns
+/// Instruction-local byte offset of the disp32 field (2 or 3).
+pub fn mov_mem_abs32_reg32(buf: &mut CodeBuffer, src: Reg64) -> u32 {
+    let reg_id = src as u8;
+    let byte_offset_before = buf.len() as u32;
+
+    // REX.B only needed for r8d..r15d; no REX.W for 32-bit operand size.
+    if (reg_id >> 3) != 0 {
+        buf.bytes.push(0x41); // REX.B
+    }
+
+    buf.bytes.push(0x89); // mov r/m32, r32 opcode
+    buf.bytes.push(0x05 | ((reg_id & 7) << 3)); // ModR/M: mod=00, r/m=5 (absolute), reg=reg_id
+
+    let byte_offset_disp32 = (buf.len() as u32) - byte_offset_before;
+    buf.bytes.extend([0, 0, 0, 0]); // placeholder disp32
+
+    byte_offset_disp32
+}
+
 /// Encode `cmp reg64, reg64`.
 ///
 /// Instruction: REX.W 39 /r
