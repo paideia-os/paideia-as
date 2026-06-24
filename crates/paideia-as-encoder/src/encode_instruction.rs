@@ -9,7 +9,7 @@ use crate::dispatch::{DispatchKind, classify};
 use crate::encode::*;
 use crate::encode_and_or_xor;
 use crate::encode_imul;
-use paideia_as_ir::{Cond as IrCond, Instruction, InstrMode, IntWidth, Mnemonic, Operand, RegId, Scale};
+use paideia_as_ir::{Cond as IrCond, Instruction, IntWidth, Mnemonic, Operand, RegId, Scale};
 
 /// SysV AMD64 ABI: R_X86_64_PC32/PLT32 callers must supply addend = -4 so that
 /// `S + A - P` resolves to `S - RIP_after_disp32` (matches CPU RIP semantics).
@@ -1606,7 +1606,7 @@ fn encode_invlpg_inst(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use paideia_as_ir::{Instruction, Mnemonic, Operand, RegId, Scale};
+    use paideia_as_ir::{Instruction, InstrMode, Mnemonic, Operand, RegId, Scale};
 
     #[test]
     fn encode_mov_rax_rdi_round_trips_through_iced_x86() {
@@ -3512,7 +3512,7 @@ fn encode_movsx(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput
 mod jcc_tests {
     use super::*;
     use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
-    use paideia_as_ir::{Cond as IrCond, Instruction, Mnemonic, Operand};
+    use paideia_as_ir::{Cond as IrCond, Instruction, InstrMode, Mnemonic, Operand};
 
     // Test 1: Je with immediate (rel32) round-trips through iced-x86
     #[test]

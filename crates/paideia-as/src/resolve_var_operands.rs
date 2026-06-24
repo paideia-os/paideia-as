@@ -10,7 +10,10 @@
 //! (emit T0531) from unresolved bindings (emit T0528).
 
 use paideia_as_elaborator::LocalBindingTable;
-use paideia_as_ir::{IrNodeId, InstrMode, Operand, SymbolTable, instruction::InstructionSideTable};
+use paideia_as_ir::{IrNodeId, Operand, SymbolTable, instruction::InstructionSideTable};
+
+#[cfg(test)]
+use paideia_as_ir::InstrMode;
 
 /// Resolve all Operand::Var operands in the instruction table to Operand::Reg.
 ///

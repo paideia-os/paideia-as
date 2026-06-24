@@ -395,16 +395,22 @@ impl EmitWalker {
     }
 
     /// Phase 15 m2-002: Enter a new instruction mode scope.
+    /// Will be used in m2-002b for scope-aware mode propagation.
+    #[allow(dead_code)]
     fn enter_mode_scope(&mut self, mode: InstrMode) {
         self.state.mode_stack.push(mode);
     }
 
     /// Phase 15 m2-002: Exit the current instruction mode scope.
+    /// Will be used in m2-002b for scope-aware mode propagation.
+    #[allow(dead_code)]
     fn exit_mode_scope(&mut self) {
         self.state.mode_stack.pop();
     }
 
     /// Phase 15 m2-002: Get the current instruction mode (Mode64 if stack is empty).
+    /// Will be used in m2-002b for scope-aware mode propagation.
+    #[allow(dead_code)]
     fn current_mode(&self) -> InstrMode {
         self.state.mode_stack.last().copied().unwrap_or(InstrMode::Mode64)
     }

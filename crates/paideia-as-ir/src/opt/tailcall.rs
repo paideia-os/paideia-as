@@ -1,10 +1,12 @@
 //! Tail-call elimination.
 
 use super::{OptDiagSink, OptPass};
-use crate::instruction::InstrMode;
 use crate::IrArena;
 use crate::instruction::Mnemonic;
 use crate::node::IrNodeId;
+
+#[cfg(test)]
+use crate::instruction::InstrMode;
 
 /// The tail-call elimination optimization pass.
 pub struct TailCallPass;

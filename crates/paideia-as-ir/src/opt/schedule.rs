@@ -1,10 +1,12 @@
 //! Instruction scheduling pass.
 
 use super::{OptDiagSink, OptPass};
-use crate::instruction::InstrMode;
 use crate::IrArena;
 use crate::instruction::Mnemonic;
 use crate::node::IrNodeId;
+
+#[cfg(test)]
+use crate::instruction::InstrMode;
 
 /// Instruction scheduling pass for hiding latency within basic blocks.
 pub struct InstructionSchedulingPass;

@@ -15,7 +15,7 @@
 //! # Examples
 //!
 //! ```ignore
-//! use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand, RegId};
+//! use paideia_as_ir::instruction::{Instruction, InstrMode, Mnemonic, Operand, RegId};
 //! use paideia_as_encoder::dispatch::{classify, DispatchKind};
 //! use smallvec::SmallVec;
 //!
@@ -65,7 +65,10 @@
 //! assert_eq!(classify(&inst), DispatchKind::MovGeneric);
 //! ```
 
-use paideia_as_ir::instruction::{Instruction, InstrMode, Mnemonic, Operand, RegId};
+use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand, RegId};
+
+#[cfg(test)]
+use paideia_as_ir::instruction::InstrMode;
 
 /// Operand-shape classifier for instruction dispatch.
 ///

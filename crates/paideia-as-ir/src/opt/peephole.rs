@@ -5,9 +5,12 @@
 //! canonical rewrites ported to work with the InstructionSideTable.
 
 use super::{OptDiagSink, OptPass};
-use crate::instruction::{InstrMode, Mnemonic, Operand};
+use crate::instruction::{Mnemonic, Operand};
 use crate::IrArena;
 use crate::node::IrNodeId;
+
+#[cfg(test)]
+use crate::instruction::InstrMode;
 
 /// The peephole optimization pass.
 ///

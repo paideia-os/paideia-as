@@ -6,9 +6,11 @@
 //! basic-block-local DSE.
 
 use super::{OptDiagSink, OptPass};
-use crate::instruction::InstrMode;
 use crate::IrArena;
 use crate::node::IrNodeId;
+
+#[cfg(test)]
+use crate::instruction::InstrMode;
 
 /// The dead-store elimination pass.
 pub struct DsePass;
@@ -52,7 +54,7 @@ pub fn dse_block(
     side_table: &crate::instruction::InstructionSideTable,
     nodes: &[crate::node::IrNodeId],
 ) -> Vec<usize> {
-    use crate::instruction::{Mnemonic, Operand, InstrMode};
+    use crate::instruction::{Mnemonic, Operand};
 
     // Build a list of (node_idx, MemOp) for stores only.
     // Non-store nodes are tracked separately.

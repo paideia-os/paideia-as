@@ -8,6 +8,9 @@
 use super::{OptDiagSink, OptPass};
 use crate::IrArena;
 use crate::instruction::Mnemonic;
+
+#[cfg(test)]
+use crate::instruction::InstrMode;
 use crate::node::IrNodeId;
 
 /// The branch-hint optimization pass.

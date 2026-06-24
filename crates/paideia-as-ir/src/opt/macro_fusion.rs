@@ -9,6 +9,9 @@ use crate::IrArena;
 use crate::instruction::Mnemonic;
 use crate::node::IrNodeId;
 
+#[cfg(test)]
+use crate::instruction::InstrMode;
+
 /// The macro-fusion optimization pass.
 pub struct MacroFusionPass;
 

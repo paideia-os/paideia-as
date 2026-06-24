@@ -8,6 +8,9 @@ use super::{OptDiagSink, OptPass};
 use crate::IrArena;
 use crate::instruction::Operand;
 use crate::node::IrNodeId;
+
+#[cfg(test)]
+use crate::instruction::InstrMode;
 use std::collections::HashMap;
 
 /// The constant-pool optimization pass.

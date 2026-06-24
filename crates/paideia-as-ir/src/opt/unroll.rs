@@ -8,9 +8,11 @@
 //! transformation on the IR before encoding.
 
 use super::{OptDiagSink, OptPass};
-use crate::instruction::InstrMode;
 use crate::IrArena;
 use crate::node::IrNodeId;
+
+#[cfg(test)]
+use crate::instruction::InstrMode;
 
 /// The loop unrolling optimization pass.
 pub struct UnrollPass;
