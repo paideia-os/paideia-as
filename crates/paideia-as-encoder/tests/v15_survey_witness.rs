@@ -13,8 +13,7 @@ fn test_survey_catalogue_structure() {
     // Read the survey markdown (relative to workspace root)
     let survey_path = "../../design/encoding/32bit-mode-survey.md";
     let survey_content =
-        std::fs::read_to_string(survey_path)
-            .expect("Failed to read 32bit-mode-survey.md");
+        std::fs::read_to_string(survey_path).expect("Failed to read 32bit-mode-survey.md");
 
     // Extract catalogue section via HTML anchor markers
     let begin_marker = "<!-- catalogue:begin -->";
@@ -27,8 +26,7 @@ fn test_survey_catalogue_structure() {
         .find(end_marker)
         .expect("Missing catalogue:end anchor");
 
-    let catalogue_section = &survey_content[begin_idx + begin_marker.len()
-        ..begin_idx + end_idx];
+    let catalogue_section = &survey_content[begin_idx + begin_marker.len()..begin_idx + end_idx];
 
     // Split by lines and collect rows (skip header separators)
     let mut rows = Vec::new();
@@ -112,7 +110,9 @@ fn test_survey_catalogue_structure() {
         // Verify gas_line is numeric (source line reference)
         if !gas_line.is_empty() && gas_line != "–" {
             assert!(
-                gas_line.chars().all(|c| c.is_numeric() || c == '–' || c == '-'),
+                gas_line
+                    .chars()
+                    .all(|c| c.is_numeric() || c == '–' || c == '-'),
                 "Row {}: invalid gas_line: {}",
                 idx,
                 gas_line
@@ -122,7 +122,9 @@ fn test_survey_catalogue_structure() {
         // Verify bytes: hex digits only, no angle brackets
         if !bytes.is_empty() && bytes != "–" {
             assert!(
-                bytes.chars().all(|c| c.is_ascii_hexdigit() || c == ' ' || c == '-'),
+                bytes
+                    .chars()
+                    .all(|c| c.is_ascii_hexdigit() || c == ' ' || c == '-'),
                 "Row {}: bytes contain invalid chars: {}",
                 idx,
                 bytes
@@ -175,8 +177,7 @@ fn test_survey_catalogue_structure() {
             );
             // Verify issue is in v1.5 range (#879–#892)
             if issue != "–" {
-                let issue_num: u32 = issue[1..].parse()
-                    .expect("Failed to parse issue number");
+                let issue_num: u32 = issue[1..].parse().expect("Failed to parse issue number");
                 assert!(
                     issue_num >= 879 && issue_num <= 892,
                     "Row {}: issue {} out of v1.5 range [879,892]",
@@ -198,10 +199,9 @@ fn test_survey_catalogue_structure() {
     }
 
     // Final sanity check: at least one ✅ and one ❌ or ⚠
-    let completed_count = rows.iter()
-        .filter(|r| r.contains(" ✅ "))
-        .count();
-    let gap_count = rows.iter()
+    let completed_count = rows.iter().filter(|r| r.contains(" ✅ ")).count();
+    let gap_count = rows
+        .iter()
         .filter(|r| r.contains(" ❌ ") || r.contains(" ⚠ "))
         .count();
 

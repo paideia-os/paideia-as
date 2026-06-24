@@ -9,7 +9,7 @@
 //! 2. Builds each of: entry.pdx, long_mode.pdx, gdt.pdx, uart.pdx, zero_bss.pdx,
 //!    kernel_main.pdx, banner.pdx (7 files) — asserts exit 0.
 //! 3. For each, asserts `.text` non-empty unless data-only (banner.pdx, pagetables.pdx).
-//! 4. Phase 6 m5-005: pagetables.pdx re-included; asserts .bss >= 4096 bytes (pd scratch region; pml4/pdpt are .rodata/.data post-B2-002).
+//! 4. Post-B2-006: pagetables.pdx included; page tables now live in tools/boot_stub.S, so .bss check removed.
 //! 5. Suite runs on cargo test when submodule present.
 
 use object::{Object, ObjectSection};
@@ -66,7 +66,6 @@ fn paideia_os_phase1_boot_files_rebuild() {
 
     let mut succeeded = 0;
     let mut failed_files = Vec::new();
-    let mut bss_check_failed = false;
 
     for f in files {
         let src = boot_dir.join(f);
@@ -85,30 +84,6 @@ fn paideia_os_phase1_boot_files_rebuild() {
             && std::fs::metadata(&out).unwrap().len() > 0
         {
             succeeded += 1;
-
-            // Phase 6 m5-005: For pagetables.pdx, assert .bss section >= 4096 bytes.
-            // B2-002 promotion moved pml4 + pdpt to .rodata/.data; only pd scratch remains in .bss.
-            // This 4 KiB threshold preserves the original intent without requiring the 12 KiB that
-            // now split across sections. Follow-up: extend to assert pml4/pdpt presence in .rodata/.data.
-            if f == "pagetables.pdx" {
-                if let Ok(bytes) = std::fs::read(&out) {
-                    if let Ok(file) = object::File::parse(bytes.as_slice()) {
-                        let mut bss_size = 0u64;
-                        for section in file.sections() {
-                            if section.name().unwrap_or("") == ".bss" {
-                                bss_size = section.size();
-                                break;
-                            }
-                        }
-                        if bss_size < 4096 {
-                            println!("pagetables.pdx .bss section size {} < 4096 bytes", bss_size);
-                            bss_check_failed = true;
-                        } else {
-                            println!("pagetables.pdx .bss section size: {} bytes (ok)", bss_size);
-                        }
-                    }
-                }
-            }
         } else {
             failed_files.push((
                 f,
@@ -141,10 +116,5 @@ fn paideia_os_phase1_boot_files_rebuild() {
         "expected all {} files to build, but only {} succeeded",
         files.len(),
         succeeded
-    );
-
-    assert!(
-        !bss_check_failed,
-        "pagetables.pdx .bss section check failed"
     );
 }
