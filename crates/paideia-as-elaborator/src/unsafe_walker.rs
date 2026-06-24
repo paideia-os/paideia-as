@@ -147,6 +147,11 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     // Phase R9 m2-001 (PA-R9-001): Push/pop instructions
     ("push", Mnemonic::Push),
     ("pop", Mnemonic::Pop),
+    // Phase R9 m2-002 (PA-R9-002): Pushfq/Popfq instructions
+    ("pushfq", Mnemonic::Pushfq),
+    ("popfq", Mnemonic::Popfq),
+    // Phase R9 m2-003 (PA-R9-003): Int3 instruction
+    ("int3", Mnemonic::Int3),
 ];
 
 /// Resolve a mnemonic name to an IR Mnemonic enum variant.
@@ -168,12 +173,8 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
 pub fn resolve_mnemonic(name: &str) -> Option<Mnemonic> {
     let lower_name = name.to_lowercase();
 
-    // Handle the special case of Int (software interrupt)
-    if lower_name == "int3" {
-        return Some(Mnemonic::Int);
-    }
-
     // Table lookup with case-insensitive ASCII lowercase
+    // (includes int3 → Mnemonic::Int3 from MNEMONIC_TABLE)
     for (mnem_name, mnem) in MNEMONIC_TABLE {
         if mnem_name.eq_ignore_ascii_case(&lower_name) {
             return Some(*mnem);
@@ -2189,7 +2190,7 @@ mod tests {
 
     #[test]
     fn resolve_mnemonic_int3() {
-        assert_eq!(resolve_mnemonic("int3"), Some(Mnemonic::Int));
+        assert_eq!(resolve_mnemonic("int3"), Some(Mnemonic::Int3));
     }
 
     // --- Negative tests: unknown mnemonics ---

@@ -124,6 +124,15 @@ pub enum Mnemonic {
     /// Phase R9 m2-001 (PA-R9-001): emits `pop r64` (REX.W 58+rd or 41 58+rd for r8–r15).
     /// One operand.
     Pop,
+    /// Push flags register onto stack.
+    /// Phase R9 m2-002 (PA-R9-002): emits `pushfq` (0x9C). Zero operands.
+    Pushfq,
+    /// Pop flags register from stack.
+    /// Phase R9 m2-002 (PA-R9-002): emits `popfq` (0x9D). Zero operands.
+    Popfq,
+    /// Breakpoint interrupt (INT 3).
+    /// Phase R9 m2-003 (PA-R9-003): emits `int3` (0xCC). Zero operands.
+    Int3,
     /// Width-aware immediate-to-register move.
     /// Phase 7 m4-003 (PA7C-m4-003): used for typed integer-literal `let`
     /// bindings so `let x : u32 = 42` emits the 5-byte `B8 imm32` form
@@ -417,7 +426,10 @@ impl Mnemonic {
             | Mnemonic::Sysret
             | Mnemonic::Syscall
             | Mnemonic::RepStosq
-            | Mnemonic::Rdtsc => 0,
+            | Mnemonic::Rdtsc
+            | Mnemonic::Pushfq
+            | Mnemonic::Popfq
+            | Mnemonic::Int3 => 0,
 
             // One-operand instructions
             Mnemonic::Call
@@ -558,6 +570,12 @@ impl Mnemonic {
 
             // Push/Pop: 2 bytes upper bound (REX.W 50+r or 41 50+r for r8–r15)
             Mnemonic::Push | Mnemonic::Pop => 2,
+
+            // Pushfq/Popfq: 1 byte (0x9C or 0x9D)
+            Mnemonic::Pushfq | Mnemonic::Popfq => 1,
+
+            // Int3: 1 byte (0xCC)
+            Mnemonic::Int3 => 1,
 
             // Shift operations: 4 bytes upper bound (REX.W C1 r/m, imm8 or REX.W D3 r/m for CL variant)
             Mnemonic::Shl | Mnemonic::Shr | Mnemonic::Sar => 4,

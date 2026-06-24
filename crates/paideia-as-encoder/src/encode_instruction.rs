@@ -253,6 +253,9 @@ pub fn encode_instruction(
         Mnemonic::Not => encode_not(inst, buf),
         Mnemonic::Push => encode_push(inst, buf),
         Mnemonic::Pop => encode_pop(inst, buf),
+        Mnemonic::Pushfq => encode_pushfq(inst, buf),
+        Mnemonic::Popfq => encode_popfq(inst, buf),
+        Mnemonic::Int3 => encode_int3(inst, buf),
         Mnemonic::MovSized { width } => encode_mov_sized(inst, buf, *width),
         // Phase 8 m1-001d: shift operations
         Mnemonic::Shl => encode_shl(inst, buf),
@@ -369,6 +372,42 @@ fn encode_pop(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
             mnemonic: Mnemonic::Pop,
         }),
     }
+}
+
+/// Phase R9 m2-002 (PA-R9-002): Encode pushfq instruction.
+/// Push flags register onto stack: `pushfq` (0x9C). Zero operands.
+fn encode_pushfq(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    if !inst.operands.is_empty() {
+        return Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Pushfq,
+        });
+    }
+    buf.bytes.push(0x9C);
+    Ok(EncodeOutput::new())
+}
+
+/// Phase R9 m2-002 (PA-R9-002): Encode popfq instruction.
+/// Pop flags register from stack: `popfq` (0x9D). Zero operands.
+fn encode_popfq(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    if !inst.operands.is_empty() {
+        return Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Popfq,
+        });
+    }
+    buf.bytes.push(0x9D);
+    Ok(EncodeOutput::new())
+}
+
+/// Phase R9 m2-003 (PA-R9-003): Encode int3 instruction.
+/// Breakpoint interrupt: `int3` (0xCC). Zero operands.
+fn encode_int3(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    if !inst.operands.is_empty() {
+        return Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Int3,
+        });
+    }
+    buf.bytes.push(0xCC);
+    Ok(EncodeOutput::new())
 }
 
 /// Phase 8 m1-001d: Encode shift-left instruction.
@@ -5349,5 +5388,124 @@ mod jcc_tests {
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
 
         assert_eq!(buf.as_slice(), &[0x41, 0x5e]);
+    }
+
+    // Phase R9 m2-002 (PA-R9-002): Pushfq and Popfq tests
+    #[test]
+    fn encode_pushfq_emits_9c() {
+        // pushfq → 9C
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Pushfq,
+            operands: smallvec::smallvec![],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0x9C]);
+    }
+
+    #[test]
+    fn encode_pushfq_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Pushfq,
+            operands: smallvec::smallvec![],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Pushfq);
+    }
+
+    #[test]
+    fn encode_popfq_emits_9d() {
+        // popfq → 9D
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Popfq,
+            operands: smallvec::smallvec![],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0x9D]);
+    }
+
+    #[test]
+    fn encode_popfq_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Popfq,
+            operands: smallvec::smallvec![],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Popfq);
+    }
+
+    // Phase R9 m2-003 (PA-R9-003): Int3 tests
+    #[test]
+    fn encode_int3_emits_cc() {
+        // int3 → CC
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Int3,
+            operands: smallvec::smallvec![],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0xCC]);
+    }
+
+    #[test]
+    fn encode_int3_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Int3,
+            operands: smallvec::smallvec![],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Int3);
     }
 }
