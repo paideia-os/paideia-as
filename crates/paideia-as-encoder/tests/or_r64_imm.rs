@@ -20,6 +20,7 @@ fn or_rax_0x20_imm8_encodes_correctly() {
         mnemonic: Mnemonic::Or,
         operands: smallvec![Operand::Reg(RegId(0)), Operand::Imm64(0x20)], // rax, 0x20
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -38,6 +39,7 @@ fn or_r15_0x7f_imm8_encodes_with_rex_b() {
         mnemonic: Mnemonic::Or,
         operands: smallvec![Operand::Reg(RegId(15)), Operand::Imm64(0x7f)], // r15, 0x7f
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -56,6 +58,7 @@ fn or_rax_0x100_imm32_encodes_correctly() {
         mnemonic: Mnemonic::Or,
         operands: smallvec![Operand::Reg(RegId(0)), Operand::Imm64(0x100)], // rax, 0x100
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -74,6 +77,7 @@ fn or_r8_0x100_imm32_encodes_with_rex_b() {
         mnemonic: Mnemonic::Or,
         operands: smallvec![Operand::Reg(RegId(8)), Operand::Imm64(0x100)], // r8, 0x100
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -92,6 +96,7 @@ fn or_rax_0x7fffffff_imm32_max_signed_encodes() {
         mnemonic: Mnemonic::Or,
         operands: smallvec![Operand::Reg(RegId(0)), Operand::Imm64(0x7fffffff)], // rax, 0x7fffffff (i32::MAX)
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -123,6 +128,7 @@ fn triple_or_pipeline_integration() {
         mnemonic: Mnemonic::Or,
         operands: smallvec![Operand::Reg(RegId(0)), Operand::Imm64(0x20)],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
     paideia_as_encoder::encode_instruction(&inst1, &mut buf, &mut stats)
@@ -133,6 +139,7 @@ fn triple_or_pipeline_integration() {
         mnemonic: Mnemonic::Or,
         operands: smallvec![Operand::Reg(RegId(15)), Operand::Imm64(0x100)],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
     paideia_as_encoder::encode_instruction(&inst2, &mut buf, &mut stats)
@@ -143,6 +150,7 @@ fn triple_or_pipeline_integration() {
         mnemonic: Mnemonic::Or,
         operands: smallvec![Operand::Reg(RegId(0)), Operand::Imm64(0x7fffffff)],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
     paideia_as_encoder::encode_instruction(&inst3, &mut buf, &mut stats)
@@ -167,6 +175,7 @@ fn or_rax_0x20_round_trips_through_iced_x86() {
         mnemonic: Mnemonic::Or,
         operands: smallvec![Operand::Reg(RegId(0)), Operand::Imm64(0x20)],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -188,6 +197,7 @@ fn or_rax_0x100_round_trips_through_iced_x86() {
         mnemonic: Mnemonic::Or,
         operands: smallvec![Operand::Reg(RegId(0)), Operand::Imm64(0x100)],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 

@@ -24,6 +24,7 @@ fn and_rax_rbx_reg_reg_encodes_correctly() {
         mnemonic: Mnemonic::And,
         operands: smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(3))], // rax, rbx
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -42,6 +43,7 @@ fn and_rax_0x7f_imm8_encodes_correctly() {
         mnemonic: Mnemonic::And,
         operands: smallvec![Operand::Reg(RegId(0)), Operand::Imm64(0x7F)], // rax, 0x7F
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -60,6 +62,7 @@ fn and_rax_0xff_imm32_encodes_correctly() {
         mnemonic: Mnemonic::And,
         operands: smallvec![Operand::Reg(RegId(0)), Operand::Imm64(0xFF)], // rax, 0xFF
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -78,6 +81,7 @@ fn and_rax_sign_ext_trap_rejects_out_of_range() {
         mnemonic: Mnemonic::And,
         operands: smallvec![Operand::Reg(RegId(0)), Operand::Imm64(0x100000001)], // out of i32 range
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -95,6 +99,7 @@ fn or_rax_rbx_reg_reg_encodes_correctly() {
         mnemonic: Mnemonic::Or,
         operands: smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(3))], // rax, rbx
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -113,6 +118,7 @@ fn or_rax_0x7f_imm8_encodes_correctly() {
         mnemonic: Mnemonic::Or,
         operands: smallvec![Operand::Reg(RegId(0)), Operand::Imm64(0x7F)], // rax, 0x7F
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -131,6 +137,7 @@ fn or_rax_0xff_imm32_encodes_correctly() {
         mnemonic: Mnemonic::Or,
         operands: smallvec![Operand::Reg(RegId(0)), Operand::Imm64(0xFF)], // rax, 0xFF
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -151,6 +158,7 @@ fn xor_rax_rax_reg_reg_encodes_correctly() {
         mnemonic: Mnemonic::Xor,
         operands: smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(0))], // xor rax, rax
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -169,6 +177,7 @@ fn xor_rax_0x7f_imm8_encodes_correctly() {
         mnemonic: Mnemonic::Xor,
         operands: smallvec![Operand::Reg(RegId(0)), Operand::Imm64(0x7F)], // rax, 0x7F
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -187,6 +196,7 @@ fn xor_rax_0xff_imm32_encodes_correctly() {
         mnemonic: Mnemonic::Xor,
         operands: smallvec![Operand::Reg(RegId(0)), Operand::Imm64(0xFF)], // rax, 0xFF
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -205,6 +215,7 @@ fn xor_rax_sign_ext_trap_rejects_out_of_range() {
         mnemonic: Mnemonic::Xor,
         operands: smallvec![Operand::Reg(RegId(0)), Operand::Imm64(0x100000001)], // out of i32 range
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -224,6 +235,7 @@ fn and_rax_rbx_round_trips_through_iced_x86() {
         mnemonic: Mnemonic::And,
         operands: smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(3))],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -244,6 +256,7 @@ fn or_rax_rbx_round_trips_through_iced_x86() {
         mnemonic: Mnemonic::Or,
         operands: smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(3))],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -264,6 +277,7 @@ fn xor_rax_rax_round_trips_through_iced_x86() {
         mnemonic: Mnemonic::Xor,
         operands: smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(0))],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 

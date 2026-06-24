@@ -67,6 +67,7 @@ fn mov_reg_imm_mnemonic(reg_name: &str) -> Mnemonic {
         StmtData::Instruction {
             mnemonic: mnemonic_id,
             operands: vec![reg_operand, imm_operand],
+            mode: InstrMode::default(),
         },
     );
 
@@ -174,6 +175,7 @@ fn test_lgdt_memory_operand() {
         StmtData::Instruction {
             mnemonic: mnemonic_id,
             operands: vec![mem_ref],
+            mode: InstrMode::default(),
         },
     );
 
@@ -234,6 +236,7 @@ fn test_unknown_mnemonic_foozle() {
         StmtData::Instruction {
             mnemonic: mnemonic_id,
             operands: vec![operand],
+            mode: InstrMode::default(),
         },
     );
 
@@ -313,6 +316,7 @@ fn test_malformed_operand_incomplete_memory() {
         StmtData::Instruction {
             mnemonic: mnemonic_id,
             operands: vec![malformed_mem_ref],
+            mode: InstrMode::default(),
         },
     );
 
@@ -420,6 +424,7 @@ fn parse_instruction_with_imm(
         StmtData::Instruction {
             mnemonic: mnemonic_id,
             operands: vec![reg_operand, imm_operand],
+            mode: InstrMode::default(),
         },
     );
 
@@ -598,6 +603,7 @@ fn parse_ljmp_instruction(
         StmtData::Instruction {
             mnemonic: mnemonic_id,
             operands: vec![sel_operand, offset_ident],
+            mode: InstrMode::default(),
         },
     );
 
@@ -751,6 +757,7 @@ fn test_lgdt_rip_relative_symbol() {
         StmtData::Instruction {
             mnemonic: mnemonic_id,
             operands: vec![memref_operand],
+            mode: InstrMode::default(),
         },
     );
 

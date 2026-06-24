@@ -6,6 +6,7 @@
 //! basic-block-local DSE.
 
 use super::{OptDiagSink, OptPass};
+use crate::instruction::InstrMode;
 use crate::IrArena;
 use crate::node::IrNodeId;
 
@@ -51,7 +52,7 @@ pub fn dse_block(
     side_table: &crate::instruction::InstructionSideTable,
     nodes: &[crate::node::IrNodeId],
 ) -> Vec<usize> {
-    use crate::instruction::{Mnemonic, Operand};
+    use crate::instruction::{Mnemonic, Operand, InstrMode};
 
     // Build a list of (node_idx, MemOp) for stores only.
     // Non-store nodes are tracked separately.
@@ -338,6 +339,7 @@ mod tests {
                 },
                 encoding_hint: None,
                 byte_offset_in_text: None,
+                mode: InstrMode::default(),
             },
         );
 
@@ -354,6 +356,7 @@ mod tests {
                 },
                 encoding_hint: None,
                 byte_offset_in_text: None,
+                mode: InstrMode::default(),
             },
         );
 
@@ -414,6 +417,7 @@ mod tests {
                     },
                     encoding_hint: None,
                     byte_offset_in_text: None,
+                    mode: InstrMode::default(),
                 },
             );
             // n1: mov [rax], r2 (second store to [rax], clobbering the first)
@@ -434,6 +438,7 @@ mod tests {
                     },
                     encoding_hint: None,
                     byte_offset_in_text: None,
+                    mode: InstrMode::default(),
                 },
             );
         }
@@ -487,6 +492,7 @@ mod tests {
                     },
                     encoding_hint: None,
                     byte_offset_in_text: None,
+                    mode: InstrMode::default(),
                 },
             );
             // n1: mov [rbx], r2 (store to [rbx], different address)
@@ -507,6 +513,7 @@ mod tests {
                     },
                     encoding_hint: None,
                     byte_offset_in_text: None,
+                    mode: InstrMode::default(),
                 },
             );
         }

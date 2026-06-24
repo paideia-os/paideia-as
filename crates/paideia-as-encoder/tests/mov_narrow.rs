@@ -28,6 +28,7 @@ fn mov_al_0x80_byte_exact() {
         },
         operands: smallvec![Operand::Reg(RegId(0)), Operand::Imm64(0x80)], // al, 0x80
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -48,6 +49,7 @@ fn mov_dx_0x3f8_byte_exact() {
         },
         operands: smallvec![Operand::Reg(RegId(2)), Operand::Imm64(0x3F8)], // dx, 0x3F8
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -68,6 +70,7 @@ fn mov_r10b_0x07_byte_exact() {
         },
         operands: smallvec![Operand::Reg(RegId(10)), Operand::Imm64(0x07)], // r10b, 0x07
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -92,6 +95,7 @@ fn test_mov_reg8_imm_round_trip(reg_id: u8, imm: u8) {
         },
         operands: smallvec![Operand::Reg(RegId(reg_id)), Operand::Imm64(imm as i64)],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 

@@ -45,6 +45,7 @@ fn mov_r64_symbol_reloc_offset_is_3() {
             }
         ],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
     assert_reloc_byte_offset(&inst, 3, "mov rax, [test_symbol]");
@@ -62,6 +63,7 @@ fn mov_r64_symbol_reloc_kind_is_pcrel32() {
             }
         ],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -91,6 +93,7 @@ fn lea_r64_symbol_reloc_offset_is_3() {
             }
         ],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
     assert_reloc_byte_offset(&inst, 3, "lea rax, [test_symbol]");
@@ -108,6 +111,7 @@ fn lea_r64_symbol_reloc_kind_is_pcrel32() {
             }
         ],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -134,6 +138,7 @@ fn lgdt_symbol_reloc_offset_is_3() {
             addend: 0,
         }],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
     assert_reloc_byte_offset(&inst, 3, "lgdt [gdt_table]");
@@ -148,6 +153,7 @@ fn lgdt_symbol_reloc_kind_is_pcrel32() {
             addend: 0,
         }],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -174,6 +180,7 @@ fn lidt_symbol_reloc_offset_is_3() {
             addend: 0,
         }],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
     assert_reloc_byte_offset(&inst, 3, "lidt [idt_table]");
@@ -188,6 +195,7 @@ fn lidt_symbol_reloc_kind_is_pcrel32() {
             addend: 0,
         }],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -216,6 +224,7 @@ fn mov_r64_symbol_encodes_7_bytes() {
             }
         ],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -238,6 +247,7 @@ fn lea_r64_symbol_encodes_7_bytes() {
             }
         ],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -257,6 +267,7 @@ fn lgdt_symbol_encodes_7_bytes() {
             addend: 0,
         }],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -276,6 +287,7 @@ fn lidt_symbol_encodes_7_bytes() {
             addend: 0,
         }],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -302,6 +314,7 @@ fn mov_reloc_addend_is_minus_4_for_zero_input() {
             }
         ],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -331,6 +344,7 @@ fn mov_reloc_addend_offsets_ir_addend() {
             }
         ],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -361,6 +375,7 @@ fn lea_reloc_addend_is_minus_4_for_zero_input() {
             }
         ],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -390,6 +405,7 @@ fn lea_reloc_addend_offsets_ir_addend() {
             }
         ],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -417,6 +433,7 @@ fn lgdt_reloc_addend_is_minus_4_for_zero_input() {
             addend: 0,
         }],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -443,6 +460,7 @@ fn lgdt_reloc_addend_offsets_ir_addend() {
             addend: 8,
         }],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -470,6 +488,7 @@ fn lidt_reloc_addend_is_minus_4_for_zero_input() {
             addend: 0,
         }],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -496,6 +515,7 @@ fn lidt_reloc_addend_offsets_ir_addend() {
             addend: 8,
         }],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -523,6 +543,7 @@ fn call_reloc_addend_is_minus_4_for_zero_input() {
             addend: 0,
         }],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -549,6 +570,7 @@ fn call_reloc_addend_offsets_ir_addend() {
             addend: 8,
         }],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -580,6 +602,7 @@ fn ljmp_imm16_symbol_reloc_addend_is_unchanged() {
             }
         ],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 

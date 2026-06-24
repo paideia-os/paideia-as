@@ -167,7 +167,7 @@ impl OptPass for TailCallPass {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::instruction::{Instruction, InstructionSideTable, Operand, RegId};
+    use crate::instruction::{Instruction, InstructionSideTable, Operand, RegId, InstrMode};
     use smallvec::SmallVec;
 
     #[test]
@@ -218,6 +218,7 @@ mod tests {
                 },
                 encoding_hint: None,
                 byte_offset_in_text: None,
+                mode: InstrMode::default(),
             },
         );
 
@@ -247,6 +248,7 @@ mod tests {
                 },
                 encoding_hint: None,
                 byte_offset_in_text: None,
+                mode: InstrMode::default(),
             },
         );
 
@@ -258,7 +260,8 @@ mod tests {
                 operands: SmallVec::new(),
                 encoding_hint: None,
                 byte_offset_in_text: None,
-            },
+            mode: InstrMode::default(),
+        },
         );
 
         let dummy_root = IrNodeId::new(3).unwrap();
@@ -296,6 +299,7 @@ mod tests {
                 },
                 encoding_hint: None,
                 byte_offset_in_text: None,
+                mode: InstrMode::default(),
             },
         );
 
@@ -307,7 +311,8 @@ mod tests {
                 operands: SmallVec::new(),
                 encoding_hint: None,
                 byte_offset_in_text: None,
-            },
+            mode: InstrMode::default(),
+        },
         );
 
         let dummy_root = IrNodeId::new(3).unwrap();
@@ -347,6 +352,7 @@ mod tests {
                 },
                 encoding_hint: None,
                 byte_offset_in_text: None,
+                mode: InstrMode::default(),
             },
         );
 
@@ -363,6 +369,7 @@ mod tests {
                 },
                 encoding_hint: None,
                 byte_offset_in_text: None,
+                mode: InstrMode::default(),
             },
         );
 

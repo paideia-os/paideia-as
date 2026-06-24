@@ -5,8 +5,8 @@
 //! canonical rewrites ported to work with the InstructionSideTable.
 
 use super::{OptDiagSink, OptPass};
+use crate::instruction::{InstrMode, Mnemonic, Operand};
 use crate::IrArena;
-use crate::instruction::{Mnemonic, Operand};
 use crate::node::IrNodeId;
 
 /// The peephole optimization pass.
@@ -417,6 +417,7 @@ mod tests {
             },
             encoding_hint: None,
             byte_offset_in_text: None,
+            mode: InstrMode::default(),
         };
 
         arena.instructions_mut().insert(id, inst);

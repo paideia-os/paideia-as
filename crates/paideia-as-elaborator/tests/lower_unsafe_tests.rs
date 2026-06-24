@@ -28,6 +28,7 @@ fn unsafe_block_lowers_body_to_children() {
         StmtData::Instruction {
             mnemonic: mnemonic_id,
             operands: vec![],
+            mode: InstrMode::default(),
         },
     );
 
@@ -89,6 +90,7 @@ fn unsafe_block_with_three_stmts_lowers_all() {
         StmtData::Instruction {
             mnemonic: cli_mnem,
             operands: vec![],
+            mode: InstrMode::default(),
         },
     );
 
@@ -98,6 +100,7 @@ fn unsafe_block_with_three_stmts_lowers_all() {
         StmtData::Instruction {
             mnemonic: hlt_mnem,
             operands: vec![],
+            mode: InstrMode::default(),
         },
     );
 
@@ -107,6 +110,7 @@ fn unsafe_block_with_three_stmts_lowers_all() {
         StmtData::Instruction {
             mnemonic: nop_mnem,
             operands: vec![],
+            mode: InstrMode::default(),
         },
     );
 
@@ -178,6 +182,7 @@ fn unsafe_block_with_mixed_stmts_lowers_all() {
         StmtData::Instruction {
             mnemonic: cli_mnem,
             operands: vec![],
+            mode: InstrMode::default(),
         },
     );
 
@@ -188,6 +193,7 @@ fn unsafe_block_with_mixed_stmts_lowers_all() {
         StmtData::Instruction {
             mnemonic: nop_mnem,
             operands: vec![],
+            mode: InstrMode::default(),
         },
     );
 

@@ -75,7 +75,7 @@ impl OptPass for BranchHintPass {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::instruction::{Cond, Instruction, Operand};
+    use crate::instruction::{Cond, Instruction, InstrMode, Operand};
     use paideia_as_diagnostics::{FileId, Span};
     use smallvec::SmallVec;
 
@@ -95,6 +95,7 @@ mod tests {
             operands,
             encoding_hint: None,
             byte_offset_in_text: None,
+            mode: InstrMode::default(),
         }
     }
 
@@ -106,6 +107,7 @@ mod tests {
             operands,
             encoding_hint: None,
             byte_offset_in_text: None,
+            mode: InstrMode::default(),
         }
     }
 

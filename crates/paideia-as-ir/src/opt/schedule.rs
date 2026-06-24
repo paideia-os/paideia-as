@@ -275,7 +275,7 @@ mod tests {
 
     #[test]
     fn schedule_block_with_instruction_side_table() {
-        use crate::instruction::{Instruction, InstructionSideTable, Mnemonic, Operand, RegId};
+        use crate::instruction::{Instruction, InstructionSideTable, Mnemonic, Operand, RegId, InstrMode};
         use crate::node::IrNodeId;
         use smallvec::SmallVec;
 
@@ -298,6 +298,7 @@ mod tests {
                 },
                 encoding_hint: None,
                 byte_offset_in_text: None,
+                mode: InstrMode::default(),
             },
         );
 
@@ -319,6 +320,7 @@ mod tests {
                 },
                 encoding_hint: None,
                 byte_offset_in_text: None,
+                mode: InstrMode::default(),
             },
         );
 
@@ -352,6 +354,7 @@ mod tests {
                 },
                 encoding_hint: None,
                 byte_offset_in_text: None,
+                mode: InstrMode::default(),
             },
         );
 
@@ -373,6 +376,7 @@ mod tests {
                 },
                 encoding_hint: None,
                 byte_offset_in_text: None,
+                mode: InstrMode::default(),
             },
         );
 
@@ -389,6 +393,7 @@ mod tests {
                 },
                 encoding_hint: None,
                 byte_offset_in_text: None,
+                mode: InstrMode::default(),
             },
         );
 
@@ -427,6 +432,7 @@ mod tests {
                     },
                     encoding_hint: None,
                     byte_offset_in_text: None,
+                    mode: InstrMode::default(),
                 },
             );
             table.insert(
@@ -446,6 +452,7 @@ mod tests {
                     },
                     encoding_hint: None,
                     byte_offset_in_text: None,
+                    mode: InstrMode::default(),
                 },
             );
         }

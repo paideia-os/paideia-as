@@ -20,6 +20,7 @@ fn mov_dr0_rax_round_trips_through_iced_x86() {
         mnemonic: Mnemonic::Mov,
         operands: smallvec![Operand::Reg(RegId(25)), Operand::Reg(RegId(0))], // dr0, rax
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -44,6 +45,7 @@ fn mov_dr1_rdi_round_trips_through_iced_x86() {
         mnemonic: Mnemonic::Mov,
         operands: smallvec![Operand::Reg(RegId(26)), Operand::Reg(RegId(7))], // dr1, rdi
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -67,6 +69,7 @@ fn mov_dr7_rcx_round_trips_through_iced_x86() {
         mnemonic: Mnemonic::Mov,
         operands: smallvec![Operand::Reg(RegId(32)), Operand::Reg(RegId(1))], // dr7, rcx
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -90,6 +93,7 @@ fn mov_rax_dr0_round_trips_through_iced_x86() {
         mnemonic: Mnemonic::Mov,
         operands: smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(25))], // rax, dr0
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -113,6 +117,7 @@ fn mov_rdi_dr1_round_trips_through_iced_x86() {
         mnemonic: Mnemonic::Mov,
         operands: smallvec![Operand::Reg(RegId(7)), Operand::Reg(RegId(26))], // rdi, dr1
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -136,6 +141,7 @@ fn mov_rcx_dr7_round_trips_through_iced_x86() {
         mnemonic: Mnemonic::Mov,
         operands: smallvec![Operand::Reg(RegId(1)), Operand::Reg(RegId(32))], // rcx, dr7
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -159,6 +165,7 @@ fn mov_r8_dr0_round_trips_through_iced_x86() {
         mnemonic: Mnemonic::Mov,
         operands: smallvec![Operand::Reg(RegId(8)), Operand::Reg(RegId(25))], // r8, dr0
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -182,6 +189,7 @@ fn mov_dr3_r10_round_trips_through_iced_x86() {
         mnemonic: Mnemonic::Mov,
         operands: smallvec![Operand::Reg(RegId(28)), Operand::Reg(RegId(10))], // dr3, r10
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 

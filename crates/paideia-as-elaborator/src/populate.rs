@@ -11,8 +11,8 @@
 //! App) so opt passes can start consuming real per-node payloads.
 
 use paideia_as_ir::{
-    CallSideTable, EncodingHint, Instruction, InstructionSideTable, IrArena, IrKind, IrNodeId,
-    LoadStoreSideTable, Mnemonic, Operand, RegId, Scale, SmallVec, Width as IrWidth,
+    CallSideTable, EncodingHint, Instruction, InstructionSideTable, InstrMode, IrArena, IrKind,
+    IrNodeId, LoadStoreSideTable, Mnemonic, Operand, RegId, Scale, SmallVec, Width as IrWidth,
 };
 
 /// Context for populating the instruction table.
@@ -95,6 +95,7 @@ fn populate_one(ctx: &PopulateContext, id: IrNodeId, table: &mut InstructionSide
                     operand_size: info.width.bytes() as u8,
                 }),
                 byte_offset_in_text: None,
+                mode: InstrMode::default(),
             };
             table.insert(id, inst);
             true
@@ -128,6 +129,7 @@ fn populate_one(ctx: &PopulateContext, id: IrNodeId, table: &mut InstructionSide
                     operand_size: info.width.bytes() as u8,
                 }),
                 byte_offset_in_text: None,
+                mode: InstrMode::default(),
             };
             table.insert(id, inst);
             true
@@ -203,6 +205,7 @@ fn synthesise_intrinsic_instruction(
                     operand_size: 8,
                 }),
                 byte_offset_in_text: None,
+                mode: InstrMode::default(),
             }
         }
         "index_u64_set" => {
@@ -229,6 +232,7 @@ fn synthesise_intrinsic_instruction(
                     operand_size: 8,
                 }),
                 byte_offset_in_text: None,
+                mode: InstrMode::default(),
             }
         }
         "ptr_sub_bytes_u64" => {
@@ -250,6 +254,7 @@ fn synthesise_intrinsic_instruction(
                     operand_size: 8,
                 }),
                 byte_offset_in_text: None,
+                mode: InstrMode::default(),
             }
         }
         _ => {
@@ -265,6 +270,7 @@ fn synthesise_intrinsic_instruction(
                     operand_size: 8,
                 }),
                 byte_offset_in_text: None,
+                mode: InstrMode::default(),
             }
         }
     };

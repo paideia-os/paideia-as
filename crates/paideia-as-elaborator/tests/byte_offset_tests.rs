@@ -28,6 +28,7 @@ fn single_call_offset_is_populated() {
         }],
         encoding_hint: None,
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
     };
     let node_id = IrNodeId::new(1).unwrap();
     table.insert(node_id, inst);
@@ -55,6 +56,7 @@ fn interleaved_calls_have_distinct_offsets() {
         }],
         encoding_hint: None,
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
     };
     let id1 = IrNodeId::new(1).unwrap();
     table.insert(id1, call1);
@@ -65,7 +67,8 @@ fn interleaved_calls_have_distinct_offsets() {
         operands: sv![Operand::Reg(RegId(0)), Operand::Reg(RegId(1))],
         encoding_hint: None,
         byte_offset_in_text: None,
-    };
+            mode: InstrMode::default(),
+        };
     let id2 = IrNodeId::new(2).unwrap();
     table.insert(id2, mov);
 
@@ -78,6 +81,7 @@ fn interleaved_calls_have_distinct_offsets() {
         }],
         encoding_hint: None,
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
     };
     let id3 = IrNodeId::new(3).unwrap();
     table.insert(id3, call2);
@@ -117,6 +121,7 @@ fn three_consecutive_calls_have_sequential_offsets() {
             }],
             encoding_hint: None,
             byte_offset_in_text: None,
+            mode: InstrMode::default(),
         };
         table.insert(node_id, call);
 
@@ -167,6 +172,7 @@ fn mixed_instructions_maintain_correct_offsets() {
             operands,
             encoding_hint: None,
             byte_offset_in_text: Some(offset as u32),
+            mode: InstrMode::default(),
         };
         table.insert(node_id, inst);
     }
@@ -198,6 +204,7 @@ fn call_with_addend_preserves_offset_accuracy() {
         }],
         encoding_hint: None,
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
     };
     let node_id = IrNodeId::new(1).unwrap();
     table.insert(node_id, inst);
@@ -231,6 +238,7 @@ fn after_encoding_offset_would_be_incorrect() {
         }],
         encoding_hint: None,
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
     };
     call1.byte_offset_in_text = Some(0);
 
@@ -239,7 +247,8 @@ fn after_encoding_offset_would_be_incorrect() {
         operands: sv![Operand::Reg(RegId(0)), Operand::Reg(RegId(3))],
         encoding_hint: None,
         byte_offset_in_text: None,
-    };
+            mode: InstrMode::default(),
+        };
     mov.byte_offset_in_text = Some(5);
 
     let mut call2 = Instruction {
@@ -250,6 +259,7 @@ fn after_encoding_offset_would_be_incorrect() {
         }],
         encoding_hint: None,
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
     };
     call2.byte_offset_in_text = Some(8);
 

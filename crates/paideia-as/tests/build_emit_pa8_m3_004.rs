@@ -312,7 +312,8 @@ fn encode_and_decode(inst: &Instruction) -> IcedInstruction {
     let bytes = buf.as_slice().to_vec();
     assert!(!bytes.is_empty(), "encoder produced no bytes");
     let mut decoder = Decoder::new(64, &bytes, DecoderOptions::NONE);
-    decoder.decode()
+    decoder.decode(),
+    mode: InstrMode::default(),
 }
 
 /// Decode and also return the iced `IntelFormatter` rendering of an
@@ -332,6 +333,7 @@ fn mov_sized(width: IntWidth, reg: u8, imm: i64) -> Instruction {
         operands: smallvec::smallvec![Operand::Reg(RegId(reg)), Operand::Imm64(imm)],
         encoding_hint: None,
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
     }
 }
 
@@ -346,7 +348,8 @@ fn cast_instruction(shape: CastShape) -> Option<Instruction> {
         operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(7))],
         encoding_hint,
         byte_offset_in_text: None,
-    })
+            mode: InstrMode::default(),
+        })
 }
 
 fn shape(src_width: u8, dst_width: u8, src_signed: bool, dst_signed: bool) -> CastShape {

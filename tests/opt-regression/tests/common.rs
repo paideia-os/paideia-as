@@ -34,6 +34,7 @@ pub fn insert_instruction(
         mnemonic,
         operands: ops,
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
     arena.instructions_mut().insert(node_id, inst);

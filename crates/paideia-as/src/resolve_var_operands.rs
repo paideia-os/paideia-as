@@ -95,6 +95,7 @@ mod tests {
             operands,
             encoding_hint: None,
             byte_offset_in_text: None,
+            mode: InstrMode::default(),
         };
         instructions.insert(node_id, inst);
 
@@ -125,6 +126,7 @@ mod tests {
             operands,
             encoding_hint: None,
             byte_offset_in_text: None,
+            mode: InstrMode::default(),
         };
         instructions.insert(node_id, inst);
 

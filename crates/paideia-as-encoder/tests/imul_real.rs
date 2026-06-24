@@ -19,6 +19,7 @@ fn imul_rax_rbx_reg_reg_encodes_correctly() {
         mnemonic: Mnemonic::Imul,
         operands: smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(3))], // rax, rbx
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -44,6 +45,7 @@ fn imul_rax_rbx_5_imm8_encodes_correctly() {
             Operand::Imm64(5),      // 5
         ],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -66,6 +68,7 @@ fn imul_rax_rbx_0x1000_imm32_encodes_correctly() {
             Operand::Imm64(0x1000), // 0x1000
         ],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -88,6 +91,7 @@ fn imul_sign_ext_trap_rejects_out_of_range() {
             Operand::Imm64(0x100000001), // out of i32 range
         ],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -118,6 +122,7 @@ fn imul_mem_mem_rejects_with_correct_error() {
             },
         ],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -143,6 +148,7 @@ fn imul_rax_rbx_round_trips_through_iced_x86() {
         mnemonic: Mnemonic::Imul,
         operands: smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(3))],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 
@@ -167,6 +173,7 @@ fn imul_rax_rbx_5_round_trips_through_iced_x86() {
             Operand::Imm64(5),
         ],
         byte_offset_in_text: None,
+        mode: InstrMode::default(),
         encoding_hint: None,
     };
 

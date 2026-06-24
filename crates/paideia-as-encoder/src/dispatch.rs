@@ -29,6 +29,8 @@
 //!         ops
 //!     },
 //!     encoding_hint: None,
+//!     byte_offset_in_text: None,
+//!     mode: InstrMode::default(),
 //! };
 //! assert_eq!(classify(&inst), DispatchKind::MovToCr);
 //!
@@ -42,6 +44,8 @@
 //!         ops
 //!     },
 //!     encoding_hint: None,
+//!     byte_offset_in_text: None,
+//!     mode: InstrMode::default(),
 //! };
 //! assert_eq!(classify(&inst), DispatchKind::MovFromCr);
 //!
@@ -55,11 +59,13 @@
 //!         ops
 //!     },
 //!     encoding_hint: None,
+//!     byte_offset_in_text: None,
+//!     mode: InstrMode::default(),
 //! };
 //! assert_eq!(classify(&inst), DispatchKind::MovGeneric);
 //! ```
 
-use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand, RegId};
+use paideia_as_ir::instruction::{Instruction, InstrMode, Mnemonic, Operand, RegId};
 
 /// Operand-shape classifier for instruction dispatch.
 ///
@@ -209,6 +215,7 @@ mod tests {
             operands,
             encoding_hint: None,
             byte_offset_in_text: None,
+            mode: InstrMode::default(),
         }
     }
 
@@ -222,6 +229,7 @@ mod tests {
             operands,
             encoding_hint: None,
             byte_offset_in_text: None,
+            mode: InstrMode::default(),
         }
     }
 
@@ -232,6 +240,7 @@ mod tests {
             operands: SmallVec::new(),
             encoding_hint: None,
             byte_offset_in_text: None,
+            mode: InstrMode::default(),
         }
     }
 
@@ -242,6 +251,7 @@ mod tests {
             operands: SmallVec::new(),
             encoding_hint: None,
             byte_offset_in_text: None,
+            mode: InstrMode::default(),
         }
     }
 

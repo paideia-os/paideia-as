@@ -126,7 +126,7 @@ pub fn emit_text_from_instructions(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use paideia_as_ir::{Instruction, IrNodeId, Mnemonic, Operand, RegId};
+    use paideia_as_ir::{Instruction, InstrMode, IrNodeId, Mnemonic, Operand, RegId};
     use smallvec::SmallVec;
 
     #[test]
@@ -152,6 +152,7 @@ mod tests {
             operands: vec![Operand::Reg(RegId(0)), Operand::Reg(RegId(3))].into(),
             encoding_hint: None,
             byte_offset_in_text: None,
+            mode: InstrMode::default(),
         };
         let node_id = IrNodeId::new(1).unwrap();
         table.insert(node_id, inst);
@@ -177,6 +178,7 @@ mod tests {
             operands: vec![Operand::Reg(RegId(0)), Operand::Reg(RegId(3))].into(),
             encoding_hint: None,
             byte_offset_in_text: None,
+            mode: InstrMode::default(),
         };
         let node_id_1 = IrNodeId::new(1).unwrap();
         table.insert(node_id_1, inst1);
@@ -187,6 +189,7 @@ mod tests {
             operands: vec![Operand::Reg(RegId(0)), Operand::Reg(RegId(1))].into(),
             encoding_hint: None,
             byte_offset_in_text: None,
+            mode: InstrMode::default(),
         };
         let node_id_2 = IrNodeId::new(2).unwrap();
         table.insert(node_id_2, inst2);
@@ -215,6 +218,7 @@ mod tests {
             operands: vec![Operand::Reg(RegId(0)), Operand::Reg(RegId(3))].into(),
             encoding_hint: None,
             byte_offset_in_text: None,
+            mode: InstrMode::default(),
         };
         table.insert(IrNodeId::new(1).unwrap(), inst1);
 
@@ -223,6 +227,7 @@ mod tests {
             operands: SmallVec::new(),
             encoding_hint: None,
             byte_offset_in_text: None,
+            mode: InstrMode::default(),
         };
         table.insert(IrNodeId::new(2).unwrap(), inst2);
 

@@ -43,6 +43,7 @@ mod tests {
         // Verify IrKind::RawInstruction exists
         let _raw_inst_kind = IrKind::RawInstruction {
             instruction: 0,
+            mode: InstrMode::default(),
         };
 
         // Sanity: the variant exists and is properly structured

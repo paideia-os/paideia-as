@@ -10,6 +10,19 @@ use crate::node::IrNodeId;
 use smallvec::SmallVec;
 use std::collections::HashMap;
 
+/// Instruction execution mode (bit-width).
+///
+/// Phase 15 m2-002: instruction mode (64-bit or 32-bit) propagated from
+/// module-level #![bits=...] inner_attrs through the emit walk.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
+pub enum InstrMode {
+    /// 64-bit mode (default).
+    #[default]
+    Mode64,
+    /// 32-bit mode.
+    Mode32,
+}
+
 /// x86_64 mnemonics targeted by the m9 opt-pass catalog.
 ///
 /// Phase-3-m2-001 minimum: the 10-mnemonic catalog the m9 passes
@@ -541,6 +554,8 @@ pub struct Instruction {
     /// relocation offsets precisely, avoiding off-by-one errors that occur
     /// when encoder reads buf.bytes.len() after encoding.
     pub byte_offset_in_text: Option<u32>,
+    /// Instruction mode (Mode64 or Mode32).
+    pub mode: InstrMode,
 }
 
 /// Side-table mapping IrNodeId → Instruction payload.
@@ -721,6 +736,7 @@ mod tests {
                 operand_size: 8,
             }),
             byte_offset_in_text: None,
+            mode: InstrMode::default(),
         };
 
         assert_eq!(inst.operands.len(), 3);
@@ -749,6 +765,7 @@ mod tests {
                 operand_size: 8,
             }),
             byte_offset_in_text: None,
+            mode: InstrMode::default(),
         };
 
         table.insert(inst_id, inst.clone());
@@ -773,6 +790,7 @@ mod tests {
             },
             encoding_hint: None,
             byte_offset_in_text: None,
+            mode: InstrMode::default(),
         };
 
         table.insert(inst_id, inst.clone());

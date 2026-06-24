@@ -40,7 +40,7 @@ use paideia_as_ast::{AstArena, ExprData, NodeId, NodeKind, StmtData};
 use paideia_as_diagnostics::{
     Category, Diagnostic, DiagnosticCode, DiagnosticSink, Severity, Span,
 };
-use paideia_as_ir::instruction::{Cond, Instruction, IntWidth, Mnemonic, Operand, RegId, Scale};
+use paideia_as_ir::instruction::{Cond, Instruction, InstrMode, IntWidth, Mnemonic, Operand, RegId, Scale};
 use paideia_as_ir::record_layout::{RecordLayout, RecordTypeId};
 use paideia_as_ir::{IrArena, IrNodeId, SmallVec};
 use std::collections::HashMap;
@@ -1601,6 +1601,7 @@ impl UnsafeWalker {
             operands: parsed_operands,
             encoding_hint: None,
             byte_offset_in_text: None,
+            mode: InstrMode::default(),
         };
         arena.instructions_mut().insert(ir_node_id, inst);
     }

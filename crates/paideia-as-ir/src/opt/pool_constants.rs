@@ -79,7 +79,7 @@ impl OptPass for PoolConstantsPass {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::instruction::Instruction;
+    use crate::instruction::{Instruction, InstrMode};
     use crate::node::IrKind;
     use paideia_as_diagnostics::{FileId, Span};
     use smallvec::SmallVec;
@@ -133,6 +133,7 @@ mod tests {
             operands: operands1,
             encoding_hint: None,
             byte_offset_in_text: None,
+            mode: InstrMode::default(),
         };
 
         let mut operands2 = SmallVec::new();
@@ -142,6 +143,7 @@ mod tests {
             operands: operands2,
             encoding_hint: None,
             byte_offset_in_text: None,
+            mode: InstrMode::default(),
         };
 
         arena.instructions_mut().insert(inst1_id, inst1);
@@ -172,6 +174,7 @@ mod tests {
             operands: operands1,
             encoding_hint: None,
             byte_offset_in_text: None,
+            mode: InstrMode::default(),
         };
 
         let mut operands2 = SmallVec::new();
@@ -181,6 +184,7 @@ mod tests {
             operands: operands2,
             encoding_hint: None,
             byte_offset_in_text: None,
+            mode: InstrMode::default(),
         };
 
         let mut operands3 = SmallVec::new();
@@ -191,6 +195,7 @@ mod tests {
             operands: operands3,
             encoding_hint: None,
             byte_offset_in_text: None,
+            mode: InstrMode::default(),
         };
 
         arena.instructions_mut().insert(inst1_id, inst1);
@@ -247,6 +252,7 @@ mod tests {
             operands: operands1,
             encoding_hint: None,
             byte_offset_in_text: None,
+            mode: InstrMode::default(),
         };
 
         let mut operands2 = SmallVec::new();
@@ -256,6 +262,7 @@ mod tests {
             operands: operands2,
             encoding_hint: None,
             byte_offset_in_text: None,
+            mode: InstrMode::default(),
         };
 
         arena.instructions_mut().insert(inst1_id, inst1);

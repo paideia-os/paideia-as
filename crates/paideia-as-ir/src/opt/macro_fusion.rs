@@ -74,7 +74,7 @@ impl OptPass for MacroFusionPass {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::instruction::{Instruction, Operand, RegId};
+    use crate::instruction::{Instruction, Operand, RegId, InstrMode};
     use paideia_as_diagnostics::{FileId, Span};
     use smallvec::SmallVec;
 
@@ -95,6 +95,7 @@ mod tests {
             operands,
             encoding_hint: None,
             byte_offset_in_text: None,
+            mode: InstrMode::default(),
         }
     }
 
@@ -106,6 +107,7 @@ mod tests {
             operands,
             encoding_hint: None,
             byte_offset_in_text: None,
+            mode: InstrMode::default(),
         }
     }
 
