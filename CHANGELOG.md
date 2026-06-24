@@ -1,5 +1,46 @@
 # Changelog
 
+## v0.11.0 — Phase 15 m6 round: 32-bit mode encoding substrate complete (v1.5 closure)
+
+**Released:** Tag pushed at m6-003 closure (v0.11.0 release).
+
+paideia-as v1.5 round closes Phase 15 m6 feature work. Scope: 32-bit mode (Mode32) support across the encoder surface, enabling boot-stub x86 assembly to be targeted via `.pdx` substrate (deferred pending cross-module symbol export). Phase 15 m1–m6 implements real 32-bit instruction dispatch, symbol-relative memory operands with offsets, and supervisor-mode roundtrip verification.
+
+### Milestones
+
+- **PA15-m1-001 — bits surveyor** — Document 32-bit mode implications across elaborator/encoder/emitter; establish Mode16/Mode32/Mode64 enum in IR; lay ground for multi-mode instruction dispatch.
+- **m2-001 — #![bits=N] inner attribute** — Module-level bits annotation; parser integration; per-module InstrMode enumeration + propagation to root Instruction IR nodes.
+- **m2-002 — InstrMode field on Instruction** — Add InstrMode to Instruction IR type; encoders dispatch on InstrMode; m2-002a follow-up: scope-stack bits propagation (interim layering).
+- **m3-001 — mode-aware mov r32 dispatch** — Real Mov r32, r32/imm32 forms with Mode32-aware encoding; operand width inference; register mapping updates.
+- **m3-002 — mov r32, [abs32]** — Memory-source forms for 32-bit registers in Mode32; absolute addressing [abs32] support with relocation handling.
+- **m3-003 — mov [abs32], imm32** — Memory-destination register encoding for Mode32; immediate-to-memory stores with width inference.
+- **m3-004 — or r32, imm8/imm32** — Bitwise-or for 32-bit registers; sign-extended immediates; mode-dependent encoding variants.
+- **m4-001 — lgdt [abs32]** — Descriptor-table load (supervisor mnemonic) with Mode32 addressing; GDT entry relocation support.
+- **m4-002 — mode-agnostic supervisor verification** — 10-test corpus verifying 32-bit supervisor mnemonics (lgdt, lidt, ltr, movzx, etc.); cross-mode semantic equivalence checks.
+- **m5-001 — symbolic ljmp Abs32 reloc** — Far-jump relocation for Mode32 selectors + offsets; PLT32 relocation in boot stubs; selector encoding.
+- **m5-002 — mov sreg, r16** — Segment-register moves for 16-bit operands; instruction-form selection based on width; cross-module symbol reference plumbing.
+- **m6-001a — [sym + N] parser/lowering** — Parse memory operand with symbol + offset; lower to MemoryOperand with symbol reference + displacement; elaborator symbol lookup + offset integration.
+- **m6-001b — ljmp selector,offset parser tests** — Parser surface for ljmp with explicit selector,offset form; semantic lvalue dispatch; 6-test parser suite.
+- **m6-001c — lea r32, sym Mode32** — LEA (load effective address) for Mode32 registers with symbol references; relocation table output for symbol + offset.
+- **m6-001d — [sym + N] non-rip case integration** — Memory operands with symbol + offset outside RIP-relative context; full Mode32 integration; mode-specific relocation branches.
+- **m6-001e — or r32, imm32 + mov [abs] imm32 sign-bit-set fix** — Fix sign-extension trap in imm32 encoding for Mode32 or-immediate and mov-to-memory immediate; regress test suite updates.
+
+### Highlights
+
+- **3119 workspace tests** (+215 from v0.10.0 baseline at 2904; all-green; no regression).
+- **32-bit mode substrate complete**: all Mode32 instruction forms, addressing modes, and relocation paths now present in the encoder. Boot stub assembly can be written in `.pdx` targeting Mode32.
+- **Supervisor mnemonic verification**: 10-test corpus validates lgdt, lidt, ltr, movzx, and other privileged instructions in mode-agnostic contexts.
+- **Symbol-relative memory addressing**: [sym + offset] form works across Mode16/Mode32/Mode64 with proper displacement encoding and relocation generation.
+- **Far-jump relocation ready**: ljmp selector,offset ready for cross-module symbol reference + selector encoding (boot stub entry points).
+- **PaideiaOS B2 → B3 unblock**: boot_stub.S migration to `.pdx` Mode32 surface **deferred to v0.12.0** pending:
+  - Cross-module symbol export (issue #900, PA16 carryover).
+  - Elaborator U1606 fix for symbol-offset lookup in non-module contexts (issue #871, PA16 carryover).
+
+### Operational deferrals (Phase 15+ carryover)
+
+- **Boot stub migration to .pdx**: m6-002 deferral → v0.12.0. Blocks on #900 (cross-module symbol export) and #871 (elaborator U1606 symbol resolution).
+- **Nested scope bits propagation**: m2-002a interim layering remains pending full nested scope propagation (deferred Phase 16+).
+
 ## v0.10.0 — PA10 PVH/string-literals/bitwise-arith/narrow-Mov closure (PA10-001..006 substrate unblocked)
 
 **Released:** Tag pushed at PA10-006 closure (v0.10.0 release).

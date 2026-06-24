@@ -104,12 +104,7 @@ fn symtab_underscore_prefix_anchor_object() {
     let file = object::File::parse(&*bytes).expect("object should parse the ELF");
 
     // Verify symbol table is present and non-empty
-    let mut found_symbol = false;
-    for _sym in file.symbols() {
-        found_symbol = true;
-        break;
-    }
-
+    let found_symbol = file.symbols().next().is_some();
     assert!(found_symbol, "ELF should have at least one symbol");
 
     let _ = std::fs::remove_file(&tmp);

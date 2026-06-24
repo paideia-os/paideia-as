@@ -55,7 +55,7 @@ fn pa8_m1_001b_two_param_add_lambda_emits_instructions() {
     // We expect parameters to be registered
     // (though the exact count depends on what gets cleared during the walk)
     assert!(
-        !walker.diagnostics().is_empty() || bindings_count >= 0,
+        !walker.diagnostics().is_empty() || bindings_count > 0,
         "Should have registered parameters or emitted diagnostics"
     );
 
