@@ -910,3 +910,12 @@ brief = "variable reference found in module scope but not local scope"
 description = "Phase 10 m1-001 (PA10-005): PA10-005 nested var lookup. When resolve_var_operands fails to find a binding in the local binding table, it checks the module's SymbolTable. If found there, this diagnostic is emitted instead of T0528. This indicates the variable is module-scoped (e.g., a global let-fn or let-const) and cannot be directly accessed within function-local unsafe blocks without explicit capture or higher-level binding. Either move the reference outside the unsafe block, or declare a local let binding that captures the module-scoped value."
 since = "0.13.0"
 deprecated = false
+
+[diagnostic.E0019]
+severity = "error"
+category = "lexer"
+title = "64-bit immediate or destination cannot be encoded in 32-bit mode"
+brief = "64-bit value in 32-bit mode"
+description = "Phase 15 m3-001: An instruction specifies a 64-bit immediate or destination in 32-bit mode. In 32-bit mode, immediate values must fit in 32 bits (signed or unsigned), and destination registers must be 32-bit (r32) not 64-bit (r64). Either reduce the immediate to 32 bits, use a 32-bit destination register, or switch to 64-bit mode."
+since = "0.15.0"
+deprecated = false

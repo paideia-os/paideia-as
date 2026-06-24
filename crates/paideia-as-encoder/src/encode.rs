@@ -754,10 +754,11 @@ pub fn mov_reg32_reg32(buf: &mut CodeBuffer, dst: Reg64, src: Reg64) {
     // No REX.W; only emit REX if an extended register is used.
     if (dst_id >> 3) != 0 || (src_id >> 3) != 0 {
         buf.bytes
-            .push(rex(false, (dst_id >> 3) != 0, false, (src_id >> 3) != 0));
+            .push(rex(false, (src_id >> 3) != 0, false, (dst_id >> 3) != 0));
     }
-    buf.bytes.push(0x8B);
-    buf.bytes.push(0xC0 | ((dst_id & 7) << 3) | (src_id & 7));
+    // Use store form (89 C8) per AC specifications, not load form (8B C1).
+    buf.bytes.push(0x89);
+    buf.bytes.push(0xC0 | ((src_id & 7) << 3) | (dst_id & 7));
 }
 
 /// Encode `cmp reg64, reg64`.
@@ -2285,11 +2286,11 @@ mod tests {
     }
 
     #[test]
-    fn mov_reg32_reg32_eax_ecx_emits_8b_c1() {
-        // mov eax, ecx → 8B /r (no REX.W) → 8B C1; implicitly zero-extends rax.
+    fn mov_reg32_reg32_eax_ecx_emits_89_c8() {
+        // mov eax, ecx → 89 /r (no REX.W) → 89 C8; store form per AC specs.
         let mut buf = CodeBuffer::new();
         mov_reg32_reg32(&mut buf, Reg64::Rax, Reg64::Rcx);
-        assert_eq!(buf.as_slice(), &[0x8B, 0xC1]);
+        assert_eq!(buf.as_slice(), &[0x89, 0xC8]);
     }
 
     #[test]

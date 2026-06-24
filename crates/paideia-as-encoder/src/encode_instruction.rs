@@ -9,7 +9,9 @@ use crate::dispatch::{DispatchKind, classify};
 use crate::encode::*;
 use crate::encode_and_or_xor;
 use crate::encode_imul;
-use paideia_as_ir::{Cond as IrCond, Instruction, IntWidth, Mnemonic, Operand, RegId, Scale};
+use paideia_as_ir::{
+    Cond as IrCond, InstrMode, Instruction, IntWidth, Mnemonic, Operand, RegId, Scale,
+};
 
 /// SysV AMD64 ABI: R_X86_64_PC32/PLT32 callers must supply addend = -4 so that
 /// `S + A - P` resolves to `S - RIP_after_disp32` (matches CPU RIP semantics).
@@ -288,7 +290,15 @@ fn encode_mov_sized(
             let imm = *imm as u64;
             match width {
                 // W64 reuses the established 64-bit move path verbatim.
-                IntWidth::W64 => mov_reg64_imm64(buf, dst_reg, imm),
+                IntWidth::W64 => {
+                    // Phase 15 m3-001: reject 64-bit destination in 32-bit mode
+                    if inst.mode == InstrMode::Mode32 {
+                        return Err(EncodeError::Unsupported(
+                            "E0019: 64-bit destination in 32-bit mode",
+                        ));
+                    }
+                    mov_reg64_imm64(buf, dst_reg, imm)
+                }
                 IntWidth::W32 => mov_reg32_imm32(buf, dst_reg, imm as u32),
                 IntWidth::W16 => mov_reg16_imm16(buf, dst_reg, imm as u16),
                 IntWidth::W8 => mov_reg8_imm8(buf, dst_reg, imm as u8),
@@ -440,6 +450,29 @@ fn encode_mov(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
         }
         // All other dispatch kinds (MovGeneric, Generic) fall through to the rest of this function.
         _ => {}
+    }
+
+    // Phase 15 m3-001: Mode32 dispatch for mov r32, imm32 and mov r32, r32
+    if inst.mode == InstrMode::Mode32 {
+        match inst.operands.as_slice() {
+            [Operand::Reg(dst), Operand::Imm64(imm)] => {
+                let imm_u = *imm as u64;
+                let fits_u32 = imm_u <= u32::MAX as u64;
+                let fits_i32 = (*imm as i64) >= i32::MIN as i64 && (*imm as i64) <= i32::MAX as i64;
+                if !(fits_u32 || fits_i32) {
+                    return Err(EncodeError::Unsupported(
+                        "E0019: 64-bit immediate in 32-bit mode",
+                    ));
+                }
+                mov_reg32_imm32(buf, reg64_from(*dst)?, imm_u as u32);
+                return Ok(EncodeOutput::new());
+            }
+            [Operand::Reg(dst), Operand::Reg(src)] => {
+                mov_reg32_reg32(buf, reg64_from(*dst)?, reg64_from(*src)?);
+                return Ok(EncodeOutput::new());
+            }
+            _ => {} // fall through
+        }
     }
 
     match inst.operands.as_slice() {
@@ -1606,7 +1639,7 @@ fn encode_invlpg_inst(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use paideia_as_ir::{Instruction, InstrMode, Mnemonic, Operand, RegId, Scale};
+    use paideia_as_ir::{InstrMode, Instruction, Mnemonic, Operand, RegId, Scale};
 
     #[test]
     fn encode_mov_rax_rdi_round_trips_through_iced_x86() {
@@ -1806,6 +1839,139 @@ mod tests {
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
 
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    // Phase 15 m3-001: Mode32 dispatch tests
+    #[test]
+    fn mov_eax_imm32_mode32_emits_b8_no_rex() {
+        // mov eax, 0x83 in 32-bit mode → B8 83 00 00 00 (no REX)
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Imm64(0x83)],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::Mode32,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0xB8, 0x83, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn mov_ecx_zero_mode32_emits_b9_zero() {
+        // mov ecx, 0x00 in 32-bit mode → B9 00 00 00 00 (no REX)
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![Operand::Reg(RegId(1)), Operand::Imm64(0x00)],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::Mode32,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0xB9, 0x00, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn mov_r8d_imm32_mode32_emits_rex_b_b8() {
+        // mov r8d, 0x40000083 in 32-bit mode → 41 B8 83 00 00 40 (REX.B for r8)
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![Operand::Reg(RegId(8)), Operand::Imm64(0x40000083)],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::Mode32,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x41, 0xB8, 0x83, 0x00, 0x00, 0x40]);
+    }
+
+    #[test]
+    fn mov_eax_ecx_mode32_emits_89_c8() {
+        // mov eax, ecx in 32-bit mode → 89 C8 (store form per AC specs)
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(1))],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::Mode32,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x89, 0xC8]);
+    }
+
+    #[test]
+    fn mov_eax_imm64_overflow_mode32_yields_e0501() {
+        // mov eax, 0x1_0000_0000 in 32-bit mode → E0019 error (64-bit imm)
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Imm64(0x1_0000_0000)],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::Mode32,
+        };
+        let mut stats = EncodeStats::new();
+        let result = encode_instruction(&inst, &mut buf, &mut stats);
+        assert!(result.is_err());
+        match result {
+            Err(EncodeError::Unsupported(msg)) => {
+                assert!(msg.contains("E0019"));
+            }
+            _ => panic!("Expected E0019 error for 64-bit immediate in 32-bit mode"),
+        }
+    }
+
+    #[test]
+    fn mov_rax_imm_mode32_yields_e0501() {
+        // mov rax, 0x83 with Mode32 → E0019 error (64-bit destination)
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::MovSized {
+                width: IntWidth::W64,
+            },
+            operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Imm64(0x83)],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::Mode32,
+        };
+        let mut stats = EncodeStats::new();
+        let result = encode_instruction(&inst, &mut buf, &mut stats);
+        assert!(result.is_err());
+        match result {
+            Err(EncodeError::Unsupported(msg)) => {
+                assert!(msg.contains("E0019"));
+            }
+            _ => panic!("Expected E0019 error for 64-bit destination in 32-bit mode"),
+        }
+    }
+
+    #[test]
+    fn mov_eax_ecx_mode32_round_trips_through_iced_x86_32bit_decoder() {
+        // Verify 32-bit mov eax, ecx round-trips with iced-x86 32-bit decoder
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(1))],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::Mode32,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Decode in 32-bit mode
+        let mut decoder = Decoder::new(32, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
         assert_eq!(instr.mnemonic(), IcedMnem::Mov);
     }
@@ -3512,7 +3678,7 @@ fn encode_movsx(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput
 mod jcc_tests {
     use super::*;
     use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
-    use paideia_as_ir::{Cond as IrCond, Instruction, InstrMode, Mnemonic, Operand};
+    use paideia_as_ir::{Cond as IrCond, InstrMode, Instruction, Mnemonic, Operand};
 
     // Test 1: Je with immediate (rel32) round-trips through iced-x86
     #[test]

@@ -397,6 +397,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "Phase 15 m3-001: An instruction specifies a 64-bit immediate or destination in 32-bit mode. In 32-bit mode, immediate values must fit in 32 bits (signed or unsigned), and destination registers must be 32-bit (r32) not 64-bit (r64). Either reduce the immediate to 32 bits, use a 32-bit destination register, or switch to 64-bit mode."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/E0019",
+              "id": "E0019",
+              "name": "64-bit immediate or destination cannot be encoded in 32-bit mode",
+              "shortDescription": {
+                "text": "64-bit value in 32-bit mode"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "Phase 6 m2-002: a statement block (such as `unsafe { block: { ... } }`) encountered consecutive semicolons or a leading semicolon, forming an empty statement. Empty statements are not allowed. Provide a valid statement (expression, let binding, return, instruction, etc.) or remove the extra semicolons. Trailing semicolons after valid statements are permitted (e.g., `{ stmt1; stmt2; }`)."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0101",
