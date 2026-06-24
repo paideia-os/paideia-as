@@ -220,6 +220,7 @@ pub fn parse_operand_from_ast(
     record_layouts: &HashMap<RecordTypeId, RecordLayout>,
     mnemonic: Mnemonic,
     local_bindings: &LocalBindingTable,
+    labels: &HashMap<String, u32>,
 ) -> Result<Operand, OperandError> {
     let node = ast.get(operand_node).ok_or(OperandError::MalformedOperand(
         ast.get(operand_node).map(|n| n.span).unwrap_or_else(|| {
@@ -239,9 +240,14 @@ pub fn parse_operand_from_ast(
                             // This is a local binding: emit Operand::Var for later resolution
                             return Ok(Operand::Var { name });
                         }
+
+                        // Issue #900: Check if it's a local label reference before symbol fallback
+                        if supports_label_ref(mnemonic) && labels.contains_key(&name) {
+                            return Ok(Operand::LabelRef { name, addend: 0 });
+                        }
                     }
 
-                    // Not a local binding: check if mnemonic supports symbol references
+                    // Not a local binding or label: check if mnemonic supports symbol references
                     if supports_symbol_ref(mnemonic) {
                         // This is a bare identifier symbol reference (Phase 6 m4-005)
                         parse_symbol_ref_from_ident(ast, operand_node, source_map)
@@ -266,9 +272,14 @@ pub fn parse_operand_from_ast(
                                     // This is a local binding: emit Operand::Var for later resolution
                                     return Ok(Operand::Var { name });
                                 }
+
+                                // Issue #900: Check if it's a local label reference before symbol fallback
+                                if supports_label_ref(mnemonic) && labels.contains_key(&name) {
+                                    return Ok(Operand::LabelRef { name, addend: 0 });
+                                }
                             }
 
-                            // Not a local binding: check if mnemonic supports symbol references
+                            // Not a local binding or label: check if mnemonic supports symbol references
                             if supports_symbol_ref(mnemonic) {
                                 // This is a bare identifier symbol reference (Phase 6 m4-005)
                                 parse_symbol_ref_from_ident(ast, *reg, source_map)
@@ -296,6 +307,7 @@ pub fn parse_operand_from_ast(
                         record_layouts,
                         mnemonic,
                         local_bindings,
+                        labels,
                     )
                 }
                 _ => Err(OperandError::MalformedOperand(node.span)),
@@ -336,6 +348,15 @@ fn supports_symbol_ref(mnemonic: Mnemonic) -> bool {
             | Mnemonic::Lgdt
             | Mnemonic::Lidt
     )
+}
+
+/// Check if a mnemonic supports label references (local labels within unsafe blocks).
+///
+/// Issue #900: Local labels in unsafe blocks should parse as LabelRef (not SymbolRef)
+/// when they are defined within the same unsafe block and used in branch mnemonics.
+/// Only Jcc (conditional jump), Jmp (unconditional jump), and Call support label references.
+fn supports_label_ref(mnemonic: Mnemonic) -> bool {
+    matches!(mnemonic, Mnemonic::Jcc(_) | Mnemonic::Jmp | Mnemonic::Call)
 }
 
 /// Parse a symbol reference from a bare identifier (Phase 6 m4-005, Phase 6 m5-004).
@@ -1298,6 +1319,11 @@ impl UnsafeWalker {
     /// # Side effects
     ///
     /// Mutates `arena.instructions_mut()` to insert Instruction entries.
+    ///
+    /// # Returns
+    ///
+    /// A tuple of (labels_map, diagnostics) where labels_map contains all collected
+    /// local labels from the unsafe blocks (populated during label collection pass).
     pub fn run(
         arena: &mut IrArena,
         ast: &AstArena,
@@ -1307,8 +1333,9 @@ impl UnsafeWalker {
         record_layouts: &HashMap<RecordTypeId, RecordLayout>,
         local_bindings: &LocalBindingTable,
         instr_mode: InstrMode,
-    ) -> Vec<Diagnostic> {
+    ) -> (HashMap<String, u32>, Vec<Diagnostic>) {
         let mut diags = Vec::new();
+        let mut all_labels: HashMap<String, u32> = HashMap::new();
 
         for ir_node_id_u32 in pending_ids {
             let _ir_node_id = match IrNodeId::new(ir_node_id_u32) {
@@ -1377,6 +1404,11 @@ impl UnsafeWalker {
                                     }
                                 }
 
+                                // Collect labels from this unsafe block into all_labels
+                                for (label_name, offset) in labels.iter() {
+                                    all_labels.insert(label_name.clone(), *offset);
+                                }
+
                                 // Pass 2: Process instructions and check label references.
                                 for &stmt_id in block {
                                     if let Some(ast_stmt_node) = ast.get(stmt_id) {
@@ -1404,7 +1436,7 @@ impl UnsafeWalker {
             }
         }
 
-        diags
+        (all_labels, diags)
     }
 
     /// Process a single StmtInstruction node.
@@ -1499,6 +1531,7 @@ impl UnsafeWalker {
                     record_layouts,
                     mnemonic,
                     local_bindings,
+                    labels,
                 ) {
                     Ok(operand) => {
                         parsed_operands.push(operand);

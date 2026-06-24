@@ -122,7 +122,7 @@ fn mov_symbol_memory_operand(source: &str, ast: &mut AstArena, memref_operand: N
     let mut sink = VecSink::new();
     let record_layouts = HashMap::new();
     let local_bindings = LocalBindingTable::new();
-    let _diags = UnsafeWalker::run(
+    let (_unsafe_labels, _diags) = UnsafeWalker::run(
         &mut ir,
         &ast,
         vec![ir_unsafe.get()],

@@ -649,7 +649,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
             let pending = emit_walker.state_mut().take_pending_unsafe();
             let record_layouts = &emit_walker.state().record_layouts;
             let local_bindings = &emit_walker.state().local_bindings;
-            let unsafe_diags = UnsafeWalker::run(
+            let (unsafe_labels, unsafe_diags) = UnsafeWalker::run(
                 &mut lowering.ir,
                 &arena,
                 pending,
@@ -659,6 +659,12 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                 local_bindings,
                 root_mode,
             );
+
+            // Register collected unsafe block labels with emit_walker state
+            for (label_name, _label_offset) in unsafe_labels {
+                emit_walker.state_mut().register_label(label_name);
+            }
+
             // Phase-7-m2-003: Resolve Operand::Var references to Operand::Reg.
             // Call resolve_var_operands on the arena's owned instruction table,
             // then re-clone for the encoder pipeline.
