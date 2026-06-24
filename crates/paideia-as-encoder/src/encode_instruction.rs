@@ -1098,7 +1098,22 @@ fn encode_lea(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
             Ok(EncodeOutput::new())
         }
         [Operand::Reg(dest), Operand::SymbolRef { name, addend }] => {
-            // lea r64, [symbol] → 48 8D /r [rip-relative ModR/M] [disp32_placeholder]
+            // Mode32: lea r32, [symbol] → 8D /r [absolute ModR/M] [disp32_placeholder]
+            if inst.mode == InstrMode::Mode32 {
+                let dest_reg = reg64_from(*dest)?;
+                let byte_offset = lea_reg32_mem_abs32(buf, dest_reg);
+
+                let mut output = EncodeOutput::new();
+                output.add_reloc(RelocSite {
+                    byte_offset,
+                    symbol: name.clone(),
+                    kind: RelocKind::Abs32,
+                    addend: *addend,
+                });
+                return Ok(output);
+            }
+
+            // Mode64: lea r64, [symbol] → 48 8D /r [rip-relative ModR/M] [disp32_placeholder]
             let dest_id = reg64_from(*dest)? as u8;
             let rex_byte = rex(true, (dest_id >> 3) != 0, false, false);
 

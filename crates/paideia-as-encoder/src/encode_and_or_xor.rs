@@ -121,7 +121,9 @@ pub fn encode_or(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutpu
                 }
 
                 // Try imm32 form: 81 /1 id
-                if imm_i64 == (imm_i64 as i32 as i64) {
+                // Accept values that fit in signed i32 range OR unsigned u32 range.
+                // This allows 0x80000001 and other sign-bit-set 32-bit values.
+                if (imm_i64 >= i32::MIN as i64) && (imm_i64 <= u32::MAX as i64) {
                     or_reg32_imm32(buf, dst_reg, imm_i64 as i32);
                     return Ok(EncodeOutput::new());
                 }
