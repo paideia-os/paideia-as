@@ -1394,6 +1394,24 @@ fn encode_mov_dr_inst(
 
 fn encode_lgdt_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
     // lgdt [base + disp] - load GDT descriptor
+    // Mode32 short-circuit: lgdt [symbol] with absolute 32-bit addressing
+    if inst.mode == InstrMode::Mode32 {
+        if let [Operand::SymbolRef { name, addend }] = inst.operands.as_slice() {
+            buf.bytes.push(0x0F);
+            buf.bytes.push(0x01);
+            buf.bytes.push(0x15);
+            buf.bytes.extend([0, 0, 0, 0]);
+            let mut output = EncodeOutput::new();
+            output.add_reloc(RelocSite {
+                byte_offset: 3,
+                symbol: name.clone(),
+                kind: RelocKind::Abs32,
+                addend: *addend,
+            });
+            return Ok(output);
+        }
+    }
+
     match inst.operands.as_slice() {
         [
             Operand::MemSib {
@@ -1409,7 +1427,7 @@ fn encode_lgdt_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOu
             Ok(EncodeOutput::new())
         }
         [Operand::SymbolRef { name, addend }] => {
-            // lgdt [symbol] → 0F 01 [rip-relative ModR/M] [disp32_placeholder]
+            // lgdt [symbol] in Mode64 → 0F 01 [rip-relative ModR/M] [disp32_placeholder]
             buf.bytes.push(0x0F);
             buf.bytes.push(0x01);
             // RIP-relative addressing: mod=00, /2 for lgdt
