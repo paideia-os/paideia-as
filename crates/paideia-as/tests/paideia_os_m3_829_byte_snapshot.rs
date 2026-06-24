@@ -58,18 +58,18 @@ struct Case {
 }
 
 // === Baseline `.text` snapshots ===
-// Captured on branch topic/regen-m3-snapshot-post-dedup from the release paideia-as binary
-// after UnsafeWalker dedup fix (43780d2) landed. Each is the verbatim `.text` section.
+// Regenerated on branch topic/regen-m3-snapshot-post-r8 after kernel_main.pdx,
+// exceptions.pdx, idt.pdx, and pt_walk.pdx expanded via B3-004, B5-005, B6-004.
+// Each is the verbatim `.text` section extracted from the release paideia-as binary.
 //
-// NOTE: The dedup fix removed duplicate instruction emissions (3x copies → 1x).
-// The byte snapshots now reflect the corrected, non-duplicated output.
-// These still contain 10-byte `movabs $imm, %rax` (`48 B8 ..`) and
-// `movabs $imm, %rdi` (`48 BF ..`) forms for small immediates. That is the
-// *current* corrected-encoder output and is intentional to lock; a later m3
-// task that narrows these is an EXPECTED change and must update the baseline.
+// NOTE: B3-004 expanded kernel_main (Push/Pop implementations); B5-005 and B6-004
+// expanded exceptions, idt, and pt_walk (IPC/capability RPC stubs). The byte
+// snapshots now reflect these expanded instruction sequences.
 
 const KERNEL_MAIN_TEXT: &[u8] = &[
-    0x48, 0x89, 0xc0, 0x48, 0x89, 0xc0, 0xe8, 0x00, 0x00, 0x00, 0x00, 0xe8, 0x00, 0x00, 0x00, 0x00,
+    0xe8, 0x00, 0x00, 0x00, 0x00, 0x48, 0x8d, 0x3d, 0x00, 0x00, 0x00, 0x00, 0xe8, 0x00, 0x00, 0x00,
+    0x00, 0xe8, 0x00, 0x00, 0x00, 0x00, 0xe8, 0x00, 0x00, 0x00, 0x00, 0xf4, 0xe9, 0xfa, 0xff, 0xff,
+    0xff,
 ];
 
 const EXCEPTIONS_TEXT: &[u8] = &[
