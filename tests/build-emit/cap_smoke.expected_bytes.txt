@@ -19,9 +19,13 @@
 ;   mov rax, rbx       => 48 89 D8  (3 bytes: REX.W + opcode + ModRM)
 ;   syscall            => 0F 05     (2 bytes: two-byte opcode)
 ;
-; Expected total: 56 bytes (all functions merged into .text section)
-; - Each of 4 functions emits: mov(3) + mov(3) + mov(3) + mov(3) + syscall(2) = 14 bytes
-; - Total: 4 * 14 = 56 bytes
+; Expected total: 14 bytes (all functions merged into .text section)
+; - cap_alloc: mov(3) = 3 bytes
+; - cap_verify: mov(3) = 3 bytes
+; - cap_mint: mov(3) = 3 bytes
+; - _start: mov(3) + syscall(2) = 5 bytes
+; - Total: 3 + 3 + 3 + 5 = 14 bytes
+; (Fixed: N×M dedup in UnsafeWalker now processes each unsafe block exactly once)
 ;
 ; Phase 6 m6-001 acceptance:
 ; - Mnemonic::Syscall added and encodes to 0F 05
@@ -29,8 +33,8 @@
 ; - Syscall and other zero-arity instructions emit correctly
 ; - Fixture demonstrates pragmatic capability smoke test
 ;
-; Emitted bytes (phase 6 m6-001):
-48 89 d8 48 89 d8 48 89 d8 48 89 d8 0f 05
-48 89 d8 48 89 d8 48 89 d8 48 89 d8 0f 05
-48 89 d8 48 89 d8 48 89 d8 48 89 d8 0f 05
-48 89 d8 48 89 d8 48 89 d8 48 89 d8 0f 05
+; Emitted bytes (phase 6 m6-001, fixed with UnsafeWalker N×M dedup):
+48 89 d8
+48 89 d8
+48 89 d8
+48 89 d8 0f 05

@@ -1,0 +1,52 @@
+// 30_unsafe_labels_dedup.pdx — regression test for UnsafeWalker N×M dedup fix
+// Verifies that multiple unsafe blocks with local labels are processed one-to-one,
+// not in a cross-product. Each label should resolve to ITS OWN block's instruction,
+// not the last-processed one.
+
+module UnsafeLabelsDedup = structure {
+
+  // First unsafe block with a conditional label
+  let first_check : (u64) -> u64 !{RawMem} @{paideia.raw_mem} =
+    fn (x : u64) -> unsafe {
+      effects:       { RawMem },
+      capabilities:  { paideia.raw_mem },
+      justification: "First unsafe block with local label and conditional jump.",
+      block: {
+        test rax, rax
+        jz skip_first
+        add rax, 1
+        skip_first:
+        mov rbx, rax
+      }
+    }
+
+  // Second unsafe block with a different label
+  let second_check : (u64) -> u64 !{RawMem} @{paideia.raw_mem} =
+    fn (x : u64) -> unsafe {
+      effects:       { RawMem },
+      capabilities:  { paideia.raw_mem },
+      justification: "Second unsafe block with local label and conditional jump.",
+      block: {
+        test rbx, rbx
+        jz skip_second
+        sub rbx, 1
+        skip_second:
+        mov rcx, rbx
+      }
+    }
+
+  // Third unsafe block with yet another label
+  let third_check : (u64) -> u64 !{RawMem} @{paideia.raw_mem} =
+    fn (x : u64) -> unsafe {
+      effects:       { RawMem },
+      capabilities:  { paideia.raw_mem },
+      justification: "Third unsafe block with local label and conditional jump.",
+      block: {
+        test rcx, rcx
+        jz skip_third
+        xor rcx, 0xFF
+        skip_third:
+        mov rdx, rcx
+      }
+    }
+}

@@ -264,7 +264,7 @@ fn pa7c_plt32_witness_all_shapes() {
         ("single_call", 1),
         ("back_to_back_calls", 3),
         ("call_with_cmp", 3),    // Replaced: if-true became 3-call variant
-        ("call_in_while", 3),    // Working: while loop with calls
+        ("call_in_while", 1),    // Fixed: N×M dedup in UnsafeWalker reduces duplicate calls
         ("chained_calls", 3),    // Working: nested helper calls
         ("double_call", 2),      // Working: same target twice
         ("simple_loop_call", 2), // Replaced: infinite loop became 2-call variant

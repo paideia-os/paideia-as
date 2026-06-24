@@ -89,7 +89,7 @@ fn mov_reg_imm_mnemonic(reg_name: &str) -> Mnemonic {
     let mut sink = VecSink::new();
     let record_layouts = HashMap::new();
     let local_bindings = LocalBindingTable::new();
-    let (_unsafe_labels, _diags) = UnsafeWalker::run(
+    let (_unsafe_labels, _label_to_instr, _diags) = UnsafeWalker::run(
         &mut ir,
         &ast,
         vec![ir_unsafe.get()],
@@ -201,7 +201,7 @@ fn test_lgdt_memory_operand() {
     let mut sink = VecSink::new();
     let record_layouts = HashMap::new();
     let local_bindings = LocalBindingTable::new();
-    let (_unsafe_labels, _diags) = UnsafeWalker::run(
+    let (_unsafe_labels, _label_to_instr, _diags) = UnsafeWalker::run(
         &mut ir,
         &ast,
         vec![ir_unsafe.get()],
@@ -262,7 +262,7 @@ fn test_unknown_mnemonic_foozle() {
     let mut sink = VecSink::new();
     let record_layouts = HashMap::new();
     let local_bindings = LocalBindingTable::new();
-    let (_unsafe_labels, _diags) = UnsafeWalker::run(
+    let (_unsafe_labels, _label_to_instr, _diags) = UnsafeWalker::run(
         &mut ir,
         &ast,
         vec![ir_unsafe.get()],
@@ -342,7 +342,7 @@ fn test_malformed_operand_incomplete_memory() {
     let mut sink = VecSink::new();
     let record_layouts = HashMap::new();
     let local_bindings = LocalBindingTable::new();
-    let (_unsafe_labels, _diags) = UnsafeWalker::run(
+    let (_unsafe_labels, _label_to_instr, _diags) = UnsafeWalker::run(
         &mut ir,
         &ast,
         vec![ir_unsafe.get()],
@@ -446,7 +446,7 @@ fn parse_instruction_with_imm(
     let mut sink = VecSink::new();
     let record_layouts = HashMap::new();
     let local_bindings = LocalBindingTable::new();
-    let (_unsafe_labels, _diags) = UnsafeWalker::run(
+    let (_unsafe_labels, _label_to_instr, _diags) = UnsafeWalker::run(
         &mut ir,
         &ast,
         vec![ir_unsafe.get()],
@@ -625,7 +625,7 @@ fn parse_ljmp_instruction(
     let mut sink = VecSink::new();
     let record_layouts = HashMap::new();
     let local_bindings = LocalBindingTable::new();
-    let (_unsafe_labels, _diags) = UnsafeWalker::run(
+    let (_unsafe_labels, _label_to_instr, _diags) = UnsafeWalker::run(
         &mut ir,
         &ast,
         vec![ir_unsafe.get()],
@@ -779,7 +779,7 @@ fn test_lgdt_rip_relative_symbol() {
     let mut sink = VecSink::new();
     let record_layouts = HashMap::new();
     let local_bindings = LocalBindingTable::new();
-    let (_unsafe_labels, _diags) = UnsafeWalker::run(
+    let (_unsafe_labels, _label_to_instr, _diags) = UnsafeWalker::run(
         &mut ir,
         &ast,
         vec![ir_unsafe.get()],
@@ -913,7 +913,7 @@ fn parse_branch_instruction_with_label(
 
     // Manually run the label collection and instruction processing
     // For now, we use the standard UnsafeWalker which does this internally
-    let (_unsafe_labels, _diags) = UnsafeWalker::run(
+    let (_unsafe_labels, _label_to_instr, _diags) = UnsafeWalker::run(
         &mut ir,
         &ast,
         vec![ir_unsafe.get()],
@@ -995,7 +995,7 @@ fn test_local_label_backward_jump() {
     let record_layouts = HashMap::new();
     let local_bindings = LocalBindingTable::new();
 
-    let (_unsafe_labels, _diags) = UnsafeWalker::run(
+    let (_unsafe_labels, _label_to_instr, _diags) = UnsafeWalker::run(
         &mut ir,
         &ast,
         vec![ir_unsafe.get()],
@@ -1080,7 +1080,7 @@ fn test_local_label_forward_jump() {
     let record_layouts = HashMap::new();
     let local_bindings = LocalBindingTable::new();
 
-    let (_unsafe_labels, _diags) = UnsafeWalker::run(
+    let (_unsafe_labels, _label_to_instr, _diags) = UnsafeWalker::run(
         &mut ir,
         &ast,
         vec![ir_unsafe.get()],
@@ -1163,7 +1163,7 @@ fn test_undefined_label_as_symbol_ref() {
     let record_layouts = HashMap::new();
     let local_bindings = LocalBindingTable::new();
 
-    let diags = UnsafeWalker::run(
+    let (_labels, _label_to_instr, _diags) = UnsafeWalker::run(
         &mut ir,
         &ast,
         vec![ir_unsafe.get()],

@@ -1338,6 +1338,9 @@ impl UnsafeWalker {
         let mut all_labels: HashMap<String, u32> = HashMap::new();
         let mut label_to_instr: HashMap<String, paideia_as_ir::IrNodeId> = HashMap::new();
 
+        // Track which ExprUnsafe we've processed to avoid N×M cross-product.
+        // Each pending IR node ID corresponds to exactly one ExprUnsafe in source order.
+        let mut unsafe_block_idx = 0;
         for ir_node_id_u32 in pending_ids {
             let _ir_node_id = match IrNodeId::new(ir_node_id_u32) {
                 Some(id) => id,
@@ -1351,115 +1354,124 @@ impl UnsafeWalker {
             // For this phase, we assume that the unsafe block's AST node ID
             // can be derived or is passed via context. Placeholder: search in AST.
 
-            // Scan the entire AST for ExprUnsafe nodes (this is a placeholder approach).
-            // A production implementation would use an AST-to-IR mapping table.
+            // Scan the AST for ExprUnsafe nodes in source order.
+            // Match the Nth ExprUnsafe to the Nth pending IR node ID (one-to-one correspondence).
+            // This ensures each unsafe block is processed exactly once.
+            let mut current_unsafe_idx = 0;
             for ast_idx in 1..=ast.len() {
                 if let Some(ast_node_id) = NodeId::new(ast_idx as u32) {
                     if let Some(ast_node) = ast.get(ast_node_id) {
                         if ast_node.kind == NodeKind::ExprUnsafe {
-                            // Found an ExprUnsafe node; check if this is our target.
-                            if let Some(ExprData::Unsafe { block, .. }) = ast.expr_data(ast_node_id)
-                            {
-                                // Phase 6 m4-002: Two-pass processing for labels.
-                                // Pass 1: Collect all label declarations into a HashMap.
-                                let mut labels: HashMap<String, u32> = HashMap::new();
-                                for &stmt_id in block {
-                                    if let Some(ast_stmt_node) = ast.get(stmt_id) {
-                                        if ast_stmt_node.kind == NodeKind::StmtLabel {
-                                            // Collect label: extract label name from StmtData::Label
-                                            if let Some(StmtData::Label { name }) =
-                                                ast.stmt_data(stmt_id)
-                                            {
-                                                if let Some(name_node) = ast.get(*name) {
-                                                    if name_node.kind == NodeKind::Ident {
-                                                        // Extract the label name from source
-                                                        let span = name_node.span;
-                                                        let file_id = span.file();
-                                                        let source = source_map.content(file_id);
-                                                        let label_text = &source[span.byte_start()
-                                                            as usize
-                                                            ..(span.byte_start() + span.byte_len())
-                                                                as usize];
-                                                        // Check for duplicate label (U1609)
-                                                        if labels.contains_key(label_text) {
-                                                            let diag = Diagnostic::error(u_code(
-                                                                U_DUPLICATE_LABEL,
-                                                            ))
-                                                            .message(format!(
-                                                                "duplicate label declaration: {}",
-                                                                label_text
-                                                            ))
-                                                            .with_span(span)
-                                                            .finish();
-                                                            let _ = sink.emit(diag.clone());
-                                                            diags.push(diag);
-                                                        } else {
-                                                            // Store label with a placeholder byte offset (0 for now)
-                                                            labels
-                                                                .insert(label_text.to_string(), 0);
+                            // Check if this ExprUnsafe matches our target index
+                            if current_unsafe_idx == unsafe_block_idx {
+                                // Found our target ExprUnsafe; process it.
+                                if let Some(ExprData::Unsafe { block, .. }) = ast.expr_data(ast_node_id)
+                                {
+                                    // Phase 6 m4-002: Two-pass processing for labels.
+                                    // Pass 1: Collect all label declarations into a HashMap.
+                                    let mut labels: HashMap<String, u32> = HashMap::new();
+                                    for &stmt_id in block {
+                                        if let Some(ast_stmt_node) = ast.get(stmt_id) {
+                                            if ast_stmt_node.kind == NodeKind::StmtLabel {
+                                                // Collect label: extract label name from StmtData::Label
+                                                if let Some(StmtData::Label { name }) =
+                                                    ast.stmt_data(stmt_id)
+                                                {
+                                                    if let Some(name_node) = ast.get(*name) {
+                                                        if name_node.kind == NodeKind::Ident {
+                                                            // Extract the label name from source
+                                                            let span = name_node.span;
+                                                            let file_id = span.file();
+                                                            let source = source_map.content(file_id);
+                                                            let label_text = &source[span.byte_start()
+                                                                as usize
+                                                                ..(span.byte_start() + span.byte_len())
+                                                                    as usize];
+                                                            // Check for duplicate label (U1609)
+                                                            if labels.contains_key(label_text) {
+                                                                let diag = Diagnostic::error(u_code(
+                                                                    U_DUPLICATE_LABEL,
+                                                                ))
+                                                                .message(format!(
+                                                                    "duplicate label declaration: {}",
+                                                                    label_text
+                                                                ))
+                                                                .with_span(span)
+                                                                .finish();
+                                                                let _ = sink.emit(diag.clone());
+                                                                diags.push(diag);
+                                                            } else {
+                                                                // Store label with a placeholder byte offset (0 for now)
+                                                                labels
+                                                                    .insert(label_text.to_string(), 0);
+                                                            }
                                                         }
                                                     }
                                                 }
                                             }
                                         }
                                     }
-                                }
 
-                                // Collect labels from this unsafe block into all_labels
-                                for (label_name, offset) in labels.iter() {
-                                    all_labels.insert(label_name.clone(), *offset);
-                                }
+                                    // Collect labels from this unsafe block into all_labels
+                                    for (label_name, offset) in labels.iter() {
+                                        all_labels.insert(label_name.clone(), *offset);
+                                    }
 
-                                // Pass 2: Process instructions and check label references.
-                                // Also track which instruction follows each label for offset computation.
-                                let mut prev_was_label: Option<String> = None;
-                                for &stmt_id in block {
-                                    if let Some(ast_stmt_node) = ast.get(stmt_id) {
-                                        if ast_stmt_node.kind == NodeKind::StmtLabel {
-                                            // Extract label name for future tracking
-                                            if let Some(StmtData::Label { name }) =
-                                                ast.stmt_data(stmt_id)
-                                            {
-                                                if let Some(name_node) = ast.get(*name) {
-                                                    if name_node.kind == NodeKind::Ident {
-                                                        let span = name_node.span;
-                                                        let file_id = span.file();
-                                                        let source = source_map.content(file_id);
-                                                        let label_text = &source[span.byte_start()
-                                                            as usize
-                                                            ..(span.byte_start() + span.byte_len())
-                                                                as usize];
-                                                        prev_was_label = Some(label_text.to_string());
+                                    // Pass 2: Process instructions and check label references.
+                                    // Also track which instruction follows each label for offset computation.
+                                    let mut prev_was_label: Option<String> = None;
+                                    for &stmt_id in block {
+                                        if let Some(ast_stmt_node) = ast.get(stmt_id) {
+                                            if ast_stmt_node.kind == NodeKind::StmtLabel {
+                                                // Extract label name for future tracking
+                                                if let Some(StmtData::Label { name }) =
+                                                    ast.stmt_data(stmt_id)
+                                                {
+                                                    if let Some(name_node) = ast.get(*name) {
+                                                        if name_node.kind == NodeKind::Ident {
+                                                            let span = name_node.span;
+                                                            let file_id = span.file();
+                                                            let source = source_map.content(file_id);
+                                                            let label_text = &source[span.byte_start()
+                                                                as usize
+                                                                ..(span.byte_start() + span.byte_len())
+                                                                    as usize];
+                                                            prev_was_label = Some(label_text.to_string());
+                                                        }
                                                     }
                                                 }
-                                            }
-                                        } else if ast_stmt_node.kind == NodeKind::StmtInstruction {
-                                            // Process this instruction statement.
-                                            let instr_ir_node = Self::process_instruction_stmt(
-                                                arena,
-                                                ast,
-                                                stmt_id,
-                                                &mut diags,
-                                                sink,
-                                                source_map,
-                                                record_layouts,
-                                                &labels,
-                                                local_bindings,
-                                                instr_mode,
-                                            );
+                                            } else if ast_stmt_node.kind == NodeKind::StmtInstruction {
+                                                // Process this instruction statement.
+                                                let instr_ir_node = Self::process_instruction_stmt(
+                                                    arena,
+                                                    ast,
+                                                    stmt_id,
+                                                    &mut diags,
+                                                    sink,
+                                                    source_map,
+                                                    record_layouts,
+                                                    &labels,
+                                                    local_bindings,
+                                                    instr_mode,
+                                                );
 
-                                            // If previous statement was a label, record the mapping
-                                            if let (Some(label_name), Some(instr_id)) = (prev_was_label.take(), instr_ir_node) {
-                                                label_to_instr.insert(label_name, instr_id);
+                                                // If previous statement was a label, record the mapping
+                                                if let (Some(label_name), Some(instr_id)) = (prev_was_label.take(), instr_ir_node) {
+                                                    label_to_instr.insert(label_name, instr_id);
+                                                }
                                             }
                                         }
                                     }
                                 }
+                                // After processing this unsafe block, break and move to the next pending ID.
+                                break;
                             }
+                            current_unsafe_idx += 1;
                         }
                     }
                 }
             }
+            unsafe_block_idx += 1;
         }
 
         (all_labels, label_to_instr, diags)
