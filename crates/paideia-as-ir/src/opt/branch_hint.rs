@@ -78,7 +78,7 @@ impl OptPass for BranchHintPass {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::instruction::{Cond, Instruction, InstrMode, Operand};
+    use crate::instruction::{Cond, InstrMode, Instruction, Operand};
     use paideia_as_diagnostics::{FileId, Span};
     use smallvec::SmallVec;
 

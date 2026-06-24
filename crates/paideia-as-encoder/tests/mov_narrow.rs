@@ -14,8 +14,8 @@
 //! Immediates: small (0x01, 0x07) and large (0x80, 0xF8, 0x3F8 for 16-bit).
 
 use paideia_as_encoder::{CodeBuffer, EncodeStats};
-use paideia_as_ir::instruction::{Instruction, IntWidth, Mnemonic, Operand, RegId};
 use paideia_as_ir::InstrMode;
+use paideia_as_ir::instruction::{Instruction, IntWidth, Mnemonic, Operand, RegId};
 use smallvec::smallvec;
 
 // ===== Suite A: Byte-Exact Encoding (softarch test vectors) =====

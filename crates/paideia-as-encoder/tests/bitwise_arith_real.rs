@@ -12,8 +12,8 @@
 //! immediates that don't round-trip through i8/i32 are rejected as expected.
 
 use paideia_as_encoder::{CodeBuffer, EncodeStats};
-use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand, RegId};
 use paideia_as_ir::InstrMode;
+use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand, RegId};
 use smallvec::smallvec;
 
 // ===== AND Tests =====

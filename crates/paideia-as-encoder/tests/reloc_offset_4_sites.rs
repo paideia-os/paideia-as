@@ -8,8 +8,8 @@
 //! Fix: Use byte_offset = 3 (the instruction-local position where disp32 starts).
 
 use paideia_as_encoder::{CodeBuffer, EncodeStats, RelocKind};
-use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand, RegId};
 use paideia_as_ir::InstrMode;
+use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand, RegId};
 use smallvec::smallvec;
 
 /// Helper to encode an instruction and check its relocation offset.

@@ -113,4 +113,82 @@ mod tests {
         let node = arena.get(memref_id).unwrap();
         assert_eq!(node.kind, NodeKind::OperandMemoryRef);
     }
+
+    #[test]
+    fn symbol_only_memref() {
+        // `[ symbol ]` - bare symbol (not a register)
+        let toks = vec![
+            tok(TokenKind::LBracket, 0, 1),
+            tok(TokenKind::Ident, 2, 6), // "symbol"
+            tok(TokenKind::RBracket, 9, 1),
+        ];
+        let source = "[ symbol ]";
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut p = Parser::new(
+            &toks,
+            source,
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        );
+
+        let result = p.parse_memref();
+        assert!(result.is_ok());
+        let memref_id = result.unwrap();
+
+        // Verify it's an OperandMemoryRef node with either Ident or ExprPath inside
+        let node = arena.get(memref_id).unwrap();
+        assert_eq!(node.kind, NodeKind::OperandMemoryRef);
+
+        if let Some(ExprData::OperandMemoryRef { addr }) = arena.expr_data(memref_id) {
+            let addr_node = arena.get(*addr).unwrap();
+            // Parser can resolve bare identifiers as either Ident or ExprPath
+            // both are valid for symbol references
+            assert!(
+                matches!(addr_node.kind, NodeKind::Ident | NodeKind::ExprPath),
+                "expected Ident or ExprPath, got {:?}",
+                addr_node.kind
+            );
+        } else {
+            panic!("Expected OperandMemoryRef data");
+        }
+    }
+
+    #[test]
+    fn symbol_plus_intlit_memref() {
+        // `[ symbol + 8 ]`
+        let toks = vec![
+            tok(TokenKind::LBracket, 0, 1),
+            tok(TokenKind::Ident, 2, 6), // "symbol"
+            tok(TokenKind::Plus, 9, 1),
+            tok(TokenKind::IntLit, 11, 1), // "8"
+            tok(TokenKind::RBracket, 13, 1),
+        ];
+        let source = "[ symbol + 8 ]";
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut p = Parser::new(
+            &toks,
+            source,
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        );
+
+        let result = p.parse_memref();
+        assert!(result.is_ok());
+        let memref_id = result.unwrap();
+
+        // Verify it's an OperandMemoryRef node with ExprInfix inside
+        let node = arena.get(memref_id).unwrap();
+        assert_eq!(node.kind, NodeKind::OperandMemoryRef);
+
+        if let Some(ExprData::OperandMemoryRef { addr }) = arena.expr_data(memref_id) {
+            let addr_node = arena.get(*addr).unwrap();
+            assert_eq!(addr_node.kind, NodeKind::ExprInfix);
+        } else {
+            panic!("Expected OperandMemoryRef data");
+        }
+    }
 }

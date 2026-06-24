@@ -83,10 +83,7 @@ fn scope_head_bits_32_parses() {
     let (arena, result, diags) = parse_and_check(source);
 
     // Should parse successfully
-    assert!(
-        result.is_ok(),
-        "should parse bits=32 scope-head attribute"
-    );
+    assert!(result.is_ok(), "should parse bits=32 scope-head attribute");
     let errors: Vec<_> = diags
         .iter()
         .filter(|d| d.code().severity() == Severity::Error)
@@ -126,8 +123,7 @@ fn scope_head_bits_32_parses() {
                                 1,
                                 "module structure should have one inner attribute"
                             );
-                            if let ItemAttribute::InnerAttr { name: _, value } = &inner_attrs[0]
-                            {
+                            if let ItemAttribute::InnerAttr { name: _, value } = &inner_attrs[0] {
                                 if let AttrValue::Int(bits_val) = value {
                                     assert_eq!(*bits_val, 32, "bits value should be 32");
                                 }
@@ -163,7 +159,11 @@ fn nested_scope_shadows_outer() {
                 doc: _,
             }) = arena.item_data(root)
             {
-                assert_eq!(root_attrs.len(), 1, "root should have module-head attribute");
+                assert_eq!(
+                    root_attrs.len(),
+                    1,
+                    "root should have module-head attribute"
+                );
                 if let ItemAttribute::InnerAttr { name: _, value } = &root_attrs[0] {
                     if let AttrValue::Int(bits_val) = value {
                         assert_eq!(*bits_val, 32, "module-head bits should be 32");
@@ -183,7 +183,11 @@ fn nested_scope_shadows_outer() {
                             doc: _,
                         }) = arena.item_data(*body)
                         {
-                            assert_eq!(inner_attrs.len(), 1, "nested should have scope-head attribute");
+                            assert_eq!(
+                                inner_attrs.len(),
+                                1,
+                                "nested should have scope-head attribute"
+                            );
                             if let ItemAttribute::InnerAttr { name: _, value } = &inner_attrs[0] {
                                 if let AttrValue::Int(bits_val) = value {
                                     assert_eq!(*bits_val, 64, "scope-head bits should be 64");

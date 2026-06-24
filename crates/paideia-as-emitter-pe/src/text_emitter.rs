@@ -126,7 +126,7 @@ pub fn emit_text_from_instructions(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use paideia_as_ir::{Instruction, InstrMode, IrNodeId, Mnemonic, Operand, RegId};
+    use paideia_as_ir::{InstrMode, Instruction, IrNodeId, Mnemonic, Operand, RegId};
     use smallvec::SmallVec;
 
     #[test]

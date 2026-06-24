@@ -4,8 +4,8 @@
 //! including the check for unexpected operands and recovery with U1607 diagnostic.
 
 use paideia_as_elaborator::unsafe_walker::U_UNEXPECTED_OPERANDS;
-use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand};
 use paideia_as_ir::InstrMode;
+use paideia_as_ir::instruction::{Instruction, Mnemonic};
 
 #[test]
 fn cli_hlt_succeeds_with_empty_operands() {
@@ -54,8 +54,8 @@ fn cli_hlt_succeeds_with_empty_operands() {
         operands: Default::default(),
         encoding_hint: None,
         byte_offset_in_text: None,
-            mode: InstrMode::default(),
-        };
+        mode: InstrMode::default(),
+    };
     assert_eq!(cli_inst.operands.len(), 0);
 
     let hlt_inst = Instruction {
@@ -63,8 +63,8 @@ fn cli_hlt_succeeds_with_empty_operands() {
         operands: Default::default(),
         encoding_hint: None,
         byte_offset_in_text: None,
-            mode: InstrMode::default(),
-        };
+        mode: InstrMode::default(),
+    };
     assert_eq!(hlt_inst.operands.len(), 0);
 }
 
@@ -87,8 +87,8 @@ fn hlt_with_operand_emits_u1607_and_recovers() {
         operands: Default::default(), // Empty after ignoring the operand
         encoding_hint: None,
         byte_offset_in_text: None,
-            mode: InstrMode::default(),
-        };
+        mode: InstrMode::default(),
+    };
 
     assert_eq!(hlt_recovered.mnemonic, Mnemonic::Hlt);
     assert_eq!(
@@ -103,8 +103,8 @@ fn hlt_with_operand_emits_u1607_and_recovers() {
         operands: Default::default(),
         encoding_hint: None,
         byte_offset_in_text: None,
-            mode: InstrMode::default(),
-        };
+        mode: InstrMode::default(),
+    };
     assert_eq!(cli_recovered.operands.len(), 0);
 
     let nop_recovered = Instruction {
@@ -112,7 +112,7 @@ fn hlt_with_operand_emits_u1607_and_recovers() {
         operands: Default::default(),
         encoding_hint: None,
         byte_offset_in_text: None,
-            mode: InstrMode::default(),
-        };
+        mode: InstrMode::default(),
+    };
     assert_eq!(nop_recovered.operands.len(), 0);
 }

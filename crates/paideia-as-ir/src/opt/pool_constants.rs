@@ -82,7 +82,7 @@ impl OptPass for PoolConstantsPass {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::instruction::{Instruction, InstrMode};
+    use crate::instruction::{InstrMode, Instruction};
     use crate::node::IrKind;
     use paideia_as_diagnostics::{FileId, Span};
     use smallvec::SmallVec;

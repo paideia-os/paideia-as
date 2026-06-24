@@ -40,7 +40,9 @@ use paideia_as_ast::{AstArena, ExprData, NodeId, NodeKind, StmtData};
 use paideia_as_diagnostics::{
     Category, Diagnostic, DiagnosticCode, DiagnosticSink, Severity, Span,
 };
-use paideia_as_ir::instruction::{Cond, Instruction, InstrMode, IntWidth, Mnemonic, Operand, RegId, Scale};
+use paideia_as_ir::instruction::{
+    Cond, InstrMode, Instruction, IntWidth, Mnemonic, Operand, RegId, Scale,
+};
 use paideia_as_ir::record_layout::{RecordLayout, RecordTypeId};
 use paideia_as_ir::{IrArena, IrNodeId, SmallVec};
 use std::collections::HashMap;
@@ -577,6 +579,41 @@ fn parse_memory_from_memref(
 ///
 /// PA10-006c: Support both `[symbol]` and `[rip + symbol]` syntax for RIP-relative addressing.
 /// Returns Ok(SymbolRef) if successful, Err if not a symbol memory operand.
+/// Helper function to extract symbol name from Ident or single-segment ExprPath nodes.
+/// Returns None if the node is not a symbol (e.g., if it's a register or "rip").
+fn try_extract_symbol_name(
+    ast: &AstArena,
+    node_id: NodeId,
+    source_map: &paideia_as_diagnostics::SourceMap,
+) -> Option<String> {
+    let node = ast.get(node_id)?;
+
+    match node.kind {
+        NodeKind::Ident => {
+            let name = get_register_name(ast, node_id, source_map)?;
+            // Check if it's a known register or special register (if so, not a symbol)
+            if register_name_to_regid(&name).is_some() || name == "rip" {
+                return None;
+            }
+            Some(name)
+        }
+        NodeKind::ExprPath => {
+            match ast.expr_data(node_id) {
+                Some(ExprData::Path { segments }) if segments.len() == 1 => {
+                    let name = get_register_name(ast, segments[0], source_map)?;
+                    // Check if it's a known register or special register (if so, not a symbol)
+                    if register_name_to_regid(&name).is_some() || name == "rip" {
+                        return None;
+                    }
+                    Some(name)
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
 fn try_parse_symbol_memory(
     ast: &AstArena,
     addr_node: NodeId,
@@ -593,79 +630,75 @@ fn try_parse_symbol_memory(
     match node.kind {
         // Bare symbol: [symbol_name]
         NodeKind::Ident => {
-            let name = get_register_name(ast, addr_node, source_map)
+            let name = try_extract_symbol_name(ast, addr_node, source_map)
                 .ok_or(OperandError::MalformedOperand(span))?;
-            // Check if it's a known register or special register (if so, not a symbol)
-            if register_name_to_regid(&name).is_some() || name == "rip" {
-                return Err(OperandError::MalformedOperand(span));
-            }
-            // It's a symbol reference
             Ok(Operand::SymbolRef { name, addend: 0 })
         }
         // Bare symbol via path: [symbol_name] (single-segment path)
         NodeKind::ExprPath => {
-            match ast.expr_data(addr_node) {
-                Some(ExprData::Path { segments }) if segments.len() == 1 => {
-                    let name = get_register_name(ast, segments[0], source_map)
-                        .ok_or(OperandError::MalformedOperand(span))?;
-                    // Check if it's a known register or special register (if so, not a symbol)
-                    if register_name_to_regid(&name).is_some() || name == "rip" {
-                        return Err(OperandError::MalformedOperand(span));
-                    }
-                    // It's a symbol reference
-                    Ok(Operand::SymbolRef { name, addend: 0 })
-                }
-                _ => Err(OperandError::MalformedOperand(span)),
-            }
+            let name = try_extract_symbol_name(ast, addr_node, source_map)
+                .ok_or(OperandError::MalformedOperand(span))?;
+            Ok(Operand::SymbolRef { name, addend: 0 })
         }
-        // [rip + symbol] form: ExprInfix with "rip" on one side
+        // [rip + symbol] or [symbol ± IntLit] forms: ExprInfix
         NodeKind::ExprInfix => {
             match ast.expr_data(addr_node) {
                 Some(ExprData::Infix { op, lhs, rhs }) => {
                     let op_str = get_infix_op_name(ast, *op, source_map);
-                    if op_str.as_deref() != Some("+") {
-                        return Err(OperandError::MalformedOperand(span));
-                    }
 
-                    // Check if either side is "rip"
-                    let symbol_side = if is_rip_identifier(ast, *lhs, source_map) {
-                        *rhs
-                    } else if is_rip_identifier(ast, *rhs, source_map) {
-                        *lhs
-                    } else {
-                        return Err(OperandError::MalformedOperand(span));
-                    };
-
-                    // Parse the symbol side
-                    let symbol_node = ast
-                        .get(symbol_side)
-                        .ok_or(OperandError::MalformedOperand(span))?;
-                    match symbol_node.kind {
-                        NodeKind::Ident => {
-                            let name = get_register_name(ast, symbol_side, source_map)
-                                .ok_or(OperandError::MalformedOperand(span))?;
-                            // Check if it's a known register or special register (if so, not a symbol)
-                            if register_name_to_regid(&name).is_some() || name == "rip" {
-                                return Err(OperandError::MalformedOperand(span));
+                    // Case 1: [rip + symbol] form (op must be +)
+                    if op_str.as_deref() == Some("+") {
+                        // Check if either side is "rip"
+                        if is_rip_identifier(ast, *lhs, source_map) {
+                            if let Some(name) = try_extract_symbol_name(ast, *rhs, source_map) {
+                                return Ok(Operand::SymbolRef { name, addend: 0 });
                             }
-                            Ok(Operand::SymbolRef { name, addend: 0 })
-                        }
-                        NodeKind::ExprPath => {
-                            match ast.expr_data(symbol_side) {
-                                Some(ExprData::Path { segments }) if segments.len() == 1 => {
-                                    let name = get_register_name(ast, segments[0], source_map)
-                                        .ok_or(OperandError::MalformedOperand(span))?;
-                                    // Check if it's a known register or special register (if so, not a symbol)
-                                    if register_name_to_regid(&name).is_some() || name == "rip" {
-                                        return Err(OperandError::MalformedOperand(span));
-                                    }
-                                    Ok(Operand::SymbolRef { name, addend: 0 })
-                                }
-                                _ => Err(OperandError::MalformedOperand(span)),
+                        } else if is_rip_identifier(ast, *rhs, source_map) {
+                            if let Some(name) = try_extract_symbol_name(ast, *lhs, source_map) {
+                                return Ok(Operand::SymbolRef { name, addend: 0 });
                             }
                         }
-                        _ => Err(OperandError::MalformedOperand(span)),
                     }
+
+                    // Case 2: [symbol + IntLit] form
+                    if op_str.as_deref() == Some("+") {
+                        // Try: symbol on left, IntLit on right
+                        if let Some(name) = try_extract_symbol_name(ast, *lhs, source_map) {
+                            if let Some(addend) = try_extract_integer_literal(ast, *rhs, source_map)
+                            {
+                                return Ok(Operand::SymbolRef {
+                                    name,
+                                    addend: addend as i32,
+                                });
+                            }
+                        }
+                        // Try: IntLit on left, symbol on right (commutative)
+                        if let Some(addend) = try_extract_integer_literal(ast, *lhs, source_map) {
+                            if let Some(name) = try_extract_symbol_name(ast, *rhs, source_map) {
+                                return Ok(Operand::SymbolRef {
+                                    name,
+                                    addend: addend as i32,
+                                });
+                            }
+                        }
+                    }
+
+                    // Case 3: [symbol - IntLit] form
+                    if op_str.as_deref() == Some("-") {
+                        // symbol on left, IntLit on right, negate the addend
+                        if let Some(name) = try_extract_symbol_name(ast, *lhs, source_map) {
+                            if let Some(addend) = try_extract_integer_literal(ast, *rhs, source_map)
+                            {
+                                return Ok(Operand::SymbolRef {
+                                    name,
+                                    addend: -(addend as i32),
+                                });
+                            }
+                        }
+                    }
+
+                    // No matching pattern
+                    Err(OperandError::MalformedOperand(span))
                 }
                 _ => Err(OperandError::MalformedOperand(span)),
             }
@@ -1033,6 +1066,24 @@ fn extract_integer_from_span(
     }
 
     None
+}
+
+/// Helper to extract an integer literal value from an ExprLiteral node.
+/// Returns None if the node is not an ExprLiteral or the literal cannot be parsed.
+fn try_extract_integer_literal(
+    ast: &AstArena,
+    node_id: NodeId,
+    source_map: &paideia_as_diagnostics::SourceMap,
+) -> Option<i64> {
+    let node = ast.get(node_id)?;
+
+    match node.kind {
+        NodeKind::ExprLiteral => match ast.expr_data(node_id) {
+            Some(ExprData::Literal { lit }) => extract_integer_from_span(ast, *lit, source_map),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 /// Map register names to RegId values.

@@ -77,7 +77,7 @@ impl OptPass for MacroFusionPass {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::instruction::{Instruction, Operand, RegId, InstrMode};
+    use crate::instruction::{InstrMode, Instruction, Operand, RegId};
     use paideia_as_diagnostics::{FileId, Span};
     use smallvec::SmallVec;
 

@@ -67,7 +67,11 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 name, body, doc
             )
         }
-        ItemData::Structure { items, inner_attrs, doc } => {
+        ItemData::Structure {
+            items,
+            inner_attrs,
+            doc,
+        } => {
             let items_str = items
                 .iter()
                 .map(|id| id.to_string())
@@ -78,7 +82,10 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
             } else {
                 format!("[{}]", inner_attrs.len())
             };
-            format!("Structure {{ items: [{}], inner_attrs: {}, doc: {:?} }}", items_str, attrs_str, doc)
+            format!(
+                "Structure {{ items: [{}], inner_attrs: {}, doc: {:?} }}",
+                items_str, attrs_str, doc
+            )
         }
         ItemData::Functor { params, body, doc } => {
             let params_str = params

@@ -212,7 +212,9 @@ mod tests {
 
     #[test]
     fn is_unroll_safe_returns_inline_for_divisible_trip_count() {
-        use crate::instruction::{Instruction, InstructionSideTable, Mnemonic, Operand, RegId, InstrMode};
+        use crate::instruction::{
+            InstrMode, Instruction, InstructionSideTable, Mnemonic, Operand, RegId,
+        };
         use smallvec::SmallVec;
 
         let mut table = InstructionSideTable::new();
@@ -242,7 +244,9 @@ mod tests {
 
     #[test]
     fn is_unroll_safe_returns_inline_plus_remainder_for_indivisible() {
-        use crate::instruction::{Instruction, InstructionSideTable, InstrMode, Mnemonic, Operand, RegId};
+        use crate::instruction::{
+            InstrMode, Instruction, InstructionSideTable, Mnemonic, Operand, RegId,
+        };
         use smallvec::SmallVec;
 
         let mut table = InstructionSideTable::new();
@@ -272,7 +276,7 @@ mod tests {
 
     #[test]
     fn is_unroll_safe_returns_unsafe_for_loop_with_call() {
-        use crate::instruction::{Instruction, InstructionSideTable, InstrMode, Mnemonic, Operand};
+        use crate::instruction::{InstrMode, Instruction, InstructionSideTable, Mnemonic, Operand};
         use smallvec::SmallVec;
 
         let mut table = InstructionSideTable::new();
@@ -373,7 +377,9 @@ mod tests {
     #[test]
     fn unroll_recognises_ir_kind_loop_node() {
         // Verify that is_unroll_safe recognises IrKind::Loop and returns Inline for safe loops.
-        use crate::instruction::{Instruction, InstructionSideTable, InstrMode, Mnemonic, Operand, RegId};
+        use crate::instruction::{
+            InstrMode, Instruction, InstructionSideTable, Mnemonic, Operand, RegId,
+        };
         use smallvec::SmallVec;
 
         let mut table = InstructionSideTable::new();

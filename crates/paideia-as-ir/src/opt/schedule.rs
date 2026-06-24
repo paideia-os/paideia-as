@@ -278,7 +278,9 @@ mod tests {
 
     #[test]
     fn schedule_block_with_instruction_side_table() {
-        use crate::instruction::{Instruction, InstructionSideTable, Mnemonic, Operand, RegId, InstrMode};
+        use crate::instruction::{
+            InstrMode, Instruction, InstructionSideTable, Mnemonic, Operand, RegId,
+        };
         use crate::node::IrNodeId;
         use smallvec::SmallVec;
 

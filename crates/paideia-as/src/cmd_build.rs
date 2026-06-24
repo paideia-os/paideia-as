@@ -624,10 +624,12 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
             // Phase 15 m2-002a: Extract root module's #![bits = N] and set initial mode.
             // root_id is the AST root from parsing; it's in scope here.
             let root_mode = extract_root_module_bits(root_id, &arena)
-                .map(|bits| if bits == 32 {
-                    paideia_as_ir::instruction::InstrMode::Mode32
-                } else {
-                    paideia_as_ir::instruction::InstrMode::Mode64
+                .map(|bits| {
+                    if bits == 32 {
+                        paideia_as_ir::instruction::InstrMode::Mode32
+                    } else {
+                        paideia_as_ir::instruction::InstrMode::Mode64
+                    }
                 })
                 .unwrap_or(paideia_as_ir::instruction::InstrMode::Mode64);
             emit_walker.set_root_mode(root_mode);
@@ -636,7 +638,8 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
 
             // Phase 15 m2-002: Verify mode_stack is properly cleaned up after walk.
             debug_assert!(
-                emit_walker.state().mode_stack.is_empty() || emit_walker.state().mode_stack.len() == 1,
+                emit_walker.state().mode_stack.is_empty()
+                    || emit_walker.state().mode_stack.len() == 1,
                 "EmitWalker mode_stack should be empty or have 1 entry at end of walk; got {}",
                 emit_walker.state().mode_stack.len()
             );

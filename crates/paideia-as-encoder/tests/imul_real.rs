@@ -7,8 +7,8 @@
 //! - mem,mem case: verifies proper error ("imul mem,mem")
 
 use paideia_as_encoder::{CodeBuffer, EncodeStats};
-use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand, RegId};
 use paideia_as_ir::InstrMode;
+use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand, RegId};
 use smallvec::smallvec;
 
 // ===== 2-operand IMUL Tests =====

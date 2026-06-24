@@ -7,8 +7,8 @@
 use paideia_as_diagnostics::FileId;
 use paideia_as_elaborator::populate::{PopulateContext, populate_instruction_table};
 use paideia_as_ir::{
-    CallSideTable, InstructionSideTable, IrArena, IrKind, InstrMode, LoadStoreSideTable, Mnemonic, Operand,
-    alloc_load,
+    CallSideTable, InstrMode, InstructionSideTable, IrArena, IrKind, LoadStoreSideTable, Mnemonic,
+    Operand, alloc_load,
 };
 
 fn span() -> paideia_as_diagnostics::Span {

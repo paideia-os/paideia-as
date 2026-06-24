@@ -21,13 +21,20 @@ fn hash_bang_lbracket_sequence() {
     // Should lex as Hash, Bang, LBracket (existing tokens)
     let (tokens, _sink) = lex("#![");
 
-    assert!(tokens.len() >= 3, "should have at least Hash, Bang, LBracket");
+    assert!(
+        tokens.len() >= 3,
+        "should have at least Hash, Bang, LBracket"
+    );
     assert_eq!(
         tokens[0].kind,
         TokenKind::Hash,
         "first token should be Hash"
     );
-    assert_eq!(tokens[1].kind, TokenKind::Bang, "second token should be Bang");
+    assert_eq!(
+        tokens[1].kind,
+        TokenKind::Bang,
+        "second token should be Bang"
+    );
     assert_eq!(
         tokens[2].kind,
         TokenKind::LBracket,
@@ -51,7 +58,11 @@ fn inner_attr_full_lex() {
         TokenKind::Hash,
         "first token should be Hash"
     );
-    assert_eq!(tokens[1].kind, TokenKind::Bang, "second token should be Bang");
+    assert_eq!(
+        tokens[1].kind,
+        TokenKind::Bang,
+        "second token should be Bang"
+    );
     assert_eq!(
         tokens[2].kind,
         TokenKind::LBracket,

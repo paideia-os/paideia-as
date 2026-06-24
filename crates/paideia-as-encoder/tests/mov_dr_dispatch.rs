@@ -8,8 +8,8 @@
 //! - mov gpr, dr_idx → 0F 21 /r
 
 use paideia_as_encoder::{CodeBuffer, EncodeStats};
-use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand, RegId};
 use paideia_as_ir::InstrMode;
+use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand, RegId};
 use smallvec::smallvec;
 
 #[test]

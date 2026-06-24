@@ -2048,9 +2048,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         let value = if self.at(TokenKind::IntLit) {
             let int_tok = self.expect(TokenKind::IntLit)?;
             let int_text = self.source_text_for_span(int_tok.span);
-            let int_val: i64 = int_text
-                .parse()
-                .unwrap_or(0); // Default to 0 on parse error
+            let int_val: i64 = int_text.parse().unwrap_or(0); // Default to 0 on parse error
 
             // Validate bits attribute
             if name_text == "bits" {
@@ -2089,8 +2087,8 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 .peek()
                 .map(|t| t.span)
                 .unwrap_or_else(|| Span::new(self.file(), 0, 0));
-            let code = DiagnosticCode::new(Category::P, Severity::Error, 240)
-                .expect("valid P0240 code");
+            let code =
+                DiagnosticCode::new(Category::P, Severity::Error, 240).expect("valid P0240 code");
             let diag = Diagnostic::error(code)
                 .message("expected integer, string, or identifier for attribute value")
                 .with_span(span)
@@ -2101,7 +2099,10 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
         self.expect(TokenKind::RBracket)?;
 
-        Ok(ItemAttribute::InnerAttr { name: name_id, value })
+        Ok(ItemAttribute::InnerAttr {
+            name: name_id,
+            value,
+        })
     }
 }
 

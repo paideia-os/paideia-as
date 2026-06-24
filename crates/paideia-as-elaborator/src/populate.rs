@@ -11,7 +11,7 @@
 //! App) so opt passes can start consuming real per-node payloads.
 
 use paideia_as_ir::{
-    CallSideTable, EncodingHint, Instruction, InstructionSideTable, InstrMode, IrArena, IrKind,
+    CallSideTable, EncodingHint, InstrMode, Instruction, InstructionSideTable, IrArena, IrKind,
     IrNodeId, LoadStoreSideTable, Mnemonic, Operand, RegId, Scale, SmallVec, Width as IrWidth,
 };
 

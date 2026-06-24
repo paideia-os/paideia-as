@@ -347,8 +347,8 @@ fn cast_instruction(shape: CastShape) -> Option<Instruction> {
         operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(7))],
         encoding_hint,
         byte_offset_in_text: None,
-            mode: InstrMode::default(),
-        })
+        mode: InstrMode::default(),
+    })
 }
 
 fn shape(src_width: u8, dst_width: u8, src_signed: bool, dst_signed: bool) -> CastShape {

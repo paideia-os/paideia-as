@@ -5,7 +5,7 @@
 //! populates an InstructionSideTable + tracks per-function offsets.
 
 use paideia_as_ir::instruction::{
-    Cond, Instruction, InstructionSideTable, InstrMode, IntWidth, Mnemonic, Operand, RegId,
+    Cond, InstrMode, Instruction, InstructionSideTable, IntWidth, Mnemonic, Operand, RegId,
 };
 use paideia_as_ir::record_layout::{FieldLayout, RecordLayout, RecordTypeId};
 use paideia_as_ir::{
@@ -419,7 +419,11 @@ impl EmitWalker {
     /// Phase 15 m2-002: Get the current instruction mode (Mode64 if stack is empty).
     /// Will be used in m2-002b for scope-aware mode propagation.
     fn current_mode(&self) -> InstrMode {
-        self.state.mode_stack.last().copied().unwrap_or(InstrMode::Mode64)
+        self.state
+            .mode_stack
+            .last()
+            .copied()
+            .unwrap_or(InstrMode::Mode64)
     }
 
     /// Get the set of Lambda IR node IDs that emitted bytecode.
@@ -1631,8 +1635,8 @@ impl EmitWalker {
                 operands,
                 encoding_hint: hint,
                 byte_offset_in_text: None,
-            mode: self.current_mode(),
-        };
+                mode: self.current_mode(),
+            };
             let inst_id = IrNodeId::new(lambda_node_id.get() * 2).expect("cast instr virtual id");
             self.state.instructions.insert(inst_id, inst);
             self.state.estimated_offset += size;
@@ -2239,8 +2243,8 @@ impl EmitWalker {
                                             operands,
                                             encoding_hint: None,
                                             byte_offset_in_text: None,
-            mode: self.current_mode(),
-        };
+                                            mode: self.current_mode(),
+                                        };
 
                                         // Use virtual ID: child_id * 3 + offset to ensure proper sorting
                                         let inst_id = IrNodeId::new(child_id.get() * 3)
@@ -2379,8 +2383,8 @@ impl EmitWalker {
                             operands: test_operands,
                             encoding_hint: None,
                             byte_offset_in_text: None,
-            mode: self.current_mode(),
-        };
+                            mode: self.current_mode(),
+                        };
 
                         self.state.instructions.insert(test_id, test_inst);
                         self.state.estimated_offset += 3;
@@ -2404,8 +2408,8 @@ impl EmitWalker {
                             operands: jz_operands,
                             encoding_hint: None,
                             byte_offset_in_text: None,
-            mode: self.current_mode(),
-        };
+                            mode: self.current_mode(),
+                        };
 
                         self.state.instructions.insert(jz_id, jz_inst);
                         self.state.estimated_offset += 6;
@@ -2449,8 +2453,8 @@ impl EmitWalker {
                                 operands: jmp_operands,
                                 encoding_hint: None,
                                 byte_offset_in_text: None,
-            mode: self.current_mode(),
-        };
+                                mode: self.current_mode(),
+                            };
 
                             self.state.instructions.insert(jmp_id, jmp_inst);
                             self.state.estimated_offset += 5;
@@ -2621,8 +2625,8 @@ impl EmitWalker {
                                             operands,
                                             encoding_hint: None,
                                             byte_offset_in_text: None,
-            mode: self.current_mode(),
-        };
+                                            mode: self.current_mode(),
+                                        };
 
                                         // Use virtual ID: child_id * 3 + offset to ensure proper sorting
                                         let inst_id = IrNodeId::new(child_id.get() * 3)
@@ -3422,8 +3426,8 @@ impl EmitWalker {
                     operands,
                     encoding_hint: None,
                     byte_offset_in_text: None,
-            mode: self.current_mode(),
-        };
+                    mode: self.current_mode(),
+                };
 
                 // Virtual ID: record_cons_id * 10 + field_idx to sort in order.
                 let inst_id = IrNodeId::new(record_cons_id.get() * 10 + field_idx as u32)
@@ -3449,8 +3453,8 @@ impl EmitWalker {
                     operands,
                     encoding_hint: None,
                     byte_offset_in_text: None,
-            mode: self.current_mode(),
-        };
+                    mode: self.current_mode(),
+                };
 
                 // Virtual ID: record_cons_id * 10 + field_idx to sort in order.
                 let inst_id = IrNodeId::new(record_cons_id.get() * 10 + field_idx as u32)
@@ -3560,8 +3564,8 @@ impl EmitWalker {
                 operands: jmp_operands,
                 encoding_hint: None,
                 byte_offset_in_text: None,
-            mode: self.current_mode(),
-        };
+                mode: self.current_mode(),
+            };
 
             self.state.instructions.insert(jmp_id, jmp_inst);
             self.state.estimated_offset += 5; // jmp rel32 is 5 bytes (E9 XX XX XX XX)
@@ -3826,8 +3830,8 @@ impl EmitWalker {
                 operands: cmp_operands,
                 encoding_hint: None,
                 byte_offset_in_text: None,
-            mode: self.current_mode(),
-        };
+                mode: self.current_mode(),
+            };
 
             self.state.instructions.insert(cmp_id, cmp_inst);
             self.state.estimated_offset += 7; // cmp rdi, imm32 is typically 7 bytes (48 81 3F NN NN NN NN)
@@ -3846,8 +3850,8 @@ impl EmitWalker {
                 operands: je_operands,
                 encoding_hint: None,
                 byte_offset_in_text: None,
-            mode: self.current_mode(),
-        };
+                mode: self.current_mode(),
+            };
 
             self.state.instructions.insert(je_id, je_inst);
             self.state.estimated_offset += 6; // jcc rel32 is 6 bytes
@@ -3909,8 +3913,8 @@ impl EmitWalker {
                             operands: SmallVec::new(),
                             encoding_hint: None,
                             byte_offset_in_text: None,
-            mode: self.current_mode(),
-        };
+                            mode: self.current_mode(),
+                        };
 
                         self.state.instructions.insert(nop_id, nop_inst);
                         self.state.estimated_offset += 1;
@@ -3932,8 +3936,8 @@ impl EmitWalker {
                 operands: jmp_end_operands,
                 encoding_hint: None,
                 byte_offset_in_text: None,
-            mode: self.current_mode(),
-        };
+                mode: self.current_mode(),
+            };
 
             self.state.instructions.insert(jmp_end_id, jmp_end_inst);
             self.state.estimated_offset += 5;

@@ -5,8 +5,8 @@
 //! canonical rewrites ported to work with the InstructionSideTable.
 
 use super::{OptDiagSink, OptPass};
-use crate::instruction::{Mnemonic, Operand};
 use crate::IrArena;
+use crate::instruction::{Mnemonic, Operand};
 use crate::node::IrNodeId;
 
 #[cfg(test)]

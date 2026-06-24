@@ -342,7 +342,11 @@ mod tests {
             doc: None,
         };
         match item {
-            ItemData::Structure { items: its, inner_attrs: ia, doc: d } => {
+            ItemData::Structure {
+                items: its,
+                inner_attrs: ia,
+                doc: d,
+            } => {
                 assert_eq!(its.len(), 2);
                 assert_eq!(its[0], item1);
                 assert_eq!(its[1], item2);

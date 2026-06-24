@@ -5,8 +5,8 @@
 use paideia_as_ast::{AstArena, ExprData, NodeKind, StmtData};
 use paideia_as_diagnostics::{SourceMap, Span, VecSink};
 use paideia_as_elaborator::{LocalBindingTable, unsafe_walker::UnsafeWalker};
-use paideia_as_ir::{IrArena, InstrMode};
 use paideia_as_ir::instruction::{IntWidth, Mnemonic};
+use paideia_as_ir::{InstrMode, IrArena};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
