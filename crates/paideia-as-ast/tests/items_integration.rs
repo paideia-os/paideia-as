@@ -59,6 +59,7 @@ fn build_and_walk_full_module_tree() {
         span(),
         ItemData::Structure {
             items: vec![let_x_id, let_y_id],
+            inner_attrs: vec![],
             doc: None,
         },
     );
@@ -71,6 +72,7 @@ fn build_and_walk_full_module_tree() {
             name: module_name,
             sig: None,
             body: structure_id,
+            inner_attrs: vec![],
             doc: None,
         },
     );
@@ -165,6 +167,7 @@ fn functor_with_parameters() {
         span(),
         ItemData::Structure {
             items: vec![],
+            inner_attrs: vec![],
             doc: None,
         },
     );

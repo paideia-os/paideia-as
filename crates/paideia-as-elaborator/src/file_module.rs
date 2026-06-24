@@ -229,6 +229,7 @@ mod tests {
                 name: name_id,
                 sig: None,
                 body: body_id,
+                inner_attrs: vec![],
                 doc: None,
             },
         );
@@ -239,6 +240,7 @@ mod tests {
             span,
             ItemData::Structure {
                 items: vec![module_id],
+                inner_attrs: vec![],
                 doc: None,
             },
         );
@@ -272,6 +274,7 @@ mod tests {
                 name: name_id_1,
                 sig: None,
                 body: body_id_1,
+                inner_attrs: vec![],
                 doc: None,
             },
         );
@@ -285,6 +288,7 @@ mod tests {
                 name: name_id_2,
                 sig: None,
                 body: body_id_2,
+                inner_attrs: vec![],
                 doc: None,
             },
         );
@@ -295,6 +299,7 @@ mod tests {
             span,
             ItemData::Structure {
                 items: vec![module_id_1, module_id_2],
+                inner_attrs: vec![],
                 doc: None,
             },
         );
@@ -327,6 +332,7 @@ mod tests {
                 name: name_id,
                 sig: None,
                 body: body_id,
+                inner_attrs: vec![],
                 doc: None,
             },
         );
@@ -336,6 +342,7 @@ mod tests {
             span,
             ItemData::Structure {
                 items: vec![module_id],
+                inner_attrs: vec![],
                 doc: None,
             },
         );
@@ -368,6 +375,7 @@ mod tests {
             span,
             ItemData::Structure {
                 items: vec![],
+                inner_attrs: vec![],
                 doc: None,
             },
         );

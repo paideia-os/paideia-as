@@ -649,6 +649,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "The #![bits = N] inner attribute specifies the target word size. Valid values are 32 or 64. Specifying 16 emits B1700 (16-bit mode not supported). Other values like #![bits = 99] are invalid. Supply one of the three allowed values, or omit the attribute to use the default."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0240",
+              "id": "P0240",
+              "name": "Invalid #![bits] value",
+              "shortDescription": {
+                "text": "#![bits] requires 32 or 64 (16-bit mode emits B1700)"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "Signature ascription requires the structure to define a named type/val/module that is absent."
               },
               "helpUri": "https://paideia-os.org/diagnostics/M0301",
@@ -1433,13 +1447,13 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "A symbol is marked as undefined (section_index=0xFFFFFFFF) in the symbol table, but no input PAX exports a symbol with the same BLAKE3 name hash. The linker cannot resolve this reference."
+                "text": "The #![bits = 16] inner attribute specifies 16-bit mode, which is not supported in this implementation. PaideiaOS is designed for x86_64 (64-bit) primarily, with 32-bit fallback available. Either use #![bits = 32] or #![bits = 64], or remove the attribute to use the default."
               },
               "helpUri": "https://paideia-os.org/diagnostics/B1700",
               "id": "B1700",
-              "name": "Undefined symbol",
+              "name": "16-bit mode not supported",
               "shortDescription": {
-                "text": "undefined symbol — no exporting PAX provides it"
+                "text": "16-bit architecture not supported; use 32 or 64"
               }
             },
             {

@@ -607,6 +607,7 @@ mod tests {
                 name: name_id,
                 sig: None,
                 body: body_id,
+                inner_attrs: vec![],
                 doc: None,
             },
         );
@@ -616,6 +617,7 @@ mod tests {
                 name,
                 sig,
                 body,
+                inner_attrs: _,
                 doc,
             } => {
                 assert_eq!(*name, name_id);

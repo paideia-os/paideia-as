@@ -11,7 +11,7 @@
 //! - Module body must be either `structure { items }` or `functor (params) -> structure { items }`.
 //! - Only one module per file (M0306 diagnostic emitted for the second module).
 
-use paideia_as_ast::{GenericParam, ItemAttribute, ItemData, NodeId, NodeKind};
+use paideia_as_ast::{AttrValue, GenericParam, ItemAttribute, ItemData, NodeId, NodeKind};
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
 use paideia_as_lexer::TokenKind;
 
@@ -125,11 +125,34 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// Returns the `NodeId` of the synthetic root Structure on success.
     pub fn parse_source_file(&mut self) -> Result<NodeId, ParseError> {
         let mut items = vec![];
+        let mut inner_attrs = vec![];
         let mut module_count = 0;
         let file_span_start = self
             .peek()
             .map(|t| t.span)
             .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+
+        // Parse module-head inner attributes (#![...])
+        while self.at(TokenKind::Hash) && self.peek_bang_bracket() {
+            match self.parse_inner_attribute() {
+                Ok(attr) => inner_attrs.push(attr),
+                Err(_) => {
+                    // Skip the malformed attribute and continue
+                    self.recover_to_one_of(&[
+                        TokenKind::Hash,
+                        TokenKind::KwModule,
+                        TokenKind::KwSignature,
+                        TokenKind::KwLet,
+                        TokenKind::KwEffect,
+                        TokenKind::KwCapability,
+                        TokenKind::KwStruct,
+                        TokenKind::KwEnum,
+                        TokenKind::KwUnsafe,
+                        TokenKind::Eof,
+                    ]);
+                }
+            }
+        }
 
         while !self.at_eof() {
             match self.parse_item() {
@@ -170,12 +193,16 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             }
         }
 
-        // Allocate synthetic root Structure
+        // Allocate synthetic root Structure with inner_attrs
         let root_span = self.peek().map(|t| t.span).unwrap_or(file_span_start);
         let root = self.arena_mut().alloc_item(
             NodeKind::Structure,
             root_span,
-            ItemData::Structure { items, doc: None },
+            ItemData::Structure {
+                items,
+                inner_attrs,
+                doc: None,
+            },
         );
         Ok(root)
     }
@@ -205,7 +232,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     fn peek_beyond_attributes(&self) -> Option<TokenKind> {
         let mut lookahead = 0;
 
-        // Skip any `#[...]` patterns
+        // Skip any `#[...]` or `#![...]` patterns
         loop {
             let tok = self.peek_at(lookahead)?;
 
@@ -215,7 +242,16 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
             lookahead += 1;
             let next = self.peek_at(lookahead)?;
-            if next.kind != TokenKind::LBracket {
+
+            // Skip both `#[...]` (outer attr) and `#![...]` (inner attr)
+            let is_inner = next.kind == TokenKind::Bang;
+            if is_inner {
+                lookahead += 1;
+                let next_after_bang = self.peek_at(lookahead)?;
+                if next_after_bang.kind != TokenKind::LBracket {
+                    break;
+                }
+            } else if next.kind != TokenKind::LBracket {
                 break;
             }
 
@@ -234,6 +270,25 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         }
 
         self.peek_at(lookahead).map(|t| t.kind)
+    }
+
+    /// Check if the next tokens form `#![` (start of an inner attribute).
+    ///
+    /// Returns `true` if the sequence is `Hash` + `Bang` + `LBracket`,
+    /// `false` otherwise (or if we hit EOF).
+    fn peek_bang_bracket(&self) -> bool {
+        if let Some(first) = self.peek_at(0) {
+            if first.kind == TokenKind::Hash {
+                if let Some(second) = self.peek_at(1) {
+                    if second.kind == TokenKind::Bang {
+                        if let Some(third) = self.peek_at(2) {
+                            return third.kind == TokenKind::LBracket;
+                        }
+                    }
+                }
+            }
+        }
+        false
     }
 
     /// Parse a module declaration: `module <Ident> (: <SignatureRef>)? = <ModuleBody>`
@@ -287,6 +342,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 name: name_id,
                 sig,
                 body,
+                inner_attrs: vec![],
                 doc: None,
             },
         );
@@ -322,6 +378,30 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
         self.expect(TokenKind::LBrace)?;
 
+        // Parse scope-head inner attributes (#![...])
+        let mut inner_attrs = vec![];
+        while self.at(TokenKind::Hash) && self.peek_bang_bracket() {
+            match self.parse_inner_attribute() {
+                Ok(attr) => inner_attrs.push(attr),
+                Err(_) => {
+                    // Skip the malformed attribute and continue
+                    self.recover_to_one_of(&[
+                        TokenKind::Hash,
+                        TokenKind::KwModule,
+                        TokenKind::KwSignature,
+                        TokenKind::KwLet,
+                        TokenKind::KwEffect,
+                        TokenKind::KwCapability,
+                        TokenKind::KwStruct,
+                        TokenKind::KwEnum,
+                        TokenKind::KwUnsafe,
+                        TokenKind::RBrace,
+                        TokenKind::Eof,
+                    ]);
+                }
+            }
+        }
+
         let mut items = vec![];
         while !self.at(TokenKind::RBrace) && !self.at_eof() {
             match self.parse_item() {
@@ -353,7 +433,11 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         let node_id = self.arena_mut().alloc_item(
             NodeKind::Structure,
             span,
-            ItemData::Structure { items, doc: None },
+            ItemData::Structure {
+                items,
+                inner_attrs,
+                doc: None,
+            },
         );
         Ok(node_id)
     }
@@ -1933,6 +2017,91 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             span,
             paideia_as_ast::ItemData::Impl(impl_decl),
         ))
+    }
+
+    /// Parse an inner attribute: `#![name = value]`
+    ///
+    /// Expects:
+    /// - Hash (`#`)
+    /// - Bang (`!`)
+    /// - LBracket (`[`)
+    /// - Ident (attribute name)
+    /// - Assign (`=`)
+    /// - Value (Int, String, or Ident)
+    /// - RBracket (`]`)
+    ///
+    /// For `bits` attributes, validates that the value is 16, 32, or 64.
+    /// Returns the parsed ItemAttribute on success.
+    fn parse_inner_attribute(&mut self) -> Result<ItemAttribute, ParseError> {
+        let _hash_span = self.expect(TokenKind::Hash)?.span;
+        self.expect(TokenKind::Bang)?;
+        self.expect(TokenKind::LBracket)?;
+
+        // Parse attribute name
+        let name_tok = self.expect(TokenKind::Ident)?;
+        let name_id = self.arena_mut().alloc(NodeKind::Ident, name_tok.span);
+        let name_text = self.source_text_for_span(name_tok.span).to_string();
+
+        self.expect(TokenKind::Assign)?;
+
+        // Parse attribute value: Int, String, or Ident
+        let value = if self.at(TokenKind::IntLit) {
+            let int_tok = self.expect(TokenKind::IntLit)?;
+            let int_text = self.source_text_for_span(int_tok.span);
+            let int_val: i64 = int_text
+                .parse()
+                .unwrap_or(0); // Default to 0 on parse error
+
+            // Validate bits attribute
+            if name_text == "bits" {
+                if int_val == 16 {
+                    // 16-bit mode is not supported; emit B1700
+                    let code = DiagnosticCode::new(Category::B, Severity::Error, 1700)
+                        .expect("valid B1700 code");
+                    let diag = Diagnostic::error(code)
+                        .message("16-bit architecture not supported; use 32 or 64")
+                        .with_span(int_tok.span)
+                        .finish();
+                    self.emit_diagnostic(diag);
+                } else if int_val != 32 && int_val != 64 {
+                    // Invalid bits value; emit P0240
+                    let code = DiagnosticCode::new(Category::P, Severity::Error, 240)
+                        .expect("valid P0240 code");
+                    let diag = Diagnostic::error(code)
+                        .message("invalid #![bits] value; expected 32 or 64")
+                        .with_span(int_tok.span)
+                        .finish();
+                    self.emit_diagnostic(diag);
+                }
+            }
+
+            AttrValue::Int(int_val)
+        } else if self.at(TokenKind::StringLit) {
+            let str_tok = self.expect(TokenKind::StringLit)?;
+            let str_id = self.arena_mut().alloc(NodeKind::Placeholder, str_tok.span);
+            AttrValue::Str(str_id)
+        } else if self.at(TokenKind::Ident) {
+            let ident_tok = self.expect(TokenKind::Ident)?;
+            let ident_id = self.arena_mut().alloc(NodeKind::Ident, ident_tok.span);
+            AttrValue::Ident(ident_id)
+        } else {
+            let span = self
+                .peek()
+                .map(|t| t.span)
+                .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 240)
+                .expect("valid P0240 code");
+            let diag = Diagnostic::error(code)
+                .message("expected integer, string, or identifier for attribute value")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        };
+
+        self.expect(TokenKind::RBracket)?;
+
+        Ok(ItemAttribute::InnerAttr { name: name_id, value })
     }
 }
 

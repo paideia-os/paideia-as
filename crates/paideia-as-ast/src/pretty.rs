@@ -48,11 +48,17 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
             name,
             sig,
             body,
+            inner_attrs,
             doc,
         } => {
+            let attrs_str = if inner_attrs.is_empty() {
+                "[]".to_string()
+            } else {
+                format!("[{}]", inner_attrs.len())
+            };
             format!(
-                "Module {{ name: {}, sig: {:?}, body: {}, doc: {:?} }}",
-                name, sig, body, doc
+                "Module {{ name: {}, sig: {:?}, body: {}, inner_attrs: {}, doc: {:?} }}",
+                name, sig, body, attrs_str, doc
             )
         }
         ItemData::Signature { name, body, doc } => {
@@ -61,13 +67,18 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 name, body, doc
             )
         }
-        ItemData::Structure { items, doc } => {
+        ItemData::Structure { items, inner_attrs, doc } => {
             let items_str = items
                 .iter()
                 .map(|id| id.to_string())
                 .collect::<Vec<_>>()
                 .join(", ");
-            format!("Structure {{ items: [{}], doc: {:?} }}", items_str, doc)
+            let attrs_str = if inner_attrs.is_empty() {
+                "[]".to_string()
+            } else {
+                format!("[{}]", inner_attrs.len())
+            };
+            format!("Structure {{ items: [{}], inner_attrs: {}, doc: {:?} }}", items_str, attrs_str, doc)
         }
         ItemData::Functor { params, body, doc } => {
             let params_str = params
@@ -939,6 +950,7 @@ mod tests {
             span(),
             ItemData::Structure {
                 items: vec![let_id],
+                inner_attrs: vec![],
                 doc: None,
             },
         );
@@ -950,6 +962,7 @@ mod tests {
                 name: module_name,
                 sig: None,
                 body: structure_id,
+                inner_attrs: vec![],
                 doc: None,
             },
         );

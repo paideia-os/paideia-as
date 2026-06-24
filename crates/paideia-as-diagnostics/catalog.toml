@@ -239,9 +239,18 @@ deprecated = false
 [diagnostic.B1700]
 severity = "error"
 category = "binary"
-title = "Undefined symbol"
-brief = "undefined symbol — no exporting PAX provides it"
-description = "A symbol is marked as undefined (section_index=0xFFFFFFFF) in the symbol table, but no input PAX exports a symbol with the same BLAKE3 name hash. The linker cannot resolve this reference."
+title = "16-bit mode not supported"
+brief = "16-bit architecture not supported; use 32 or 64"
+description = "The #![bits = 16] inner attribute specifies 16-bit mode, which is not supported in this implementation. PaideiaOS is designed for x86_64 (64-bit) primarily, with 32-bit fallback available. Either use #![bits = 32] or #![bits = 64], or remove the attribute to use the default."
+since = "0.11.0"
+deprecated = false
+
+[diagnostic.B1701]
+severity = "error"
+category = "binary"
+title = "Unbound capability"
+brief = "unbound capability — no export matches an import"
+description = "An ImportsSection entry requests a capability (by BLAKE3 name hash), but no PAX's ExportsSection provides a capability with that hash. The linker cannot bind this required capability."
 since = "0.1.0"
 deprecated = false
 
@@ -272,13 +281,13 @@ description = "Phase 8 m1-003: when emitting an ELF object file, the elaboration
 since = "0.13.0"
 deprecated = false
 
-[diagnostic.B1701]
+[diagnostic.P0240]
 severity = "error"
-category = "binary"
-title = "Unbound capability"
-brief = "unbound capability — no export matches an import"
-description = "An ImportsSection entry requests a capability (by BLAKE3 name hash), but no PAX's ExportsSection provides a capability with that hash. The linker cannot bind this required capability."
-since = "0.1.0"
+category = "parser"
+title = "Invalid #![bits] value"
+brief = "#![bits] requires 32 or 64 (16-bit mode emits B1700)"
+description = "The #![bits = N] inner attribute specifies the target word size. Valid values are 32 or 64. Specifying 16 emits B1700 (16-bit mode not supported). Other values like #![bits = 99] are invalid. Supply one of the three allowed values, or omit the attribute to use the default."
+since = "0.11.0"
 deprecated = false
 
 [diagnostic.P0190]

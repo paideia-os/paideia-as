@@ -103,6 +103,7 @@ fn stub_parse(file: FileId, tokens: &[paideia_as_lexer::Token]) -> AstArena {
         zero_span,
         ItemData::Structure {
             items: let_ids,
+            inner_attrs: vec![],
             doc: None,
         },
     );
@@ -114,6 +115,7 @@ fn stub_parse(file: FileId, tokens: &[paideia_as_lexer::Token]) -> AstArena {
             name: mod_name,
             sig: None,
             body: structure,
+            inner_attrs: vec![],
             doc: None,
         },
     );

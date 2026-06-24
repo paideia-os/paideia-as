@@ -6,10 +6,25 @@
 
 use crate::{NodeId, exprs::GenericParam};
 
+/// Value types for inner attributes.
+///
+/// Supports integer literals, string literals, and identifiers
+/// for flexible attribute representation.
+#[derive(Clone, Debug)]
+pub enum AttrValue {
+    /// Integer value (e.g., `#![bits = 32]`).
+    Int(i64),
+    /// String value (e.g., `#![desc = "..."]`).
+    Str(NodeId),
+    /// Identifier value (e.g., `#![mode = Default]`).
+    Ident(NodeId),
+}
+
 /// Attribute applied to an item (e.g., struct, enum, function).
 ///
 /// Attributes customize the behavior of declarations, such as
-/// `#[derive(...)]` which synthesizes trait implementations.
+/// `#[derive(...)]` which synthesizes trait implementations,
+/// or inner attributes like `#![bits = 32]` at module scope.
 #[derive(Clone, Debug)]
 pub enum ItemAttribute {
     /// Derive attribute: `#[derive(Trait1, Trait2, ...)]`
@@ -19,6 +34,15 @@ pub enum ItemAttribute {
     Derive {
         /// List of trait names as Ident nodes referring to traits (e.g., Eq, Hash, Debug).
         trait_names: Vec<NodeId>,
+    },
+    /// Inner attribute: `#![name = value]`
+    ///
+    /// Used for module-level or scope-level configuration (e.g., `#![bits = 32]`).
+    InnerAttr {
+        /// Attribute name (Ident node).
+        name: NodeId,
+        /// Attribute value.
+        value: AttrValue,
     },
 }
 
@@ -83,6 +107,8 @@ pub enum ItemData {
         sig: Option<NodeId>,
         /// Module body (Structure or Functor node).
         body: NodeId,
+        /// Inner attributes (e.g., `#![bits = 32]`) at module scope.
+        inner_attrs: Vec<ItemAttribute>,
         /// Optional documentation comment.
         doc: Option<NodeId>,
     },
@@ -101,6 +127,8 @@ pub enum ItemData {
     Structure {
         /// Item declarations in this structure.
         items: Vec<NodeId>,
+        /// Inner attributes (e.g., `#![bits = 32]`) at structure scope.
+        inner_attrs: Vec<ItemAttribute>,
         /// Optional documentation comment.
         doc: Option<NodeId>,
     },
@@ -250,6 +278,7 @@ mod tests {
             name,
             sig: None,
             body,
+            inner_attrs: vec![],
             doc: None,
         };
         match item {
@@ -257,11 +286,13 @@ mod tests {
                 name: n,
                 sig: s,
                 body: b,
+                inner_attrs: ia,
                 doc: d,
             } => {
                 assert_eq!(n, name);
                 assert!(s.is_none());
                 assert_eq!(b, body);
+                assert!(ia.is_empty());
                 assert!(d.is_none());
             }
             _ => panic!("expected Module variant"),
@@ -307,13 +338,15 @@ mod tests {
         let item2 = NodeId::new(2).unwrap();
         let item = ItemData::Structure {
             items: vec![item1, item2],
+            inner_attrs: vec![],
             doc: None,
         };
         match item {
-            ItemData::Structure { items: its, doc: d } => {
+            ItemData::Structure { items: its, inner_attrs: ia, doc: d } => {
                 assert_eq!(its.len(), 2);
                 assert_eq!(its[0], item1);
                 assert_eq!(its[1], item2);
+                assert!(ia.is_empty());
                 assert!(d.is_none());
             }
             _ => panic!("expected Structure variant"),

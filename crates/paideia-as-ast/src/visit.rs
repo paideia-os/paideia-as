@@ -319,6 +319,7 @@ mod tests {
                 name: name_id,
                 sig: None,
                 body: body_id,
+                inner_attrs: vec![],
                 doc: None,
             },
         );
