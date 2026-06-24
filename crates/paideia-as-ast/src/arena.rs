@@ -730,6 +730,7 @@ mod tests {
             NodeKind::Let,
             span(),
             ItemData::Let {
+                public: false,
                 mutable: false,
                 name: NodeId::new(1).unwrap(),
                 generic_params: vec![],

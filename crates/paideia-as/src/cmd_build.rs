@@ -722,16 +722,19 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
     // Phase-5-m6-005: Symbol name resolution pass.
     // Walk the AST to find Let bindings with actual names, then update the symbol table
     // to use the real binding names instead of "_let_<id>".
+    // B3-004: Also extract the `pub` flag from each Let binding to set STB_GLOBAL.
     {
         let mut name_map: std::collections::HashMap<u32, String> = std::collections::HashMap::new();
+        let mut visibility_map: std::collections::HashMap<u32, bool> = std::collections::HashMap::new();
         let content_ref = source_map.content(file);
 
-        // Walk AST to find all Let bindings and extract their names
+        // Walk AST to find all Let bindings and extract their names and visibility
         for i in 0..arena.len() {
             if let Some(ast_id) = paideia_as_ast::NodeId::new((i + 1) as u32) {
                 if let Some(node) = arena.get(ast_id) {
                     if node.kind == paideia_as_ast::NodeKind::Let {
                         if let Some(paideia_as_ast::ItemData::Let {
+                            public,
                             name: name_id,
                             value: value_id,
                             ..
@@ -747,6 +750,8 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                                     // Map the lambda/value's IR node ID to its binding name
                                     // Since 1-to-1 mapping: ast value_id maps to IR node with same numeric id
                                     name_map.insert(value_id.get(), name_str);
+                                    // Also record the public flag for visibility control
+                                    visibility_map.insert(value_id.get(), *public);
                                 }
                             }
                         }
@@ -755,7 +760,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
             }
         }
 
-        // Now rebuild the symbol table with updated names
+        // Now rebuild the symbol table with updated names and visibility
         if !name_map.is_empty() {
             let old_symbols: Vec<_> = lowering.ir.symbols().iter().cloned().collect();
             lowering.ir.symbols_mut().clear();
@@ -763,9 +768,15 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
             for sym in old_symbols {
                 // Check if this symbol's ir_node.get() is in name_map (i.e., it's a function symbol for a named binding)
                 if let Some(real_name) = name_map.get(&sym.ir_node.get()) {
-                    // Re-insert the symbol with the real name
-                    let updated_sym =
-                        paideia_as_ir::Symbol::new(real_name.clone(), sym.kind, sym.ir_node);
+                    // Extract visibility from the map (default to false if not found)
+                    let is_public = visibility_map.get(&sym.ir_node.get()).copied().unwrap_or(false);
+                    // Re-insert the symbol with the real name and correct visibility
+                    let updated_sym = paideia_as_ir::Symbol::new_with_visibility(
+                        real_name.clone(),
+                        sym.kind,
+                        sym.ir_node,
+                        is_public,
+                    );
                     lowering.ir.symbols_mut().insert(updated_sym);
                 } else {
                     // Symbol has no real name mapping, keep the original

@@ -31,6 +31,7 @@ fn build_and_walk_full_module_tree() {
         NodeKind::Let,
         span(),
         ItemData::Let {
+            public: false,
             mutable: false,
             name: let_x_name,
             generic_params: vec![],
@@ -44,6 +45,7 @@ fn build_and_walk_full_module_tree() {
         NodeKind::Let,
         span(),
         ItemData::Let {
+            public: false,
             mutable: false,
             name: let_y_name,
             generic_params: vec![],

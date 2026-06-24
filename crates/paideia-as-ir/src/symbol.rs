@@ -35,11 +35,30 @@ impl Symbol {
     /// Construct a new symbol.
     #[must_use]
     pub fn new(name: String, kind: SymbolKind, ir_node: IrNodeId) -> Self {
-        // PA10-013: Revert PA10-009's over-broad STB_GLOBAL marking.
-        // Restore local-by-default: only _start and long_mode_entry are global.
+        Self::new_with_visibility(name, kind, ir_node, false)
+    }
+
+    /// Construct a new symbol with explicit visibility control.
+    ///
+    /// # Arguments
+    /// * `name` - Symbol name
+    /// * `kind` - Symbol kind (Function or Object)
+    /// * `ir_node` - IR node ID for offset lookup
+    /// * `public` - If true, symbol is exported as GLOBAL (STB_GLOBAL);
+    ///   if false, symbol is local (STB_LOCAL) unless it matches a hardcoded entry point.
+    #[must_use]
+    pub fn new_with_visibility(
+        name: String,
+        kind: SymbolKind,
+        ir_node: IrNodeId,
+        public: bool,
+    ) -> Self {
+        // PA10-013 + B3-004: Symbol visibility policy.
+        // - If `public: true`, emit as STB_GLOBAL (enabled by `pub` keyword in .pdx).
+        // - Hardcoded entry points (_start, long_mode_entry) are always global.
+        // - Otherwise, emit as STB_LOCAL.
         // B2-003 (paideia-os) requires long_mode_entry to be global for cross-module ljmp.
-        // Long-term fix: add 'pub' modifier for explicit export (filed as v1.1 follow-up).
-        let global = name == "_start" || name == "long_mode_entry";
+        let global = public || name == "_start" || name == "long_mode_entry";
         Self {
             name,
             kind,

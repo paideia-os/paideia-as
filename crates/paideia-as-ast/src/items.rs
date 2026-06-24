@@ -181,8 +181,10 @@ pub enum ItemData {
         doc: Option<NodeId>,
     },
 
-    /// Let binding: `let [mut] Name <T> (: Type)? = Expr`
+    /// Let binding: `[pub] let [mut] Name <T> (: Type)? = Expr`
     Let {
+        /// Whether this binding is public (exported as GLOBAL symbol).
+        public: bool,
         /// Whether this binding is mutable (`let mut`).
         mutable: bool,
         /// Name of the binding (Ident node).
@@ -305,6 +307,7 @@ mod tests {
         let ty = NodeId::new(2).unwrap();
         let value = NodeId::new(3).unwrap();
         let item = ItemData::Let {
+            public: false,
             mutable: false,
             name,
             generic_params: vec![],
@@ -314,6 +317,7 @@ mod tests {
         };
         match item {
             ItemData::Let {
+                public: pub_flag,
                 mutable: mut_flag,
                 name: n,
                 generic_params,
@@ -321,6 +325,7 @@ mod tests {
                 value: v,
                 doc: d,
             } => {
+                assert!(!pub_flag);
                 assert!(!mut_flag);
                 assert_eq!(n, name);
                 assert!(generic_params.is_empty());

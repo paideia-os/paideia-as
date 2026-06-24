@@ -545,6 +545,14 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         let let_tok = self.expect(TokenKind::KwLet)?;
         let span_start = let_tok.span;
 
+        // Check for optional `pub` keyword
+        let public = if self.at(TokenKind::KwPub) {
+            self.bump();
+            true
+        } else {
+            false
+        };
+
         // Check for optional `mut` keyword
         let mutable = if self.at(TokenKind::KwMut) {
             self.bump();
@@ -631,6 +639,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             NodeKind::Let,
             span,
             ItemData::Let {
+                public,
                 mutable,
                 name: name_id,
                 generic_params,
