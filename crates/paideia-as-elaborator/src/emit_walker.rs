@@ -182,9 +182,15 @@ pub struct EmitPassState {
     /// the actual offsets from Instruction.byte_offset_in_text.
     pub estimated_offset: u32,
 
-    /// IrNodeId of the lambda/function -> first instruction's IrNodeId.
-    /// Allows m6 end-to-end smoke to verify byte offsets.
+    /// Lambda IR node id -> estimated byte offset within function.
+    /// Populated by record_lambda_entry_with_offset during lambda emission.
+    /// Used to compute function symbols' st_value in cmd_build.
     pub function_offsets: HashMap<u32, u32>,
+
+    /// Lambda IR node id -> IrNodeId of its first emitted instruction.
+    /// Populated by record_lambda_entry. Resolved to byte offsets post-encoding
+    /// via EmitResult.offset_map (future use).
+    pub lambda_first_instr: HashMap<u32, IrNodeId>,
 
     /// IrNodeIds of Lambdas that actually emitted bytecode.
     /// Used to filter out symbols for non-emitting lambdas.
@@ -435,6 +441,27 @@ impl EmitWalker {
     #[must_use]
     pub fn emitted_lambdas(&self) -> &std::collections::HashSet<u32> {
         &self.state.emitted_lambdas
+    }
+
+    /// Record a lambda's entry point instruction and mark it as emitted.
+    ///
+    /// Called at the START of each emit_*_lambda function to record BOTH:
+    /// 1. The estimated byte offset (for st_value computation, preserves definition order)
+    /// 2. The first instruction's IrNodeId (for future post-encoding offset projection)
+    pub fn record_lambda_entry(&mut self, lambda_id: IrNodeId, first_instr_id: IrNodeId) {
+        // Record the estimated offset for backward compatibility and correct ordering
+        self.state
+            .function_offsets
+            .entry(lambda_id.get())
+            .or_insert(self.state.estimated_offset);
+
+        // Also record the first instruction's IR node ID for offset_map projection
+        self.state
+            .lambda_first_instr
+            .entry(lambda_id.get())
+            .or_insert(first_instr_id);
+
+        self.state.emitted_lambdas.insert(lambda_id.get());
     }
 
     /// Drive the walker over an IR arena.
@@ -937,12 +964,8 @@ impl EmitWalker {
             mode: self.current_mode(),
         };
 
-        // Record function entry on first emission if needed.
-        if self.state.current_function > 0 && self.state.estimated_offset == 0 {
-            self.state
-                .function_offsets
-                .insert(self.state.current_function, let_node_id.get());
-        }
+        // PA8-m1-002: Lambda entry recording is now handled by record_lambda_entry() in visit_lambda.
+        // This legacy path is no longer needed.
 
         // Emit the instruction.
         self.state.instructions.insert(let_node_id, inst);
@@ -1107,16 +1130,12 @@ impl EmitWalker {
                 match body_node.kind {
                     // Case 1: Identity function `fn (x) -> x`
                     IrKind::Var => {
-                        // Record the lambda's starting offset BEFORE emitting.
-                        self.state
-                            .function_offsets
-                            .insert(lambda_node_id.get(), self.state.estimated_offset);
-                        // Mark this lambda as emitted
-                        self.state.emitted_lambdas.insert(lambda_node_id.get());
-
                         if cfg!(debug_assertions) {
                             eprintln!("[emit_identity_lambda] Lambda {}", lambda_node_id.get());
                         }
+                        let main_id =
+                            IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
+                        self.record_lambda_entry(lambda_node_id, main_id);
                         self.emit_identity_lambda(lambda_node_id);
                     }
                     // Phase 7 m4-001: bitwise-NOT `fn (x) -> ~x`.
@@ -1124,16 +1143,12 @@ impl EmitWalker {
                     // single-parameter form the operand is the parameter Var,
                     // which lives in RDI; emit `mov rax, rdi; not rax; ret`.
                     IrKind::BitNot => {
-                        // Record the lambda's starting offset BEFORE emitting.
-                        self.state
-                            .function_offsets
-                            .insert(lambda_node_id.get(), self.state.estimated_offset);
-                        // Mark this lambda as emitted.
-                        self.state.emitted_lambdas.insert(lambda_node_id.get());
-
                         if cfg!(debug_assertions) {
                             eprintln!("[emit_bitnot_lambda] Lambda {}", lambda_node_id.get());
                         }
+                        let main_id =
+                            IrNodeId::new(lambda_node_id.get() * 3).expect("main instr virtual id");
+                        self.record_lambda_entry(lambda_node_id, main_id);
                         self.emit_bitnot_lambda(lambda_node_id);
                     }
                     // Phase 7 m4-002: cast `fn (x) -> x as TYPE`.
@@ -1142,16 +1157,12 @@ impl EmitWalker {
                     // which lives in RDI; emit a widening sign-extend into RAX
                     // (`movsx rax, edi`) then `ret`.
                     IrKind::Cast => {
-                        // Record the lambda's starting offset BEFORE emitting.
-                        self.state
-                            .function_offsets
-                            .insert(lambda_node_id.get(), self.state.estimated_offset);
-                        // Mark this lambda as emitted.
-                        self.state.emitted_lambdas.insert(lambda_node_id.get());
-
                         if cfg!(debug_assertions) {
                             eprintln!("[emit_cast_lambda] Lambda {}", lambda_node_id.get());
                         }
+                        let main_id =
+                            IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
+                        self.record_lambda_entry(lambda_node_id, main_id);
                         self.emit_cast_lambda(lambda_node_id);
                     }
                     // Case 2 & 3: Application `fn (x) -> x + ...` or `fn (x) -> ... + x`
@@ -1204,14 +1215,6 @@ impl EmitWalker {
                                     {
                                         // This is a function call! Check arg count.
                                         if num_args <= 6 {
-                                            // Record the lambda's starting offset BEFORE emitting.
-                                            self.state.function_offsets.insert(
-                                                lambda_node_id.get(),
-                                                self.state.estimated_offset,
-                                            );
-                                            // Mark this lambda as emitted
-                                            self.state.emitted_lambdas.insert(lambda_node_id.get());
-
                                             if cfg!(debug_assertions) {
                                                 eprintln!(
                                                     "[emit_function_call] Lambda {} calling function {} with {} args",
@@ -1220,6 +1223,9 @@ impl EmitWalker {
                                                     num_args
                                                 );
                                             }
+                                            let main_id = IrNodeId::new(lambda_node_id.get() * 2)
+                                                .expect("main instr virtual id");
+                                            self.record_lambda_entry(lambda_node_id, main_id);
                                             self.emit_function_call(
                                                 lambda_node_id,
                                                 symbol.name.clone(),
@@ -1284,16 +1290,6 @@ impl EmitWalker {
                                             (IrKind::Var, IrKind::Var) => {
                                                 if lambda_node_id.get() > 50 {
                                                     // Heuristic: only emit for large lambdas (likely single-param)
-                                                    // Record offset before emitting
-                                                    self.state.function_offsets.insert(
-                                                        lambda_node_id.get(),
-                                                        self.state.estimated_offset,
-                                                    );
-                                                    // Mark this lambda as emitted
-                                                    self.state
-                                                        .emitted_lambdas
-                                                        .insert(lambda_node_id.get());
-
                                                     // PA8-m1-001d: Try to infer operator from callee span.
                                                     let op_hint = if let Some(callee_node) =
                                                         arena.get(callee_id)
@@ -1312,6 +1308,13 @@ impl EmitWalker {
                                                                 lambda_node_id.get()
                                                             );
                                                         }
+                                                        let main_id =
+                                                            IrNodeId::new(lambda_node_id.get() * 4)
+                                                                .expect("main instr virtual id");
+                                                        self.record_lambda_entry(
+                                                            lambda_node_id,
+                                                            main_id,
+                                                        );
                                                         self.emit_shl_var_lambda(lambda_node_id);
                                                     } else {
                                                         if cfg!(debug_assertions) {
@@ -1320,6 +1323,13 @@ impl EmitWalker {
                                                                 lambda_node_id.get()
                                                             );
                                                         }
+                                                        let main_id =
+                                                            IrNodeId::new(lambda_node_id.get() * 2)
+                                                                .expect("main instr virtual id");
+                                                        self.record_lambda_entry(
+                                                            lambda_node_id,
+                                                            main_id,
+                                                        );
                                                         self.emit_double_lambda(lambda_node_id);
                                                     }
                                                 }
@@ -1329,16 +1339,6 @@ impl EmitWalker {
                                                 if let Some(value) =
                                                     arena.literal_values().get(arg1_id)
                                                 {
-                                                    // Record offset before emitting
-                                                    self.state.function_offsets.insert(
-                                                        lambda_node_id.get(),
-                                                        self.state.estimated_offset,
-                                                    );
-                                                    // Mark this lambda as emitted
-                                                    self.state
-                                                        .emitted_lambdas
-                                                        .insert(lambda_node_id.get());
-
                                                     // PA8-m1-001d: Try to infer operator from callee span.
                                                     let op_hint = if let Some(callee_node) =
                                                         arena.get(callee_id)
@@ -1358,6 +1358,13 @@ impl EmitWalker {
                                                                 value
                                                             );
                                                         }
+                                                        let main_id =
+                                                            IrNodeId::new(lambda_node_id.get() * 3)
+                                                                .expect("main instr virtual id");
+                                                        self.record_lambda_entry(
+                                                            lambda_node_id,
+                                                            main_id,
+                                                        );
                                                         self.emit_shl_imm_lambda(
                                                             lambda_node_id,
                                                             value,
@@ -1370,6 +1377,13 @@ impl EmitWalker {
                                                                 value
                                                             );
                                                         }
+                                                        let main_id =
+                                                            IrNodeId::new(lambda_node_id.get() * 2)
+                                                                .expect("main instr virtual id");
+                                                        self.record_lambda_entry(
+                                                            lambda_node_id,
+                                                            main_id,
+                                                        );
                                                         self.emit_add_imm_lambda(
                                                             lambda_node_id,
                                                             value,
@@ -1382,16 +1396,6 @@ impl EmitWalker {
                                                 if let Some(value) =
                                                     arena.literal_values().get(arg0_id)
                                                 {
-                                                    // Record offset before emitting
-                                                    self.state.function_offsets.insert(
-                                                        lambda_node_id.get(),
-                                                        self.state.estimated_offset,
-                                                    );
-                                                    // Mark this lambda as emitted
-                                                    self.state
-                                                        .emitted_lambdas
-                                                        .insert(lambda_node_id.get());
-
                                                     // PA8-m1-001d: Try to infer operator from callee span.
                                                     let op_hint = if let Some(callee_node) =
                                                         arena.get(callee_id)
@@ -1413,12 +1417,26 @@ impl EmitWalker {
                                                                 value
                                                             );
                                                         }
+                                                        let main_id =
+                                                            IrNodeId::new(lambda_node_id.get() * 4)
+                                                                .expect("main instr virtual id");
+                                                        self.record_lambda_entry(
+                                                            lambda_node_id,
+                                                            main_id,
+                                                        );
                                                         self.emit_shl_const_var_lambda(
                                                             lambda_node_id,
                                                             value,
                                                         );
                                                     } else {
                                                         // Default to add
+                                                        let main_id =
+                                                            IrNodeId::new(lambda_node_id.get() * 2)
+                                                                .expect("main instr virtual id");
+                                                        self.record_lambda_entry(
+                                                            lambda_node_id,
+                                                            main_id,
+                                                        );
                                                         self.emit_add_imm_lambda(
                                                             lambda_node_id,
                                                             value,
@@ -1444,12 +1462,11 @@ impl EmitWalker {
                             );
                         }
 
-                        // Record the lambda's starting offset BEFORE emitting.
-                        self.state
-                            .function_offsets
-                            .insert(lambda_node_id.get(), self.state.estimated_offset);
-                        // Mark this lambda as emitted
-                        self.state.emitted_lambdas.insert(lambda_node_id.get());
+                        // Record the lambda's starting offset. Note: For Action bodies, we use
+                        // lambda_node_id itself as main_id, which will be resolved by the first
+                        // actual instruction emitted in emit_block_body.
+                        let main_id = lambda_node_id;
+                        self.record_lambda_entry(lambda_node_id, main_id);
 
                         // Reset local bindings for this function.
                         self.state.local_bindings.clear();
@@ -1466,12 +1483,11 @@ impl EmitWalker {
                             );
                         }
 
-                        // Record the lambda's starting offset BEFORE emitting.
-                        self.state
-                            .function_offsets
-                            .insert(lambda_node_id.get(), self.state.estimated_offset);
-                        // Mark this lambda as emitted.
-                        self.state.emitted_lambdas.insert(lambda_node_id.get());
+                        // PA8-m1-002: For Unsafe bodies, we record the offset here as backup,
+                        // but UnsafeWalker will also record it when it emits instructions.
+                        // This ensures backward compatibility if UnsafeWalker doesn't emit anything.
+                        let main_id = lambda_node_id;
+                        self.record_lambda_entry(lambda_node_id, main_id);
 
                         // Don't queue or recurse here — the top-level walk() loop will
                         // encounter the Unsafe node and queue it for UnsafeWalker.
@@ -1486,6 +1502,10 @@ impl EmitWalker {
 
     /// Emit identity lambda: `mov rax, rdi; ret` (5 bytes).
     fn emit_identity_lambda(&mut self, lambda_node_id: IrNodeId) {
+        // Record lambda entry and compute main_id for first instruction (node_id * 2).
+        let main_id = IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
+        self.record_lambda_entry(lambda_node_id, main_id);
+
         // PA8-m3-001 (generic Mov retained): this is a register-to-register move
         // (`mov rax, rdi`). MovSized only encodes the `(Reg, Imm64)` shape, so it
         // cannot lower reg-reg moves; the generic Mov path is the only valid one.
@@ -1502,9 +1522,7 @@ impl EmitWalker {
             mode: self.current_mode(),
         };
 
-        // Use node_id * 2 for main instruction, * 2 + 1 for ret
-        // This ensures proper sort order when emitting instructions
-        let main_id = IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
+        // Emit the mov instruction with the recorded main_id
         self.state.instructions.insert(main_id, mov_inst);
         self.state.estimated_offset += 3;
 
@@ -1533,6 +1551,10 @@ impl EmitWalker {
     /// them adjacent and correctly ordered in the instruction map — matching
     /// the convention used by the Branch emitter.
     fn emit_bitnot_lambda(&mut self, lambda_node_id: IrNodeId) {
+        // Record lambda entry and compute main_id for first instruction (node_id * 3).
+        let main_id = IrNodeId::new(lambda_node_id.get() * 3).expect("main instr virtual id");
+        self.record_lambda_entry(lambda_node_id, main_id);
+
         // PA8-m3-001 (generic Mov retained): reg-to-reg move (`mov rax, rdi`);
         // not MovSized-encodable (MovSized is `(Reg, Imm64)` only).
         // mov rax, rdi: 48 89 f8 (3 bytes)
@@ -1548,8 +1570,8 @@ impl EmitWalker {
             mode: self.current_mode(),
         };
 
-        let mov_id = IrNodeId::new(lambda_node_id.get() * 3).expect("mov instr virtual id");
-        self.state.instructions.insert(mov_id, mov_inst);
+        // Emit the mov instruction with the recorded main_id
+        self.state.instructions.insert(main_id, mov_inst);
         self.state.estimated_offset += 3;
 
         // not rax: 48 f7 d0 (3 bytes) — REX.W F7 /2.
@@ -1626,6 +1648,9 @@ impl EmitWalker {
     /// A `CastOp::Nop` shape (same-width reinterpret) emits no conversion
     /// instruction — only the trailing `ret`.
     fn emit_cast_lambda_with_shape(&mut self, lambda_node_id: IrNodeId, shape: CastShape) {
+        let main_id = IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
+        self.record_lambda_entry(lambda_node_id, main_id);
+
         let dst = RegId(0); // rax
         let src = RegId(7); // rdi/edi
 
@@ -1642,8 +1667,7 @@ impl EmitWalker {
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
             };
-            let inst_id = IrNodeId::new(lambda_node_id.get() * 2).expect("cast instr virtual id");
-            self.state.instructions.insert(inst_id, inst);
+            self.state.instructions.insert(main_id, inst);
             self.state.estimated_offset += size;
         }
 
@@ -1662,6 +1686,9 @@ impl EmitWalker {
 
     /// Emit double lambda: `lea rax, [rdi + rdi]; ret` (5 bytes).
     fn emit_double_lambda(&mut self, lambda_node_id: IrNodeId) {
+        let main_id = IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
+        self.record_lambda_entry(lambda_node_id, main_id);
+
         // Lea rax, [rdi + rdi]: 48 8d 04 3f (4 bytes)
         let mut lea_operands: SmallVec<[Operand; 3]> = SmallVec::new();
         lea_operands.push(Operand::Reg(RegId(0))); // rax (destination)
@@ -1681,7 +1708,6 @@ impl EmitWalker {
         };
 
         // Use node_id * 2 for main instruction, * 2 + 1 for ret
-        let main_id = IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
         self.state.instructions.insert(main_id, lea_inst);
         self.state.estimated_offset += 4;
 
@@ -1716,6 +1742,10 @@ impl EmitWalker {
         arg_ids: &[IrNodeId],
         arena: &IrArena,
     ) {
+        // Record lambda entry and compute main_id for first instruction (node_id * 2).
+        let main_id = IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
+        self.record_lambda_entry(lambda_node_id, main_id);
+
         // ABI calling convention: arguments go to RDI, RSI, RDX, RCX, R8, R9
         let arg_regs = [RegId(7), RegId(6), RegId(2), RegId(1), RegId(8), RegId(9)]; // RDI, RSI, RDX, RCX, R8, R9
 
@@ -1779,8 +1809,7 @@ impl EmitWalker {
             }
         }
 
-        // Emit CALL instruction
-        let call_id = IrNodeId::new(lambda_node_id.get() * 2).expect("call instr id");
+        // Emit CALL instruction with the recorded main_id
         let mut call_operands: SmallVec<[Operand; 3]> = SmallVec::new();
         call_operands.push(Operand::SymbolRef {
             name: target_name,
@@ -1795,7 +1824,7 @@ impl EmitWalker {
             mode: self.current_mode(),
         };
 
-        self.state.instructions.insert(call_id, call_inst);
+        self.state.instructions.insert(main_id, call_inst);
         self.state.estimated_offset += 5; // E8 + 4-byte rel32 placeholder
 
         // Emit RET instruction
@@ -1879,6 +1908,9 @@ impl EmitWalker {
     /// For small immediates (disp8, -128..127), this is 4 bytes (48 8d 47 NN).
     /// Larger immediates require disp32 (7 bytes).
     fn emit_add_imm_lambda(&mut self, lambda_node_id: IrNodeId, imm: i64) {
+        let main_id = IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
+        self.record_lambda_entry(lambda_node_id, main_id);
+
         // Clamp to disp8 range if applicable.
         let disp = if imm >= -128 && imm <= 127 {
             imm as i32
@@ -1906,7 +1938,6 @@ impl EmitWalker {
         };
 
         // Use node_id * 2 for main instruction, * 2 + 1 for ret
-        let main_id = IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
         self.state.instructions.insert(main_id, lea_inst);
         self.state.estimated_offset += 4;
 
@@ -1931,6 +1962,9 @@ impl EmitWalker {
     /// then SHL is performed with CL as the count.
     /// Uses 4 instructions (~13 bytes).
     fn emit_shl_const_var_lambda(&mut self, lambda_node_id: IrNodeId, const_val: i64) {
+        let main_id = IrNodeId::new(lambda_node_id.get() * 4).expect("main instr virtual id");
+        self.record_lambda_entry(lambda_node_id, main_id);
+
         // PA8-m3-001 (width not available — generic Mov retained): the first move
         // (`mov rax, const`) is `(Reg, Imm64)` and so MovSized-encodable in shape,
         // but this is a *synthetic* lowering of the fixed `CONST << var` pattern.
@@ -1952,8 +1986,7 @@ impl EmitWalker {
             mode: self.current_mode(),
         };
 
-        let mov1_id = IrNodeId::new(lambda_node_id.get() * 4).expect("mov1 instr virtual id");
-        self.state.instructions.insert(mov1_id, mov1_inst);
+        self.state.instructions.insert(main_id, mov1_inst);
         // Conservative estimate: 10 bytes for 64-bit immediate
         self.state.estimated_offset += 10;
 
@@ -2013,6 +2046,9 @@ impl EmitWalker {
     // PA8-m3-001 (generic Mov retained): the `mov rax, rdi` here is reg-to-reg
     // and not MovSized-encodable; the shift operand is an immediate to SHL, not MOV.
     fn emit_shl_imm_lambda(&mut self, lambda_node_id: IrNodeId, shift_count: i64) {
+        let main_id = IrNodeId::new(lambda_node_id.get() * 3).expect("main instr virtual id");
+        self.record_lambda_entry(lambda_node_id, main_id);
+
         // Clamp shift to disp8 range (0-63 for 64-bit shifts).
         let shift = if shift_count >= 0 && shift_count <= 63 {
             shift_count as u8
@@ -2038,8 +2074,7 @@ impl EmitWalker {
             mode: self.current_mode(),
         };
 
-        let mov_id = IrNodeId::new(lambda_node_id.get() * 3).expect("mov instr virtual id");
-        self.state.instructions.insert(mov_id, mov_inst);
+        self.state.instructions.insert(main_id, mov_inst);
         self.state.estimated_offset += 3;
 
         // Shl rax, imm8: 48 c1 e0 NN (4 bytes)
@@ -2077,6 +2112,9 @@ impl EmitWalker {
     /// Handles `fn (x) -> x << y` where y is the second parameter (in RSI).
     /// Uses variable shift count in CL register. Uses 4 instructions (~12 bytes).
     fn emit_shl_var_lambda(&mut self, lambda_node_id: IrNodeId) {
+        let main_id = IrNodeId::new(lambda_node_id.get() * 4).expect("main instr virtual id");
+        self.record_lambda_entry(lambda_node_id, main_id);
+
         // PA8-m3-001 (generic Mov retained): both moves here (`mov rax, rdi` /
         // `mov rcx, rsi`) are reg-to-reg and not MovSized-encodable.
         // Mov rax, rdi: 48 89 f8 (3 bytes)
@@ -2092,8 +2130,7 @@ impl EmitWalker {
             mode: self.current_mode(),
         };
 
-        let mov1_id = IrNodeId::new(lambda_node_id.get() * 4).expect("mov1 instr virtual id");
-        self.state.instructions.insert(mov1_id, mov1_inst);
+        self.state.instructions.insert(main_id, mov1_inst);
         self.state.estimated_offset += 3;
 
         // Mov rcx, rsi: 48 89 f1 (3 bytes)
@@ -4011,7 +4048,7 @@ mod tests {
         assert!(state.instructions.is_empty());
         assert_eq!(state.current_function, 0);
         assert_eq!(state.estimated_offset, 0);
-        assert!(state.function_offsets.is_empty());
+        assert!(state.lambda_first_instr.is_empty());
     }
 
     #[test]

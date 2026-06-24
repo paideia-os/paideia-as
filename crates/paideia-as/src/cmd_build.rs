@@ -1187,7 +1187,11 @@ fn build_elf_object(
 
     // Phase-5-m5-003: Emit real symbols from SymbolTable.
     // Iterate over arena.symbols().iter() and emit one symbol per entry.
-    let function_offsets = &emit_walker.state().function_offsets;
+    // PA8-m1-002: Lambdas' estimated offsets are recorded during emission and should be
+    // propagated directly to function symbols. The old function_offsets approach used
+    // estimated_offset at emission time, which preserves definition order.
+    // We keep this behavior for backward compatibility and correctness.
+    let function_offsets = emit_walker.state().function_offsets.clone();
     let _emitted_lambdas = emit_walker.emitted_lambdas();
     let mut emitted_any_symbol = false;
 
@@ -1216,13 +1220,29 @@ fn build_elf_object(
                         (off, (end - off) as u64)
                     }
                     None => {
-                        eprintln!(
-                            "[PA8-m1-002] warning: function symbol `{}` (ir_node {}) has no \
-                             function_offsets entry — emitting with st_value=0, st_size=0",
-                            symbol.name,
-                            symbol.ir_node.get()
-                        );
-                        (0u32, 0u64)
+                        // PA8-m1-002: Check if this lambda actually emitted bytecode.
+                        // If it's in emitted_lambdas, it SHOULD have a recorded offset — that's an error.
+                        // If it's NOT in emitted_lambdas, it didn't emit anything (unsupported shape),
+                        // so we use (0, 0) as a placeholder.
+                        if _emitted_lambdas.contains(&symbol.ir_node.get()) {
+                            return Err(BuildError::Emitter {
+                                message: format!(
+                                    "PA8-m1-002: function symbol `{}` (ir_node {}) has no \
+                                     recorded offset in function_offsets — \
+                                     this lambda emitted but offset was not recorded",
+                                    symbol.name,
+                                    symbol.ir_node.get()
+                                ),
+                            });
+                        } else {
+                            // Lambda didn't emit (unsupported shape); use placeholder
+                            eprintln!(
+                                "[PA8-m1-002] info: function symbol `{}` (ir_node {}) did not emit bytecode",
+                                symbol.name,
+                                symbol.ir_node.get()
+                            );
+                            (0u32, 0u64)
+                        }
                     }
                 };
 
@@ -1853,9 +1873,9 @@ mod tests {
         assert!(
             emit_walker
                 .state()
-                .function_offsets
+                .lambda_first_instr
                 .contains_key(&lambda_id.get()),
-            "lambda offset should be recorded"
+            "lambda entry point should be recorded"
         );
     }
 
