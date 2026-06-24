@@ -3248,6 +3248,119 @@ mod tests {
         assert_eq!(instr.mnemonic(), IcedMnem::Jmp);
     }
 
+    #[test]
+    fn encode_far_jmp_imm_sym_produces_abs32_reloc_mode64() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::FarJmp,
+            operands: smallvec::smallvec![
+                Operand::Imm64(0x18), // selector
+                Operand::SymbolRef {
+                    name: "long_mode_entry".to_string(),
+                    addend: 0,
+                }
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::Mode64,
+        };
+
+        let mut stats = EncodeStats::new();
+        let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expect: EA 00 00 00 00 18 00 (7 bytes)
+        // EA = opcode
+        // 00 00 00 00 = placeholder for imm32 offset (relocation target)
+        // 18 00 = imm16 selector (0x18 in little-endian)
+        assert_eq!(buf.as_slice(), &[0xEA, 0x00, 0x00, 0x00, 0x00, 0x18, 0x00]);
+
+        // Verify relocation site
+        assert_eq!(output.reloc_sites.len(), 1);
+        assert_eq!(output.reloc_sites[0].byte_offset, 1);
+        assert_eq!(output.reloc_sites[0].symbol, "long_mode_entry");
+        assert_eq!(output.reloc_sites[0].kind, RelocKind::Abs32);
+        assert_eq!(output.reloc_sites[0].addend, 0);
+    }
+
+    #[test]
+    fn encode_far_jmp_imm_sym_with_addend_produces_abs32_reloc() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::FarJmp,
+            operands: smallvec::smallvec![
+                Operand::Imm64(0x20), // selector
+                Operand::SymbolRef {
+                    name: "kernel_entry".to_string(),
+                    addend: 16,
+                }
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::Mode32,
+        };
+
+        let mut stats = EncodeStats::new();
+        let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expect: EA 00 00 00 00 20 00 (7 bytes) — same byte form in Mode32 and Mode64
+        assert_eq!(buf.as_slice(), &[0xEA, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00]);
+
+        // Verify relocation site
+        assert_eq!(output.reloc_sites.len(), 1);
+        assert_eq!(output.reloc_sites[0].byte_offset, 1);
+        assert_eq!(output.reloc_sites[0].symbol, "kernel_entry");
+        assert_eq!(output.reloc_sites[0].kind, RelocKind::Abs32);
+        assert_eq!(output.reloc_sites[0].addend, 16); // addend passed through unchanged
+    }
+
+    #[test]
+    fn encode_far_jmp_imm_sym_reloc_agnostic_to_mode() {
+        // Mode32 and Mode64 must emit identical bytes for ljmp selector:symbol
+        let inst_mode32 = Instruction {
+            mnemonic: Mnemonic::FarJmp,
+            operands: smallvec::smallvec![
+                Operand::Imm64(0x18),
+                Operand::SymbolRef {
+                    name: "entry".to_string(),
+                    addend: 0,
+                }
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::Mode32,
+        };
+
+        let inst_mode64 = Instruction {
+            mnemonic: Mnemonic::FarJmp,
+            operands: smallvec::smallvec![
+                Operand::Imm64(0x18),
+                Operand::SymbolRef {
+                    name: "entry".to_string(),
+                    addend: 0,
+                }
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::Mode64,
+        };
+
+        let mut buf_mode32 = CodeBuffer::new();
+        let mut buf_mode64 = CodeBuffer::new();
+        let mut stats = EncodeStats::new();
+
+        encode_instruction(&inst_mode32, &mut buf_mode32, &mut stats)
+            .expect("Mode32 encoding failed");
+        encode_instruction(&inst_mode64, &mut buf_mode64, &mut stats)
+            .expect("Mode64 encoding failed");
+
+        // Both must produce the same bytes (EA selector:offset form is mode-agnostic)
+        assert_eq!(buf_mode32.as_slice(), buf_mode64.as_slice());
+        assert_eq!(
+            buf_mode32.as_slice(),
+            &[0xEA, 0x00, 0x00, 0x00, 0x00, 0x18, 0x00]
+        );
+    }
+
     // ── Phase-5 m5-002: SymbolRef tests ───────────────────────────────
 
     #[test]
