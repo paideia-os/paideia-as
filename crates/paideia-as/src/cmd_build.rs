@@ -746,7 +746,8 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
     // B3-004: Also extract the `pub` flag from each Let binding to set STB_GLOBAL.
     {
         let mut name_map: std::collections::HashMap<u32, String> = std::collections::HashMap::new();
-        let mut visibility_map: std::collections::HashMap<u32, bool> = std::collections::HashMap::new();
+        let mut visibility_map: std::collections::HashMap<u32, bool> =
+            std::collections::HashMap::new();
         let content_ref = source_map.content(file);
 
         // Walk AST to find all Let bindings and extract their names and visibility
@@ -790,7 +791,10 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                 // Check if this symbol's ir_node.get() is in name_map (i.e., it's a function symbol for a named binding)
                 if let Some(real_name) = name_map.get(&sym.ir_node.get()) {
                     // Extract visibility from the map (default to false if not found)
-                    let is_public = visibility_map.get(&sym.ir_node.get()).copied().unwrap_or(false);
+                    let is_public = visibility_map
+                        .get(&sym.ir_node.get())
+                        .copied()
+                        .unwrap_or(false);
                     // Preserve PA10-013 auto-global rule for _start + long_mode_entry.
                     let auto_global = real_name == "_start" || real_name == "long_mode_entry";
                     let visibility = if is_public || auto_global {

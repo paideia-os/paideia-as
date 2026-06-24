@@ -251,6 +251,8 @@ pub fn encode_instruction(
         Mnemonic::Movzx => encode_movzx(inst, buf),
         Mnemonic::Movsx => encode_movsx(inst, buf),
         Mnemonic::Not => encode_not(inst, buf),
+        Mnemonic::Push => encode_push(inst, buf),
+        Mnemonic::Pop => encode_pop(inst, buf),
         Mnemonic::MovSized { width } => encode_mov_sized(inst, buf, *width),
         // Phase 8 m1-001d: shift operations
         Mnemonic::Shl => encode_shl(inst, buf),
@@ -325,6 +327,46 @@ fn encode_not(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
         }
         _ => Err(EncodeError::OperandShape {
             mnemonic: Mnemonic::Not,
+        }),
+    }
+}
+
+/// Phase R9 m2-001 (PA-R9-001): Encode push 64-bit register instruction.
+/// Expects exactly one register operand. Rejects Mode32. Emits via `push_reg64`.
+fn encode_push(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    // Phase R9 m2-001: reject Mode32
+    if inst.mode == InstrMode::Mode32 {
+        return Err(EncodeError::Unsupported(
+            "E0020: push r64 not supported in 32-bit mode",
+        ));
+    }
+    match inst.operands.as_slice() {
+        [Operand::Reg(src)] => {
+            push_reg64(buf, reg64_from(*src)?);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Push,
+        }),
+    }
+}
+
+/// Phase R9 m2-001 (PA-R9-001): Encode pop 64-bit register instruction.
+/// Expects exactly one register operand. Rejects Mode32. Emits via `pop_reg64`.
+fn encode_pop(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    // Phase R9 m2-001: reject Mode32
+    if inst.mode == InstrMode::Mode32 {
+        return Err(EncodeError::Unsupported(
+            "E0021: pop r64 not supported in 32-bit mode",
+        ));
+    }
+    match inst.operands.as_slice() {
+        [Operand::Reg(dst)] => {
+            pop_reg64(buf, reg64_from(*dst)?);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Pop,
         }),
     }
 }
@@ -5117,5 +5159,195 @@ mod jcc_tests {
         assert_eq!(reloc.symbol, "kernel_entry");
         assert_eq!(reloc.kind, RelocKind::Abs32);
         assert_eq!(reloc.addend, 0);
+    }
+
+    // Phase R9 m2-001 (PA-R9-001): Push r64 tests
+    #[test]
+    fn encode_push_rax_emits_50() {
+        // push rax → 50 (no REX needed for rax)
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Push,
+            operands: smallvec::smallvec![Operand::Reg(RegId(0))], // rax
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0x50]);
+    }
+
+    #[test]
+    fn encode_push_rax_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem, Register};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Push,
+            operands: smallvec::smallvec![Operand::Reg(RegId(0))], // rax
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Push);
+        assert_eq!(instr.op0_register(), Register::RAX);
+    }
+
+    #[test]
+    fn encode_push_rbx_emits_53() {
+        // push rbx → 53 (no REX needed for rbx)
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Push,
+            operands: smallvec::smallvec![Operand::Reg(RegId(3))], // rbx
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0x53]);
+    }
+
+    #[test]
+    fn encode_push_r9_emits_41_51() {
+        // push r9 → 41 51 (REX.B 51)
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Push,
+            operands: smallvec::smallvec![Operand::Reg(RegId(9))], // r9
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0x41, 0x51]);
+    }
+
+    #[test]
+    fn encode_push_r15_emits_41_57() {
+        // push r15 → 41 57 (REX.B 57)
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Push,
+            operands: smallvec::smallvec![Operand::Reg(RegId(15))], // r15
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0x41, 0x57]);
+    }
+
+    // Phase R9 m2-001 (PA-R9-001): Pop r64 tests
+    #[test]
+    fn encode_pop_rcx_emits_59() {
+        // pop rcx → 59 (no REX needed for rcx)
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Pop,
+            operands: smallvec::smallvec![Operand::Reg(RegId(1))], // rcx
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0x59]);
+    }
+
+    #[test]
+    fn encode_pop_rcx_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem, Register};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Pop,
+            operands: smallvec::smallvec![Operand::Reg(RegId(1))], // rcx
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Pop);
+        assert_eq!(instr.op0_register(), Register::RCX);
+    }
+
+    #[test]
+    fn encode_pop_rdx_emits_5a() {
+        // pop rdx → 5a (no REX needed for rdx)
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Pop,
+            operands: smallvec::smallvec![Operand::Reg(RegId(2))], // rdx
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0x5a]);
+    }
+
+    #[test]
+    fn encode_pop_r8_emits_41_58() {
+        // pop r8 → 41 58 (REX.B 58)
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Pop,
+            operands: smallvec::smallvec![Operand::Reg(RegId(8))], // r8
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0x41, 0x58]);
+    }
+
+    #[test]
+    fn encode_pop_r14_emits_41_5e() {
+        // pop r14 → 41 5e (REX.B 5e)
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Pop,
+            operands: smallvec::smallvec![Operand::Reg(RegId(14))], // r14
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0x41, 0x5e]);
     }
 }

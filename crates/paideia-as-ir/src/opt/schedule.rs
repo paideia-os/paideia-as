@@ -66,6 +66,8 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         Mnemonic::Add | Mnemonic::Sub | Mnemonic::Cmp | Mnemonic::Test => InstructionClass::AluReg,
         // Phase 7 m4-001: bitwise NOT is a register ALU op.
         Mnemonic::Not => InstructionClass::AluReg,
+        // Phase R9 m2-001 (PA-R9-001): push/pop are stack operations, conservative.
+        Mnemonic::Push | Mnemonic::Pop => InstructionClass::Other,
         // Phase 8 m1-001d: shift, multiply, and bitwise operations are register ALU ops.
         Mnemonic::Shl
         | Mnemonic::Shr

@@ -116,6 +116,14 @@ pub enum Mnemonic {
     /// Bitwise NOT (one's complement) of a 64-bit register.
     /// Phase 7 m4-001: emits `not r64` (REX.W F7 /2). One operand.
     Not,
+    /// Push 64-bit register onto stack.
+    /// Phase R9 m2-001 (PA-R9-001): emits `push r64` (REX.W 50+rd or 41 50+rd for r8–r15).
+    /// One operand.
+    Push,
+    /// Pop 64-bit register from stack.
+    /// Phase R9 m2-001 (PA-R9-001): emits `pop r64` (REX.W 58+rd or 41 58+rd for r8–r15).
+    /// One operand.
+    Pop,
     /// Width-aware immediate-to-register move.
     /// Phase 7 m4-003 (PA7C-m4-003): used for typed integer-literal `let`
     /// bindings so `let x : u32 = 42` emits the 5-byte `B8 imm32` form
@@ -425,6 +433,8 @@ impl Mnemonic {
             | Mnemonic::Out { .. }
             | Mnemonic::Int
             | Mnemonic::Not
+            | Mnemonic::Push
+            | Mnemonic::Pop
             | Mnemonic::FarJmp
             | Mnemonic::Invlpg => 1,
 
@@ -545,6 +555,9 @@ impl Mnemonic {
 
             // Bitwise NOT: 4 bytes upper bound (REX.W F7 /2 ModR/M)
             Mnemonic::Not => 4,
+
+            // Push/Pop: 2 bytes upper bound (REX.W 50+r or 41 50+r for r8–r15)
+            Mnemonic::Push | Mnemonic::Pop => 2,
 
             // Shift operations: 4 bytes upper bound (REX.W C1 r/m, imm8 or REX.W D3 r/m for CL variant)
             Mnemonic::Shl | Mnemonic::Shr | Mnemonic::Sar => 4,

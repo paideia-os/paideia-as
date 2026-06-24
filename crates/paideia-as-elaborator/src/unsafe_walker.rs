@@ -144,6 +144,9 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     ("shr", Mnemonic::Shr),
     ("sar", Mnemonic::Sar),
     ("imul", Mnemonic::Imul),
+    // Phase R9 m2-001 (PA-R9-001): Push/pop instructions
+    ("push", Mnemonic::Push),
+    ("pop", Mnemonic::Pop),
 ];
 
 /// Resolve a mnemonic name to an IR Mnemonic enum variant.
