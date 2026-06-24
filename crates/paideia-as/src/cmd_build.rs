@@ -54,7 +54,7 @@ use paideia_as_emitter_pe::{
     OPTIONAL_HEADER_PE32PLUS_SIZE, OptionalHeaderPe32Plus, SectionTable as PeSectionTable,
 };
 use paideia_as_encoder::{EncodeStats, LabelFixup};
-use paideia_as_ir::{InstructionSideTable, IrNodeId, ModuleSideTable, walk};
+use paideia_as_ir::{InstructionSideTable, IrNodeId, ModuleSideTable, Visibility, walk};
 use paideia_as_lexer::{Lexer, SourceText};
 use paideia_as_parser::Parser;
 
@@ -476,6 +476,27 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
         }
     }
 
+    // PA904: Extract public flag from AST Let nodes and populate the IR's public_lets table.
+    // This enables the elaborator to mark symbols as global when they have explicit `pub` visibility.
+    {
+        for i in 0..arena.len() {
+            if let Some(ast_id) = paideia_as_ast::NodeId::new((i + 1) as u32) {
+                if let Some(_node) = arena.get(ast_id) {
+                    if let Some(paideia_as_ast::ItemData::Let { public, .. }) =
+                        arena.item_data(ast_id)
+                    {
+                        if *public {
+                            // Map AST Let node ID to IR Let node ID (1-to-1 mapping)
+                            let ir_let_id = paideia_as_ir::IrNodeId::new(ast_id.get())
+                                .expect("valid ir node id from ast let node");
+                            lowering.ir.public_lets_mut().insert(ir_let_id);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // PA8-m1-001c: Extract lambda parameter binding names from AST Lambda nodes
     // and populate the IR's binding_names and lambda_params tables. This enables
     // emit_walker to use actual parameter names (e.g., "foo", "bar") instead of
@@ -770,12 +791,19 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                 if let Some(real_name) = name_map.get(&sym.ir_node.get()) {
                     // Extract visibility from the map (default to false if not found)
                     let is_public = visibility_map.get(&sym.ir_node.get()).copied().unwrap_or(false);
+                    // Preserve PA10-013 auto-global rule for _start + long_mode_entry.
+                    let auto_global = real_name == "_start" || real_name == "long_mode_entry";
+                    let visibility = if is_public || auto_global {
+                        paideia_as_ir::Visibility::Global
+                    } else {
+                        paideia_as_ir::Visibility::Local
+                    };
                     // Re-insert the symbol with the real name and correct visibility
                     let updated_sym = paideia_as_ir::Symbol::new_with_visibility(
                         real_name.clone(),
                         sym.kind,
                         sym.ir_node,
-                        is_public,
+                        visibility,
                     );
                     lowering.ir.symbols_mut().insert(updated_sym);
                 } else {
@@ -1302,7 +1330,7 @@ fn build_elf_object(
                 let sym_entry = SymbolEntry {
                     name: symbol.name.clone(),
                     kind: SymKind::Func,
-                    is_global: symbol.global,
+                    is_global: matches!(symbol.visibility, Visibility::Global),
                     offset: Some(offset as u64),
                     size,
                     section: None,

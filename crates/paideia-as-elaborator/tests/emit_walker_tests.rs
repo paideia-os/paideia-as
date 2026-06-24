@@ -6,4 +6,5 @@
 
 mod emit_walker {
     pub mod mode_propagation;
+    pub mod pub_let;
 }

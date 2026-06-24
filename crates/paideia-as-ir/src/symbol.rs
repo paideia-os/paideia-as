@@ -6,6 +6,16 @@
 use crate::IrNodeId;
 use std::collections::HashMap;
 
+/// Visibility level of a symbol.
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+#[repr(u8)]
+pub enum Visibility {
+    /// Local symbol (STB_LOCAL in ELF).
+    Local,
+    /// Global symbol (STB_GLOBAL in ELF).
+    Global,
+}
+
 /// Variant discriminant for a symbol.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 #[repr(u8)]
@@ -27,43 +37,46 @@ pub struct Symbol {
     pub kind: SymbolKind,
     /// IrNodeId of the corresponding Let node.
     pub ir_node: IrNodeId,
-    /// True if this is a global/entry-point binding.
-    pub global: bool,
+    /// Visibility level: Local or Global.
+    pub visibility: Visibility,
 }
 
 impl Symbol {
-    /// Construct a new symbol.
+    /// Construct a new symbol with auto-global rule (PA10-013 backward compatibility).
+    ///
+    /// Per PA10-013: only _start and long_mode_entry are auto-global.
+    /// For explicit export control, use `new_with_visibility()`.
     #[must_use]
     pub fn new(name: String, kind: SymbolKind, ir_node: IrNodeId) -> Self {
-        Self::new_with_visibility(name, kind, ir_node, false)
+        // PA10-013: Revert PA10-009's over-broad STB_GLOBAL marking.
+        // Restore local-by-default: only _start and long_mode_entry are global.
+        // B2-003 (paideia-os) requires long_mode_entry to be global for cross-module ljmp.
+        let visibility = if name == "_start" || name == "long_mode_entry" {
+            Visibility::Global
+        } else {
+            Visibility::Local
+        };
+        Self {
+            name,
+            kind,
+            ir_node,
+            visibility,
+        }
     }
 
     /// Construct a new symbol with explicit visibility control.
-    ///
-    /// # Arguments
-    /// * `name` - Symbol name
-    /// * `kind` - Symbol kind (Function or Object)
-    /// * `ir_node` - IR node ID for offset lookup
-    /// * `public` - If true, symbol is exported as GLOBAL (STB_GLOBAL);
-    ///   if false, symbol is local (STB_LOCAL) unless it matches a hardcoded entry point.
     #[must_use]
     pub fn new_with_visibility(
         name: String,
         kind: SymbolKind,
         ir_node: IrNodeId,
-        public: bool,
+        visibility: Visibility,
     ) -> Self {
-        // PA10-013 + B3-004: Symbol visibility policy.
-        // - If `public: true`, emit as STB_GLOBAL (enabled by `pub` keyword in .pdx).
-        // - Hardcoded entry points (_start, long_mode_entry) are always global.
-        // - Otherwise, emit as STB_LOCAL.
-        // B2-003 (paideia-os) requires long_mode_entry to be global for cross-module ljmp.
-        let global = public || name == "_start" || name == "long_mode_entry";
         Self {
             name,
             kind,
             ir_node,
-            global,
+            visibility,
         }
     }
 }
@@ -175,7 +188,7 @@ mod tests {
             SymbolKind::Function,
             test_ir_node_id(),
         );
-        assert!(sym.global);
+        assert_eq!(sym.visibility, Visibility::Global);
         assert_eq!(sym.name, "_start");
         assert_eq!(sym.kind, SymbolKind::Function);
     }
@@ -183,7 +196,7 @@ mod tests {
     #[test]
     fn symbol_new_regular_name_not_global() {
         let sym = Symbol::new("foo".to_string(), SymbolKind::Object, test_ir_node_id());
-        assert!(!sym.global);
+        assert_eq!(sym.visibility, Visibility::Local);
         assert_eq!(sym.name, "foo");
     }
 
@@ -289,7 +302,7 @@ mod tests {
         assert_eq!(st.len(), 1);
         let found = st.lookup_by_name("foo").unwrap();
         assert_eq!(found.kind, SymbolKind::Object);
-        assert!(!found.global);
+        assert_eq!(found.visibility, Visibility::Local);
     }
 
     // Acceptance criteria test 2: let add_one : (u64) -> u64 = fn ... → one Function symbol
@@ -304,7 +317,7 @@ mod tests {
         assert_eq!(st.len(), 1);
         let found = st.lookup_by_name("add_one").unwrap();
         assert_eq!(found.kind, SymbolKind::Function);
-        assert!(!found.global); // PA10-013: functions are local by default
+        assert_eq!(found.visibility, Visibility::Local); // PA10-013: functions are local by default
     }
 
     // Acceptance criteria test 3: let _start : () -> () = fn () -> ... → marked as entry-point
@@ -318,11 +331,11 @@ mod tests {
         assert_eq!(st.len(), 1);
         let found = st.lookup_by_name("_start").unwrap();
         assert_eq!(found.kind, SymbolKind::Function);
-        assert!(found.global); // Auto-flagged as global
+        assert_eq!(found.visibility, Visibility::Global); // Auto-flagged as global
 
         // Entry-point lookup
         let ep = st.entry_point().unwrap();
         assert_eq!(ep.name, "_start");
-        assert!(ep.global);
+        assert_eq!(ep.visibility, Visibility::Global);
     }
 }

@@ -74,7 +74,7 @@ pub use node::{EffectRowId, IrKind, IrNodeData, IrNodeId, LinClass};
 pub use record_layout::{FieldAccessInfo, FieldAccessSideTable, RecordLayoutTable, RecordTypeId};
 pub use section_attr::{SectionAttr, SectionAttrTable};
 pub use string_literal::{StringLiteralInfo, StringLiteralTable};
-pub use symbol::{Symbol, SymbolKind, SymbolTable};
+pub use symbol::{Symbol, SymbolKind, SymbolTable, Visibility};
 pub use walker::{IrWalker, walk};
 pub use walker_ctx::WalkerCtx;
 

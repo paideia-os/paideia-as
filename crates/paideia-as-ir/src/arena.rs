@@ -4,6 +4,7 @@
 
 use paideia_as_diagnostics::Span;
 use smallvec::SmallVec;
+use std::collections::HashSet;
 use std::ops::Index;
 
 use crate::addr_of::AddrOfSideTable;
@@ -65,6 +66,9 @@ pub struct IrArena {
     /// Side-table: address-of metadata indexed by Borrow node ID.
     /// PA10-006u: populated by elaborator for `& sym` in static initializers.
     addr_of_table: AddrOfSideTable,
+    /// Side-table: set of Let node IDs marked as public (`pub let`).
+    /// PA904: tracks which let bindings have explicit `pub` visibility for global export.
+    public_lets: HashSet<IrNodeId>,
 }
 
 impl IrArena {
@@ -93,6 +97,7 @@ impl IrArena {
             field_access_table: FieldAccessSideTable::new(),
             record_layout_table: RecordLayoutTable::new(),
             addr_of_table: AddrOfSideTable::new(),
+            public_lets: HashSet::new(),
         }
     }
 
@@ -322,6 +327,23 @@ impl IrArena {
     /// Borrow the address-of side-table (mutable).
     pub fn addr_of_mut(&mut self) -> &mut AddrOfSideTable {
         &mut self.addr_of_table
+    }
+
+    /// Get the set of Let node IDs marked as public.
+    #[must_use]
+    pub fn public_lets(&self) -> &HashSet<IrNodeId> {
+        &self.public_lets
+    }
+
+    /// Borrow the public_lets set (mutable).
+    pub fn public_lets_mut(&mut self) -> &mut HashSet<IrNodeId> {
+        &mut self.public_lets
+    }
+
+    /// Check if a Let node ID is marked as public.
+    #[must_use]
+    pub fn is_public_let(&self, id: IrNodeId) -> bool {
+        self.public_lets.contains(&id)
     }
 }
 
