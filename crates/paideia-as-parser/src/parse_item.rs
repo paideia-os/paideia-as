@@ -56,6 +56,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             // Peek ahead to see if this is `pub let`
             if let Some(next_tok) = self.peek_at(1) {
                 if next_tok.kind == TokenKind::KwLet {
+                    self.bump(); // Consume the `pub` token
                     return self.parse_let_decl();
                 }
             }
