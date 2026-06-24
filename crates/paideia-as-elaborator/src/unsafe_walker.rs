@@ -1333,9 +1333,10 @@ impl UnsafeWalker {
         record_layouts: &HashMap<RecordTypeId, RecordLayout>,
         local_bindings: &LocalBindingTable,
         instr_mode: InstrMode,
-    ) -> (HashMap<String, u32>, Vec<Diagnostic>) {
+    ) -> (HashMap<String, u32>, HashMap<String, paideia_as_ir::IrNodeId>, Vec<Diagnostic>) {
         let mut diags = Vec::new();
         let mut all_labels: HashMap<String, u32> = HashMap::new();
+        let mut label_to_instr: HashMap<String, paideia_as_ir::IrNodeId> = HashMap::new();
 
         for ir_node_id_u32 in pending_ids {
             let _ir_node_id = match IrNodeId::new(ir_node_id_u32) {
@@ -1410,11 +1411,31 @@ impl UnsafeWalker {
                                 }
 
                                 // Pass 2: Process instructions and check label references.
+                                // Also track which instruction follows each label for offset computation.
+                                let mut prev_was_label: Option<String> = None;
                                 for &stmt_id in block {
                                     if let Some(ast_stmt_node) = ast.get(stmt_id) {
-                                        if ast_stmt_node.kind == NodeKind::StmtInstruction {
+                                        if ast_stmt_node.kind == NodeKind::StmtLabel {
+                                            // Extract label name for future tracking
+                                            if let Some(StmtData::Label { name }) =
+                                                ast.stmt_data(stmt_id)
+                                            {
+                                                if let Some(name_node) = ast.get(*name) {
+                                                    if name_node.kind == NodeKind::Ident {
+                                                        let span = name_node.span;
+                                                        let file_id = span.file();
+                                                        let source = source_map.content(file_id);
+                                                        let label_text = &source[span.byte_start()
+                                                            as usize
+                                                            ..(span.byte_start() + span.byte_len())
+                                                                as usize];
+                                                        prev_was_label = Some(label_text.to_string());
+                                                    }
+                                                }
+                                            }
+                                        } else if ast_stmt_node.kind == NodeKind::StmtInstruction {
                                             // Process this instruction statement.
-                                            Self::process_instruction_stmt(
+                                            let instr_ir_node = Self::process_instruction_stmt(
                                                 arena,
                                                 ast,
                                                 stmt_id,
@@ -1426,6 +1447,11 @@ impl UnsafeWalker {
                                                 local_bindings,
                                                 instr_mode,
                                             );
+
+                                            // If previous statement was a label, record the mapping
+                                            if let (Some(label_name), Some(instr_id)) = (prev_was_label.take(), instr_ir_node) {
+                                                label_to_instr.insert(label_name, instr_id);
+                                            }
                                         }
                                     }
                                 }
@@ -1436,7 +1462,7 @@ impl UnsafeWalker {
             }
         }
 
-        (all_labels, diags)
+        (all_labels, label_to_instr, diags)
     }
 
     /// Process a single StmtInstruction node.
@@ -1455,11 +1481,11 @@ impl UnsafeWalker {
         labels: &HashMap<String, u32>,
         local_bindings: &LocalBindingTable,
         instr_mode: InstrMode,
-    ) {
+    ) -> Option<paideia_as_ir::IrNodeId> {
         // Get the statement data.
         let stmt_data = match ast.stmt_data(stmt_id) {
             Some(StmtData::Instruction { mnemonic, operands }) => (mnemonic, operands),
-            _ => return,
+            _ => return None,
         };
 
         let mnemonic_id = stmt_data.0;
@@ -1486,7 +1512,7 @@ impl UnsafeWalker {
                     .finish();
                 let _ = sink.emit(diag.clone());
                 diags.push(diag);
-                return;
+                return None;
             }
         };
 
@@ -1578,7 +1604,7 @@ impl UnsafeWalker {
 
             // If any operand parsing failed, skip this instruction.
             if operand_error {
-                return;
+                return None;
             }
         }
 
@@ -1601,7 +1627,7 @@ impl UnsafeWalker {
                         .finish();
                     let _ = sink.emit(diag.clone());
                     diags.push(diag);
-                    return;
+                    return None;
                 }
             }
         }
@@ -1640,7 +1666,7 @@ impl UnsafeWalker {
                         .finish();
                     let _ = sink.emit(diag.clone());
                     diags.push(diag);
-                    return;
+                    return None;
                 }
             }
         }
@@ -1692,6 +1718,7 @@ impl UnsafeWalker {
             mode: instr_mode,
         };
         arena.instructions_mut().insert(ir_node_id, inst);
+        Some(ir_node_id)
     }
 }
 

@@ -7,6 +7,7 @@
 //! lowered IR's pretty-printed form so the smoke test can verify the
 //! pipeline produced something deterministic.
 
+use std::collections::HashMap;
 use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -649,7 +650,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
             let pending = emit_walker.state_mut().take_pending_unsafe();
             let record_layouts = &emit_walker.state().record_layouts;
             let local_bindings = &emit_walker.state().local_bindings;
-            let (unsafe_labels, unsafe_diags) = UnsafeWalker::run(
+            let (unsafe_labels, label_to_instr, unsafe_diags) = UnsafeWalker::run(
                 &mut lowering.ir,
                 &arena,
                 pending,
@@ -664,6 +665,10 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
             for (label_name, _label_offset) in unsafe_labels {
                 emit_walker.state_mut().register_label(label_name);
             }
+
+            // Store label_to_instr mapping for use in label offset computation after encoding
+            // (We'll use this to resolve label offsets based on instruction offsets from offset_map)
+            emit_walker.state_mut().label_to_instr = label_to_instr;
 
             // Phase-7-m2-003: Resolve Operand::Var references to Operand::Reg.
             // Call resolve_var_operands on the arena's owned instruction table,
@@ -1068,13 +1073,21 @@ fn build_elf_object(
     };
 
     // Phase-6-m4-004: Patch label fixups after .text encoding is complete.
-    // Extract labels from emit_walker state and apply fixups to text_bytes.
-    let labels = &emit_walker.state().labels;
+    // Compute actual label offsets using label_to_instr mapping and offset_map.
+    let label_to_instr = &emit_walker.state().label_to_instr;
+    let offset_map = &emit_result.offset_map;
+    let mut resolved_labels: HashMap<String, u32> = HashMap::new();
+    for (label_name, instr_id) in label_to_instr {
+        if let Some(&byte_offset_u64) = offset_map.get(instr_id) {
+            resolved_labels.insert(label_name.clone(), byte_offset_u64 as u32);
+        }
+    }
+
     let strict_mode = true;
     patch_label_fixups(
         &mut text_bytes,
         &emit_result.label_fixups,
-        labels,
+        &resolved_labels,
         strict_mode,
         file,
     )?;

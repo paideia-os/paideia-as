@@ -210,6 +210,11 @@ pub struct EmitPassState {
     /// Scoped to the current function; reset at function entry.
     pub labels: HashMap<String, u32>,
 
+    /// Phase 6 m4-004: Label name → instruction IR node ID mapping.
+    /// Populated from unsafe_walker output, used to compute actual label offsets
+    /// based on instruction offsets from the encoder's offset_map.
+    pub label_to_instr: HashMap<String, paideia_as_ir::IrNodeId>,
+
     /// Phase 7 m1-001: Local binding table for multi-statement function bodies.
     /// Maps binding names (from let-statements) to their assigned scratch registers.
     /// Scoped to the current function; reset at function entry.
