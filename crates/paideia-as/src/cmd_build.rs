@@ -70,6 +70,47 @@ pub enum EmitFormat {
     PeCoff,
 }
 
+/// Phase 15 m2-002a: Extract the `#![bits = N]` inner attribute from the root module.
+///
+/// Returns the bits value (32 or 64) if present, otherwise None.
+fn extract_root_module_bits(root_id: Option<AstNodeId>, arena: &AstArena) -> Option<u8> {
+    let root = root_id?;
+    let node = arena.get(root)?;
+
+    // The root should be a Module node.
+    if node.kind != paideia_as_ast::NodeKind::Module {
+        return None;
+    }
+
+    // Extract the Module's inner_attrs.
+    let item_data = arena.item_data(root)?;
+    if let paideia_as_ast::ItemData::Module { inner_attrs, .. } = item_data {
+        // Look for #![bits = N]
+        for attr in inner_attrs {
+            if let paideia_as_ast::ItemAttribute::InnerAttr { name, value } = attr {
+                // The name is an Ident node; check if it says "bits"
+                if let Some(name_node) = arena.get(*name) {
+                    let name_span = name_node.span;
+                    // For now, we would need the source content to extract the text.
+                    // As a simpler approach, check if the name is exactly "bits"
+                    // by looking at the span length (should be 4 bytes for "bits").
+                    if name_span.byte_len() == 4 {
+                        // This is a heuristic; ideally the parser would normalize this.
+                        // Extract the actual bits value from the AttrValue.
+                        if let paideia_as_ast::AttrValue::Int(bits) = value {
+                            if *bits == 32 || *bits == 64 {
+                                return Some(*bits as u8);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
 impl EmitFormat {
     /// Parse the `--emit` flag value.
     pub fn parse(s: &str) -> Result<Self, String> {
@@ -554,31 +595,43 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
         // Determine the root node ID for walking. In phase-1 lowering, the parser
         // creates a Module as the first node (NodeId 1 → IrNodeId 1), so we walk
         // from IrNodeId::new(1). If the IR is somehow empty, skip walking.
-        if let Some(root_id) = IrNodeId::new(1) {
+        if let Some(ir_root_id) = IrNodeId::new(1) {
             // Run each walker with a fresh WalkerCtx to avoid borrow conflicts.
             // Each walker emits diagnostics into walker_sink.
 
             {
                 let mut ctx = paideia_as_ir::WalkerCtx::new(&source_map, &mut walker_sink);
                 let mut linearity_walker = LinearityWalker::new();
-                walk(&mut linearity_walker, &lowering.ir, root_id, &mut ctx);
+                walk(&mut linearity_walker, &lowering.ir, ir_root_id, &mut ctx);
             }
 
             {
                 let mut ctx = paideia_as_ir::WalkerCtx::new(&source_map, &mut walker_sink);
                 let mut effect_walker = EffectRowWalker::new();
-                walk(&mut effect_walker, &lowering.ir, root_id, &mut ctx);
+                walk(&mut effect_walker, &lowering.ir, ir_root_id, &mut ctx);
             }
 
             {
                 let mut ctx = paideia_as_ir::WalkerCtx::new(&source_map, &mut walker_sink);
                 let mut cap_walker = CapWalker::new();
-                walk(&mut cap_walker, &lowering.ir, root_id, &mut ctx);
+                walk(&mut cap_walker, &lowering.ir, ir_root_id, &mut ctx);
             }
 
             // Phase-5-m1-005: Run EmitWalker to populate InstructionSideTable.
             // EmitWalker does not use the walker framework (it uses direct arena iteration),
             // so we call its walk method directly rather than through the walk() driver.
+
+            // Phase 15 m2-002a: Extract root module's #![bits = N] and set initial mode.
+            // root_id is the AST root from parsing; it's in scope here.
+            let root_mode = extract_root_module_bits(root_id, &arena)
+                .map(|bits| if bits == 32 {
+                    paideia_as_ir::instruction::InstrMode::Mode32
+                } else {
+                    paideia_as_ir::instruction::InstrMode::Mode64
+                })
+                .unwrap_or(paideia_as_ir::instruction::InstrMode::Mode64);
+            emit_walker.set_root_mode(root_mode);
+
             emit_walker.walk(&mut lowering.ir);
 
             // Phase 15 m2-002: Verify mode_stack is properly cleaned up after walk.
@@ -601,6 +654,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                 &mut walker_sink,
                 record_layouts,
                 local_bindings,
+                root_mode,
             );
             // Phase-7-m2-003: Resolve Operand::Var references to Operand::Reg.
             // Call resolve_var_operands on the arena's owned instruction table,

@@ -1238,6 +1238,7 @@ impl UnsafeWalker {
     /// * `sink` - Diagnostic sink for emitting errors.
     /// * `record_layouts` - Record layout table for field offset resolution (Phase 6 m3-005).
     /// * `local_bindings` - LocalBindingTable from EmitWalker (Phase 7 m2-003): maps let-binding names to scratch registers.
+    /// * `instr_mode` - The current instruction mode (Mode64 or Mode32).
     ///
     /// # Returns
     ///
@@ -1254,6 +1255,7 @@ impl UnsafeWalker {
         sink: &mut dyn DiagnosticSink,
         record_layouts: &HashMap<RecordTypeId, RecordLayout>,
         local_bindings: &LocalBindingTable,
+        instr_mode: InstrMode,
     ) -> Vec<Diagnostic> {
         let mut diags = Vec::new();
 
@@ -1339,6 +1341,7 @@ impl UnsafeWalker {
                                                 record_layouts,
                                                 &labels,
                                                 local_bindings,
+                                                instr_mode,
                                             );
                                         }
                                     }
@@ -1368,6 +1371,7 @@ impl UnsafeWalker {
         record_layouts: &HashMap<RecordTypeId, RecordLayout>,
         labels: &HashMap<String, u32>,
         local_bindings: &LocalBindingTable,
+        instr_mode: InstrMode,
     ) {
         // Get the statement data.
         let stmt_data = match ast.stmt_data(stmt_id) {
@@ -1601,7 +1605,7 @@ impl UnsafeWalker {
             operands: parsed_operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: instr_mode,
         };
         arena.instructions_mut().insert(ir_node_id, inst);
     }

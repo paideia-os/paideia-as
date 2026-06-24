@@ -380,6 +380,14 @@ impl EmitWalker {
         &self.diagnostics
     }
 
+    /// Phase 15 m2-002a: Set the root module's instruction mode.
+    /// This initializes the mode_stack for instruction emission.
+    /// Must be called before walk() or walk_with_typer().
+    pub fn set_root_mode(&mut self, mode: InstrMode) {
+        self.state.mode_stack.clear();
+        self.state.mode_stack.push(mode);
+    }
+
     /// Phase 7 m1-008: Check if we are currently in a loop body.
     /// Returns Some((loop_kind, exit_label)) if in loop, None if outside.
     #[must_use]
@@ -410,7 +418,6 @@ impl EmitWalker {
 
     /// Phase 15 m2-002: Get the current instruction mode (Mode64 if stack is empty).
     /// Will be used in m2-002b for scope-aware mode propagation.
-    #[allow(dead_code)]
     fn current_mode(&self) -> InstrMode {
         self.state.mode_stack.last().copied().unwrap_or(InstrMode::Mode64)
     }
@@ -445,14 +452,11 @@ impl EmitWalker {
     }
 
     fn walk_inner(&mut self, arena: &mut IrArena, typer: Option<&paideia_as_types::TypeInterner>) {
-        // Read root module inner_attrs and set initial mode.
-        // If #![bits=32], push Mode32; else default to Mode64.
-        // For now, simplification: store root_mode on state during lowering (lower.rs).
-        // This walk_inner reads the root mode at entry.
-
-        // For now, initialize with default Mode64. Mode inference will be wired in m2-002b.
-        self.state.mode_stack.clear();
-        self.state.mode_stack.push(InstrMode::Mode64);
+        // Phase 15 m2-002a: The mode_stack is initialized via set_root_mode() before walk() is called.
+        // If set_root_mode() was not called, default to Mode64.
+        if self.state.mode_stack.is_empty() {
+            self.state.mode_stack.push(InstrMode::Mode64);
+        }
 
         // Iterate over all nodes, looking for Let, Lambda, and Unsafe nodes.
         for i in 1..=arena.len() as u32 {
@@ -921,7 +925,7 @@ impl EmitWalker {
             operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         // Record function entry on first emission if needed.
@@ -1486,7 +1490,7 @@ impl EmitWalker {
             operands: mov_operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         // Use node_id * 2 for main instruction, * 2 + 1 for ret
@@ -1503,7 +1507,7 @@ impl EmitWalker {
             operands: SmallVec::new(),
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
         self.state.instructions.insert(ret_id, ret_inst);
         self.state.estimated_offset += 1;
@@ -1532,7 +1536,7 @@ impl EmitWalker {
             operands: mov_operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         let mov_id = IrNodeId::new(lambda_node_id.get() * 3).expect("mov instr virtual id");
@@ -1548,7 +1552,7 @@ impl EmitWalker {
             operands: not_operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         let not_id = IrNodeId::new(lambda_node_id.get() * 3 + 1).expect("not instr virtual id");
@@ -1562,7 +1566,7 @@ impl EmitWalker {
             operands: SmallVec::new(),
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
         self.state.instructions.insert(ret_id, ret_inst);
         self.state.estimated_offset += 1;
@@ -1627,7 +1631,7 @@ impl EmitWalker {
                 operands,
                 encoding_hint: hint,
                 byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
             let inst_id = IrNodeId::new(lambda_node_id.get() * 2).expect("cast instr virtual id");
             self.state.instructions.insert(inst_id, inst);
@@ -1641,7 +1645,7 @@ impl EmitWalker {
             operands: SmallVec::new(),
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
         self.state.instructions.insert(ret_id, ret_inst);
         self.state.estimated_offset += 1;
@@ -1664,7 +1668,7 @@ impl EmitWalker {
             operands: lea_operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         // Use node_id * 2 for main instruction, * 2 + 1 for ret
@@ -1680,7 +1684,7 @@ impl EmitWalker {
             operands: SmallVec::new(),
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
         self.state.instructions.insert(ret_id, ret_inst);
         self.state.estimated_offset += 1;
@@ -1779,7 +1783,7 @@ impl EmitWalker {
             operands: call_operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         self.state.instructions.insert(call_id, call_inst);
@@ -1792,7 +1796,7 @@ impl EmitWalker {
             operands: SmallVec::new(),
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
         self.state.instructions.insert(ret_id, ret_inst);
         self.state.estimated_offset += 1; // C3
@@ -1824,7 +1828,7 @@ impl EmitWalker {
             operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         self.state.instructions.insert(inst_id, inst);
@@ -1855,7 +1859,7 @@ impl EmitWalker {
             operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         self.state.instructions.insert(inst_id, inst);
@@ -1889,7 +1893,7 @@ impl EmitWalker {
             operands: lea_operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         // Use node_id * 2 for main instruction, * 2 + 1 for ret
@@ -1905,7 +1909,7 @@ impl EmitWalker {
             operands: SmallVec::new(),
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
         self.state.instructions.insert(ret_id, ret_inst);
         self.state.estimated_offset += 1;
@@ -1936,7 +1940,7 @@ impl EmitWalker {
             operands: mov1_operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         let mov1_id = IrNodeId::new(lambda_node_id.get() * 4).expect("mov1 instr virtual id");
@@ -1955,7 +1959,7 @@ impl EmitWalker {
             operands: mov2_operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         let mov2_id = IrNodeId::new(lambda_node_id.get() * 4 + 1).expect("mov2 instr virtual id");
@@ -1972,7 +1976,7 @@ impl EmitWalker {
             operands: shl_operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         let shl_id = IrNodeId::new(lambda_node_id.get() * 4 + 2).expect("shl instr virtual id");
@@ -1986,7 +1990,7 @@ impl EmitWalker {
             operands: SmallVec::new(),
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
         self.state.instructions.insert(ret_id, ret_inst);
         self.state.estimated_offset += 1;
@@ -2022,7 +2026,7 @@ impl EmitWalker {
             operands: mov_operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         let mov_id = IrNodeId::new(lambda_node_id.get() * 3).expect("mov instr virtual id");
@@ -2039,7 +2043,7 @@ impl EmitWalker {
             operands: shl_operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         let shl_id = IrNodeId::new(lambda_node_id.get() * 3 + 1).expect("shl instr virtual id");
@@ -2053,7 +2057,7 @@ impl EmitWalker {
             operands: SmallVec::new(),
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
         self.state.instructions.insert(ret_id, ret_inst);
         self.state.estimated_offset += 1;
@@ -2076,7 +2080,7 @@ impl EmitWalker {
             operands: mov1_operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         let mov1_id = IrNodeId::new(lambda_node_id.get() * 4).expect("mov1 instr virtual id");
@@ -2093,7 +2097,7 @@ impl EmitWalker {
             operands: mov2_operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         let mov2_id = IrNodeId::new(lambda_node_id.get() * 4 + 1).expect("mov2 instr virtual id");
@@ -2110,7 +2114,7 @@ impl EmitWalker {
             operands: shl_operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         let shl_id = IrNodeId::new(lambda_node_id.get() * 4 + 2).expect("shl instr virtual id");
@@ -2124,7 +2128,7 @@ impl EmitWalker {
             operands: SmallVec::new(),
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
         self.state.instructions.insert(ret_id, ret_inst);
         self.state.estimated_offset += 1;
@@ -2235,7 +2239,7 @@ impl EmitWalker {
                                             operands,
                                             encoding_hint: None,
                                             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
                                         // Use virtual ID: child_id * 3 + offset to ensure proper sorting
@@ -2375,7 +2379,7 @@ impl EmitWalker {
                             operands: test_operands,
                             encoding_hint: None,
                             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
                         self.state.instructions.insert(test_id, test_inst);
@@ -2400,7 +2404,7 @@ impl EmitWalker {
                             operands: jz_operands,
                             encoding_hint: None,
                             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
                         self.state.instructions.insert(jz_id, jz_inst);
@@ -2445,7 +2449,7 @@ impl EmitWalker {
                                 operands: jmp_operands,
                                 encoding_hint: None,
                                 byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
                             self.state.instructions.insert(jmp_id, jmp_inst);
@@ -2504,7 +2508,7 @@ impl EmitWalker {
             operands: SmallVec::new(),
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
         let ret_id = IrNodeId::new(block_id.get() * 2).expect("ret virtual id");
         self.state.instructions.insert(ret_id, ret_inst);
@@ -2617,7 +2621,7 @@ impl EmitWalker {
                                             operands,
                                             encoding_hint: None,
                                             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
                                         // Use virtual ID: child_id * 3 + offset to ensure proper sorting
@@ -2883,7 +2887,7 @@ impl EmitWalker {
             operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         self.state.instructions.insert(field_access_id, inst);
@@ -2917,7 +2921,7 @@ impl EmitWalker {
             operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         self.state.instructions.insert(field_access_id, inst);
@@ -2948,7 +2952,7 @@ impl EmitWalker {
             operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         self.state.instructions.insert(field_access_id, inst);
@@ -3119,7 +3123,7 @@ impl EmitWalker {
             operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         self.state.instructions.insert(field_access_id, inst);
@@ -3155,7 +3159,7 @@ impl EmitWalker {
             operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         self.state.instructions.insert(field_access_id, inst);
@@ -3190,7 +3194,7 @@ impl EmitWalker {
             operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         self.state.instructions.insert(field_access_id, inst);
@@ -3299,7 +3303,7 @@ impl EmitWalker {
             operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         self.state.instructions.insert(store_id, inst);
@@ -3418,7 +3422,7 @@ impl EmitWalker {
                     operands,
                     encoding_hint: None,
                     byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
                 // Virtual ID: record_cons_id * 10 + field_idx to sort in order.
@@ -3445,7 +3449,7 @@ impl EmitWalker {
                     operands,
                     encoding_hint: None,
                     byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
                 // Virtual ID: record_cons_id * 10 + field_idx to sort in order.
@@ -3505,7 +3509,7 @@ impl EmitWalker {
             operands: test_operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         self.state.instructions.insert(test_id, test_inst);
@@ -3529,7 +3533,7 @@ impl EmitWalker {
             operands: jz_operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         self.state.instructions.insert(jz_id, jz_inst);
@@ -3556,7 +3560,7 @@ impl EmitWalker {
                 operands: jmp_operands,
                 encoding_hint: None,
                 byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
             self.state.instructions.insert(jmp_id, jmp_inst);
@@ -3618,7 +3622,7 @@ impl EmitWalker {
             operands: test_operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         self.state.instructions.insert(test_id, test_inst);
@@ -3637,7 +3641,7 @@ impl EmitWalker {
             operands: jnz_operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         self.state.instructions.insert(jnz_id, jnz_inst);
@@ -3660,7 +3664,7 @@ impl EmitWalker {
             operands: jmp_operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         self.state.instructions.insert(jmp_id, jmp_inst);
@@ -3725,7 +3729,7 @@ impl EmitWalker {
             operands: jmp_operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         self.state.instructions.insert(jmp_id, jmp_inst);
@@ -3822,7 +3826,7 @@ impl EmitWalker {
                 operands: cmp_operands,
                 encoding_hint: None,
                 byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
             self.state.instructions.insert(cmp_id, cmp_inst);
@@ -3842,7 +3846,7 @@ impl EmitWalker {
                 operands: je_operands,
                 encoding_hint: None,
                 byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
             self.state.instructions.insert(je_id, je_inst);
@@ -3874,7 +3878,7 @@ impl EmitWalker {
             operands: jmp_operands,
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         self.state.instructions.insert(jmp_default_id, jmp_inst);
@@ -3905,7 +3909,7 @@ impl EmitWalker {
                             operands: SmallVec::new(),
                             encoding_hint: None,
                             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
                         self.state.instructions.insert(nop_id, nop_inst);
@@ -3928,7 +3932,7 @@ impl EmitWalker {
                 operands: jmp_end_operands,
                 encoding_hint: None,
                 byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
             self.state.instructions.insert(jmp_end_id, jmp_end_inst);
@@ -3947,7 +3951,7 @@ impl EmitWalker {
             operands: SmallVec::new(),
             encoding_hint: None,
             byte_offset_in_text: None,
-            mode: InstrMode::default(),
+            mode: self.current_mode(),
         };
 
         self.state

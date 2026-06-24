@@ -7,7 +7,7 @@
 use paideia_as_diagnostics::FileId;
 use paideia_as_elaborator::populate::{PopulateContext, populate_instruction_table};
 use paideia_as_ir::{
-    CallSideTable, InstructionSideTable, IrArena, IrKind, LoadStoreSideTable, Mnemonic, Operand,
+    CallSideTable, InstructionSideTable, IrArena, IrKind, InstrMode, LoadStoreSideTable, Mnemonic, Operand,
     alloc_load,
 };
 
@@ -39,6 +39,7 @@ fn leaf_load_node_populates_as_mov_with_opcode_0x8b() {
         arena: &arena,
         load_store: &ls_table,
         call_table: &call_table,
+        instr_mode: InstrMode::Mode64,
     };
     let count = populate_instruction_table(&ctx, &mut table);
 
@@ -83,6 +84,7 @@ fn leaf_load_half_width_uses_correct_operand_size() {
         arena: &arena,
         load_store: &ls_table,
         call_table: &call_table,
+        instr_mode: InstrMode::Mode64,
     };
     populate_instruction_table(&ctx, &mut table);
 

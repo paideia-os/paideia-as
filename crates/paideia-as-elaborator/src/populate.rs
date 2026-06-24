@@ -26,6 +26,8 @@ pub struct PopulateContext<'a> {
     pub load_store: &'a LoadStoreSideTable,
     /// The call side-table with callee name / intrinsic flag metadata.
     pub call_table: &'a CallSideTable,
+    /// Phase 15 m2-002a: The current instruction mode (Mode64 or Mode32).
+    pub instr_mode: InstrMode,
 }
 
 /// Populate the instruction side-table by walking every node in the arena
@@ -95,7 +97,7 @@ fn populate_one(ctx: &PopulateContext, id: IrNodeId, table: &mut InstructionSide
                     operand_size: info.width.bytes() as u8,
                 }),
                 byte_offset_in_text: None,
-                mode: InstrMode::default(),
+                mode: ctx.instr_mode,
             };
             table.insert(id, inst);
             true
@@ -129,7 +131,7 @@ fn populate_one(ctx: &PopulateContext, id: IrNodeId, table: &mut InstructionSide
                     operand_size: info.width.bytes() as u8,
                 }),
                 byte_offset_in_text: None,
-                mode: InstrMode::default(),
+                mode: ctx.instr_mode,
             };
             table.insert(id, inst);
             true
@@ -205,7 +207,7 @@ fn synthesise_intrinsic_instruction(
                     operand_size: 8,
                 }),
                 byte_offset_in_text: None,
-                mode: InstrMode::default(),
+                mode: ctx.instr_mode,
             }
         }
         "index_u64_set" => {
@@ -232,7 +234,7 @@ fn synthesise_intrinsic_instruction(
                     operand_size: 8,
                 }),
                 byte_offset_in_text: None,
-                mode: InstrMode::default(),
+                mode: ctx.instr_mode,
             }
         }
         "ptr_sub_bytes_u64" => {
@@ -254,7 +256,7 @@ fn synthesise_intrinsic_instruction(
                     operand_size: 8,
                 }),
                 byte_offset_in_text: None,
-                mode: InstrMode::default(),
+                mode: ctx.instr_mode,
             }
         }
         _ => {
@@ -270,7 +272,7 @@ fn synthesise_intrinsic_instruction(
                     operand_size: 8,
                 }),
                 byte_offset_in_text: None,
-                mode: InstrMode::default(),
+                mode: ctx.instr_mode,
             }
         }
     };
@@ -298,6 +300,7 @@ mod tests {
             arena: &arena,
             load_store: &load_store,
             call_table: &call_table,
+            instr_mode: InstrMode::Mode64,
         };
         let mut table = InstructionSideTable::new();
         let populated = populate_instruction_table(&ctx, &mut table);
@@ -326,6 +329,7 @@ mod tests {
             arena: &arena,
             load_store: &load_store,
             call_table: &call_table,
+            instr_mode: InstrMode::Mode64,
         };
         let mut table = InstructionSideTable::new();
         let populated = populate_instruction_table(&ctx, &mut table);
@@ -372,6 +376,7 @@ mod tests {
             arena: &arena,
             load_store: &load_store,
             call_table: &call_table,
+            instr_mode: InstrMode::Mode64,
         };
         let mut table = InstructionSideTable::new();
         let populated = populate_instruction_table(&ctx, &mut table);
@@ -411,6 +416,7 @@ mod tests {
             arena: &arena,
             load_store: &load_store,
             call_table: &call_table,
+            instr_mode: InstrMode::Mode64,
         };
         let mut table = InstructionSideTable::new();
         let populated = populate_instruction_table(&ctx, &mut table);
@@ -436,6 +442,7 @@ mod tests {
             arena: &arena,
             load_store: &load_store,
             call_table: &call_table,
+            instr_mode: InstrMode::Mode64,
         };
         let mut table = InstructionSideTable::new();
         let populated = populate_instruction_table(&ctx, &mut table);
@@ -524,6 +531,7 @@ mod tests {
             arena: &arena,
             load_store: &load_store,
             call_table: &call_table,
+            instr_mode: InstrMode::Mode64,
         };
 
         let mut table = InstructionSideTable::new();
@@ -561,6 +569,7 @@ mod tests {
             arena: &arena,
             load_store: &load_store,
             call_table: &call_table,
+            instr_mode: InstrMode::Mode64,
         };
 
         let mut table = InstructionSideTable::new();
@@ -596,6 +605,7 @@ mod tests {
             arena: &arena,
             load_store: &load_store,
             call_table: &call_table,
+            instr_mode: InstrMode::Mode64,
         };
 
         let mut table = InstructionSideTable::new();
@@ -642,6 +652,7 @@ mod tests {
             arena: &arena,
             load_store: &load_store,
             call_table: &call_table,
+            instr_mode: InstrMode::Mode64,
         };
 
         let mut table = InstructionSideTable::new();

@@ -97,6 +97,7 @@ fn mov_reg_imm_mnemonic(reg_name: &str) -> Mnemonic {
         &mut sink,
         &record_layouts,
         &local_bindings,
+        InstrMode::Mode64,
     );
 
     assert_eq!(
@@ -208,6 +209,7 @@ fn test_lgdt_memory_operand() {
         &mut sink,
         &record_layouts,
         &local_bindings,
+        InstrMode::Mode64,
     );
 
     // Check that no errors were emitted (in a real test with proper AST nodes, this would work)
@@ -268,6 +270,7 @@ fn test_unknown_mnemonic_foozle() {
         &mut sink,
         &record_layouts,
         &local_bindings,
+        InstrMode::Mode64,
     );
 
     // Check that a U1605 diagnostic was emitted
@@ -347,6 +350,7 @@ fn test_malformed_operand_incomplete_memory() {
         &mut sink,
         &record_layouts,
         &local_bindings,
+        InstrMode::Mode64,
     );
 
     // Check that a U1606 diagnostic was emitted
@@ -450,6 +454,7 @@ fn parse_instruction_with_imm(
         &mut sink,
         &record_layouts,
         &local_bindings,
+        InstrMode::Mode64,
     );
 
     assert_eq!(
@@ -628,6 +633,7 @@ fn parse_ljmp_instruction(
         &mut sink,
         &record_layouts,
         &local_bindings,
+        InstrMode::Mode64,
     );
 
     assert_eq!(
@@ -781,6 +787,7 @@ fn test_lgdt_rip_relative_symbol() {
         &mut sink,
         &record_layouts,
         &local_bindings,
+        InstrMode::Mode64,
     );
 
     // Verify the instruction was elaborated
