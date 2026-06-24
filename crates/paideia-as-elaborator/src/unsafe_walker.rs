@@ -1333,7 +1333,11 @@ impl UnsafeWalker {
         record_layouts: &HashMap<RecordTypeId, RecordLayout>,
         local_bindings: &LocalBindingTable,
         instr_mode: InstrMode,
-    ) -> (HashMap<String, u32>, HashMap<String, paideia_as_ir::IrNodeId>, Vec<Diagnostic>) {
+    ) -> (
+        HashMap<String, u32>,
+        HashMap<String, paideia_as_ir::IrNodeId>,
+        Vec<Diagnostic>,
+    ) {
         let mut diags = Vec::new();
         let mut all_labels: HashMap<String, u32> = HashMap::new();
         let mut label_to_instr: HashMap<String, paideia_as_ir::IrNodeId> = HashMap::new();
@@ -1365,7 +1369,8 @@ impl UnsafeWalker {
                             // Check if this ExprUnsafe matches our target index
                             if current_unsafe_idx == unsafe_block_idx {
                                 // Found our target ExprUnsafe; process it.
-                                if let Some(ExprData::Unsafe { block, .. }) = ast.expr_data(ast_node_id)
+                                if let Some(ExprData::Unsafe { block, .. }) =
+                                    ast.expr_data(ast_node_id)
                                 {
                                     // Phase 6 m4-002: Two-pass processing for labels.
                                     // Pass 1: Collect all label declarations into a HashMap.
@@ -1382,11 +1387,13 @@ impl UnsafeWalker {
                                                             // Extract the label name from source
                                                             let span = name_node.span;
                                                             let file_id = span.file();
-                                                            let source = source_map.content(file_id);
-                                                            let label_text = &source[span.byte_start()
-                                                                as usize
-                                                                ..(span.byte_start() + span.byte_len())
-                                                                    as usize];
+                                                            let source =
+                                                                source_map.content(file_id);
+                                                            let label_text =
+                                                                &source[span.byte_start() as usize
+                                                                    ..(span.byte_start()
+                                                                        + span.byte_len())
+                                                                        as usize];
                                                             // Check for duplicate label (U1609)
                                                             if labels.contains_key(label_text) {
                                                                 let diag = Diagnostic::error(u_code(
@@ -1402,8 +1409,10 @@ impl UnsafeWalker {
                                                                 diags.push(diag);
                                                             } else {
                                                                 // Store label with a placeholder byte offset (0 for now)
-                                                                labels
-                                                                    .insert(label_text.to_string(), 0);
+                                                                labels.insert(
+                                                                    label_text.to_string(),
+                                                                    0,
+                                                                );
                                                             }
                                                         }
                                                     }
@@ -1431,16 +1440,21 @@ impl UnsafeWalker {
                                                         if name_node.kind == NodeKind::Ident {
                                                             let span = name_node.span;
                                                             let file_id = span.file();
-                                                            let source = source_map.content(file_id);
-                                                            let label_text = &source[span.byte_start()
-                                                                as usize
-                                                                ..(span.byte_start() + span.byte_len())
-                                                                    as usize];
-                                                            prev_was_label = Some(label_text.to_string());
+                                                            let source =
+                                                                source_map.content(file_id);
+                                                            let label_text =
+                                                                &source[span.byte_start() as usize
+                                                                    ..(span.byte_start()
+                                                                        + span.byte_len())
+                                                                        as usize];
+                                                            prev_was_label =
+                                                                Some(label_text.to_string());
                                                         }
                                                     }
                                                 }
-                                            } else if ast_stmt_node.kind == NodeKind::StmtInstruction {
+                                            } else if ast_stmt_node.kind
+                                                == NodeKind::StmtInstruction
+                                            {
                                                 // Process this instruction statement.
                                                 let instr_ir_node = Self::process_instruction_stmt(
                                                     arena,
@@ -1456,7 +1470,9 @@ impl UnsafeWalker {
                                                 );
 
                                                 // If previous statement was a label, record the mapping
-                                                if let (Some(label_name), Some(instr_id)) = (prev_was_label.take(), instr_ir_node) {
+                                                if let (Some(label_name), Some(instr_id)) =
+                                                    (prev_was_label.take(), instr_ir_node)
+                                                {
                                                     label_to_instr.insert(label_name, instr_id);
                                                 }
                                             }

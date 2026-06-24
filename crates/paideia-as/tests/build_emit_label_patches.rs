@@ -191,3 +191,71 @@ fn label_fixup_accepts_encoder_warn() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn label_fixup_jz_backward_local_disp32_not_zero() {
+    // Regression test for issue #901: backward JZ with local label.
+    // Verifies that disp32 is NOT 0x00000000 after label fixup patching.
+    // The fixture has a loop that jumps back to a label via jz instruction.
+    // The disp32 must be computed correctly to the backward offset, not left as 0.
+
+    let input = build_emit_data("control_flow/jz_backward_local.pdx");
+    let output_path = "/tmp/test_jz_backward_local.o";
+
+    let output = cargo_run(&[
+        "build",
+        input.to_str().unwrap(),
+        "--emit",
+        "elf64",
+        "-o",
+        output_path,
+    ]);
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "jz_backward_local.pdx should build successfully. stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Read the entire ELF file and search for the jz instruction pattern
+    use std::fs;
+    let elf_bytes = fs::read(output_path).expect("output ELF should exist");
+
+    // The .text section is typically in the second half of the ELF.
+    // Search for the pattern: EC (in_al al) followed by 48 83 E0 20 (and rax, 0x20)
+    // followed by 0F 84 (jz rel32)
+    let mut found_jz = false;
+    let mut jz_disp32_bytes = [0u8; 4];
+    for i in 0..elf_bytes.len().saturating_sub(10) {
+        if elf_bytes[i] == 0xEC
+            && elf_bytes[i + 1] == 0x48
+            && elf_bytes[i + 2] == 0x83
+            && elf_bytes[i + 3] == 0xE0
+            && elf_bytes[i + 4] == 0x20
+            && elf_bytes[i + 5] == 0x0F
+            && elf_bytes[i + 6] == 0x84
+        {
+            // Found the pattern: in_al, and, jz
+            found_jz = true;
+            jz_disp32_bytes.copy_from_slice(&elf_bytes[i + 7..i + 11]);
+            break;
+        }
+    }
+
+    assert!(found_jz, "Should find JZ pattern in ELF file");
+
+    let disp32 = i32::from_le_bytes(jz_disp32_bytes);
+    assert_ne!(
+        disp32, 0,
+        "disp32 should NOT be 0 (issue #901). Got: 0x{:08X}",
+        disp32 as u32
+    );
+
+    // Verify it's negative (backward jump)
+    assert!(
+        disp32 < 0,
+        "Backward jump should have negative disp32. Got: {}",
+        disp32
+    );
+}

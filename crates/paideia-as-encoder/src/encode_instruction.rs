@@ -902,14 +902,13 @@ fn encode_jcc(
             // Phase 6 m4-003: Label reference (forward or backward).
             // Emit placeholder rel32 and record fixup for linker resolution.
             let cond = cond_from(ir_cond)?;
-            let offset_before = buf.len() as u32;
 
             // Emit jcc rel32 with zero placeholder
             jcc_rel32(buf, cond, 0);
 
             let mut output = EncodeOutput::new();
             output.add_label_fixup(LabelFixup {
-                byte_offset: offset_before + 2, // offset of rel32 (after 0F XX)
+                byte_offset: 2, // offset of rel32 relative to instruction start (after 0F XX)
                 label_name: name.clone(),
                 addend: *addend,
                 instruction_size: 6,
@@ -932,14 +931,13 @@ fn encode_jmp(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
         [Operand::LabelRef { name, addend }] => {
             // Phase 6 m4-003: Label reference (forward or backward).
             // Emit placeholder rel32 and record fixup for linker resolution.
-            let offset_before = buf.len() as u32;
 
             // Emit jmp rel32 with zero placeholder
             jmp_rel32(buf, 0);
 
             let mut output = EncodeOutput::new();
             output.add_label_fixup(LabelFixup {
-                byte_offset: offset_before + 1, // offset of rel32 (after E9)
+                byte_offset: 1, // offset of rel32 relative to instruction start (after E9)
                 label_name: name.clone(),
                 addend: *addend,
                 instruction_size: 5,

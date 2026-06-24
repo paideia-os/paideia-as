@@ -1,0 +1,16 @@
+// Regression test for issue #901: jz with backward local label should compute correct disp32
+// not write disp32 = 0.
+
+module JzBackwardLocal = structure {
+  let poll : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "backward jz to local label (regression for #901)",
+    block: {
+label0:
+      in_al al;
+      and rax, 0x20;
+      jz label0
+    }
+  }
+}
