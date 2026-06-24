@@ -70,6 +70,8 @@ pub enum SectionKind {
     Data,
     /// Uninitialized data section (.bss). Used for uninit mutable bindings (Phase 6+).
     Bss,
+    /// Code section (.text). Used for code emitted during module walk.
+    Text,
 }
 
 /// A single entry in the data section.

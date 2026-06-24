@@ -214,6 +214,10 @@ pub struct EmitPassState {
     /// Maps binding names (from let-statements) to their assigned scratch registers.
     /// Scoped to the current function; reset at function entry.
     pub local_bindings: LocalBindingTable,
+
+    /// Stack of instruction modes during nested scope walk.
+    /// Used to propagate #![bits=32] or #![bits=64] from module inner_attrs.
+    pub mode_stack: Vec<InstrMode>,
 }
 
 /// LoopContext: tracks the nesting level of loop vs while for break validation.
@@ -390,6 +394,21 @@ impl EmitWalker {
         let _ = self.loop_contexts.pop();
     }
 
+    /// Phase 15 m2-002: Enter a new instruction mode scope.
+    fn enter_mode_scope(&mut self, mode: InstrMode) {
+        self.state.mode_stack.push(mode);
+    }
+
+    /// Phase 15 m2-002: Exit the current instruction mode scope.
+    fn exit_mode_scope(&mut self) {
+        self.state.mode_stack.pop();
+    }
+
+    /// Phase 15 m2-002: Get the current instruction mode (Mode64 if stack is empty).
+    fn current_mode(&self) -> InstrMode {
+        self.state.mode_stack.last().copied().unwrap_or(InstrMode::Mode64)
+    }
+
     /// Get the set of Lambda IR node IDs that emitted bytecode.
     #[must_use]
     pub fn emitted_lambdas(&self) -> &std::collections::HashSet<u32> {
@@ -420,6 +439,15 @@ impl EmitWalker {
     }
 
     fn walk_inner(&mut self, arena: &mut IrArena, typer: Option<&paideia_as_types::TypeInterner>) {
+        // Read root module inner_attrs and set initial mode.
+        // If #![bits=32], push Mode32; else default to Mode64.
+        // For now, simplification: store root_mode on state during lowering (lower.rs).
+        // This walk_inner reads the root mode at entry.
+
+        // For now, initialize with default Mode64. Mode inference will be wired in m2-002b.
+        self.state.mode_stack.clear();
+        self.state.mode_stack.push(InstrMode::Mode64);
+
         // Iterate over all nodes, looking for Let, Lambda, and Unsafe nodes.
         for i in 1..=arena.len() as u32 {
             if let Some(node_id) = IrNodeId::new(i) {

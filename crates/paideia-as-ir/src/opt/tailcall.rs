@@ -1,6 +1,7 @@
 //! Tail-call elimination.
 
 use super::{OptDiagSink, OptPass};
+use crate::instruction::InstrMode;
 use crate::IrArena;
 use crate::instruction::Mnemonic;
 use crate::node::IrNodeId;

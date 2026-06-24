@@ -33,6 +33,7 @@ mod node;
 pub mod opt;
 pub mod pretty;
 pub mod record_layout;
+pub mod section_attr;
 pub mod string_literal;
 pub mod symbol;
 pub mod walker;
@@ -71,6 +72,7 @@ pub use modules::{
 pub use monomorphisation::{MonoKey, MonomorphisationTable, TypeId};
 pub use node::{EffectRowId, IrKind, IrNodeData, IrNodeId, LinClass};
 pub use record_layout::{FieldAccessInfo, FieldAccessSideTable, RecordLayoutTable, RecordTypeId};
+pub use section_attr::{SectionAttr, SectionAttrTable};
 pub use string_literal::{StringLiteralInfo, StringLiteralTable};
 pub use symbol::{Symbol, SymbolKind, SymbolTable};
 pub use walker::{IrWalker, walk};

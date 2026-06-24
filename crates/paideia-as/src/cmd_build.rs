@@ -581,6 +581,13 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
             // so we call its walk method directly rather than through the walk() driver.
             emit_walker.walk(&mut lowering.ir);
 
+            // Phase 15 m2-002: Verify mode_stack is properly cleaned up after walk.
+            debug_assert!(
+                emit_walker.state().mode_stack.is_empty() || emit_walker.state().mode_stack.len() == 1,
+                "EmitWalker mode_stack should be empty or have 1 entry at end of walk; got {}",
+                emit_walker.state().mode_stack.len()
+            );
+
             // Phase-5-m3-005: Run UnsafeWalker to elaborate pending unsafe blocks.
             // Take pending unsafe blocks from EmitWalker state and process them.
             let pending = emit_walker.state_mut().take_pending_unsafe();
@@ -1042,6 +1049,10 @@ fn build_elf_object(
                 // Phase 6 m5-002: allocate uninitialized space in .bss section
                 writer.add_bss_space(entry.size_hint, entry.align)
             }
+            paideia_as_ir::SectionKind::Text => {
+                // Phase 15 m2-002: code section entries (deferred implementation)
+                unimplemented!("SectionKind::Text code emission not yet implemented")
+            }
         };
         data_offsets.insert(*node_id, data_offset);
         // Phase-5-m4-003: Create a symbol for the data entry so relocations can reference it
@@ -1075,6 +1086,7 @@ fn build_elf_object(
                 paideia_as_ir::SectionKind::Rodata => writer.rodata_section_id(),
                 paideia_as_ir::SectionKind::Data => writer.data_section_id(),
                 paideia_as_ir::SectionKind::Bss => writer.bss_section_id(),
+                paideia_as_ir::SectionKind::Text => writer.text_section_id(),
             };
             for spec in &entry.relocations {
                 let reloc_offset = data_offset + spec.offset;

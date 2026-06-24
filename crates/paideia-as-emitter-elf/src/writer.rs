@@ -247,6 +247,9 @@ impl ElfWriter {
                 paideia_as_ir::SectionKind::Bss => {
                     SymbolSection::Section(self.obj.section_id(StandardSection::UninitializedData))
                 }
+                paideia_as_ir::SectionKind::Text => {
+                    SymbolSection::Section(self.obj.section_id(StandardSection::Text))
+                }
             }
         } else if entry.offset.is_some() && entry.kind == SymKind::Func {
             // Functions with offsets go in .text section
@@ -534,6 +537,7 @@ impl ElfWriter {
                     paideia_as_ir::SectionKind::Rodata => self.rodata_section_id,
                     paideia_as_ir::SectionKind::Data => self.data_section_id,
                     paideia_as_ir::SectionKind::Bss => self.bss_section_id,
+                    paideia_as_ir::SectionKind::Text => self.text_section_id,
                 }
             } else if entry.kind == SymKind::Func {
                 self.text_section_id
