@@ -18,3 +18,12 @@ uart_puts:
 .globl add_one
 add_one:
     ret
+
+.globl banner_msg
+banner_msg: .quad 0
+
+.globl cap_smoke
+cap_smoke: ret
+
+.globl ipc_smoke
+ipc_smoke: ret
