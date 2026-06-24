@@ -51,6 +51,17 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             }
         }
 
+        // Check for optional `pub` keyword before let
+        if self.at(TokenKind::KwPub) {
+            // Peek ahead to see if this is `pub let`
+            if let Some(next_tok) = self.peek_at(1) {
+                if next_tok.kind == TokenKind::KwLet {
+                    return self.parse_let_decl();
+                }
+            }
+            // If not `pub let`, fall through to error
+        }
+
         match self.peek().map(|t| t.kind) {
             Some(TokenKind::KwModule) => self.parse_module_decl(),
             Some(TokenKind::KwSignature) => self.parse_signature_decl(),
