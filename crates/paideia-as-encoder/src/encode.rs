@@ -262,6 +262,21 @@ pub fn mov_reg64_reg64(buf: &mut CodeBuffer, dst: Reg64, src: Reg64) {
     buf.bytes.push(0xC0 | ((src_id & 7) << 3) | (dst_id & 7));
 }
 
+/// Encode `mov sreg, r16` (move from register to segment register).
+///
+/// Phase 15 m5-002: Encodes segment register MOV instructions.
+/// Uses opcode 8E /r with no REX prefix (segment MOV does not use REX.W).
+///
+/// Instruction: `8E /r` (2 bytes)
+/// ModR/M: `0xC0 | (sreg_id << 3) | (src_reg_id & 7)`
+///
+/// Example: `mov ds, ax` → `8E D8` (sreg_id=3 for DS, src_reg_id=0 for AX)
+pub fn mov_sreg_reg16(buf: &mut CodeBuffer, sreg_id: u8, src: Reg64) {
+    let src_id = src as u8;
+    buf.bytes.push(0x8E); // MOV sreg, r16 opcode
+    buf.bytes.push(0xC0 | ((sreg_id & 7) << 3) | (src_id & 7));
+}
+
 /// Encode `mov [rbp+disp], reg64` (store register to memory).
 ///
 /// Uses the smallest form possible:

@@ -452,6 +452,18 @@ fn encode_mov(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
         _ => {}
     }
 
+    // Phase 15 m5-002: Handle segment register MOV (mov sreg, r16).
+    // Opcode: 8E /r (no REX prefix)
+    match inst.operands.as_slice() {
+        [Operand::SegReg(sreg), Operand::Reg(src)] => {
+            let sreg_id = sreg.id();
+            let src_reg = reg64_from(*src)?;
+            mov_sreg_reg16(buf, sreg_id, src_reg);
+            return Ok(EncodeOutput::new());
+        }
+        _ => {}
+    }
+
     // Phase 15 m3-001: Mode32 dispatch for mov r32, imm32 and mov r32, r32
     if inst.mode == InstrMode::Mode32 {
         match inst.operands.as_slice() {
@@ -1713,7 +1725,7 @@ fn encode_invlpg_inst(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use paideia_as_ir::{InstrMode, Instruction, Mnemonic, Operand, RegId, Scale};
+    use paideia_as_ir::{InstrMode, Instruction, Mnemonic, Operand, RegId, Scale, SegReg};
 
     #[test]
     fn encode_mov_rax_rdi_round_trips_through_iced_x86() {
@@ -3735,6 +3747,143 @@ mod tests {
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
         assert_eq!(buf.as_slice(), &[0x0F, 0x21, 0xC0]);
+    }
+
+    // Phase 15 m5-002: Segment register MOV instructions (opcode 8E /r).
+    // Pattern: mov sreg, r16 → 8E /r
+
+    #[test]
+    fn encode_mov_ds_ax_emits_8e_d8() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![
+                Operand::SegReg(SegReg::Ds),
+                Operand::Reg(RegId(0)), // rax
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expected: 8E D8 (Ds=3, so ModR/M = 0xC0 | (3 << 3) | 0 = 0xD8)
+        assert_eq!(buf.as_slice(), &[0x8E, 0xD8]);
+    }
+
+    #[test]
+    fn encode_mov_es_ax_emits_8e_c0() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![
+                Operand::SegReg(SegReg::Es),
+                Operand::Reg(RegId(0)), // rax
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expected: 8E C0 (Es=0, so ModR/M = 0xC0 | (0 << 3) | 0 = 0xC0)
+        assert_eq!(buf.as_slice(), &[0x8E, 0xC0]);
+    }
+
+    #[test]
+    fn encode_mov_ss_ax_emits_8e_d0() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![
+                Operand::SegReg(SegReg::Ss),
+                Operand::Reg(RegId(0)), // rax
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expected: 8E D0 (Ss=2, so ModR/M = 0xC0 | (2 << 3) | 0 = 0xD0)
+        assert_eq!(buf.as_slice(), &[0x8E, 0xD0]);
+    }
+
+    #[test]
+    fn encode_mov_fs_ax_emits_8e_e0() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![
+                Operand::SegReg(SegReg::Fs),
+                Operand::Reg(RegId(0)), // rax
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expected: 8E E0 (Fs=4, so ModR/M = 0xC0 | (4 << 3) | 0 = 0xE0)
+        assert_eq!(buf.as_slice(), &[0x8E, 0xE0]);
+    }
+
+    #[test]
+    fn encode_mov_gs_ax_emits_8e_e8() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![
+                Operand::SegReg(SegReg::Gs),
+                Operand::Reg(RegId(0)), // rax
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expected: 8E E8 (Gs=5, so ModR/M = 0xC0 | (5 << 3) | 0 = 0xE8)
+        assert_eq!(buf.as_slice(), &[0x8E, 0xE8]);
+    }
+
+    #[test]
+    fn encode_mov_ds_ax_mode_agnostic() {
+        // Verify Mode32 and Mode64 produce identical bytecode.
+        let test_mode = |mode: InstrMode| {
+            let mut buf = CodeBuffer::new();
+            let inst = Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: smallvec::smallvec![
+                    Operand::SegReg(SegReg::Ds),
+                    Operand::Reg(RegId(0)), // rax
+                ],
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode,
+            };
+
+            let mut stats = EncodeStats::new();
+            encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+            buf.as_slice().to_vec()
+        };
+
+        let bytes_mode32 = test_mode(InstrMode::Mode32);
+        let bytes_mode64 = test_mode(InstrMode::Mode64);
+
+        // Both should emit identical bytecode (no mode-dependent encoding for sreg MOV).
+        assert_eq!(bytes_mode32, bytes_mode64);
+        assert_eq!(bytes_mode32, vec![0x8E, 0xD8]);
     }
 }
 

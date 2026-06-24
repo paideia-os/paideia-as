@@ -246,11 +246,49 @@ pub enum Cond {
     NotOverflow,
 }
 
+/// x86_64 segment register identifier.
+///
+/// Valid segment registers: ES, CS, SS, DS, FS, GS.
+/// These are used in MOV sreg, r16 instructions.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum SegReg {
+    /// Extra segment.
+    Es,
+    /// Code segment.
+    Cs,
+    /// Stack segment.
+    Ss,
+    /// Data segment.
+    Ds,
+    /// File segment.
+    Fs,
+    /// General-purpose segment.
+    Gs,
+}
+
+impl SegReg {
+    /// Encode segment register to the numeric ID for ModR/M field.
+    /// Matches Intel SDM Vol 2A: ES=0, CS=1, SS=2, DS=3, FS=4, GS=5.
+    #[must_use]
+    pub fn id(self) -> u8 {
+        match self {
+            SegReg::Es => 0,
+            SegReg::Cs => 1,
+            SegReg::Ss => 2,
+            SegReg::Ds => 3,
+            SegReg::Fs => 4,
+            SegReg::Gs => 5,
+        }
+    }
+}
+
 /// An operand to an x86_64 instruction.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Operand {
     /// Register operand.
     Reg(RegId),
+    /// Segment register operand (Phase 15 m5-002).
+    SegReg(SegReg),
     /// 64-bit immediate operand.
     Imm64(i64),
     /// SIB-form memory: base + index * scale + disp.
