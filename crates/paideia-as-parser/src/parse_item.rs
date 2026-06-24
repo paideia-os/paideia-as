@@ -51,12 +51,13 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             }
         }
 
-        // Check for optional `pub` keyword before let
+        // Check for optional `pub` keyword before let or just plain let
         if self.at(TokenKind::KwPub) {
             // Peek ahead to see if this is `pub let`
             if let Some(next_tok) = self.peek_at(1) {
                 if next_tok.kind == TokenKind::KwLet {
-                    self.bump(); // Consume the `pub` token
+                    // It's `pub let`; consume the pub token, then parse_let_decl will consume let
+                    self.bump(); // Consume `pub`
                     return self.parse_let_decl();
                 }
             }
