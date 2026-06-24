@@ -9,6 +9,7 @@
 
 use paideia_as_encoder::{CodeBuffer, EncodeStats, RelocKind};
 use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand, RegId};
+use paideia_as_ir::InstrMode;
 use smallvec::smallvec;
 
 /// Helper to encode an instruction and check its relocation offset.

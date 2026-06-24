@@ -15,6 +15,7 @@
 
 use paideia_as_encoder::{CodeBuffer, EncodeStats};
 use paideia_as_ir::instruction::{Instruction, IntWidth, Mnemonic, Operand, RegId};
+use paideia_as_ir::InstrMode;
 use smallvec::smallvec;
 
 // ===== Suite A: Byte-Exact Encoding (softarch test vectors) =====

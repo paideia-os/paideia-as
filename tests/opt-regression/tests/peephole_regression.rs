@@ -7,7 +7,7 @@
 mod common;
 
 use common::{create_instruction_node, create_test_arena};
-use paideia_as_ir::instruction::{Mnemonic, Operand, RegId};
+use paideia_as_ir::instruction::{InstrMode, Mnemonic, Operand, RegId};
 use paideia_as_ir::opt::{OptDiagSink, OptPass, PeepholePass};
 
 /// Test that peephole pass emits "rewrote" diagnostic for nop-mov removal.

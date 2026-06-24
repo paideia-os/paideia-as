@@ -6,7 +6,7 @@
 use paideia_as_ast::{AstArena, ExprData, NodeKind, StmtData};
 use paideia_as_diagnostics::Span;
 use paideia_as_elaborator::lower::lower_ast_to_ir;
-use paideia_as_ir::IrKind;
+use paideia_as_ir::{IrKind, InstrMode};
 
 fn test_span() -> Span {
     Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 0, 1)
@@ -28,7 +28,6 @@ fn unsafe_block_lowers_body_to_children() {
         StmtData::Instruction {
             mnemonic: mnemonic_id,
             operands: vec![],
-            mode: InstrMode::default(),
         },
     );
 
@@ -90,7 +89,6 @@ fn unsafe_block_with_three_stmts_lowers_all() {
         StmtData::Instruction {
             mnemonic: cli_mnem,
             operands: vec![],
-            mode: InstrMode::default(),
         },
     );
 
@@ -100,7 +98,6 @@ fn unsafe_block_with_three_stmts_lowers_all() {
         StmtData::Instruction {
             mnemonic: hlt_mnem,
             operands: vec![],
-            mode: InstrMode::default(),
         },
     );
 
@@ -110,7 +107,6 @@ fn unsafe_block_with_three_stmts_lowers_all() {
         StmtData::Instruction {
             mnemonic: nop_mnem,
             operands: vec![],
-            mode: InstrMode::default(),
         },
     );
 
@@ -182,7 +178,6 @@ fn unsafe_block_with_mixed_stmts_lowers_all() {
         StmtData::Instruction {
             mnemonic: cli_mnem,
             operands: vec![],
-            mode: InstrMode::default(),
         },
     );
 
@@ -193,7 +188,6 @@ fn unsafe_block_with_mixed_stmts_lowers_all() {
         StmtData::Instruction {
             mnemonic: nop_mnem,
             operands: vec![],
-            mode: InstrMode::default(),
         },
     );
 

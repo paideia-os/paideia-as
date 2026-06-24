@@ -45,8 +45,7 @@ fn call_with_symbol_ref_parses_successfully() {
         Some(0),
         "call with symbol reference should build successfully. stderr: {}",
         String::from_utf8_lossy(&output.stderr)
-    );,
-    mode: InstrMode::default(),
+    );
 }
 
 #[test]

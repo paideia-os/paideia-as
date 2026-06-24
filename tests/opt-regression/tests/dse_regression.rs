@@ -7,6 +7,7 @@
 mod common;
 
 use common::create_test_arena;
+use paideia_as_ir::instruction::InstrMode;
 use paideia_as_ir::opt::{DsePass, OptDiagSink, OptPass};
 
 /// Test that DSE pass smoke-tests with empty arena.

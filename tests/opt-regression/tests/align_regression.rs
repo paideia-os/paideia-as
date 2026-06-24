@@ -8,6 +8,7 @@ mod common;
 
 use common::create_test_arena;
 use paideia_as_ir::IrKind;
+use paideia_as_ir::instruction::InstrMode;
 use paideia_as_ir::loop_meta::LoopMeta;
 use paideia_as_ir::opt::{AlignPass, OptDiagSink, OptPass};
 

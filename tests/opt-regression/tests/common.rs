@@ -3,7 +3,7 @@
 use paideia_as_diagnostics::{FileId, Span};
 use paideia_as_ir::{
     IrArena, IrKind, IrNodeId,
-    instruction::{Instruction, Mnemonic, Operand},
+    instruction::{Instruction, InstrMode, Mnemonic, Operand},
 };
 use smallvec::SmallVec;
 

@@ -5,6 +5,7 @@
 
 use paideia_as_elaborator::unsafe_walker::U_UNEXPECTED_OPERANDS;
 use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand};
+use paideia_as_ir::InstrMode;
 
 #[test]
 fn cli_hlt_succeeds_with_empty_operands() {

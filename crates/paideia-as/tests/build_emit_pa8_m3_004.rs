@@ -67,7 +67,7 @@ use std::process::Command;
 
 use paideia_as_elaborator::emit_walker::{CastShape, cast_plan};
 use paideia_as_encoder::{CodeBuffer, EncodeStats, encode_instruction};
-use paideia_as_ir::instruction::{IntWidth, Mnemonic};
+use paideia_as_ir::instruction::{InstrMode, IntWidth, Mnemonic};
 use paideia_as_ir::{Instruction, Operand, RegId};
 
 // ===========================================================================
@@ -312,8 +312,7 @@ fn encode_and_decode(inst: &Instruction) -> IcedInstruction {
     let bytes = buf.as_slice().to_vec();
     assert!(!bytes.is_empty(), "encoder produced no bytes");
     let mut decoder = Decoder::new(64, &bytes, DecoderOptions::NONE);
-    decoder.decode(),
-    mode: InstrMode::default(),
+    decoder.decode()
 }
 
 /// Decode and also return the iced `IntelFormatter` rendering of an

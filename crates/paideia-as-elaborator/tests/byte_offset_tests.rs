@@ -5,7 +5,7 @@
 //! computing it after encoding.
 
 use paideia_as_ir::{
-    Instruction, InstructionSideTable, IrNodeId, Mnemonic, Operand, RegId, SmallVec,
+    Instruction, InstructionSideTable, IrNodeId, InstrMode, Mnemonic, Operand, RegId, SmallVec,
 };
 
 macro_rules! sv {
