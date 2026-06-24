@@ -1336,11 +1336,13 @@ impl UnsafeWalker {
     ) -> (
         HashMap<String, u32>,
         HashMap<String, paideia_as_ir::IrNodeId>,
+        Vec<Option<IrNodeId>>,
         Vec<Diagnostic>,
     ) {
         let mut diags = Vec::new();
         let mut all_labels: HashMap<String, u32> = HashMap::new();
         let mut label_to_instr: HashMap<String, paideia_as_ir::IrNodeId> = HashMap::new();
+        let mut first_instrs: Vec<Option<IrNodeId>> = Vec::new();
 
         // Track which ExprUnsafe we've processed to avoid N×M cross-product.
         // Each pending IR node ID corresponds to exactly one ExprUnsafe in source order.
@@ -1429,6 +1431,7 @@ impl UnsafeWalker {
                                     // Pass 2: Process instructions and check label references.
                                     // Also track which instruction follows each label for offset computation.
                                     let mut prev_was_label: Option<String> = None;
+                                    let mut block_first_instr: Option<IrNodeId> = None;
                                     for &stmt_id in block {
                                         if let Some(ast_stmt_node) = ast.get(stmt_id) {
                                             if ast_stmt_node.kind == NodeKind::StmtLabel {
@@ -1469,6 +1472,11 @@ impl UnsafeWalker {
                                                     instr_mode,
                                                 );
 
+                                                // Track first instruction of this unsafe block
+                                                if block_first_instr.is_none() {
+                                                    block_first_instr = instr_ir_node;
+                                                }
+
                                                 // If previous statement was a label, record the mapping
                                                 if let (Some(label_name), Some(instr_id)) =
                                                     (prev_was_label.take(), instr_ir_node)
@@ -1478,6 +1486,8 @@ impl UnsafeWalker {
                                             }
                                         }
                                     }
+                                    // Record the first instruction for this unsafe block
+                                    first_instrs.push(block_first_instr);
                                 }
                                 // After processing this unsafe block, break and move to the next pending ID.
                                 break;
@@ -1490,7 +1500,7 @@ impl UnsafeWalker {
             unsafe_block_idx += 1;
         }
 
-        (all_labels, label_to_instr, diags)
+        (all_labels, label_to_instr, first_instrs, diags)
     }
 
     /// Process a single StmtInstruction node.

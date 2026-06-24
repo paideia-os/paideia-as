@@ -221,6 +221,15 @@ pub struct EmitPassState {
     /// based on instruction offsets from the encoder's offset_map.
     pub label_to_instr: HashMap<String, paideia_as_ir::IrNodeId>,
 
+    /// PA8-m1-002b: Unsafe lambda IR node id → index in pending_unsafe_blocks.
+    /// Maps each unsafe-bodied lambda to its position in the pending list,
+    /// allowing us to look up its first instruction from UnsafeWalker's first_instrs vec.
+    pub unsafe_lambda_to_pending_idx: HashMap<u32, usize>,
+
+    /// PA8-m1-002b: Unsafe body IR node id → lambda IR node id.
+    /// Used to track which lambda has which unsafe body during the walk.
+    pub unsafe_body_to_lambda: HashMap<u32, u32>,
+
     /// Phase 7 m1-001: Local binding table for multi-statement function bodies.
     /// Maps binding names (from let-statements) to their assigned scratch registers.
     /// Scoped to the current function; reset at function entry.
@@ -578,7 +587,18 @@ impl EmitWalker {
                         IrKind::Unsafe => {
                             // Record unsafe node for later processing by UnsafeWalker (m3).
                             // We do not inspect block contents here.
+                            let pending_idx = self.state.pending_unsafe_blocks.len();
                             self.state.pending_unsafe_blocks.push(node_id.get());
+
+                            // PA8-m1-002b: If this Unsafe body was referenced by a lambda,
+                            // record the pending index for that lambda.
+                            if let Some(&lambda_id) =
+                                self.state.unsafe_body_to_lambda.get(&node_id.get())
+                            {
+                                self.state
+                                    .unsafe_lambda_to_pending_idx
+                                    .insert(lambda_id, pending_idx);
+                            }
                         }
                         IrKind::FieldAccess => {
                             // Phase 6 m3-002: emit field access lowering for (*p).field shape.
@@ -1476,18 +1496,31 @@ impl EmitWalker {
                     }
                     // Phase 7 m2-001 (PA7C-m2-001): Unsafe block body `unsafe { ... }`
                     IrKind::Unsafe => {
-                        if cfg!(debug_assertions) {
-                            eprintln!(
-                                "[visit_lambda Unsafe] Lambda {} body=Unsafe",
-                                lambda_node_id.get()
-                            );
-                        }
-
                         // PA8-m1-002: For Unsafe bodies, we record the offset here as backup,
                         // but UnsafeWalker will also record it when it emits instructions.
                         // This ensures backward compatibility if UnsafeWalker doesn't emit anything.
                         let main_id = lambda_node_id;
                         self.record_lambda_entry(lambda_node_id, main_id);
+
+                        // PA8-m1-002b: Check if the unsafe body has already been queued.
+                        // (This can happen if the Unsafe node's ID is lower than the Lambda's ID.)
+                        // If so, find its position in pending_unsafe_blocks and record it.
+                        for (idx, &pending_node_id) in
+                            self.state.pending_unsafe_blocks.iter().enumerate()
+                        {
+                            if pending_node_id == body_id.get() {
+                                self.state
+                                    .unsafe_lambda_to_pending_idx
+                                    .insert(lambda_node_id.get(), idx);
+                                break;
+                            }
+                        }
+
+                        // For future reference: if the Unsafe node hasn't been queued yet,
+                        // we'll record the mapping when the walk loop encounters it.
+                        self.state
+                            .unsafe_body_to_lambda
+                            .insert(body_id.get(), lambda_node_id.get());
 
                         // Don't queue or recurse here — the top-level walk() loop will
                         // encounter the Unsafe node and queue it for UnsafeWalker.

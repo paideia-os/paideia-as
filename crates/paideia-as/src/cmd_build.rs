@@ -650,7 +650,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
             let pending = emit_walker.state_mut().take_pending_unsafe();
             let record_layouts = &emit_walker.state().record_layouts;
             let local_bindings = &emit_walker.state().local_bindings;
-            let (unsafe_labels, label_to_instr, unsafe_diags) = UnsafeWalker::run(
+            let (unsafe_labels, label_to_instr, first_instrs, unsafe_diags) = UnsafeWalker::run(
                 &mut lowering.ir,
                 &arena,
                 pending,
@@ -669,6 +669,26 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
             // Store label_to_instr mapping for use in label offset computation after encoding
             // (We'll use this to resolve label offsets based on instruction offsets from offset_map)
             emit_walker.state_mut().label_to_instr = label_to_instr;
+
+            // PA8-m1-002b: Wire first_instrs back to lambda_first_instr for unsafe lambdas.
+            // first_instrs[i] is the first instruction of the i-th pending unsafe block.
+            // We look up which lambda corresponds to that pending index via unsafe_lambda_to_pending_idx.
+            {
+                let pending_idx_map: Vec<_> = emit_walker
+                    .state()
+                    .unsafe_lambda_to_pending_idx
+                    .iter()
+                    .map(|(&lambda_id, &idx)| (lambda_id, idx))
+                    .collect();
+                for (lambda_id, idx) in pending_idx_map {
+                    if let Some(Some(first_instr)) = first_instrs.get(idx) {
+                        emit_walker
+                            .state_mut()
+                            .lambda_first_instr
+                            .insert(lambda_id, *first_instr);
+                    }
+                }
+            }
 
             // Phase-7-m2-003: Resolve Operand::Var references to Operand::Reg.
             // Call resolve_var_operands on the arena's owned instruction table,
@@ -1191,9 +1211,31 @@ fn build_elf_object(
     // propagated directly to function symbols. The old function_offsets approach used
     // estimated_offset at emission time, which preserves definition order.
     // We keep this behavior for backward compatibility and correctness.
-    let function_offsets = emit_walker.state().function_offsets.clone();
+    // PA8-m1-002b: For unsafe lambdas, override estimated offsets with post-encoding values.
+    let mut function_offsets = emit_walker.state().function_offsets.clone();
     let _emitted_lambdas = emit_walker.emitted_lambdas();
     let mut emitted_any_symbol = false;
+
+    // PA8-m1-002b: SCOPED offset_map projection for unsafe lambdas only.
+    // Non-unsafe lambdas (identity/bitnot/etc) keep their estimated offsets.
+    // Unsafe lambdas get post-encoding truth from offset_map.
+    {
+        let unsafe_lambdas: std::collections::HashSet<u32> = emit_walker
+            .state()
+            .unsafe_lambda_to_pending_idx
+            .keys()
+            .copied()
+            .collect();
+        let lambda_first_instr = &emit_walker.state().lambda_first_instr;
+        let offset_map = &emit_result.offset_map;
+        for (lambda_id, &first_instr) in lambda_first_instr {
+            if unsafe_lambdas.contains(lambda_id) {
+                if let Some(&byte_off) = offset_map.get(&first_instr) {
+                    function_offsets.insert(*lambda_id, byte_off as u32);
+                }
+            }
+        }
+    }
 
     // PA8-m1-002: Pre-compute sorted, deduplicated offsets once to avoid O(N²) lookup.
     let mut sorted_offsets: Vec<u32> = function_offsets.values().copied().collect();
