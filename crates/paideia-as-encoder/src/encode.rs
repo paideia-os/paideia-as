@@ -827,6 +827,20 @@ pub fn mov_mem_abs32_reg32(buf: &mut CodeBuffer, src: Reg64) -> u32 {
     byte_offset_disp32
 }
 
+/// Encode `mov [abs32], imm32`.
+///
+/// Instruction: C7 05 disp32 imm32
+/// Helper for Mode32 dispatcher; RelocSite added at dispatcher level.
+pub fn mov_mem_abs32_imm32(buf: &mut CodeBuffer, imm: u32) -> u32 {
+    let byte_offset_before = buf.len() as u32;
+    buf.bytes.push(0xC7);
+    buf.bytes.push(0x05);
+    let byte_offset_disp32 = (buf.len() as u32) - byte_offset_before;
+    buf.bytes.extend([0, 0, 0, 0]);
+    buf.bytes.extend(imm.to_le_bytes());
+    byte_offset_disp32 // == 2
+}
+
 /// Encode `cmp reg64, reg64`.
 ///
 /// Instruction: REX.W 39 /r

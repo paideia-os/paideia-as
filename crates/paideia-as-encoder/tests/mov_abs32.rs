@@ -192,3 +192,170 @@ fn iced_x86_32bit_decoder_round_trip() {
     // Verify it decoded as a MOV instruction
     assert_eq!(decoded_instr.mnemonic(), IcedMnem::Mov);
 }
+
+// ===== Suite D: Phase 15 m3-003 Tests (mov [abs32], imm32) =====
+
+/// Test 1: mov [pdpt], imm32(0) → C7 05 00 00 00 00 00 00 00 00 + reloc with addend 0.
+#[test]
+fn mov_mem_abs32_zero_imm() {
+    let mut buf = CodeBuffer::new();
+    let inst = Instruction {
+        mnemonic: Mnemonic::Mov,
+        operands: smallvec![
+            Operand::SymbolRef {
+                name: "pdpt".to_string(),
+                addend: 0,
+            },
+            Operand::Imm64(0),
+        ],
+        byte_offset_in_text: None,
+        mode: InstrMode::Mode32,
+        encoding_hint: None,
+    };
+
+    let mut stats = EncodeStats::new();
+    let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
+        .expect("encoding failed for mov [pdpt], 0");
+
+    // Expected: C7 05 00 00 00 00 00 00 00 00 (10 bytes: opcode, ModR/M, disp32 placeholder, imm32)
+    let expected = &[0xC7, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+    assert_eq!(buf.as_slice(), expected);
+
+    // Verify relocation
+    assert_eq!(output.reloc_sites.len(), 1);
+    let reloc = &output.reloc_sites[0];
+    assert_eq!(reloc.symbol, "pdpt");
+    assert_eq!(reloc.kind, RelocKind::Abs32);
+    assert_eq!(reloc.addend, 0);
+    assert_eq!(reloc.byte_offset, 2); // disp32 starts at byte offset 2
+}
+
+/// Test 2: mov [abs32], imm32(0xFFFF_FFFF) → C7 05 ... FF FF FF FF + reloc with addend 0.
+#[test]
+fn mov_mem_abs32_max_u32_imm() {
+    let mut buf = CodeBuffer::new();
+    let inst = Instruction {
+        mnemonic: Mnemonic::Mov,
+        operands: smallvec![
+            Operand::SymbolRef {
+                name: "kernel_data".to_string(),
+                addend: 0,
+            },
+            Operand::Imm64(0xFFFF_FFFF as i64),
+        ],
+        byte_offset_in_text: None,
+        mode: InstrMode::Mode32,
+        encoding_hint: None,
+    };
+
+    let mut stats = EncodeStats::new();
+    let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
+        .expect("encoding failed for mov [kernel_data], 0xFFFF_FFFF");
+
+    // Expected: C7 05 00 00 00 00 FF FF FF FF
+    let expected = &[0xC7, 0x05, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF];
+    assert_eq!(buf.as_slice(), expected);
+
+    // Verify relocation
+    assert_eq!(output.reloc_sites.len(), 1);
+    let reloc = &output.reloc_sites[0];
+    assert_eq!(reloc.symbol, "kernel_data");
+    assert_eq!(reloc.kind, RelocKind::Abs32);
+    assert_eq!(reloc.addend, 0);
+}
+
+/// Test 3: mov [pdpt + addend=0], imm32 → reloc with addend 0.
+#[test]
+fn mov_mem_abs32_pdpt_plus_zero_addend() {
+    let mut buf = CodeBuffer::new();
+    let inst = Instruction {
+        mnemonic: Mnemonic::Mov,
+        operands: smallvec![
+            Operand::SymbolRef {
+                name: "pdpt".to_string(),
+                addend: 0,
+            },
+            Operand::Imm64(0x42),
+        ],
+        byte_offset_in_text: None,
+        mode: InstrMode::Mode32,
+        encoding_hint: None,
+    };
+
+    let mut stats = EncodeStats::new();
+    let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
+        .expect("encoding failed");
+
+    assert_eq!(output.reloc_sites.len(), 1);
+    let reloc = &output.reloc_sites[0];
+    assert_eq!(reloc.symbol, "pdpt");
+    assert_eq!(reloc.addend, 0);
+}
+
+/// Test 4: mov [pdpt + addend=8], imm32(0x1003) → C7 05 ... 03 10 00 00 + reloc addend 8.
+#[test]
+fn mov_mem_abs32_pdpt_plus_8_addend() {
+    let mut buf = CodeBuffer::new();
+    let inst = Instruction {
+        mnemonic: Mnemonic::Mov,
+        operands: smallvec![
+            Operand::SymbolRef {
+                name: "pdpt".to_string(),
+                addend: 8,
+            },
+            Operand::Imm64(0x1003),
+        ],
+        byte_offset_in_text: None,
+        mode: InstrMode::Mode32,
+        encoding_hint: None,
+    };
+
+    let mut stats = EncodeStats::new();
+    let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
+        .expect("encoding failed for mov [pdpt + 8], 0x1003");
+
+    // Expected: C7 05 00 00 00 00 03 10 00 00
+    let expected = &[0xC7, 0x05, 0x00, 0x00, 0x00, 0x00, 0x03, 0x10, 0x00, 0x00];
+    assert_eq!(buf.as_slice(), expected);
+
+    // Verify relocation with addend
+    assert_eq!(output.reloc_sites.len(), 1);
+    let reloc = &output.reloc_sites[0];
+    assert_eq!(reloc.symbol, "pdpt");
+    assert_eq!(reloc.kind, RelocKind::Abs32);
+    assert_eq!(reloc.addend, 8);
+    assert_eq!(reloc.byte_offset, 2);
+}
+
+/// Test 5: Mode64 + mov [abs], imm → Err with "not encodable in 64-bit mode" substring.
+#[test]
+fn mov_mem_abs_imm_mode64_unsupported() {
+    let mut buf = CodeBuffer::new();
+    let inst = Instruction {
+        mnemonic: Mnemonic::Mov,
+        operands: smallvec![
+            Operand::SymbolRef {
+                name: "kernel_data".to_string(),
+                addend: 0,
+            },
+            Operand::Imm64(0x1234),
+        ],
+        byte_offset_in_text: None,
+        mode: InstrMode::Mode64,
+        encoding_hint: None,
+    };
+
+    let mut stats = EncodeStats::new();
+    let result = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats);
+
+    // Should return an error
+    assert!(result.is_err(), "expected error for Mode64 mov [abs], imm");
+
+    // Check that the error message contains the diagnostic text
+    let err_msg = format!("{}", result.unwrap_err());
+    assert!(
+        err_msg.contains("not encodable in 64-bit mode"),
+        "error message should contain 'not encodable in 64-bit mode', got: {}",
+        err_msg
+    );
+}

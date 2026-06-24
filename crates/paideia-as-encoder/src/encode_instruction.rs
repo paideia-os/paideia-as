@@ -497,7 +497,37 @@ fn encode_mov(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
                 });
                 return Ok(output);
             }
+            // Phase 15 m3-003: mov [abs32], imm32
+            [Operand::SymbolRef { name, addend }, Operand::Imm64(imm)] => {
+                let imm_i = *imm as i64;
+                let fits_u32 = (*imm as u64) <= u32::MAX as u64;
+                let fits_i32 = (i32::MIN as i64..=i32::MAX as i64).contains(&imm_i);
+                if !(fits_u32 || fits_i32) {
+                    return Err(EncodeError::Unsupported(
+                        "E0019: mov [abs32], imm: immediate exceeds 32 bits",
+                    ));
+                }
+                let byte_offset = mov_mem_abs32_imm32(buf, *imm as u32);
+                let mut output = EncodeOutput::new();
+                output.add_reloc(RelocSite {
+                    byte_offset,
+                    symbol: name.clone(),
+                    kind: RelocKind::Abs32,
+                    addend: *addend,
+                });
+                return Ok(output);
+            }
             _ => {} // fall through
+        }
+    }
+
+    // Phase 15 m3-003: Mode64 diagnostic for mov [abs], imm
+    if inst.mode == InstrMode::Mode64 {
+        if let [Operand::SymbolRef { .. }, Operand::Imm64(_)] = inst.operands.as_slice() {
+            return Err(EncodeError::Unsupported(
+                "mov [abs], imm not encodable in 64-bit mode without register base; \
+                 use mov rax, sym; mov [rax], imm",
+            ));
         }
     }
 
