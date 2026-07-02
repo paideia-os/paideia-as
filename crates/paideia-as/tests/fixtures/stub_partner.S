@@ -27,3 +27,25 @@ cap_smoke: ret
 
 .globl ipc_smoke
 ipc_smoke: ret
+
+.globl idt_ok_msg
+idt_ok_msg: .quad 0
+
+.globl _tick_msg
+_tick_msg: .quad 0
+
+.globl apic_enable
+apic_enable:
+    ret
+
+.globl lapic_timer_init
+lapic_timer_init:
+    ret
+
+.globl lapic_timer_rearm
+lapic_timer_rearm:
+    ret
+
+.globl apic_eoi
+apic_eoi:
+    ret
