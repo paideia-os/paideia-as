@@ -153,6 +153,38 @@ fn rex_w() -> u8 {
     rex(true, false, false, false)
 }
 
+// Helper to emit ModR/M + SIB (if needed) + displacement for [base + disp].
+// Handles SIB escape (when base is RSP) and BP escape (when base is RBP with disp=0).
+//
+// Arguments:
+//   - reg_field: the value to encode in ModR/M.reg (already masked to 3 bits for use)
+//   - base_id: full 8-bit register ID (will mask to 3 bits for ModR/M.r/m)
+//   - disp: displacement value (0, signed i8, or signed i32)
+fn emit_mem_base_disp(buf: &mut CodeBuffer, reg_field: u8, base_id: u8, disp: i32) {
+    let base_low = base_id & 7;
+    let reg_low = reg_field & 7;
+    let sib_escape = base_low == 4; // base is RSP
+    let bp_escape = base_low == 5; // base is RBP
+    let (mod_bits, disp_len) = if disp == 0 && !bp_escape {
+        (0x00u8, 0)
+    } else if (-128..=127).contains(&disp) {
+        (0x40u8, 1)
+    } else {
+        (0x80u8, 4)
+    };
+    if sib_escape {
+        buf.bytes.push(mod_bits | (reg_low << 3) | 0b100);
+        buf.bytes.push((0b00 << 6) | (0b100 << 3) | base_low);
+    } else {
+        buf.bytes.push(mod_bits | (reg_low << 3) | base_low);
+    }
+    match disp_len {
+        0 => {}
+        1 => buf.bytes.push(disp as u8),
+        _ => buf.bytes.extend(disp.to_le_bytes()),
+    }
+}
+
 /// Encode `mov reg64, imm32` (sign-extended to 64-bit).
 ///
 /// Instruction: REX.W C7 /0 id
@@ -287,21 +319,12 @@ pub fn mov_sreg_reg16(buf: &mut CodeBuffer, sreg_id: u8, src: Reg64) {
 /// Instruction: `REX.W 89 /r [ModR/M] [disp]`
 pub fn mov_mem_rbp_disp_reg64(buf: &mut CodeBuffer, disp: i32, src: Reg64) {
     let src_id = src as u8;
-    let rbp_rm = 5u8; // RBP is register id 5
+    let rbp_id = 5u8; // RBP is register id 5
     let rex_byte = rex(true, (src_id >> 3) != 0, false, false);
 
     buf.bytes.push(rex_byte);
     buf.bytes.push(0x89);
-
-    if (-128..=127).contains(&disp) {
-        // Use mod=01, disp8
-        buf.bytes.push(0x40 | ((src_id & 7) << 3) | rbp_rm);
-        buf.bytes.push(disp as u8);
-    } else {
-        // Use mod=10, disp32
-        buf.bytes.push(0x80 | ((src_id & 7) << 3) | rbp_rm);
-        buf.bytes.extend(disp.to_le_bytes());
-    }
+    emit_mem_base_disp(buf, src_id & 7, rbp_id, disp);
 }
 
 /// Encode `mov reg64, [rbp+disp]` (load register from memory).
@@ -311,21 +334,12 @@ pub fn mov_mem_rbp_disp_reg64(buf: &mut CodeBuffer, disp: i32, src: Reg64) {
 /// Instruction: `REX.W 8B /r [ModR/M] [disp]`
 pub fn mov_reg64_mem_rbp_disp(buf: &mut CodeBuffer, dst: Reg64, disp: i32) {
     let dst_id = dst as u8;
-    let rbp_rm = 5u8;
+    let rbp_id = 5u8;
     let rex_byte = rex(true, (dst_id >> 3) != 0, false, false);
 
     buf.bytes.push(rex_byte);
     buf.bytes.push(0x8B);
-
-    if (-128..=127).contains(&disp) {
-        // Use mod=01, disp8
-        buf.bytes.push(0x40 | ((dst_id & 7) << 3) | rbp_rm);
-        buf.bytes.push(disp as u8);
-    } else {
-        // Use mod=10, disp32
-        buf.bytes.push(0x80 | ((dst_id & 7) << 3) | rbp_rm);
-        buf.bytes.extend(disp.to_le_bytes());
-    }
+    emit_mem_base_disp(buf, dst_id & 7, rbp_id, disp);
 }
 
 /// Encode `add reg64, reg64`.
@@ -611,16 +625,7 @@ pub fn and_reg64_mem_reg64_disp(buf: &mut CodeBuffer, dst: Reg64, base: Reg64, d
 
     buf.bytes.push(rex_byte);
     buf.bytes.push(0x23);
-
-    if (-128..=127).contains(&disp) {
-        // Use mod=01, disp8
-        buf.bytes.push(0x40 | ((dst_id & 7) << 3) | (base_id & 7));
-        buf.bytes.push(disp as u8);
-    } else {
-        // Use mod=10, disp32
-        buf.bytes.push(0x80 | ((dst_id & 7) << 3) | (base_id & 7));
-        buf.bytes.extend(disp.to_le_bytes());
-    }
+    emit_mem_base_disp(buf, dst_id & 7, base_id, disp);
 }
 
 /// Encode `or reg64, [base + disp]` (register ← memory OR).
@@ -634,14 +639,7 @@ pub fn or_reg64_mem_reg64_disp(buf: &mut CodeBuffer, dst: Reg64, base: Reg64, di
 
     buf.bytes.push(rex_byte);
     buf.bytes.push(0x0B);
-
-    if (-128..=127).contains(&disp) {
-        buf.bytes.push(0x40 | ((dst_id & 7) << 3) | (base_id & 7));
-        buf.bytes.push(disp as u8);
-    } else {
-        buf.bytes.push(0x80 | ((dst_id & 7) << 3) | (base_id & 7));
-        buf.bytes.extend(disp.to_le_bytes());
-    }
+    emit_mem_base_disp(buf, dst_id & 7, base_id, disp);
 }
 
 /// Encode `xor reg64, [base + disp]` (register ← memory XOR).
@@ -655,14 +653,7 @@ pub fn xor_reg64_mem_reg64_disp(buf: &mut CodeBuffer, dst: Reg64, base: Reg64, d
 
     buf.bytes.push(rex_byte);
     buf.bytes.push(0x33);
-
-    if (-128..=127).contains(&disp) {
-        buf.bytes.push(0x40 | ((dst_id & 7) << 3) | (base_id & 7));
-        buf.bytes.push(disp as u8);
-    } else {
-        buf.bytes.push(0x80 | ((dst_id & 7) << 3) | (base_id & 7));
-        buf.bytes.extend(disp.to_le_bytes());
-    }
+    emit_mem_base_disp(buf, dst_id & 7, base_id, disp);
 }
 
 /// Encode `imul reg64, [base + disp]` (2-operand form with memory).
@@ -677,14 +668,7 @@ pub fn imul_reg64_mem_reg64_disp(buf: &mut CodeBuffer, dst: Reg64, base: Reg64, 
     buf.bytes.push(rex_byte);
     buf.bytes.push(0x0F);
     buf.bytes.push(0xAF);
-
-    if (-128..=127).contains(&disp) {
-        buf.bytes.push(0x40 | ((dst_id & 7) << 3) | (base_id & 7));
-        buf.bytes.push(disp as u8);
-    } else {
-        buf.bytes.push(0x80 | ((dst_id & 7) << 3) | (base_id & 7));
-        buf.bytes.extend(disp.to_le_bytes());
-    }
+    emit_mem_base_disp(buf, dst_id & 7, base_id, disp);
 }
 
 /// Encode `not reg64` (bitwise NOT / one's complement).
@@ -971,19 +955,7 @@ pub fn mov_reg64_mem_reg64_disp(buf: &mut CodeBuffer, dst: Reg64, base: Reg64, d
 
     buf.bytes.push(rex_byte);
     buf.bytes.push(0x8B); // mov r64, r/m64
-
-    if disp == 0 {
-        // Use mod=00, no displacement
-        buf.bytes.push(0x00 | ((dst_id & 7) << 3) | (base_id & 7));
-    } else if (-128..=127).contains(&disp) {
-        // Use mod=01, disp8
-        buf.bytes.push(0x40 | ((dst_id & 7) << 3) | (base_id & 7));
-        buf.bytes.push(disp as u8);
-    } else {
-        // Use mod=10, disp32
-        buf.bytes.push(0x80 | ((dst_id & 7) << 3) | (base_id & 7));
-        buf.bytes.extend(disp.to_le_bytes());
-    }
+    emit_mem_base_disp(buf, dst_id & 7, base_id, disp);
 }
 
 /// Encode `mov [base + disp], src` — Phase 8 m5-002: general memory operand.
@@ -1003,19 +975,7 @@ pub fn mov_mem_reg64_disp_reg64(buf: &mut CodeBuffer, base: Reg64, disp: i32, sr
 
     buf.bytes.push(rex_byte);
     buf.bytes.push(0x89); // mov r/m64, r64
-
-    if disp == 0 {
-        // Use mod=00, no displacement
-        buf.bytes.push(0x00 | ((src_id & 7) << 3) | (base_id & 7));
-    } else if (-128..=127).contains(&disp) {
-        // Use mod=01, disp8
-        buf.bytes.push(0x40 | ((src_id & 7) << 3) | (base_id & 7));
-        buf.bytes.push(disp as u8);
-    } else {
-        // Use mod=10, disp32
-        buf.bytes.push(0x80 | ((src_id & 7) << 3) | (base_id & 7));
-        buf.bytes.extend(disp.to_le_bytes());
-    }
+    emit_mem_base_disp(buf, src_id & 7, base_id, disp);
 }
 
 /// Encode `mov r64, [base + index*scale + disp]` — Phase 9 m1-003: SIB addressing with displacement.
@@ -1134,16 +1094,7 @@ pub fn cmp_mem_reg64_reg64(buf: &mut CodeBuffer, base: Reg64, disp: i32, src: Re
 
     buf.bytes.push(rex_byte);
     buf.bytes.push(0x39);
-
-    if (-128..=127).contains(&disp) {
-        // Use mod=01, disp8
-        buf.bytes.push(0x40 | ((src_id & 7) << 3) | (base_id & 7));
-        buf.bytes.push(disp as u8);
-    } else {
-        // Use mod=10, disp32
-        buf.bytes.push(0x80 | ((src_id & 7) << 3) | (base_id & 7));
-        buf.bytes.extend(disp.to_le_bytes());
-    }
+    emit_mem_base_disp(buf, src_id & 7, base_id, disp);
 }
 
 /// Encode `cmp reg64, imm8` (8-bit immediate, sign-extended to 64-bit).
@@ -4100,5 +4051,329 @@ mod tests {
         let mut buf = CodeBuffer::new();
         mov_mem_sib_disp_reg64(&mut buf, Reg64::Rax, Reg64::Rbx, 1, -8, Reg64::Rax);
         assert_eq!(buf.as_slice(), &[0x48, 0x89, 0x44, 0x58, 0xF8]);
+    }
+
+    // ── PA-R10-001: SIB+BP escape encoding correctness matrix ───────────────
+    // Tests for fix of silent-corruption bug where RSP (base=4) and RBP (base=5)
+    // memory addressing was incorrectly encoded, missing SIB byte and BP disp escape.
+
+    #[test]
+    fn pa_r10_001_spot_check_mov_rsp_disp0() {
+        // mov [rsp], rax → 48 89 04 24 (SIB escape required for RSP as base)
+        let mut buf = CodeBuffer::new();
+        mov_mem_reg64_disp_reg64(&mut buf, Reg64::Rsp, 0, Reg64::Rax);
+        assert_eq!(buf.as_slice(), &[0x48, 0x89, 0x04, 0x24]);
+    }
+
+    #[test]
+    fn pa_r10_001_spot_check_mov_rsp_disp8() {
+        // mov [rsp+8], rax → 48 89 44 24 08 (SIB with disp8)
+        let mut buf = CodeBuffer::new();
+        mov_mem_reg64_disp_reg64(&mut buf, Reg64::Rsp, 8, Reg64::Rax);
+        assert_eq!(buf.as_slice(), &[0x48, 0x89, 0x44, 0x24, 0x08]);
+    }
+
+    #[test]
+    fn pa_r10_001_spot_check_mov_rsp_disp32() {
+        // mov [rsp+256], rax → 48 89 84 24 00 01 00 00 (SIB with disp32)
+        let mut buf = CodeBuffer::new();
+        mov_mem_reg64_disp_reg64(&mut buf, Reg64::Rsp, 256, Reg64::Rax);
+        assert_eq!(
+            buf.as_slice(),
+            &[0x48, 0x89, 0x84, 0x24, 0x00, 0x01, 0x00, 0x00]
+        );
+    }
+
+    #[test]
+    fn pa_r10_001_spot_check_mov_rbp_disp0() {
+        // mov [rbp], rax → 48 89 45 00 (forced disp8=0 for RBP, can't use mod=00)
+        let mut buf = CodeBuffer::new();
+        mov_mem_reg64_disp_reg64(&mut buf, Reg64::Rbp, 0, Reg64::Rax);
+        assert_eq!(buf.as_slice(), &[0x48, 0x89, 0x45, 0x00]);
+    }
+
+    #[test]
+    fn pa_r10_001_spot_check_mov_rbp_disp8() {
+        // mov [rbp+8], rax → 48 89 45 08
+        let mut buf = CodeBuffer::new();
+        mov_mem_reg64_disp_reg64(&mut buf, Reg64::Rbp, 8, Reg64::Rax);
+        assert_eq!(buf.as_slice(), &[0x48, 0x89, 0x45, 0x08]);
+    }
+
+    #[test]
+    fn pa_r10_001_spot_check_mov_r12_disp0() {
+        // mov [r12], rax → 49 89 04 24 (R12 needs REX.B, SIB for base=4 form)
+        let mut buf = CodeBuffer::new();
+        mov_mem_reg64_disp_reg64(&mut buf, Reg64::R12, 0, Reg64::Rax);
+        assert_eq!(buf.as_slice(), &[0x49, 0x89, 0x04, 0x24]);
+    }
+
+    #[test]
+    fn pa_r10_001_spot_check_mov_r12_disp8() {
+        // mov [r12+8], rax → 49 89 44 24 08
+        let mut buf = CodeBuffer::new();
+        mov_mem_reg64_disp_reg64(&mut buf, Reg64::R12, 8, Reg64::Rax);
+        assert_eq!(buf.as_slice(), &[0x49, 0x89, 0x44, 0x24, 0x08]);
+    }
+
+    #[test]
+    fn pa_r10_001_spot_check_mov_r13_disp0() {
+        // mov [r13], rax → 49 89 45 00 (R13 is base=5 form with BP escape)
+        let mut buf = CodeBuffer::new();
+        mov_mem_reg64_disp_reg64(&mut buf, Reg64::R13, 0, Reg64::Rax);
+        assert_eq!(buf.as_slice(), &[0x49, 0x89, 0x45, 0x00]);
+    }
+
+    #[test]
+    fn pa_r10_001_spot_check_mov_r13_disp8() {
+        // mov [r13+8], rax → 49 89 45 08
+        let mut buf = CodeBuffer::new();
+        mov_mem_reg64_disp_reg64(&mut buf, Reg64::R13, 8, Reg64::Rax);
+        assert_eq!(buf.as_slice(), &[0x49, 0x89, 0x45, 0x08]);
+    }
+
+    #[test]
+    fn pa_r10_001_spot_check_mov_r15_disp256() {
+        // mov [r15+256], r15 → 4D 89 BF 00 01 00 00 (REX.W=1, REX.R=1, REX.B=1)
+        let mut buf = CodeBuffer::new();
+        mov_mem_reg64_disp_reg64(&mut buf, Reg64::R15, 256, Reg64::R15);
+        assert_eq!(buf.as_slice(), &[0x4D, 0x89, 0xBF, 0x00, 0x01, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn pa_r10_001_spot_check_mov_load_rsp_disp0() {
+        // mov rax, [rsp] → 48 8B 04 24 (load from RSP needs SIB)
+        let mut buf = CodeBuffer::new();
+        mov_reg64_mem_reg64_disp(&mut buf, Reg64::Rax, Reg64::Rsp, 0);
+        assert_eq!(buf.as_slice(), &[0x48, 0x8B, 0x04, 0x24]);
+    }
+
+    #[test]
+    fn pa_r10_001_spot_check_mov_load_rbp_disp0() {
+        // mov rax, [rbp] → 48 8B 45 00 (load from RBP needs disp8=0 escape)
+        let mut buf = CodeBuffer::new();
+        mov_reg64_mem_reg64_disp(&mut buf, Reg64::Rax, Reg64::Rbp, 0);
+        assert_eq!(buf.as_slice(), &[0x48, 0x8B, 0x45, 0x00]);
+    }
+
+    #[test]
+    fn pa_r10_001_correctness_matrix_all_bases_disp0() {
+        use iced_x86::{Decoder, DecoderOptions};
+
+        let bases = [
+            Reg64::Rax,
+            Reg64::Rcx,
+            Reg64::Rdx,
+            Reg64::Rbx,
+            Reg64::Rsp,
+            Reg64::Rbp,
+            Reg64::Rsi,
+            Reg64::Rdi,
+        ];
+
+        // Test with dst=rax (reg_field=0)
+        for &base in &bases {
+            let mut buf = CodeBuffer::new();
+            mov_reg64_mem_reg64_disp(&mut buf, Reg64::Rax, base, 0);
+
+            // Verify iced-x86 can decode it without error
+            let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+            let instr = decoder.decode();
+            assert!(instr.len() > 0, "Failed to decode mov rax, [{:?}+0]", base);
+
+            // For RSP: must have SIB byte (ModR/M.r/m = 0b100)
+            if base as u8 & 7 == 4 {
+                assert_eq!(buf.bytes[2] & 0x07, 0x04, "RSP requires SIB for {:?}", base);
+            }
+            // For RBP: must use mod=01 with disp8=0
+            if base as u8 & 7 == 5 {
+                assert_eq!(
+                    buf.bytes[2] & 0xC0,
+                    0x40,
+                    "RBP requires mod=01 for {:?}",
+                    base
+                );
+                assert_eq!(buf.bytes[3], 0x00, "RBP requires disp8=0 for {:?}", base);
+            }
+        }
+    }
+
+    #[test]
+    fn pa_r10_001_correctness_matrix_all_bases_disp8() {
+        use iced_x86::{Decoder, DecoderOptions};
+
+        let bases = [
+            Reg64::Rax,
+            Reg64::Rcx,
+            Reg64::Rdx,
+            Reg64::Rbx,
+            Reg64::Rsp,
+            Reg64::Rbp,
+            Reg64::Rsi,
+            Reg64::Rdi,
+        ];
+
+        // Test with disp=8
+        for &base in &bases {
+            let mut buf = CodeBuffer::new();
+            mov_reg64_mem_reg64_disp(&mut buf, Reg64::Rax, base, 8);
+
+            // Verify iced-x86 can decode it
+            let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+            let instr = decoder.decode();
+            assert!(instr.len() > 0, "Failed to decode mov rax, [{:?}+8]", base);
+
+            // For RSP: must have SIB byte
+            if base as u8 & 7 == 4 {
+                assert_eq!(buf.bytes[2] & 0x07, 0x04, "RSP requires SIB");
+            }
+            // All should use mod=01 for disp8
+            assert_eq!(buf.bytes[2] & 0xC0, 0x40, "disp8 requires mod=01");
+        }
+    }
+
+    #[test]
+    fn pa_r10_001_correctness_matrix_all_bases_disp32() {
+        use iced_x86::{Decoder, DecoderOptions};
+
+        let bases = [
+            Reg64::Rax,
+            Reg64::Rcx,
+            Reg64::Rdx,
+            Reg64::Rbx,
+            Reg64::Rsp,
+            Reg64::Rbp,
+            Reg64::Rsi,
+            Reg64::Rdi,
+        ];
+
+        // Test with disp=256 (needs disp32)
+        for &base in &bases {
+            let mut buf = CodeBuffer::new();
+            mov_reg64_mem_reg64_disp(&mut buf, Reg64::Rax, base, 256);
+
+            // Verify iced-x86 can decode it
+            let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+            let instr = decoder.decode();
+            assert!(
+                instr.len() > 0,
+                "Failed to decode mov rax, [{:?}+256]",
+                base
+            );
+
+            // For RSP: must have SIB byte
+            if base as u8 & 7 == 4 {
+                assert_eq!(buf.bytes[2] & 0x07, 0x04, "RSP requires SIB");
+            }
+            // All should use mod=10 for disp32
+            assert_eq!(buf.bytes[2] & 0xC0, 0x80, "disp32 requires mod=10");
+        }
+    }
+
+    #[test]
+    fn pa_r10_001_correctness_extended_registers() {
+        use iced_x86::{Decoder, DecoderOptions};
+
+        let extended_bases = [Reg64::R8, Reg64::R12, Reg64::R13, Reg64::R15];
+
+        for &base in &extended_bases {
+            let mut buf = CodeBuffer::new();
+            mov_reg64_mem_reg64_disp(&mut buf, Reg64::Rax, base, 8);
+
+            let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+            let instr = decoder.decode();
+            assert!(instr.len() > 0, "Failed to decode mov rax, [{:?}+8]", base);
+
+            // R12 (base_id=12, low bits=4) and R8/R9/R10/R11 should have REX.B
+            let base_id = base as u8;
+            let rex_byte = buf.bytes[0];
+            if (base_id >> 3) != 0 {
+                assert_eq!(
+                    rex_byte & 0x41,
+                    0x40 | 0x01,
+                    "Extended register needs REX.B"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn pa_r10_001_and_reg64_mem_reg64_disp_rsp() {
+        // and rax, [rsp] → 48 23 04 24 (SIB escape)
+        let mut buf = CodeBuffer::new();
+        and_reg64_mem_reg64_disp(&mut buf, Reg64::Rax, Reg64::Rsp, 0);
+        assert_eq!(buf.as_slice(), &[0x48, 0x23, 0x04, 0x24]);
+    }
+
+    #[test]
+    fn pa_r10_001_and_reg64_mem_reg64_disp_rbp() {
+        // and rax, [rbp] → 48 23 45 00 (BP escape)
+        let mut buf = CodeBuffer::new();
+        and_reg64_mem_reg64_disp(&mut buf, Reg64::Rax, Reg64::Rbp, 0);
+        assert_eq!(buf.as_slice(), &[0x48, 0x23, 0x45, 0x00]);
+    }
+
+    #[test]
+    fn pa_r10_001_or_reg64_mem_reg64_disp_rsp() {
+        // or rax, [rsp] → 48 0B 04 24 (SIB escape)
+        let mut buf = CodeBuffer::new();
+        or_reg64_mem_reg64_disp(&mut buf, Reg64::Rax, Reg64::Rsp, 0);
+        assert_eq!(buf.as_slice(), &[0x48, 0x0B, 0x04, 0x24]);
+    }
+
+    #[test]
+    fn pa_r10_001_or_reg64_mem_reg64_disp_rbp() {
+        // or rax, [rbp] → 48 0B 45 00 (BP escape)
+        let mut buf = CodeBuffer::new();
+        or_reg64_mem_reg64_disp(&mut buf, Reg64::Rax, Reg64::Rbp, 0);
+        assert_eq!(buf.as_slice(), &[0x48, 0x0B, 0x45, 0x00]);
+    }
+
+    #[test]
+    fn pa_r10_001_xor_reg64_mem_reg64_disp_rsp() {
+        // xor rax, [rsp] → 48 33 04 24 (SIB escape)
+        let mut buf = CodeBuffer::new();
+        xor_reg64_mem_reg64_disp(&mut buf, Reg64::Rax, Reg64::Rsp, 0);
+        assert_eq!(buf.as_slice(), &[0x48, 0x33, 0x04, 0x24]);
+    }
+
+    #[test]
+    fn pa_r10_001_xor_reg64_mem_reg64_disp_rbp() {
+        // xor rax, [rbp] → 48 33 45 00 (BP escape)
+        let mut buf = CodeBuffer::new();
+        xor_reg64_mem_reg64_disp(&mut buf, Reg64::Rax, Reg64::Rbp, 0);
+        assert_eq!(buf.as_slice(), &[0x48, 0x33, 0x45, 0x00]);
+    }
+
+    #[test]
+    fn pa_r10_001_imul_reg64_mem_reg64_disp_rsp() {
+        // imul rax, [rsp] → 48 0F AF 04 24 (SIB escape)
+        let mut buf = CodeBuffer::new();
+        imul_reg64_mem_reg64_disp(&mut buf, Reg64::Rax, Reg64::Rsp, 0);
+        assert_eq!(buf.as_slice(), &[0x48, 0x0F, 0xAF, 0x04, 0x24]);
+    }
+
+    #[test]
+    fn pa_r10_001_imul_reg64_mem_reg64_disp_rbp() {
+        // imul rax, [rbp] → 48 0F AF 45 00 (BP escape)
+        let mut buf = CodeBuffer::new();
+        imul_reg64_mem_reg64_disp(&mut buf, Reg64::Rax, Reg64::Rbp, 0);
+        assert_eq!(buf.as_slice(), &[0x48, 0x0F, 0xAF, 0x45, 0x00]);
+    }
+
+    #[test]
+    fn pa_r10_001_cmp_mem_reg64_reg64_rsp() {
+        // cmp [rsp], rax → 48 39 04 24 (SIB escape)
+        let mut buf = CodeBuffer::new();
+        cmp_mem_reg64_reg64(&mut buf, Reg64::Rsp, 0, Reg64::Rax);
+        assert_eq!(buf.as_slice(), &[0x48, 0x39, 0x04, 0x24]);
+    }
+
+    #[test]
+    fn pa_r10_001_cmp_mem_reg64_reg64_rbp() {
+        // cmp [rbp], rax → 48 39 45 00 (BP escape)
+        let mut buf = CodeBuffer::new();
+        cmp_mem_reg64_reg64(&mut buf, Reg64::Rbp, 0, Reg64::Rax);
+        assert_eq!(buf.as_slice(), &[0x48, 0x39, 0x45, 0x00]);
     }
 }
