@@ -786,6 +786,28 @@ fn encode_mov(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
             });
             Ok(output)
         }
+        [Operand::SymbolRef { name, addend }, Operand::Reg(src)] => {
+            // PA10-006w: mov [symbol + addend], r64 → 48 89 /r [rip-relative ModR/M] [disp32_placeholder]
+            // Symmetric to the load form above; opcode 0x8B → 0x89 for store; REX.R still applies
+            // to the register operand (now the source). ModR/M mod=00, rm=5 (rip-relative),
+            // reg field = src<2:0>. Emits R_X86_64_PC32 with addend biased by -4 per SysV AMD64 ABI.
+            let src_id = reg64_from(*src)? as u8;
+            let rex_byte = rex(true, (src_id >> 3) != 0, false, false);
+
+            buf.bytes.push(rex_byte);
+            buf.bytes.push(0x89); // mov r/m64, r64 opcode
+            buf.bytes.push(0x05 | ((src_id & 7) << 3)); // ModR/M with rip-relative form
+            buf.bytes.extend([0, 0, 0, 0]); // placeholder disp32
+
+            let mut output = EncodeOutput::new();
+            output.add_reloc(RelocSite {
+                byte_offset: 3,
+                symbol: name.clone(),
+                kind: RelocKind::PcRel32,
+                addend: addend.wrapping_add(PC32_FIELD_BIAS),
+            });
+            Ok(output)
+        }
         operands if operands.iter().any(|op| matches!(op, Operand::Var { .. })) => {
             unreachable!("Operand::Var reached encoder — resolve_var_operands pass was skipped")
         }
@@ -3599,6 +3621,142 @@ mod tests {
         assert_eq!(output.reloc_sites[0].symbol, "table");
         assert_eq!(output.reloc_sites[0].kind, RelocKind::PcRel32);
         assert_eq!(output.reloc_sites[0].addend, 4); // PC32_FIELD_BIAS: IR addend 8 → reloc addend 8 + (-4) = 4
+    }
+
+    // ── PA10-006w: mov [rip+sym], r64 store form ─────
+
+    #[test]
+    fn encode_mov_mem_sym_rax_produces_reloc_site() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![
+                Operand::SymbolRef {
+                    name: "table".to_string(),
+                    addend: 0,
+                },
+                Operand::Reg(RegId(0)), // rax
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expect: 48 89 05 00 00 00 00 (7 bytes)
+        // 48 = REX.W
+        // 89 = mov r/m64, r64 opcode
+        // 05 = ModR/M with mod=00, reg=0 (rax), rm=5 (rip-relative)
+        // 00 00 00 00 = placeholder disp32
+        assert_eq!(buf.as_slice(), &[0x48, 0x89, 0x05, 0x00, 0x00, 0x00, 0x00]);
+
+        // Verify relocation site
+        assert_eq!(output.reloc_sites.len(), 1);
+        assert_eq!(output.reloc_sites[0].byte_offset, 3);
+        assert_eq!(output.reloc_sites[0].symbol, "table");
+        assert_eq!(output.reloc_sites[0].kind, RelocKind::PcRel32);
+        assert_eq!(output.reloc_sites[0].addend, -4); // PC32_FIELD_BIAS: IR addend 0 → reloc addend -4
+    }
+
+    #[test]
+    fn encode_mov_mem_sym_addend_rdi_produces_reloc_site() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![
+                Operand::SymbolRef {
+                    name: "table".to_string(),
+                    addend: 8,
+                },
+                Operand::Reg(RegId(7)), // rdi
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expect: 48 89 3D 00 00 00 00 (7 bytes)
+        // 48 = REX.W
+        // 89 = mov r/m64, r64 opcode
+        // 3D = ModR/M with mod=00, reg=7 (rdi), rm=5 (rip-relative)
+        // 00 00 00 00 = placeholder disp32
+        assert_eq!(buf.as_slice(), &[0x48, 0x89, 0x3D, 0x00, 0x00, 0x00, 0x00]);
+
+        // Verify relocation site with addend
+        assert_eq!(output.reloc_sites.len(), 1);
+        assert_eq!(output.reloc_sites[0].byte_offset, 3);
+        assert_eq!(output.reloc_sites[0].symbol, "table");
+        assert_eq!(output.reloc_sites[0].kind, RelocKind::PcRel32);
+        assert_eq!(output.reloc_sites[0].addend, 4); // PC32_FIELD_BIAS: IR addend 8 → reloc addend 8 + (-4) = 4
+    }
+
+    #[test]
+    fn encode_mov_mem_sym_r8_sets_rex_r() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![
+                Operand::SymbolRef {
+                    name: "buf".to_string(),
+                    addend: 0,
+                },
+                Operand::Reg(RegId(8)), // r8
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Expect: 4C 89 05 00 00 00 00 (7 bytes)
+        // 4C = REX.W | REX.R (for r8 as source register)
+        // 89 = mov r/m64, r64 opcode
+        // 05 = ModR/M with mod=00, reg=0 (r8 & 7), rm=5 (rip-relative)
+        // 00 00 00 00 = placeholder disp32
+        assert_eq!(buf.as_slice(), &[0x4C, 0x89, 0x05, 0x00, 0x00, 0x00, 0x00]);
+
+        // Verify relocation site
+        assert_eq!(output.reloc_sites.len(), 1);
+        assert_eq!(output.reloc_sites[0].byte_offset, 3);
+        assert_eq!(output.reloc_sites[0].symbol, "buf");
+        assert_eq!(output.reloc_sites[0].kind, RelocKind::PcRel32);
+        assert_eq!(output.reloc_sites[0].addend, -4);
+    }
+
+    #[test]
+    fn encode_mov_mem_sym_rax_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem, OpKind};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: smallvec::smallvec![
+                Operand::SymbolRef {
+                    name: "data".to_string(),
+                    addend: 0,
+                },
+                Operand::Reg(RegId(0)), // rax
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+        assert_eq!(instr.op_kind(0), OpKind::Memory); // destination is memory (rip-relative)
+        assert_eq!(instr.op_kind(1), OpKind::Register); // source is register (rax)
     }
 
     #[test]
