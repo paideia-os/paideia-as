@@ -1,0 +1,3 @@
+module PaR12StringLiteralPadded = structure {
+  pub let short_in_wide : [u8; 32] = "ok\0"
+}

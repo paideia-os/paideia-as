@@ -1,0 +1,4 @@
+module PaR12StringLiteralModule = structure {
+  pub let greeting : [u8; 6] = "hello\0"
+  pub let banner   : [u8; 16] = "CAP INVOKE MEM\n\0"
+}

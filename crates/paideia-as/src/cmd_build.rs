@@ -325,6 +325,56 @@ fn array_element_byte_width(
     }
 }
 
+/// PA-R12-001 (issue #910): Extract declared array length N from a `[T; N]`
+/// type annotation. Returns None if no annotation or non-Array or unparseable.
+fn declared_array_len_from_type(
+    ir_node_id: IrNodeId,
+    ast_arena: &AstArena,
+    source_map: &SourceMap,
+    file_id: paideia_as_diagnostics::FileId,
+) -> Option<u64> {
+    let ast_node_id = AstNodeId::new(ir_node_id.get())?;
+    let ast_node = ast_arena.get(ast_node_id)?;
+    if ast_node.kind != NodeKind::Let && ast_node.kind != NodeKind::StmtLet {
+        return None;
+    }
+    let ty_node_id = if ast_node.kind == NodeKind::Let {
+        match ast_arena.item_data(ast_node_id) {
+            Some(paideia_as_ast::ItemData::Let { ty: Some(t), .. }) => *t,
+            _ => return None,
+        }
+    } else {
+        match ast_arena.stmt_data(ast_node_id) {
+            Some(paideia_as_ast::StmtData::Let { ty: Some(t), .. }) => *t,
+            _ => return None,
+        }
+    };
+    if ast_arena.get(ty_node_id)?.kind != NodeKind::TypeArray {
+        return None;
+    }
+    let TypeData::Array { length, .. } = ast_arena.type_data(ty_node_id)? else {
+        return None;
+    };
+    let length_node = ast_arena.get(*length)?;
+    if length_node.kind != NodeKind::ExprLiteral {
+        return None;
+    }
+    let paideia_as_ast::ExprData::Literal { lit } = ast_arena.expr_data(*length)? else {
+        return None;
+    };
+    let lit_node = ast_arena.get(*lit)?;
+    let span = lit_node.span;
+    let start = span.byte_start() as usize;
+    let len = span.byte_len() as usize;
+    let content = source_map.content(file_id);
+    if start + len > content.len() {
+        return None;
+    }
+    parse_integer_literal(&content[start..start + len])
+        .ok()
+        .map(|n| n as u64)
+}
+
 /// Run `paideia-as build <input> [--emit <format>] [-o <output>] [--encoder-warn]`.
 pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) -> ExitCode {
     let format = match EmitFormat::parse(emit) {
@@ -836,8 +886,10 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
 
                         // PA10-006s: Look for ArrayLit anywhere in children, not just first.
                         // The IR structure for Let may have multiple children including Var references.
+                        // PA-R12-001: Also look for StringLiteral.
                         let mut array_lit_id = None;
                         let mut literal_id = None;
+                        let mut string_literal_id = None;
 
                         for &child_id in children.iter() {
                             if let Some(child_node) = lowering.ir.get(child_id) {
@@ -845,13 +897,17 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                                     array_lit_id = Some(child_id);
                                 } else if child_node.kind == paideia_as_ir::IrKind::Literal {
                                     literal_id = Some(child_id);
+                                } else if child_node.kind == paideia_as_ir::IrKind::StringLiteral {
+                                    string_literal_id = Some(child_id);
                                 }
                             }
                         }
 
-                        // Try ArrayLit first, then fall back to Literal
+                        // Try ArrayLit first, then Literal, then StringLiteral, then first child
+                        // PA-R12-001: StringLiteral enables `let X : [u8; N] = "string"` patterns
                         let rhs_id = array_lit_id
                             .or(literal_id)
+                            .or(string_literal_id)
                             .or_else(|| children.first().copied());
 
                         if let Some(rhs_id) = rhs_id {
@@ -931,6 +987,41 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                                     let entry =
                                         paideia_as_ir::DataEntry::new_bss(symbol_name, 8, size);
                                     data_entries.push((node_id, entry));
+                                } else if rhs_node.kind == paideia_as_ir::IrKind::StringLiteral {
+                                    // PA-R12-001 (issue #910): Let with StringLiteral RHS →
+                                    // inline the byte payload directly into .rodata (or .data if mutable).
+                                    //
+                                    // Handles `let X : [u8; N] = "..."` where the declared array type
+                                    // gives the symbol shape. N bytes are laid down as the symbol body; no
+                                    // relocation needed — the payload is self-contained.
+                                    //
+                                    // If N < literal length, truncate; if N > literal length, zero-pad.
+                                    // If no [u8; N] annotation, default to the literal's byte length.
+                                    if let Some(bytes) = lowering.ir.literal_bytes().get(rhs_id) {
+                                        let is_mutable = lowering.ir.let_meta().get(node_id)
+                                            .map(|info| info.mutable).unwrap_or(false);
+
+                                        let declared_len = declared_array_len_from_type(
+                                            node_id, &arena, &source_map, file,
+                                        );
+                                        let final_bytes: Vec<u8> = match declared_len {
+                                            Some(n) => {
+                                                let n = n as usize;
+                                                let mut v = Vec::with_capacity(n);
+                                                v.extend_from_slice(&bytes[..bytes.len().min(n)]);
+                                                v.resize(n, 0);
+                                                v
+                                            }
+                                            None => bytes.clone(),
+                                        };
+
+                                        let entry = if is_mutable {
+                                            paideia_as_ir::DataEntry::new_data(final_bytes, symbol_name, 1)
+                                        } else {
+                                            paideia_as_ir::DataEntry::new_rodata(final_bytes, symbol_name, 1)
+                                        };
+                                        data_entries.push((node_id, entry));
+                                    }
                                 }
                             }
                         }
