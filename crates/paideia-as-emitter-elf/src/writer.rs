@@ -170,7 +170,7 @@ impl ElfWriter {
     /// Append `bytes` to the `.rodata` section with the specified alignment.
     /// Returns the offset at which the append starts.
     /// Phase-1 helper used for read-only data (constants, GDT descriptors, etc).
-    pub fn add_rodata_bytes(&mut self, bytes: &[u8], align: u8) -> u64 {
+    pub fn add_rodata_bytes(&mut self, bytes: &[u8], align: u32) -> u64 {
         let rodata_section = self.rodata_section_id();
         let offset = self
             .obj
@@ -186,7 +186,7 @@ impl ElfWriter {
     /// Append `bytes` to the `.data` section with the specified alignment.
     /// Returns the offset at which the append starts.
     /// Phase-1 helper used for initialized mutable data (Phase 6+).
-    pub fn add_data_bytes(&mut self, bytes: &[u8], align: u8) -> u64 {
+    pub fn add_data_bytes(&mut self, bytes: &[u8], align: u32) -> u64 {
         let data_section = self.obj.section_id(StandardSection::Data);
         let offset = self
             .obj
@@ -204,7 +204,7 @@ impl ElfWriter {
     /// Phase 6 m5-002: used for uninitialized mutable data (let mut x : T = uninit).
     /// Phase 6 m5-003: uses Section::append_bss() which doesn't write file data.
     /// The object crate correctly marks this as SHT_NOBITS and records the size.
-    pub fn add_bss_space(&mut self, size: u64, align: u8) -> u64 {
+    pub fn add_bss_space(&mut self, size: u64, align: u32) -> u64 {
         let bss_section = self.obj.section_id(StandardSection::UninitializedData);
         // Use the Section::append_bss() method which allocates space without writing to file.
         // This ensures .bss is properly marked as SHT_NOBITS with no file payload growth.

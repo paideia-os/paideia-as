@@ -37,6 +37,7 @@ fn build_and_walk_full_module_tree() {
             generic_params: vec![],
             ty: None,
             value: expr_x,
+            align: None,
             doc: None,
         },
     );
@@ -51,6 +52,7 @@ fn build_and_walk_full_module_tree() {
             generic_params: vec![],
             ty: None,
             value: expr_y,
+            align: None,
             doc: None,
         },
     );

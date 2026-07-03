@@ -736,6 +736,7 @@ mod tests {
                 generic_params: vec![],
                 ty: None,
                 value: NodeId::new(2).unwrap(),
+                align: None,
                 doc: None,
             },
         );

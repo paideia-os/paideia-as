@@ -87,7 +87,8 @@ pub struct DataEntry {
     /// Symbol name (defaults to source binding identifier).
     pub symbol_name: String,
     /// Alignment requirement in bytes (power of 2). Common values: 1, 4, 8, 16.
-    pub align: u8,
+    /// Widened to u32 in Phase 10 PA10-006y to support alignment up to 2^30.
+    pub align: u32,
     /// Size hint in bytes. For .rodata and .data: bytes.len(). For .bss: computed from type.
     pub size_hint: u64,
     /// Relocations within this data entry (PA10-002: string intern symbols).
@@ -103,7 +104,7 @@ impl DataEntry {
     /// * `symbol_name` - C-friendly symbol identifier
     /// * `align` - power-of-2 alignment (e.g., 8 for 8-byte aligned)
     #[must_use]
-    pub fn new_rodata(bytes: Vec<u8>, symbol_name: String, align: u8) -> Self {
+    pub fn new_rodata(bytes: Vec<u8>, symbol_name: String, align: u32) -> Self {
         let size_hint = bytes.len() as u64;
         Self {
             section: SectionKind::Rodata,
@@ -126,7 +127,7 @@ impl DataEntry {
     pub fn new_rodata_with_relocs(
         bytes: Vec<u8>,
         symbol_name: String,
-        align: u8,
+        align: u32,
         relocations: Vec<RelocSpec>,
     ) -> Self {
         let size_hint = bytes.len() as u64;
@@ -142,7 +143,7 @@ impl DataEntry {
 
     /// Construct a new data entry for .data (mutable, Phase 6+).
     #[must_use]
-    pub fn new_data(bytes: Vec<u8>, symbol_name: String, align: u8) -> Self {
+    pub fn new_data(bytes: Vec<u8>, symbol_name: String, align: u32) -> Self {
         let size_hint = bytes.len() as u64;
         Self {
             section: SectionKind::Data,
@@ -161,7 +162,7 @@ impl DataEntry {
     /// * `align` - power-of-2 alignment (e.g., 8 for 8-byte aligned)
     /// * `size_hint` - size in bytes (computed from type at elaboration time)
     #[must_use]
-    pub fn new_bss(symbol_name: String, align: u8, size_hint: u64) -> Self {
+    pub fn new_bss(symbol_name: String, align: u32, size_hint: u64) -> Self {
         Self {
             section: SectionKind::Bss,
             bytes: Vec::new(),

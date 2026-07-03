@@ -92,6 +92,7 @@ fn stub_parse(file: FileId, tokens: &[paideia_as_lexer::Token]) -> AstArena {
                     generic_params: vec![],
                     ty: None,
                     value,
+                    align: None,
                     doc: None,
                 },
             );

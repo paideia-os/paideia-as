@@ -290,6 +290,33 @@ description = "The #![bits = N] inner attribute specifies the target word size. 
 since = "0.11.0"
 deprecated = false
 
+[diagnostic.P0250]
+severity = "error"
+category = "parser"
+title = "Unknown symbol attribute"
+brief = "only '@align' is supported as a symbol attribute"
+description = "Phase 10 PA10-006y: A postfix symbol attribute was used on a let declaration, but the attribute name is not recognized. Currently, only '@align(N)' is supported for per-symbol alignment. Check that the attribute name is spelled correctly. Example: `let mut pml4 : [u64; 512] = uninit @align(4096)`."
+since = "0.11.0"
+deprecated = false
+
+[diagnostic.P0251]
+severity = "error"
+category = "parser"
+title = "Malformed @align directive"
+brief = "@align(N) syntax error: expected '(' after 'align' or ')' after value"
+description = "Phase 10 PA10-006y: The @align directive is syntactically malformed. The correct syntax is '@align(N)' where N is an integer literal. Either the opening '(' after 'align' is missing, or the closing ')' after the value is missing. Example: `let mut pml4 : [u64; 512] = uninit @align(4096)`."
+since = "0.11.0"
+deprecated = false
+
+[diagnostic.P0252]
+severity = "error"
+category = "parser"
+title = "Invalid @align value"
+brief = "@align value must be a power of two in range [1, 2^30]"
+description = "Phase 10 PA10-006y: The @align directive's value must be a positive integer that is a power of two, and must fit in the range [1, 2^30] (i.e., 1, 2, 4, 8, 16, ..., 1073741824). Common alignment values are 1, 4, 8, 16, 4096, 65536. Check that the value is a valid power of two and not too large."
+since = "0.11.0"
+deprecated = false
+
 [diagnostic.P0190]
 severity = "error"
 category = "parser"

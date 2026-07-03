@@ -800,15 +800,17 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
             std::collections::HashMap::new();
         let content_ref = source_map.content(file);
 
-        // Walk AST to find all Let bindings and extract their names and visibility
+        // Walk AST to find all Let bindings and extract their names, visibility, mutability, and alignment
         for i in 0..arena.len() {
             if let Some(ast_id) = paideia_as_ast::NodeId::new((i + 1) as u32) {
                 if let Some(node) = arena.get(ast_id) {
                     if node.kind == paideia_as_ast::NodeKind::Let {
                         if let Some(paideia_as_ast::ItemData::Let {
                             public,
+                            mutable,
                             name: name_id,
                             value: value_id,
+                            align,
                             ..
                         }) = arena.item_data(ast_id)
                         {
@@ -824,6 +826,14 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                                     name_map.insert(value_id.get(), name_str);
                                     // Also record the public flag for visibility control
                                     visibility_map.insert(value_id.get(), *public);
+
+                                    // Phase 10 PA10-006y: Seed let_meta with mutability and alignment
+                                    if let Some(ir_id) = paideia_as_ir::IrNodeId::new(ast_id.get()) {
+                                        lowering.ir.let_meta_mut().insert(
+                                            ir_id,
+                                            paideia_as_ir::LetInfo::with_align(*mutable, None, *align),
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -924,10 +934,11 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                                     // Phase 5: Let with Literal → Rodata
                                     if let Some(value) = lowering.ir.literal_values().get(rhs_id) {
                                         let bytes = EmitWalker::pack_u64_le_public(value);
+                                        let explicit_align = lowering.ir.let_meta().get(node_id).and_then(|i| i.align);
                                         let entry = paideia_as_ir::DataEntry::new_rodata(
                                             bytes,
                                             symbol_name,
-                                            8,
+                                            explicit_align.unwrap_or(8),
                                         );
                                         data_entries.push((node_id, entry));
                                     }
@@ -967,10 +978,11 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                                     }
 
                                     if element_count > 0 {
+                                        let explicit_align = lowering.ir.let_meta().get(node_id).and_then(|i| i.align);
                                         let entry = paideia_as_ir::DataEntry::new_rodata(
                                             packed_bytes,
                                             symbol_name,
-                                            8,
+                                            explicit_align.unwrap_or(8),
                                         );
                                         data_entries.push((node_id, entry));
                                     }
@@ -984,8 +996,9 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                                         &source_map,
                                         file,
                                     );
+                                    let explicit_align = lowering.ir.let_meta().get(node_id).and_then(|i| i.align);
                                     let entry =
-                                        paideia_as_ir::DataEntry::new_bss(symbol_name, 8, size);
+                                        paideia_as_ir::DataEntry::new_bss(symbol_name, explicit_align.unwrap_or(8), size);
                                     data_entries.push((node_id, entry));
                                 } else if rhs_node.kind == paideia_as_ir::IrKind::StringLiteral {
                                     // PA-R12-001 (issue #910): Let with StringLiteral RHS →
@@ -1015,10 +1028,11 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                                             None => bytes.clone(),
                                         };
 
+                                        let explicit_align = lowering.ir.let_meta().get(node_id).and_then(|i| i.align);
                                         let entry = if is_mutable {
-                                            paideia_as_ir::DataEntry::new_data(final_bytes, symbol_name, 1)
+                                            paideia_as_ir::DataEntry::new_data(final_bytes, symbol_name, explicit_align.unwrap_or(1))
                                         } else {
-                                            paideia_as_ir::DataEntry::new_rodata(final_bytes, symbol_name, 1)
+                                            paideia_as_ir::DataEntry::new_rodata(final_bytes, symbol_name, explicit_align.unwrap_or(1))
                                         };
                                         data_entries.push((node_id, entry));
                                     }

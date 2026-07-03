@@ -31,6 +31,9 @@ pub struct LetInfo {
     pub mutable: bool,
     /// Declared type of the binding, if resolved. `None` for untyped bindings.
     pub ty: Option<TypeId>,
+    /// Optional alignment directive `@align(N)` for per-symbol alignment (PA10-006y).
+    /// When `Some(N)`, the symbol must be aligned to N bytes (power of 2, 1..2^30).
+    pub align: Option<u32>,
 }
 
 impl LetInfo {
@@ -40,6 +43,7 @@ impl LetInfo {
         Self {
             mutable: false,
             ty: None,
+            align: None,
         }
     }
 
@@ -49,6 +53,7 @@ impl LetInfo {
         Self {
             mutable: true,
             ty: None,
+            align: None,
         }
     }
 
@@ -58,7 +63,16 @@ impl LetInfo {
     /// is known, enabling width-threaded integer-literal emission.
     #[must_use]
     pub fn with_type(mutable: bool, ty: Option<TypeId>) -> Self {
-        Self { mutable, ty }
+        Self { mutable, ty, align: None }
+    }
+
+    /// Construct a LetInfo with explicit mutability, type, and alignment.
+    ///
+    /// Phase 10 PA10-006y: the lowerer calls this when the binding's declared type
+    /// and optional alignment directive are known.
+    #[must_use]
+    pub fn with_align(mutable: bool, ty: Option<TypeId>, align: Option<u32>) -> Self {
+        Self { mutable, ty, align }
     }
 }
 
@@ -150,15 +164,36 @@ mod tests {
     }
 
     #[test]
+    fn let_info_immutable_has_no_align() {
+        assert_eq!(LetInfo::immutable().align, None);
+    }
+
+    #[test]
     fn let_info_with_type_records_mutability_and_type() {
         let ty = TypeId(7);
         let info = LetInfo::with_type(true, Some(ty));
         assert!(info.mutable);
         assert_eq!(info.ty, Some(ty));
+        assert_eq!(info.align, None);
 
         let untyped = LetInfo::with_type(false, None);
         assert!(!untyped.mutable);
         assert_eq!(untyped.ty, None);
+        assert_eq!(untyped.align, None);
+    }
+
+    #[test]
+    fn let_info_with_align_records_all_fields() {
+        let ty = TypeId(7);
+        let info = LetInfo::with_align(true, Some(ty), Some(4096));
+        assert!(info.mutable);
+        assert_eq!(info.ty, Some(ty));
+        assert_eq!(info.align, Some(4096));
+
+        let unaligned = LetInfo::with_align(false, None, None);
+        assert!(!unaligned.mutable);
+        assert_eq!(unaligned.ty, None);
+        assert_eq!(unaligned.align, None);
     }
 
     #[test]

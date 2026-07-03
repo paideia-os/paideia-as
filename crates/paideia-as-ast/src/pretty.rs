@@ -135,10 +135,11 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
             generic_params,
             ty,
             value,
+            align,
             doc,
         } => {
             format!(
-                "Let {{ public: {}, mutable: {}, name: {}, generic_params: [{}], ty: {:?}, value: {}, doc: {:?} }}",
+                "Let {{ public: {}, mutable: {}, name: {}, generic_params: [{}], ty: {:?}, value: {}, align: {:?}, doc: {:?} }}",
                 public,
                 mutable,
                 name,
@@ -149,6 +150,7 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                     .join(", "),
                 ty,
                 value,
+                align,
                 doc
             )
         }
@@ -951,6 +953,7 @@ mod tests {
                 generic_params: vec![],
                 ty: None,
                 value: let_value,
+                align: None,
                 doc: None,
             },
         );

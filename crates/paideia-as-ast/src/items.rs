@@ -181,7 +181,7 @@ pub enum ItemData {
         doc: Option<NodeId>,
     },
 
-    /// Let binding: `let [mut] Name <T> (: Type)? = Expr`
+    /// Let binding: `let [mut] Name <T> (: Type)? = Expr @align(N)?`
     Let {
         /// Whether this binding is public (`pub let`).
         public: bool,
@@ -196,6 +196,9 @@ pub enum ItemData {
         ty: Option<NodeId>,
         /// Value expression (Expr node).
         value: NodeId,
+        /// Optional alignment directive `@align(N)` for per-symbol alignment (PA10-006y).
+        /// When `Some(N)`, the symbol must be aligned to N bytes (power of 2, 1..2^30).
+        align: Option<u32>,
         /// Optional documentation comment.
         doc: Option<NodeId>,
     },
@@ -313,6 +316,7 @@ mod tests {
             generic_params: vec![],
             ty: Some(ty),
             value,
+            align: None,
             doc: None,
         };
         match item {
@@ -323,6 +327,7 @@ mod tests {
                 generic_params,
                 ty: t,
                 value: v,
+                align: a,
                 doc: d,
             } => {
                 assert!(!mut_flag);
@@ -330,6 +335,7 @@ mod tests {
                 assert!(generic_params.is_empty());
                 assert_eq!(t, Some(ty));
                 assert_eq!(v, value);
+                assert_eq!(a, None);
                 assert!(d.is_none());
             }
             _ => panic!("expected Let variant"),

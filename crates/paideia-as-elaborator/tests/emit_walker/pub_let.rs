@@ -38,6 +38,7 @@ fn pub_let_flag_flows_to_ir_arena() {
             generic_params: vec![],
             ty: None,
             value: value_id,
+            align: None,
             doc: None,
         },
     );

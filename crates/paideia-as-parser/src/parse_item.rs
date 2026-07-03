@@ -562,7 +562,101 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         Ok(item)
     }
 
-    /// Parse a top-level let declaration with optional visibility: `[pub] let [mut] <Ident> <GenericParams>? (: Type)? = Expr`
+    /// Parse an optional alignment suffix: `@align(N)` where N is a power-of-two integer literal.
+    ///
+    /// Returns `Some(N)` if the suffix is present and valid, `None` if not present.
+    /// Emits diagnostics for malformed syntax or invalid values.
+    ///
+    /// **Diagnostics:**
+    /// - P0250: unknown symbol attribute (only `align` supported)
+    /// - P0251: malformed `@align(N)` syntax
+    /// - P0252: non-power-of-two or out-of-range value
+    fn parse_optional_align_suffix(&mut self) -> Result<Option<u32>, ParseError> {
+        if !self.at(TokenKind::At) {
+            return Ok(None);
+        }
+
+        self.bump(); // consume `@`
+
+        // Expect an identifier for the attribute name
+        let attr_name_tok = self.expect(TokenKind::Ident)?;
+        let attr_name = self.source_text_for_span(attr_name_tok.span);
+
+        if attr_name != "align" {
+            // P0250: unknown symbol attribute
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 250)
+                .expect("valid P0250 code");
+            let diag = Diagnostic::error(code)
+                .message(format!("unknown symbol attribute '@{}' (only 'align' supported)", attr_name))
+                .with_span(attr_name_tok.span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        // Expect `(`
+        if !self.eat(TokenKind::LParen) {
+            let span = self
+                .peek()
+                .map(|t| t.span)
+                .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 251)
+                .expect("valid P0251 code");
+            let diag = Diagnostic::error(code)
+                .message("malformed @align(N) syntax: expected '(' after 'align'")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        // Parse the integer literal
+        let lit_tok = self.expect(TokenKind::IntLit)?;
+        let lit_text = self.source_text_for_span(lit_tok.span);
+
+        let value: u32 = lit_text.parse().map_err(|_| {
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 252)
+                .expect("valid P0252 code");
+            let diag = Diagnostic::error(code)
+                .message("@align value must be a valid integer in range [1, 2^30]")
+                .with_span(lit_tok.span)
+                .finish();
+            self.emit_diagnostic(diag);
+            ParseError
+        })?;
+
+        // Validate: power of two and in range [1, 2^30]
+        if value == 0 || value > (1u32 << 30) || (value & (value - 1)) != 0 {
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 252)
+                .expect("valid P0252 code");
+            let diag = Diagnostic::error(code)
+                .message(format!("@align value must be a power of two in range [1, 2^30], got {}", value))
+                .with_span(lit_tok.span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        // Expect `)`
+        if !self.eat(TokenKind::RParen) {
+            let span = self
+                .peek()
+                .map(|t| t.span)
+                .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 251)
+                .expect("valid P0251 code");
+            let diag = Diagnostic::error(code)
+                .message("malformed @align(N) syntax: expected ')' after value")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        Ok(Some(value))
+    }
+
+    /// Parse a top-level let declaration with optional visibility: `[pub] let [mut] <Ident> <GenericParams>? (: Type)? = Expr @align(N)?`
     fn parse_let_decl_with_visibility(&mut self, public: bool) -> Result<NodeId, ParseError> {
         let let_tok = self.expect(TokenKind::KwLet)?;
         let span_start = let_tok.span;
@@ -637,6 +731,9 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         // Parse value expression
         let value = self.parse_expr()?;
 
+        // Parse optional alignment suffix: @align(N)
+        let align = self.parse_optional_align_suffix()?;
+
         // Consume optional `;`
         self.eat(TokenKind::Semicolon);
 
@@ -662,6 +759,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 generic_params,
                 ty,
                 value,
+                align,
                 doc: None,
             },
         );
