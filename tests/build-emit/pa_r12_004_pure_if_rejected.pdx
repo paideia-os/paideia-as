@@ -1,0 +1,6 @@
+module PaR12004PureIfRejected = structure {
+  let DENIED : u64 = 0
+  pub let request : (u64) -> u64 = fn (r: u64) -> {
+    if r == 0 { DENIED } else { r }
+  }
+}
