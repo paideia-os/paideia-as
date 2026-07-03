@@ -41,6 +41,11 @@ paideia-as v1.5 round closes Phase 15 m6 feature work. Scope: 32-bit mode (Mode3
 - **Boot stub migration to .pdx**: m6-002 deferral → v0.12.0. Blocks on #900 (cross-module symbol export) and #871 (elaborator U1606 symbol resolution).
 - **Nested scope bits propagation**: m2-002a interim layering remains pending full nested scope propagation (deferred Phase 16+).
 
+### Post-release encoder fixes (v0.11.0+)
+
+- **PA-R10-001** (issue #908, commit b1ecea7) — SIB+BP escape encoding bug fix. RSP base always emits SIB byte escape; RBP base with disp=0 forces mod=01/disp8=0. Reported from paideia-os R10 substrate audit.
+- **PA-R12-002** (issue #911) — REX.X now emitted for r8-r15 as SIB index register in `mov r64, [base + index*scale]` (and 8/16/32-bit variants) and the symmetric store form. Bug: `emit_indexed_load` / `emit_indexed_store` hard-coded the REX prefix and dropped the SIB.index high bit, silently masking r8-r15 to r0-r7. Reported from paideia-os R12 m3-001 (paideia-os #408) via `cap_handler_page`'s `mov rax, [rsi + r9 * 8]` producing `48 8B 04 CE` instead of `4A 8B 04 CE`. REX.B for r8-r15 as base and REX.R for r8-r15 as dest in `emit_indexed_*` remain out of scope for this fix (tracked separately).
+
 ## v0.10.0 — PA10 PVH/string-literals/bitwise-arith/narrow-Mov closure (PA10-001..006 substrate unblocked)
 
 **Released:** Tag pushed at PA10-006 closure (v0.10.0 release).

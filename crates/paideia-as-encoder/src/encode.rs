@@ -1294,10 +1294,19 @@ pub fn emit_indexed_load(
     let base_id = base as u8;
     let index_id = index as u8;
 
+    // PA-R12-002: REX.X extends SIB.index to reach r8-r15. Required whenever
+    // the index register's high bit is set; opcode-agnostic (applies to all
+    // widths). REX.B for r8-r15 as *base* and REX.R for r8-r15 as *dest* remain
+    // latent in this helper (out of scope for #911).
+    let rex_x_bit: u8 = if (index_id >> 3) != 0 { 0x02 } else { 0 };
+
     match width {
         1 => {
             // mov al, [base + index]
             // Opcode 8A (no prefix/rex needed for AL)
+            if rex_x_bit != 0 {
+                buf.bytes.push(0x40 | rex_x_bit);
+            }
             buf.bytes.push(0x8A);
             // ModR/M: mod=00, reg=0 (AL), rm=100 (SIB follows)
             buf.bytes.push(0x04);
@@ -1309,6 +1318,10 @@ pub fn emit_indexed_load(
             // mov ax, [base + index * 2]
             // Operand-size prefix 0x66
             buf.bytes.push(0x66);
+            // REX.X if needed
+            if rex_x_bit != 0 {
+                buf.bytes.push(0x40 | rex_x_bit);
+            }
             // Opcode 8B
             buf.bytes.push(0x8B);
             // ModR/M: mod=00, reg=0 (AX), rm=100 (SIB follows)
@@ -1319,7 +1332,11 @@ pub fn emit_indexed_load(
         }
         4 => {
             // mov eax, [base + index * 4]
-            // No prefix, opcode 8B
+            // REX.X if needed (no other REX bits)
+            if rex_x_bit != 0 {
+                buf.bytes.push(0x40 | rex_x_bit);
+            }
+            // Opcode 8B
             buf.bytes.push(0x8B);
             // ModR/M: mod=00, reg=0 (EAX), rm=100 (SIB follows)
             buf.bytes.push(0x04);
@@ -1329,8 +1346,8 @@ pub fn emit_indexed_load(
         }
         8 => {
             // mov rax, [base + index * 8]
-            // REX.W=1
-            buf.bytes.push(0x48);
+            // REX.W=1, add REX.X if needed
+            buf.bytes.push(0x48 | rex_x_bit);
             // Opcode 8B
             buf.bytes.push(0x8B);
             // ModR/M: mod=00, reg=0 (RAX), rm=100 (SIB follows)
@@ -1372,10 +1389,19 @@ pub fn emit_indexed_store(
     let base_id = base as u8;
     let index_id = index as u8;
 
+    // PA-R12-002: REX.X extends SIB.index to reach r8-r15. Required whenever
+    // the index register's high bit is set; opcode-agnostic (applies to all
+    // widths). REX.B for r8-r15 as *base* and REX.R for r8-r15 as *dest* remain
+    // latent in this helper (out of scope for #911).
+    let rex_x_bit: u8 = if (index_id >> 3) != 0 { 0x02 } else { 0 };
+
     match width {
         1 => {
             // mov [base + index], al
             // Opcode 88 (no prefix/rex needed for AL)
+            if rex_x_bit != 0 {
+                buf.bytes.push(0x40 | rex_x_bit);
+            }
             buf.bytes.push(0x88);
             // ModR/M: mod=00, reg=0 (AL), rm=100 (SIB follows)
             buf.bytes.push(0x04);
@@ -1387,6 +1413,10 @@ pub fn emit_indexed_store(
             // mov [base + index * 2], ax
             // Operand-size prefix 0x66
             buf.bytes.push(0x66);
+            // REX.X if needed
+            if rex_x_bit != 0 {
+                buf.bytes.push(0x40 | rex_x_bit);
+            }
             // Opcode 89
             buf.bytes.push(0x89);
             // ModR/M: mod=00, reg=0 (AX), rm=100 (SIB follows)
@@ -1397,7 +1427,11 @@ pub fn emit_indexed_store(
         }
         4 => {
             // mov [base + index * 4], eax
-            // No prefix, opcode 89
+            // REX.X if needed (no other REX bits)
+            if rex_x_bit != 0 {
+                buf.bytes.push(0x40 | rex_x_bit);
+            }
+            // Opcode 89
             buf.bytes.push(0x89);
             // ModR/M: mod=00, reg=0 (EAX), rm=100 (SIB follows)
             buf.bytes.push(0x04);
@@ -1407,8 +1441,8 @@ pub fn emit_indexed_store(
         }
         8 => {
             // mov [base + index * 8], rax
-            // REX.W=1
-            buf.bytes.push(0x48);
+            // REX.W=1, add REX.X if needed
+            buf.bytes.push(0x48 | rex_x_bit);
             // Opcode 89
             buf.bytes.push(0x89);
             // ModR/M: mod=00, reg=0 (RAX), rm=100 (SIB follows)
@@ -2808,6 +2842,92 @@ mod tests {
 
         // Verify the exact byte sequence: 48 8b 04 cf
         assert_eq!(buf_ptr.as_slice(), &[0x48, 0x8b, 0x04, 0xcf]);
+    }
+
+    // ── PA-R12-002: REX.X for r8-r15 as SIB index ──────────────
+
+    #[test]
+    fn emit_indexed_load_width_8_index_r8_emits_rex_x() {
+        let mut buf = CodeBuffer::new();
+        emit_indexed_load(&mut buf, Reg64::Rax, Reg64::Rsi, Reg64::R8, 8, false);
+        assert_eq!(buf.as_slice(), &[0x4A, 0x8B, 0x04, 0xC6]);
+    }
+
+    #[test]
+    fn emit_indexed_load_width_8_index_r9_emits_rex_x() {
+        let mut buf = CodeBuffer::new();
+        emit_indexed_load(&mut buf, Reg64::Rax, Reg64::Rsi, Reg64::R9, 8, false);
+        assert_eq!(buf.as_slice(), &[0x4A, 0x8B, 0x04, 0xCE]);
+    }
+
+    #[test]
+    fn emit_indexed_load_width_8_index_r10_emits_rex_x() {
+        let mut buf = CodeBuffer::new();
+        emit_indexed_load(&mut buf, Reg64::Rax, Reg64::Rsi, Reg64::R10, 8, false);
+        assert_eq!(buf.as_slice(), &[0x4A, 0x8B, 0x04, 0xD6]);
+    }
+
+    #[test]
+    fn emit_indexed_load_width_8_index_r15_emits_rex_x() {
+        let mut buf = CodeBuffer::new();
+        emit_indexed_load(&mut buf, Reg64::Rax, Reg64::Rsi, Reg64::R15, 8, false);
+        assert_eq!(buf.as_slice(), &[0x4A, 0x8B, 0x04, 0xFE]);
+    }
+
+    #[test]
+    fn emit_indexed_load_width_4_index_r9_emits_rex_x_no_rex_w() {
+        let mut buf = CodeBuffer::new();
+        emit_indexed_load(&mut buf, Reg64::Rax, Reg64::Rsi, Reg64::R9, 4, false);
+        assert_eq!(buf.as_slice(), &[0x42, 0x8B, 0x04, 0x8E]);
+    }
+
+    #[test]
+    fn emit_indexed_load_width_2_index_r9_emits_rex_x_after_66_prefix() {
+        let mut buf = CodeBuffer::new();
+        emit_indexed_load(&mut buf, Reg64::Rax, Reg64::Rsi, Reg64::R9, 2, false);
+        assert_eq!(buf.as_slice(), &[0x66, 0x42, 0x8B, 0x04, 0x4E]);
+    }
+
+    #[test]
+    fn emit_indexed_load_width_1_index_r9_emits_rex_x() {
+        let mut buf = CodeBuffer::new();
+        emit_indexed_load(&mut buf, Reg64::Rax, Reg64::Rsi, Reg64::R9, 1, false);
+        assert_eq!(buf.as_slice(), &[0x42, 0x8A, 0x04, 0x0E]);
+    }
+
+    #[test]
+    fn emit_indexed_load_low_index_unchanged_no_spurious_rex_x() {
+        let mut buf = CodeBuffer::new();
+        emit_indexed_load(&mut buf, Reg64::Rax, Reg64::Rsi, Reg64::Rcx, 8, false);
+        assert_eq!(buf.as_slice(), &[0x48, 0x8B, 0x04, 0xCE]);
+    }
+
+    #[test]
+    fn emit_indexed_store_width_8_index_r9_emits_rex_x() {
+        let mut buf = CodeBuffer::new();
+        emit_indexed_store(&mut buf, Reg64::Rsi, Reg64::R9, Reg64::Rax, 8);
+        assert_eq!(buf.as_slice(), &[0x4A, 0x89, 0x04, 0xCE]);
+    }
+
+    #[test]
+    fn emit_indexed_store_width_8_index_r15_emits_rex_x() {
+        let mut buf = CodeBuffer::new();
+        emit_indexed_store(&mut buf, Reg64::Rsi, Reg64::R15, Reg64::Rax, 8);
+        assert_eq!(buf.as_slice(), &[0x4A, 0x89, 0x04, 0xFE]);
+    }
+
+    #[test]
+    fn emit_indexed_store_width_4_index_r9_emits_rex_x_no_rex_w() {
+        let mut buf = CodeBuffer::new();
+        emit_indexed_store(&mut buf, Reg64::Rsi, Reg64::R9, Reg64::Rax, 4);
+        assert_eq!(buf.as_slice(), &[0x42, 0x89, 0x04, 0x8E]);
+    }
+
+    #[test]
+    fn emit_indexed_store_low_index_unchanged_no_spurious_rex_x() {
+        let mut buf = CodeBuffer::new();
+        emit_indexed_store(&mut buf, Reg64::Rsi, Reg64::Rcx, Reg64::Rax, 8);
+        assert_eq!(buf.as_slice(), &[0x48, 0x89, 0x04, 0xCE]);
     }
 
     // ── Indexed store tests ─────────────────────────────────────
