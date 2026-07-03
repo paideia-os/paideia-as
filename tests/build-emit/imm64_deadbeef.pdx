@@ -1,0 +1,11 @@
+module Imm64Deadbeef = structure {
+  pub let test_imm : () -> u64 !{} @{} =
+    fn () -> unsafe {
+      effects: {}, capabilities: {},
+      justification: "PA-R12-003 test: top-bit-set imm64 encoding",
+      block: {
+        mov rax, 0xDEADBEEF00000007;
+        ret
+      }
+    }
+}

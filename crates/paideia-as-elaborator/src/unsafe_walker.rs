@@ -1011,24 +1011,24 @@ fn extract_integer_from_span(
         return Some(val);
     }
 
-    // Try parsing as hex
+    // Try parsing as hex (u64-first so top-bit-set values survive)
     if text.starts_with("0x") || text.starts_with("0X") {
-        if let Ok(val) = i64::from_str_radix(&text[2..], 16) {
-            return Some(val);
+        if let Ok(val) = u64::from_str_radix(&text[2..], 16) {
+            return Some(val as i64);
         }
     }
 
     // Try parsing as octal
     if text.starts_with("0o") || text.starts_with("0O") {
-        if let Ok(val) = i64::from_str_radix(&text[2..], 8) {
-            return Some(val);
+        if let Ok(val) = u64::from_str_radix(&text[2..], 8) {
+            return Some(val as i64);
         }
     }
 
     // Try parsing as binary
     if text.starts_with("0b") || text.starts_with("0B") {
-        if let Ok(val) = i64::from_str_radix(&text[2..], 2) {
-            return Some(val);
+        if let Ok(val) = u64::from_str_radix(&text[2..], 2) {
+            return Some(val as i64);
         }
     }
 

@@ -2169,6 +2169,23 @@ mod tests {
             assert_eq!(elem2_val, 3);
         }
     }
+
+    /// PA-R12-003: Test hex literals with top bit set (issue #912).
+    /// Values > 0x7FFF_FFFF_FFFF_FFFF should parse as u64 and cast to i64 bit-preserving.
+    #[test]
+    fn parse_hex_top_bit_set() {
+        assert_eq!(parse_integer_literal("0xFFFFFFFFFFFFFFFD"), Ok(0xFFFFFFFFFFFFFFFDu64 as i64));
+        assert_eq!(parse_integer_literal("0xDEADBEEF00000007"), Ok(0xDEADBEEF00000007u64 as i64));
+        assert_eq!(parse_integer_literal("0xFFFFFFFFFFFFFFFF"), Ok(-1i64));
+        assert_eq!(parse_integer_literal("0x7FFFFFFFFFFFFFFF"), Ok(i64::MAX));
+    }
+
+    /// PA-R12-003: Test negative decimal parsing still works (regression test).
+    #[test]
+    fn parse_negative_decimal_still_works() {
+        assert_eq!(parse_integer_literal("-42"), Ok(-42));
+        assert_eq!(parse_integer_literal("-9223372036854775808"), Ok(i64::MIN));
+    }
 }
 
 /// Parse an integer literal from text, supporting decimal, hex, binary, and octal formats.
@@ -2209,8 +2226,15 @@ fn parse_integer_literal(text: &str) -> Result<i64, ()> {
     // Remove underscores (allowed in numeric literals)
     let digits: String = digits.chars().filter(|c| *c != '_').collect();
 
-    // Parse the digits
-    i64::from_str_radix(&digits, base)
-        .map(|n| if is_negative { -n } else { n })
-        .map_err(|_| ())
+    // For non-decimal bases, top-bit-set values overflow i64 but are valid u64.
+    // Parse as u64 (bit-preserving) to allow values > i64::MAX, then negate if negative.
+    let result = u64::from_str_radix(&digits, base)
+        .map(|v| v as i64)
+        .map_err(|_| ())?;
+
+    if is_negative {
+        Ok(result.wrapping_neg())
+    } else {
+        Ok(result)
+    }
 }
