@@ -252,3 +252,147 @@ fn intlit_plus_symbol_operand() {
         other => panic!("Expected SymbolRef with addend 8, got {:?}", other),
     }
 }
+
+/// Test: [rip + pml4 + 4] → SymbolRef { name: "pml4", addend: 4 }
+#[test]
+fn rip_plus_symbol_plus_intlit_operand() {
+    let mut ast = AstArena::new();
+
+    // Source: `mov [rip + pml4 + 4], 0`
+    // Position of "rip": 5-7
+    // Position of "+": 9 (first operator)
+    // Position of "pml4": 11-14
+    // Position of "+": 16 (second operator)
+    // Position of "4": 18
+    let rip_ident = build_ident_at(&mut ast, 5, 3);
+    let pml4_ident = build_ident_at(&mut ast, 11, 4);
+    let intlit_4 = build_intlit_at(&mut ast, 18, 1);
+
+    // Build: rip + pml4
+    let span_rip_pml4 = Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 5, 10);
+    let infix_rip_pml4 = build_infix(&mut ast, rip_ident, 9, "+", pml4_ident, span_rip_pml4);
+
+    // Build: (rip + pml4) + 4
+    let span_total = Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 5, 14);
+    let infix_total = build_infix(&mut ast, infix_rip_pml4, 16, "+", intlit_4, span_total);
+    let memref = build_memref(&mut ast, infix_total, test_span());
+
+    let source = "mov [rip + pml4 + 4], 0";
+    let operand = mov_symbol_memory_operand(source, &mut ast, memref);
+
+    match operand {
+        Operand::SymbolRef { name, addend } => {
+            assert_eq!(name, "pml4");
+            assert_eq!(addend, 4);
+        }
+        other => panic!("Expected SymbolRef with addend 4, got {:?}", other),
+    }
+}
+
+/// Test: [rip + pdpt - 16] → SymbolRef { name: "pdpt", addend: -16 }
+#[test]
+fn rip_plus_symbol_minus_intlit_operand() {
+    let mut ast = AstArena::new();
+
+    // Source: `mov [rip + pdpt - 16], 0`
+    // Position of "rip": 5-7
+    // Position of "+": 9 (first operator)
+    // Position of "pdpt": 11-14
+    // Position of "-": 16 (second operator)
+    // Position of "16": 18-19
+    let rip_ident = build_ident_at(&mut ast, 5, 3);
+    let pdpt_ident = build_ident_at(&mut ast, 11, 4);
+    let intlit_16 = build_intlit_at(&mut ast, 18, 2);
+
+    // Build: rip + pdpt
+    let span_rip_pdpt = Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 5, 10);
+    let infix_rip_pdpt = build_infix(&mut ast, rip_ident, 9, "+", pdpt_ident, span_rip_pdpt);
+
+    // Build: (rip + pdpt) - 16
+    let span_total = Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 5, 14);
+    let infix_total = build_infix(&mut ast, infix_rip_pdpt, 16, "-", intlit_16, span_total);
+    let memref = build_memref(&mut ast, infix_total, test_span());
+
+    let source = "mov [rip + pdpt - 16], 0";
+    let operand = mov_symbol_memory_operand(source, &mut ast, memref);
+
+    match operand {
+        Operand::SymbolRef { name, addend } => {
+            assert_eq!(name, "pdpt");
+            assert_eq!(addend, -16);
+        }
+        other => panic!("Expected SymbolRef with addend -16, got {:?}", other),
+    }
+}
+
+/// Test: [rip + (pml4 + 8)] → SymbolRef { name: "pml4", addend: 8 }
+#[test]
+fn rip_plus_paren_symbol_plus_intlit_operand() {
+    let mut ast = AstArena::new();
+
+    // Source: `mov [rip + (pml4 + 8)], 0`
+    // Position of "rip": 5-7
+    // Position of "+": 9 (outer operator)
+    // Position of "pml4": 12-15
+    // Position of "+": 17 (inner operator)
+    // Position of "8": 19
+    let rip_ident = build_ident_at(&mut ast, 5, 3);
+    let pml4_ident = build_ident_at(&mut ast, 12, 4);
+    let intlit_8 = build_intlit_at(&mut ast, 19, 1);
+
+    // Build: pml4 + 8
+    let span_pml4_8 = Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 12, 8);
+    let infix_pml4_8 = build_infix(&mut ast, pml4_ident, 17, "+", intlit_8, span_pml4_8);
+
+    // Build: rip + (pml4 + 8)
+    let span_total = Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 5, 15);
+    let infix_total = build_infix(&mut ast, rip_ident, 9, "+", infix_pml4_8, span_total);
+    let memref = build_memref(&mut ast, infix_total, test_span());
+
+    let source = "mov [rip + (pml4 + 8)], 0";
+    let operand = mov_symbol_memory_operand(source, &mut ast, memref);
+
+    match operand {
+        Operand::SymbolRef { name, addend } => {
+            assert_eq!(name, "pml4");
+            assert_eq!(addend, 8);
+        }
+        other => panic!("Expected SymbolRef with addend 8, got {:?}", other),
+    }
+}
+
+/// Test: [8 + rip + pml4] → SymbolRef { name: "pml4", addend: 8 }
+#[test]
+fn intlit_plus_rip_plus_symbol_operand() {
+    let mut ast = AstArena::new();
+
+    // Source: `mov [8 + rip + pml4], 0`
+    // Position of "8": 5
+    // Position of "+": 7 (first operator)
+    // Position of "rip": 9-11
+    // Position of "+": 13 (second operator)
+    // Position of "pml4": 15-18
+    let intlit_8 = build_intlit_at(&mut ast, 5, 1);
+    let rip_ident = build_ident_at(&mut ast, 9, 3);
+    let pml4_ident = build_ident_at(&mut ast, 15, 4);
+
+    // Build: 8 + rip
+    let span_8_rip = Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 5, 10);
+    let infix_8_rip = build_infix(&mut ast, intlit_8, 7, "+", rip_ident, span_8_rip);
+
+    // Build: (8 + rip) + pml4
+    let span_total = Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 5, 14);
+    let infix_total = build_infix(&mut ast, infix_8_rip, 13, "+", pml4_ident, span_total);
+    let memref = build_memref(&mut ast, infix_total, test_span());
+
+    let source = "mov [8 + rip + pml4], 0";
+    let operand = mov_symbol_memory_operand(source, &mut ast, memref);
+
+    match operand {
+        Operand::SymbolRef { name, addend } => {
+            assert_eq!(name, "pml4");
+            assert_eq!(addend, 8);
+        }
+        other => panic!("Expected SymbolRef with addend 8, got {:?}", other),
+    }
+}

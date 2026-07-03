@@ -670,66 +670,10 @@ fn try_parse_symbol_memory(
         }
         // [rip + symbol] or [symbol ± IntLit] forms: ExprInfix
         NodeKind::ExprInfix => {
-            match ast.expr_data(addr_node) {
-                Some(ExprData::Infix { op, lhs, rhs }) => {
-                    let op_str = get_infix_op_name(ast, *op, source_map);
-
-                    // Case 1: [rip + symbol] form (op must be +)
-                    if op_str.as_deref() == Some("+") {
-                        // Check if either side is "rip"
-                        if is_rip_identifier(ast, *lhs, source_map) {
-                            if let Some(name) = try_extract_symbol_name(ast, *rhs, source_map) {
-                                return Ok(Operand::SymbolRef { name, addend: 0 });
-                            }
-                        } else if is_rip_identifier(ast, *rhs, source_map) {
-                            if let Some(name) = try_extract_symbol_name(ast, *lhs, source_map) {
-                                return Ok(Operand::SymbolRef { name, addend: 0 });
-                            }
-                        }
-                    }
-
-                    // Case 2: [symbol + IntLit] form
-                    if op_str.as_deref() == Some("+") {
-                        // Try: symbol on left, IntLit on right
-                        if let Some(name) = try_extract_symbol_name(ast, *lhs, source_map) {
-                            if let Some(addend) = try_extract_integer_literal(ast, *rhs, source_map)
-                            {
-                                return Ok(Operand::SymbolRef {
-                                    name,
-                                    addend: addend as i32,
-                                });
-                            }
-                        }
-                        // Try: IntLit on left, symbol on right (commutative)
-                        if let Some(addend) = try_extract_integer_literal(ast, *lhs, source_map) {
-                            if let Some(name) = try_extract_symbol_name(ast, *rhs, source_map) {
-                                return Ok(Operand::SymbolRef {
-                                    name,
-                                    addend: addend as i32,
-                                });
-                            }
-                        }
-                    }
-
-                    // Case 3: [symbol - IntLit] form
-                    if op_str.as_deref() == Some("-") {
-                        // symbol on left, IntLit on right, negate the addend
-                        if let Some(name) = try_extract_symbol_name(ast, *lhs, source_map) {
-                            if let Some(addend) = try_extract_integer_literal(ast, *rhs, source_map)
-                            {
-                                return Ok(Operand::SymbolRef {
-                                    name,
-                                    addend: -(addend as i32),
-                                });
-                            }
-                        }
-                    }
-
-                    // No matching pattern
-                    Err(OperandError::MalformedOperand(span))
-                }
-                _ => Err(OperandError::MalformedOperand(span)),
+            if let Some((name, addend)) = try_extract_symbol_sum(ast, addr_node, source_map) {
+                return Ok(Operand::SymbolRef { name, addend });
             }
+            Err(OperandError::MalformedOperand(span))
         }
         _ => Err(OperandError::MalformedOperand(span)),
     }
@@ -1112,6 +1056,99 @@ fn try_extract_integer_literal(
         },
         _ => None,
     }
+}
+
+/// Attempt to decompose a memory-address expression as a sum of terms and
+/// return `(symbol_name, addend)` if it consists of:
+///   * exactly one symbol identifier,
+///   * at most one occurrence of the pseudo-register `rip`,
+///   * zero or more integer literals combined with `+` / `-`.
+///
+/// Handles all associative and commuted orderings of these terms — e.g.
+/// `[rip + sym + N]`, `[rip + sym - N]`, `[rip + (sym + N)]`, `[N + rip + sym]`.
+/// Returns `None` if any other construct appears (register other than `rip`,
+/// second symbol, non-`+/-` operator, etc.) or the addend overflows `i32`.
+fn try_extract_symbol_sum(
+    ast: &AstArena,
+    node_id: NodeId,
+    source_map: &paideia_as_diagnostics::SourceMap,
+) -> Option<(String, i32)> {
+    struct Acc {
+        name: Option<String>,
+        addend: i32,
+        rip_seen: bool,
+    }
+
+    fn walk(
+        ast: &AstArena,
+        node_id: NodeId,
+        sign: i32,
+        acc: &mut Acc,
+        source_map: &paideia_as_diagnostics::SourceMap,
+    ) -> bool {
+        let node = match ast.get(node_id) {
+            Some(n) => n,
+            None => return false,
+        };
+        match node.kind {
+            NodeKind::ExprInfix => match ast.expr_data(node_id) {
+                Some(ExprData::Infix { op, lhs, rhs }) => {
+                    let rhs_sign = match get_infix_op_name(ast, *op, source_map) {
+                        Some("+") => sign,
+                        Some("-") => -sign,
+                        _ => return false,
+                    };
+                    walk(ast, *lhs, sign, acc, source_map)
+                        && walk(ast, *rhs, rhs_sign, acc, source_map)
+                }
+                _ => false,
+            },
+            NodeKind::Ident | NodeKind::ExprPath => {
+                if is_rip_identifier(ast, node_id, source_map) {
+                    if acc.rip_seen {
+                        return false;
+                    }
+                    acc.rip_seen = true;
+                    return true;
+                }
+                match try_extract_symbol_name(ast, node_id, source_map) {
+                    Some(name) => {
+                        if acc.name.is_some() {
+                            return false;
+                        }
+                        acc.name = Some(name);
+                        true
+                    }
+                    None => false,
+                }
+            }
+            NodeKind::ExprLiteral => {
+                let v = match try_extract_integer_literal(ast, node_id, source_map) {
+                    Some(v) => v,
+                    None => return false,
+                };
+                let signed = (v as i64).checked_mul(sign as i64);
+                let signed_i32 = match signed {
+                    Some(s) if (i32::MIN as i64..=i32::MAX as i64).contains(&s) => s as i32,
+                    _ => return false,
+                };
+                match acc.addend.checked_add(signed_i32) {
+                    Some(sum) => {
+                        acc.addend = sum;
+                        true
+                    }
+                    None => false,
+                }
+            }
+            _ => false,
+        }
+    }
+
+    let mut acc = Acc { name: None, addend: 0, rip_seen: false };
+    if !walk(ast, node_id, 1, &mut acc, source_map) {
+        return None;
+    }
+    acc.name.map(|n| (n, acc.addend))
 }
 
 /// Map register names to RegId values.
