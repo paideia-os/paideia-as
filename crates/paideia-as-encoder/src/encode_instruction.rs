@@ -269,6 +269,9 @@ pub fn encode_instruction(
         // Phase 8 m5-001: supervisor TLB and timing mnemonics
         Mnemonic::Invlpg => encode_invlpg_inst(inst, buf),
         Mnemonic::Rdtsc => encode_rdtsc_inst(inst, buf),
+        // Phase R11 PA-R11-006: divide instructions
+        Mnemonic::Div => encode_div(inst, buf),
+        Mnemonic::Idiv => encode_idiv(inst, buf),
     }
 }
 
@@ -330,6 +333,34 @@ fn encode_not(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
         }
         _ => Err(EncodeError::OperandShape {
             mnemonic: Mnemonic::Not,
+        }),
+    }
+}
+
+/// Phase R11 PA-R11-006: Encode unsigned 64-bit divide instruction.
+/// Expects exactly one register operand (the divisor). Emits via `div_reg64`.
+fn encode_div(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::Reg(src)] => {
+            div_reg64(buf, reg64_from(*src)?);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Div,
+        }),
+    }
+}
+
+/// Phase R11 PA-R11-006: Encode signed 64-bit divide instruction.
+/// Expects exactly one register operand (the divisor). Emits via `idiv_reg64`.
+fn encode_idiv(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::Reg(src)] => {
+            idiv_reg64(buf, reg64_from(*src)?);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Idiv,
         }),
     }
 }
@@ -5507,5 +5538,147 @@ mod jcc_tests {
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
         assert_eq!(instr.mnemonic(), IcedMnem::Int3);
+    }
+
+    // Phase R11 PA-R11-006 (issue #909): Div/Idiv r64 instruction tests
+    #[test]
+    fn encode_div_rax_emits_48_f7_f0() {
+        // Mnemonic::Div with [Reg(rax)] → 48 F7 F0
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Div,
+            operands: smallvec::smallvec![Operand::Reg(RegId(0))],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x48, 0xF7, 0xF0]);
+    }
+
+    #[test]
+    fn encode_div_rcx_emits_48_f7_f1() {
+        // Mnemonic::Div with [Reg(rcx)] → 48 F7 F1
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Div,
+            operands: smallvec::smallvec![Operand::Reg(RegId(1))],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x48, 0xF7, 0xF1]);
+    }
+
+    #[test]
+    fn encode_div_r8_emits_49_f7_f0() {
+        // Mnemonic::Div with [Reg(r8)] → 49 F7 F0
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Div,
+            operands: smallvec::smallvec![Operand::Reg(RegId(8))],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x49, 0xF7, 0xF0]);
+    }
+
+    #[test]
+    fn encode_div_r15_emits_49_f7_f7() {
+        // Mnemonic::Div with [Reg(r15)] → 49 F7 F7
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Div,
+            operands: smallvec::smallvec![Operand::Reg(RegId(15))],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x49, 0xF7, 0xF7]);
+    }
+
+    #[test]
+    fn encode_idiv_rax_emits_48_f7_f8() {
+        // Mnemonic::Idiv with [Reg(rax)] → 48 F7 F8
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Idiv,
+            operands: smallvec::smallvec![Operand::Reg(RegId(0))],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x48, 0xF7, 0xF8]);
+    }
+
+    #[test]
+    fn encode_idiv_r8_emits_49_f7_f8() {
+        // Mnemonic::Idiv with [Reg(r8)] → 49 F7 F8
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Idiv,
+            operands: smallvec::smallvec![Operand::Reg(RegId(8))],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x49, 0xF7, 0xF8]);
+    }
+
+    #[test]
+    fn encode_idiv_r15_emits_49_f7_ff() {
+        // Mnemonic::Idiv with [Reg(r15)] → 49 F7 FF
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Idiv,
+            operands: smallvec::smallvec![Operand::Reg(RegId(15))],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x49, 0xF7, 0xFF]);
+    }
+
+    #[test]
+    fn encode_div_rcx_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem, Register};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Div,
+            operands: smallvec::smallvec![Operand::Reg(RegId(1))],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Div);
+        assert_eq!(instr.op0_register(), Register::RCX);
     }
 }

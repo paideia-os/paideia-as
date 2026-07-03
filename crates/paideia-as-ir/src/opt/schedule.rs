@@ -75,10 +75,13 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         | Mnemonic::Popfq
         | Mnemonic::Int3 => InstructionClass::Other,
         // Phase 8 m1-001d: shift, multiply, and bitwise operations are register ALU ops.
+        // Phase R11 PA-R11-006: div/idiv are also long-latency ALU ops alongside imul.
         Mnemonic::Shl
         | Mnemonic::Shr
         | Mnemonic::Sar
         | Mnemonic::Imul
+        | Mnemonic::Div
+        | Mnemonic::Idiv
         | Mnemonic::And
         | Mnemonic::Or
         | Mnemonic::Xor => InstructionClass::AluReg,

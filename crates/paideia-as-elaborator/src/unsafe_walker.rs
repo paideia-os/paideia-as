@@ -152,6 +152,9 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     ("popfq", Mnemonic::Popfq),
     // Phase R9 m2-003 (PA-R9-003): Int3 instruction
     ("int3", Mnemonic::Int3),
+    // Phase R11 PA-R11-006 (issue #909): Div/Idiv r64 instructions
+    ("div", Mnemonic::Div),
+    ("idiv", Mnemonic::Idiv),
 ];
 
 /// Resolve a mnemonic name to an IR Mnemonic enum variant.

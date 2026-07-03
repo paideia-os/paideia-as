@@ -689,6 +689,42 @@ pub fn not_reg64(buf: &mut CodeBuffer, dst: Reg64) {
     buf.bytes.push(0xD0 | (reg_id & 7));
 }
 
+/// Encode `div src64` (unsigned 64-bit divide, register operand).
+///
+/// Phase R11 PA-R11-006: the divisor is read from src, quotient written to rax, remainder to rdx.
+///
+/// Opcode: REX.W F7 /6
+/// ModR/M: mod=11 (register direct), r/m = src.
+/// Bytes: `48+REX.B F7 (0xF0 | (reg & 7))`
+///
+/// Example: `div rax` → `48 f7 f0`
+/// Example: `div r8`  → `49 f7 f0`
+pub fn div_reg64(buf: &mut CodeBuffer, src: Reg64) {
+    let reg_id = src as u8;
+    let rex_byte = rex(true, false, false, (reg_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0xF7);
+    buf.bytes.push(0xF0 | (reg_id & 7));
+}
+
+/// Encode `idiv src64` (signed 64-bit divide, register operand).
+///
+/// Phase R11 PA-R11-006: the divisor is read from src, quotient written to rax, remainder to rdx.
+///
+/// Opcode: REX.W F7 /7
+/// ModR/M: mod=11 (register direct), r/m = src.
+/// Bytes: `48+REX.B F7 (0xF8 | (reg & 7))`
+///
+/// Example: `idiv rax` → `48 f7 f8`
+/// Example: `idiv r8`  → `49 f7 f8`
+pub fn idiv_reg64(buf: &mut CodeBuffer, src: Reg64) {
+    let reg_id = src as u8;
+    let rex_byte = rex(true, false, false, (reg_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0xF7);
+    buf.bytes.push(0xF8 | (reg_id & 7));
+}
+
 /// Encode `movsx dst64, src` (move with sign-extend, register-to-register).
 ///
 /// Phase 7 m4-002: used for widening *signed* casts. The source register is

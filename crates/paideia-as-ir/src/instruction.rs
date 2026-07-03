@@ -174,6 +174,12 @@ pub enum Mnemonic {
     Invlpg,
     /// Read time-stamp counter. Phase 8 m5-001: emits `rdtsc` (0F 31), returns in RDX:RAX.
     Rdtsc,
+    /// Unsigned integer divide (64-bit). Phase R11 PA-R11-006: emits `div r64` (REX.W F7 /6).
+    /// One operand (the divisor register).
+    Div,
+    /// Signed integer divide (64-bit). Phase R11 PA-R11-006: emits `idiv r64` (REX.W F7 /7).
+    /// One operand (the divisor register).
+    Idiv,
 }
 
 /// Integer operand width for width-threaded immediate moves.
@@ -448,7 +454,9 @@ impl Mnemonic {
             | Mnemonic::Push
             | Mnemonic::Pop
             | Mnemonic::FarJmp
-            | Mnemonic::Invlpg => 1,
+            | Mnemonic::Invlpg
+            | Mnemonic::Div
+            | Mnemonic::Idiv => 1,
 
             // Two-operand instructions
             Mnemonic::Mov
@@ -567,6 +575,9 @@ impl Mnemonic {
 
             // Bitwise NOT: 4 bytes upper bound (REX.W F7 /2 ModR/M)
             Mnemonic::Not => 4,
+
+            // Divide: 4 bytes upper bound (REX.W F7 /6 or /7 ModR/M)
+            Mnemonic::Div | Mnemonic::Idiv => 4,
 
             // Push/Pop: 2 bytes upper bound (REX.W 50+r or 41 50+r for r8–r15)
             Mnemonic::Push | Mnemonic::Pop => 2,
