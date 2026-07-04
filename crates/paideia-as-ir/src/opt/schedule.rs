@@ -92,6 +92,7 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         // Phase-5 m2-001: privileged + system-ISA mnemonics treated as conservative Other
         Mnemonic::Lgdt
         | Mnemonic::Lidt
+        | Mnemonic::Ltr
         | Mnemonic::MovCr { .. }
         | Mnemonic::MovDr { .. }
         | Mnemonic::Wrmsr

@@ -155,6 +155,8 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     // Phase R11 PA-R11-006 (issue #909): Div/Idiv r64 instructions
     ("div", Mnemonic::Div),
     ("idiv", Mnemonic::Idiv),
+    // Phase R13 PA-R13-001 (issue #914): Ltr (load task register) r16
+    ("ltr", Mnemonic::Ltr),
 ];
 
 /// Resolve a mnemonic name to an IR Mnemonic enum variant.
@@ -1995,6 +1997,11 @@ mod tests {
     #[test]
     fn resolve_mnemonic_lidt() {
         assert_eq!(resolve_mnemonic("lidt"), Some(Mnemonic::Lidt));
+    }
+
+    #[test]
+    fn resolve_mnemonic_ltr() {
+        assert_eq!(resolve_mnemonic("ltr"), Some(Mnemonic::Ltr));
     }
 
     #[test]

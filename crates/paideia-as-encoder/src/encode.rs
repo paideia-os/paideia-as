@@ -689,6 +689,26 @@ pub fn not_reg64(buf: &mut CodeBuffer, dst: Reg64) {
     buf.bytes.push(0xD0 | (reg_id & 7));
 }
 
+/// Encode `ltr r16` (load task register).
+///
+/// Instruction: 0F 00 /3 per Intel SDM Vol 2A LTR.
+/// ModR/M: mod=11 (register direct), reg field = 3 (/3 opcode extension), r/m = dst.
+/// Bytes: `[REX.B] 0F 00 (0xD8 | (reg & 7))`
+/// REX.B is emitted for r8..r15 (extended registers); no REX.W (LTR is inherently 16-bit).
+/// PA-R13-001 (issue #914).
+///
+/// Example: `ltr ax`   → `0F 00 D8`
+/// Example: `ltr r10`  → `41 0F 00 DA`
+pub fn ltr_reg16(buf: &mut CodeBuffer, dst: Reg64) {
+    let reg_id = dst as u8;
+    if (reg_id >> 3) != 0 {
+        buf.bytes.push(rex(false, false, false, true));  // REX.B
+    }
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0x00);
+    buf.bytes.push(0xD8 | (reg_id & 7));
+}
+
 /// Encode `div src64` (unsigned 64-bit divide, register operand).
 ///
 /// Phase R11 PA-R11-006: the divisor is read from src, quotient written to rax, remainder to rdx.

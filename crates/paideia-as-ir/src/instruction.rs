@@ -180,6 +180,9 @@ pub enum Mnemonic {
     /// Signed integer divide (64-bit). Phase R11 PA-R11-006: emits `idiv r64` (REX.W F7 /7).
     /// One operand (the divisor register).
     Idiv,
+    /// LTR — Load Task Register (PA-R13-001, #914). Encoding: 0F 00 /3 per Intel SDM Vol 2A.
+    /// One operand (the source register, 16-bit).
+    Ltr,
 }
 
 /// Integer operand width for width-threaded immediate moves.
@@ -456,7 +459,8 @@ impl Mnemonic {
             | Mnemonic::FarJmp
             | Mnemonic::Invlpg
             | Mnemonic::Div
-            | Mnemonic::Idiv => 1,
+            | Mnemonic::Idiv
+            | Mnemonic::Ltr => 1,
 
             // Two-operand instructions
             Mnemonic::Mov
@@ -578,6 +582,9 @@ impl Mnemonic {
 
             // Divide: 4 bytes upper bound (REX.W F7 /6 or /7 ModR/M)
             Mnemonic::Div | Mnemonic::Idiv => 4,
+
+            // Load Task Register: 4 bytes upper bound (REX.B 0F 00 /3 ModR/M)
+            Mnemonic::Ltr => 4,
 
             // Push/Pop: 2 bytes upper bound (REX.W 50+r or 41 50+r for r8–r15)
             Mnemonic::Push | Mnemonic::Pop => 2,
