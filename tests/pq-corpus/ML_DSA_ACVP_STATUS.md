@@ -35,6 +35,36 @@ This is doable today but the effort is not load-bearing for Phase 3
 substrate (the existing KAT validates round-trip; ACVP vectors are
 gold-standard verification, not blocking).
 
+### Refresh 2026-07-03 (paideia-os R14 take-stock review)
+
+Rechecked upstream `RustCrypto/signatures` at `master :: ml-dsa/`:
+
+- **NIST ACVP JSON is now present upstream**: `tests/key-gen.json`
+  (~882 KB), `tests/sig-gen.json` (~1.37 MB), `tests/sig-ver.json`
+  (~366 KB). Sourced from `usnistgov/ACVP-Server @ 65370b8` per
+  `ml-dsa/tests/README.md`. Test drivers `tests/{key-gen,sig-gen,
+  sig-ver}.rs` reference an internal `acvp::TestVectorFile` type.
+- **The published crate still excludes them.** `ml-dsa/Cargo.toml`
+  carries an explicit `exclude = [...]` list covering all three JSON
+  files and all three driver `.rs` files. Latest publish is v0.1.1
+  (2026-06-05); v0.1.1's CHANGELOG shipped a `module-lattice/alloc`
+  feature fix and does not mention vector exposure.
+- **No `ml-dsa-acvp` sibling crate exists.** No ACVP feature flag on
+  the `ml-dsa` crate.
+- Consequence: a downstream depending on `ml-dsa = "0.1"` cannot get
+  ACVP coverage transitively. AC bullet 1 ("ml-dsa crate ships them")
+  therefore remains unsatisfied under its natural reading.
+
+Trigger conditions for reopening this issue for work:
+
+- (a) `ml-dsa` publishes a version that no longer excludes the vectors,
+  or exposes them via a feature flag or a sibling `ml-dsa-acvp` crate.
+- (b) The project decides to vendor NIST JSON directly and eat the
+  sync cost (see "Manual integration" above).
+
+Neither condition holds today. AC bullet 2 continues to apply: task
+stays open, upstream link documented.
+
 ## Decision (Phase 3 m8-003)
 
 The task stays OPEN per the issue's AC bullet 2: "If upstream hasn't
