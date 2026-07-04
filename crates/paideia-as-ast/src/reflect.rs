@@ -336,7 +336,7 @@ impl<'a> Term<'a> {
                 ExprData::OperandImmediate { expr } => {
                     result.push(Term::new(self.arena, *expr));
                 }
-                ExprData::OperandMemoryRef { addr } => {
+                ExprData::OperandMemoryRef { segment: _, addr } => {
                     result.push(Term::new(self.arena, *addr));
                 }
                 ExprData::Perform { op_path, args } => {

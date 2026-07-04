@@ -205,10 +205,50 @@ fn cond_from(ir_cond: IrCond) -> Result<Cond, EncodeError> {
     }
 }
 
+/// PA-R13-002: Find and return the first MemSeg operand, if any.
+fn find_mem_seg(operands: &[Operand]) -> Option<(usize, paideia_as_ir::SegPrefix)> {
+    for (i, op) in operands.iter().enumerate() {
+        if let Operand::MemSeg { seg, .. } = op {
+            return Some((i, *seg));
+        }
+    }
+    None
+}
+
 /// Dispatch an Instruction to its mnemonic-specific encoder.
 ///
 /// Returns `Ok(EncodeOutput)` with encoding output (including relocation sites) on success, or an error if encoding fails.
 pub fn encode_instruction(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+    stats: &mut EncodeStats,
+) -> Result<EncodeOutput, EncodeError> {
+    // PA-R13-002: segment-prefix pre-pass. Emit prefix (0x65/0x64) then delegate
+    // to the inner encoder with the memory operand unwrapped.
+    if let Some((idx, seg)) = find_mem_seg(&inst.operands) {
+        buf.bytes.push(seg.byte());
+        let mut unwrapped = inst.clone();
+        if let Operand::MemSeg { inner, .. } = &inst.operands[idx] {
+            unwrapped.operands[idx] = (**inner).clone();
+        }
+        let prefix_bytes = 1;
+        let mut output = encode_instruction_impl(&unwrapped, buf, stats)?;
+        // Shift instruction-local reloc/label offsets by the prefix byte.
+        for r in &mut output.reloc_sites {
+            r.byte_offset += prefix_bytes;
+        }
+        for f in &mut output.label_fixups {
+            f.byte_offset += prefix_bytes;
+            f.instruction_size += prefix_bytes;
+        }
+        return Ok(output);
+    }
+
+    encode_instruction_impl(inst, buf, stats)
+}
+
+/// Internal encoder implementation (after segment prefix pre-pass).
+fn encode_instruction_impl(
     inst: &Instruction,
     buf: &mut CodeBuffer,
     stats: &mut EncodeStats,

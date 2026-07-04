@@ -292,6 +292,32 @@ pub enum SegReg {
     Gs,
 }
 
+/// Segment prefix override for memory operands (PA-R13-002, issue #915).
+///
+/// Long-mode only affords fs (0x64) and gs (0x65) as effective overrides;
+/// cs/ds/es/ss overrides are legal but ignored for address computation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum SegPrefix {
+    /// File segment prefix (0x64).
+    Fs,
+    /// General-purpose segment prefix (0x65).
+    Gs,
+}
+
+impl SegPrefix {
+    /// Encode segment prefix to its byte representation.
+    ///
+    /// - Fs → 0x64
+    /// - Gs → 0x65
+    #[must_use]
+    pub fn byte(self) -> u8 {
+        match self {
+            Self::Fs => 0x64,
+            Self::Gs => 0x65,
+        }
+    }
+}
+
 impl SegReg {
     /// Encode segment register to the numeric ID for ModR/M field.
     /// Matches Intel SDM Vol 2A: ES=0, CS=1, SS=2, DS=3, FS=4, GS=5.
@@ -337,6 +363,16 @@ pub enum Operand {
     MemRipRel {
         /// 32-bit displacement (sign-extended).
         disp: i32,
+    },
+    /// Segment-prefixed memory operand (PA-R13-002, issue #915).
+    ///
+    /// `inner` MUST be one of: MemSib, MemDisp, or MemRipRel.
+    /// The segment prefix (0x64/0x65) is emitted before the inner operand.
+    MemSeg {
+        /// Segment prefix (fs/gs).
+        seg: SegPrefix,
+        /// Inner memory operand (boxed to avoid enum size bloat).
+        inner: Box<Operand>,
     },
     /// Unresolved symbol reference with optional addend.
     /// Used during assembly for symbols that are resolved at link time.

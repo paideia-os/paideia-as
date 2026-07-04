@@ -593,13 +593,33 @@ fn parse_memory_from_memref(
     });
 
     match ast.expr_data(memref_node) {
-        Some(ExprData::OperandMemoryRef { addr }) => {
+        Some(ExprData::OperandMemoryRef { segment, addr }) => {
+            // Parse the inner memory operand first.
             // First, check if this is a bare symbol or [rip + symbol] form
-            if let Ok(symbol_operand) = try_parse_symbol_memory(ast, *addr, source_map) {
-                return Ok(symbol_operand);
+            let inner_operand = if let Ok(symbol_operand) = try_parse_symbol_memory(ast, *addr, source_map) {
+                // PA-R13-002 deferral: gs-relative symbols not yet supported
+                if segment.is_some() {
+                    return Err(OperandError::MalformedOperand(span));
+                }
+                symbol_operand
+            } else {
+                // Otherwise, fall back to standard SIB addressing
+                parse_address_to_sib(ast, *addr, source_map)?
+            };
+
+            // Wrap in MemSeg if segment prefix is present.
+            match segment {
+                Some(seg) => {
+                    use paideia_as_ast::SegPrefix as AstSegPrefix;
+                    use paideia_as_ir::SegPrefix as IrSegPrefix;
+                    let ir_seg = match seg {
+                        AstSegPrefix::Fs => IrSegPrefix::Fs,
+                        AstSegPrefix::Gs => IrSegPrefix::Gs,
+                    };
+                    Ok(Operand::MemSeg { seg: ir_seg, inner: Box::new(inner_operand) })
+                }
+                None => Ok(inner_operand),
             }
-            // Otherwise, fall back to standard SIB addressing
-            parse_address_to_sib(ast, *addr, source_map)
         }
         _ => Err(OperandError::MalformedOperand(span)),
     }

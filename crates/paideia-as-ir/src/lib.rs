@@ -56,7 +56,7 @@ pub use enum_layout::{EnumConsInfo, EnumConsSideTable, EnumDiscriminantSideTable
 pub use handler_value::{HandlerInfo, HandlerSideTable, pretty_handler};
 pub use instruction::{
     Cond, EncodingHint, InstrMode, Instruction, InstructionSideTable, IntWidth, Mnemonic, Operand,
-    RegId, Scale, SegReg,
+    RegId, Scale, SegPrefix, SegReg,
 };
 pub use lambda_param::LambdaParamTable;
 pub use let_meta::{LetInfo, LetMetaTable};

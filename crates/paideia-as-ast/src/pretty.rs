@@ -533,8 +533,19 @@ fn print_expr_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
         ExprData::OperandImmediate { expr: e } => {
             format!("OperandImmediate {{ expr: {} }}", e)
         }
-        ExprData::OperandMemoryRef { addr } => {
-            format!("OperandMemoryRef {{ addr: {} }}", addr)
+        ExprData::OperandMemoryRef { segment, addr } => {
+            match segment {
+                Some(seg) => {
+                    let seg_str = match seg {
+                        crate::exprs::SegPrefix::Fs => "fs",
+                        crate::exprs::SegPrefix::Gs => "gs",
+                    };
+                    format!("OperandMemoryRef {{ segment: Some({}), addr: {} }}", seg_str, addr)
+                }
+                None => {
+                    format!("OperandMemoryRef {{ segment: None, addr: {} }}", addr)
+                }
+            }
         }
         ExprData::Perform { op_path, args } => {
             let args_str = args

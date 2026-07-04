@@ -70,7 +70,7 @@ fn build_memref(ast: &mut AstArena, addr: NodeId, span: Span) -> NodeId {
     ast.alloc_expr(
         NodeKind::OperandMemoryRef,
         span,
-        ExprData::OperandMemoryRef { addr },
+        ExprData::OperandMemoryRef { segment: None, addr },
     )
 }
 

@@ -746,7 +746,7 @@ fn test_lgdt_rip_relative_symbol() {
     let memref_operand = ast.alloc_expr(
         NodeKind::OperandMemoryRef,
         Span::new(file_id, 5, 13),
-        ExprData::OperandMemoryRef { addr: infix_expr },
+        ExprData::OperandMemoryRef { segment: None, addr: infix_expr },
     );
 
     // Build the instruction: lgdt [rip + target]

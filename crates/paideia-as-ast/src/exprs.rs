@@ -9,6 +9,18 @@
 use crate::NodeId;
 use paideia_as_diagnostics::Span;
 
+/// Segment prefix override for memory operands (PA-R13-002, issue #915).
+///
+/// Used in the AST to represent segment prefix syntax (e.g., `[gs:...]`).
+/// Translated to the IR equivalent at the elaborator layer.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum SegPrefix {
+    /// File segment prefix (0x64).
+    Fs,
+    /// General-purpose segment prefix (0x65).
+    Gs,
+}
+
 /// Generic parameter declaration.
 ///
 /// Represents either a type parameter or lifetime parameter in a generic function
@@ -278,7 +290,10 @@ pub enum ExprData {
     /// Memory reference operand (for assembly).
     ///
     /// Memory addressing mode: `[addr]` or complex addressing.
+    /// Optional segment prefix (PA-R13-002): `[fs:addr]` or `[gs:addr]`.
     OperandMemoryRef {
+        /// Optional segment prefix (fs/gs).
+        segment: Option<SegPrefix>,
         /// Address expression.
         addr: NodeId,
     },

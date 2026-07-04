@@ -1,24 +1,40 @@
 //! Memory reference parsing for assembly operands.
 //!
 //! Implements parsing of `[ addr_expr ]` memory references as specified in
-//! §8 MemoryRef grammar.
+//! §8 MemoryRef grammar. Also supports segment prefix syntax `[fs:...]` and
+//! `[gs:...]` (PA-R13-002).
 
-use paideia_as_ast::{ExprData, NodeId, NodeKind};
+use paideia_as_ast::{ExprData, NodeId, NodeKind, SegPrefix};
 use paideia_as_lexer::TokenKind;
 
 use crate::parser::{ParseError, Parser};
 
 impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
-    /// Parse a memory reference operand: `[ addr_expr ]`.
+    /// Parse a memory reference operand: `[ addr_expr ]` or `[ fs:addr_expr ]` or `[ gs:addr_expr ]`.
     ///
-    /// Expects the current token to be `LBracket`. Parses one expression
-    /// as the address, then expects `RBracket`. Allocates an
-    /// `OperandMemoryRef` node wrapping the address expression.
+    /// Expects the current token to be `LBracket`. Optionally parses a segment prefix
+    /// (fs/gs followed by colon), then parses the address expression, and expects
+    /// `RBracket`. Allocates an `OperandMemoryRef` node wrapping the address expression.
     ///
     /// Returns the `NodeId` of the allocated operand on success.
     pub(crate) fn parse_memref(&mut self) -> Result<NodeId, ParseError> {
         let lbracket_tok = self.expect(TokenKind::LBracket)?;
         let span_start = lbracket_tok.span;
+
+        // Peek for segment override: only `fs:` and `gs:` are accepted.
+        let segment = if self.at(TokenKind::Ident) {
+            let ident_text = self.peek_ident_text().unwrap_or("");
+            if (ident_text == "fs" || ident_text == "gs") && self.peek_at(1).map(|t| t.kind) == Some(TokenKind::Colon) {
+                let seg = if ident_text == "fs" { SegPrefix::Fs } else { SegPrefix::Gs };
+                self.bump(); // consume ident
+                self.bump(); // consume colon
+                Some(seg)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
         // Parse the address expression
         let addr = self.parse_expr()?;
@@ -36,7 +52,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         Ok(self.arena_mut().alloc_expr(
             NodeKind::OperandMemoryRef,
             span,
-            ExprData::OperandMemoryRef { addr },
+            ExprData::OperandMemoryRef { segment, addr },
         ))
     }
 }
@@ -141,7 +157,7 @@ mod tests {
         let node = arena.get(memref_id).unwrap();
         assert_eq!(node.kind, NodeKind::OperandMemoryRef);
 
-        if let Some(ExprData::OperandMemoryRef { addr }) = arena.expr_data(memref_id) {
+        if let Some(ExprData::OperandMemoryRef { segment: _, addr }) = arena.expr_data(memref_id) {
             let addr_node = arena.get(*addr).unwrap();
             // Parser can resolve bare identifiers as either Ident or ExprPath
             // both are valid for symbol references
@@ -184,7 +200,7 @@ mod tests {
         let node = arena.get(memref_id).unwrap();
         assert_eq!(node.kind, NodeKind::OperandMemoryRef);
 
-        if let Some(ExprData::OperandMemoryRef { addr }) = arena.expr_data(memref_id) {
+        if let Some(ExprData::OperandMemoryRef { segment: _, addr }) = arena.expr_data(memref_id) {
             let addr_node = arena.get(*addr).unwrap();
             assert_eq!(addr_node.kind, NodeKind::ExprInfix);
         } else {
