@@ -163,6 +163,9 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     ("lock_cmpxchg", Mnemonic::LockCmpxchg),
     // Phase R13 PA-R13-005 (issue #918): mfence
     ("mfence", Mnemonic::Mfence),
+    // Phase R13 PA-R13-007 (issue #920): fxsave/fxrstor
+    ("fxsave", Mnemonic::Fxsave),
+    ("fxrstor", Mnemonic::Fxrstor),
 ];
 
 /// Resolve a mnemonic name to an IR Mnemonic enum variant.
@@ -2043,6 +2046,16 @@ mod tests {
     #[test]
     fn resolve_mnemonic_mfence() {
         assert_eq!(resolve_mnemonic("mfence"), Some(Mnemonic::Mfence));
+    }
+
+    #[test]
+    fn resolve_mnemonic_fxsave() {
+        assert_eq!(resolve_mnemonic("fxsave"), Some(Mnemonic::Fxsave));
+    }
+
+    #[test]
+    fn resolve_mnemonic_fxrstor() {
+        assert_eq!(resolve_mnemonic("fxrstor"), Some(Mnemonic::Fxrstor));
     }
 
     #[test]

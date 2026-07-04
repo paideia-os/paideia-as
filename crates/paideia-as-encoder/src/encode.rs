@@ -750,6 +750,31 @@ pub fn mfence(buf: &mut CodeBuffer) {
     buf.bytes.push(0xF0);
 }
 
+/// Encode `fxsave [base + disp]` — PA-R13-007 (issue #920).
+/// Instruction: 0F AE /0 (reg field = 000). Saves x87/MMX/SSE state.
+/// REX.B for r8-r15 base; no REX.W.
+pub fn fxsave_mem_base_disp(buf: &mut CodeBuffer, base: Reg64, disp: i32) {
+    let base_id = base as u8;
+    if (base_id >> 3) != 0 {
+        buf.bytes.push(rex(false, false, false, true));
+    }
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xAE);
+    emit_mem_base_disp(buf, 0, base_id, disp);
+}
+
+/// Encode `fxrstor [base + disp]` — PA-R13-007 (issue #920).
+/// Instruction: 0F AE /1 (reg field = 001). Restores state from a matching fxsave frame.
+pub fn fxrstor_mem_base_disp(buf: &mut CodeBuffer, base: Reg64, disp: i32) {
+    let base_id = base as u8;
+    if (base_id >> 3) != 0 {
+        buf.bytes.push(rex(false, false, false, true));
+    }
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xAE);
+    emit_mem_base_disp(buf, 1, base_id, disp);
+}
+
 /// Encode `div src64` (unsigned 64-bit divide, register operand).
 ///
 /// Phase R11 PA-R11-006: the divisor is read from src, quotient written to rax, remainder to rdx.

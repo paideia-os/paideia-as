@@ -320,6 +320,9 @@ fn encode_instruction_impl(
         Mnemonic::LockCmpxchg => encode_lock_cmpxchg_inst(inst, buf),
         // Phase R13 PA-R13-005: memory fence
         Mnemonic::Mfence => encode_mfence_inst(inst, buf),
+        // Phase R13 PA-R13-007: fxsave/fxrstor to memory
+        Mnemonic::Fxsave => encode_fxsave_inst(inst, buf),
+        Mnemonic::Fxrstor => encode_fxrstor_inst(inst, buf),
     }
 }
 
@@ -461,6 +464,30 @@ fn encode_mfence_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<Encode
     }
     mfence(buf);
     Ok(EncodeOutput::new())
+}
+
+/// Phase R13 PA-R13-007: Encode fxsave instruction.
+/// Expects one memory operand [base + disp]. Emits via `fxsave_mem_base_disp`.
+fn encode_fxsave_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::MemSib { base, index: None, scale: Scale::X1, disp }] => {
+            fxsave_mem_base_disp(buf, reg64_from(*base)?, *disp);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::Fxsave }),
+    }
+}
+
+/// Phase R13 PA-R13-007: Encode fxrstor instruction.
+/// Expects one memory operand [base + disp]. Emits via `fxrstor_mem_base_disp`.
+fn encode_fxrstor_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::MemSib { base, index: None, scale: Scale::X1, disp }] => {
+            fxrstor_mem_base_disp(buf, reg64_from(*base)?, *disp);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::Fxrstor }),
+    }
 }
 
 /// Phase R9 m2-001 (PA-R9-001): Encode push 64-bit register instruction.
@@ -6336,6 +6363,272 @@ mod jcc_tests {
         let mut stats = EncodeStats::new();
         let err = encode_instruction(&inst, &mut buf, &mut stats).unwrap_err();
         assert!(matches!(err, EncodeError::OperandCount { mnemonic: Mnemonic::Mfence, expected: 0, .. }));
+    }
+
+    // Phase R13 PA-R13-007: fxsave/fxrstor byte-exact tests
+    #[test]
+    fn encode_fxsave_rdi_emits_0f_ae_07() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Fxsave,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(7), index: None, scale: Scale::X1, disp: 0 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x0F, 0xAE, 0x07]);
+    }
+
+    #[test]
+    fn encode_fxsave_rdi_disp8_emits_0f_ae_47_08() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Fxsave,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(7), index: None, scale: Scale::X1, disp: 8 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x0F, 0xAE, 0x47, 0x08]);
+    }
+
+    #[test]
+    fn encode_fxsave_r8_emits_41_0f_ae_00() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Fxsave,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(8), index: None, scale: Scale::X1, disp: 0 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x41, 0x0F, 0xAE, 0x00]);
+    }
+
+    #[test]
+    fn encode_fxsave_rsp_emits_0f_ae_04_24() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Fxsave,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(4), index: None, scale: Scale::X1, disp: 0 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x0F, 0xAE, 0x04, 0x24]);
+    }
+
+    #[test]
+    fn encode_fxsave_rbp_emits_0f_ae_45_00() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Fxsave,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(5), index: None, scale: Scale::X1, disp: 0 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x0F, 0xAE, 0x45, 0x00]);
+    }
+
+    #[test]
+    fn encode_fxsave_r15_disp32_emits_41_0f_ae_87_disp32() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Fxsave,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(15), index: None, scale: Scale::X1, disp: 0x100 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x41, 0x0F, 0xAE, 0x87, 0x00, 0x01, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn encode_fxrstor_rdi_emits_0f_ae_0f() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Fxrstor,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(7), index: None, scale: Scale::X1, disp: 0 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x0F, 0xAE, 0x0F]);
+    }
+
+    #[test]
+    fn encode_fxrstor_rdi_disp8_emits_0f_ae_4f_08() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Fxrstor,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(7), index: None, scale: Scale::X1, disp: 8 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x0F, 0xAE, 0x4F, 0x08]);
+    }
+
+    #[test]
+    fn encode_fxrstor_r8_emits_41_0f_ae_08() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Fxrstor,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(8), index: None, scale: Scale::X1, disp: 0 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x41, 0x0F, 0xAE, 0x08]);
+    }
+
+    #[test]
+    fn encode_fxrstor_rsp_emits_0f_ae_0c_24() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Fxrstor,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(4), index: None, scale: Scale::X1, disp: 0 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x0F, 0xAE, 0x0C, 0x24]);
+    }
+
+    #[test]
+    fn encode_fxrstor_rbp_emits_0f_ae_4d_00() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Fxrstor,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(5), index: None, scale: Scale::X1, disp: 0 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x0F, 0xAE, 0x4D, 0x00]);
+    }
+
+    #[test]
+    fn encode_fxrstor_r15_disp32_emits_41_0f_ae_8f_disp32() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Fxrstor,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(15), index: None, scale: Scale::X1, disp: 0x100 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x41, 0x0F, 0xAE, 0x8F, 0x00, 0x01, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn encode_fxsave_rdi_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Fxsave,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(7), index: None, scale: Scale::X1, disp: 0 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Fxsave);
+    }
+
+    #[test]
+    fn encode_fxrstor_rdi_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Fxrstor,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(7), index: None, scale: Scale::X1, disp: 0 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Fxrstor);
+    }
+
+    #[test]
+    fn encode_fxsave_reg_operand_rejects() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Fxsave,
+            operands: smallvec::smallvec![Operand::Reg(RegId(0))],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        let err = encode_instruction(&inst, &mut buf, &mut stats).unwrap_err();
+        assert!(matches!(err, EncodeError::OperandShape { mnemonic: Mnemonic::Fxsave }));
     }
 
     // Error-shape tests for new instructions

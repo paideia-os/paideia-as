@@ -115,10 +115,12 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         // Phase 8 m5-001: supervisor TLB and timing mnemonics
         | Mnemonic::Invlpg
         | Mnemonic::Rdtsc
-        // Phase R13 PA-R13-003/004/005: atomic + barrier operations
+        // Phase R13 PA-R13-003/004/005/007: atomic + barrier + FP state operations
         | Mnemonic::Xchg
         | Mnemonic::LockCmpxchg
-        | Mnemonic::Mfence => InstructionClass::Other,
+        | Mnemonic::Mfence
+        | Mnemonic::Fxsave
+        | Mnemonic::Fxrstor => InstructionClass::Other,
     }
 }
 
