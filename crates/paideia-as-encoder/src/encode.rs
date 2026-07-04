@@ -709,6 +709,47 @@ pub fn ltr_reg16(buf: &mut CodeBuffer, dst: Reg64) {
     buf.bytes.push(0xD8 | (reg_id & 7));
 }
 
+/// Encode `xchg [base + disp], src` — PA-R13-003 (issue #916).
+///
+/// Instruction: REX.W 87 /r
+/// The memory form of XCHG is implicitly locked (Intel SDM Vol 2A) so no
+/// LOCK prefix is required. Uses the shared emit_mem_base_disp helper for
+/// SIB/BP escape handling.
+pub fn xchg_mem_base_disp_reg64(buf: &mut CodeBuffer, base: Reg64, disp: i32, src: Reg64) {
+    let base_id = base as u8;
+    let src_id = src as u8;
+    let rex_byte = rex(true, (src_id >> 3) != 0, false, (base_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x87);
+    emit_mem_base_disp(buf, src_id & 7, base_id, disp);
+}
+
+/// Encode `lock cmpxchg [base + disp], src` — PA-R13-004 (issue #917).
+///
+/// Instruction: F0 REX.W 0F B1 /r
+/// Prefix order: LOCK (Group 1) precedes REX (Intel SDM Vol 2A §2.1.1).
+pub fn lock_cmpxchg_mem_base_disp_reg64(
+    buf: &mut CodeBuffer, base: Reg64, disp: i32, src: Reg64,
+) {
+    buf.bytes.push(0xF0); // LOCK prefix
+    let base_id = base as u8;
+    let src_id = src as u8;
+    let rex_byte = rex(true, (src_id >> 3) != 0, false, (base_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xB1);
+    emit_mem_base_disp(buf, src_id & 7, base_id, disp);
+}
+
+/// Encode `mfence` — PA-R13-005 (issue #918).
+///
+/// Instruction: 0F AE F0. Zero operands. Serializing memory barrier.
+pub fn mfence(buf: &mut CodeBuffer) {
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xAE);
+    buf.bytes.push(0xF0);
+}
+
 /// Encode `div src64` (unsigned 64-bit divide, register operand).
 ///
 /// Phase R11 PA-R11-006: the divisor is read from src, quotient written to rax, remainder to rdx.

@@ -157,6 +157,12 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     ("idiv", Mnemonic::Idiv),
     // Phase R13 PA-R13-001 (issue #914): Ltr (load task register) r16
     ("ltr", Mnemonic::Ltr),
+    // Phase R13 PA-R13-003 (issue #916): xchg r/m64, r64
+    ("xchg", Mnemonic::Xchg),
+    // Phase R13 PA-R13-004 (issue #917): lock cmpxchg r/m64, r64
+    ("lock_cmpxchg", Mnemonic::LockCmpxchg),
+    // Phase R13 PA-R13-005 (issue #918): mfence
+    ("mfence", Mnemonic::Mfence),
 ];
 
 /// Resolve a mnemonic name to an IR Mnemonic enum variant.
@@ -2022,6 +2028,21 @@ mod tests {
     #[test]
     fn resolve_mnemonic_ltr() {
         assert_eq!(resolve_mnemonic("ltr"), Some(Mnemonic::Ltr));
+    }
+
+    #[test]
+    fn resolve_mnemonic_xchg() {
+        assert_eq!(resolve_mnemonic("xchg"), Some(Mnemonic::Xchg));
+    }
+
+    #[test]
+    fn resolve_mnemonic_lock_cmpxchg() {
+        assert_eq!(resolve_mnemonic("lock_cmpxchg"), Some(Mnemonic::LockCmpxchg));
+    }
+
+    #[test]
+    fn resolve_mnemonic_mfence() {
+        assert_eq!(resolve_mnemonic("mfence"), Some(Mnemonic::Mfence));
     }
 
     #[test]

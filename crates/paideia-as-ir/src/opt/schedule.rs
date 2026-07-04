@@ -114,7 +114,11 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         | Mnemonic::FarJmp
         // Phase 8 m5-001: supervisor TLB and timing mnemonics
         | Mnemonic::Invlpg
-        | Mnemonic::Rdtsc => InstructionClass::Other,
+        | Mnemonic::Rdtsc
+        // Phase R13 PA-R13-003/004/005: atomic + barrier operations
+        | Mnemonic::Xchg
+        | Mnemonic::LockCmpxchg
+        | Mnemonic::Mfence => InstructionClass::Other,
     }
 }
 

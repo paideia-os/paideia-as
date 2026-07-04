@@ -183,6 +183,18 @@ pub enum Mnemonic {
     /// LTR — Load Task Register (PA-R13-001, #914). Encoding: 0F 00 /3 per Intel SDM Vol 2A.
     /// One operand (the source register, 16-bit).
     Ltr,
+    /// xchg r/m64, r64 (PA-R13-003, #916). Memory form is implicitly locked
+    /// per Intel SDM Vol 2A — no LOCK prefix required. Encoding: REX.W 87 /r.
+    /// Two operands (mem, reg). Reg-reg form not supported in R13.
+    Xchg,
+    /// lock cmpxchg r/m64, r64 (PA-R13-004, #917). Encoding: F0 REX.W 0F B1 /r.
+    /// Compares implicit RAX with r/m64; if equal writes reg64, else loads r/m64
+    /// into RAX. Two operands (mem, reg). Reg-reg form not supported in R13.
+    LockCmpxchg,
+    /// mfence (PA-R13-005, #918). Serializing memory barrier: all preceding
+    /// loads and stores complete before subsequent ones. Encoding: 0F AE F0.
+    /// Zero operands.
+    Mfence,
 }
 
 /// Integer operand width for width-threaded immediate moves.
@@ -514,7 +526,12 @@ impl Mnemonic {
             | Mnemonic::Imul
             | Mnemonic::And
             | Mnemonic::Or
-            | Mnemonic::Xor => 2,
+            | Mnemonic::Xor
+            | Mnemonic::Xchg
+            | Mnemonic::LockCmpxchg => 2,
+
+            // Zero-operand instructions (continued)
+            Mnemonic::Mfence => 0,
         }
     }
 
@@ -644,6 +661,15 @@ impl Mnemonic {
             // W8=3 (REX.B B0+rb imm8), W16=4 (66 B8 imm16), W32=5 (B8 imm32),
             // W64=10 (generic Mov upper bound).
             Mnemonic::MovSized { width } => width.estimated_size(),
+
+            // Phase R13 PA-R13-003: exchange register with memory, 8 bytes upper bound
+            Mnemonic::Xchg => 8,
+
+            // Phase R13 PA-R13-004: lock cmpxchg register with memory, 10 bytes upper bound
+            Mnemonic::LockCmpxchg => 10,
+
+            // Phase R13 PA-R13-005: memory fence, 3 bytes
+            Mnemonic::Mfence => 3,
         }
     }
 }
