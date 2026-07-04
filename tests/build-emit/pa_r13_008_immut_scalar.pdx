@@ -1,0 +1,3 @@
+module PaR13ImmutScalar = structure {
+  pub let counter : u64 = 0;
+}

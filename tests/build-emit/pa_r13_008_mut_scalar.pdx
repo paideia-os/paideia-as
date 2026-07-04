@@ -1,0 +1,3 @@
+module PaR13MutScalar = structure {
+  pub let mut counter : u64 = 0;
+}

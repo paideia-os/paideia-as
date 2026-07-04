@@ -937,15 +937,25 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                                     .unwrap_or_else(|| format!("data_{}", node_id.get()));
 
                                 if rhs_node.kind == paideia_as_ir::IrKind::Literal {
-                                    // Phase 5: Let with Literal → Rodata
+                                    // Phase 5: Let with Literal → Rodata (or Data if mutable)
                                     if let Some(value) = lowering.ir.literal_values().get(rhs_id) {
                                         let bytes = EmitWalker::pack_u64_le_public(value);
                                         let explicit_align = lowering.ir.let_meta().get(node_id).and_then(|i| i.align);
-                                        let entry = paideia_as_ir::DataEntry::new_rodata(
-                                            bytes,
-                                            symbol_name,
-                                            explicit_align.unwrap_or(8),
-                                        );
+                                        let is_mutable = lowering.ir.let_meta().get(node_id)
+                                            .map(|info| info.mutable).unwrap_or(false);
+                                        let entry = if is_mutable {
+                                            paideia_as_ir::DataEntry::new_data(
+                                                bytes,
+                                                symbol_name,
+                                                explicit_align.unwrap_or(8),
+                                            )
+                                        } else {
+                                            paideia_as_ir::DataEntry::new_rodata(
+                                                bytes,
+                                                symbol_name,
+                                                explicit_align.unwrap_or(8),
+                                            )
+                                        };
                                         data_entries.push((node_id, entry));
                                     }
                                 } else if rhs_node.kind == paideia_as_ir::IrKind::ArrayLit {
@@ -985,11 +995,21 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
 
                                     if element_count > 0 {
                                         let explicit_align = lowering.ir.let_meta().get(node_id).and_then(|i| i.align);
-                                        let entry = paideia_as_ir::DataEntry::new_rodata(
-                                            packed_bytes,
-                                            symbol_name,
-                                            explicit_align.unwrap_or(8),
-                                        );
+                                        let is_mutable = lowering.ir.let_meta().get(node_id)
+                                            .map(|info| info.mutable).unwrap_or(false);
+                                        let entry = if is_mutable {
+                                            paideia_as_ir::DataEntry::new_data(
+                                                packed_bytes,
+                                                symbol_name,
+                                                explicit_align.unwrap_or(8),
+                                            )
+                                        } else {
+                                            paideia_as_ir::DataEntry::new_rodata(
+                                                packed_bytes,
+                                                symbol_name,
+                                                explicit_align.unwrap_or(8),
+                                            )
+                                        };
                                         data_entries.push((node_id, entry));
                                     }
                                 } else if rhs_node.kind == paideia_as_ir::IrKind::Placeholder {
