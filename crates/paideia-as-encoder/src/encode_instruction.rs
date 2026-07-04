@@ -364,6 +364,49 @@ fn encode_mov_sized(
             }
             Ok(EncodeOutput::new())
         }
+        // PA13-001 (#930): narrow-width load from memory [base + disp] (no index)
+        [Operand::Reg(dst), Operand::MemSib { base, index: None, .. }] => {
+            let dst_reg = reg64_from(*dst)?;
+            let base_reg = reg64_from(*base)?;
+            // MemSib carries the displacement in the disp field (always present in MemSib)
+            let disp = inst
+                .operands
+                .get(1)
+                .and_then(|op| {
+                    if let Operand::MemSib { disp, .. } = op {
+                        Some(*disp)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(0);
+
+            match width {
+                IntWidth::W64 => mov_reg64_mem_reg64_disp(buf, dst_reg, base_reg, disp),
+                IntWidth::W32 => mov_reg32_mem_base_disp(buf, dst_reg, base_reg, disp),
+                IntWidth::W16 => mov_reg16_mem_base_disp(buf, dst_reg, base_reg, disp),
+                IntWidth::W8 => mov_reg8_mem_base_disp(buf, dst_reg, base_reg, disp),
+            }
+            Ok(EncodeOutput::new())
+        }
+        // PA13-001 (#930): narrow-width load from memory [base + index*scale + disp]
+        [Operand::Reg(dst), Operand::MemSib { base, index: Some(index), scale, disp }] => {
+            let dst_reg = reg64_from(*dst)?;
+            let base_reg = reg64_from(*base)?;
+            let index_reg = reg64_from(*index)?;
+            let scale_bits = match scale {
+                Scale::X1 => 0,
+                Scale::X2 => 1,
+                Scale::X4 => 2,
+                Scale::X8 => 3,
+            };
+
+            match width {
+                IntWidth::W64 => mov_reg64_mem_sib_disp(buf, dst_reg, base_reg, index_reg, scale_bits, *disp),
+                _ => mov_reg_mem_sib_disp_sized(buf, width, dst_reg, base_reg, index_reg, scale_bits, *disp),
+            }
+            Ok(EncodeOutput::new())
+        }
         operands if operands.iter().any(|op| matches!(op, Operand::Var { .. })) => {
             unreachable!("Operand::Var reached encoder — resolve_var_operands pass was skipped")
         }

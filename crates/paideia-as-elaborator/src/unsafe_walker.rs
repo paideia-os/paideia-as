@@ -1816,17 +1816,24 @@ impl UnsafeWalker {
         //
         // PA10-006d: Support W8, W16, and W32 immediate forms. The r64 imm32/imm64 forms
         // remain in the generic `mov` path (its existing `48 B8 imm64` behavior is preserved).
-        let mnemonic = if matches!(mnemonic, Mnemonic::Mov)
-            && matches!(
-                parsed_operands.as_slice(),
-                [Operand::Reg(_), Operand::Imm64(_)]
-            ) {
-            operand_ids
-                .first()
-                .and_then(|&dst_id| get_register_name(ast, dst_id, source_map))
-                .and_then(|name| register_name_width(&name))
-                .filter(|w| matches!(w, IntWidth::W8 | IntWidth::W16 | IntWidth::W32))
-                .map_or(mnemonic, |width| Mnemonic::MovSized { width })
+        //
+        // PA13-001 (#930): Also retarget narrow-width load forms `[Reg, MemSib]` where the
+        // destination register is al/cl/dl/bl/ah/ch/dh/bh/r8b–r15b (W8), ax–di/r8w–r15w (W16),
+        // or eax–edi/r8d–r15d (W32). Width is inferred from the destination register name.
+        let mnemonic = if matches!(mnemonic, Mnemonic::Mov) {
+            let is_imm = matches!(parsed_operands.as_slice(), [Operand::Reg(_), Operand::Imm64(_)]);
+            let is_load = matches!(parsed_operands.as_slice(), [Operand::Reg(_), Operand::MemSib { .. }]);
+
+            if is_imm || is_load {
+                operand_ids
+                    .first()
+                    .and_then(|&dst_id| get_register_name(ast, dst_id, source_map))
+                    .and_then(|name| register_name_width(&name))
+                    .filter(|w| matches!(w, IntWidth::W8 | IntWidth::W16 | IntWidth::W32))
+                    .map_or(mnemonic, |width| Mnemonic::MovSized { width })
+            } else {
+                mnemonic
+            }
         } else {
             mnemonic
         };

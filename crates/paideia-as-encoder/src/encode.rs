@@ -6,6 +6,8 @@
 //! The encoder is stateless; callers maintain a `CodeBuffer` and pass it to
 //! individual instruction functions.
 
+use paideia_as_ir::instruction::IntWidth;
+
 /// x86_64 general-purpose 64-bit register identifier.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[repr(u8)]
@@ -1078,6 +1080,151 @@ pub fn mov_reg64_mem_reg64_disp(buf: &mut CodeBuffer, dst: Reg64, base: Reg64, d
     buf.bytes.push(rex_byte);
     buf.bytes.push(0x8B); // mov r64, r/m64
     emit_mem_base_disp(buf, dst_id & 7, base_id, disp);
+}
+
+/// Encode `mov r8, [base + disp]` — Phase 13 m6-001: 8-bit load.
+///
+/// Instruction: [REX?] 8A /r
+/// Operand-size: 8-bit (register is r8, memory is r/m8)
+/// REX.B: required only for r8–r15 destination
+/// No REX.W (8-bit operand size)
+///
+/// Examples:
+/// - `mov al, [rdi]`: `8A 07`
+/// - `mov r8b, [rdi]`: `41 8A 07`
+/// - `mov bl, [rdi + 8]`: `8A 47 08`
+pub fn mov_reg8_mem_base_disp(buf: &mut CodeBuffer, dst: Reg64, base: Reg64, disp: i32) {
+    let dst_id = dst as u8;
+    let base_id = base as u8;
+    let rex_byte = rex(false, (dst_id >> 3) != 0, false, (base_id >> 3) != 0);
+
+    if (dst_id >> 3) != 0 || (base_id >> 3) != 0 {
+        buf.bytes.push(rex_byte);
+    }
+    buf.bytes.push(0x8A); // mov r8, r/m8
+    emit_mem_base_disp(buf, dst_id & 7, base_id, disp);
+}
+
+/// Encode `mov r16, [base + disp]` — Phase 13 m6-001: 16-bit load.
+///
+/// Instruction: 66 [REX?] 8B /r
+/// Operand-size: 16-bit (register is r16, memory is r/m16)
+/// 66: operand-size override prefix
+/// REX.B: required only for r8w–r15w destination
+/// No REX.W (16-bit operand size)
+///
+/// Examples:
+/// - `mov ax, [rdi]`: `66 8B 07`
+/// - `mov r8w, [rdi]`: `66 41 8B 07`
+/// - `mov bx, [rdi + 8]`: `66 8B 47 08`
+pub fn mov_reg16_mem_base_disp(buf: &mut CodeBuffer, dst: Reg64, base: Reg64, disp: i32) {
+    let dst_id = dst as u8;
+    let base_id = base as u8;
+    buf.bytes.push(0x66); // operand-size override
+    let rex_byte = rex(false, (dst_id >> 3) != 0, false, (base_id >> 3) != 0);
+
+    if (dst_id >> 3) != 0 || (base_id >> 3) != 0 {
+        buf.bytes.push(rex_byte);
+    }
+    buf.bytes.push(0x8B); // mov r16, r/m16
+    emit_mem_base_disp(buf, dst_id & 7, base_id, disp);
+}
+
+/// Encode `mov r32, [base + disp]` — Phase 13 m6-001: 32-bit load.
+///
+/// Instruction: [REX?] 8B /r
+/// Operand-size: 32-bit (register is r32, memory is r/m32)
+/// REX.B: required only for r8d–r15d destination
+/// No REX.W (32-bit operand size, implicit zero-extend to r64)
+///
+/// Examples:
+/// - `mov eax, [rdi]`: `8B 07`
+/// - `mov r8d, [rdi]`: `41 8B 07`
+/// - `mov ebx, [rdi + 8]`: `8B 47 08`
+pub fn mov_reg32_mem_base_disp(buf: &mut CodeBuffer, dst: Reg64, base: Reg64, disp: i32) {
+    let dst_id = dst as u8;
+    let base_id = base as u8;
+    let rex_byte = rex(false, (dst_id >> 3) != 0, false, (base_id >> 3) != 0);
+
+    if (dst_id >> 3) != 0 || (base_id >> 3) != 0 {
+        buf.bytes.push(rex_byte);
+    }
+    buf.bytes.push(0x8B); // mov r32, r/m32
+    emit_mem_base_disp(buf, dst_id & 7, base_id, disp);
+}
+
+/// Encode `mov r, [base + index*scale + disp]` with width — Phase 13 m6-001: SIB load.
+///
+/// Instruction: [0x66] [REX?] opcode /r SIB [disp]
+/// Operand-size: determined by width parameter
+/// - W8:  opcode = 0x8A (mov r8, r/m8)
+/// - W16: 0x66 prefix + opcode = 0x8B (mov r16, r/m16)
+/// - W32: opcode = 0x8B (mov r32, r/m32)
+/// - W64: REX.W + opcode = 0x8B (mov r64, r/m64)
+/// REX: W for W64, R for dst in r8–r15, X for index in r8–r15, B for base in r8–r15
+/// SIB: scale (2 bits) | index (3 bits) | base (3 bits)
+/// ModR/M: depends on displacement encoding (no disp, disp8, or disp32)
+pub fn mov_reg_mem_sib_disp_sized(
+    buf: &mut CodeBuffer,
+    width: IntWidth,
+    dst: Reg64,
+    base: Reg64,
+    index: Reg64,
+    scale_bits: u8,
+    disp: i32,
+) {
+    let dst_id = dst as u8;
+    let base_id = base as u8;
+    let index_id = index as u8;
+
+    match width {
+        IntWidth::W8 => {
+            let rex_byte = rex(false, (dst_id >> 3) != 0, (index_id >> 3) != 0, (base_id >> 3) != 0);
+            if (dst_id >> 3) != 0 || (base_id >> 3) != 0 || (index_id >> 3) != 0 {
+                buf.bytes.push(rex_byte);
+            }
+            buf.bytes.push(0x8A); // mov r8, r/m8
+        }
+        IntWidth::W16 => {
+            buf.bytes.push(0x66); // operand-size override
+            let rex_byte = rex(false, (dst_id >> 3) != 0, (index_id >> 3) != 0, (base_id >> 3) != 0);
+            if (dst_id >> 3) != 0 || (base_id >> 3) != 0 || (index_id >> 3) != 0 {
+                buf.bytes.push(rex_byte);
+            }
+            buf.bytes.push(0x8B); // mov r16, r/m16
+        }
+        IntWidth::W32 => {
+            let rex_byte = rex(false, (dst_id >> 3) != 0, (index_id >> 3) != 0, (base_id >> 3) != 0);
+            if (dst_id >> 3) != 0 || (base_id >> 3) != 0 || (index_id >> 3) != 0 {
+                buf.bytes.push(rex_byte);
+            }
+            buf.bytes.push(0x8B); // mov r32, r/m32
+        }
+        IntWidth::W64 => {
+            let rex_byte = rex(true, (dst_id >> 3) != 0, (index_id >> 3) != 0, (base_id >> 3) != 0);
+            buf.bytes.push(rex_byte);
+            buf.bytes.push(0x8B); // mov r64, r/m64
+        }
+    }
+
+    if disp == 0 {
+        // Use mod=00, no displacement
+        buf.bytes.push(0x00 | ((dst_id & 7) << 3) | 0x04); // ModR/M with SIB
+        let sib = ((scale_bits & 3) << 6) | ((index_id & 7) << 3) | (base_id & 7);
+        buf.bytes.push(sib);
+    } else if (-128..=127).contains(&disp) {
+        // Use mod=01, disp8
+        buf.bytes.push(0x40 | ((dst_id & 7) << 3) | 0x04); // ModR/M with SIB
+        let sib = ((scale_bits & 3) << 6) | ((index_id & 7) << 3) | (base_id & 7);
+        buf.bytes.push(sib);
+        buf.bytes.push(disp as u8);
+    } else {
+        // Use mod=10, disp32
+        buf.bytes.push(0x80 | ((dst_id & 7) << 3) | 0x04); // ModR/M with SIB
+        let sib = ((scale_bits & 3) << 6) | ((index_id & 7) << 3) | (base_id & 7);
+        buf.bytes.push(sib);
+        buf.bytes.extend(disp.to_le_bytes());
+    }
 }
 
 /// Encode `mov [base + disp], src` — Phase 8 m5-002: general memory operand.

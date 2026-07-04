@@ -938,6 +938,15 @@ description = "Phase 10 m1-001 (PA10-005): PA10-005 nested var lookup. When reso
 since = "0.13.0"
 deprecated = false
 
+[diagnostic.T0533]
+severity = "warning"
+category = "type"
+title = "High-byte register (ah/ch/dh/bh) accessed with memory operand requiring REX prefix"
+brief = "ah/ch/dh/bh with memory access may conflict with REX encoding"
+description = "Phase 13 m6-001 (PA13-001): When encoding mov r8, [mem] with destination ah/ch/dh/bh (RegId 4–7), if the memory operand's base or index register is in r8–r15 (requiring REX), there is an encoding ambiguity: the ah–bh aliasing mode cannot coexist with REX prefixes. This diagnostic warns that the instruction may not assemble correctly. Workarounds: (1) use al/cl/dl/bl (low-byte) or r8b–r15b (extended) instead; (2) use a base/index register from r0–r7. In v0.13, this is a warning. Future versions may harden to an error."
+since = "0.13.0"
+deprecated = false
+
 [diagnostic.E0019]
 severity = "error"
 category = "lexer"
