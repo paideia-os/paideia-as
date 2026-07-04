@@ -1,0 +1,41 @@
+// Test: PA-R13-011 (#924) — back-to-back labels in unsafe blocks
+// This file verifies that multiple consecutive labels correctly alias
+// to the same instruction byte offset.
+//
+// The issue was that the elaborator's Pass 2 loop stored the pending label
+// in a scalar Option<String>, so each new label declaration overwrote the
+// previous one. The fix uses a Vec<String> to accumulate all labels until
+// the next instruction, then aliases them all to that instruction.
+
+module BackToBackLabels = structure {
+  let test_two_labels : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "test back-to-back labels (PA-R13-011)",
+    block: {
+      label1: label2: mov rax, 0;
+      ret
+    }
+  }
+
+  let test_three_labels : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "test three consecutive labels",
+    block: {
+      start: begin: init: mov rax, 5;
+      ret
+    }
+  }
+
+  let test_mixed_sequence : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "test labels and instructions mixed",
+    block: {
+      first: mov rax, 1;
+      second: third: nop;
+      ret
+    }
+  }
+}
