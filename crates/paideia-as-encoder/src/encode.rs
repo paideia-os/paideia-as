@@ -1332,6 +1332,33 @@ pub fn add_reg64_imm32(buf: &mut CodeBuffer, dst: Reg64, imm: i32) {
     buf.bytes.extend(imm.to_le_bytes());
 }
 
+/// Encode `sub reg64, imm8` (8-bit immediate, sign-extended to 64-bit).
+/// PA-R13-010 (issue #923).
+///
+/// Instruction: REX.W 83 /5 ib
+/// ModR/M: 0xE8 | reg  (mod=11 reg=101 rm=<reg&7>)
+pub fn sub_reg64_imm8(buf: &mut CodeBuffer, dst: Reg64, imm: i8) {
+    let reg_id = dst as u8;
+    let rex_byte = rex(true, false, false, (reg_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x83);
+    buf.bytes.push(0xE8 | (reg_id & 7));
+    buf.bytes.push(imm as u8);
+}
+
+/// Encode `sub reg64, imm32` (32-bit immediate, sign-extended to 64-bit).
+/// PA-R13-010 (issue #923).
+///
+/// Instruction: REX.W 81 /5 id
+pub fn sub_reg64_imm32(buf: &mut CodeBuffer, dst: Reg64, imm: i32) {
+    let reg_id = dst as u8;
+    let rex_byte = rex(true, false, false, (reg_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x81);
+    buf.bytes.push(0xE8 | (reg_id & 7));
+    buf.bytes.extend(imm.to_le_bytes());
+}
+
 /// Encode `call rel32` (near call).
 ///
 /// Instruction: E8 cd (displacement is relative to end of instruction)
@@ -3167,6 +3194,61 @@ mod tests {
         // ModR/M: 0xC0 | 4 = 0xc4 (R12 is id 12, id&7=4, /0 for add)
         // Immediate: 0x5000 in little-endian = 0x00, 0x50, 0x00, 0x00
         assert_eq!(buf.as_slice(), &[0x49, 0x81, 0xc4, 0x00, 0x50, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn sub_reg64_imm8_small_value() {
+        let mut buf = CodeBuffer::new();
+        sub_reg64_imm8(&mut buf, Reg64::Rax, 5);
+        // REX.W=1: 0x48
+        // Opcode: 0x83 (immediate-to-reg with sign-extended imm8)
+        // ModR/M: 0xE8 | 0 = 0xe8 (RAX is id 0, /5 for sub)
+        // Immediate: 0x05
+        assert_eq!(buf.bytes.as_slice(), &[0x48, 0x83, 0xE8, 0x05]);
+    }
+
+    #[test]
+    fn sub_reg64_imm8_negative_value() {
+        let mut buf = CodeBuffer::new();
+        sub_reg64_imm8(&mut buf, Reg64::Rcx, -10);
+        // REX.W=1: 0x48
+        // Opcode: 0x83
+        // ModR/M: 0xE8 | 1 = 0xe9 (RCX is id 1, /5 for sub)
+        // Immediate: -10 as u8 = 0xf6
+        assert_eq!(buf.bytes.as_slice(), &[0x48, 0x83, 0xE9, 0xF6]);
+    }
+
+    #[test]
+    fn sub_reg64_imm8_r9_1() {
+        let mut buf = CodeBuffer::new();
+        sub_reg64_imm8(&mut buf, Reg64::R9, 1);
+        // REX.W=1, B=1 (R9 is id 9 > 7): 0x49
+        // Opcode: 0x83
+        // ModR/M: 0xE8 | 1 = 0xe9 (R9 is id 9, id&7=1, /5 for sub)
+        // Immediate: 0x01
+        assert_eq!(buf.bytes.as_slice(), &[0x49, 0x83, 0xE9, 0x01]);
+    }
+
+    #[test]
+    fn sub_reg64_imm32_fitting_value() {
+        let mut buf = CodeBuffer::new();
+        sub_reg64_imm32(&mut buf, Reg64::Rax, 0x1234);
+        // REX.W=1: 0x48
+        // Opcode: 0x81 (immediate-to-reg with imm32)
+        // ModR/M: 0xE8 | 0 = 0xe8 (RAX is id 0, /5 for sub)
+        // Immediate: 0x1234 in little-endian = 0x34, 0x12, 0x00, 0x00
+        assert_eq!(buf.bytes.as_slice(), &[0x48, 0x81, 0xE8, 0x34, 0x12, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn sub_reg64_imm32_with_high_register() {
+        let mut buf = CodeBuffer::new();
+        sub_reg64_imm32(&mut buf, Reg64::R12, 0x5000);
+        // REX.W=1, B=1 (R12 is id 12 > 7): 0x49
+        // Opcode: 0x81
+        // ModR/M: 0xE8 | 4 = 0xec (R12 is id 12, id&7=4, /5 for sub)
+        // Immediate: 0x5000 in little-endian = 0x00, 0x50, 0x00, 0x00
+        assert_eq!(buf.bytes.as_slice(), &[0x49, 0x81, 0xEC, 0x00, 0x50, 0x00, 0x00]);
     }
 
     #[test]

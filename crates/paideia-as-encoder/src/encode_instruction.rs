@@ -257,7 +257,7 @@ fn encode_instruction_impl(
     match &inst.mnemonic {
         Mnemonic::Mov => encode_mov(inst, buf),
         Mnemonic::Add => encode_add(inst, buf, stats),
-        Mnemonic::Sub => encode_sub(inst, buf),
+        Mnemonic::Sub => encode_sub(inst, buf, stats),
         Mnemonic::Cmp => encode_cmp(inst, buf),
         Mnemonic::Test => encode_test(inst, buf),
         Mnemonic::Jcc(cond) => encode_jcc(*cond, inst, buf, stats),
@@ -1061,11 +1061,38 @@ fn encode_add(
     }
 }
 
-fn encode_sub(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+fn encode_sub(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+    stats: &mut EncodeStats,
+) -> Result<EncodeOutput, EncodeError> {
     match inst.operands.as_slice() {
         [Operand::Reg(dest), Operand::Reg(src)] => {
             // sub r64, r64 → 48 29 <ModR/M>
             sub_reg64_reg64(buf, reg64_from(*dest)?, reg64_from(*src)?);
+            Ok(EncodeOutput::new())
+        }
+        [Operand::Reg(dest), Operand::Imm64(imm)] => {
+            let dest_reg = reg64_from(*dest)?;
+            let imm_i64 = *imm;
+
+            if can_shorten_add_to_32bit(false)
+                && imm_i64 >= i32::MIN as i64
+                && imm_i64 <= i32::MAX as i64
+            {
+                let imm_i32 = imm_i64 as i32;
+                if (-128..=127).contains(&imm_i32) {
+                    sub_reg64_imm8(buf, dest_reg, imm_i32 as i8);
+                    stats.record_tightening();
+                } else {
+                    sub_reg64_imm32(buf, dest_reg, imm_i32);
+                    stats.record_tightening();
+                }
+            } else {
+                return Err(EncodeError::Unsupported(
+                    "64-bit immediate sub not yet supported",
+                ));
+            }
             Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::Unsupported(
@@ -2545,6 +2572,78 @@ mod tests {
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
         assert_eq!(instr.mnemonic(), IcedMnem::Add);
+    }
+
+    #[test]
+    fn encode_sub_with_small_imm_uses_8bit_form() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Sub,
+            operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Imm64(42)],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Should use 8-bit immediate form (4 bytes: REX.W 83 /5 imm8)
+        assert_eq!(buf.len(), 4);
+        assert_eq!(stats.tightened, 1, "Expected one tightening for small imm8");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Sub);
+    }
+
+    #[test]
+    fn encode_sub_with_imm_fitting_in_i32_uses_32bit_form() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Sub,
+            operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Imm64(0x1000)],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Should use 32-bit immediate form (7 bytes: REX.W 81 /5 imm32)
+        assert_eq!(buf.len(), 7);
+        assert_eq!(stats.tightened, 1, "Expected one tightening for i32 imm");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Sub);
+    }
+
+    #[test]
+    fn encode_sub_rax_5_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Sub,
+            operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Imm64(5)],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Sub);
+        assert_eq!(instr.immediate32(), 5);
     }
 
     #[test]
