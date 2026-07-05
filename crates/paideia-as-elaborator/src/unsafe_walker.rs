@@ -1844,15 +1844,64 @@ impl UnsafeWalker {
             mnemonic
         };
 
-        let inst = Instruction {
-            mnemonic,
-            operands: parsed_operands,
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: instr_mode,
+        // PA-R13-010: Bitwise operation with 64-bit immediate expansion.
+        // Check if this is or/and/xor with imm64 that needs expansion.
+        let final_ir_node_id = if matches!(mnemonic, Mnemonic::Or | Mnemonic::And | Mnemonic::Xor)
+            && matches!(parsed_operands.as_slice(), [Operand::Reg(_), Operand::Imm64(_)])
+            && instr_mode == InstrMode::Mode64
+        {
+            if let [Operand::Reg(dst), Operand::Imm64(imm)] = parsed_operands.as_slice() {
+                if crate::imm64_expand::needs_expansion(*imm) {
+                    // Attempt expansion
+                    match crate::imm64_expand::expand_bitop_imm64(arena, stmt_span, mnemonic, *dst, *imm, instr_mode) {
+                        Some(mov_id) => {
+                            // Expansion succeeded; use the movabs head for label aliasing
+                            mov_id
+                        }
+                        None => {
+                            // Collision: dst is r11
+                            crate::imm64_expand::emit_r11_collision_diagnostic(stmt_span, sink);
+                            return None;
+                        }
+                    }
+                } else {
+                    // No expansion needed; use the allocated node
+                    let inst = Instruction {
+                        mnemonic,
+                        operands: parsed_operands,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode: instr_mode,
+                    };
+                    arena.instructions_mut().insert(ir_node_id, inst);
+                    ir_node_id
+                }
+            } else {
+                // Shouldn't reach here due to pattern guard, but fallback to normal path
+                let inst = Instruction {
+                    mnemonic,
+                    operands: parsed_operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: instr_mode,
+                };
+                arena.instructions_mut().insert(ir_node_id, inst);
+                ir_node_id
+            }
+        } else {
+            // Normal path: not a bitwise op or doesn't need expansion
+            let inst = Instruction {
+                mnemonic,
+                operands: parsed_operands,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: instr_mode,
+            };
+            arena.instructions_mut().insert(ir_node_id, inst);
+            ir_node_id
         };
-        arena.instructions_mut().insert(ir_node_id, inst);
-        Some(ir_node_id)
+
+        Some(final_ir_node_id)
     }
 }
 

@@ -32,6 +32,7 @@ pub mod env;
 pub mod file_module;
 pub mod functor_apply;
 pub mod hygiene;
+pub mod imm64_expand;
 pub mod incremental;
 pub mod intrinsics;
 pub mod kind;

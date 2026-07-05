@@ -1973,8 +1973,10 @@ dependencies = [
  "paideia-as-ast",
  "paideia-as-diagnostics",
  "paideia-as-effects",
+ "paideia-as-encoder",
  "paideia-as-ir",
  "paideia-as-types",
+ "smallvec",
 ]
 
 [[package]]
