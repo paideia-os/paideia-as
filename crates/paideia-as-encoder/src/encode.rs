@@ -2727,6 +2727,54 @@ pub fn lock_sub_mem_base_disp_reg32(
     emit_mem_base_disp(buf, src_id & 7, base_id, disp);
 }
 
+/// Encode `lock and [base + disp], src` — PA-R16-006 (issue #972).
+///
+/// Instruction: F0 REX.W 21 /r (register form, 64-bit)
+/// Prefix order: LOCK (Group 1) precedes REX (Intel SDM Vol 2A §2.1.1).
+pub fn lock_and_mem_base_disp_reg64(
+    buf: &mut CodeBuffer, base: Reg64, disp: i32, src: Reg64,
+) {
+    buf.bytes.push(0xF0); // LOCK prefix
+    let base_id = base as u8;
+    let src_id = src as u8;
+    let rex_byte = rex(true, (src_id >> 3) != 0, false, (base_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x21); // opcode for AND /r
+    emit_mem_base_disp(buf, src_id & 7, base_id, disp);
+}
+
+/// Encode `lock or [base + disp], src` — PA-R16-006 (issue #972).
+///
+/// Instruction: F0 REX.W 09 /r (register form, 64-bit)
+/// Prefix order: LOCK (Group 1) precedes REX (Intel SDM Vol 2A §2.1.1).
+pub fn lock_or_mem_base_disp_reg64(
+    buf: &mut CodeBuffer, base: Reg64, disp: i32, src: Reg64,
+) {
+    buf.bytes.push(0xF0); // LOCK prefix
+    let base_id = base as u8;
+    let src_id = src as u8;
+    let rex_byte = rex(true, (src_id >> 3) != 0, false, (base_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x09); // opcode for OR /r
+    emit_mem_base_disp(buf, src_id & 7, base_id, disp);
+}
+
+/// Encode `lock xor [base + disp], src` — PA-R16-006 (issue #972).
+///
+/// Instruction: F0 REX.W 31 /r (register form, 64-bit)
+/// Prefix order: LOCK (Group 1) precedes REX (Intel SDM Vol 2A §2.1.1).
+pub fn lock_xor_mem_base_disp_reg64(
+    buf: &mut CodeBuffer, base: Reg64, disp: i32, src: Reg64,
+) {
+    buf.bytes.push(0xF0); // LOCK prefix
+    let base_id = base as u8;
+    let src_id = src as u8;
+    let rex_byte = rex(true, (src_id >> 3) != 0, false, (base_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x31); // opcode for XOR /r
+    emit_mem_base_disp(buf, src_id & 7, base_id, disp);
+}
+
 /// Encode `cmp [base + disp], src` (compare memory with register).
 ///
 /// Instruction: REX.W 39 /r

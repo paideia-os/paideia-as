@@ -120,6 +120,9 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         | Mnemonic::LockBts { .. }
         | Mnemonic::LockBtr { .. }
         | Mnemonic::LockBtc { .. }
+        | Mnemonic::LockAnd { .. }
+        | Mnemonic::LockOr { .. }
+        | Mnemonic::LockXor { .. }
         | Mnemonic::Mfence
         | Mnemonic::Sfence
         | Mnemonic::Lfence => InstructionClass::AtomicLocked,

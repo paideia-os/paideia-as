@@ -363,6 +363,10 @@ fn encode_instruction_impl(
         Mnemonic::LockBts { width } => encode_lock_bts(inst, buf, *width),
         Mnemonic::LockBtr { width } => encode_lock_btr(inst, buf, *width),
         Mnemonic::LockBtc { width } => encode_lock_btc(inst, buf, *width),
+        // Phase R16 PA-R16-006: lock and/or/xor register with memory
+        Mnemonic::LockAnd { width } => encode_lock_and(inst, buf, *width),
+        Mnemonic::LockOr { width } => encode_lock_or(inst, buf, *width),
+        Mnemonic::LockXor { width } => encode_lock_xor(inst, buf, *width),
         // Phase R13 PA-R13-005: memory fence
         Mnemonic::Mfence => encode_mfence_inst(inst, buf),
         // Phase R14 PA-R14-004: store/load fence
@@ -967,6 +971,81 @@ fn encode_lock_btc(
             Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::LockBtc { width } }),
+    }
+}
+
+/// Phase R16 PA-R16-006: Encode lock and instruction.
+/// Supports: [mem], r64 (W64 only).
+fn encode_lock_and(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+    width: IntWidth,
+) -> Result<EncodeOutput, EncodeError> {
+    if width != IntWidth::W64 {
+        return Err(EncodeError::Unsupported(
+            "E0047: lock_and only supports W64",
+        ));
+    }
+
+    match inst.operands.as_slice() {
+        // lock and [mem], reg form
+        [Operand::MemSib { base, index: None, scale: Scale::X1, disp }, Operand::Reg(src_reg)] => {
+            let base_reg = reg64_from(*base)?;
+            let src_reg_val = reg64_from(*src_reg)?;
+            lock_and_mem_base_disp_reg64(buf, base_reg, *disp, src_reg_val);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::LockAnd { width } }),
+    }
+}
+
+/// Phase R16 PA-R16-006: Encode lock or instruction.
+/// Supports: [mem], r64 (W64 only).
+fn encode_lock_or(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+    width: IntWidth,
+) -> Result<EncodeOutput, EncodeError> {
+    if width != IntWidth::W64 {
+        return Err(EncodeError::Unsupported(
+            "E0048: lock_or only supports W64",
+        ));
+    }
+
+    match inst.operands.as_slice() {
+        // lock or [mem], reg form
+        [Operand::MemSib { base, index: None, scale: Scale::X1, disp }, Operand::Reg(src_reg)] => {
+            let base_reg = reg64_from(*base)?;
+            let src_reg_val = reg64_from(*src_reg)?;
+            lock_or_mem_base_disp_reg64(buf, base_reg, *disp, src_reg_val);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::LockOr { width } }),
+    }
+}
+
+/// Phase R16 PA-R16-006: Encode lock xor instruction.
+/// Supports: [mem], r64 (W64 only).
+fn encode_lock_xor(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+    width: IntWidth,
+) -> Result<EncodeOutput, EncodeError> {
+    if width != IntWidth::W64 {
+        return Err(EncodeError::Unsupported(
+            "E0049: lock_xor only supports W64",
+        ));
+    }
+
+    match inst.operands.as_slice() {
+        // lock xor [mem], reg form
+        [Operand::MemSib { base, index: None, scale: Scale::X1, disp }, Operand::Reg(src_reg)] => {
+            let base_reg = reg64_from(*base)?;
+            let src_reg_val = reg64_from(*src_reg)?;
+            lock_xor_mem_base_disp_reg64(buf, base_reg, *disp, src_reg_val);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::LockXor { width } }),
     }
 }
 

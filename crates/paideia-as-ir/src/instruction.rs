@@ -392,6 +392,28 @@ pub enum Mnemonic {
         /// Operand width selecting the encoded form (W64 only).
         width: IntWidth,
     },
+    /// LOCK-prefixed bitwise AND: `lock and [mem], r64` (PA-R16-006, #972).
+    /// Atomically ANDs register into memory. Two operands (mem, src).
+    /// Encoding: `F0 REX.W 21 /r` per Intel SDM Vol 2A AND.
+    /// Effect: !{Atomic}. LOCK (Group 1) precedes REX per Vol 2A §2.1.1.
+    LockAnd {
+        /// Operand width selecting the encoded form (W64 only).
+        width: IntWidth,
+    },
+    /// LOCK-prefixed bitwise OR: `lock or [mem], r64` (PA-R16-006, #972).
+    /// Encoding: `F0 REX.W 09 /r` per Intel SDM Vol 2A OR.
+    /// Effect: !{Atomic}. LOCK (Group 1) precedes REX per Vol 2A §2.1.1.
+    LockOr {
+        /// Operand width selecting the encoded form (W64 only).
+        width: IntWidth,
+    },
+    /// LOCK-prefixed bitwise XOR: `lock xor [mem], r64` (PA-R16-006, #972).
+    /// Encoding: `F0 REX.W 31 /r` per Intel SDM Vol 2A XOR.
+    /// Effect: !{Atomic}. LOCK (Group 1) precedes REX per Vol 2A §2.1.1.
+    LockXor {
+        /// Operand width selecting the encoded form (W64 only).
+        width: IntWidth,
+    },
 }
 
 /// Integer operand width for width-threaded immediate moves.
@@ -755,6 +777,9 @@ impl Mnemonic {
             | Mnemonic::LockBts { .. }
             | Mnemonic::LockBtr { .. }
             | Mnemonic::LockBtc { .. }
+            | Mnemonic::LockAnd { .. }
+            | Mnemonic::LockOr { .. }
+            | Mnemonic::LockXor { .. }
             | Mnemonic::Cmp
             | Mnemonic::Test
             | Mnemonic::Lea
@@ -859,6 +884,10 @@ impl Mnemonic {
             // Phase R16 PA-R16-002 (issue #968): lock bts, lock btr, lock btc (9 bytes: LOCK + REX + 0F + opcode + ModR/M + disp32 + imm8 max)
             Mnemonic::Bt { .. } | Mnemonic::Bts { .. } | Mnemonic::Btr { .. } | Mnemonic::Btc { .. }
             | Mnemonic::LockBts { .. } | Mnemonic::LockBtr { .. } | Mnemonic::LockBtc { .. } => 9,
+
+            // Phase R16 PA-R16-006 (issue #972): lock and/or/xor to memory, 9 bytes upper bound
+            // (LOCK + REX + opcode + ModR/M + disp32 worst-case)
+            Mnemonic::LockAnd { .. } | Mnemonic::LockOr { .. } | Mnemonic::LockXor { .. } => 9,
 
             // Load effective address: 10 bytes
             Mnemonic::Lea => 10,
