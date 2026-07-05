@@ -129,7 +129,9 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         | Mnemonic::LockCmpxchg
         | Mnemonic::Mfence
         | Mnemonic::Fxsave
-        | Mnemonic::Fxrstor => InstructionClass::Other,
+        | Mnemonic::Fxrstor
+        // Phase R14 PA-R14-003 (issue #946): non-temporal store has special cache semantics
+        | Mnemonic::Movnti { .. } => InstructionClass::Other,
     }
 }
 

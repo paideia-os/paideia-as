@@ -210,6 +210,9 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     ("mov_w", Mnemonic::MovSized { width: IntWidth::W16 }),
     ("mov_d", Mnemonic::MovSized { width: IntWidth::W32 }),
     ("mov_q", Mnemonic::MovSized { width: IntWidth::W64 }),
+    // Phase R14 PA-R14-003 (issue #946): non-temporal store movnti [mem], r32/r64
+    ("movnti_d", Mnemonic::Movnti { width: IntWidth::W32 }),
+    ("movnti_q", Mnemonic::Movnti { width: IntWidth::W64 }),
 ];
 
 /// Resolve a mnemonic name to an IR Mnemonic enum variant.

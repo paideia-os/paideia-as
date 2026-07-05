@@ -324,6 +324,8 @@ fn encode_instruction_impl(
         // Phase R13 PA-R13-005 (issue #934): inc/dec r64
         Mnemonic::Inc => encode_inc(inst, buf),
         Mnemonic::Dec => encode_dec(inst, buf),
+        // Phase R14 PA-R14-003 (issue #946): non-temporal store movnti [mem], r32/r64
+        Mnemonic::Movnti { width } => encode_movnti(inst, buf, *width),
     }
 }
 
@@ -641,6 +643,55 @@ fn encode_fxrstor_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<Encod
             Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::Fxrstor }),
+    }
+}
+
+/// Phase R14 PA-R14-003 (issue #946): Encode non-temporal store movnti [mem], r32/r64.
+/// Expects [MemSib, Reg]. Dispatches per width (W32 or W64) to store-form encoders.
+fn encode_movnti(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+    width: IntWidth,
+) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        // Base + disp, no index (Scale::X1 sentinel)
+        [Operand::MemSib { base, index: None, scale: Scale::X1, disp }, Operand::Reg(src)] => {
+            let base_reg = reg64_from(*base)?;
+            let src_reg = reg64_from(*src)?;
+            match width {
+                IntWidth::W32 => movnti_mem_base_disp_reg32(buf, base_reg, *disp, src_reg),
+                IntWidth::W64 => movnti_mem_base_disp_reg64(buf, base_reg, *disp, src_reg),
+                _ => {
+                    return Err(EncodeError::Unsupported(
+                        "E0030: movnti only supports W32 and W64 widths",
+                    ))
+                }
+            }
+            Ok(EncodeOutput::new())
+        }
+        // Base + index*scale + disp (SIB form)
+        [Operand::MemSib { base, index: Some(index), scale, disp }, Operand::Reg(src)] => {
+            let base_reg = reg64_from(*base)?;
+            let index_reg = reg64_from(*index)?;
+            let src_reg = reg64_from(*src)?;
+            let scale_bits = match scale {
+                Scale::X1 => 0,
+                Scale::X2 => 1,
+                Scale::X4 => 2,
+                Scale::X8 => 3,
+            };
+            match width {
+                IntWidth::W32 => movnti_mem_sib_disp_reg32(buf, base_reg, index_reg, scale_bits, *disp, src_reg),
+                IntWidth::W64 => movnti_mem_sib_disp_reg64(buf, base_reg, index_reg, scale_bits, *disp, src_reg),
+                _ => {
+                    return Err(EncodeError::Unsupported(
+                        "E0030: movnti only supports W32 and W64 widths",
+                    ))
+                }
+            }
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::Movnti { width } }),
     }
 }
 

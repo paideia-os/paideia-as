@@ -222,6 +222,13 @@ pub enum Mnemonic {
     /// Encoding: REX.W FF /1 (ModR/M reg field = 001 → 0xC8 | (reg & 7)).
     /// One operand (the destination register).
     Dec,
+    /// Non-temporal store: `movnti [mem], r32/r64` (PA-R14-003, #946).
+    /// Bypasses cache; used for streaming stores. Two operands (mem, src reg).
+    /// Encoding: `0F C3 /r` (W32) or `REX.W 0F C3 /r` (W64).
+    Movnti {
+        /// Operand width selecting the encoded form (W32 or W64).
+        width: IntWidth,
+    },
 }
 
 /// Integer operand width for width-threaded immediate moves.
@@ -577,7 +584,8 @@ impl Mnemonic {
             | Mnemonic::Or
             | Mnemonic::Xor
             | Mnemonic::Xchg
-            | Mnemonic::LockCmpxchg => 2,
+            | Mnemonic::LockCmpxchg
+            | Mnemonic::Movnti { .. } => 2,
 
             // Zero-operand instructions (continued)
             Mnemonic::Mfence => 0,
@@ -734,6 +742,10 @@ impl Mnemonic {
             // (REX.W FF ModR/M — REX.B for r8..r15 replaces REX.W's high nibble bit
             // but total remains 3 bytes).
             Mnemonic::Inc | Mnemonic::Dec => 3,
+
+            // Phase R14 PA-R14-003 (issue #946): non-temporal store movnti, 8 bytes upper bound
+            // (REX + 0F + C3 + ModR/M + disp32 worst-case)
+            Mnemonic::Movnti { .. } => 8,
         }
     }
 }

@@ -1525,6 +1525,110 @@ pub fn mov_mem_sib_disp_reg64(
     emit_mem_sib_disp(buf, src_id & 7, base_id, index_id, scale_bits, disp);
 }
 
+/// Encode `movnti [base + disp], r32` — PA-R14-003 (issue #946): non-temporal store.
+///
+/// Instruction: `0F C3 /r` (no REX.W for 32-bit)
+/// Bypasses cache hierarchy. REX.R for src ∈ r8-r15, REX.B for base ∈ r8-r15.
+///
+/// Example: `movnti [rdi], eax` → `0F C3 07`
+/// Example: `movnti [rdi + 8], r10d` → `44 0F C3 57 08`
+pub fn movnti_mem_base_disp_reg32(buf: &mut CodeBuffer, base: Reg64, disp: i32, src: Reg64) {
+    let base_id = base as u8;
+    let src_id = src as u8;
+
+    // Only emit REX.B or REX.R if extended registers are used
+    if (src_id >> 3) != 0 || (base_id >> 3) != 0 {
+        buf.bytes.push(rex(false, (src_id >> 3) != 0, false, (base_id >> 3) != 0));
+    }
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xC3); // movnti /r
+
+    emit_mem_base_disp(buf, src_id & 7, base_id, disp);
+}
+
+/// Encode `movnti [base + disp], r64` — PA-R14-003 (issue #946): non-temporal store.
+///
+/// Instruction: `REX.W 0F C3 /r`
+/// Bypasses cache hierarchy. REX.R for src ∈ r8-r15, REX.B for base ∈ r8-r15.
+///
+/// Example: `movnti [rdi], rax` → `48 0F C3 07`
+/// Example: `movnti [r12 + rsi*4], rax` → `49 0F C3 04 B4`
+pub fn movnti_mem_base_disp_reg64(buf: &mut CodeBuffer, base: Reg64, disp: i32, src: Reg64) {
+    let base_id = base as u8;
+    let src_id = src as u8;
+    let rex_byte = rex(true, (src_id >> 3) != 0, false, (base_id >> 3) != 0);
+
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xC3); // movnti /r
+
+    emit_mem_base_disp(buf, src_id & 7, base_id, disp);
+}
+
+/// Encode `movnti [base + index*scale + disp], r32` — PA-R14-003 (issue #946): SIB form, 32-bit.
+///
+/// Instruction: `0F C3 /r` (no REX.W for 32-bit)
+/// SIB: scale (2 bits) | index (3 bits) | base (3 bits)
+///
+/// Example: `movnti [rbx + rcx*4], eax` → `0F C3 04 8B`
+pub fn movnti_mem_sib_disp_reg32(
+    buf: &mut CodeBuffer,
+    base: Reg64,
+    index: Reg64,
+    scale_bits: u8,
+    disp: i32,
+    src: Reg64,
+) {
+    let base_id = base as u8;
+    let index_id = index as u8;
+    let src_id = src as u8;
+
+    // Only emit REX if extended registers are used (REX.R, REX.X, or REX.B)
+    if (src_id >> 3) != 0 || (index_id >> 3) != 0 || (base_id >> 3) != 0 {
+        buf.bytes.push(rex(
+            false,
+            (src_id >> 3) != 0,
+            (index_id >> 3) != 0,
+            (base_id >> 3) != 0,
+        ));
+    }
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xC3); // movnti /r
+
+    emit_mem_sib_disp(buf, src_id & 7, base_id, index_id, scale_bits, disp);
+}
+
+/// Encode `movnti [base + index*scale + disp], r64` — PA-R14-003 (issue #946): SIB form, 64-bit.
+///
+/// Instruction: `REX.W 0F C3 /r`
+/// SIB: scale (2 bits) | index (3 bits) | base (3 bits)
+///
+/// Example: `movnti [rsi + rdx*2], r10` → `4A 0F C3 14 D6`
+pub fn movnti_mem_sib_disp_reg64(
+    buf: &mut CodeBuffer,
+    base: Reg64,
+    index: Reg64,
+    scale_bits: u8,
+    disp: i32,
+    src: Reg64,
+) {
+    let base_id = base as u8;
+    let index_id = index as u8;
+    let src_id = src as u8;
+    let rex_byte = rex(
+        true,
+        (src_id >> 3) != 0,
+        (index_id >> 3) != 0,
+        (base_id >> 3) != 0,
+    );
+
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xC3); // movnti /r
+
+    emit_mem_sib_disp(buf, src_id & 7, base_id, index_id, scale_bits, disp);
+}
+
 /// Encode `cmp [base + disp], src` (compare memory with register).
 ///
 /// Instruction: REX.W 39 /r
