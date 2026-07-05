@@ -205,6 +205,11 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     ("dec", Mnemonic::Dec),
     // Phase R13 PA-R13-014 (issue #943): bswap r64
     ("bswap", Mnemonic::Bswap),
+    // Phase R14 PA-R14-001 (issue #944): narrow-width mov [mem], imm
+    ("mov_b", Mnemonic::MovSized { width: IntWidth::W8 }),
+    ("mov_w", Mnemonic::MovSized { width: IntWidth::W16 }),
+    ("mov_d", Mnemonic::MovSized { width: IntWidth::W32 }),
+    ("mov_q", Mnemonic::MovSized { width: IntWidth::W64 }),
 ];
 
 /// Resolve a mnemonic name to an IR Mnemonic enum variant.

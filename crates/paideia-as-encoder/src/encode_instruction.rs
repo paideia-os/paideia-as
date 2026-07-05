@@ -408,6 +408,51 @@ fn encode_mov_sized(
             }
             Ok(EncodeOutput::new())
         }
+        // PA-R14-001 (#944): narrow-width store to memory [base + disp], imm
+        [Operand::MemSib { base, index: None, disp, .. }, Operand::Imm64(imm)] => {
+            let base_reg = reg64_from(*base)?;
+            let disp32 = *disp;
+            match width {
+                IntWidth::W8 => mov_mem_base_disp_imm8(buf, base_reg, disp32, *imm as u8),
+                IntWidth::W16 => mov_mem_base_disp_imm16(buf, base_reg, disp32, *imm as u16),
+                IntWidth::W32 => mov_mem_base_disp_imm32(buf, base_reg, disp32, *imm as u32),
+                IntWidth::W64 => {
+                    if *imm < i32::MIN as i64 || *imm > i32::MAX as i64 {
+                        return Err(EncodeError::Unsupported(
+                            "mov_q [mem], imm64 requires imm ∈ i32 sign-ext range; use movabs r11, imm64 + mov [mem], r11",
+                        ));
+                    }
+                    mov_mem_base_disp_imm32_sxt(buf, base_reg, disp32, *imm as i32);
+                }
+            }
+            Ok(EncodeOutput::new())
+        }
+        // PA-R14-001 (#944): narrow-width store to memory [base + index*scale + disp], imm
+        [Operand::MemSib { base, index: Some(idx), scale, disp }, Operand::Imm64(imm)] => {
+            let base_reg = reg64_from(*base)?;
+            let index_reg = reg64_from(*idx)?;
+            let scale_bits = match scale {
+                Scale::X1 => 0,
+                Scale::X2 => 1,
+                Scale::X4 => 2,
+                Scale::X8 => 3,
+            };
+            let disp32 = *disp;
+            match width {
+                IntWidth::W8 => mov_mem_sib_disp_imm8(buf, base_reg, index_reg, scale_bits, disp32, *imm as u8),
+                IntWidth::W16 => mov_mem_sib_disp_imm16(buf, base_reg, index_reg, scale_bits, disp32, *imm as u16),
+                IntWidth::W32 => mov_mem_sib_disp_imm32(buf, base_reg, index_reg, scale_bits, disp32, *imm as u32),
+                IntWidth::W64 => {
+                    if *imm < i32::MIN as i64 || *imm > i32::MAX as i64 {
+                        return Err(EncodeError::Unsupported(
+                            "mov_q [mem], imm64 requires imm ∈ i32 sign-ext range; use movabs r11, imm64 + mov [mem], r11",
+                        ));
+                    }
+                    mov_mem_sib_disp_imm32_sxt(buf, base_reg, index_reg, scale_bits, disp32, *imm as i32);
+                }
+            }
+            Ok(EncodeOutput::new())
+        }
         operands if operands.iter().any(|op| matches!(op, Operand::Var { .. })) => {
             unreachable!("Operand::Var reached encoder — resolve_var_operands pass was skipped")
         }

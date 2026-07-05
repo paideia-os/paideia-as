@@ -781,6 +781,118 @@ pub fn ltr_reg16(buf: &mut CodeBuffer, dst: Reg64) {
     buf.bytes.push(0xD8 | (reg_id & 7));
 }
 
+/// Encode `mov [base + disp], imm8` — PA-R14-001 (issue #944): 8-bit immediate to memory.
+///
+/// Instruction: [REX.B] C6 /0 <ModR/M+disp> <imm8>
+/// ModR/M reg field = 0 (reg_field = 0 in emit_mem_base_disp).
+/// REX.B only if base is r8–r15.
+pub fn mov_mem_base_disp_imm8(buf: &mut CodeBuffer, base: Reg64, disp: i32, imm: u8) {
+    let bid = base as u8;
+    if (bid >> 3) != 0 {
+        buf.bytes.push(rex(false, false, false, true));
+    }
+    buf.bytes.push(0xC6);
+    emit_mem_base_disp(buf, 0, bid, disp);
+    buf.bytes.push(imm);
+}
+
+/// Encode `mov [base + disp], imm16` — PA-R14-001 (issue #944): 16-bit immediate to memory.
+///
+/// Instruction: 66 [REX.B] C7 /0 <ModR/M+disp> <imm16_le>
+/// Operand-size override prefix (66) precedes REX.
+pub fn mov_mem_base_disp_imm16(buf: &mut CodeBuffer, base: Reg64, disp: i32, imm: u16) {
+    buf.bytes.push(0x66); // operand-size override
+    let bid = base as u8;
+    if (bid >> 3) != 0 {
+        buf.bytes.push(rex(false, false, false, true));
+    }
+    buf.bytes.push(0xC7);
+    emit_mem_base_disp(buf, 0, bid, disp);
+    buf.bytes.extend(imm.to_le_bytes());
+}
+
+/// Encode `mov [base + disp], imm32` — PA-R14-001 (issue #944): 32-bit immediate to memory.
+///
+/// Instruction: [REX.B] C7 /0 <ModR/M+disp> <imm32_le>
+/// REX.B only if base is r8–r15. No REX.W for 32-bit form.
+pub fn mov_mem_base_disp_imm32(buf: &mut CodeBuffer, base: Reg64, disp: i32, imm: u32) {
+    let bid = base as u8;
+    if (bid >> 3) != 0 {
+        buf.bytes.push(rex(false, false, false, true));
+    }
+    buf.bytes.push(0xC7);
+    emit_mem_base_disp(buf, 0, bid, disp);
+    buf.bytes.extend(imm.to_le_bytes());
+}
+
+/// Encode `mov [base + disp], imm32 (sign-extended to 64)` — PA-R14-001 (issue #944): 32-bit sign-extended to 64-bit.
+///
+/// Instruction: REX.W C7 /0 <ModR/M+disp> <imm32_le>
+/// REX.W always set; REX.B if base is r8–r15.
+pub fn mov_mem_base_disp_imm32_sxt(buf: &mut CodeBuffer, base: Reg64, disp: i32, imm: i32) {
+    let bid = base as u8;
+    buf.bytes.push(rex(true, false, false, (bid >> 3) != 0));
+    buf.bytes.push(0xC7);
+    emit_mem_base_disp(buf, 0, bid, disp);
+    buf.bytes.extend(imm.to_le_bytes());
+}
+
+/// Encode `mov [base + index*scale + disp], imm8` — PA-R14-001 (issue #944): 8-bit immediate via SIB.
+///
+/// Instruction: [REX.X/B] C6 /0 SIB <ModR/M+disp> <imm8>
+/// ModR/M reg field = 0.
+pub fn mov_mem_sib_disp_imm8(buf: &mut CodeBuffer, base: Reg64, index: Reg64, scale_bits: u8, disp: i32, imm: u8) {
+    let bid = base as u8;
+    let iid = index as u8;
+    if (bid | iid) >> 3 != 0 {
+        buf.bytes.push(rex(false, false, (iid >> 3) != 0, (bid >> 3) != 0));
+    }
+    buf.bytes.push(0xC6);
+    emit_mem_sib_disp(buf, 0, bid, iid, scale_bits, disp);
+    buf.bytes.push(imm);
+}
+
+/// Encode `mov [base + index*scale + disp], imm16` — PA-R14-001 (issue #944): 16-bit immediate via SIB.
+///
+/// Instruction: 66 [REX.X/B] C7 /0 SIB <ModR/M+disp> <imm16_le>
+pub fn mov_mem_sib_disp_imm16(buf: &mut CodeBuffer, base: Reg64, index: Reg64, scale_bits: u8, disp: i32, imm: u16) {
+    buf.bytes.push(0x66);
+    let bid = base as u8;
+    let iid = index as u8;
+    if (bid | iid) >> 3 != 0 {
+        buf.bytes.push(rex(false, false, (iid >> 3) != 0, (bid >> 3) != 0));
+    }
+    buf.bytes.push(0xC7);
+    emit_mem_sib_disp(buf, 0, bid, iid, scale_bits, disp);
+    buf.bytes.extend(imm.to_le_bytes());
+}
+
+/// Encode `mov [base + index*scale + disp], imm32` — PA-R14-001 (issue #944): 32-bit immediate via SIB.
+///
+/// Instruction: [REX.X/B] C7 /0 SIB <ModR/M+disp> <imm32_le>
+pub fn mov_mem_sib_disp_imm32(buf: &mut CodeBuffer, base: Reg64, index: Reg64, scale_bits: u8, disp: i32, imm: u32) {
+    let bid = base as u8;
+    let iid = index as u8;
+    if (bid | iid) >> 3 != 0 {
+        buf.bytes.push(rex(false, false, (iid >> 3) != 0, (bid >> 3) != 0));
+    }
+    buf.bytes.push(0xC7);
+    emit_mem_sib_disp(buf, 0, bid, iid, scale_bits, disp);
+    buf.bytes.extend(imm.to_le_bytes());
+}
+
+/// Encode `mov [base + index*scale + disp], imm32 (sign-extended to 64)` — PA-R14-001 (issue #944): 32-bit sign-extended via SIB.
+///
+/// Instruction: REX.W [REX.X/B] C7 /0 SIB <ModR/M+disp> <imm32_le>
+pub fn mov_mem_sib_disp_imm32_sxt(buf: &mut CodeBuffer, base: Reg64, index: Reg64, scale_bits: u8, disp: i32, imm: i32) {
+    let bid = base as u8;
+    let iid = index as u8;
+    buf.bytes.push(rex(true, false, (iid >> 3) != 0, (bid >> 3) != 0));
+    buf.bytes.push(0xC7);
+    emit_mem_sib_disp(buf, 0, bid, iid, scale_bits, disp);
+    buf.bytes.extend(imm.to_le_bytes());
+}
+
 /// Encode `xchg [base + disp], src` — PA-R13-003 (issue #916).
 ///
 /// Instruction: REX.W 87 /r
