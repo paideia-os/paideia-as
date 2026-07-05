@@ -33,6 +33,9 @@ pub enum Cmd {
         /// paideia-as-emitter-elf).
         #[arg(long = "emit", default_value = "placeholder")]
         emit: String,
+        /// Optimization level (0=off, 1+=enabled). Level 1 runs peephole, instruction scheduling, etc.
+        #[arg(short = 'O', long = "optimize", default_value = "0")]
+        optimize: u32,
         /// Phase-5 behaviour: warn on encoder failure and drop instruction instead of exiting.
         /// Default (Phase-6+): encoder failures abort the build with exit 2.
         #[arg(long)]

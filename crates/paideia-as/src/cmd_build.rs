@@ -7,7 +7,7 @@
 //! lowered IR's pretty-printed form so the smoke test can verify the
 //! pipeline produced something deterministic.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -55,6 +55,8 @@ use paideia_as_emitter_pe::{
 };
 use paideia_as_encoder::{EncodeStats, LabelFixup};
 use paideia_as_ir::{InstructionSideTable, IrNodeId, ModuleSideTable, Visibility, walk};
+use paideia_as_ir::opt::{OptDiagSink};
+use paideia_as_ir::opt::dispatch;
 use paideia_as_lexer::{Lexer, SourceText};
 use paideia_as_parser::Parser;
 
@@ -375,8 +377,8 @@ fn declared_array_len_from_type(
         .map(|n| n as u64)
 }
 
-/// Run `paideia-as build <input> [--emit <format>] [-o <output>] [--encoder-warn]`.
-pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) -> ExitCode {
+/// Run `paideia-as build <input> [--emit <format>] [-o <output>] [-O <level>] [--encoder-warn]`.
+pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encoder_warn: bool) -> ExitCode {
     let format = match EmitFormat::parse(emit) {
         Ok(f) => f,
         Err(msg) => {
@@ -658,7 +660,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
     // Phase-5-m1-005: EmitWalker chains into the walker pipeline and populates
     // InstructionSideTable for downstream emit stages.
     let mut emit_walker = EmitWalker::new();
-    let mut instruction_table = InstructionSideTable::new();
+    let mut instruction_table: InstructionSideTable;
 
     if !lowering.ir.is_empty() {
         // Create a walker sink to accumulate diagnostics from all walkers.
@@ -784,7 +786,6 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                 // TODO: wire _resolve_diags to walker_sink once T0528/T0531 diagnostic emission is standardized
             }
 
-            instruction_table = lowering.ir.instructions().clone();
             for d in unsafe_diags {
                 let _ = walker_sink.emit(d);
             }
@@ -795,6 +796,24 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
             let _ = sink.emit(d);
         }
     }
+
+    // Optimization pass: if --optimize >= 1, run peephole and other passes.
+    // This runs after all semantic walkers but before encoding.
+    if optimize >= 1 && !lowering.ir.is_empty() {
+        let mut requested_passes = BTreeSet::new();
+        requested_passes.insert("peephole".to_string());
+        let mut opt_sink = OptDiagSink::new();
+
+        // Run optimization passes on the root module (IrNodeId 1)
+        if let Some(ir_root_id) = IrNodeId::new(1) {
+            let _changes = dispatch::dispatch(&mut lowering.ir, ir_root_id, &requested_passes, &mut opt_sink);
+            // Log optimization results
+            eprintln!("[opt] {} changes applied from optimization passes", _changes);
+        }
+    }
+
+    // Re-sync instruction_table post-optimization to capture peephole changes
+    instruction_table = lowering.ir.instructions().clone();
 
     // Phase-5-m6-005: Symbol name resolution pass.
     // Walk the AST to find Let bindings with actual names, then update the symbol table
