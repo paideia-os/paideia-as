@@ -1,5 +1,53 @@
 # Changelog
 
+## v0.15.0 — NET-PRIMITIVES: bit ops, checksums, endian scalars (paideia-os network stack foundation)
+
+**Released:** Tag pushed at PA-R15-011 closure (v0.15.0 release).
+
+Net-primitives release. 11 planned issues + 2 in-flight backtracks filed. Focus is the encoder + stdlib substrate for the paideia-os network stack: bit rotation, atomic increment/decrement/fetch-and-add, carry-chain arithmetic, byte swap, population count, plus stdlib forward-declarations for byte parsing, IPv4 checksum, per-CPU counters, and the @jump_table attribute for O(1) protocol dispatch.
+
+  Encoder additions:
+    PA-R15-001 (#956)  bswap r32                           — bswap_d mnemonic, 0F C8+rd no REX.W.
+    PA-R15-002 (#957)  lock xadd [mem], r32/r64            — fetch-and-add for shared counters.
+    PA-R15-003 (#958)  lock add/sub [mem], imm8/imm32/r64  — atomic increment/decrement w/ smart imm8/imm32 select.
+    PA-R15-004 (#959)  rol/ror r32/r64, imm8/cl            — bit rotation, short-form D1 for imm=1.
+    PA-R15-005 (#960)  adc/sbb r32/r64, r/m32/r64          — carry-chain arithmetic (RM-encoded).
+    PA-R15-006 (#961)  popcnt r32/r64, r/m32/r64           — F3 0F B8 /r, Nehalem+ baseline.
+
+  Language + stdlib additions:
+    PA-R15-007 (#962)  bytes.pdx — byte-parsing surface     — 14 fns u8/u16/u32/u64 BE/LE R/W.
+    PA-R15-008 (#963)  checksum.pdx — RFC 1071 ipv4_checksum — forward-declared intrinsic.
+    PA-R15-009 (#964)  @jump_table attribute                — parser+AST+diagnostics; codegen deferred to #1032.
+    PA-R15-010 (#965)  percpu.pdx — GS-relative counter idiom — trait interface + design doc.
+    PA-R15-011 (#966)  UDP echo canary                      — v0.15 canary combining the surface.
+
+  Backtracks filed in-release (both open under v0.15 milestone; codegen work):
+    PA-R15-009a (#1031) encode_jmp_mem_rip_index_scale primitive (FF 24 SIB + disp32).
+    PA-R15-009b (#1032) @jump_table codegen — rodata table + memory-indirect jmp.
+
+### Detailed bullets
+
+- **PA-R15-011** (issue #966) — UDP echo canary trait declaration modelling IPv4+UDP surface via v0.15 stdlib shapes (bytes/checksum/percpu). Trait-only fixture; `check` and `build --emit elf64` both green. Debugger caught two false-green iterations (grammar mismatch, unresolved bare mnemonics) — both fixed before landing.
+- **PA-R15-010** (issue #965) — percpu.pdx forward-declared PerCpuOps trait with percpu_inc/percpu_add, `!{Atomic, RawMem}` effect and `@{paideia.raw_mem}` capability. design/toolchain/percpu-idiom.md documents the planned lowering (F0 65 [REX] FF 04 25 disp32 for `lock inc gs:[disp32]`). Codegen deferred; interface stable.
+- **PA-R15-009** (issue #964) — @jump_table attribute on match, between scrutinee and `{`. Parser + AST + P0270/P0271 diagnostics live now. P0272–P0275 registered in catalog; elaborator emission tracked by #1032. Density contract: `covered*2 >= range` AND `range <= 256`. Filed backtracks #1031 (missing FF 24 SIB primitive) and #1032 (codegen synthesis pass). Debugger caught false-green tests + broken fixture grammar + regressed SARIF snapshot + doc/catalog code mismatch across two iterations — all fixed.
+- **PA-R15-008** (issue #963) — checksum.pdx forward-declared ChecksumOps trait with `ipv4_checksum(hdr: u64, len: u64) -> u16`. RFC 1071 reference-vector fixtures (8) exercise parse-cleanliness; adc-chain + fold lowering deferred to codegen.
+- **PA-R15-007** (issue #962) — bytes.pdx forward-declared BytesOps trait with 14 fns (u8, u16/u32/u64 × BE/LE × R/W). Signatures use raw u64 addresses (no slice types yet parseable in .pdx). 6 IPv4 header fixtures document intended use. Capability `@{paideia.raw_mem}`.
+- **PA-R15-006** (issue #961) — popcnt r32/r64, r/m32/r/m64. F3 prefix → REX → 0F B8 → ModR/M order per SDM §2.1.1. W32 REX suppression when no high registers. Nehalem+ CPUID baseline (paideia-os target).
+- **PA-R15-005** (issue #960) — adc/sbb r32/r64, r/m32/r64. RM-encoded (opcode 13/1B → dst in ModR/M.reg, opposite of add/sub 01/29 MR forms). W32 REX-byte suppression preserved. Reads/writes CF.
+- **PA-R15-004** (issue #959) — rol/ror r32/r64, imm8/cl. Short-form D1 automatically selected for imm=1. Non-CL/ECX count register rejected via `E0036: rol variable count requires CL`. imm outside i8 → `E0035`.
+- **PA-R15-003** (issue #958) — lock add/sub [mem], imm8/imm32/r32/r64. 12 primitives with smart immediate selection: fits in i8 → 83+imm8; else fits in i32 → 81+imm32; else `E0033: imm out of i32 range`. `/0` (add) / `/5` (sub) digits; opcodes 83/81/01/29.
+- **PA-R15-002** (issue #957) — lock xadd [mem], r32/r64. F0 [REX.W] 0F C1 /r. Scheduling class Other alongside LockCmpxchg/Xchg. iced round-trip asserts `has_lock_prefix() == true`.
+- **PA-R15-001** (issue #956) — bswap r32 (bswap_d mnemonic). 0F C8+rd with optional REX.B for r8d..r15d; REX.W never set (else decodes as bswap r64). All 16 GPRs verified via iced round-trip.
+
+Cross-cut discipline:
+- Every issue closed via softarch → workerbee → debugger triangle.
+- Two debugger REJECTs in-release (#964, #966) fixed before landing — no placeholder shipped.
+- Two backtrack issues filed during #964 and scheduled to milestone v0.15 for codegen follow-up.
+- Additive-only Mnemonic / Operand growth held.
+- SARIF snapshot regenerated at v0.15.0 including P0270–P0275.
+
+---
+
 ## v0.14.0 — DRIVER-SUBSTRATE: MMIO, ring buffers, fnptr in unsafe (paideia-os drivers foundation)
 
 **Released:** Tag pushed at PA-R14-012 closure (v0.14.0 release).
