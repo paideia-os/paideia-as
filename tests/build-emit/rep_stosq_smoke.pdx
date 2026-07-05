@@ -1,0 +1,52 @@
+// Test: PA-R13-012 (#941) — rep stosq instruction encoding audit
+// This file verifies that rep stosq encodes correctly in various contexts:
+// - bare rep stosq → F3 48 AB C3
+// - after cld instruction → FC F3 48 AB C3
+// - after label → F3 48 AB C3
+//
+// The audit ensures rep stosq (0xF3 0x48 0xAB) is only emitted when no operands
+// are present and rejects any operand-bearing forms like rep stosq rax;
+
+module RepStosqSmoke = structure {
+  let bare_rep_stosq : () -> () !{mem} @{boot} = fn(_: ()) -> unsafe {
+    effects: {mem},
+    capabilities: {boot},
+    justification: "bare rep stosq smoke test",
+    block: {
+      rep_stosq;
+      ret
+    }
+  }
+
+  let after_cld : () -> () !{mem} @{boot} = fn(_: ()) -> unsafe {
+    effects: {mem},
+    capabilities: {boot},
+    justification: "rep stosq after cld clears direction flag",
+    block: {
+      cld;
+      rep_stosq;
+      ret
+    }
+  }
+
+  let after_label : () -> () !{mem} @{boot} = fn(_: ()) -> unsafe {
+    effects: {mem},
+    capabilities: {boot},
+    justification: "rep stosq after label at offset 0",
+    block: {
+      fill_loop: rep_stosq;
+      ret
+    }
+  }
+
+  let labeled_cld_rep : () -> () !{mem} @{boot} = fn(_: ()) -> unsafe {
+    effects: {mem},
+    capabilities: {boot},
+    justification: "label then cld then rep stosq",
+    block: {
+      loop_start: cld;
+      rep_stosq;
+      ret
+    }
+  }
+}

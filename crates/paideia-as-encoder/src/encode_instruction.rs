@@ -2732,6 +2732,23 @@ mod tests {
     }
 
     #[test]
+    fn encode_rep_stosq_rejects_operand() {
+        // PA-R13-012 (#941): rep stosq must not have any operands.
+        // This test verifies that rep_stosq rax; correctly fails with OperandCount error.
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::RepStosq,
+            operands: smallvec::smallvec![Operand::Reg(RegId(0))],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        let err = encode_instruction(&inst, &mut buf, &mut stats).unwrap_err();
+        assert!(matches!(err, EncodeError::OperandCount { mnemonic: Mnemonic::RepStosq, expected: 0, .. }));
+    }
+
+    #[test]
     fn encode_indexed_load_via_mov_dispatches_correctly() {
         use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
 
