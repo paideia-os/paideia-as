@@ -566,6 +566,217 @@ pub fn popcnt_reg32_mem_base_disp(buf: &mut CodeBuffer, dst_id: u8, base_id: u8,
     emit_mem_base_disp(buf, dst_id & 7, base_id, disp);
 }
 
+/// Encode `bt reg64, reg64` (bit test).
+///
+/// Instruction: REX.W 0F A3 /r (MR form: index in reg, bitmap in rm)
+/// ModR/M: 0xC0 | (index<<3) | bitmap
+pub fn bt_reg64_reg64(buf: &mut CodeBuffer, bitmap: Reg64, index: Reg64) {
+    let bitmap_id = bitmap as u8;
+    let index_id = index as u8;
+    let rex_byte = rex(true, (index_id >> 3) != 0, false, (bitmap_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xA3);
+    buf.bytes.push(0xC0 | ((index_id & 7) << 3) | (bitmap_id & 7));
+}
+
+/// Encode `bt reg64, [base + disp]` (bit test from memory).
+///
+/// Instruction: REX.W 0F A3 /r (MR form: index in reg, bitmap in rm/mem)
+/// ModR/M+SIB: emit_mem_base_disp with index in reg field
+pub fn bt_mem_base_disp_reg64(buf: &mut CodeBuffer, base: Reg64, disp: i32, index: Reg64) {
+    let base_id = base as u8;
+    let index_id = index as u8;
+    let rex_byte = rex(true, (index_id >> 3) != 0, false, (base_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xA3);
+    emit_mem_base_disp(buf, index_id & 7, base_id, disp);
+}
+
+/// Encode `bt reg32, reg32` (bit test, 32-bit).
+///
+/// Instruction: 0F A3 /r (no REX.W, MR form)
+/// ModR/M: 0xC0 | (index<<3) | bitmap
+pub fn bt_reg32_reg32(buf: &mut CodeBuffer, bitmap_id: u8, index_id: u8) {
+    if (bitmap_id >> 3) != 0 || (index_id >> 3) != 0 {
+        let rex_byte = rex(false, (index_id >> 3) != 0, false, (bitmap_id >> 3) != 0);
+        buf.bytes.push(rex_byte);
+    }
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xA3);
+    buf.bytes.push(0xC0 | ((index_id & 7) << 3) | (bitmap_id & 7));
+}
+
+/// Encode `bt reg32, [base + disp]` (bit test from memory, 32-bit).
+///
+/// Instruction: 0F A3 /r (no REX.W, MR form)
+pub fn bt_mem_base_disp_reg32(buf: &mut CodeBuffer, base_id: u8, disp: i32, index_id: u8) {
+    if (base_id >> 3) != 0 || (index_id >> 3) != 0 {
+        let rex_byte = rex(false, (index_id >> 3) != 0, false, (base_id >> 3) != 0);
+        buf.bytes.push(rex_byte);
+    }
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xA3);
+    emit_mem_base_disp(buf, index_id & 7, base_id, disp);
+}
+
+/// Encode `bts reg64, reg64` (bit test and set).
+///
+/// Instruction: REX.W 0F AB /r (MR form: index in reg, bitmap in rm)
+pub fn bts_reg64_reg64(buf: &mut CodeBuffer, bitmap: Reg64, index: Reg64) {
+    let bitmap_id = bitmap as u8;
+    let index_id = index as u8;
+    let rex_byte = rex(true, (index_id >> 3) != 0, false, (bitmap_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xAB);
+    buf.bytes.push(0xC0 | ((index_id & 7) << 3) | (bitmap_id & 7));
+}
+
+/// Encode `bts reg64, [base + disp]` (bit test and set from memory).
+///
+/// Instruction: REX.W 0F AB /r
+pub fn bts_mem_base_disp_reg64(buf: &mut CodeBuffer, base: Reg64, disp: i32, index: Reg64) {
+    let base_id = base as u8;
+    let index_id = index as u8;
+    let rex_byte = rex(true, (index_id >> 3) != 0, false, (base_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xAB);
+    emit_mem_base_disp(buf, index_id & 7, base_id, disp);
+}
+
+/// Encode `bts reg32, reg32` (bit test and set, 32-bit).
+///
+/// Instruction: 0F AB /r (no REX.W)
+pub fn bts_reg32_reg32(buf: &mut CodeBuffer, bitmap_id: u8, index_id: u8) {
+    if (bitmap_id >> 3) != 0 || (index_id >> 3) != 0 {
+        let rex_byte = rex(false, (index_id >> 3) != 0, false, (bitmap_id >> 3) != 0);
+        buf.bytes.push(rex_byte);
+    }
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xAB);
+    buf.bytes.push(0xC0 | ((index_id & 7) << 3) | (bitmap_id & 7));
+}
+
+/// Encode `bts reg32, [base + disp]` (bit test and set from memory, 32-bit).
+///
+/// Instruction: 0F AB /r (no REX.W)
+pub fn bts_mem_base_disp_reg32(buf: &mut CodeBuffer, base_id: u8, disp: i32, index_id: u8) {
+    if (base_id >> 3) != 0 || (index_id >> 3) != 0 {
+        let rex_byte = rex(false, (index_id >> 3) != 0, false, (base_id >> 3) != 0);
+        buf.bytes.push(rex_byte);
+    }
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xAB);
+    emit_mem_base_disp(buf, index_id & 7, base_id, disp);
+}
+
+/// Encode `btr reg64, reg64` (bit test and reset).
+///
+/// Instruction: REX.W 0F B3 /r (MR form: index in reg, bitmap in rm)
+pub fn btr_reg64_reg64(buf: &mut CodeBuffer, bitmap: Reg64, index: Reg64) {
+    let bitmap_id = bitmap as u8;
+    let index_id = index as u8;
+    let rex_byte = rex(true, (index_id >> 3) != 0, false, (bitmap_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xB3);
+    buf.bytes.push(0xC0 | ((index_id & 7) << 3) | (bitmap_id & 7));
+}
+
+/// Encode `btr reg64, [base + disp]` (bit test and reset from memory).
+///
+/// Instruction: REX.W 0F B3 /r
+pub fn btr_mem_base_disp_reg64(buf: &mut CodeBuffer, base: Reg64, disp: i32, index: Reg64) {
+    let base_id = base as u8;
+    let index_id = index as u8;
+    let rex_byte = rex(true, (index_id >> 3) != 0, false, (base_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xB3);
+    emit_mem_base_disp(buf, index_id & 7, base_id, disp);
+}
+
+/// Encode `btr reg32, reg32` (bit test and reset, 32-bit).
+///
+/// Instruction: 0F B3 /r (no REX.W)
+pub fn btr_reg32_reg32(buf: &mut CodeBuffer, bitmap_id: u8, index_id: u8) {
+    if (bitmap_id >> 3) != 0 || (index_id >> 3) != 0 {
+        let rex_byte = rex(false, (index_id >> 3) != 0, false, (bitmap_id >> 3) != 0);
+        buf.bytes.push(rex_byte);
+    }
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xB3);
+    buf.bytes.push(0xC0 | ((index_id & 7) << 3) | (bitmap_id & 7));
+}
+
+/// Encode `btr reg32, [base + disp]` (bit test and reset from memory, 32-bit).
+///
+/// Instruction: 0F B3 /r (no REX.W)
+pub fn btr_mem_base_disp_reg32(buf: &mut CodeBuffer, base_id: u8, disp: i32, index_id: u8) {
+    if (base_id >> 3) != 0 || (index_id >> 3) != 0 {
+        let rex_byte = rex(false, (index_id >> 3) != 0, false, (base_id >> 3) != 0);
+        buf.bytes.push(rex_byte);
+    }
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xB3);
+    emit_mem_base_disp(buf, index_id & 7, base_id, disp);
+}
+
+/// Encode `btc reg64, reg64` (bit test and complement).
+///
+/// Instruction: REX.W 0F BB /r (MR form: index in reg, bitmap in rm)
+pub fn btc_reg64_reg64(buf: &mut CodeBuffer, bitmap: Reg64, index: Reg64) {
+    let bitmap_id = bitmap as u8;
+    let index_id = index as u8;
+    let rex_byte = rex(true, (index_id >> 3) != 0, false, (bitmap_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xBB);
+    buf.bytes.push(0xC0 | ((index_id & 7) << 3) | (bitmap_id & 7));
+}
+
+/// Encode `btc reg64, [base + disp]` (bit test and complement from memory).
+///
+/// Instruction: REX.W 0F BB /r
+pub fn btc_mem_base_disp_reg64(buf: &mut CodeBuffer, base: Reg64, disp: i32, index: Reg64) {
+    let base_id = base as u8;
+    let index_id = index as u8;
+    let rex_byte = rex(true, (index_id >> 3) != 0, false, (base_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xBB);
+    emit_mem_base_disp(buf, index_id & 7, base_id, disp);
+}
+
+/// Encode `btc reg32, reg32` (bit test and complement, 32-bit).
+///
+/// Instruction: 0F BB /r (no REX.W)
+pub fn btc_reg32_reg32(buf: &mut CodeBuffer, bitmap_id: u8, index_id: u8) {
+    if (bitmap_id >> 3) != 0 || (index_id >> 3) != 0 {
+        let rex_byte = rex(false, (index_id >> 3) != 0, false, (bitmap_id >> 3) != 0);
+        buf.bytes.push(rex_byte);
+    }
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xBB);
+    buf.bytes.push(0xC0 | ((index_id & 7) << 3) | (bitmap_id & 7));
+}
+
+/// Encode `btc reg32, [base + disp]` (bit test and complement from memory, 32-bit).
+///
+/// Instruction: 0F BB /r (no REX.W)
+pub fn btc_mem_base_disp_reg32(buf: &mut CodeBuffer, base_id: u8, disp: i32, index_id: u8) {
+    if (base_id >> 3) != 0 || (index_id >> 3) != 0 {
+        let rex_byte = rex(false, (index_id >> 3) != 0, false, (base_id >> 3) != 0);
+        buf.bytes.push(rex_byte);
+    }
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xBB);
+    emit_mem_base_disp(buf, index_id & 7, base_id, disp);
+}
+
 /// Encode `sar reg64, imm8` (arithmetic right shift by immediate).
 ///
 /// Instruction: REX.W C1 /7 ib

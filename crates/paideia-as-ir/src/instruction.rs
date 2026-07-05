@@ -328,6 +328,35 @@ pub enum Mnemonic {
         /// Operand width selecting the encoded form (W32 or W64).
         width: IntWidth,
     },
+    /// Bit test: `bt r/m32/r/m64, r32/r64` (PA-R16-001, #967).
+    /// Tests a bit in the bitmap (first operand) at index (second operand).
+    /// Sets CF to bit value, OF/SF/AF/PF undefined. Two operands (bitmap, index).
+    /// Encoding: `[REX.W] 0F A3 /r` per Intel SDM Vol 2A BT (MR form: index in reg, bitmap in rm).
+    Bt {
+        /// Operand width selecting the encoded form (W32 or W64).
+        width: IntWidth,
+    },
+    /// Bit test and set: `bts r/m32/r/m64, r32/r64` (PA-R16-001, #967).
+    /// Tests a bit and sets it to 1. Sets CF to old bit value. Two operands (bitmap, index).
+    /// Encoding: `[REX.W] 0F AB /r` per Intel SDM Vol 2A BTS (MR form: index in reg, bitmap in rm).
+    Bts {
+        /// Operand width selecting the encoded form (W32 or W64).
+        width: IntWidth,
+    },
+    /// Bit test and reset: `btr r/m32/r/m64, r32/r64` (PA-R16-001, #967).
+    /// Tests a bit and clears it to 0. Sets CF to old bit value. Two operands (bitmap, index).
+    /// Encoding: `[REX.W] 0F B3 /r` per Intel SDM Vol 2A BTR (MR form: index in reg, bitmap in rm).
+    Btr {
+        /// Operand width selecting the encoded form (W32 or W64).
+        width: IntWidth,
+    },
+    /// Bit test and complement: `btc r/m32/r/m64, r32/r64` (PA-R16-001, #967).
+    /// Tests a bit and toggles it. Sets CF to old bit value. Two operands (bitmap, index).
+    /// Encoding: `[REX.W] 0F BB /r` per Intel SDM Vol 2A BTC (MR form: index in reg, bitmap in rm).
+    Btc {
+        /// Operand width selecting the encoded form (W32 or W64).
+        width: IntWidth,
+    },
 }
 
 /// Integer operand width for width-threaded immediate moves.
@@ -683,6 +712,10 @@ impl Mnemonic {
             | Mnemonic::Adc { .. }
             | Mnemonic::Sbb { .. }
             | Mnemonic::Popcnt { .. }
+            | Mnemonic::Bt { .. }
+            | Mnemonic::Bts { .. }
+            | Mnemonic::Btr { .. }
+            | Mnemonic::Btc { .. }
             | Mnemonic::Cmp
             | Mnemonic::Test
             | Mnemonic::Lea
@@ -780,6 +813,10 @@ impl Mnemonic {
 
             // Population count: 9 bytes (F3 + REX + 0F + B8 + ModR/M + disp32 max)
             Mnemonic::Popcnt { .. } => 9,
+
+            // Bit test operations: 9 bytes (REX + 0F + opcode + ModR/M + disp32 max)
+            // Phase R16 PA-R16-001 (issue #967): bt, bts, btr, btc
+            Mnemonic::Bt { .. } | Mnemonic::Bts { .. } | Mnemonic::Btr { .. } | Mnemonic::Btc { .. } => 9,
 
             // Load effective address: 10 bytes
             Mnemonic::Lea => 10,

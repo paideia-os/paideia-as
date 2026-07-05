@@ -244,6 +244,15 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     // Phase R15 PA-R15-006 (issue #961): popcnt population count
     ("popcnt_d", Mnemonic::Popcnt { width: IntWidth::W32 }),
     ("popcnt_q", Mnemonic::Popcnt { width: IntWidth::W64 }),
+    // Phase R16 PA-R16-001 (issue #967): bit test operations
+    ("bt_d", Mnemonic::Bt { width: IntWidth::W32 }),
+    ("bt_q", Mnemonic::Bt { width: IntWidth::W64 }),
+    ("bts_d", Mnemonic::Bts { width: IntWidth::W32 }),
+    ("bts_q", Mnemonic::Bts { width: IntWidth::W64 }),
+    ("btr_d", Mnemonic::Btr { width: IntWidth::W32 }),
+    ("btr_q", Mnemonic::Btr { width: IntWidth::W64 }),
+    ("btc_d", Mnemonic::Btc { width: IntWidth::W32 }),
+    ("btc_q", Mnemonic::Btc { width: IntWidth::W64 }),
     // Phase R14 PA-R14-006 (issue #949): prefetch instructions
     ("prefetchnta", Mnemonic::Prefetchnta),
     ("prefetcht0", Mnemonic::Prefetcht0),
