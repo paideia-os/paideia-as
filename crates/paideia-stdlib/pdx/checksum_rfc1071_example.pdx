@@ -1,0 +1,6 @@
+// Fixture: checksum_rfc1071_example
+// Tests ipv4_checksum with RFC 1071 reference example.
+
+trait RFC1071ExampleChecksum {
+  fn ipv4_checksum(hdr: u64, len: u64) -> u16 !{RawMem} @{paideia.raw_mem};
+}

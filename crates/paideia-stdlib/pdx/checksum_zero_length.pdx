@@ -1,0 +1,6 @@
+// Fixture: checksum_zero_length
+// Tests ipv4_checksum with zero-length buffer.
+
+trait ZeroLengthChecksum {
+  fn ipv4_checksum(hdr: u64, len: u64) -> u16 !{RawMem} @{paideia.raw_mem};
+}

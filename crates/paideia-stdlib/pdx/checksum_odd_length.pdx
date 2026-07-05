@@ -1,0 +1,6 @@
+// Fixture: checksum_odd_length
+// Tests ipv4_checksum with odd byte count (RFC 1071 pad behavior).
+
+trait OddLengthChecksum {
+  fn ipv4_checksum(hdr: u64, len: u64) -> u16 !{RawMem} @{paideia.raw_mem};
+}

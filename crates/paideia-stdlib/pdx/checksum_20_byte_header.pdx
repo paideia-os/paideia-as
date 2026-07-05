@@ -1,0 +1,6 @@
+// Fixture: checksum_20_byte_header
+// Tests ipv4_checksum with standard 20-byte IPv4 header.
+
+trait TwentyByteHeaderChecksum {
+  fn ipv4_checksum(hdr: u64, len: u64) -> u16 !{RawMem} @{paideia.raw_mem};
+}

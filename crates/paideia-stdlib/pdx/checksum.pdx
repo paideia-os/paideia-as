@@ -1,0 +1,14 @@
+// PA-R15-008: IPv4 header checksum intrinsic.
+//
+// Trait ChecksumOps declares ipv4_checksum for the RFC 1071 16-bit
+// ones-complement sum with end-around carry, used by paideia-os IPv4
+// stack. Lowering to the standard adc-chain + fold (mov + shr + add
+// + adc) sequence is deferred to codegen — this module provides only
+// the forward-declaration so consumer .pdx code type-checks today.
+//
+// Effect: !{RawMem} (reads len bytes from hdr). Capability:
+// @{paideia.raw_mem} — pure buffer access, no privilege required.
+
+trait ChecksumOps {
+  fn ipv4_checksum(hdr: u64, len: u64) -> u16 !{RawMem} @{paideia.raw_mem};
+}

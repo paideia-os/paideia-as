@@ -1,0 +1,6 @@
+// Fixture: checksum_two_words_no_carry
+// Tests ipv4_checksum with two 16-bit words without carry.
+
+trait TwoWordsNoCarryChecksum {
+  fn ipv4_checksum(hdr: u64, len: u64) -> u16 !{RawMem} @{paideia.raw_mem};
+}

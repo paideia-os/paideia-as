@@ -1,0 +1,6 @@
+// Fixture: checksum_single_16bit_word
+// Tests ipv4_checksum with a single 16-bit word.
+
+trait Single16BitWordChecksum {
+  fn ipv4_checksum(hdr: u64, len: u64) -> u16 !{RawMem} @{paideia.raw_mem};
+}

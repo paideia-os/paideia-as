@@ -1,0 +1,6 @@
+// Fixture: checksum_all_ones
+// Tests ipv4_checksum with all 0xFFFF words (maximum values).
+
+trait AllOnesChecksum {
+  fn ipv4_checksum(hdr: u64, len: u64) -> u16 !{RawMem} @{paideia.raw_mem};
+}
