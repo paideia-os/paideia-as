@@ -318,6 +318,9 @@ fn encode_instruction_impl(
         Mnemonic::LockCmpxchg => encode_lock_cmpxchg_inst(inst, buf),
         // Phase R13 PA-R13-005: memory fence
         Mnemonic::Mfence => encode_mfence_inst(inst, buf),
+        // Phase R14 PA-R14-004: store/load fence
+        Mnemonic::Sfence => encode_sfence_inst(inst, buf),
+        Mnemonic::Lfence => encode_lfence_inst(inst, buf),
         // Phase R13 PA-R13-007: fxsave/fxrstor to memory
         Mnemonic::Fxsave => encode_fxsave_inst(inst, buf),
         Mnemonic::Fxrstor => encode_fxrstor_inst(inst, buf),
@@ -619,6 +622,30 @@ fn encode_mfence_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<Encode
         });
     }
     mfence(buf);
+    Ok(EncodeOutput::new())
+}
+
+/// Phase R14 PA-R14-004: Encode sfence instruction.
+/// Expects zero operands. Emits via `sfence`.
+fn encode_sfence_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    if !inst.operands.is_empty() {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::Sfence, expected: 0, got: inst.operands.len(),
+        });
+    }
+    sfence(buf);
+    Ok(EncodeOutput::new())
+}
+
+/// Phase R14 PA-R14-004: Encode lfence instruction.
+/// Expects zero operands. Emits via `lfence`.
+fn encode_lfence_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    if !inst.operands.is_empty() {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::Lfence, expected: 0, got: inst.operands.len(),
+        });
+    }
+    lfence(buf);
     Ok(EncodeOutput::new())
 }
 

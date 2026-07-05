@@ -197,6 +197,9 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     ("lock_cmpxchg", Mnemonic::LockCmpxchg),
     // Phase R13 PA-R13-005 (issue #918): mfence
     ("mfence", Mnemonic::Mfence),
+    // Phase R14 PA-R14-004 (issue #947): sfence/lfence
+    ("sfence", Mnemonic::Sfence),
+    ("lfence", Mnemonic::Lfence),
     // Phase R13 PA-R13-007 (issue #920): fxsave/fxrstor
     ("fxsave", Mnemonic::Fxsave),
     ("fxrstor", Mnemonic::Fxrstor),

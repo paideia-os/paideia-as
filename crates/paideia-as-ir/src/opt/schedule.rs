@@ -128,6 +128,8 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         | Mnemonic::Xchg
         | Mnemonic::LockCmpxchg
         | Mnemonic::Mfence
+        | Mnemonic::Sfence
+        | Mnemonic::Lfence
         | Mnemonic::Fxsave
         | Mnemonic::Fxrstor
         // Phase R14 PA-R14-003 (issue #946): non-temporal store has special cache semantics

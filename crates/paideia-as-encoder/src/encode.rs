@@ -934,6 +934,24 @@ pub fn mfence(buf: &mut CodeBuffer) {
     buf.bytes.push(0xF0);
 }
 
+/// Encode `sfence` — PA-R14-004 (issue #947).
+///
+/// Instruction: 0F AE F8. Zero operands. Store fence barrier.
+pub fn sfence(buf: &mut CodeBuffer) {
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xAE);
+    buf.bytes.push(0xF8);
+}
+
+/// Encode `lfence` — PA-R14-004 (issue #947).
+///
+/// Instruction: 0F AE E8. Zero operands. Load fence barrier.
+pub fn lfence(buf: &mut CodeBuffer) {
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xAE);
+    buf.bytes.push(0xE8);
+}
+
 /// Encode `fxsave [base + disp]` — PA-R13-007 (issue #920).
 /// Instruction: 0F AE /0 (reg field = 000). Saves x87/MMX/SSE state.
 /// REX.B for r8-r15 base; no REX.W.

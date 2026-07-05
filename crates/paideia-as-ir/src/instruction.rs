@@ -206,6 +206,12 @@ pub enum Mnemonic {
     /// loads and stores complete before subsequent ones. Encoding: 0F AE F0.
     /// Zero operands.
     Mfence,
+    /// sfence (PA-R14-004, #947). Store fence: preceding stores complete
+    /// before subsequent ones. Encoding: 0F AE F8. Zero operands.
+    Sfence,
+    /// lfence (PA-R14-004, #947). Load fence: preceding loads complete
+    /// before subsequent ones. Encoding: 0F AE E8. Zero operands.
+    Lfence,
     /// fxsave [base + disp] (PA-R13-007, #920). Saves x87/MMX/SSE state to memory.
     /// Instruction: 0F AE /0 (reg field = 000). REX.B for r8-r15 base; no REX.W.
     /// One operand (memory).
@@ -536,7 +542,9 @@ impl Mnemonic {
             | Mnemonic::Rdtsc
             | Mnemonic::Pushfq
             | Mnemonic::Popfq
-            | Mnemonic::Int3 => 0,
+            | Mnemonic::Int3
+            | Mnemonic::Sfence
+            | Mnemonic::Lfence => 0,
 
             // One-operand instructions
             Mnemonic::Call
@@ -733,6 +741,9 @@ impl Mnemonic {
 
             // Phase R13 PA-R13-005: memory fence, 3 bytes
             Mnemonic::Mfence => 3,
+
+            // Phase R14 PA-R14-004: lfence/sfence, 3 bytes each
+            Mnemonic::Lfence | Mnemonic::Sfence => 3,
 
             // Phase R13 PA-R13-007: fxsave/fxrstor to memory, 9 bytes upper bound
             // (two-byte opcode + REX.B + SIB + disp32 worst-case)
