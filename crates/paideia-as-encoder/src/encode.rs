@@ -1170,7 +1170,7 @@ pub fn mov_reg32_mem_base_disp(buf: &mut CodeBuffer, dst: Reg64, base: Reg64, di
 /// - ModR/M byte with scale-index-base indicator (rm=100)
 /// - SIB byte
 /// - Displacement bytes (0, 1, or 4 bytes) as needed
-fn emit_mem_sib_disp(
+pub(crate) fn emit_mem_sib_disp(
     buf: &mut CodeBuffer,
     reg_field: u8,
     base_id: u8,
@@ -1573,64 +1573,62 @@ pub fn pop_reg64(buf: &mut CodeBuffer, reg: Reg64) {
 /// - width 8: scale=11 (×8)
 pub fn emit_indexed_load(
     buf: &mut CodeBuffer,
-    _dest: Reg64,
+    dest: Reg64,
     base: Reg64,
     index: Reg64,
     width: u32,
     _signed: bool,
 ) {
+    let dest_id = dest as u8;
     let base_id = base as u8;
     let index_id = index as u8;
 
-    // PA-R12-002: REX.X extends SIB.index to reach r8-r15. Required whenever
-    // the index register's high bit is set; opcode-agnostic (applies to all
-    // widths). REX.B for r8-r15 as *base* and REX.R for r8-r15 as *dest* remain
-    // latent in this helper (out of scope for #911).
+    // PA-R13-002: Compute REX byte from all three register positions:
+    // REX.R = (dest_id >> 3) for r8-r15 destination
+    // REX.X = (index_id >> 3) for r8-r15 index
+    // REX.B = (base_id >> 3) for r8-r15 base
+    let rex_r_bit: u8 = if (dest_id >> 3) != 0 { 0x04 } else { 0 };
     let rex_x_bit: u8 = if (index_id >> 3) != 0 { 0x02 } else { 0 };
+    let rex_b_bit: u8 = if (base_id >> 3) != 0 { 0x01 } else { 0 };
 
     match width {
         1 => {
-            // mov al, [base + index]
-            // Opcode 8A (no prefix/rex needed for AL)
-            if rex_x_bit != 0 {
-                buf.bytes.push(0x40 | rex_x_bit);
+            // mov r8, [base + index]
+            // Opcode 8A
+            // W8 with high registers must always have REX prefix to select SPL/BPL/SIL/DIL over AH/CH/DH/BH
+            let rex_byte = 0x40 | rex_r_bit | rex_x_bit | rex_b_bit;
+            if rex_byte != 0x40 {
+                buf.bytes.push(rex_byte);
             }
             buf.bytes.push(0x8A);
-            // ModR/M: mod=00, reg=0 (AL), rm=100 (SIB follows)
-            emit_mem_sib_disp(buf, 0, base_id, index_id, 0, 0);
+            emit_mem_sib_disp(buf, dest_id & 7, base_id, index_id, 0, 0);
         }
         2 => {
-            // mov ax, [base + index * 2]
+            // mov r16, [base + index * 2]
             // Operand-size prefix 0x66
             buf.bytes.push(0x66);
-            // REX.X if needed
-            if rex_x_bit != 0 {
-                buf.bytes.push(0x40 | rex_x_bit);
+            let rex_byte = 0x40 | rex_r_bit | rex_x_bit | rex_b_bit;
+            if rex_byte != 0x40 {
+                buf.bytes.push(rex_byte);
             }
-            // Opcode 8B
             buf.bytes.push(0x8B);
-            // ModR/M: mod=00, reg=0 (AX), rm=100 (SIB follows)
-            emit_mem_sib_disp(buf, 0, base_id, index_id, 1, 0);
+            emit_mem_sib_disp(buf, dest_id & 7, base_id, index_id, 1, 0);
         }
         4 => {
-            // mov eax, [base + index * 4]
-            // REX.X if needed (no other REX bits)
-            if rex_x_bit != 0 {
-                buf.bytes.push(0x40 | rex_x_bit);
+            // mov r32, [base + index * 4]
+            let rex_byte = 0x40 | rex_r_bit | rex_x_bit | rex_b_bit;
+            if rex_byte != 0x40 {
+                buf.bytes.push(rex_byte);
             }
-            // Opcode 8B
             buf.bytes.push(0x8B);
-            // ModR/M: mod=00, reg=0 (EAX), rm=100 (SIB follows)
-            emit_mem_sib_disp(buf, 0, base_id, index_id, 2, 0);
+            emit_mem_sib_disp(buf, dest_id & 7, base_id, index_id, 2, 0);
         }
         8 => {
-            // mov rax, [base + index * 8]
-            // REX.W=1, add REX.X if needed
-            buf.bytes.push(0x48 | rex_x_bit);
-            // Opcode 8B
+            // mov r64, [base + index * 8]
+            // REX.W=1, add REX.R/X/B as needed
+            buf.bytes.push(0x48 | rex_r_bit | rex_x_bit | rex_b_bit);
             buf.bytes.push(0x8B);
-            // ModR/M: mod=00, reg=0 (RAX), rm=100 (SIB follows)
-            emit_mem_sib_disp(buf, 0, base_id, index_id, 3, 0);
+            emit_mem_sib_disp(buf, dest_id & 7, base_id, index_id, 3, 0);
         }
         _ => panic!(
             "invalid width {} for emit_indexed_load; must be 1, 2, 4, or 8",
@@ -1659,61 +1657,59 @@ pub fn emit_indexed_store(
     buf: &mut CodeBuffer,
     base: Reg64,
     index: Reg64,
-    _src: Reg64,
+    src: Reg64,
     width: u32,
 ) {
+    let src_id = src as u8;
     let base_id = base as u8;
     let index_id = index as u8;
 
-    // PA-R12-002: REX.X extends SIB.index to reach r8-r15. Required whenever
-    // the index register's high bit is set; opcode-agnostic (applies to all
-    // widths). REX.B for r8-r15 as *base* and REX.R for r8-r15 as *dest* remain
-    // latent in this helper (out of scope for #911).
+    // PA-R13-002: Compute REX byte from all three register positions:
+    // REX.R = (src_id >> 3) for r8-r15 source
+    // REX.X = (index_id >> 3) for r8-r15 index
+    // REX.B = (base_id >> 3) for r8-r15 base
+    let rex_r_bit: u8 = if (src_id >> 3) != 0 { 0x04 } else { 0 };
     let rex_x_bit: u8 = if (index_id >> 3) != 0 { 0x02 } else { 0 };
+    let rex_b_bit: u8 = if (base_id >> 3) != 0 { 0x01 } else { 0 };
 
     match width {
         1 => {
-            // mov [base + index], al
-            // Opcode 88 (no prefix/rex needed for AL)
-            if rex_x_bit != 0 {
-                buf.bytes.push(0x40 | rex_x_bit);
+            // mov [base + index], r8
+            // Opcode 88
+            // W8 with high registers must always have REX prefix to select SPL/BPL/SIL/DIL over AH/CH/DH/BH
+            let rex_byte = 0x40 | rex_r_bit | rex_x_bit | rex_b_bit;
+            if rex_byte != 0x40 {
+                buf.bytes.push(rex_byte);
             }
             buf.bytes.push(0x88);
-            // ModR/M: mod=00, reg=0 (AL), rm=100 (SIB follows)
-            emit_mem_sib_disp(buf, 0, base_id, index_id, 0, 0);
+            emit_mem_sib_disp(buf, src_id & 7, base_id, index_id, 0, 0);
         }
         2 => {
-            // mov [base + index * 2], ax
+            // mov [base + index * 2], r16
             // Operand-size prefix 0x66
             buf.bytes.push(0x66);
-            // REX.X if needed
-            if rex_x_bit != 0 {
-                buf.bytes.push(0x40 | rex_x_bit);
+            let rex_byte = 0x40 | rex_r_bit | rex_x_bit | rex_b_bit;
+            if rex_byte != 0x40 {
+                buf.bytes.push(rex_byte);
             }
-            // Opcode 89
             buf.bytes.push(0x89);
-            // ModR/M: mod=00, reg=0 (AX), rm=100 (SIB follows)
-            emit_mem_sib_disp(buf, 0, base_id, index_id, 1, 0);
+            emit_mem_sib_disp(buf, src_id & 7, base_id, index_id, 1, 0);
         }
         4 => {
-            // mov [base + index * 4], eax
-            // REX.X if needed (no other REX bits)
-            if rex_x_bit != 0 {
-                buf.bytes.push(0x40 | rex_x_bit);
+            // mov [base + index * 4], r32
+            let rex_byte = 0x40 | rex_r_bit | rex_x_bit | rex_b_bit;
+            if rex_byte != 0x40 {
+                buf.bytes.push(rex_byte);
             }
-            // Opcode 89
             buf.bytes.push(0x89);
-            // ModR/M: mod=00, reg=0 (EAX), rm=100 (SIB follows)
-            emit_mem_sib_disp(buf, 0, base_id, index_id, 2, 0);
+            emit_mem_sib_disp(buf, src_id & 7, base_id, index_id, 2, 0);
         }
         8 => {
-            // mov [base + index * 8], rax
-            // REX.W=1, add REX.X if needed
-            buf.bytes.push(0x48 | rex_x_bit);
-            // Opcode 89
+            // mov [base + index * 8], r64
+            // REX.W=1, add REX.R/X/B as needed
+            buf.bytes.push(0x48 | rex_r_bit | rex_x_bit | rex_b_bit);
             buf.bytes.push(0x89);
-            // ModR/M: mod=00, reg=0 (RAX), rm=100 (SIB follows)
-            emit_mem_sib_disp(buf, 0, base_id, index_id, 3, 0);
+            emit_mem_sib_disp(buf, src_id & 7, base_id, index_id, 3, 0);
         }
         _ => panic!(
             "invalid width {} for emit_indexed_store; must be 1, 2, 4, or 8",

@@ -174,15 +174,6 @@ fn reg64_from(id: RegId) -> Result<Reg64, EncodeError> {
 }
 
 /// Convert an IR Scale to a numeric byte width for indexed loads.
-fn scale_to_bytes(scale: Scale) -> u32 {
-    match scale {
-        Scale::X1 => 1,
-        Scale::X2 => 2,
-        Scale::X4 => 4,
-        Scale::X8 => 8,
-    }
-}
-
 /// Convert an IR Cond to an encoder Cond.
 fn cond_from(ir_cond: IrCond) -> Result<Cond, EncodeError> {
     match ir_cond {
@@ -843,14 +834,21 @@ fn encode_mov(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
                 disp: 0,
             },
         ] => {
-            // mov r64, [base + index * scale]
-            emit_indexed_load(
+            // mov r64, [base + index * scale] — delegate to general SIB handler
+            // (emit_indexed_load was designed for mixed widths and confused scale with operand width)
+            let scale_bits = match scale {
+                Scale::X1 => 0,
+                Scale::X2 => 1,
+                Scale::X4 => 2,
+                Scale::X8 => 3,
+            };
+            mov_reg64_mem_sib_disp(
                 buf,
                 reg64_from(*dest)?,
                 reg64_from(*base)?,
                 reg64_from(*index)?,
-                scale_to_bytes(*scale),
-                false,
+                scale_bits,
+                0,
             );
             Ok(EncodeOutput::new())
         }
@@ -1404,24 +1402,9 @@ fn encode_lea(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
             buf.bytes.push(rex_byte);
             buf.bytes.push(0x8D); // LEA opcode
 
-            if *disp == 0 {
-                // Use mod=00 (no displacement) with SIB
-                buf.bytes.push(0x04 | ((dest_id & 7) << 3)); // mod=00, r/m=100 (SIB follows)
-                let sib = ((scale_bits & 3) << 6) | ((index_id & 7) << 3) | (base_id & 7);
-                buf.bytes.push(sib);
-            } else if (-128..=127).contains(disp) {
-                // Use mod=01, disp8 with SIB
-                buf.bytes.push(0x44 | ((dest_id & 7) << 3)); // mod=01, r/m=100 (SIB follows)
-                let sib = ((scale_bits & 3) << 6) | ((index_id & 7) << 3) | (base_id & 7);
-                buf.bytes.push(sib);
-                buf.bytes.push(*disp as u8);
-            } else {
-                // Use mod=10, disp32 with SIB
-                buf.bytes.push(0x84 | ((dest_id & 7) << 3)); // mod=10, r/m=100 (SIB follows)
-                let sib = ((scale_bits & 3) << 6) | ((index_id & 7) << 3) | (base_id & 7);
-                buf.bytes.push(sib);
-                buf.bytes.extend(disp.to_le_bytes());
-            }
+            // Use emit_mem_sib_disp to handle ModR/M, SIB, and displacement encoding,
+            // including R13/RBP escape (disp8=0 when base is RBP/R13 and disp=0).
+            emit_mem_sib_disp(buf, dest_id & 7, base_id, index_id, scale_bits, *disp);
             Ok(EncodeOutput::new())
         }
         [Operand::Reg(dest), Operand::SymbolRef { name, addend }] => {
