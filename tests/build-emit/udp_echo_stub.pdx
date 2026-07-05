@@ -1,0 +1,26 @@
+// PA-R15-011: v0.15 NET-PRIMITIVES canary.
+//
+// Surface trait modelling a minimal IPv4 + UDP echo path. This canary
+// combines the v0.15 primitives at the interface level: byte parsing
+// via bytes.pdx-shape signatures, checksum-fold via checksum.pdx-shape,
+// per-CPU counters via percpu.pdx-shape. Body-level lowering to the
+// concrete mnemonics (bswap_d, adc_q, sbb_q, popcnt_q) is deferred
+// to Phase 3 codegen.
+
+module UdpEchoStub = structure {
+  trait Ipv4UdpEcho {
+    // Byte parsing (bytes.pdx surface)
+    fn get_u8(buf: u64, off: u64) -> u8 !{RawMem} @{paideia.raw_mem};
+    fn get_u16_be(buf: u64, off: u64) -> u16 !{RawMem} @{paideia.raw_mem};
+    fn get_u32_be(buf: u64, off: u64) -> u32 !{RawMem} @{paideia.raw_mem};
+
+    // Checksum (checksum.pdx surface)
+    fn ipv4_checksum(hdr: u64, len: u64) -> u16 !{RawMem} @{paideia.raw_mem};
+
+    // Per-CPU counters (percpu.pdx surface)
+    fn percpu_inc(counter_gs_offset: u64) -> () !{Atomic, RawMem} @{paideia.raw_mem};
+
+    // UDP echo entry point
+    fn udp_echo(pkt: u64, len: u64) -> () !{RawMem, Atomic} @{paideia.raw_mem};
+  }
+}
