@@ -124,6 +124,9 @@ pub enum Mnemonic {
     /// Bitwise NOT (one's complement) of a 64-bit register.
     /// Phase 7 m4-001: emits `not r64` (REX.W F7 /2). One operand.
     Not,
+    /// Byte-swap 64-bit register (endianness conversion).
+    /// Phase R13 PA-R13-014 (issue #943): emits `bswap r64` (REX.W 0F C8+rd). One operand.
+    Bswap,
     /// Push 64-bit register onto stack.
     /// Phase R9 m2-001 (PA-R9-001): emits `push r64` (REX.W 50+rd or 41 50+rd for r8–r15).
     /// One operand.
@@ -553,7 +556,8 @@ impl Mnemonic {
             | Mnemonic::Fxsave
             | Mnemonic::Fxrstor
             | Mnemonic::Inc
-            | Mnemonic::Dec => 1,
+            | Mnemonic::Dec
+            | Mnemonic::Bswap => 1,
 
             // Two-operand instructions
             Mnemonic::Mov
@@ -680,6 +684,9 @@ impl Mnemonic {
 
             // Bitwise NOT: 4 bytes upper bound (REX.W F7 /2 ModR/M)
             Mnemonic::Not => 4,
+
+            // Byte-swap: 3 bytes upper bound (REX.W 0F C8+rd, no ModR/M)
+            Mnemonic::Bswap => 3,
 
             // Divide: 4 bytes upper bound (REX.W F7 /6 or /7 ModR/M)
             Mnemonic::Div | Mnemonic::Idiv => 4,

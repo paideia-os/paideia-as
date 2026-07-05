@@ -288,6 +288,7 @@ fn encode_instruction_impl(
         Mnemonic::Movzx => encode_movzx(inst, buf),
         Mnemonic::Movsx => encode_movsx(inst, buf),
         Mnemonic::Not => encode_not(inst, buf),
+        Mnemonic::Bswap => encode_bswap(inst, buf),
         Mnemonic::Push => encode_push(inst, buf),
         Mnemonic::Pop => encode_pop(inst, buf),
         Mnemonic::Pushfq => encode_pushfq(inst, buf),
@@ -427,6 +428,20 @@ fn encode_not(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
         }
         _ => Err(EncodeError::OperandShape {
             mnemonic: Mnemonic::Not,
+        }),
+    }
+}
+
+/// Phase R13 PA-R13-014: Encode byte-swap 64-bit register instruction.
+/// Expects exactly one register operand. Emits `REX.W 0F C8+rd` via `bswap_reg64`.
+fn encode_bswap(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::Reg(dst)] => {
+            bswap_reg64(buf, reg64_from(*dst)?);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Bswap,
         }),
     }
 }

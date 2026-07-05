@@ -741,6 +741,26 @@ pub fn dec_reg64(buf: &mut CodeBuffer, dst: Reg64) {
     buf.bytes.push(0xC8 | (reg_id & 7));
 }
 
+/// Encode `bswap r64` (byte-swap 64-bit register) — PA-R13-014 (issue #943).
+///
+/// Instruction: REX.W 0F C8+rd
+/// This is an opcode+register form with no ModR/M byte. The register number
+/// is encoded directly in the low 3 bits of the final byte (0xC8 | (reg & 7)).
+/// REX.W=1 for 64-bit operand size; REX.B=reg>>3 for extended registers (R8..R15).
+/// Bytes: `[REX.W | REX.B] 0F (0xC8 | (reg & 7))`
+///
+/// Example: `bswap rax` → `48 0F C8`
+/// Example: `bswap rdi` → `48 0F CF`
+/// Example: `bswap r8`  → `49 0F C8`
+/// Example: `bswap r15` → `49 0F CF`
+pub fn bswap_reg64(buf: &mut CodeBuffer, dst: Reg64) {
+    let reg_id = dst as u8;
+    let rex_byte = rex(true, false, false, (reg_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xC8 | (reg_id & 7));
+}
+
 /// Encode `ltr r16` (load task register).
 ///
 /// Instruction: 0F 00 /3 per Intel SDM Vol 2A LTR.

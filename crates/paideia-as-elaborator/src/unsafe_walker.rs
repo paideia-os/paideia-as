@@ -203,6 +203,8 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     // Phase R13 PA-R13-005 (issue #934): inc/dec r64
     ("inc", Mnemonic::Inc),
     ("dec", Mnemonic::Dec),
+    // Phase R13 PA-R13-014 (issue #943): bswap r64
+    ("bswap", Mnemonic::Bswap),
 ];
 
 /// Resolve a mnemonic name to an IR Mnemonic enum variant.
