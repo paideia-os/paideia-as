@@ -392,6 +392,118 @@ pub fn sub_reg64_reg64(buf: &mut CodeBuffer, dst: Reg64, src: Reg64) {
     buf.bytes.push(0xC0 | ((src_id & 7) << 3) | (dst_id & 7));
 }
 
+/// Encode `adc reg64, reg64` (add with carry).
+///
+/// Instruction: REX.W 13 /r
+/// ModR/M: 0xC0 | (dst<<3) | src
+/// Reads and writes CF.
+pub fn adc_reg64_reg64(buf: &mut CodeBuffer, dst: Reg64, src: Reg64) {
+    let dst_id = dst as u8;
+    let src_id = src as u8;
+    let rex_byte = rex(true, (dst_id >> 3) != 0, false, (src_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x13);
+    buf.bytes.push(0xC0 | ((dst_id & 7) << 3) | (src_id & 7));
+}
+
+/// Encode `adc reg64, [base + disp]` (add with carry from memory).
+///
+/// Instruction: REX.W 13 /r
+/// ModR/M+SIB: emit_mem_base_disp with dst in reg field
+/// Reads and writes CF.
+pub fn adc_reg64_mem_base_disp(buf: &mut CodeBuffer, dst: Reg64, base: Reg64, disp: i32) {
+    let dst_id = dst as u8;
+    let base_id = base as u8;
+    let rex_byte = rex(true, (dst_id >> 3) != 0, false, (base_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x13);
+    emit_mem_base_disp(buf, dst_id & 7, base_id, disp);
+}
+
+/// Encode `sbb reg64, reg64` (subtract with borrow).
+///
+/// Instruction: REX.W 1B /r
+/// ModR/M: 0xC0 | (dst<<3) | src
+/// Reads and writes CF.
+pub fn sbb_reg64_reg64(buf: &mut CodeBuffer, dst: Reg64, src: Reg64) {
+    let dst_id = dst as u8;
+    let src_id = src as u8;
+    let rex_byte = rex(true, (dst_id >> 3) != 0, false, (src_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x1B);
+    buf.bytes.push(0xC0 | ((dst_id & 7) << 3) | (src_id & 7));
+}
+
+/// Encode `sbb reg64, [base + disp]` (subtract with borrow from memory).
+///
+/// Instruction: REX.W 1B /r
+/// ModR/M+SIB: emit_mem_base_disp with dst in reg field
+/// Reads and writes CF.
+pub fn sbb_reg64_mem_base_disp(buf: &mut CodeBuffer, dst: Reg64, base: Reg64, disp: i32) {
+    let dst_id = dst as u8;
+    let base_id = base as u8;
+    let rex_byte = rex(true, (dst_id >> 3) != 0, false, (base_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x1B);
+    emit_mem_base_disp(buf, dst_id & 7, base_id, disp);
+}
+
+/// Encode `adc reg32, reg32` (add with carry, 32-bit).
+///
+/// Instruction: 13 /r (no REX.W)
+/// ModR/M: 0xC0 | (dst<<3) | src
+/// Reads and writes CF.
+pub fn adc_reg32_reg32(buf: &mut CodeBuffer, dst_id: u8, src_id: u8) {
+    if (dst_id >> 3) != 0 || (src_id >> 3) != 0 {
+        let rex_byte = rex(false, (dst_id >> 3) != 0, false, (src_id >> 3) != 0);
+        buf.bytes.push(rex_byte);
+    }
+    buf.bytes.push(0x13);
+    buf.bytes.push(0xC0 | ((dst_id & 7) << 3) | (src_id & 7));
+}
+
+/// Encode `adc reg32, [base + disp]` (add with carry from memory, 32-bit).
+///
+/// Instruction: 13 /r (no REX.W)
+/// ModR/M+SIB: emit_mem_base_disp with dst in reg field
+/// Reads and writes CF.
+pub fn adc_reg32_mem_base_disp(buf: &mut CodeBuffer, dst_id: u8, base_id: u8, disp: i32) {
+    if (dst_id >> 3) != 0 || (base_id >> 3) != 0 {
+        let rex_byte = rex(false, (dst_id >> 3) != 0, false, (base_id >> 3) != 0);
+        buf.bytes.push(rex_byte);
+    }
+    buf.bytes.push(0x13);
+    emit_mem_base_disp(buf, dst_id & 7, base_id, disp);
+}
+
+/// Encode `sbb reg32, reg32` (subtract with borrow, 32-bit).
+///
+/// Instruction: 1B /r (no REX.W)
+/// ModR/M: 0xC0 | (dst<<3) | src
+/// Reads and writes CF.
+pub fn sbb_reg32_reg32(buf: &mut CodeBuffer, dst_id: u8, src_id: u8) {
+    if (dst_id >> 3) != 0 || (src_id >> 3) != 0 {
+        let rex_byte = rex(false, (dst_id >> 3) != 0, false, (src_id >> 3) != 0);
+        buf.bytes.push(rex_byte);
+    }
+    buf.bytes.push(0x1B);
+    buf.bytes.push(0xC0 | ((dst_id & 7) << 3) | (src_id & 7));
+}
+
+/// Encode `sbb reg32, [base + disp]` (subtract with borrow from memory, 32-bit).
+///
+/// Instruction: 1B /r (no REX.W)
+/// ModR/M+SIB: emit_mem_base_disp with dst in reg field
+/// Reads and writes CF.
+pub fn sbb_reg32_mem_base_disp(buf: &mut CodeBuffer, dst_id: u8, base_id: u8, disp: i32) {
+    if (dst_id >> 3) != 0 || (base_id >> 3) != 0 {
+        let rex_byte = rex(false, (dst_id >> 3) != 0, false, (base_id >> 3) != 0);
+        buf.bytes.push(rex_byte);
+    }
+    buf.bytes.push(0x1B);
+    emit_mem_base_disp(buf, dst_id & 7, base_id, disp);
+}
+
 /// Encode `sar reg64, imm8` (arithmetic right shift by immediate).
 ///
 /// Instruction: REX.W C1 /7 ib

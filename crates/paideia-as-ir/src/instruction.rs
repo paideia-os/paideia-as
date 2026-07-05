@@ -304,6 +304,22 @@ pub enum Mnemonic {
         /// Operand width selecting the encoded form (W32 or W64).
         width: IntWidth,
     },
+    /// Add with carry: `adc r32/r64, r/m32/r/m64` (PA-R15-005, #960).
+    /// Adds register/memory to register + carry flag. Two operands (dst, src).
+    /// Encoding: `[REX.W] 13 /r` (opcode 0x13 for adc reg-dst) per Intel SDM Vol 2A ADC.
+    /// Effect: reads/writes CF.
+    Adc {
+        /// Operand width selecting the encoded form (W32 or W64).
+        width: IntWidth,
+    },
+    /// Subtract with borrow: `sbb r32/r64, r/m32/r/m64` (PA-R15-005, #960).
+    /// Subtracts register/memory from register - carry flag. Two operands (dst, src).
+    /// Encoding: `[REX.W] 1B /r` (opcode 0x1B for sbb reg-dst) per Intel SDM Vol 2A SBB.
+    /// Effect: reads/writes CF.
+    Sbb {
+        /// Operand width selecting the encoded form (W32 or W64).
+        width: IntWidth,
+    },
 }
 
 /// Integer operand width for width-threaded immediate moves.
@@ -656,6 +672,8 @@ impl Mnemonic {
             Mnemonic::Mov
             | Mnemonic::Add
             | Mnemonic::Sub
+            | Mnemonic::Adc { .. }
+            | Mnemonic::Sbb { .. }
             | Mnemonic::Cmp
             | Mnemonic::Test
             | Mnemonic::Lea
@@ -749,7 +767,7 @@ impl Mnemonic {
             Mnemonic::Movsx => 10,
 
             // Two-operand arithmetic/logic: 10 bytes
-            Mnemonic::Add | Mnemonic::Sub | Mnemonic::Cmp | Mnemonic::Test => 10,
+            Mnemonic::Add | Mnemonic::Sub | Mnemonic::Adc { .. } | Mnemonic::Sbb { .. } | Mnemonic::Cmp | Mnemonic::Test => 10,
 
             // Load effective address: 10 bytes
             Mnemonic::Lea => 10,

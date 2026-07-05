@@ -273,6 +273,8 @@ fn encode_instruction_impl(
         Mnemonic::Mov => encode_mov(inst, buf),
         Mnemonic::Add => encode_add(inst, buf, stats),
         Mnemonic::Sub => encode_sub(inst, buf, stats),
+        Mnemonic::Adc { width } => encode_adc(inst, buf, *width),
+        Mnemonic::Sbb { width } => encode_sbb(inst, buf, *width),
         Mnemonic::Cmp => encode_cmp(inst, buf),
         Mnemonic::Test => encode_test(inst, buf),
         Mnemonic::Jcc(cond) => encode_jcc(*cond, inst, buf, stats),
@@ -1807,6 +1809,114 @@ fn encode_sub(
         _ => Err(EncodeError::Unsupported(
             "sub form not in phase-3-m2-002 minimum",
         )),
+    }
+}
+
+fn encode_adc(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+    width: IntWidth,
+) -> Result<EncodeOutput, EncodeError> {
+    match width {
+        IntWidth::W32 | IntWidth::W64 => {}
+        _ => {
+            return Err(EncodeError::Unsupported(
+                "E0037: adc only supports W32 and W64",
+            ))
+        }
+    }
+
+    match inst.operands.as_slice() {
+        [Operand::Reg(dest), Operand::Reg(src)] => {
+            match width {
+                IntWidth::W64 => {
+                    adc_reg64_reg64(buf, reg64_from(*dest)?, reg64_from(*src)?);
+                }
+                IntWidth::W32 => {
+                    let dst_id = reg32_from(*dest)? as u8;
+                    let src_id = reg32_from(*src)? as u8;
+                    adc_reg32_reg32(buf, dst_id, src_id);
+                }
+                _ => unreachable!(),
+            }
+            Ok(EncodeOutput::new())
+        }
+        [Operand::Reg(dest), Operand::MemSib { base, index: None, scale: _, disp }] => {
+            match width {
+                IntWidth::W64 => {
+                    adc_reg64_mem_base_disp(buf, reg64_from(*dest)?, reg64_from(*base)?, *disp);
+                }
+                IntWidth::W32 => {
+                    let dst_id = reg32_from(*dest)? as u8;
+                    let base_id = reg32_from(*base)? as u8;
+                    adc_reg32_mem_base_disp(buf, dst_id, base_id, *disp);
+                }
+                _ => unreachable!(),
+            }
+            Ok(EncodeOutput::new())
+        }
+        [Operand::Reg(_), Operand::MemSib { index: Some(_), .. }] => {
+            Err(EncodeError::OperandShape {
+                mnemonic: Mnemonic::Adc { width },
+            })
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Adc { width },
+        }),
+    }
+}
+
+fn encode_sbb(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+    width: IntWidth,
+) -> Result<EncodeOutput, EncodeError> {
+    match width {
+        IntWidth::W32 | IntWidth::W64 => {}
+        _ => {
+            return Err(EncodeError::Unsupported(
+                "E0038: sbb only supports W32 and W64",
+            ))
+        }
+    }
+
+    match inst.operands.as_slice() {
+        [Operand::Reg(dest), Operand::Reg(src)] => {
+            match width {
+                IntWidth::W64 => {
+                    sbb_reg64_reg64(buf, reg64_from(*dest)?, reg64_from(*src)?);
+                }
+                IntWidth::W32 => {
+                    let dst_id = reg32_from(*dest)? as u8;
+                    let src_id = reg32_from(*src)? as u8;
+                    sbb_reg32_reg32(buf, dst_id, src_id);
+                }
+                _ => unreachable!(),
+            }
+            Ok(EncodeOutput::new())
+        }
+        [Operand::Reg(dest), Operand::MemSib { base, index: None, scale: _, disp }] => {
+            match width {
+                IntWidth::W64 => {
+                    sbb_reg64_mem_base_disp(buf, reg64_from(*dest)?, reg64_from(*base)?, *disp);
+                }
+                IntWidth::W32 => {
+                    let dst_id = reg32_from(*dest)? as u8;
+                    let base_id = reg32_from(*base)? as u8;
+                    sbb_reg32_mem_base_disp(buf, dst_id, base_id, *disp);
+                }
+                _ => unreachable!(),
+            }
+            Ok(EncodeOutput::new())
+        }
+        [Operand::Reg(_), Operand::MemSib { index: Some(_), .. }] => {
+            Err(EncodeError::OperandShape {
+                mnemonic: Mnemonic::Sbb { width },
+            })
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Sbb { width },
+        }),
     }
 }
 
