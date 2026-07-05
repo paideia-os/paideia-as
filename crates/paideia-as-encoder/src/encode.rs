@@ -1153,6 +1153,49 @@ pub fn mov_reg32_mem_base_disp(buf: &mut CodeBuffer, dst: Reg64, base: Reg64, di
     emit_mem_base_disp(buf, dst_id & 7, base_id, disp);
 }
 
+/// Centralized SIB encoding helper for memory operands with scale, index, base, and displacement.
+///
+/// Handles the special case where RBP (id=5) or R13 (id=13) as base requires a disp8=0
+/// escape even when disp=0 (since mod=00 with base=5 is reserved for RIP-relative).
+///
+/// # Arguments
+/// - `buf`: code buffer to append bytes to
+/// - `reg_field`: register field for ModR/M (3 bits, typically dst or src register)
+/// - `base_id`: base register id (0-15; only low 3 bits used in SIB)
+/// - `index_id`: index register id (0-15; only low 3 bits used in SIB)
+/// - `scale_bits`: scale encoding (0=1x, 1=2x, 2=4x, 3=8x)
+/// - `disp`: displacement value (0, disp8, or disp32)
+///
+/// Emits:
+/// - ModR/M byte with scale-index-base indicator (rm=100)
+/// - SIB byte
+/// - Displacement bytes (0, 1, or 4 bytes) as needed
+fn emit_mem_sib_disp(
+    buf: &mut CodeBuffer,
+    reg_field: u8,
+    base_id: u8,
+    index_id: u8,
+    scale_bits: u8,
+    disp: i32,
+) {
+    let base_low = base_id & 7;
+    let bp_escape = base_low == 5;  // RBP / R13
+    let (mod_bits, disp_len) = if disp == 0 && !bp_escape {
+        (0x00u8, 0)
+    } else if (-128..=127).contains(&disp) {
+        (0x40u8, 1)
+    } else {
+        (0x80u8, 4)
+    };
+    buf.bytes.push(mod_bits | ((reg_field & 7) << 3) | 0b100);
+    buf.bytes.push(((scale_bits & 3) << 6) | ((index_id & 7) << 3) | base_low);
+    match disp_len {
+        0 => {}
+        1 => buf.bytes.push(disp as u8),
+        _ => buf.bytes.extend(disp.to_le_bytes()),
+    }
+}
+
 /// Encode `mov r, [base + index*scale + disp]` with width — Phase 13 m6-001: SIB load.
 ///
 /// Instruction: [0x66] [REX?] opcode /r SIB [disp]
@@ -1207,24 +1250,7 @@ pub fn mov_reg_mem_sib_disp_sized(
         }
     }
 
-    if disp == 0 {
-        // Use mod=00, no displacement
-        buf.bytes.push(0x00 | ((dst_id & 7) << 3) | 0x04); // ModR/M with SIB
-        let sib = ((scale_bits & 3) << 6) | ((index_id & 7) << 3) | (base_id & 7);
-        buf.bytes.push(sib);
-    } else if (-128..=127).contains(&disp) {
-        // Use mod=01, disp8
-        buf.bytes.push(0x40 | ((dst_id & 7) << 3) | 0x04); // ModR/M with SIB
-        let sib = ((scale_bits & 3) << 6) | ((index_id & 7) << 3) | (base_id & 7);
-        buf.bytes.push(sib);
-        buf.bytes.push(disp as u8);
-    } else {
-        // Use mod=10, disp32
-        buf.bytes.push(0x80 | ((dst_id & 7) << 3) | 0x04); // ModR/M with SIB
-        let sib = ((scale_bits & 3) << 6) | ((index_id & 7) << 3) | (base_id & 7);
-        buf.bytes.push(sib);
-        buf.bytes.extend(disp.to_le_bytes());
-    }
+    emit_mem_sib_disp(buf, dst_id & 7, base_id, index_id, scale_bits, disp);
 }
 
 /// Encode `mov [base + disp], src` — Phase 8 m5-002: general memory operand.
@@ -1279,24 +1305,7 @@ pub fn mov_reg64_mem_sib_disp(
     buf.bytes.push(rex_byte);
     buf.bytes.push(0x8B); // mov r64, r/m64
 
-    if disp == 0 {
-        // Use mod=00, no displacement
-        buf.bytes.push(0x00 | ((dst_id & 7) << 3) | 0x04); // ModR/M with SIB
-        let sib = ((scale_bits & 3) << 6) | ((index_id & 7) << 3) | (base_id & 7);
-        buf.bytes.push(sib);
-    } else if (-128..=127).contains(&disp) {
-        // Use mod=01, disp8
-        buf.bytes.push(0x40 | ((dst_id & 7) << 3) | 0x04); // ModR/M with SIB
-        let sib = ((scale_bits & 3) << 6) | ((index_id & 7) << 3) | (base_id & 7);
-        buf.bytes.push(sib);
-        buf.bytes.push(disp as u8);
-    } else {
-        // Use mod=10, disp32
-        buf.bytes.push(0x80 | ((dst_id & 7) << 3) | 0x04); // ModR/M with SIB
-        let sib = ((scale_bits & 3) << 6) | ((index_id & 7) << 3) | (base_id & 7);
-        buf.bytes.push(sib);
-        buf.bytes.extend(disp.to_le_bytes());
-    }
+    emit_mem_sib_disp(buf, dst_id & 7, base_id, index_id, scale_bits, disp);
 }
 
 /// Encode `mov [base + index*scale + disp], r64` — Phase 9 m1-003: SIB addressing with displacement.
@@ -1331,24 +1340,7 @@ pub fn mov_mem_sib_disp_reg64(
     buf.bytes.push(rex_byte);
     buf.bytes.push(0x89); // mov r/m64, r64
 
-    if disp == 0 {
-        // Use mod=00, no displacement
-        buf.bytes.push(0x00 | ((src_id & 7) << 3) | 0x04); // ModR/M with SIB
-        let sib = ((scale_bits & 3) << 6) | ((index_id & 7) << 3) | (base_id & 7);
-        buf.bytes.push(sib);
-    } else if (-128..=127).contains(&disp) {
-        // Use mod=01, disp8
-        buf.bytes.push(0x40 | ((src_id & 7) << 3) | 0x04); // ModR/M with SIB
-        let sib = ((scale_bits & 3) << 6) | ((index_id & 7) << 3) | (base_id & 7);
-        buf.bytes.push(sib);
-        buf.bytes.push(disp as u8);
-    } else {
-        // Use mod=10, disp32
-        buf.bytes.push(0x80 | ((src_id & 7) << 3) | 0x04); // ModR/M with SIB
-        let sib = ((scale_bits & 3) << 6) | ((index_id & 7) << 3) | (base_id & 7);
-        buf.bytes.push(sib);
-        buf.bytes.extend(disp.to_le_bytes());
-    }
+    emit_mem_sib_disp(buf, src_id & 7, base_id, index_id, scale_bits, disp);
 }
 
 /// Encode `cmp [base + disp], src` (compare memory with register).
@@ -1605,10 +1597,7 @@ pub fn emit_indexed_load(
             }
             buf.bytes.push(0x8A);
             // ModR/M: mod=00, reg=0 (AL), rm=100 (SIB follows)
-            buf.bytes.push(0x04);
-            // SIB: scale=00 (×1), index, base
-            let sib = ((index_id & 7) << 3) | (base_id & 7);
-            buf.bytes.push(sib);
+            emit_mem_sib_disp(buf, 0, base_id, index_id, 0, 0);
         }
         2 => {
             // mov ax, [base + index * 2]
@@ -1621,10 +1610,7 @@ pub fn emit_indexed_load(
             // Opcode 8B
             buf.bytes.push(0x8B);
             // ModR/M: mod=00, reg=0 (AX), rm=100 (SIB follows)
-            buf.bytes.push(0x04);
-            // SIB: scale=01 (×2), index, base
-            let sib = (1 << 6) | ((index_id & 7) << 3) | (base_id & 7);
-            buf.bytes.push(sib);
+            emit_mem_sib_disp(buf, 0, base_id, index_id, 1, 0);
         }
         4 => {
             // mov eax, [base + index * 4]
@@ -1635,10 +1621,7 @@ pub fn emit_indexed_load(
             // Opcode 8B
             buf.bytes.push(0x8B);
             // ModR/M: mod=00, reg=0 (EAX), rm=100 (SIB follows)
-            buf.bytes.push(0x04);
-            // SIB: scale=10 (×4), index, base
-            let sib = (2 << 6) | ((index_id & 7) << 3) | (base_id & 7);
-            buf.bytes.push(sib);
+            emit_mem_sib_disp(buf, 0, base_id, index_id, 2, 0);
         }
         8 => {
             // mov rax, [base + index * 8]
@@ -1647,10 +1630,7 @@ pub fn emit_indexed_load(
             // Opcode 8B
             buf.bytes.push(0x8B);
             // ModR/M: mod=00, reg=0 (RAX), rm=100 (SIB follows)
-            buf.bytes.push(0x04);
-            // SIB: scale=11 (×8), index, base
-            let sib = (3 << 6) | ((index_id & 7) << 3) | (base_id & 7);
-            buf.bytes.push(sib);
+            emit_mem_sib_disp(buf, 0, base_id, index_id, 3, 0);
         }
         _ => panic!(
             "invalid width {} for emit_indexed_load; must be 1, 2, 4, or 8",
@@ -1700,10 +1680,7 @@ pub fn emit_indexed_store(
             }
             buf.bytes.push(0x88);
             // ModR/M: mod=00, reg=0 (AL), rm=100 (SIB follows)
-            buf.bytes.push(0x04);
-            // SIB: scale=00 (×1), index, base
-            let sib = ((index_id & 7) << 3) | (base_id & 7);
-            buf.bytes.push(sib);
+            emit_mem_sib_disp(buf, 0, base_id, index_id, 0, 0);
         }
         2 => {
             // mov [base + index * 2], ax
@@ -1716,10 +1693,7 @@ pub fn emit_indexed_store(
             // Opcode 89
             buf.bytes.push(0x89);
             // ModR/M: mod=00, reg=0 (AX), rm=100 (SIB follows)
-            buf.bytes.push(0x04);
-            // SIB: scale=01 (×2), index, base
-            let sib = (1 << 6) | ((index_id & 7) << 3) | (base_id & 7);
-            buf.bytes.push(sib);
+            emit_mem_sib_disp(buf, 0, base_id, index_id, 1, 0);
         }
         4 => {
             // mov [base + index * 4], eax
@@ -1730,10 +1704,7 @@ pub fn emit_indexed_store(
             // Opcode 89
             buf.bytes.push(0x89);
             // ModR/M: mod=00, reg=0 (EAX), rm=100 (SIB follows)
-            buf.bytes.push(0x04);
-            // SIB: scale=10 (×4), index, base
-            let sib = (2 << 6) | ((index_id & 7) << 3) | (base_id & 7);
-            buf.bytes.push(sib);
+            emit_mem_sib_disp(buf, 0, base_id, index_id, 2, 0);
         }
         8 => {
             // mov [base + index * 8], rax
@@ -1742,10 +1713,7 @@ pub fn emit_indexed_store(
             // Opcode 89
             buf.bytes.push(0x89);
             // ModR/M: mod=00, reg=0 (RAX), rm=100 (SIB follows)
-            buf.bytes.push(0x04);
-            // SIB: scale=11 (×8), index, base
-            let sib = (3 << 6) | ((index_id & 7) << 3) | (base_id & 7);
-            buf.bytes.push(sib);
+            emit_mem_sib_disp(buf, 0, base_id, index_id, 3, 0);
         }
         _ => panic!(
             "invalid width {} for emit_indexed_store; must be 1, 2, 4, or 8",
@@ -4846,5 +4814,159 @@ mod tests {
         let mut buf = CodeBuffer::new();
         cmp_mem_reg64_reg64(&mut buf, Reg64::Rbp, 0, Reg64::Rax);
         assert_eq!(buf.as_slice(), &[0x48, 0x39, 0x45, 0x00]);
+    }
+
+    // ── PA-R13-001B: SIB base=RBP/R13 with disp=0 escape tests ────────────────
+
+    mod sib_bp_escape {
+        use super::*;
+
+        #[test]
+        fn pa_r13_001b_mov_rax_rbp_rsi_8() {
+            // mov rax, [rbp + rsi*8]
+            // Expected: 48 8B 44 F5 00
+            // - 48: REX.W
+            // - 8B: opcode (mov r64, r/m64)
+            // - 44: mod=01 (disp8), reg=000 (RAX), rm=100 (SIB)
+            // - F5: scale=11 (×8), index=110 (RSI), base=101 (RBP)
+            // - 00: disp8=0 (BP escape)
+            let mut buf = CodeBuffer::new();
+            mov_reg64_mem_sib_disp(&mut buf, Reg64::Rax, Reg64::Rbp, Reg64::Rsi, 3, 0);
+            assert_eq!(buf.as_slice(), &[0x48, 0x8B, 0x44, 0xF5, 0x00]);
+        }
+
+        #[test]
+        fn pa_r13_001b_mov_rax_r13_rsi_8() {
+            // mov rax, [r13 + rsi*8]
+            // Expected: 49 8B 44 F5 00
+            // - 49: REX.W + REX.B (R13 is r8-r15)
+            // - 8B: opcode
+            // - 44: mod=01, reg=000 (RAX), rm=100 (SIB)
+            // - F5: scale=11 (×8), index=110 (RSI), base=101 (R13 low bits)
+            // - 00: disp8=0 (BP escape)
+            let mut buf = CodeBuffer::new();
+            mov_reg64_mem_sib_disp(&mut buf, Reg64::Rax, Reg64::R13, Reg64::Rsi, 3, 0);
+            assert_eq!(buf.as_slice(), &[0x49, 0x8B, 0x44, 0xF5, 0x00]);
+        }
+
+        #[test]
+        fn pa_r13_001b_mov_al_rbp_rsi_1() {
+            // mov al, [rbp + rsi*1]
+            // Expected: 8A 44 35 00
+            // - 8A: opcode (mov r8, r/m8)
+            // - 44: mod=01, reg=000 (AL), rm=100 (SIB)
+            // - 35: scale=00 (×1), index=110 (RSI), base=101 (RBP)
+            // - 00: disp8=0 (BP escape)
+            let mut buf = CodeBuffer::new();
+            mov_reg_mem_sib_disp_sized(&mut buf, IntWidth::W8, Reg64::Rax, Reg64::Rbp, Reg64::Rsi, 0, 0);
+            assert_eq!(buf.as_slice(), &[0x8A, 0x44, 0x35, 0x00]);
+        }
+
+        #[test]
+        fn pa_r13_001b_mov_ax_rbp_rsi_2() {
+            // mov ax, [rbp + rsi*2]
+            // Expected: 66 8B 44 75 00
+            // - 66: operand-size override
+            // - 8B: opcode (mov r16, r/m16)
+            // - 44: mod=01, reg=000 (AX), rm=100 (SIB)
+            // - 75: scale=01 (×2), index=110 (RSI), base=101 (RBP)
+            // - 00: disp8=0 (BP escape)
+            let mut buf = CodeBuffer::new();
+            mov_reg_mem_sib_disp_sized(&mut buf, IntWidth::W16, Reg64::Rax, Reg64::Rbp, Reg64::Rsi, 1, 0);
+            assert_eq!(buf.as_slice(), &[0x66, 0x8B, 0x44, 0x75, 0x00]);
+        }
+
+        #[test]
+        fn pa_r13_001b_mov_eax_rbp_rsi_4() {
+            // mov eax, [rbp + rsi*4]
+            // Expected: 8B 44 B5 00
+            // - 8B: opcode (mov r32, r/m32)
+            // - 44: mod=01, reg=000 (EAX), rm=100 (SIB)
+            // - B5: scale=10 (×4), index=110 (RSI), base=101 (RBP)
+            // - 00: disp8=0 (BP escape)
+            let mut buf = CodeBuffer::new();
+            mov_reg_mem_sib_disp_sized(&mut buf, IntWidth::W32, Reg64::Rax, Reg64::Rbp, Reg64::Rsi, 2, 0);
+            assert_eq!(buf.as_slice(), &[0x8B, 0x44, 0xB5, 0x00]);
+        }
+
+        #[test]
+        fn pa_r13_001b_mov_rax_r13_rax_4() {
+            // mov rax, [r13 + rax*4]
+            // Expected: 49 8B 44 85 00
+            // - 49: REX.W + REX.B (R13 is r8-r15)
+            // - 8B: opcode
+            // - 44: mod=01, reg=000 (RAX), rm=100 (SIB)
+            // - 85: scale=10 (×4), index=000 (RAX), base=101 (R13 low bits)
+            // - 00: disp8=0 (BP escape)
+            let mut buf = CodeBuffer::new();
+            mov_reg64_mem_sib_disp(&mut buf, Reg64::Rax, Reg64::R13, Reg64::Rax, 2, 0);
+            assert_eq!(buf.as_slice(), &[0x49, 0x8B, 0x44, 0x85, 0x00]);
+        }
+
+        #[test]
+        fn pa_r13_001b_mov_rax_rbp_rsi_8_disp8() {
+            // mov rax, [rbp + rsi*8 + 8]
+            // Expected: 48 8B 44 F5 08
+            // - 48: REX.W
+            // - 8B: opcode
+            // - 44: mod=01 (disp8), reg=000 (RAX), rm=100 (SIB)
+            // - F5: scale=11 (×8), index=110 (RSI), base=101 (RBP)
+            // - 08: disp8=8
+            let mut buf = CodeBuffer::new();
+            mov_reg64_mem_sib_disp(&mut buf, Reg64::Rax, Reg64::Rbp, Reg64::Rsi, 3, 8);
+            assert_eq!(buf.as_slice(), &[0x48, 0x8B, 0x44, 0xF5, 0x08]);
+        }
+
+        #[test]
+        fn pa_r13_001b_mov_rax_rbp_rsi_8_disp32() {
+            // mov rax, [rbp + rsi*8 + 256]
+            // Expected: 48 8B 84 F5 00 01 00 00
+            // - 48: REX.W
+            // - 8B: opcode
+            // - 84: mod=10 (disp32), reg=000 (RAX), rm=100 (SIB)
+            // - F5: scale=11 (×8), index=110 (RSI), base=101 (RBP)
+            // - 00 01 00 00: disp32=256 (little-endian)
+            let mut buf = CodeBuffer::new();
+            mov_reg64_mem_sib_disp(&mut buf, Reg64::Rax, Reg64::Rbp, Reg64::Rsi, 3, 256);
+            assert_eq!(buf.as_slice(), &[0x48, 0x8B, 0x84, 0xF5, 0x00, 0x01, 0x00, 0x00]);
+        }
+
+        // ── iced-x86 round-trip verification ────────────────────────────────────
+
+        #[test]
+        fn pa_r13_001b_roundtrip_mov_rax_rbp_rsi_8_w64() {
+            use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+            // Round-trip: ensure iced-x86 decodes what we encoded correctly.
+            let mut buf = CodeBuffer::new();
+            mov_reg64_mem_sib_disp(&mut buf, Reg64::Rax, Reg64::Rbp, Reg64::Rsi, 3, 0);
+            let bytes = buf.as_slice();
+
+            let mut decoder = Decoder::new(64, bytes, DecoderOptions::NONE);
+            let instr = decoder.decode();
+            assert!(instr.len() > 0, "Failed to decode mov rax, [rbp + rsi*8]");
+
+            // Verify key properties
+            assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+            assert_eq!(instr.op_count(), 2);
+        }
+
+        #[test]
+        fn pa_r13_001b_roundtrip_mov_ax_rbp_rsi_2_w16() {
+            use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+            // Round-trip: ensure iced-x86 decodes what we encoded correctly.
+            let mut buf = CodeBuffer::new();
+            mov_reg_mem_sib_disp_sized(&mut buf, IntWidth::W16, Reg64::Rax, Reg64::Rbp, Reg64::Rsi, 1, 0);
+            let bytes = buf.as_slice();
+
+            let mut decoder = Decoder::new(64, bytes, DecoderOptions::NONE);
+            let instr = decoder.decode();
+            assert!(instr.len() > 0, "Failed to decode mov ax, [rbp + rsi*2]");
+
+            // Verify key properties
+            assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+            assert_eq!(instr.op_count(), 2);
+        }
     }
 }
