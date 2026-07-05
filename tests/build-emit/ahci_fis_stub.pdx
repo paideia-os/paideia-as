@@ -1,0 +1,53 @@
+// pa-r14-012 AHCI FIS driver stub: v0.14 canary for driver corpus.
+// Demonstrates register-offset constants (.rodata), ring buffers (.data/.bss),
+// and dispatch loop patterns (cmp, jz, movnti, clflush, sfence) across sections.
+
+module AhciFisStub = structure {
+  // Register-offset constants → .rodata
+  pub let AHCI_CAP : u32 = 0x00;
+  pub let AHCI_GHC : u32 = 0x04;
+  pub let AHCI_IS : u32 = 0x08;
+  pub let AHCI_PI : u32 = 0x0C;
+  pub let AHCI_VS : u32 = 0x10;
+  pub let AHCI_CCC_CTL : u32 = 0x14;
+  pub let AHCI_CCC_PORTS : u32 = 0x18;
+  pub let AHCI_EM_LOC : u32 = 0x1C;
+  pub let AHCI_EM_CTL : u32 = 0x20;
+  pub let AHCI_CAP2 : u32 = 0x24;
+  pub let AHCI_BOHC : u32 = 0x28;
+  pub let AHCI_CI : u32 = 0x38;
+
+  // Ring buffer for FIS frames: 32 slots × 32 bytes each
+  pub let mut ahci_fis_ring : u64 = uninit @ring(slots=32, slot_size=32);
+
+  // Port state counters
+  pub let mut port_active : u64 = 0;
+  pub let mut port_errors : u64 = 0;
+
+  // Dispatch loop: check if port is ready, dispatch to handler or skip.
+  let dispatch_handler : () -> () !{} @{} = fn () -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "pa-r14-012: demonstrate driver dispatch loop with cmp, jz, movnti, clflush, sfence",
+    block: {
+      // Test cmp against rax (simulate port readiness check)
+      cmp rax, 0;
+      jz skip_dispatch;
+
+      // Write-back cache line before ring advancement (clflush)
+      clflush [rbx];
+
+      // Non-temporal stores of ring descriptors (movnti)
+      movnti_q [rcx], rdx;
+      movnti_q [rcx + 0x08], rdx;
+      movnti_q [rcx + 0x10], rdx;
+      movnti_q [rcx + 0x18], rdx;
+
+      // Store fence to order non-temporal writes
+      sfence;
+
+      skip_dispatch:
+      nop
+    }
+  }
+}
