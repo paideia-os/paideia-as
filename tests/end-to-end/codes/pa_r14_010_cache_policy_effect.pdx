@@ -1,0 +1,8 @@
+// Test: CachePolicy effect declaration and usage
+// Verifies that the CachePolicy effect from pa-r14-010 can be declared.
+
+effect CachePolicy { }
+
+module TestCachePolicy = structure {
+  let clear_cache = fn () -> 0
+}

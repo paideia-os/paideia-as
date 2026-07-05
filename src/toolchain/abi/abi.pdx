@@ -54,6 +54,26 @@ module Abi = structure {
     // lands in pa-r14-010.
   }
 
+  effect CachePolicy {
+    // Built-in effect for cache-line state modification (pa-r14-010).
+    // Used by wbinvd, invd, clflush to signal cache coherency operations.
+    // Driver-side effect vocabulary for managing cache behavior during DMA
+    // and device interactions.
+  }
+
+  effect NonTemporal {
+    // Built-in effect for non-temporal memory access (pa-r14-010).
+    // Used by movnti and similar instructions to bypass cache.
+    // Driver-side effect vocabulary for operations that explicitly
+    // avoid cache pollution.
+  }
+
+  effect DmaBarrier {
+    // Built-in effect for DMA completion barriers (pa-r14-010).
+    // Used by sfence/mfence when paired with DMA setup.
+    // Driver-side effect vocabulary for ordering DMA operations.
+  }
+
   // ═════════════════════════════════════════════════════════════════════════
   // § 1. Semantic version (per design/toolchain/abi.md §0)
   // ═════════════════════════════════════════════════════════════════════════

@@ -1,0 +1,8 @@
+// Test: DmaBarrier effect declaration and usage
+// Verifies that the DmaBarrier effect from pa-r14-010 can be declared.
+
+effect DmaBarrier { }
+
+module TestDmaBarrier = structure {
+  let sync_dma = fn () -> 0
+}

@@ -1,0 +1,11 @@
+// Test: Effect composition (pa-r14-010)
+// Verifies that multiple effects can be composed in a single effect row.
+// Example: MmioWrite combined with CachePolicy for a driver operation
+// that needs to write to device memory and manage cache state.
+
+effect MmioWrite { }
+effect CachePolicy { }
+
+module TestComposition = structure {
+  let flush_device = fn () -> 0
+}

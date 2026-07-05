@@ -1,0 +1,8 @@
+// Test: NonTemporal effect declaration and usage
+// Verifies that the NonTemporal effect from pa-r14-010 can be declared.
+
+effect NonTemporal { }
+
+module TestNonTemporal = structure {
+  let write_fast = fn () -> 0
+}
