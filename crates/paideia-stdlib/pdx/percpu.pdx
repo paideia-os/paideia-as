@@ -1,0 +1,16 @@
+// PA-R15-010: Per-CPU counter idiom.
+//
+// Trait PerCpuOps declares percpu_inc / percpu_add for atomic increment /
+// add-by-N on a counter located at a fixed offset in the GS segment (the
+// per-CPU control-block base). Lowering to `lock inc gs:[disp32]` (or
+// `lock add gs:[disp32], N`) deferred to codegen.
+//
+// Effect: !{Atomic, RawMem}. Capability: @{paideia.raw_mem}.
+//
+// The gs-relative offset argument is the offset of the counter within the
+// per-CPU control block. Consumers pass the linker-resolved symbol offset.
+
+trait PerCpuOps {
+  fn percpu_inc(counter_gs_offset: u64) -> () !{Atomic, RawMem} @{paideia.raw_mem};
+  fn percpu_add(counter_gs_offset: u64, val: u64) -> () !{Atomic, RawMem} @{paideia.raw_mem};
+}

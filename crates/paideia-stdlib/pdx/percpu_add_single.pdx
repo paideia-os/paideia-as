@@ -1,0 +1,6 @@
+// Fixture: percpu_add_single
+// Tests that percpu_add(counter_gs_offset, val) atomically adds N to a per-CPU counter.
+
+trait PerCpuAddSingle {
+  fn percpu_add(counter_gs_offset: u64, val: u64) -> () !{Atomic, RawMem} @{paideia.raw_mem};
+}

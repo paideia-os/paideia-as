@@ -1,0 +1,7 @@
+// Fixture: percpu_add_various_offsets
+// Tests percpu_add at different per-CPU control block offsets.
+
+trait PerCpuAddVariousOffsets {
+  fn percpu_add(counter_gs_offset: u64, val: u64) -> () !{Atomic, RawMem} @{paideia.raw_mem};
+  fn percpu_add_to_second_counter(counter_gs_offset: u64, val: u64) -> () !{Atomic, RawMem} @{paideia.raw_mem};
+}

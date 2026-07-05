@@ -1,0 +1,6 @@
+// Fixture: percpu_inc_single
+// Tests that percpu_inc(counter_gs_offset) atomically increments a per-CPU counter.
+
+trait PerCpuIncSingle {
+  fn percpu_inc(counter_gs_offset: u64) -> () !{Atomic, RawMem} @{paideia.raw_mem};
+}

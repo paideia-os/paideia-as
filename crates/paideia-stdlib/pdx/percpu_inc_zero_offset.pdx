@@ -1,0 +1,6 @@
+// Fixture: percpu_inc_zero_offset
+// Tests percpu_inc(0) with offset=0, the base counter at the per-CPU control block start.
+
+trait PerCpuIncZeroOffset {
+  fn percpu_inc(counter_gs_offset: u64) -> () !{Atomic, RawMem} @{paideia.raw_mem};
+}
