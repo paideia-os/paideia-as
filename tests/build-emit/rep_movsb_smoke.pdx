@@ -1,0 +1,52 @@
+// Test: PA-R13-011 (#940) — rep movsb instruction encoding audit
+// This file verifies that rep movsb encodes correctly in various contexts:
+// - bare rep movsb → F3 A4 C3
+// - after cld instruction → FC F3 A4 C3
+// - after label → F3 A4 C3
+//
+// The audit ensures rep movsb (0xF3 0xA4) is only emitted when no operands
+// are present and rejects any operand-bearing forms like rep movsb rax;
+
+module RepMovsbSmoke = structure {
+  let bare_rep_movsb : () -> () !{mem} @{boot} = fn(_: ()) -> unsafe {
+    effects: {mem},
+    capabilities: {boot},
+    justification: "bare rep movsb smoke test",
+    block: {
+      rep_movsb;
+      ret
+    }
+  }
+
+  let after_cld : () -> () !{mem} @{boot} = fn(_: ()) -> unsafe {
+    effects: {mem},
+    capabilities: {boot},
+    justification: "rep movsb after cld clears direction flag",
+    block: {
+      cld;
+      rep_movsb;
+      ret
+    }
+  }
+
+  let after_label : () -> () !{mem} @{boot} = fn(_: ()) -> unsafe {
+    effects: {mem},
+    capabilities: {boot},
+    justification: "rep movsb after label at offset 0",
+    block: {
+      copy_loop: rep_movsb;
+      ret
+    }
+  }
+
+  let labeled_cld_rep : () -> () !{mem} @{boot} = fn(_: ()) -> unsafe {
+    effects: {mem},
+    capabilities: {boot},
+    justification: "label then cld then rep movsb",
+    block: {
+      loop_start: cld;
+      rep_movsb;
+      ret
+    }
+  }
+}
