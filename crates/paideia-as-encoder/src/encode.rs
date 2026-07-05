@@ -1639,6 +1639,27 @@ pub fn lock_cmpxchg_mem_base_disp_reg32(
     emit_mem_base_disp(buf, src_id & 7, base_id, disp);
 }
 
+/// Encode `lock cmpxchg16b [base + disp]` — PA-R16-004 (issue #970).
+///
+/// Instruction: F0 REX.W 0F C7 /1
+/// Group opcode /1 (ModR/M.reg = 001). Implicit register operands: RDX:RAX
+/// (expected, high:low), RCX:RBX (new, high:low). ZF=1 on success; ZF=0 loads
+/// RDX:RAX ← memory.
+///
+/// REX is always emitted (REX.W=1 is required). REX.B is set when base∈{r8..r15}.
+///
+/// Prefix order: LOCK (Group 1) precedes REX (Intel SDM Vol 2A §2.1.1).
+/// Requires 16-byte aligned memory operand at runtime (unaligned raises #GP).
+/// Requires CPUID.01H:ECX.CMPXCHG16B[bit 13] at runtime.
+pub fn lock_cmpxchg16b_mem_base_disp(buf: &mut CodeBuffer, base: Reg64, disp: i32) {
+    buf.bytes.push(0xF0); // LOCK prefix
+    let base_id = base as u8;
+    buf.bytes.push(rex(true, false, false, (base_id >> 3) != 0));
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xC7);
+    emit_mem_base_disp(buf, /* reg_field = */ 0b001, base_id, disp);
+}
+
 /// Encode `mfence` — PA-R13-005 (issue #918).
 ///
 /// Instruction: 0F AE F0. Zero operands. Serializing memory barrier.

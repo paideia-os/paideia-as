@@ -221,6 +221,13 @@ pub enum Mnemonic {
     /// Compares implicit EAX with r/m32; if equal writes reg32, else loads r/m32
     /// into EAX. Two operands (mem, reg). Reg-reg form not supported.
     LockCmpxchg32,
+    /// lock cmpxchg16b m128 (PA-R16-004, #970). Encoding: F0 REX.W 0F C7 /1.
+    /// Compares implicit RDX:RAX with the 16-byte memory operand; if equal writes
+    /// RCX:RBX to memory (ZF=1), else loads memory into RDX:RAX (ZF=0). One explicit
+    /// operand (memory). Implicit register operands: RDX:RAX (expected), RCX:RBX (new).
+    /// Requires 16-byte aligned memory operand (unaligned #GP). Requires
+    /// CPUID.01H:ECX.CMPXCHG16B[bit 13].
+    LockCmpxchg16b,
     /// mfence (PA-R13-005, #918). Serializing memory barrier: all preceding
     /// loads and stores complete before subsequent ones. Encoding: 0F AE F0.
     /// Zero operands.
@@ -731,7 +738,8 @@ impl Mnemonic {
             | Mnemonic::Inc
             | Mnemonic::Dec
             | Mnemonic::Bswap
-            | Mnemonic::Bswap32 => 1,
+            | Mnemonic::Bswap32
+            | Mnemonic::LockCmpxchg16b => 1,
 
             // Two-operand instructions
             Mnemonic::Mov
@@ -929,6 +937,9 @@ impl Mnemonic {
 
             // Phase R16 PA-R16-003: lock cmpxchg32 register with memory, 10 bytes upper bound
             Mnemonic::LockCmpxchg32 => 10,
+
+            // Phase R16 PA-R16-004: lock cmpxchg16b register with memory, 10 bytes upper bound
+            Mnemonic::LockCmpxchg16b => 10,
 
             // Phase R13 PA-R13-005: memory fence, 3 bytes
             Mnemonic::Mfence => 3,

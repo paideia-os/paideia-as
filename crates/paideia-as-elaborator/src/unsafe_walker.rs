@@ -201,6 +201,8 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     ("lock_cmpxchg", Mnemonic::LockCmpxchg),
     // Phase R16 PA-R16-003 (issue #969): lock cmpxchg r/m32, r32
     ("lock_cmpxchg_d", Mnemonic::LockCmpxchg32),
+    // Phase R16 PA-R16-004 (issue #970): lock cmpxchg16b m128
+    ("lock_cmpxchg16b", Mnemonic::LockCmpxchg16b),
     // Phase R13 PA-R13-005 (issue #918): mfence
     ("mfence", Mnemonic::Mfence),
     // Phase R14 PA-R14-004 (issue #947): sfence/lfence
@@ -2214,6 +2216,11 @@ mod tests {
     #[test]
     fn resolve_mnemonic_lock_cmpxchg_d() {
         assert_eq!(resolve_mnemonic("lock_cmpxchg_d"), Some(Mnemonic::LockCmpxchg32));
+    }
+
+    #[test]
+    fn resolve_mnemonic_lock_cmpxchg16b() {
+        assert_eq!(resolve_mnemonic("lock_cmpxchg16b"), Some(Mnemonic::LockCmpxchg16b));
     }
 
     #[test]

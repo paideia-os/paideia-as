@@ -137,6 +137,7 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         | Mnemonic::Xchg
         | Mnemonic::LockCmpxchg
         | Mnemonic::LockCmpxchg32
+        | Mnemonic::LockCmpxchg16b
         | Mnemonic::LockXadd { .. }
         | Mnemonic::LockAdd { .. }
         | Mnemonic::LockSub { .. }

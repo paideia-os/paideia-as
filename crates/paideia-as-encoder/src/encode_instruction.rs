@@ -351,6 +351,8 @@ fn encode_instruction_impl(
         Mnemonic::LockCmpxchg => encode_lock_cmpxchg_inst(inst, buf),
         // Phase R16 PA-R16-003: lock cmpxchg32 register with memory
         Mnemonic::LockCmpxchg32 => encode_lock_cmpxchg32_inst(inst, buf),
+        // Phase R16 PA-R16-004: lock cmpxchg16b register with memory
+        Mnemonic::LockCmpxchg16b => encode_lock_cmpxchg16b_inst(inst, buf),
         // Phase R15 PA-R15-002: lock xadd register with memory
         Mnemonic::LockXadd { width } => encode_lock_xadd(inst, buf, *width),
         // Phase R15 PA-R15-003: lock add immediate/register with memory
@@ -692,6 +694,19 @@ fn encode_lock_cmpxchg32_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Resul
             Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::LockCmpxchg32 }),
+    }
+}
+
+fn encode_lock_cmpxchg16b_inst(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::MemSib { base, index: None, scale: Scale::X1, disp }] => {
+            lock_cmpxchg16b_mem_base_disp(buf, reg64_from(*base)?, *disp);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::LockCmpxchg16b }),
     }
 }
 
@@ -8336,6 +8351,134 @@ mod jcc_tests {
         let mut stats = EncodeStats::new();
         let err = encode_instruction(&inst, &mut buf, &mut stats).unwrap_err();
         assert!(matches!(err, EncodeError::OperandShape { mnemonic: Mnemonic::LockCmpxchg32 }));
+    }
+
+    // Phase R16 PA-R16-004 (issue #970): lock cmpxchg16b tests
+
+    #[test]
+    fn encode_lock_cmpxchg16b_rdi_emits_f0_48_0f_c7_0f() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::LockCmpxchg16b,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(7), index: None, scale: Scale::X1, disp: 0 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0xF0, 0x48, 0x0F, 0xC7, 0x0F]);
+    }
+
+    #[test]
+    fn encode_lock_cmpxchg16b_r15_disp8_emits_f0_49_0f_c7_4f_08() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::LockCmpxchg16b,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(15), index: None, scale: Scale::X1, disp: 8 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0xF0, 0x49, 0x0F, 0xC7, 0x4F, 0x08]);
+    }
+
+    #[test]
+    fn encode_lock_cmpxchg16b_rsp_emits_f0_48_0f_c7_0c_24() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::LockCmpxchg16b,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(4), index: None, scale: Scale::X1, disp: 0 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0xF0, 0x48, 0x0F, 0xC7, 0x0C, 0x24]);
+    }
+
+    #[test]
+    fn encode_lock_cmpxchg16b_r13_disp0_emits_f0_49_0f_c7_4d_00() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::LockCmpxchg16b,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(13), index: None, scale: Scale::X1, disp: 0 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0xF0, 0x49, 0x0F, 0xC7, 0x4D, 0x00]);
+    }
+
+    #[test]
+    fn encode_lock_cmpxchg16b_rdi_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::LockCmpxchg16b,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(7), index: None, scale: Scale::X1, disp: 0 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Cmpxchg16b);
+        assert!(instr.has_lock_prefix());
+    }
+
+    #[test]
+    fn encode_lock_cmpxchg16b_reg_operand_rejects() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::LockCmpxchg16b,
+            operands: smallvec::smallvec![
+                Operand::Reg(RegId(7)),
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        let err = encode_instruction(&inst, &mut buf, &mut stats).unwrap_err();
+        assert!(matches!(err, EncodeError::OperandShape { mnemonic: Mnemonic::LockCmpxchg16b }));
+    }
+
+    #[test]
+    fn encode_lock_cmpxchg16b_sib_with_index_rejects() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::LockCmpxchg16b,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(7), index: Some(RegId(6)), scale: Scale::X1, disp: 0 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        let err = encode_instruction(&inst, &mut buf, &mut stats).unwrap_err();
+        assert!(matches!(err, EncodeError::OperandShape { mnemonic: Mnemonic::LockCmpxchg16b }));
     }
 
     #[test]
