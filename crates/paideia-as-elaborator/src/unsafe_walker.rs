@@ -200,6 +200,11 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     // Phase R14 PA-R14-004 (issue #947): sfence/lfence
     ("sfence", Mnemonic::Sfence),
     ("lfence", Mnemonic::Lfence),
+    // Phase R14 PA-R14-005 (issue #948): wbinvd/invd/clflush/clflushopt
+    ("wbinvd", Mnemonic::Wbinvd),
+    ("invd", Mnemonic::Invd),
+    ("clflush", Mnemonic::Clflush),
+    ("clflushopt", Mnemonic::Clflushopt),
     // Phase R13 PA-R13-007 (issue #920): fxsave/fxrstor
     ("fxsave", Mnemonic::Fxsave),
     ("fxrstor", Mnemonic::Fxrstor),

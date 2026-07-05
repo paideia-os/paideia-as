@@ -321,9 +321,15 @@ fn encode_instruction_impl(
         // Phase R14 PA-R14-004: store/load fence
         Mnemonic::Sfence => encode_sfence_inst(inst, buf),
         Mnemonic::Lfence => encode_lfence_inst(inst, buf),
+        // Phase R14 PA-R14-005: write-back/invalidate cache and clflush
+        Mnemonic::Wbinvd => encode_wbinvd_inst(inst, buf),
+        Mnemonic::Invd => encode_invd_inst(inst, buf),
         // Phase R13 PA-R13-007: fxsave/fxrstor to memory
         Mnemonic::Fxsave => encode_fxsave_inst(inst, buf),
         Mnemonic::Fxrstor => encode_fxrstor_inst(inst, buf),
+        // Phase R14 PA-R14-005: cache line flush instructions
+        Mnemonic::Clflush => encode_clflush_inst(inst, buf),
+        Mnemonic::Clflushopt => encode_clflushopt_inst(inst, buf),
         // Phase R13 PA-R13-005 (issue #934): inc/dec r64
         Mnemonic::Inc => encode_inc(inst, buf),
         Mnemonic::Dec => encode_dec(inst, buf),
@@ -649,6 +655,30 @@ fn encode_lfence_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<Encode
     Ok(EncodeOutput::new())
 }
 
+/// Phase R14 PA-R14-005: Encode wbinvd instruction.
+/// Expects zero operands. Emits via `wbinvd`.
+fn encode_wbinvd_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    if !inst.operands.is_empty() {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::Wbinvd, expected: 0, got: inst.operands.len(),
+        });
+    }
+    wbinvd(buf);
+    Ok(EncodeOutput::new())
+}
+
+/// Phase R14 PA-R14-005: Encode invd instruction.
+/// Expects zero operands. Emits via `invd`.
+fn encode_invd_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    if !inst.operands.is_empty() {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::Invd, expected: 0, got: inst.operands.len(),
+        });
+    }
+    invd(buf);
+    Ok(EncodeOutput::new())
+}
+
 /// Phase R13 PA-R13-007: Encode fxsave instruction.
 /// Expects one memory operand [base + disp]. Emits via `fxsave_mem_base_disp`.
 fn encode_fxsave_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
@@ -670,6 +700,30 @@ fn encode_fxrstor_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<Encod
             Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::Fxrstor }),
+    }
+}
+
+/// Phase R14 PA-R14-005: Encode clflush instruction.
+/// Expects one memory operand [base + disp]. Emits via `clflush_mem_base_disp`.
+fn encode_clflush_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::MemSib { base, index: None, scale: Scale::X1, disp }] => {
+            clflush_mem_base_disp(buf, reg64_from(*base)?, *disp);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::Clflush }),
+    }
+}
+
+/// Phase R14 PA-R14-005: Encode clflushopt instruction.
+/// Expects one memory operand [base + disp]. Emits via `clflushopt_mem_base_disp`.
+fn encode_clflushopt_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::MemSib { base, index: None, scale: Scale::X1, disp }] => {
+            clflushopt_mem_base_disp(buf, reg64_from(*base)?, *disp);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::Clflushopt }),
     }
 }
 

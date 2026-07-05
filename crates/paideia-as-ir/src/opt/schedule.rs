@@ -133,7 +133,12 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         | Mnemonic::Fxsave
         | Mnemonic::Fxrstor
         // Phase R14 PA-R14-003 (issue #946): non-temporal store has special cache semantics
-        | Mnemonic::Movnti { .. } => InstructionClass::Other,
+        | Mnemonic::Movnti { .. }
+        // Phase R14 PA-R14-005 (issue #948): cache control operations
+        | Mnemonic::Wbinvd
+        | Mnemonic::Invd
+        | Mnemonic::Clflush
+        | Mnemonic::Clflushopt => InstructionClass::Other,
     }
 }
 

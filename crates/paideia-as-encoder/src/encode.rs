@@ -952,6 +952,22 @@ pub fn lfence(buf: &mut CodeBuffer) {
     buf.bytes.push(0xE8);
 }
 
+/// Encode `wbinvd` — PA-R14-005 (issue #948).
+///
+/// Instruction: 0F 09. Zero operands. Write-back and invalidate cache. Privileged.
+pub fn wbinvd(buf: &mut CodeBuffer) {
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0x09);
+}
+
+/// Encode `invd` — PA-R14-005 (issue #948).
+///
+/// Instruction: 0F 08. Zero operands. Invalidate cache without write-back. Privileged.
+pub fn invd(buf: &mut CodeBuffer) {
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0x08);
+}
+
 /// Encode `fxsave [base + disp]` — PA-R13-007 (issue #920).
 /// Instruction: 0F AE /0 (reg field = 000). Saves x87/MMX/SSE state.
 /// REX.B for r8-r15 base; no REX.W.
@@ -975,6 +991,33 @@ pub fn fxrstor_mem_base_disp(buf: &mut CodeBuffer, base: Reg64, disp: i32) {
     buf.bytes.push(0x0F);
     buf.bytes.push(0xAE);
     emit_mem_base_disp(buf, 1, base_id, disp);
+}
+
+/// Encode `clflush [base + disp]` — PA-R14-005 (issue #948).
+/// Instruction: 0F AE /7 (reg field = 111). Flushes cache line to main memory.
+/// REX.B for r8-r15 base; no REX.W.
+pub fn clflush_mem_base_disp(buf: &mut CodeBuffer, base: Reg64, disp: i32) {
+    let base_id = base as u8;
+    if (base_id >> 3) != 0 {
+        buf.bytes.push(rex(false, false, false, true));
+    }
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xAE);
+    emit_mem_base_disp(buf, 7, base_id, disp);
+}
+
+/// Encode `clflushopt [base + disp]` — PA-R14-005 (issue #948).
+/// Instruction: 66 0F AE /7 (reg field = 111). Optimized cache line flush with 0x66 prefix.
+/// REX.B for r8-r15 base; no REX.W.
+pub fn clflushopt_mem_base_disp(buf: &mut CodeBuffer, base: Reg64, disp: i32) {
+    buf.bytes.push(0x66);
+    let base_id = base as u8;
+    if (base_id >> 3) != 0 {
+        buf.bytes.push(rex(false, false, false, true));
+    }
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xAE);
+    emit_mem_base_disp(buf, 7, base_id, disp);
 }
 
 /// Encode `div src64` (unsigned 64-bit divide, register operand).

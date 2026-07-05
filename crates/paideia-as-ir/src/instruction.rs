@@ -212,6 +212,12 @@ pub enum Mnemonic {
     /// lfence (PA-R14-004, #947). Load fence: preceding loads complete
     /// before subsequent ones. Encoding: 0F AE E8. Zero operands.
     Lfence,
+    /// wbinvd (PA-R14-005, #948). Write-back and invalidate cache.
+    /// Encoding: 0F 09. Zero operands. Privileged.
+    Wbinvd,
+    /// invd (PA-R14-005, #948). Invalidate cache (no write-back).
+    /// Encoding: 0F 08. Zero operands. Privileged.
+    Invd,
     /// fxsave [base + disp] (PA-R13-007, #920). Saves x87/MMX/SSE state to memory.
     /// Instruction: 0F AE /0 (reg field = 000). REX.B for r8-r15 base; no REX.W.
     /// One operand (memory).
@@ -220,6 +226,14 @@ pub enum Mnemonic {
     /// Instruction: 0F AE /1 (reg field = 001). REX.B for r8-r15 base; no REX.W.
     /// One operand (memory).
     Fxrstor,
+    /// clflush [base + disp] (PA-R14-005, #948). Flush cache line to main memory.
+    /// Instruction: 0F AE /7 (reg field = 111). REX.B for r8-r15 base; no REX.W.
+    /// One operand (memory).
+    Clflush,
+    /// clflushopt [base + disp] (PA-R14-005, #948). Optimized cache line flush.
+    /// Instruction: 66 0F AE /7 (reg field = 111). 0x66 prefix; REX.B for r8-r15 base; no REX.W.
+    /// One operand (memory).
+    Clflushopt,
     /// `inc r64` (PA-R13-005, #934). Increment 64-bit register by 1.
     /// Encoding: REX.W FF /0 (ModR/M reg field = 000 → 0xC0 | (reg & 7)).
     /// One operand (the destination register).
@@ -544,7 +558,9 @@ impl Mnemonic {
             | Mnemonic::Popfq
             | Mnemonic::Int3
             | Mnemonic::Sfence
-            | Mnemonic::Lfence => 0,
+            | Mnemonic::Lfence
+            | Mnemonic::Wbinvd
+            | Mnemonic::Invd => 0,
 
             // One-operand instructions
             Mnemonic::Call
@@ -570,6 +586,8 @@ impl Mnemonic {
             | Mnemonic::Ltr
             | Mnemonic::Fxsave
             | Mnemonic::Fxrstor
+            | Mnemonic::Clflush
+            | Mnemonic::Clflushopt
             | Mnemonic::Inc
             | Mnemonic::Dec
             | Mnemonic::Bswap => 1,
@@ -745,9 +763,16 @@ impl Mnemonic {
             // Phase R14 PA-R14-004: lfence/sfence, 3 bytes each
             Mnemonic::Lfence | Mnemonic::Sfence => 3,
 
+            // Phase R14 PA-R14-005: wbinvd/invd, 2 bytes each
+            Mnemonic::Wbinvd | Mnemonic::Invd => 2,
+
             // Phase R13 PA-R13-007: fxsave/fxrstor to memory, 9 bytes upper bound
             // (two-byte opcode + REX.B + SIB + disp32 worst-case)
             Mnemonic::Fxsave | Mnemonic::Fxrstor => 9,
+
+            // Phase R14 PA-R14-005: clflush/clflushopt, 9 bytes upper bound
+            // (0x66 prefix + two-byte opcode + REX.B + SIB + disp32 worst-case)
+            Mnemonic::Clflush | Mnemonic::Clflushopt => 9,
 
             // Phase R13 PA-R13-005 (issue #934): inc/dec r64, 3 bytes exact
             // (REX.W FF ModR/M — REX.B for r8..r15 replaces REX.W's high nibble bit
