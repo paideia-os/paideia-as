@@ -1447,6 +1447,41 @@ pub fn test_reg64_reg64(buf: &mut CodeBuffer, dst: Reg64, src: Reg64) {
     buf.bytes.push(0xC0 | ((src_id & 7) << 3) | (dst_id & 7));
 }
 
+/// Encode `test reg64, imm32` (32-bit immediate, sign-extended to 64-bit) — PA-R13-006 (issue #935).
+///
+/// RAX uses the short form `REX.W A9 id` (6 bytes total). All other GPRs use
+/// the general `REX.W F7 /0 id` form (7 bytes total). The `/0` opcode extension
+/// lives in the `reg` field of ModR/M, so ModR/M = `mod=11 | reg=000 | rm=dst`
+/// = `0xC0 | (dst & 7)`.
+///
+/// REX.W=1 is always required for 64-bit operand size; REX.B=dst>>3 for
+/// extended registers (R8..R15).
+///
+/// The immediate is sign-extended by the CPU from imm32 to the 64-bit operand,
+/// so callers should keep values in `i32::MIN..=i32::MAX`. Ranged dispatch is
+/// performed by `encode_test`; this primitive takes an `i32` directly.
+///
+/// Example: `test rax, 0x100`  → `48 A9 00 01 00 00 00`      (short form, 6 bytes)
+/// Example: `test rbx, 0x100`  → `48 F7 C3 00 01 00 00 00`   (general form, 7 bytes)
+/// Example: `test r8,  1`      → `49 F7 C0 01 00 00 00 00`
+/// Example: `test rdi, -1`     → `48 F7 C7 FF FF FF FF`      (sign-extended)
+pub fn test_reg64_imm32(buf: &mut CodeBuffer, dst: Reg64, imm: i32) {
+    let reg_id = dst as u8;
+    if matches!(dst, Reg64::Rax) {
+        // Short form: REX.W A9 id (48 A9 <imm32>)
+        buf.bytes.push(rex(true, false, false, false));
+        buf.bytes.push(0xA9);
+        buf.bytes.extend(imm.to_le_bytes());
+    } else {
+        // General form: REX.W F7 /0 id
+        let rex_byte = rex(true, false, false, (reg_id >> 3) != 0);
+        buf.bytes.push(rex_byte);
+        buf.bytes.push(0xF7);
+        buf.bytes.push(0xC0 | (reg_id & 7));
+        buf.bytes.extend(imm.to_le_bytes());
+    }
+}
+
 /// Encode `jmp rel8` (short jump).
 ///
 /// Instruction: EB cb (displacement is relative to end of instruction)

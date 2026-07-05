@@ -1262,10 +1262,27 @@ fn encode_cmp(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
 fn encode_test(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
     // Phase 7 m1-001: test r64, r64 for condition testing.
     // Operands: [register, register] for "test rdi, rdi" shape.
+    // PA-R13-006 (issue #935): [register, imm64-in-i32-range] for
+    // "test r64, imm32" — REX.W F7 /0 id (with 48 A9 id short form for RAX).
     match inst.operands.as_slice() {
         [Operand::Reg(dest), Operand::Reg(src)] => {
             // test r64, r64 → 48 85 <ModR/M>
             test_reg64_reg64(buf, reg64_from(*dest)?, reg64_from(*src)?);
+            Ok(EncodeOutput::new())
+        }
+        [Operand::Reg(dest), Operand::Imm64(imm)] => {
+            let dest_reg = reg64_from(*dest)?;
+            let imm_i64 = *imm;
+
+            // TEST has no imm8 sign-extended form (unlike CMP/ADD/SUB — the
+            // 83 /X ib subgroup doesn't include /0=TEST). All immediates go
+            // through F7 /0 id (or the A9 id short form for RAX).
+            if imm_i64 < i32::MIN as i64 || imm_i64 > i32::MAX as i64 {
+                return Err(EncodeError::Unsupported(
+                    "64-bit immediate test not yet supported; use and+cmp workaround",
+                ));
+            }
+            test_reg64_imm32(buf, dest_reg, imm_i64 as i32);
             Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::Unsupported(
