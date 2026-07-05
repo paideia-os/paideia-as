@@ -357,6 +357,30 @@ pub enum Mnemonic {
         /// Operand width selecting the encoded form (W32 or W64).
         width: IntWidth,
     },
+    /// LOCK-prefixed bit test and set: `lock bts [mem], imm8/r64` (PA-R16-002, #968).
+    /// Atomically tests a bit and sets it to 1. Sets CF to old bit value. Two operands (mem, index).
+    /// Encoding: `F0 REX.W 0F BA /5 ib` (imm8) or `F0 REX.W 0F AB /r` (reg) per Intel SDM Vol 2A BTS.
+    /// Effect: !{Atomic}. LOCK (Group 1) precedes REX per Vol 2A §2.1.1.
+    LockBts {
+        /// Operand width selecting the encoded form (W64 only).
+        width: IntWidth,
+    },
+    /// LOCK-prefixed bit test and reset: `lock btr [mem], imm8/r64` (PA-R16-002, #968).
+    /// Atomically tests a bit and clears it to 0. Sets CF to old bit value. Two operands (mem, index).
+    /// Encoding: `F0 REX.W 0F BA /6 ib` (imm8) or `F0 REX.W 0F B3 /r` (reg) per Intel SDM Vol 2A BTR.
+    /// Effect: !{Atomic}. LOCK (Group 1) precedes REX per Vol 2A §2.1.1.
+    LockBtr {
+        /// Operand width selecting the encoded form (W64 only).
+        width: IntWidth,
+    },
+    /// LOCK-prefixed bit test and complement: `lock btc [mem], imm8/r64` (PA-R16-002, #968).
+    /// Atomically tests a bit and toggles it. Sets CF to old bit value. Two operands (mem, index).
+    /// Encoding: `F0 REX.W 0F BA /7 ib` (imm8) or `F0 REX.W 0F BB /r` (reg) per Intel SDM Vol 2A BTC.
+    /// Effect: !{Atomic}. LOCK (Group 1) precedes REX per Vol 2A §2.1.1.
+    LockBtc {
+        /// Operand width selecting the encoded form (W64 only).
+        width: IntWidth,
+    },
 }
 
 /// Integer operand width for width-threaded immediate moves.
@@ -716,6 +740,9 @@ impl Mnemonic {
             | Mnemonic::Bts { .. }
             | Mnemonic::Btr { .. }
             | Mnemonic::Btc { .. }
+            | Mnemonic::LockBts { .. }
+            | Mnemonic::LockBtr { .. }
+            | Mnemonic::LockBtc { .. }
             | Mnemonic::Cmp
             | Mnemonic::Test
             | Mnemonic::Lea
@@ -816,7 +843,9 @@ impl Mnemonic {
 
             // Bit test operations: 9 bytes (REX + 0F + opcode + ModR/M + disp32 max)
             // Phase R16 PA-R16-001 (issue #967): bt, bts, btr, btc
-            Mnemonic::Bt { .. } | Mnemonic::Bts { .. } | Mnemonic::Btr { .. } | Mnemonic::Btc { .. } => 9,
+            // Phase R16 PA-R16-002 (issue #968): lock bts, lock btr, lock btc (9 bytes: LOCK + REX + 0F + opcode + ModR/M + disp32 + imm8 max)
+            Mnemonic::Bt { .. } | Mnemonic::Bts { .. } | Mnemonic::Btr { .. } | Mnemonic::Btc { .. }
+            | Mnemonic::LockBts { .. } | Mnemonic::LockBtr { .. } | Mnemonic::LockBtc { .. } => 9,
 
             // Load effective address: 10 bytes
             Mnemonic::Lea => 10,

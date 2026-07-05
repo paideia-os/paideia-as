@@ -253,6 +253,10 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     ("btr_q", Mnemonic::Btr { width: IntWidth::W64 }),
     ("btc_d", Mnemonic::Btc { width: IntWidth::W32 }),
     ("btc_q", Mnemonic::Btc { width: IntWidth::W64 }),
+    // Phase R16 PA-R16-002 (issue #968): lock bit test operations (W64 only)
+    ("lock_bts_q", Mnemonic::LockBts { width: IntWidth::W64 }),
+    ("lock_btr_q", Mnemonic::LockBtr { width: IntWidth::W64 }),
+    ("lock_btc_q", Mnemonic::LockBtc { width: IntWidth::W64 }),
     // Phase R14 PA-R14-006 (issue #949): prefetch instructions
     ("prefetchnta", Mnemonic::Prefetchnta),
     ("prefetcht0", Mnemonic::Prefetcht0),

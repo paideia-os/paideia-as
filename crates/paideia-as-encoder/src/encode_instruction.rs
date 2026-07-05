@@ -355,6 +355,10 @@ fn encode_instruction_impl(
         Mnemonic::LockAdd { width } => encode_lock_add(inst, buf, *width),
         // Phase R15 PA-R15-003: lock sub immediate/register with memory
         Mnemonic::LockSub { width } => encode_lock_sub(inst, buf, *width),
+        // Phase R16 PA-R16-002: lock bts/btr/btc immediate/register with memory
+        Mnemonic::LockBts { width } => encode_lock_bts(inst, buf, *width),
+        Mnemonic::LockBtr { width } => encode_lock_btr(inst, buf, *width),
+        Mnemonic::LockBtc { width } => encode_lock_btc(inst, buf, *width),
         // Phase R13 PA-R13-005: memory fence
         Mnemonic::Mfence => encode_mfence_inst(inst, buf),
         // Phase R14 PA-R14-004: store/load fence
@@ -835,6 +839,105 @@ fn encode_lock_sub(
             ))
         }
         _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::LockSub { width } }),
+    }
+}
+
+/// Phase R16 PA-R16-002: Encode lock bts instruction.
+/// Supports: [mem], imm8/r64 (W64 only).
+fn encode_lock_bts(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+    width: IntWidth,
+) -> Result<EncodeOutput, EncodeError> {
+    if width != IntWidth::W64 {
+        return Err(EncodeError::Unsupported(
+            "E0044: lock_bts only supports W64",
+        ));
+    }
+
+    match inst.operands.as_slice() {
+        // lock bts [mem], reg form
+        [Operand::MemSib { base, index: None, scale: Scale::X1, disp }, Operand::Reg(index_reg)] => {
+            let base_reg = reg64_from(*base)?;
+            let index_reg_val = reg64_from(*index_reg)?;
+            lock_bts_mem_base_disp_reg64(buf, base_reg, *disp, index_reg_val);
+            Ok(EncodeOutput::new())
+        }
+        // lock bts [mem], imm form
+        [Operand::MemSib { base, index: None, scale: Scale::X1, disp }, Operand::Imm64(imm_val)] => {
+            let base_reg = reg64_from(*base)?;
+            let imm = u8::try_from(*imm_val)
+                .map_err(|_| EncodeError::Unsupported("E0044: lock_bts imm8 out of u8 range"))?;
+            lock_bts_mem_base_disp_imm8(buf, base_reg, *disp, imm);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::LockBts { width } }),
+    }
+}
+
+/// Phase R16 PA-R16-002: Encode lock btr instruction.
+/// Supports: [mem], imm8/r64 (W64 only).
+fn encode_lock_btr(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+    width: IntWidth,
+) -> Result<EncodeOutput, EncodeError> {
+    if width != IntWidth::W64 {
+        return Err(EncodeError::Unsupported(
+            "E0045: lock_btr only supports W64",
+        ));
+    }
+
+    match inst.operands.as_slice() {
+        // lock btr [mem], reg form
+        [Operand::MemSib { base, index: None, scale: Scale::X1, disp }, Operand::Reg(index_reg)] => {
+            let base_reg = reg64_from(*base)?;
+            let index_reg_val = reg64_from(*index_reg)?;
+            lock_btr_mem_base_disp_reg64(buf, base_reg, *disp, index_reg_val);
+            Ok(EncodeOutput::new())
+        }
+        // lock btr [mem], imm form
+        [Operand::MemSib { base, index: None, scale: Scale::X1, disp }, Operand::Imm64(imm_val)] => {
+            let base_reg = reg64_from(*base)?;
+            let imm = u8::try_from(*imm_val)
+                .map_err(|_| EncodeError::Unsupported("E0045: lock_btr imm8 out of u8 range"))?;
+            lock_btr_mem_base_disp_imm8(buf, base_reg, *disp, imm);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::LockBtr { width } }),
+    }
+}
+
+/// Phase R16 PA-R16-002: Encode lock btc instruction.
+/// Supports: [mem], imm8/r64 (W64 only).
+fn encode_lock_btc(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+    width: IntWidth,
+) -> Result<EncodeOutput, EncodeError> {
+    if width != IntWidth::W64 {
+        return Err(EncodeError::Unsupported(
+            "E0046: lock_btc only supports W64",
+        ));
+    }
+
+    match inst.operands.as_slice() {
+        // lock btc [mem], reg form
+        [Operand::MemSib { base, index: None, scale: Scale::X1, disp }, Operand::Reg(index_reg)] => {
+            let base_reg = reg64_from(*base)?;
+            let index_reg_val = reg64_from(*index_reg)?;
+            lock_btc_mem_base_disp_reg64(buf, base_reg, *disp, index_reg_val);
+            Ok(EncodeOutput::new())
+        }
+        // lock btc [mem], imm form
+        [Operand::MemSib { base, index: None, scale: Scale::X1, disp }, Operand::Imm64(imm_val)] => {
+            let base_reg = reg64_from(*base)?;
+            let imm = u8::try_from(*imm_val)
+                .map_err(|_| EncodeError::Unsupported("E0046: lock_btc imm8 out of u8 range"))?;
+            lock_btc_mem_base_disp_imm8(buf, base_reg, *disp, imm);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::LockBtc { width } }),
     }
 }
 

@@ -777,6 +777,102 @@ pub fn btc_mem_base_disp_reg32(buf: &mut CodeBuffer, base_id: u8, disp: i32, ind
     emit_mem_base_disp(buf, index_id & 7, base_id, disp);
 }
 
+/// Encode `lock bts [base + disp], imm8` (bit test and set with immediate, locked).
+///
+/// Instruction: F0 REX.W 0F BA /5 ib
+/// Prefix order: LOCK (Group 1) precedes REX (Intel SDM Vol 2A §2.1.1).
+/// Phase R16 PA-R16-002 (issue #968): lock bts immediate form.
+pub fn lock_bts_mem_base_disp_imm8(buf: &mut CodeBuffer, base: Reg64, disp: i32, imm: u8) {
+    buf.bytes.push(0xF0); // LOCK prefix
+    let base_id = base as u8;
+    let rex_byte = rex(true, false, false, (base_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xBA);
+    emit_mem_base_disp(buf, 5, base_id, disp); // /5 for BTS
+    buf.bytes.push(imm);
+}
+
+/// Encode `lock btr [base + disp], imm8` (bit test and reset with immediate, locked).
+///
+/// Instruction: F0 REX.W 0F BA /6 ib
+/// Prefix order: LOCK (Group 1) precedes REX (Intel SDM Vol 2A §2.1.1).
+/// Phase R16 PA-R16-002 (issue #968): lock btr immediate form.
+pub fn lock_btr_mem_base_disp_imm8(buf: &mut CodeBuffer, base: Reg64, disp: i32, imm: u8) {
+    buf.bytes.push(0xF0); // LOCK prefix
+    let base_id = base as u8;
+    let rex_byte = rex(true, false, false, (base_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xBA);
+    emit_mem_base_disp(buf, 6, base_id, disp); // /6 for BTR
+    buf.bytes.push(imm);
+}
+
+/// Encode `lock btc [base + disp], imm8` (bit test and complement with immediate, locked).
+///
+/// Instruction: F0 REX.W 0F BA /7 ib
+/// Prefix order: LOCK (Group 1) precedes REX (Intel SDM Vol 2A §2.1.1).
+/// Phase R16 PA-R16-002 (issue #968): lock btc immediate form.
+pub fn lock_btc_mem_base_disp_imm8(buf: &mut CodeBuffer, base: Reg64, disp: i32, imm: u8) {
+    buf.bytes.push(0xF0); // LOCK prefix
+    let base_id = base as u8;
+    let rex_byte = rex(true, false, false, (base_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xBA);
+    emit_mem_base_disp(buf, 7, base_id, disp); // /7 for BTC
+    buf.bytes.push(imm);
+}
+
+/// Encode `lock bts [base + disp], index` (bit test and set with register, locked).
+///
+/// Instruction: F0 REX.W 0F AB /r
+/// Prefix order: LOCK (Group 1) precedes REX (Intel SDM Vol 2A §2.1.1).
+/// Phase R16 PA-R16-002 (issue #968): lock bts register form.
+pub fn lock_bts_mem_base_disp_reg64(buf: &mut CodeBuffer, base: Reg64, disp: i32, index: Reg64) {
+    buf.bytes.push(0xF0); // LOCK prefix
+    let base_id = base as u8;
+    let index_id = index as u8;
+    let rex_byte = rex(true, (index_id >> 3) != 0, false, (base_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xAB);
+    emit_mem_base_disp(buf, index_id & 7, base_id, disp);
+}
+
+/// Encode `lock btr [base + disp], index` (bit test and reset with register, locked).
+///
+/// Instruction: F0 REX.W 0F B3 /r
+/// Prefix order: LOCK (Group 1) precedes REX (Intel SDM Vol 2A §2.1.1).
+/// Phase R16 PA-R16-002 (issue #968): lock btr register form.
+pub fn lock_btr_mem_base_disp_reg64(buf: &mut CodeBuffer, base: Reg64, disp: i32, index: Reg64) {
+    buf.bytes.push(0xF0); // LOCK prefix
+    let base_id = base as u8;
+    let index_id = index as u8;
+    let rex_byte = rex(true, (index_id >> 3) != 0, false, (base_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xB3);
+    emit_mem_base_disp(buf, index_id & 7, base_id, disp);
+}
+
+/// Encode `lock btc [base + disp], index` (bit test and complement with register, locked).
+///
+/// Instruction: F0 REX.W 0F BB /r
+/// Prefix order: LOCK (Group 1) precedes REX (Intel SDM Vol 2A §2.1.1).
+/// Phase R16 PA-R16-002 (issue #968): lock btc register form.
+pub fn lock_btc_mem_base_disp_reg64(buf: &mut CodeBuffer, base: Reg64, disp: i32, index: Reg64) {
+    buf.bytes.push(0xF0); // LOCK prefix
+    let base_id = base as u8;
+    let index_id = index as u8;
+    let rex_byte = rex(true, (index_id >> 3) != 0, false, (base_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xBB);
+    emit_mem_base_disp(buf, index_id & 7, base_id, disp);
+}
+
 /// Encode `sar reg64, imm8` (arithmetic right shift by immediate).
 ///
 /// Instruction: REX.W C1 /7 ib
