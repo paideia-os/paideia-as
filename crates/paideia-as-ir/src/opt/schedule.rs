@@ -138,7 +138,12 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         | Mnemonic::Wbinvd
         | Mnemonic::Invd
         | Mnemonic::Clflush
-        | Mnemonic::Clflushopt => InstructionClass::Other,
+        | Mnemonic::Clflushopt
+        // Phase R14 PA-R14-006 (issue #949): prefetch operations
+        | Mnemonic::Prefetchnta
+        | Mnemonic::Prefetcht0
+        | Mnemonic::Prefetcht1
+        | Mnemonic::Prefetcht2 => InstructionClass::Other,
     }
 }
 

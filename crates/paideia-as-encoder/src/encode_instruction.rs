@@ -330,6 +330,11 @@ fn encode_instruction_impl(
         // Phase R14 PA-R14-005: cache line flush instructions
         Mnemonic::Clflush => encode_clflush_inst(inst, buf),
         Mnemonic::Clflushopt => encode_clflushopt_inst(inst, buf),
+        // Phase R14 PA-R14-006: prefetch instructions
+        Mnemonic::Prefetchnta => encode_prefetchnta_inst(inst, buf),
+        Mnemonic::Prefetcht0 => encode_prefetcht0_inst(inst, buf),
+        Mnemonic::Prefetcht1 => encode_prefetcht1_inst(inst, buf),
+        Mnemonic::Prefetcht2 => encode_prefetcht2_inst(inst, buf),
         // Phase R13 PA-R13-005 (issue #934): inc/dec r64
         Mnemonic::Inc => encode_inc(inst, buf),
         Mnemonic::Dec => encode_dec(inst, buf),
@@ -724,6 +729,54 @@ fn encode_clflushopt_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<En
             Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::Clflushopt }),
+    }
+}
+
+/// Phase R14 PA-R14-006: Encode prefetchnta instruction.
+/// Expects one memory operand [base + disp]. Emits via `prefetchnta_mem_base_disp`.
+fn encode_prefetchnta_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::MemSib { base, index: None, scale: Scale::X1, disp }] => {
+            prefetchnta_mem_base_disp(buf, reg64_from(*base)?, *disp);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::Prefetchnta }),
+    }
+}
+
+/// Phase R14 PA-R14-006: Encode prefetcht0 instruction.
+/// Expects one memory operand [base + disp]. Emits via `prefetcht0_mem_base_disp`.
+fn encode_prefetcht0_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::MemSib { base, index: None, scale: Scale::X1, disp }] => {
+            prefetcht0_mem_base_disp(buf, reg64_from(*base)?, *disp);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::Prefetcht0 }),
+    }
+}
+
+/// Phase R14 PA-R14-006: Encode prefetcht1 instruction.
+/// Expects one memory operand [base + disp]. Emits via `prefetcht1_mem_base_disp`.
+fn encode_prefetcht1_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::MemSib { base, index: None, scale: Scale::X1, disp }] => {
+            prefetcht1_mem_base_disp(buf, reg64_from(*base)?, *disp);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::Prefetcht1 }),
+    }
+}
+
+/// Phase R14 PA-R14-006: Encode prefetcht2 instruction.
+/// Expects one memory operand [base + disp]. Emits via `prefetcht2_mem_base_disp`.
+fn encode_prefetcht2_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::MemSib { base, index: None, scale: Scale::X1, disp }] => {
+            prefetcht2_mem_base_disp(buf, reg64_from(*base)?, *disp);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::Prefetcht2 }),
     }
 }
 

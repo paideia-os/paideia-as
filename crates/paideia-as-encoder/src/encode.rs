@@ -1020,6 +1020,58 @@ pub fn clflushopt_mem_base_disp(buf: &mut CodeBuffer, base: Reg64, disp: i32) {
     emit_mem_base_disp(buf, 7, base_id, disp);
 }
 
+/// Encode `prefetchnta [base + disp]` — PA-R14-006 (issue #949).
+/// Instruction: 0F 18 /0 (reg field = 000). Non-temporal prefetch.
+/// REX.B for r8-r15 base; no REX.W.
+pub fn prefetchnta_mem_base_disp(buf: &mut CodeBuffer, base: Reg64, disp: i32) {
+    let base_id = base as u8;
+    if (base_id >> 3) != 0 {
+        buf.bytes.push(rex(false, false, false, true));
+    }
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0x18);
+    emit_mem_base_disp(buf, 0, base_id, disp);
+}
+
+/// Encode `prefetcht0 [base + disp]` — PA-R14-006 (issue #949).
+/// Instruction: 0F 18 /1 (reg field = 001). Temporal prefetch (all cache levels).
+/// REX.B for r8-r15 base; no REX.W.
+pub fn prefetcht0_mem_base_disp(buf: &mut CodeBuffer, base: Reg64, disp: i32) {
+    let base_id = base as u8;
+    if (base_id >> 3) != 0 {
+        buf.bytes.push(rex(false, false, false, true));
+    }
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0x18);
+    emit_mem_base_disp(buf, 1, base_id, disp);
+}
+
+/// Encode `prefetcht1 [base + disp]` — PA-R14-006 (issue #949).
+/// Instruction: 0F 18 /2 (reg field = 010). Temporal prefetch (L2 down).
+/// REX.B for r8-r15 base; no REX.W.
+pub fn prefetcht1_mem_base_disp(buf: &mut CodeBuffer, base: Reg64, disp: i32) {
+    let base_id = base as u8;
+    if (base_id >> 3) != 0 {
+        buf.bytes.push(rex(false, false, false, true));
+    }
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0x18);
+    emit_mem_base_disp(buf, 2, base_id, disp);
+}
+
+/// Encode `prefetcht2 [base + disp]` — PA-R14-006 (issue #949).
+/// Instruction: 0F 18 /3 (reg field = 011). Temporal prefetch (L3 down).
+/// REX.B for r8-r15 base; no REX.W.
+pub fn prefetcht2_mem_base_disp(buf: &mut CodeBuffer, base: Reg64, disp: i32) {
+    let base_id = base as u8;
+    if (base_id >> 3) != 0 {
+        buf.bytes.push(rex(false, false, false, true));
+    }
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0x18);
+    emit_mem_base_disp(buf, 3, base_id, disp);
+}
+
 /// Encode `div src64` (unsigned 64-bit divide, register operand).
 ///
 /// Phase R11 PA-R11-006: the divisor is read from src, quotient written to rax, remainder to rdx.

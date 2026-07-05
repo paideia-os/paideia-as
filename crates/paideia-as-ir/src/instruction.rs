@@ -234,6 +234,22 @@ pub enum Mnemonic {
     /// Instruction: 66 0F AE /7 (reg field = 111). 0x66 prefix; REX.B for r8-r15 base; no REX.W.
     /// One operand (memory).
     Clflushopt,
+    /// prefetchnta [base + disp] (PA-R14-006, #949). Prefetch for non-temporal access.
+    /// Instruction: 0F 18 /0 (reg field = 000). REX.B for r8-r15 base; no REX.W.
+    /// One operand (memory).
+    Prefetchnta,
+    /// prefetcht0 [base + disp] (PA-R14-006, #949). Prefetch temporal (all cache levels).
+    /// Instruction: 0F 18 /1 (reg field = 001). REX.B for r8-r15 base; no REX.W.
+    /// One operand (memory).
+    Prefetcht0,
+    /// prefetcht1 [base + disp] (PA-R14-006, #949). Prefetch temporal (L2 down).
+    /// Instruction: 0F 18 /2 (reg field = 010). REX.B for r8-r15 base; no REX.W.
+    /// One operand (memory).
+    Prefetcht1,
+    /// prefetcht2 [base + disp] (PA-R14-006, #949). Prefetch temporal (L3 down).
+    /// Instruction: 0F 18 /3 (reg field = 011). REX.B for r8-r15 base; no REX.W.
+    /// One operand (memory).
+    Prefetcht2,
     /// `inc r64` (PA-R13-005, #934). Increment 64-bit register by 1.
     /// Encoding: REX.W FF /0 (ModR/M reg field = 000 → 0xC0 | (reg & 7)).
     /// One operand (the destination register).
@@ -588,6 +604,10 @@ impl Mnemonic {
             | Mnemonic::Fxrstor
             | Mnemonic::Clflush
             | Mnemonic::Clflushopt
+            | Mnemonic::Prefetchnta
+            | Mnemonic::Prefetcht0
+            | Mnemonic::Prefetcht1
+            | Mnemonic::Prefetcht2
             | Mnemonic::Inc
             | Mnemonic::Dec
             | Mnemonic::Bswap => 1,
@@ -773,6 +793,10 @@ impl Mnemonic {
             // Phase R14 PA-R14-005: clflush/clflushopt, 9 bytes upper bound
             // (0x66 prefix + two-byte opcode + REX.B + SIB + disp32 worst-case)
             Mnemonic::Clflush | Mnemonic::Clflushopt => 9,
+
+            // Phase R14 PA-R14-006: prefetchnta/prefetcht0/prefetcht1/prefetcht2, 9 bytes upper bound
+            // (two-byte opcode 0F 18 + REX.B + SIB + disp32 worst-case)
+            Mnemonic::Prefetchnta | Mnemonic::Prefetcht0 | Mnemonic::Prefetcht1 | Mnemonic::Prefetcht2 => 9,
 
             // Phase R13 PA-R13-005 (issue #934): inc/dec r64, 3 bytes exact
             // (REX.W FF ModR/M — REX.B for r8..r15 replaces REX.W's high nibble bit

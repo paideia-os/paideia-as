@@ -221,6 +221,11 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     // Phase R14 PA-R14-003 (issue #946): non-temporal store movnti [mem], r32/r64
     ("movnti_d", Mnemonic::Movnti { width: IntWidth::W32 }),
     ("movnti_q", Mnemonic::Movnti { width: IntWidth::W64 }),
+    // Phase R14 PA-R14-006 (issue #949): prefetch instructions
+    ("prefetchnta", Mnemonic::Prefetchnta),
+    ("prefetcht0", Mnemonic::Prefetcht0),
+    ("prefetcht1", Mnemonic::Prefetcht1),
+    ("prefetcht2", Mnemonic::Prefetcht2),
 ];
 
 /// Resolve a mnemonic name to an IR Mnemonic enum variant.
