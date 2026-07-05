@@ -320,6 +320,14 @@ pub enum Mnemonic {
         /// Operand width selecting the encoded form (W32 or W64).
         width: IntWidth,
     },
+    /// Population count: `popcnt r32/r64, r/m32/r/m64` (PA-R15-006, #961).
+    /// Counts set bits in register/memory. Two operands (dst, src).
+    /// Encoding: `F3 [REX.W] 0F B8 /r` per Intel SDM Vol 2B POPCNT.
+    /// Requires Nehalem+ CPUID.01H:ECX.POPCNT[bit 23].
+    Popcnt {
+        /// Operand width selecting the encoded form (W32 or W64).
+        width: IntWidth,
+    },
 }
 
 /// Integer operand width for width-threaded immediate moves.
@@ -674,6 +682,7 @@ impl Mnemonic {
             | Mnemonic::Sub
             | Mnemonic::Adc { .. }
             | Mnemonic::Sbb { .. }
+            | Mnemonic::Popcnt { .. }
             | Mnemonic::Cmp
             | Mnemonic::Test
             | Mnemonic::Lea
@@ -768,6 +777,9 @@ impl Mnemonic {
 
             // Two-operand arithmetic/logic: 10 bytes
             Mnemonic::Add | Mnemonic::Sub | Mnemonic::Adc { .. } | Mnemonic::Sbb { .. } | Mnemonic::Cmp | Mnemonic::Test => 10,
+
+            // Population count: 9 bytes (F3 + REX + 0F + B8 + ModR/M + disp32 max)
+            Mnemonic::Popcnt { .. } => 9,
 
             // Load effective address: 10 bytes
             Mnemonic::Lea => 10,

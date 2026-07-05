@@ -241,6 +241,9 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     ("adc_q", Mnemonic::Adc { width: IntWidth::W64 }),
     ("sbb_d", Mnemonic::Sbb { width: IntWidth::W32 }),
     ("sbb_q", Mnemonic::Sbb { width: IntWidth::W64 }),
+    // Phase R15 PA-R15-006 (issue #961): popcnt population count
+    ("popcnt_d", Mnemonic::Popcnt { width: IntWidth::W32 }),
+    ("popcnt_q", Mnemonic::Popcnt { width: IntWidth::W64 }),
     // Phase R14 PA-R14-006 (issue #949): prefetch instructions
     ("prefetchnta", Mnemonic::Prefetchnta),
     ("prefetcht0", Mnemonic::Prefetcht0),

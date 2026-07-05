@@ -504,6 +504,68 @@ pub fn sbb_reg32_mem_base_disp(buf: &mut CodeBuffer, dst_id: u8, base_id: u8, di
     emit_mem_base_disp(buf, dst_id & 7, base_id, disp);
 }
 
+/// Encode `popcnt reg64, reg64` (population count, 64-bit).
+///
+/// Instruction: F3 REX.W 0F B8 /r
+/// ModR/M: 0xC0 | (dst<<3) | src
+/// CPUID requirement: Nehalem+ (POPCNT bit).
+pub fn popcnt_reg64_reg64(buf: &mut CodeBuffer, dst: Reg64, src: Reg64) {
+    let dst_id = dst as u8;
+    let src_id = src as u8;
+    buf.bytes.push(0xF3);
+    let rex_byte = rex(true, (dst_id >> 3) != 0, false, (src_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xB8);
+    buf.bytes.push(0xC0 | ((dst_id & 7) << 3) | (src_id & 7));
+}
+
+/// Encode `popcnt reg64, [base + disp]` (population count from memory, 64-bit).
+///
+/// Instruction: F3 REX.W 0F B8 /r
+/// ModR/M+SIB: emit_mem_base_disp with dst in reg field
+pub fn popcnt_reg64_mem_base_disp(buf: &mut CodeBuffer, dst: Reg64, base: Reg64, disp: i32) {
+    let dst_id = dst as u8;
+    let base_id = base as u8;
+    buf.bytes.push(0xF3);
+    let rex_byte = rex(true, (dst_id >> 3) != 0, false, (base_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xB8);
+    emit_mem_base_disp(buf, dst_id & 7, base_id, disp);
+}
+
+/// Encode `popcnt reg32, reg32` (population count, 32-bit).
+///
+/// Instruction: F3 0F B8 /r (no REX.W)
+/// ModR/M: 0xC0 | (dst<<3) | src
+/// Suppress REX when both dst and src are < 8.
+pub fn popcnt_reg32_reg32(buf: &mut CodeBuffer, dst_id: u8, src_id: u8) {
+    buf.bytes.push(0xF3);
+    if (dst_id >> 3) != 0 || (src_id >> 3) != 0 {
+        let rex_byte = rex(false, (dst_id >> 3) != 0, false, (src_id >> 3) != 0);
+        buf.bytes.push(rex_byte);
+    }
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xB8);
+    buf.bytes.push(0xC0 | ((dst_id & 7) << 3) | (src_id & 7));
+}
+
+/// Encode `popcnt reg32, [base + disp]` (population count from memory, 32-bit).
+///
+/// Instruction: F3 0F B8 /r (no REX.W)
+/// ModR/M+SIB: emit_mem_base_disp with dst in reg field
+pub fn popcnt_reg32_mem_base_disp(buf: &mut CodeBuffer, dst_id: u8, base_id: u8, disp: i32) {
+    buf.bytes.push(0xF3);
+    if (dst_id >> 3) != 0 || (base_id >> 3) != 0 {
+        let rex_byte = rex(false, (dst_id >> 3) != 0, false, (base_id >> 3) != 0);
+        buf.bytes.push(rex_byte);
+    }
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xB8);
+    emit_mem_base_disp(buf, dst_id & 7, base_id, disp);
+}
+
 /// Encode `sar reg64, imm8` (arithmetic right shift by immediate).
 ///
 /// Instruction: REX.W C1 /7 ib
