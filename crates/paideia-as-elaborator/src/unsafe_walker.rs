@@ -121,6 +121,37 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     ("jns", Mnemonic::Jcc(Cond::NotSign)),
     ("jo", Mnemonic::Jcc(Cond::Overflow)),
     ("jno", Mnemonic::Jcc(Cond::NotOverflow)),
+    // Setcc (conditional set byte) variants (16 primary + ~12 aliases)
+    ("seto", Mnemonic::Setcc(Cond::Overflow)),
+    ("setno", Mnemonic::Setcc(Cond::NotOverflow)),
+    ("setb", Mnemonic::Setcc(Cond::Below)),
+    ("setnb", Mnemonic::Setcc(Cond::AboveOrEqual)),
+    ("setc", Mnemonic::Setcc(Cond::Below)),       // alias for setb
+    ("setnc", Mnemonic::Setcc(Cond::AboveOrEqual)), // alias for setnb
+    ("setnae", Mnemonic::Setcc(Cond::Below)),     // alias for setb
+    ("setae", Mnemonic::Setcc(Cond::AboveOrEqual)), // alias for setnb
+    ("sete", Mnemonic::Setcc(Cond::Eq)),
+    ("setz", Mnemonic::Setcc(Cond::Zero)),        // alias for sete
+    ("setne", Mnemonic::Setcc(Cond::Ne)),
+    ("setnz", Mnemonic::Setcc(Cond::NonZero)),    // alias for setne
+    ("setbe", Mnemonic::Setcc(Cond::BelowOrEqual)),
+    ("setna", Mnemonic::Setcc(Cond::BelowOrEqual)), // alias for setbe
+    ("seta", Mnemonic::Setcc(Cond::Above)),
+    ("setnbe", Mnemonic::Setcc(Cond::Above)),     // alias for seta
+    ("sets", Mnemonic::Setcc(Cond::Sign)),
+    ("setns", Mnemonic::Setcc(Cond::NotSign)),
+    ("setp", Mnemonic::Setcc(Cond::Parity)),
+    ("setpe", Mnemonic::Setcc(Cond::Parity)),     // alias for setp
+    ("setnp", Mnemonic::Setcc(Cond::NotParity)),
+    ("setpo", Mnemonic::Setcc(Cond::NotParity)),  // alias for setnp
+    ("setl", Mnemonic::Setcc(Cond::Lt)),
+    ("setnge", Mnemonic::Setcc(Cond::Lt)),        // alias for setl
+    ("setge", Mnemonic::Setcc(Cond::Ge)),
+    ("setnl", Mnemonic::Setcc(Cond::Ge)),         // alias for setge
+    ("setle", Mnemonic::Setcc(Cond::Le)),
+    ("setng", Mnemonic::Setcc(Cond::Le)),         // alias for setle
+    ("setg", Mnemonic::Setcc(Cond::Gt)),
+    ("setnle", Mnemonic::Setcc(Cond::Gt)),        // alias for setg
     // MovCr (control register move) variants (2 forms)
     ("mov_cr", Mnemonic::MovCr { write: true }),
     ("mov_from_cr", Mnemonic::MovCr { write: false }),
@@ -1259,11 +1290,17 @@ fn register_name_to_regid(name: &str) -> Option<RegId> {
 
         // High-byte sub-registers: share 64-bit RegId of low-byte sibling.
         // Distinguished from spl/bpl/sil/dil by ABSENCE of REX prefix at encode time.
-        // PA10-004 deliberately omits spl/bpl/sil/dil.
         "ah" => Some(RegId(4)),
         "ch" => Some(RegId(5)),
         "dh" => Some(RegId(6)),
         "bh" => Some(RegId(7)),
+
+        // Extended low-byte sub-registers (require REX prefix for non-rsp/rsi/rbp/rdi).
+        // PA-R13-013: spl/bpl/sil/dil require REX.B encoding (compact IDs 33–36).
+        "spl" => Some(RegId(33)),
+        "bpl" => Some(RegId(34)),
+        "sil" => Some(RegId(35)),
+        "dil" => Some(RegId(36)),
 
         // Extended low-byte sub-registers (require REX.B).
         "r8b" => Some(RegId(8)),
@@ -1337,9 +1374,9 @@ fn register_name_width(name: &str) -> Option<IntWidth> {
         // 16-bit sub-registers.
         "ax" | "cx" | "dx" | "bx" | "sp" | "bp" | "si" | "di" => Some(IntWidth::W16),
 
-        // 8-bit sub-registers (al–bl low-byte and ah–bh high-byte).
-        "al" | "cl" | "dl" | "bl" | "ah" | "ch" | "dh" | "bh" | "r8b" | "r9b" | "r10b" | "r11b"
-        | "r12b" | "r13b" | "r14b" | "r15b" => Some(IntWidth::W8),
+        // 8-bit sub-registers (al–bl low-byte, ah–bh high-byte, and spl–dil extended low-byte).
+        "al" | "cl" | "dl" | "bl" | "ah" | "ch" | "dh" | "bh" | "spl" | "bpl" | "sil" | "dil" | "r8b"
+        | "r9b" | "r10b" | "r11b" | "r12b" | "r13b" | "r14b" | "r15b" => Some(IntWidth::W8),
 
         _ => None,
     }

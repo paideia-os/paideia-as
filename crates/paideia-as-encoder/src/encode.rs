@@ -107,6 +107,10 @@ pub enum Cond {
     Overflow = 0x80,
     /// JNO (not overflow): `0F 81`
     NotOverflow = 0x81,
+    /// JP / JPE (parity / parity even): `0F 8A`
+    Parity = 0x8A,
+    /// JNP / JPO (not parity / parity odd): `0F 8B`
+    NotParity = 0x8B,
 }
 
 /// A buffer that encodes instructions append bytes to.
@@ -1522,6 +1526,27 @@ pub fn jcc_rel8(buf: &mut CodeBuffer, cond: Cond, rel: i8) {
     let rel8_opcode = 0x70 + (cond as u8 - 0x80);
     buf.bytes.push(rel8_opcode);
     buf.bytes.push(rel as u8);
+}
+
+/// Encode conditional set byte `setcc r8` (set on condition).
+///
+/// Instruction: [REX] 0F 9X /0 (where X is the condition code)
+/// Total size: 3–4 bytes (1–2 bytes REX + 2 bytes opcode + ModR/M)
+///
+/// For r8-r15b (upper registers), emits REX.B; for spl/bpl/sil/dil (low regs needing REX),
+/// emits bare 0x40 REX prefix.
+pub fn setcc_reg8(buf: &mut CodeBuffer, cc: Cond, reg_id: u8, needs_rex: bool) {
+    // REX prefix: needed if register id > 7 (for r8-r15) or if high-byte reg needs REX (spl/bpl/sil/dil)
+    if (reg_id >> 3) != 0 {
+        // r8b-r15b: REX.B (0x41)
+        buf.bytes.push(rex(false, false, false, true));
+    } else if needs_rex {
+        // spl/bpl/sil/dil: bare REX (0x40)
+        buf.bytes.push(0x40);
+    }
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0x90 | ((cc as u8) & 0x0F));
+    buf.bytes.push(0xC0 | (reg_id & 7));
 }
 
 /// Encode `add reg64, imm8` (8-bit immediate, sign-extended to 64-bit).

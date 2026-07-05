@@ -42,6 +42,8 @@ pub enum Mnemonic {
     Test,
     /// Jcc with embedded condition code.
     Jcc(Cond),
+    /// Setcc with embedded condition code.
+    Setcc(Cond),
     /// Unconditional jump.
     Jmp,
     /// Call (push return address and jump).
@@ -304,6 +306,10 @@ pub enum Cond {
     Overflow,
     /// Overflow flag not set (jno).
     NotOverflow,
+    /// Parity flag set (jp/setp).
+    Parity,
+    /// Parity flag not set (jnp/setnp).
+    NotParity,
 }
 
 /// x86_64 segment register identifier.
@@ -527,6 +533,7 @@ impl Mnemonic {
             | Mnemonic::Ret
             | Mnemonic::Jmp
             | Mnemonic::Jcc(_)
+            | Mnemonic::Setcc(_)
             | Mnemonic::RepMovsb
             | Mnemonic::Lgdt
             | Mnemonic::Lidt
@@ -612,6 +619,9 @@ impl Mnemonic {
 
             // Conditional jump: 6 bytes (2-byte opcode + 4-byte offset)
             Mnemonic::Jcc(_) => 6,
+
+            // Conditional set byte: 4 bytes (REX + 0F + 9X + ModR/M)
+            Mnemonic::Setcc(_) => 4,
 
             // Unconditional jump: 5 bytes (1-byte opcode + 4-byte offset)
             Mnemonic::Jmp => 5,

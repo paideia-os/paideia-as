@@ -193,6 +193,8 @@ fn cond_from(ir_cond: IrCond) -> Result<Cond, EncodeError> {
         IrCond::NotSign => Ok(Cond::NotSign),
         IrCond::Overflow => Ok(Cond::Overflow),
         IrCond::NotOverflow => Ok(Cond::NotOverflow),
+        IrCond::Parity => Ok(Cond::Parity),
+        IrCond::NotParity => Ok(Cond::NotParity),
     }
 }
 
@@ -252,6 +254,7 @@ fn encode_instruction_impl(
         Mnemonic::Cmp => encode_cmp(inst, buf),
         Mnemonic::Test => encode_test(inst, buf),
         Mnemonic::Jcc(cond) => encode_jcc(*cond, inst, buf, stats),
+        Mnemonic::Setcc(cond) => encode_setcc(*cond, inst, buf),
         Mnemonic::Jmp => encode_jmp(inst, buf),
         Mnemonic::Call => encode_call(inst, buf),
         Mnemonic::Ret => encode_ret(inst, buf),
@@ -1293,6 +1296,28 @@ fn encode_test(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput,
     }
 }
 
+/// Resolve an 8-bit register ID to (masked_id, needs_rex) for use in setcc.
+///
+/// Returns:
+/// - (id, false) for al-bl and r8b-r15b (standard low-byte registers)
+/// - (id, true) for spl/bpl/sil/dil (high-byte regs requiring REX prefix)
+/// - (id, false) for r8b-r15b (extended regs, REX.B handled by setcc_reg8)
+fn resolve_reg8(reg_id: RegId) -> (u8, bool) {
+    match reg_id.0 {
+        // Standard low-byte registers: al, cl, dl, bl (0-3)
+        0..=3 => (reg_id.0 as u8, false),
+        // spl/bpl/sil/dil (33-36) — mapped to 4-7 with needs_rex = true
+        33 => (4, true),
+        34 => (5, true),
+        35 => (6, true),
+        36 => (7, true),
+        // Extended low-byte registers: r8b-r15b (8-15)
+        8..=15 => (reg_id.0 as u8, false),
+        // Anything else is invalid
+        _ => (reg_id.0 as u8, false),
+    }
+}
+
 fn encode_jcc(
     ir_cond: IrCond,
     inst: &Instruction,
@@ -1336,6 +1361,28 @@ fn encode_jcc(
         _ => Err(EncodeError::Unsupported(
             "jcc form not in phase-3-m2-002 minimum",
         )),
+    }
+}
+
+/// Encode `setcc r8` — set byte on condition.
+///
+/// Expects `[Operand::Reg(dst)]` where dst is an 8-bit register.
+/// Emits via `setcc_reg8` with REX handling for extended registers.
+fn encode_setcc(
+    ir_cond: IrCond,
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::Reg(dst)] => {
+            let cond = cond_from(ir_cond)?;
+            let (reg_id, needs_rex) = resolve_reg8(*dst);
+            setcc_reg8(buf, cond, reg_id, needs_rex);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Setcc(ir_cond),
+        }),
     }
 }
 

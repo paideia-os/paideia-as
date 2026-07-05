@@ -87,6 +87,8 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         | Mnemonic::And
         | Mnemonic::Or
         | Mnemonic::Xor => InstructionClass::AluReg,
+        // Phase R13 PA-R13-013: setcc r8 is a register ALU op (conditional set byte).
+        Mnemonic::Setcc(_) => InstructionClass::AluReg,
         Mnemonic::Jcc(_) | Mnemonic::Jmp | Mnemonic::Call | Mnemonic::Ret => {
             InstructionClass::Branch
         }
