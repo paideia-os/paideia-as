@@ -217,6 +217,10 @@ pub enum Mnemonic {
     /// Compares implicit RAX with r/m64; if equal writes reg64, else loads r/m64
     /// into RAX. Two operands (mem, reg). Reg-reg form not supported in R13.
     LockCmpxchg,
+    /// lock cmpxchg r/m32, r32 (PA-R16-003, #969). Encoding: F0 0F B1 /r (no REX.W).
+    /// Compares implicit EAX with r/m32; if equal writes reg32, else loads r/m32
+    /// into EAX. Two operands (mem, reg). Reg-reg form not supported.
+    LockCmpxchg32,
     /// mfence (PA-R13-005, #918). Serializing memory barrier: all preceding
     /// loads and stores complete before subsequent ones. Encoding: 0F AE F0.
     /// Zero operands.
@@ -760,6 +764,7 @@ impl Mnemonic {
             | Mnemonic::Xor
             | Mnemonic::Xchg
             | Mnemonic::LockCmpxchg
+            | Mnemonic::LockCmpxchg32
             | Mnemonic::LockXadd { .. }
             | Mnemonic::LockAdd { .. }
             | Mnemonic::LockSub { .. }
@@ -921,6 +926,9 @@ impl Mnemonic {
 
             // Phase R13 PA-R13-004: lock cmpxchg register with memory, 10 bytes upper bound
             Mnemonic::LockCmpxchg => 10,
+
+            // Phase R16 PA-R16-003: lock cmpxchg32 register with memory, 10 bytes upper bound
+            Mnemonic::LockCmpxchg32 => 10,
 
             // Phase R13 PA-R13-005: memory fence, 3 bytes
             Mnemonic::Mfence => 3,

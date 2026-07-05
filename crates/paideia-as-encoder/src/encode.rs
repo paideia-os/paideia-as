@@ -1619,6 +1619,26 @@ pub fn lock_cmpxchg_mem_base_disp_reg64(
     emit_mem_base_disp(buf, src_id & 7, base_id, disp);
 }
 
+/// Encode `lock cmpxchg [base + disp], src` (32-bit) — PA-R16-003 (issue #969).
+///
+/// Instruction: F0 [REX] 0F B1 /r (no REX.W)
+/// Compares implicit EAX with r/m32; if equal writes reg32, else loads r/m32 into EAX.
+/// Prefix order: LOCK (Group 1) precedes REX (Intel SDM Vol 2A §2.1.1).
+/// Note: REX is omitted when neither R nor B bits are needed (both src and base are r0–r7).
+pub fn lock_cmpxchg_mem_base_disp_reg32(
+    buf: &mut CodeBuffer, base: Reg64, disp: i32, src: Reg64,
+) {
+    buf.bytes.push(0xF0); // LOCK prefix
+    let base_id = base as u8;
+    let src_id = src as u8;
+    if (src_id >> 3) != 0 || (base_id >> 3) != 0 {
+        buf.bytes.push(rex(false, (src_id >> 3) != 0, false, (base_id >> 3) != 0));
+    }
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xB1);
+    emit_mem_base_disp(buf, src_id & 7, base_id, disp);
+}
+
 /// Encode `mfence` — PA-R13-005 (issue #918).
 ///
 /// Instruction: 0F AE F0. Zero operands. Serializing memory barrier.

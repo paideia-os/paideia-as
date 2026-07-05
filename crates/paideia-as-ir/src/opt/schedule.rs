@@ -136,6 +136,7 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         // Phase R13 PA-R13-003/004/005/007: atomic + barrier + FP state operations
         | Mnemonic::Xchg
         | Mnemonic::LockCmpxchg
+        | Mnemonic::LockCmpxchg32
         | Mnemonic::LockXadd { .. }
         | Mnemonic::LockAdd { .. }
         | Mnemonic::LockSub { .. }
