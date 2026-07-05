@@ -127,6 +127,9 @@ pub enum Mnemonic {
     /// Byte-swap 64-bit register (endianness conversion).
     /// Phase R13 PA-R13-014 (issue #943): emits `bswap r64` (REX.W 0F C8+rd). One operand.
     Bswap,
+    /// Byte-swap 32-bit register (endianness conversion).
+    /// Phase R15 PA-R15-001 (issue #956): emits `bswap r32` (0F C8+rd, no REX.W). One operand.
+    Bswap32,
     /// Push 64-bit register onto stack.
     /// Phase R9 m2-001 (PA-R9-001): emits `push r64` (REX.W 50+rd or 41 50+rd for r8–r15).
     /// One operand.
@@ -610,7 +613,8 @@ impl Mnemonic {
             | Mnemonic::Prefetcht2
             | Mnemonic::Inc
             | Mnemonic::Dec
-            | Mnemonic::Bswap => 1,
+            | Mnemonic::Bswap
+            | Mnemonic::Bswap32 => 1,
 
             // Two-operand instructions
             Mnemonic::Mov
@@ -741,6 +745,9 @@ impl Mnemonic {
 
             // Byte-swap: 3 bytes upper bound (REX.W 0F C8+rd, no ModR/M)
             Mnemonic::Bswap => 3,
+
+            // Byte-swap 32-bit: 3 bytes upper bound (REX.B 0F C8+rd, no ModR/M)
+            Mnemonic::Bswap32 => 3,
 
             // Divide: 4 bytes upper bound (REX.W F7 /6 or /7 ModR/M)
             Mnemonic::Div | Mnemonic::Idiv => 4,

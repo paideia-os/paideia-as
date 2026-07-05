@@ -173,6 +173,28 @@ fn reg64_from(id: RegId) -> Result<Reg64, EncodeError> {
     }
 }
 
+fn reg32_from(id: RegId) -> Result<Reg32, EncodeError> {
+    match id.0 {
+        0 => Ok(Reg32::Eax),
+        1 => Ok(Reg32::Ecx),
+        2 => Ok(Reg32::Edx),
+        3 => Ok(Reg32::Ebx),
+        4 => Ok(Reg32::Esp),
+        5 => Ok(Reg32::Ebp),
+        6 => Ok(Reg32::Esi),
+        7 => Ok(Reg32::Edi),
+        8 => Ok(Reg32::R8d),
+        9 => Ok(Reg32::R9d),
+        10 => Ok(Reg32::R10d),
+        11 => Ok(Reg32::R11d),
+        12 => Ok(Reg32::R12d),
+        13 => Ok(Reg32::R13d),
+        14 => Ok(Reg32::R14d),
+        15 => Ok(Reg32::R15d),
+        _ => Err(EncodeError::Unsupported("invalid register id")),
+    }
+}
+
 /// Convert an IR Scale to a numeric byte width for indexed loads.
 /// Convert an IR Cond to an encoder Cond.
 fn cond_from(ir_cond: IrCond) -> Result<Cond, EncodeError> {
@@ -289,6 +311,7 @@ fn encode_instruction_impl(
         Mnemonic::Movsx => encode_movsx(inst, buf),
         Mnemonic::Not => encode_not(inst, buf),
         Mnemonic::Bswap => encode_bswap(inst, buf),
+        Mnemonic::Bswap32 => encode_bswap32(inst, buf),
         Mnemonic::Push => encode_push(inst, buf),
         Mnemonic::Pop => encode_pop(inst, buf),
         Mnemonic::Pushfq => encode_pushfq(inst, buf),
@@ -526,6 +549,20 @@ fn encode_bswap(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput
         }
         _ => Err(EncodeError::OperandShape {
             mnemonic: Mnemonic::Bswap,
+        }),
+    }
+}
+
+/// Phase R15 PA-R15-001: Encode byte-swap 32-bit register instruction.
+/// Expects exactly one register operand. Emits `0F C8+rd` via `bswap_reg32`.
+fn encode_bswap32(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::Reg(dst)] => {
+            bswap_reg32(buf, reg32_from(*dst)?);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Bswap32,
         }),
     }
 }

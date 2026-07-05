@@ -48,8 +48,10 @@ pub enum Reg64 {
 
 /// x86_64 general-purpose 32-bit register identifier (lower half of 64-bit registers).
 ///
-/// These are the 32-bit names for registers 0-7. Phase-1 uses 64-bit instructions
-/// as the primary case; 32-bit forms are a follow-up.
+/// Registers 0-7 use their legacy names (EAX, ECX, etc.); registers 8-15 are
+/// the extended registers R8D through R15D (REX.B prefix required).
+/// Phase-1 uses 64-bit instructions as the primary case; 32-bit forms are a follow-up.
+/// Phase R15 PA-R15-001 (issue #956): added extended registers R8D–R15D.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[repr(u8)]
 pub enum Reg32 {
@@ -69,6 +71,22 @@ pub enum Reg32 {
     Esi = 6,
     /// EDI (register id 7)
     Edi = 7,
+    /// R8D (register id 8)
+    R8d = 8,
+    /// R9D (register id 9)
+    R9d = 9,
+    /// R10D (register id 10)
+    R10d = 10,
+    /// R11D (register id 11)
+    R11d = 11,
+    /// R12D (register id 12)
+    R12d = 12,
+    /// R13D (register id 13)
+    R13d = 13,
+    /// R14D (register id 14)
+    R14d = 14,
+    /// R15D (register id 15)
+    R15d = 15,
 }
 
 /// Conditional jump condition codes (used in `0F 8X` two-byte opcodes).
@@ -757,6 +775,28 @@ pub fn bswap_reg64(buf: &mut CodeBuffer, dst: Reg64) {
     let reg_id = dst as u8;
     let rex_byte = rex(true, false, false, (reg_id >> 3) != 0);
     buf.bytes.push(rex_byte);
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xC8 | (reg_id & 7));
+}
+
+/// Encode `bswap r32` (byte-swap 32-bit register) — PA-R15-001 (issue #956).
+///
+/// Instruction: 0F C8+rd (no REX.W)
+/// This is an opcode+register form with no ModR/M byte. The register number
+/// is encoded directly in the low 3 bits of the final byte (0xC8 | (reg & 7)).
+/// REX.B=reg>>3 for extended registers (R8D..R15D), but no REX.W.
+/// Bytes: `[REX.B] 0F (0xC8 | (reg & 7))` where REX.B is optional (omitted for reg 0-7).
+///
+/// Example: `bswap eax` → `0F C8`
+/// Example: `bswap edi` → `0F CF`
+/// Example: `bswap r8d`  → `41 0F C8`
+/// Example: `bswap r15d` → `41 0F CF`
+pub fn bswap_reg32(buf: &mut CodeBuffer, dst: Reg32) {
+    let reg_id = dst as u8;
+    if (reg_id >> 3) != 0 {
+        // REX.B only (extended register r8d–r15d), no REX.W
+        buf.bytes.push(rex(false, false, false, true));
+    }
     buf.bytes.push(0x0F);
     buf.bytes.push(0xC8 | (reg_id & 7));
 }

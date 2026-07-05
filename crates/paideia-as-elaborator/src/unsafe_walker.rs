@@ -213,6 +213,8 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     ("dec", Mnemonic::Dec),
     // Phase R13 PA-R13-014 (issue #943): bswap r64
     ("bswap", Mnemonic::Bswap),
+    // Phase R15 PA-R15-001 (issue #956): bswap r32
+    ("bswap_d", Mnemonic::Bswap32),
     // Phase R14 PA-R14-001 (issue #944): narrow-width mov [mem], imm
     ("mov_b", Mnemonic::MovSized { width: IntWidth::W8 }),
     ("mov_w", Mnemonic::MovSized { width: IntWidth::W16 }),

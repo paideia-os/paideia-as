@@ -67,7 +67,8 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         // Phase 7 m4-001: bitwise NOT is a register ALU op.
         Mnemonic::Not => InstructionClass::AluReg,
         // Phase R13 PA-R13-014 (issue #943): bswap r64 is a register ALU op.
-        Mnemonic::Bswap => InstructionClass::AluReg,
+        // Phase R15 PA-R15-001 (issue #956): bswap r32 is a register ALU op.
+        Mnemonic::Bswap | Mnemonic::Bswap32 => InstructionClass::AluReg,
         // Phase R13 PA-R13-005 (issue #934): inc/dec r64 are register ALU ops.
         Mnemonic::Inc | Mnemonic::Dec => InstructionClass::AluReg,
         // Phase R9 m2-001 (PA-R9-001): push/pop are stack operations, conservative.
