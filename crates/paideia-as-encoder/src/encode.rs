@@ -2110,6 +2110,14 @@ pub fn encode_zero_operand(buf: &mut CodeBuffer, mnem_byte: u8) {
             buf.bytes.push(0x0F);
             buf.bytes.push(0x0B);
         }
+        0x84 => {
+            // CLD: FC (clear direction flag)
+            buf.bytes.push(0xFC);
+        }
+        0x85 => {
+            // STD: FD (set direction flag)
+            buf.bytes.push(0xFD);
+        }
         _ => {
             // Unreachable for valid mnemonics
         }

@@ -259,7 +259,9 @@ fn encode_instruction_impl(
         Mnemonic::Lea => encode_lea(inst, buf),
         // Phase-5 m2-002: zero-operand control + sync instructions
         Mnemonic::Cli => encode_cli(inst, buf),
+        Mnemonic::Cld => encode_cld(inst, buf),
         Mnemonic::Sti => encode_sti(inst, buf),
+        Mnemonic::Std => encode_std(inst, buf),
         Mnemonic::Hlt => encode_hlt(inst, buf),
         Mnemonic::Nop => encode_nop(inst, buf),
         Mnemonic::Swapgs => encode_swapgs(inst, buf),
@@ -1614,6 +1616,18 @@ fn encode_cli(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
     Ok(EncodeOutput::new())
 }
 
+fn encode_cld(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    if !inst.operands.is_empty() {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::Cld,
+            expected: 0,
+            got: inst.operands.len(),
+        });
+    }
+    encode_zero_operand(buf, 0x84); // sentinel for CLD
+    Ok(EncodeOutput::new())
+}
+
 fn encode_sti(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
     if !inst.operands.is_empty() {
         return Err(EncodeError::OperandCount {
@@ -1623,6 +1637,18 @@ fn encode_sti(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
         });
     }
     encode_zero_operand(buf, 0xFB);
+    Ok(EncodeOutput::new())
+}
+
+fn encode_std(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    if !inst.operands.is_empty() {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::Std,
+            expected: 0,
+            got: inst.operands.len(),
+        });
+    }
+    encode_zero_operand(buf, 0x85); // sentinel for STD
     Ok(EncodeOutput::new())
 }
 

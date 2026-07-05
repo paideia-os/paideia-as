@@ -94,8 +94,12 @@ pub enum Mnemonic {
     Cpuid,
     /// Clear interrupt flag.
     Cli,
+    /// Clear direction flag.
+    Cld,
     /// Set interrupt flag.
     Sti,
+    /// Set direction flag.
+    Std,
     /// Halt processor.
     Hlt,
     /// Undefined instruction (causes #UD exception).
@@ -498,7 +502,9 @@ impl Mnemonic {
         match self {
             // Zero-arity instructions (Phase 6 m1-005)
             Mnemonic::Cli
+            | Mnemonic::Cld
             | Mnemonic::Sti
+            | Mnemonic::Std
             | Mnemonic::Hlt
             | Mnemonic::Ud2
             | Mnemonic::Nop
@@ -589,7 +595,7 @@ impl Mnemonic {
     pub fn estimated_size(&self, _operands: &[Operand]) -> u32 {
         match self {
             // Zero-arity, 1 byte
-            Mnemonic::Hlt | Mnemonic::Cli | Mnemonic::Nop => 1,
+            Mnemonic::Hlt | Mnemonic::Cli | Mnemonic::Cld | Mnemonic::Sti | Mnemonic::Std | Mnemonic::Nop => 1,
 
             // Zero-arity system instructions, 2 bytes
             Mnemonic::Cpuid
@@ -652,9 +658,6 @@ impl Mnemonic {
 
             // Undefined instruction: 2 bytes
             Mnemonic::Ud2 => 2,
-
-            // Set interrupt flag: 1 byte
-            Mnemonic::Sti => 1,
 
             // RepStosq: 2 bytes
             Mnemonic::RepStosq => 2,

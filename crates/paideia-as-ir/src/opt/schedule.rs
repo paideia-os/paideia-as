@@ -109,7 +109,9 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         | Mnemonic::Cpuid
         | Mnemonic::Ud2
         | Mnemonic::Cli
+        | Mnemonic::Cld
         | Mnemonic::Sti
+        | Mnemonic::Std
         | Mnemonic::Hlt
         | Mnemonic::Int
         | Mnemonic::Nop
