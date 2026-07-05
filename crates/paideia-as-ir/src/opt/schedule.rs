@@ -24,7 +24,11 @@ pub enum InstructionClass {
     Store,
     /// Branch (latency = 1 predicted, ~15 misprediction).
     Branch,
-    /// LOCK-prefixed atomic operation — memory barrier; no reorder across.
+    /// LOCK-prefixed atomic operation or memory fence — acts as a barrier; no reorder across.
+    /// Includes LOCK-prefixed atomics (xchg, cmpxchg, xadd, add, sub, bts, btr, btc) and
+    /// memory fences (mfence, sfence, lfence). Sfence and Lfence are conservatively treated
+    /// as full barriers; architecturally they order only stores/loads respectively, but
+    /// over-barrier classification is always sound for scheduling.
     AtomicLocked,
     /// Other (treat as 3-cycle conservative default).
     Other,
@@ -104,6 +108,21 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
             InstructionClass::Branch
         }
         Mnemonic::RepMovsb => InstructionClass::Other, // Conservative: treat as other
+        // Phase R13 PA-R13-003/004/005/007: LOCK-prefixed atomics and memory barriers.
+        // Backtrack #1035: reclassify as AtomicLocked (full barrier semantics).
+        Mnemonic::Xchg
+        | Mnemonic::LockCmpxchg
+        | Mnemonic::LockCmpxchg32
+        | Mnemonic::LockCmpxchg16b
+        | Mnemonic::LockXadd { .. }
+        | Mnemonic::LockAdd { .. }
+        | Mnemonic::LockSub { .. }
+        | Mnemonic::LockBts { .. }
+        | Mnemonic::LockBtr { .. }
+        | Mnemonic::LockBtc { .. }
+        | Mnemonic::Mfence
+        | Mnemonic::Sfence
+        | Mnemonic::Lfence => InstructionClass::AtomicLocked,
         // Phase-5 m2-001: privileged + system-ISA mnemonics treated as conservative Other
         Mnemonic::Lgdt
         | Mnemonic::Lidt
@@ -133,20 +152,7 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         // Phase 8 m5-001: supervisor TLB and timing mnemonics
         | Mnemonic::Invlpg
         | Mnemonic::Rdtsc
-        // Phase R13 PA-R13-003/004/005/007: atomic + barrier + FP state operations
-        | Mnemonic::Xchg
-        | Mnemonic::LockCmpxchg
-        | Mnemonic::LockCmpxchg32
-        | Mnemonic::LockCmpxchg16b
-        | Mnemonic::LockXadd { .. }
-        | Mnemonic::LockAdd { .. }
-        | Mnemonic::LockSub { .. }
-        | Mnemonic::LockBts { .. }
-        | Mnemonic::LockBtr { .. }
-        | Mnemonic::LockBtc { .. }
-        | Mnemonic::Mfence
-        | Mnemonic::Sfence
-        | Mnemonic::Lfence
+        // Phase R13 PA-R13-007: FP state operations
         | Mnemonic::Fxsave
         | Mnemonic::Fxrstor
         // Phase R14 PA-R14-003 (issue #946): non-temporal store has special cache semantics
@@ -557,5 +563,491 @@ mod tests {
         pass.apply(&mut arena, dummy_id, &mut sink);
 
         assert_eq!(sink.diagnostics.len(), 0);
+    }
+
+    #[test]
+    fn lock_prefixed_mnemonics_classify_as_atomic_locked() {
+        // Backtrack #1035: all 13 LOCK-prefixed atomics and fences must classify as AtomicLocked.
+        assert_eq!(classify_mnemonic(Mnemonic::Xchg), InstructionClass::AtomicLocked);
+        assert!(classify_mnemonic(Mnemonic::Xchg).is_barrier());
+
+        assert_eq!(
+            classify_mnemonic(Mnemonic::LockCmpxchg),
+            InstructionClass::AtomicLocked
+        );
+        assert!(classify_mnemonic(Mnemonic::LockCmpxchg).is_barrier());
+
+        assert_eq!(
+            classify_mnemonic(Mnemonic::LockCmpxchg32),
+            InstructionClass::AtomicLocked
+        );
+        assert!(classify_mnemonic(Mnemonic::LockCmpxchg32).is_barrier());
+
+        assert_eq!(
+            classify_mnemonic(Mnemonic::LockCmpxchg16b),
+            InstructionClass::AtomicLocked
+        );
+        assert!(classify_mnemonic(Mnemonic::LockCmpxchg16b).is_barrier());
+
+        // Parameterized variants: construct with IntWidth::W64
+        use crate::instruction::IntWidth;
+        assert_eq!(
+            classify_mnemonic(Mnemonic::LockXadd {
+                width: IntWidth::W64
+            }),
+            InstructionClass::AtomicLocked
+        );
+        assert!(classify_mnemonic(Mnemonic::LockXadd {
+            width: IntWidth::W64
+        })
+        .is_barrier());
+
+        assert_eq!(
+            classify_mnemonic(Mnemonic::LockAdd {
+                width: IntWidth::W64
+            }),
+            InstructionClass::AtomicLocked
+        );
+        assert!(classify_mnemonic(Mnemonic::LockAdd {
+            width: IntWidth::W64
+        })
+        .is_barrier());
+
+        assert_eq!(
+            classify_mnemonic(Mnemonic::LockSub {
+                width: IntWidth::W64
+            }),
+            InstructionClass::AtomicLocked
+        );
+        assert!(classify_mnemonic(Mnemonic::LockSub {
+            width: IntWidth::W64
+        })
+        .is_barrier());
+
+        assert_eq!(
+            classify_mnemonic(Mnemonic::LockBts {
+                width: IntWidth::W64
+            }),
+            InstructionClass::AtomicLocked
+        );
+        assert!(classify_mnemonic(Mnemonic::LockBts {
+            width: IntWidth::W64
+        })
+        .is_barrier());
+
+        assert_eq!(
+            classify_mnemonic(Mnemonic::LockBtr {
+                width: IntWidth::W64
+            }),
+            InstructionClass::AtomicLocked
+        );
+        assert!(classify_mnemonic(Mnemonic::LockBtr {
+            width: IntWidth::W64
+        })
+        .is_barrier());
+
+        assert_eq!(
+            classify_mnemonic(Mnemonic::LockBtc {
+                width: IntWidth::W64
+            }),
+            InstructionClass::AtomicLocked
+        );
+        assert!(classify_mnemonic(Mnemonic::LockBtc {
+            width: IntWidth::W64
+        })
+        .is_barrier());
+
+        assert_eq!(
+            classify_mnemonic(Mnemonic::Mfence),
+            InstructionClass::AtomicLocked
+        );
+        assert!(classify_mnemonic(Mnemonic::Mfence).is_barrier());
+
+        assert_eq!(
+            classify_mnemonic(Mnemonic::Sfence),
+            InstructionClass::AtomicLocked
+        );
+        assert!(classify_mnemonic(Mnemonic::Sfence).is_barrier());
+
+        assert_eq!(
+            classify_mnemonic(Mnemonic::Lfence),
+            InstructionClass::AtomicLocked
+        );
+        assert!(classify_mnemonic(Mnemonic::Lfence).is_barrier());
+    }
+
+    #[test]
+    fn schedule_does_not_reorder_load_across_lock_cmpxchg() {
+        use crate::instruction::{Instruction, InstructionSideTable, Mnemonic, Operand, RegId};
+        use smallvec::SmallVec;
+
+        let mut table = InstructionSideTable::new();
+
+        let n0 = IrNodeId::new(1).unwrap();
+        let n1 = IrNodeId::new(2).unwrap();
+        let n2 = IrNodeId::new(3).unwrap();
+
+        // n0: mov r0, [rax] (load)
+        table.insert(
+            n0,
+            Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: {
+                    let mut ops = SmallVec::new();
+                    ops.push(Operand::Reg(RegId(0)));
+                    ops.push(Operand::MemSib {
+                        base: RegId(0),
+                        index: None,
+                        scale: crate::instruction::Scale::X1,
+                        disp: 0,
+                    });
+                    ops
+                },
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: InstrMode::default(),
+            },
+        );
+
+        // n1: lock cmpxchg [rbx], r1 (barrier)
+        table.insert(
+            n1,
+            Instruction {
+                mnemonic: Mnemonic::LockCmpxchg,
+                operands: {
+                    let mut ops = SmallVec::new();
+                    ops.push(Operand::MemSib {
+                        base: RegId(3),
+                        index: None,
+                        scale: crate::instruction::Scale::X1,
+                        disp: 0,
+                    });
+                    ops.push(Operand::Reg(RegId(1)));
+                    ops
+                },
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: InstrMode::default(),
+            },
+        );
+
+        // n2: mov r2, [rax] (load that would normally be hoisted without barrier)
+        table.insert(
+            n2,
+            Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: {
+                    let mut ops = SmallVec::new();
+                    ops.push(Operand::Reg(RegId(2)));
+                    ops.push(Operand::MemSib {
+                        base: RegId(0),
+                        index: None,
+                        scale: crate::instruction::Scale::X1,
+                        disp: 0,
+                    });
+                    ops
+                },
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: InstrMode::default(),
+            },
+        );
+
+        // Schedule should respect the barrier and preserve [0, 1, 2] order.
+        let result = schedule_block(&table, &[n0, n1, n2]);
+        assert_eq!(result, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn schedule_does_not_reorder_across_mfence() {
+        use crate::instruction::{Instruction, InstructionSideTable, Mnemonic, Operand, RegId};
+        use smallvec::SmallVec;
+
+        let mut table = InstructionSideTable::new();
+
+        let n0 = IrNodeId::new(1).unwrap();
+        let n1 = IrNodeId::new(2).unwrap();
+        let n2 = IrNodeId::new(3).unwrap();
+
+        // n0: mov r0, [rax] (load)
+        table.insert(
+            n0,
+            Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: {
+                    let mut ops = SmallVec::new();
+                    ops.push(Operand::Reg(RegId(0)));
+                    ops.push(Operand::MemSib {
+                        base: RegId(0),
+                        index: None,
+                        scale: crate::instruction::Scale::X1,
+                        disp: 0,
+                    });
+                    ops
+                },
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: InstrMode::default(),
+            },
+        );
+
+        // n1: mfence (barrier)
+        table.insert(
+            n1,
+            Instruction {
+                mnemonic: Mnemonic::Mfence,
+                operands: SmallVec::new(),
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: InstrMode::default(),
+            },
+        );
+
+        // n2: mov r2, [rax] (load that would normally be hoisted without barrier)
+        table.insert(
+            n2,
+            Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: {
+                    let mut ops = SmallVec::new();
+                    ops.push(Operand::Reg(RegId(2)));
+                    ops.push(Operand::MemSib {
+                        base: RegId(0),
+                        index: None,
+                        scale: crate::instruction::Scale::X1,
+                        disp: 0,
+                    });
+                    ops
+                },
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: InstrMode::default(),
+            },
+        );
+
+        // Schedule should respect the barrier and preserve [0, 1, 2] order.
+        let result = schedule_block(&table, &[n0, n1, n2]);
+        assert_eq!(result, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn schedule_does_not_reorder_across_sfence() {
+        use crate::instruction::{Instruction, InstructionSideTable, Mnemonic, Operand, RegId};
+        use smallvec::SmallVec;
+
+        let mut table = InstructionSideTable::new();
+
+        let n0 = IrNodeId::new(1).unwrap();
+        let n1 = IrNodeId::new(2).unwrap();
+        let n2 = IrNodeId::new(3).unwrap();
+
+        // n0: mov r0, [rax] (load)
+        table.insert(
+            n0,
+            Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: {
+                    let mut ops = SmallVec::new();
+                    ops.push(Operand::Reg(RegId(0)));
+                    ops.push(Operand::MemSib {
+                        base: RegId(0),
+                        index: None,
+                        scale: crate::instruction::Scale::X1,
+                        disp: 0,
+                    });
+                    ops
+                },
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: InstrMode::default(),
+            },
+        );
+
+        // n1: sfence (barrier)
+        table.insert(
+            n1,
+            Instruction {
+                mnemonic: Mnemonic::Sfence,
+                operands: SmallVec::new(),
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: InstrMode::default(),
+            },
+        );
+
+        // n2: mov r2, [rax] (load that would normally be hoisted without barrier)
+        table.insert(
+            n2,
+            Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: {
+                    let mut ops = SmallVec::new();
+                    ops.push(Operand::Reg(RegId(2)));
+                    ops.push(Operand::MemSib {
+                        base: RegId(0),
+                        index: None,
+                        scale: crate::instruction::Scale::X1,
+                        disp: 0,
+                    });
+                    ops
+                },
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: InstrMode::default(),
+            },
+        );
+
+        // Schedule should respect the barrier and preserve [0, 1, 2] order.
+        let result = schedule_block(&table, &[n0, n1, n2]);
+        assert_eq!(result, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn schedule_does_not_reorder_across_lfence() {
+        use crate::instruction::{Instruction, InstructionSideTable, Mnemonic, Operand, RegId};
+        use smallvec::SmallVec;
+
+        let mut table = InstructionSideTable::new();
+
+        let n0 = IrNodeId::new(1).unwrap();
+        let n1 = IrNodeId::new(2).unwrap();
+        let n2 = IrNodeId::new(3).unwrap();
+
+        // n0: mov r0, [rax] (load)
+        table.insert(
+            n0,
+            Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: {
+                    let mut ops = SmallVec::new();
+                    ops.push(Operand::Reg(RegId(0)));
+                    ops.push(Operand::MemSib {
+                        base: RegId(0),
+                        index: None,
+                        scale: crate::instruction::Scale::X1,
+                        disp: 0,
+                    });
+                    ops
+                },
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: InstrMode::default(),
+            },
+        );
+
+        // n1: lfence (barrier)
+        table.insert(
+            n1,
+            Instruction {
+                mnemonic: Mnemonic::Lfence,
+                operands: SmallVec::new(),
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: InstrMode::default(),
+            },
+        );
+
+        // n2: mov r2, [rax] (load that would normally be hoisted without barrier)
+        table.insert(
+            n2,
+            Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: {
+                    let mut ops = SmallVec::new();
+                    ops.push(Operand::Reg(RegId(2)));
+                    ops.push(Operand::MemSib {
+                        base: RegId(0),
+                        index: None,
+                        scale: crate::instruction::Scale::X1,
+                        disp: 0,
+                    });
+                    ops
+                },
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: InstrMode::default(),
+            },
+        );
+
+        // Schedule should respect the barrier and preserve [0, 1, 2] order.
+        let result = schedule_block(&table, &[n0, n1, n2]);
+        assert_eq!(result, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn schedule_does_not_reorder_across_xchg() {
+        use crate::instruction::{Instruction, InstructionSideTable, Mnemonic, Operand, RegId};
+        use smallvec::SmallVec;
+
+        let mut table = InstructionSideTable::new();
+
+        let n0 = IrNodeId::new(1).unwrap();
+        let n1 = IrNodeId::new(2).unwrap();
+        let n2 = IrNodeId::new(3).unwrap();
+
+        // n0: mov r0, [rax] (load)
+        table.insert(
+            n0,
+            Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: {
+                    let mut ops = SmallVec::new();
+                    ops.push(Operand::Reg(RegId(0)));
+                    ops.push(Operand::MemSib {
+                        base: RegId(0),
+                        index: None,
+                        scale: crate::instruction::Scale::X1,
+                        disp: 0,
+                    });
+                    ops
+                },
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: InstrMode::default(),
+            },
+        );
+
+        // n1: xchg (barrier)
+        table.insert(
+            n1,
+            Instruction {
+                mnemonic: Mnemonic::Xchg,
+                operands: {
+                    let mut ops = SmallVec::new();
+                    ops.push(Operand::Reg(RegId(1)));
+                    ops.push(Operand::Reg(RegId(2)));
+                    ops
+                },
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: InstrMode::default(),
+            },
+        );
+
+        // n2: mov r2, [rax] (load that would normally be hoisted without barrier)
+        table.insert(
+            n2,
+            Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: {
+                    let mut ops = SmallVec::new();
+                    ops.push(Operand::Reg(RegId(2)));
+                    ops.push(Operand::MemSib {
+                        base: RegId(0),
+                        index: None,
+                        scale: crate::instruction::Scale::X1,
+                        disp: 0,
+                    });
+                    ops
+                },
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: InstrMode::default(),
+            },
+        );
+
+        // Schedule should respect the barrier and preserve [0, 1, 2] order.
+        let result = schedule_block(&table, &[n0, n1, n2]);
+        assert_eq!(result, vec![0, 1, 2]);
     }
 }
