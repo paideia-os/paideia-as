@@ -384,6 +384,15 @@ pub enum Operand {
         /// 32-bit displacement (sign-extended).
         disp: i32,
     },
+    /// RIP-relative memory with symbol: [rip + sym + addend].
+    /// Used to disambiguate bracketed `call [rip + sym]` from bare `call sym`.
+    /// The encoder emits a rel32 relocation with the symbol name.
+    MemRipRelSym {
+        /// Name of the symbol.
+        name: String,
+        /// Addend to apply to the symbol address.
+        addend: i32,
+    },
     /// Segment-prefixed memory operand (PA-R13-002, issue #915).
     ///
     /// `inner` MUST be one of: MemSib, MemDisp, or MemRipRel.

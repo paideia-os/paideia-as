@@ -2379,6 +2379,78 @@ pub fn encode_invlpg(buf: &mut CodeBuffer, base_reg: Reg64, disp: i32) {
     }
 }
 
+// PA-R13-003: Indirect call (call reg / call [mem]) encoder helpers.
+
+/// Encode `call reg64` — indirect call via register.
+///
+/// Instruction: [REX.B] FF D<reg>
+/// Opcode: FF /2 (reg field = 010)
+/// REX.B needed for r8–r15 (when reg >> 3 != 0).
+///
+/// Examples:
+/// - `call rax`: `FF D0`
+/// - `call r8`: `41 FF D0`
+pub fn call_reg64(buf: &mut CodeBuffer, reg: Reg64) {
+    let id = reg as u8;
+    if id > 7 {
+        buf.bytes.push(rex(false, false, false, true));
+    }
+    buf.bytes.push(0xFF);
+    buf.bytes.push(0xC0 | (0b010 << 3) | (id & 7));
+}
+
+/// Encode `call [base + disp]` — indirect call via memory (base + displacement).
+///
+/// Instruction: [REX.B] FF 14 /2 [disp]
+/// Opcode: FF /2 (reg field = 010)
+/// ModR/M/disp handling via emit_mem_base_disp.
+///
+/// Examples:
+/// - `call [rax]`: `FF 10`
+/// - `call [rdi + 8]`: `FF 57 08`
+pub fn call_mem_base_disp(buf: &mut CodeBuffer, base: Reg64, disp: i32) {
+    let bid = base as u8;
+    if (bid >> 3) != 0 {
+        buf.bytes.push(rex(false, false, false, true));
+    }
+    buf.bytes.push(0xFF);
+    emit_mem_base_disp(buf, 0b010, bid, disp);
+}
+
+/// Encode `call [base + index*scale + disp]` — indirect call via SIB memory addressing.
+///
+/// Instruction: [REX.X/B] FF 15 /2 SIB [disp]
+/// Opcode: FF /2 (reg field = 010)
+/// REX: X for index in r8–r15, B for base in r8–r15.
+/// ModR/M/SIB/disp handling via emit_mem_sib_disp.
+///
+/// Examples:
+/// - `call [r12 + rsi*8]`: `41 FF 14 F4`
+/// - `call [r13 + rsi*8]`: `41 FF 54 F5 00`
+pub fn call_mem_sib_disp(buf: &mut CodeBuffer, base: Reg64, index: Reg64, sc: u8, disp: i32) {
+    let (bid, iid) = (base as u8, index as u8);
+    if (bid | iid) >> 3 != 0 {
+        buf.bytes.push(rex(false, false, (iid >> 3) != 0, (bid >> 3) != 0));
+    }
+    buf.bytes.push(0xFF);
+    emit_mem_sib_disp(buf, 0b010, bid, iid, sc, disp);
+}
+
+/// Encode `call [rip + disp32]` — indirect call via RIP-relative addressing.
+///
+/// Instruction: FF 15 <disp32>
+/// No REX prefix (rip is implicit in 64-bit mode).
+/// Disp32 is a signed 32-bit displacement.
+/// Commonly used for PLT/GOT accesses with relocations.
+///
+/// Example:
+/// - `call [rip + sym]`: `FF 15 00 00 00 00` (+ relocation at +2)
+pub fn call_mem_rip_rel(buf: &mut CodeBuffer, disp: i32) {
+    buf.bytes.push(0xFF);
+    buf.bytes.push(0x15);
+    buf.bytes.extend(disp.to_le_bytes());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

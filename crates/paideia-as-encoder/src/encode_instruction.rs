@@ -974,6 +974,46 @@ fn encode_mov(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
             });
             Ok(output)
         }
+        // PA-R13-003: Parallel MemRipRelSym form for mov r64, [rip + sym + addend]
+        [Operand::Reg(dest), Operand::MemRipRelSym { name, addend }] => {
+            // Identical encoding to SymbolRef form: 48 8B /r [rip-relative ModR/M] [disp32_placeholder]
+            let dest_id = reg64_from(*dest)? as u8;
+            let rex_byte = rex(true, (dest_id >> 3) != 0, false, false);
+
+            buf.bytes.push(rex_byte);
+            buf.bytes.push(0x8B); // mov r64, r/m64 opcode
+            buf.bytes.push(0x05 | ((dest_id & 7) << 3)); // ModR/M with rip-relative form
+            buf.bytes.extend([0, 0, 0, 0]); // placeholder disp32
+
+            let mut output = EncodeOutput::new();
+            output.add_reloc(RelocSite {
+                byte_offset: 3,
+                symbol: name.clone(),
+                kind: RelocKind::PcRel32,
+                addend: addend.wrapping_add(PC32_FIELD_BIAS),
+            });
+            Ok(output)
+        }
+        // PA-R13-003: Parallel MemRipRelSym form for mov [rip + sym + addend], r64
+        [Operand::MemRipRelSym { name, addend }, Operand::Reg(src)] => {
+            // Identical encoding to SymbolRef store form: 48 89 /r [rip-relative ModR/M] [disp32_placeholder]
+            let src_id = reg64_from(*src)? as u8;
+            let rex_byte = rex(true, (src_id >> 3) != 0, false, false);
+
+            buf.bytes.push(rex_byte);
+            buf.bytes.push(0x89); // mov r/m64, r64 opcode
+            buf.bytes.push(0x05 | ((src_id & 7) << 3)); // ModR/M with rip-relative form
+            buf.bytes.extend([0, 0, 0, 0]); // placeholder disp32
+
+            let mut output = EncodeOutput::new();
+            output.add_reloc(RelocSite {
+                byte_offset: 3,
+                symbol: name.clone(),
+                kind: RelocKind::PcRel32,
+                addend: addend.wrapping_add(PC32_FIELD_BIAS),
+            });
+            Ok(output)
+        }
         operands if operands.iter().any(|op| matches!(op, Operand::Var { .. })) => {
             unreachable!("Operand::Var reached encoder — resolve_var_operands pass was skipped")
         }
@@ -1307,6 +1347,44 @@ fn encode_call(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput,
             });
             Ok(output)
         }
+        // PA-R13-003: call reg64
+        [Operand::Reg(r)] => {
+            call_reg64(buf, reg64_from(*r)?);
+            Ok(EncodeOutput::new())
+        }
+        // PA-R13-003: call [base + disp]
+        [Operand::MemSib { base, index: None, scale: Scale::X1, disp }] => {
+            call_mem_base_disp(buf, reg64_from(*base)?, *disp);
+            Ok(EncodeOutput::new())
+        }
+        // PA-R13-003: call [base + index*scale + disp]
+        [Operand::MemSib { base, index: Some(idx), scale, disp }] => {
+            let scale_bits = match scale {
+                Scale::X1 => 0,
+                Scale::X2 => 1,
+                Scale::X4 => 2,
+                Scale::X8 => 3,
+            };
+            call_mem_sib_disp(buf, reg64_from(*base)?, reg64_from(*idx)?, scale_bits, *disp);
+            Ok(EncodeOutput::new())
+        }
+        // PA-R13-003: call [rip + disp32]
+        [Operand::MemRipRel { disp }] => {
+            call_mem_rip_rel(buf, *disp);
+            Ok(EncodeOutput::new())
+        }
+        // PA-R13-003: call [rip + sym + addend] → FF 15 <disp32> + PcRel32 reloc
+        [Operand::MemRipRelSym { name, addend }] => {
+            call_mem_rip_rel(buf, 0); // placeholder disp32
+            let mut output = EncodeOutput::new();
+            output.add_reloc(RelocSite {
+                byte_offset: 2, // rel32 starts at byte +2 of the FF 15 prefix
+                symbol: name.clone(),
+                kind: RelocKind::PcRel32,
+                addend: addend.wrapping_add(PC32_FIELD_BIAS),
+            });
+            Ok(output)
+        }
         _ => Err(EncodeError::Unsupported(
             "call form not in phase-3-m2-002 minimum",
         )),
@@ -1438,6 +1516,26 @@ fn encode_lea(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
             let mut output = EncodeOutput::new();
             output.add_reloc(RelocSite {
                 byte_offset: 3, // disp32 starts at byte +3 of the lea instruction (instruction-local); translator adds offset_before
+                symbol: name.clone(),
+                kind: RelocKind::PcRel32,
+                addend: addend.wrapping_add(PC32_FIELD_BIAS),
+            });
+            Ok(output)
+        }
+        // PA-R13-003: Parallel MemRipRelSym form for lea r64, [rip + sym + addend]
+        [Operand::Reg(dest), Operand::MemRipRelSym { name, addend }] => {
+            // Identical encoding to SymbolRef form: 48 8D /r [rip-relative ModR/M] [disp32_placeholder]
+            let dest_id = reg64_from(*dest)? as u8;
+            let rex_byte = rex(true, (dest_id >> 3) != 0, false, false);
+
+            buf.bytes.push(rex_byte);
+            buf.bytes.push(0x8D); // LEA opcode
+            buf.bytes.push(0x05 | ((dest_id & 7) << 3)); // ModR/M with rip-relative form
+            buf.bytes.extend([0, 0, 0, 0]); // placeholder disp32
+
+            let mut output = EncodeOutput::new();
+            output.add_reloc(RelocSite {
+                byte_offset: 3,
                 symbol: name.clone(),
                 kind: RelocKind::PcRel32,
                 addend: addend.wrapping_add(PC32_FIELD_BIAS),
@@ -1781,6 +1879,23 @@ fn encode_lgdt_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOu
             });
             Ok(output)
         }
+        // PA-R13-003: Parallel MemRipRelSym form for lgdt [rip + sym + addend]
+        [Operand::MemRipRelSym { name, addend }] => {
+            // Identical encoding to SymbolRef form: 0F 01 [rip-relative ModR/M] [disp32_placeholder]
+            buf.bytes.push(0x0F);
+            buf.bytes.push(0x01);
+            buf.bytes.push(0x15); // 0x05 | (2 << 3) = rip-relative with /2
+            buf.bytes.extend([0, 0, 0, 0]); // placeholder disp32
+
+            let mut output = EncodeOutput::new();
+            output.add_reloc(RelocSite {
+                byte_offset: 3,
+                symbol: name.clone(),
+                kind: RelocKind::PcRel32,
+                addend: addend.wrapping_add(PC32_FIELD_BIAS),
+            });
+            Ok(output)
+        }
         [
             Operand::MemSib {
                 base: _,
@@ -1826,6 +1941,23 @@ fn encode_lidt_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOu
             let mut output = EncodeOutput::new();
             output.add_reloc(RelocSite {
                 byte_offset: 3, // disp32 starts at byte +3 of the lidt instruction (instruction-local); translator adds offset_before
+                symbol: name.clone(),
+                kind: RelocKind::PcRel32,
+                addend: addend.wrapping_add(PC32_FIELD_BIAS),
+            });
+            Ok(output)
+        }
+        // PA-R13-003: Parallel MemRipRelSym form for lidt [rip + sym + addend]
+        [Operand::MemRipRelSym { name, addend }] => {
+            // Identical encoding to SymbolRef form: 0F 01 [rip-relative ModR/M] [disp32_placeholder]
+            buf.bytes.push(0x0F);
+            buf.bytes.push(0x01);
+            buf.bytes.push(0x1D); // 0x05 | (3 << 3) = rip-relative with /3
+            buf.bytes.extend([0, 0, 0, 0]); // placeholder disp32
+
+            let mut output = EncodeOutput::new();
+            output.add_reloc(RelocSite {
+                byte_offset: 3,
                 symbol: name.clone(),
                 kind: RelocKind::PcRel32,
                 addend: addend.wrapping_add(PC32_FIELD_BIAS),

@@ -811,7 +811,8 @@ fn test_lgdt_rip_relative_symbol() {
         "expected Lgdt mnemonic"
     );
 
-    // Verify the operand is SymbolRef { name: "target", addend: 0 }
+    // PA-R13-003: Verify the operand is MemRipRelSym { name: "target", addend: 0 }
+    // (bracketed symbols return MemRipRelSym to distinguish from bare SymbolRef)
     assert_eq!(
         instruction.operands.len(),
         1,
@@ -819,12 +820,12 @@ fn test_lgdt_rip_relative_symbol() {
     );
 
     match &instruction.operands[0] {
-        paideia_as_ir::instruction::Operand::SymbolRef { name, addend } => {
+        paideia_as_ir::instruction::Operand::MemRipRelSym { name, addend } => {
             assert_eq!(name, "target", "expected symbol 'target'");
             assert_eq!(*addend, 0, "expected addend 0");
         }
         _ => panic!(
-            "expected SymbolRef operand for [rip + symbol], got {:?}",
+            "expected MemRipRelSym operand for [rip + symbol], got {:?}",
             instruction.operands[0]
         ),
     }

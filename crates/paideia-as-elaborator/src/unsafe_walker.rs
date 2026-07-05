@@ -687,22 +687,22 @@ fn try_parse_symbol_memory(
         .ok_or(OperandError::MalformedOperand(span))?;
 
     match node.kind {
-        // Bare symbol: [symbol_name]
+        // Bare symbol: [symbol_name] → MemRipRelSym (bracketed, not bare SymbolRef)
         NodeKind::Ident => {
             let name = try_extract_symbol_name(ast, addr_node, source_map)
                 .ok_or(OperandError::MalformedOperand(span))?;
-            Ok(Operand::SymbolRef { name, addend: 0 })
+            Ok(Operand::MemRipRelSym { name, addend: 0 })
         }
-        // Bare symbol via path: [symbol_name] (single-segment path)
+        // Bare symbol via path: [symbol_name] (single-segment path) → MemRipRelSym
         NodeKind::ExprPath => {
             let name = try_extract_symbol_name(ast, addr_node, source_map)
                 .ok_or(OperandError::MalformedOperand(span))?;
-            Ok(Operand::SymbolRef { name, addend: 0 })
+            Ok(Operand::MemRipRelSym { name, addend: 0 })
         }
-        // [rip + symbol] or [symbol ± IntLit] forms: ExprInfix
+        // [rip + symbol] or [symbol ± IntLit] forms: ExprInfix → MemRipRelSym
         NodeKind::ExprInfix => {
             if let Some((name, addend)) = try_extract_symbol_sum(ast, addr_node, source_map) {
-                return Ok(Operand::SymbolRef { name, addend });
+                return Ok(Operand::MemRipRelSym { name, addend });
             }
             Err(OperandError::MalformedOperand(span))
         }

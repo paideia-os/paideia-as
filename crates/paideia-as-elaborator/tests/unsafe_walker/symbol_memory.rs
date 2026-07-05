@@ -147,7 +147,8 @@ fn mov_symbol_memory_operand(source: &str, ast: &mut AstArena, memref_operand: N
         .clone()
 }
 
-/// Test: [pml4] → SymbolRef { name: "pml4", addend: 0 }
+/// Test: [pml4] → MemRipRelSym { name: "pml4", addend: 0 }
+/// PA-R13-003: Bracketed symbols return MemRipRelSym to distinguish from bare SymbolRef.
 #[test]
 fn bare_symbol_operand() {
     let mut ast = AstArena::new();
@@ -161,15 +162,15 @@ fn bare_symbol_operand() {
     let operand = mov_symbol_memory_operand(source, &mut ast, memref);
 
     match operand {
-        Operand::SymbolRef { name, addend } => {
+        Operand::MemRipRelSym { name, addend } => {
             assert_eq!(name, "pml4");
             assert_eq!(addend, 0);
         }
-        other => panic!("Expected SymbolRef, got {:?}", other),
+        other => panic!("Expected MemRipRelSym, got {:?}", other),
     }
 }
 
-/// Test: [pml4 + 4] → SymbolRef { name: "pml4", addend: 4 }
+/// Test: [pml4 + 4] → MemRipRelSym { name: "pml4", addend: 4 }
 #[test]
 fn symbol_plus_intlit_operand() {
     let mut ast = AstArena::new();
@@ -189,15 +190,15 @@ fn symbol_plus_intlit_operand() {
     let operand = mov_symbol_memory_operand(source, &mut ast, memref);
 
     match operand {
-        Operand::SymbolRef { name, addend } => {
+        Operand::MemRipRelSym { name, addend } => {
             assert_eq!(name, "pml4");
             assert_eq!(addend, 4);
         }
-        other => panic!("Expected SymbolRef with addend 4, got {:?}", other),
+        other => panic!("Expected MemRipRelSym with addend 4, got {:?}", other),
     }
 }
 
-/// Test: [pdpt - 16] → SymbolRef { name: "pdpt", addend: -16 }
+/// Test: [pdpt - 16] → MemRipRelSym { name: "pdpt", addend: -16 }
 #[test]
 fn symbol_minus_intlit_operand() {
     let mut ast = AstArena::new();
@@ -217,15 +218,15 @@ fn symbol_minus_intlit_operand() {
     let operand = mov_symbol_memory_operand(source, &mut ast, memref);
 
     match operand {
-        Operand::SymbolRef { name, addend } => {
+        Operand::MemRipRelSym { name, addend } => {
             assert_eq!(name, "pdpt");
             assert_eq!(addend, -16);
         }
-        other => panic!("Expected SymbolRef with addend -16, got {:?}", other),
+        other => panic!("Expected MemRipRelSym with addend -16, got {:?}", other),
     }
 }
 
-/// Test: Commutative form [8 + pml4] → SymbolRef { name: "pml4", addend: 8 }
+/// Test: Commutative form [8 + pml4] → MemRipRelSym { name: "pml4", addend: 8 }
 #[test]
 fn intlit_plus_symbol_operand() {
     let mut ast = AstArena::new();
@@ -245,15 +246,15 @@ fn intlit_plus_symbol_operand() {
     let operand = mov_symbol_memory_operand(source, &mut ast, memref);
 
     match operand {
-        Operand::SymbolRef { name, addend } => {
+        Operand::MemRipRelSym { name, addend } => {
             assert_eq!(name, "pml4");
             assert_eq!(addend, 8);
         }
-        other => panic!("Expected SymbolRef with addend 8, got {:?}", other),
+        other => panic!("Expected MemRipRelSym with addend 8, got {:?}", other),
     }
 }
 
-/// Test: [rip + pml4 + 4] → SymbolRef { name: "pml4", addend: 4 }
+/// Test: [rip + pml4 + 4] → MemRipRelSym { name: "pml4", addend: 4 }
 #[test]
 fn rip_plus_symbol_plus_intlit_operand() {
     let mut ast = AstArena::new();
@@ -281,15 +282,15 @@ fn rip_plus_symbol_plus_intlit_operand() {
     let operand = mov_symbol_memory_operand(source, &mut ast, memref);
 
     match operand {
-        Operand::SymbolRef { name, addend } => {
+        Operand::MemRipRelSym { name, addend } => {
             assert_eq!(name, "pml4");
             assert_eq!(addend, 4);
         }
-        other => panic!("Expected SymbolRef with addend 4, got {:?}", other),
+        other => panic!("Expected MemRipRelSym with addend 4, got {:?}", other),
     }
 }
 
-/// Test: [rip + pdpt - 16] → SymbolRef { name: "pdpt", addend: -16 }
+/// Test: [rip + pdpt - 16] → MemRipRelSym { name: "pdpt", addend: -16 }
 #[test]
 fn rip_plus_symbol_minus_intlit_operand() {
     let mut ast = AstArena::new();
@@ -317,15 +318,15 @@ fn rip_plus_symbol_minus_intlit_operand() {
     let operand = mov_symbol_memory_operand(source, &mut ast, memref);
 
     match operand {
-        Operand::SymbolRef { name, addend } => {
+        Operand::MemRipRelSym { name, addend } => {
             assert_eq!(name, "pdpt");
             assert_eq!(addend, -16);
         }
-        other => panic!("Expected SymbolRef with addend -16, got {:?}", other),
+        other => panic!("Expected MemRipRelSym with addend -16, got {:?}", other),
     }
 }
 
-/// Test: [rip + (pml4 + 8)] → SymbolRef { name: "pml4", addend: 8 }
+/// Test: [rip + (pml4 + 8)] → MemRipRelSym { name: "pml4", addend: 8 }
 #[test]
 fn rip_plus_paren_symbol_plus_intlit_operand() {
     let mut ast = AstArena::new();
@@ -353,15 +354,15 @@ fn rip_plus_paren_symbol_plus_intlit_operand() {
     let operand = mov_symbol_memory_operand(source, &mut ast, memref);
 
     match operand {
-        Operand::SymbolRef { name, addend } => {
+        Operand::MemRipRelSym { name, addend } => {
             assert_eq!(name, "pml4");
             assert_eq!(addend, 8);
         }
-        other => panic!("Expected SymbolRef with addend 8, got {:?}", other),
+        other => panic!("Expected MemRipRelSym with addend 8, got {:?}", other),
     }
 }
 
-/// Test: [8 + rip + pml4] → SymbolRef { name: "pml4", addend: 8 }
+/// Test: [8 + rip + pml4] → MemRipRelSym { name: "pml4", addend: 8 }
 #[test]
 fn intlit_plus_rip_plus_symbol_operand() {
     let mut ast = AstArena::new();
@@ -389,10 +390,10 @@ fn intlit_plus_rip_plus_symbol_operand() {
     let operand = mov_symbol_memory_operand(source, &mut ast, memref);
 
     match operand {
-        Operand::SymbolRef { name, addend } => {
+        Operand::MemRipRelSym { name, addend } => {
             assert_eq!(name, "pml4");
             assert_eq!(addend, 8);
         }
-        other => panic!("Expected SymbolRef with addend 8, got {:?}", other),
+        other => panic!("Expected MemRipRelSym with addend 8, got {:?}", other),
     }
 }
