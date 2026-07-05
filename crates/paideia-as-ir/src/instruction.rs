@@ -205,6 +205,14 @@ pub enum Mnemonic {
     /// Instruction: 0F AE /1 (reg field = 001). REX.B for r8-r15 base; no REX.W.
     /// One operand (memory).
     Fxrstor,
+    /// `inc r64` (PA-R13-005, #934). Increment 64-bit register by 1.
+    /// Encoding: REX.W FF /0 (ModR/M reg field = 000 → 0xC0 | (reg & 7)).
+    /// One operand (the destination register).
+    Inc,
+    /// `dec r64` (PA-R13-005, #934). Decrement 64-bit register by 1.
+    /// Encoding: REX.W FF /1 (ModR/M reg field = 001 → 0xC8 | (reg & 7)).
+    /// One operand (the destination register).
+    Dec,
 }
 
 /// Integer operand width for width-threaded immediate moves.
@@ -530,7 +538,9 @@ impl Mnemonic {
             | Mnemonic::Idiv
             | Mnemonic::Ltr
             | Mnemonic::Fxsave
-            | Mnemonic::Fxrstor => 1,
+            | Mnemonic::Fxrstor
+            | Mnemonic::Inc
+            | Mnemonic::Dec => 1,
 
             // Two-operand instructions
             Mnemonic::Mov
@@ -699,6 +709,11 @@ impl Mnemonic {
             // Phase R13 PA-R13-007: fxsave/fxrstor to memory, 9 bytes upper bound
             // (two-byte opcode + REX.B + SIB + disp32 worst-case)
             Mnemonic::Fxsave | Mnemonic::Fxrstor => 9,
+
+            // Phase R13 PA-R13-005 (issue #934): inc/dec r64, 3 bytes exact
+            // (REX.W FF ModR/M — REX.B for r8..r15 replaces REX.W's high nibble bit
+            // but total remains 3 bytes).
+            Mnemonic::Inc | Mnemonic::Dec => 3,
         }
     }
 }

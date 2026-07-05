@@ -167,6 +167,9 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     // Phase R13 PA-R13-007 (issue #920): fxsave/fxrstor
     ("fxsave", Mnemonic::Fxsave),
     ("fxrstor", Mnemonic::Fxrstor),
+    // Phase R13 PA-R13-005 (issue #934): inc/dec r64
+    ("inc", Mnemonic::Inc),
+    ("dec", Mnemonic::Dec),
 ];
 
 /// Resolve a mnemonic name to an IR Mnemonic enum variant.

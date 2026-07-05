@@ -691,6 +691,52 @@ pub fn not_reg64(buf: &mut CodeBuffer, dst: Reg64) {
     buf.bytes.push(0xD0 | (reg_id & 7));
 }
 
+/// Encode `inc reg64` (increment 64-bit register by 1) — PA-R13-005 (issue #934).
+///
+/// Instruction: REX.W FF /0
+/// ModR/M: mod=11 (register direct), reg field = 0 (/0 opcode extension for INC),
+/// r/m = dst → `0xC0 | (reg & 7)`.
+/// REX.W=1 for 64-bit operand size; REX.B=reg>>3 for extended registers (R8..R15).
+/// Bytes: `[REX.W | REX.B] FF (0xC0 | (reg & 7))`
+///
+/// Note: in x86_64 long mode the 1-byte legacy `40+rd` INC form was repurposed
+/// as REX prefixes and is unavailable, so REX.W FF /0 is the canonical form.
+///
+/// Example: `inc rax` → `48 FF C0`
+/// Example: `inc rdi` → `48 FF C7`
+/// Example: `inc r8`  → `49 FF C0`
+/// Example: `inc r15` → `49 FF C7`
+pub fn inc_reg64(buf: &mut CodeBuffer, dst: Reg64) {
+    let reg_id = dst as u8;
+    let rex_byte = rex(true, false, false, (reg_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0xFF);
+    buf.bytes.push(0xC0 | (reg_id & 7));
+}
+
+/// Encode `dec reg64` (decrement 64-bit register by 1) — PA-R13-005 (issue #934).
+///
+/// Instruction: REX.W FF /1
+/// ModR/M: mod=11 (register direct), reg field = 1 (/1 opcode extension for DEC),
+/// r/m = dst → `0xC8 | (reg & 7)`.
+/// REX.W=1 for 64-bit operand size; REX.B=reg>>3 for extended registers (R8..R15).
+/// Bytes: `[REX.W | REX.B] FF (0xC8 | (reg & 7))`
+///
+/// Note: in x86_64 long mode the 1-byte legacy `48+rd` DEC form was repurposed
+/// as REX prefixes and is unavailable, so REX.W FF /1 is the canonical form.
+///
+/// Example: `dec rax` → `48 FF C8`
+/// Example: `dec rdi` → `48 FF CF`
+/// Example: `dec r8`  → `49 FF C8`
+/// Example: `dec r15` → `49 FF CF`
+pub fn dec_reg64(buf: &mut CodeBuffer, dst: Reg64) {
+    let reg_id = dst as u8;
+    let rex_byte = rex(true, false, false, (reg_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0xFF);
+    buf.bytes.push(0xC8 | (reg_id & 7));
+}
+
 /// Encode `ltr r16` (load task register).
 ///
 /// Instruction: 0F 00 /3 per Intel SDM Vol 2A LTR.

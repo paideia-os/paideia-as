@@ -315,6 +315,9 @@ fn encode_instruction_impl(
         // Phase R13 PA-R13-007: fxsave/fxrstor to memory
         Mnemonic::Fxsave => encode_fxsave_inst(inst, buf),
         Mnemonic::Fxrstor => encode_fxrstor_inst(inst, buf),
+        // Phase R13 PA-R13-005 (issue #934): inc/dec r64
+        Mnemonic::Inc => encode_inc(inst, buf),
+        Mnemonic::Dec => encode_dec(inst, buf),
     }
 }
 
@@ -447,6 +450,34 @@ fn encode_idiv(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput,
         }
         _ => Err(EncodeError::OperandShape {
             mnemonic: Mnemonic::Idiv,
+        }),
+    }
+}
+
+/// Phase R13 PA-R13-005 (issue #934): Encode `inc r64`.
+/// Expects exactly one register operand. Emits `REX.W FF /0` via `inc_reg64`.
+fn encode_inc(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::Reg(dst)] => {
+            inc_reg64(buf, reg64_from(*dst)?);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Inc,
+        }),
+    }
+}
+
+/// Phase R13 PA-R13-005 (issue #934): Encode `dec r64`.
+/// Expects exactly one register operand. Emits `REX.W FF /1` via `dec_reg64`.
+fn encode_dec(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::Reg(dst)] => {
+            dec_reg64(buf, reg64_from(*dst)?);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Dec,
         }),
     }
 }
