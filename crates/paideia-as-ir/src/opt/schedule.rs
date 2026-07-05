@@ -169,7 +169,9 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         | Mnemonic::Prefetchnta
         | Mnemonic::Prefetcht0
         | Mnemonic::Prefetcht1
-        | Mnemonic::Prefetcht2 => InstructionClass::Other,
+        | Mnemonic::Prefetcht2
+        // Phase R16 PA-R16-007 (issue #973): pause spinloop hint
+        | Mnemonic::Pause => InstructionClass::Other,
     }
 }
 

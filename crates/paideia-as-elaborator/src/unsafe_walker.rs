@@ -208,6 +208,8 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     // Phase R14 PA-R14-004 (issue #947): sfence/lfence
     ("sfence", Mnemonic::Sfence),
     ("lfence", Mnemonic::Lfence),
+    // Phase R16 PA-R16-007 (issue #973): pause spinloop hint
+    ("pause", Mnemonic::Pause),
     // Phase R14 PA-R14-005 (issue #948): wbinvd/invd/clflush/clflushopt
     ("wbinvd", Mnemonic::Wbinvd),
     ("invd", Mnemonic::Invd),
@@ -2230,6 +2232,11 @@ mod tests {
     #[test]
     fn resolve_mnemonic_mfence() {
         assert_eq!(resolve_mnemonic("mfence"), Some(Mnemonic::Mfence));
+    }
+
+    #[test]
+    fn resolve_mnemonic_pause() {
+        assert_eq!(resolve_mnemonic("pause"), Some(Mnemonic::Pause));
     }
 
     #[test]

@@ -238,6 +238,11 @@ pub enum Mnemonic {
     /// lfence (PA-R14-004, #947). Load fence: preceding loads complete
     /// before subsequent ones. Encoding: 0F AE E8. Zero operands.
     Lfence,
+    /// pause (PA-R16-007, #973). Spinloop hint per Intel SDM Vol 2A PAUSE.
+    /// Architecturally a NOP; on modern cores reduces power and prevents
+    /// memory-ordering violations in spin-wait loops. Encoding: F3 90.
+    /// Zero operands.
+    Pause,
     /// wbinvd (PA-R14-005, #948). Write-back and invalidate cache.
     /// Encoding: 0F 09. Zero operands. Privileged.
     Wbinvd,
@@ -724,6 +729,7 @@ impl Mnemonic {
             | Mnemonic::Int3
             | Mnemonic::Sfence
             | Mnemonic::Lfence
+            | Mnemonic::Pause
             | Mnemonic::Wbinvd
             | Mnemonic::Invd => 0,
 
@@ -975,6 +981,9 @@ impl Mnemonic {
 
             // Phase R14 PA-R14-004: lfence/sfence, 3 bytes each
             Mnemonic::Lfence | Mnemonic::Sfence => 3,
+
+            // Phase R16 PA-R16-007: pause (spinloop hint), 2 bytes
+            Mnemonic::Pause => 2,
 
             // Phase R14 PA-R14-005: wbinvd/invd, 2 bytes each
             Mnemonic::Wbinvd | Mnemonic::Invd => 2,

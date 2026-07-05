@@ -1,0 +1,11 @@
+// PA-R16-007: Spinloop hint.
+//
+// Trait PauseOps declares spin_hint for use in busy-wait / CAS-retry loops.
+// Lowering to `pause` (F3 90) deferred to codegen (#1036).
+//
+// Effect: !{} (architecturally a NOP hint; caller sits in an Atomic context).
+// Capability: none (unprivileged).
+
+trait PauseOps {
+  fn spin_hint() -> ();
+}

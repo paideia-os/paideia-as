@@ -372,6 +372,8 @@ fn encode_instruction_impl(
         // Phase R14 PA-R14-004: store/load fence
         Mnemonic::Sfence => encode_sfence_inst(inst, buf),
         Mnemonic::Lfence => encode_lfence_inst(inst, buf),
+        // Phase R16 PA-R16-007: pause spinloop hint
+        Mnemonic::Pause => encode_pause_inst(inst, buf),
         // Phase R14 PA-R14-005: write-back/invalidate cache and clflush
         Mnemonic::Wbinvd => encode_wbinvd_inst(inst, buf),
         Mnemonic::Invd => encode_invd_inst(inst, buf),
@@ -1082,6 +1084,18 @@ fn encode_lfence_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<Encode
         });
     }
     lfence(buf);
+    Ok(EncodeOutput::new())
+}
+
+/// Phase R16 PA-R16-007: Encode pause instruction.
+/// Expects zero operands. Emits via `pause`.
+fn encode_pause_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    if !inst.operands.is_empty() {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::Pause, expected: 0, got: inst.operands.len(),
+        });
+    }
+    pause(buf);
     Ok(EncodeOutput::new())
 }
 

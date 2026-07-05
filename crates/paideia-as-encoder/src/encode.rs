@@ -1687,6 +1687,16 @@ pub fn lfence(buf: &mut CodeBuffer) {
     buf.bytes.push(0xE8);
 }
 
+/// Encode `pause` — PA-R16-007 (issue #973).
+///
+/// Instruction: F3 90 (2 bytes). Zero operands. Spinloop hint.
+/// Architecturally equivalent to NOP; on modern µarch reduces power
+/// and prevents memory-ordering violations in spin-wait loops.
+pub fn pause(buf: &mut CodeBuffer) {
+    buf.bytes.push(0xF3);
+    buf.bytes.push(0x90);
+}
+
 /// Encode `wbinvd` — PA-R14-005 (issue #948).
 ///
 /// Instruction: 0F 09. Zero operands. Write-back and invalidate cache. Privileged.
