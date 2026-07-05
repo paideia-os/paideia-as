@@ -453,6 +453,29 @@ fn encode_mov_sized(
             }
             Ok(EncodeOutput::new())
         }
+        // PA-R14-002b (#1030): narrow-width load from RIP-relative memory [rip + disp]
+        [Operand::Reg(dst), Operand::MemRipRel { disp }] => {
+            let dst_id = dst.0;
+            mov_reg_mem_rip_rel_sized(buf, width, dst_id, *disp);
+            Ok(EncodeOutput::new())
+        }
+        // PA-R14-002b (#1030): narrow-width load from RIP-relative memory with symbol [rip + sym]
+        [Operand::Reg(dst), Operand::MemRipRelSym { name, addend }] => {
+            let dst_id = dst.0;
+            // Calculate bytes before disp32: prefix (if W16) + REX (if needed) + opcode (1) + ModRM (1)
+            let prefix_len = if matches!(width, IntWidth::W16) { 1 } else { 0 };
+            let rex_len = if (dst_id >> 3) != 0 || matches!(width, IntWidth::W64) { 1 } else { 0 };
+            let byte_offset = buf.len() as u32 + prefix_len + rex_len + 2;
+            mov_reg_mem_rip_rel_sized(buf, width, dst_id, 0);
+            let mut output = EncodeOutput::new();
+            output.add_reloc(RelocSite {
+                byte_offset,
+                symbol: name.clone(),
+                kind: RelocKind::PcRel32,
+                addend: addend.wrapping_add(PC32_FIELD_BIAS),
+            });
+            Ok(output)
+        }
         operands if operands.iter().any(|op| matches!(op, Operand::Var { .. })) => {
             unreachable!("Operand::Var reached encoder — resolve_var_operands pass was skipped")
         }

@@ -2688,6 +2688,33 @@ pub fn call_mem_sib_disp(buf: &mut CodeBuffer, base: Reg64, index: Reg64, sc: u8
     emit_mem_sib_disp(buf, 0b010, bid, iid, sc, disp);
 }
 
+/// Encode narrow-width mov with RIP-relative addressing.
+///
+/// `mov rN, [rip + disp32]` for W8/W16/W32/W64.
+///
+/// Instruction formats (per width):
+/// - W8:  `8A /r 05 <rel32>` (no 0x66, no REX.W)
+/// - W16: `66 8B /r 05 <rel32>`
+/// - W32: `8B /r 05 <rel32>` (no REX.W)
+/// - W64: `REX.W 8B /r 05 <rel32>` (existing path, but this handles it)
+///
+/// ModR/M: `0x05 | (dst << 3)` (mod=00, rm=101 = RIP-relative)
+/// REX: REX.R for dst ∈ r8–r15; REX.W only for W64.
+pub fn mov_reg_mem_rip_rel_sized(buf: &mut CodeBuffer, width: IntWidth, dst_id: u8, disp: i32) {
+    if matches!(width, IntWidth::W16) {
+        buf.bytes.push(0x66);
+    }
+    let rex_w = matches!(width, IntWidth::W64);
+    let rex_r = (dst_id >> 3) != 0;
+    if rex_w || rex_r {
+        buf.bytes.push(rex(rex_w, rex_r, false, false));
+    }
+    let opcode = if matches!(width, IntWidth::W8) { 0x8A } else { 0x8B };
+    buf.bytes.push(opcode);
+    buf.bytes.push(0x05 | ((dst_id & 7) << 3));  // mod=00, rm=101 (RIP-relative)
+    buf.bytes.extend(disp.to_le_bytes());
+}
+
 /// Encode `call [rip + disp32]` — indirect call via RIP-relative addressing.
 ///
 /// Instruction: FF 15 <disp32>
