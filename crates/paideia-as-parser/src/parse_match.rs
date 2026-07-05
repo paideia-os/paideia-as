@@ -1,8 +1,8 @@
 //! Match expression parsing.
 //!
-//! Implements §8 MatchExpr grammar: `match <expr> { <pat> => <expr>, ... }`.
+//! Implements §8 MatchExpr grammar: `match <expr> [@jump_table] { <pat> => <expr>, ... }`.
 
-use paideia_as_ast::{ExprData, MatchArm, NodeKind, PatternData};
+use paideia_as_ast::{ExprData, MatchArm, MatchAttrs, NodeKind, PatternData};
 use paideia_as_diagnostics::Span;
 use paideia_as_lexer::TokenKind;
 
@@ -23,6 +23,52 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
         // Parse scrutinee expression
         let scrutinee = self.parse_expr()?;
+
+        // Parse optional attributes: @jump_table
+        let mut attrs = MatchAttrs::default();
+        if self.at(TokenKind::At) {
+            self.bump(); // consume `@`
+            if let Some(attr_name) = self.peek_ident_text() {
+                let attr_span = self.current_span();
+                let attr_name_owned = attr_name.to_string();
+                self.bump(); // consume attribute name
+
+                match attr_name_owned.as_str() {
+                    "jump_table" => {
+                        attrs.jump_table = true;
+                    }
+                    _ => {
+                        // P0270: unknown attribute name
+                        let diag = paideia_as_diagnostics::Diagnostic::error(
+                            paideia_as_diagnostics::DiagnosticCode::new(
+                                paideia_as_diagnostics::Category::P,
+                                paideia_as_diagnostics::Severity::Error,
+                                270,
+                            )
+                            .expect("P0270 should be valid"),
+                        )
+                        .message(format!("unknown match attribute '{}'", attr_name_owned))
+                        .with_span(attr_span)
+                        .finish();
+                        self.emit_diagnostic(diag);
+                    }
+                }
+            } else if let Some(tok) = self.peek() {
+                // P0271: malformed attribute syntax
+                let diag = paideia_as_diagnostics::Diagnostic::error(
+                    paideia_as_diagnostics::DiagnosticCode::new(
+                        paideia_as_diagnostics::Category::P,
+                        paideia_as_diagnostics::Severity::Error,
+                        271,
+                    )
+                    .expect("P0271 should be valid"),
+                )
+                .message("malformed match attribute".to_string())
+                .with_span(tok.span)
+                .finish();
+                self.emit_diagnostic(diag);
+            }
+        }
 
         // Expect opening brace
         self.expect(TokenKind::LBrace)?;
@@ -93,7 +139,11 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         Ok(self.arena_mut().alloc_expr(
             NodeKind::ExprMatch,
             match_expr_span,
-            ExprData::Match { scrutinee, arms },
+            ExprData::Match {
+                scrutinee,
+                arms,
+                attrs,
+            },
         ))
     }
 
@@ -349,5 +399,124 @@ mod tests {
                 panic!("expected ExprMatch");
             }
         }
+    }
+
+    #[test]
+    fn match_with_jump_table_attribute() {
+        // Test that @jump_table attribute is accepted between scrutinee and {
+        let source = "match x @jump_table { 0 => 1, _ => 2 }";
+        let tokens = vec![
+            tok(TokenKind::KwMatch, 0, 5),  // match
+            tok(TokenKind::Ident, 6, 1),    // x
+            tok(TokenKind::At, 8, 1),       // @
+            tok(TokenKind::Ident, 9, 10),   // jump_table
+            tok(TokenKind::LBrace, 20, 1),
+            tok(TokenKind::IntLit, 22, 1),  // 0
+            tok(TokenKind::FatArrow, 24, 2), // =>
+            tok(TokenKind::IntLit, 27, 1),  // 1
+            tok(TokenKind::Comma, 28, 1),
+            tok(TokenKind::Ident, 30, 1),   // _
+            tok(TokenKind::FatArrow, 32, 2), // =>
+            tok(TokenKind::IntLit, 35, 1),  // 2
+            tok(TokenKind::RBrace, 37, 1),
+            tok(TokenKind::Eof, 38, 0),
+        ];
+
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let root = {
+            let mut p = Parser::new(&tokens, source, FileId::new(1).unwrap(), &mut arena, &mut sink);
+            p.parse_expr().expect("parse failed")
+        };
+        let diags = sink.diagnostics().to_vec();
+
+        // No diagnostics expected: valid attribute
+        assert_eq!(diags.len(), 0, "expected no diagnostics for valid @jump_table");
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprMatch);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Match { attrs, .. } = expr_data {
+                assert!(
+                    attrs.jump_table,
+                    "jump_table attribute should be set to true"
+                );
+            } else {
+                panic!("expected ExprMatch");
+            }
+        }
+    }
+
+    #[test]
+    fn match_with_unknown_attribute_p0270() {
+        // Test that unknown attribute @bogus produces P0270
+        let source = "match x @bogus { 0 => 1, _ => 2 }";
+        let tokens = vec![
+            tok(TokenKind::KwMatch, 0, 5),  // match
+            tok(TokenKind::Ident, 6, 1),    // x
+            tok(TokenKind::At, 8, 1),       // @
+            tok(TokenKind::Ident, 9, 5),    // bogus
+            tok(TokenKind::LBrace, 15, 1),
+            tok(TokenKind::IntLit, 17, 1),  // 0
+            tok(TokenKind::FatArrow, 19, 2), // =>
+            tok(TokenKind::IntLit, 22, 1),  // 1
+            tok(TokenKind::Comma, 23, 1),
+            tok(TokenKind::Ident, 25, 1),   // _
+            tok(TokenKind::FatArrow, 27, 2), // =>
+            tok(TokenKind::IntLit, 30, 1),  // 2
+            tok(TokenKind::RBrace, 32, 1),
+            tok(TokenKind::Eof, 33, 0),
+        ];
+
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let _root = {
+            let mut p = Parser::new(&tokens, source, FileId::new(1).unwrap(), &mut arena, &mut sink);
+            p.parse_expr().expect("parse failed")
+        };
+        let diags = sink.diagnostics().to_vec();
+
+        // P0270 expected: unknown attribute
+        assert!(
+            diags.iter().any(|d| d.code().number() == 270),
+            "expected P0270 for unknown attribute @bogus"
+        );
+    }
+
+    #[test]
+    fn match_with_malformed_attribute_p0271() {
+        // Test that malformed @ followed by non-identifier produces P0271
+        let source = "match x @ { 0 => 1, _ => 2 }";
+        let tokens = vec![
+            tok(TokenKind::KwMatch, 0, 5),  // match
+            tok(TokenKind::Ident, 6, 1),    // x
+            tok(TokenKind::At, 8, 1),       // @ — no identifier follows
+            tok(TokenKind::LBrace, 10, 1),
+            tok(TokenKind::IntLit, 12, 1),  // 0
+            tok(TokenKind::FatArrow, 14, 2), // =>
+            tok(TokenKind::IntLit, 17, 1),  // 1
+            tok(TokenKind::Comma, 18, 1),
+            tok(TokenKind::Ident, 20, 1),   // _
+            tok(TokenKind::FatArrow, 22, 2), // =>
+            tok(TokenKind::IntLit, 25, 1),  // 2
+            tok(TokenKind::RBrace, 27, 1),
+            tok(TokenKind::Eof, 28, 0),
+        ];
+
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let root = {
+            let mut p = Parser::new(&tokens, source, FileId::new(1).unwrap(), &mut arena, &mut sink);
+            p.parse_expr().expect("parse should succeed despite P0271")
+        };
+        let diags = sink.diagnostics().to_vec();
+
+        // P0271 expected: @ not followed by identifier
+        assert!(
+            diags.iter().any(|d| d.code().number() == 271),
+            "expected P0271 for malformed attribute (@ without identifier)"
+        );
+        // Parse should still succeed and build an AST
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprMatch);
     }
 }

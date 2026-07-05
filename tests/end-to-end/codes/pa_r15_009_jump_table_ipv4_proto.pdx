@@ -1,0 +1,11 @@
+// Test: @jump_table for IPv4 protocol dispatch
+// Issue #964: Practical network stack example
+
+module IPv4ProtocolDispatch = structure {
+  let dispatch_ipv4_protocol = fn (protocol: u8) -> match protocol @jump_table {
+    1  => 0x0000000000000001
+    6  => 0x0000000000000002
+    17 => 0x0000000000000004
+    _  => 0xFFFFFFFFFFFFFFFF
+  }
+}

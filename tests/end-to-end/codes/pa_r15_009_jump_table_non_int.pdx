@@ -1,0 +1,10 @@
+// Test: @jump_table with non-integer pattern arm (violates P0275)
+// Issue #964: Non-literal pattern, should trigger P0275
+
+module TestJumpTableNonInt = structure {
+  let dispatch = fn (x: u8) -> match x @jump_table {
+    1 => 0x0001
+    y => 0x0002
+    _ => 0xFFFF
+  }
+}

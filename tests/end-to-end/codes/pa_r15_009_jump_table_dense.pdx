@@ -1,0 +1,12 @@
+// Test: @jump_table with dense coverage (passes density check)
+// Issue #964: 100% coverage, should pass P0273 (codegen deferred) but no P0272
+
+module TestJumpTableDense = structure {
+  let dispatch_tcp_options = fn (kind: u8) -> match kind @jump_table {
+    0  => 0x0001
+    1  => 0x0002
+    2  => 0x0004
+    3  => 0x0008
+    _  => 0xFFFF
+  }
+}

@@ -288,7 +288,11 @@ impl<'a> Term<'a> {
                         result.push(Term::new(self.arena, *t));
                     }
                 }
-                ExprData::Match { scrutinee, arms } => {
+                ExprData::Match {
+                    scrutinee,
+                    arms,
+                    attrs: _,
+                } => {
                     result.push(Term::new(self.arena, *scrutinee));
                     for arm in arms {
                         result.push(Term::new(self.arena, arm.pattern));

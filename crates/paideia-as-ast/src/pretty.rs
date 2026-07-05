@@ -493,13 +493,20 @@ fn print_expr_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 .join(", ");
             format!("Block {{ stmts: [{}], tail: {:?} }}", stmts_str, tail)
         }
-        ExprData::Match { scrutinee, arms } => {
+        ExprData::Match {
+            scrutinee,
+            arms,
+            attrs,
+        } => {
             let arms_str = arms
                 .iter()
                 .map(|arm| format!("({}, {:?}, {})", arm.pattern, arm.guard, arm.body))
                 .collect::<Vec<_>>()
                 .join("; ");
-            format!("Match {{ scrutinee: {}, arms: [{}] }}", scrutinee, arms_str)
+            format!(
+                "Match {{ scrutinee: {}, arms: [{}], attrs: {:?} }}",
+                scrutinee, arms_str, attrs
+            )
         }
         ExprData::If {
             cond,

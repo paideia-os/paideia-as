@@ -94,6 +94,7 @@ fn walk_expr(arena: &AstArena, node_id: NodeId, diags: &mut Vec<Diagnostic>) {
                 if let Some(ExprData::Match {
                     scrutinee,
                     arms,
+                    attrs: _,
                 }) = arena.expr_data(node_id)
                 {
                     walk_expr(arena, *scrutinee, diags);
@@ -503,6 +504,7 @@ mod tests {
         let match_data = ExprData::Match {
             scrutinee: match_id,
             arms: vec![],
+            attrs: Default::default(),
         };
         arena.alloc_expr(NodeKind::ExprMatch, span(20), match_data);
 

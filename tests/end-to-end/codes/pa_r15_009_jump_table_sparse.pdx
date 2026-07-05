@@ -1,0 +1,11 @@
+// Test: @jump_table with sparse coverage (fails density check)
+// Issue #964: 3/17 coverage (~17%), should trigger P0272 (too sparse)
+
+module TestJumpTableSparse = structure {
+  let dispatch_protocol = fn (proto: u8) -> match proto @jump_table {
+    1  => 0x0004
+    6  => 0x0001
+    17 => 0x0002
+    _  => 0xFFFF
+  }
+}

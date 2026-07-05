@@ -1,0 +1,11 @@
+// Test: @jump_table with minimum offset (starting at 0)
+// Issue #964: Testing offset normalization
+
+module TestJumpTableMinOffset = structure {
+  let dispatch_base_zero = fn (idx: u8) -> match idx @jump_table {
+    0 => 0x0001
+    1 => 0x0002
+    2 => 0x0004
+    _ => 0xFFFF
+  }
+}

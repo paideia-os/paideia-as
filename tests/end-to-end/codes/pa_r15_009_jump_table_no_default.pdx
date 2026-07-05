@@ -1,0 +1,9 @@
+// Test: @jump_table without default arm (violates P0274)
+// Issue #964: Missing default arm, should trigger P0274
+
+module TestJumpTableNoDefault = structure {
+  let dispatch = fn (x: u8) -> match x @jump_table {
+    1 => 0x0001
+    2 => 0x0002
+  }
+}

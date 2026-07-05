@@ -21,6 +21,15 @@ pub enum SegPrefix {
     Gs,
 }
 
+/// Attributes for match expressions (issue #964).
+///
+/// Stores optional metadata that modifies the compilation strategy for a match.
+#[derive(Clone, Debug, Eq, PartialEq, Default)]
+pub struct MatchAttrs {
+    /// Whether `@jump_table` attribute was present.
+    pub jump_table: bool,
+}
+
 /// Generic parameter declaration.
 ///
 /// Represents either a type parameter or lifetime parameter in a generic function
@@ -223,6 +232,8 @@ pub enum ExprData {
         scrutinee: NodeId,
         /// Match arms (pattern, optional guard, body).
         arms: Vec<MatchArm>,
+        /// Match attributes (@jump_table, etc.).
+        attrs: MatchAttrs,
     },
 
     /// `if cond then else?`.
@@ -607,9 +618,14 @@ mod tests {
         let expr = ExprData::Match {
             scrutinee,
             arms: vec![arm],
+            attrs: Default::default(),
         };
         match expr {
-            ExprData::Match { scrutinee: s, arms } => {
+            ExprData::Match {
+                scrutinee: s,
+                arms,
+                attrs: _,
+            } => {
                 assert_eq!(s, scrutinee);
                 assert_eq!(arms.len(), 1);
                 assert_eq!(arms[0].pattern, pat);

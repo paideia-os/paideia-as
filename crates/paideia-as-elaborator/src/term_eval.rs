@@ -481,7 +481,12 @@ fn eval_inner<'a>(
         }
 
         NodeKind::ExprMatch => {
-            if let Some(ExprData::Match { scrutinee, arms }) = arena.expr_data(expr_id) {
+            if let Some(ExprData::Match {
+                scrutinee,
+                arms,
+                attrs: _,
+            }) = arena.expr_data(expr_id)
+            {
                 let scrutinee_val = eval(arena, *scrutinee, env, type_cache)?;
 
                 // Scrutinee must be a Term for pattern matching on TermHead.

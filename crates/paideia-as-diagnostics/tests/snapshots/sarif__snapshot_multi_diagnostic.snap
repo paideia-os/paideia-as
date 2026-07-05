@@ -761,6 +761,90 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "Issue #964: A match expression has an @ attribute that is not recognized. Valid attributes are @jump_table. Check the spelling of the attribute name."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0270",
+              "id": "P0270",
+              "name": "Unknown match attribute",
+              "shortDescription": {
+                "text": "@<name> not recognized in match attributes"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Issue #964: A match expression has a malformed @ attribute. The attribute name must be a valid identifier (e.g., @jump_table)."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0271",
+              "id": "P0271",
+              "name": "Malformed match attribute",
+              "shortDescription": {
+                "text": "match attribute syntax error"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "fullDescription": {
+                "text": "Issue #964: A match expression was marked with @jump_table but the coverage is too sparse (less than 50% density or range > 256). The elaborator will emit a cmp/je fallback chain instead of a dense jump table. To enable jump-table dispatch, ensure at least 50% coverage of the range and arm count <= 256."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0272",
+              "id": "P0272",
+              "name": "@jump_table density too sparse",
+              "shortDescription": {
+                "text": "match is too sparse for jump-table codegen; reverting to cmp/je chain"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "fullDescription": {
+                "text": "Issue #964: This match has @jump_table set, but the full codegen (rodata synthesis + memory-indirect jmp) is deferred to issue pa-r15-009b. For now, the elaborator emits a cmp/je fallback chain. The jump-table dispatch will be implemented in a future release."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0273",
+              "id": "P0273",
+              "name": "@jump_table codegen deferred",
+              "shortDescription": {
+                "text": "@jump_table codegen deferred to follow-up issue; using cmp/je fallback for now"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Issue #964: A match expression marked with @jump_table lacks a default (_) arm. Jump-table dispatch requires an exhaustive default case for bounds-checking the dispatch index. Add a default arm with `_ => <expr>`."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0274",
+              "id": "P0274",
+              "name": "@jump_table requires default arm",
+              "shortDescription": {
+                "text": "match with @jump_table must have a default arm (_)"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Issue #964: A match expression marked with @jump_table has a non-integer-literal arm (e.g., a variable or string pattern). Jump-table dispatch requires all arms (except the default _) to be integer literals so the elaborator can compute density and generate the dispatch offset. Convert non-literal patterns to integer literals or remove @jump_table."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0275",
+              "id": "P0275",
+              "name": "@jump_table requires integer-literal arms",
+              "shortDescription": {
+                "text": "match with @jump_table must have integer-literal patterns only"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "Signature ascription requires the structure to define a named type/val/module that is absent."
               },
               "helpUri": "https://paideia-os.org/diagnostics/M0301",

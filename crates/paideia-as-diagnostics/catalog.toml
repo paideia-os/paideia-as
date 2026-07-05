@@ -982,3 +982,57 @@ brief = "64-bit value in 32-bit mode"
 description = "Phase 15 m3-001: An instruction specifies a 64-bit immediate or destination in 32-bit mode. In 32-bit mode, immediate values must fit in 32 bits (signed or unsigned), and destination registers must be 32-bit (r32) not 64-bit (r64). Either reduce the immediate to 32 bits, use a 32-bit destination register, or switch to 64-bit mode."
 since = "0.15.0"
 deprecated = false
+
+[diagnostic.P0270]
+severity = "error"
+category = "parser"
+title = "Unknown match attribute"
+brief = "@<name> not recognized in match attributes"
+description = "Issue #964: A match expression has an @ attribute that is not recognized. Valid attributes are @jump_table. Check the spelling of the attribute name."
+since = "0.15.0"
+deprecated = false
+
+[diagnostic.P0271]
+severity = "error"
+category = "parser"
+title = "Malformed match attribute"
+brief = "match attribute syntax error"
+description = "Issue #964: A match expression has a malformed @ attribute. The attribute name must be a valid identifier (e.g., @jump_table)."
+since = "0.15.0"
+deprecated = false
+
+[diagnostic.P0272]
+severity = "warning"
+category = "parser"
+title = "@jump_table density too sparse"
+brief = "match is too sparse for jump-table codegen; reverting to cmp/je chain"
+description = "Issue #964: A match expression was marked with @jump_table but the coverage is too sparse (less than 50% density or range > 256). The elaborator will emit a cmp/je fallback chain instead of a dense jump table. To enable jump-table dispatch, ensure at least 50% coverage of the range and arm count <= 256."
+since = "0.15.0"
+deprecated = false
+
+[diagnostic.P0273]
+severity = "warning"
+category = "parser"
+title = "@jump_table codegen deferred"
+brief = "@jump_table codegen deferred to follow-up issue; using cmp/je fallback for now"
+description = "Issue #964: This match has @jump_table set, but the full codegen (rodata synthesis + memory-indirect jmp) is deferred to issue pa-r15-009b. For now, the elaborator emits a cmp/je fallback chain. The jump-table dispatch will be implemented in a future release."
+since = "0.15.0"
+deprecated = false
+
+[diagnostic.P0274]
+severity = "error"
+category = "parser"
+title = "@jump_table requires default arm"
+brief = "match with @jump_table must have a default arm (_)"
+description = "Issue #964: A match expression marked with @jump_table lacks a default (_) arm. Jump-table dispatch requires an exhaustive default case for bounds-checking the dispatch index. Add a default arm with `_ => <expr>`."
+since = "0.15.0"
+deprecated = false
+
+[diagnostic.P0275]
+severity = "error"
+category = "parser"
+title = "@jump_table requires integer-literal arms"
+brief = "match with @jump_table must have integer-literal patterns only"
+description = "Issue #964: A match expression marked with @jump_table has a non-integer-literal arm (e.g., a variable or string pattern). Jump-table dispatch requires all arms (except the default _) to be integer literals so the elaborator can compute density and generate the dispatch offset. Convert non-literal patterns to integer literals or remove @jump_table."
+since = "0.15.0"
+deprecated = false
