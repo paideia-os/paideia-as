@@ -317,6 +317,33 @@ description = "Phase 10 PA10-006y: The @align directive's value must be a positi
 since = "0.11.0"
 deprecated = false
 
+[diagnostic.P0253]
+severity = "error"
+category = "parser"
+title = "Malformed @ring directive"
+brief = "@ring(slots=N, slot_size=M) syntax error"
+description = "Phase 14 PA14-r14-008: The @ring directive is syntactically malformed. The correct syntax is '@ring(slots=N, slot_size=M)' where N and M are integer literals. N must be a power of two > 0, and M must be > 0. Either a required parameter is missing, the format is incorrect, or closing parentheses are missing. Example: `let mut ring_buf : [u64; 512] = uninit @ring(slots=256, slot_size=32)`."
+since = "0.14.0"
+deprecated = false
+
+[diagnostic.P0260]
+severity = "error"
+category = "parser"
+title = "Invalid @ring slots value"
+brief = "@ring slots must be a power of two and > 0"
+description = "Phase 14 PA14-r14-008: The @ring directive's slots parameter must be a positive integer that is a power of two. Valid slots values: 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, etc. Check that the slots value is a power of two and not zero."
+since = "0.14.0"
+deprecated = false
+
+[diagnostic.P0261]
+severity = "error"
+category = "parser"
+title = "Invalid @ring slot_size value or overflow"
+brief = "@ring slot_size must be > 0 and not cause overflow"
+description = "Phase 14 PA14-r14-008: The @ring directive's slot_size parameter must be a positive integer, and the total size (slots * slot_size) must not overflow a 64-bit integer. Check that slot_size is > 0 and not too large."
+since = "0.14.0"
+deprecated = false
+
 [diagnostic.P0190]
 severity = "error"
 category = "parser"

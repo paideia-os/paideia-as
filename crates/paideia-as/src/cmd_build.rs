@@ -817,6 +817,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                             name: name_id,
                             value: value_id,
                             align,
+                            ring,
                             ..
                         }) = arena.item_data(ast_id)
                         {
@@ -833,11 +834,11 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
                                     // Also record the public flag for visibility control
                                     visibility_map.insert(value_id.get(), *public);
 
-                                    // Phase 10 PA10-006y: Seed let_meta with mutability and alignment
+                                    // Phase 14 PA14-r14-008: Seed let_meta with mutability, alignment, and ring
                                     if let Some(ir_id) = paideia_as_ir::IrNodeId::new(ast_id.get()) {
                                         lowering.ir.let_meta_mut().insert(
                                             ir_id,
-                                            paideia_as_ir::LetInfo::with_align(*mutable, None, *align),
+                                            paideia_as_ir::LetInfo::with_ring(*mutable, None, *align, *ring),
                                         );
                                     }
                                 }
@@ -1073,6 +1074,116 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, encoder_warn: bool) 
         // Second pass: populate the data table (using mutable borrow).
         for (node_id, entry) in data_entries {
             lowering.ir.data_mut().insert(node_id, entry);
+        }
+
+        // Phase 14 PA14-r14-008: Ring buffer synthesis pass.
+        // For each Let with @ring(slots=M, slot_size=K), synthesize 4 data structures:
+        // - <name>_slots (BSS, size=M*K, align=64)
+        // - <name>_head (DATA, size=8, value=0, align=8)
+        // - <name>_tail (DATA, size=8, value=0, align=8)
+        // - <name>_mask (RODATA, size=8, value=M-1, align=8)
+        {
+            let mut ring_entries = Vec::new();
+
+            // Collect ring bindings and their metadata.
+            for i in 1..=arena_len as u32 {
+                if let Some(node_id) = IrNodeId::new(i) {
+                    if let Some(node) = lowering.ir.get(node_id) {
+                        if node.kind == paideia_as_ir::IrKind::Let {
+                            if let Some(let_info) = lowering.ir.let_meta().get(node_id) {
+                                if let Some((slots, slot_size)) = let_info.ring {
+                                    let symbol_name = lowering
+                                        .ir
+                                        .binding_names()
+                                        .get(node_id)
+                                        .map(|s| s.to_string())
+                                        .unwrap_or_else(|| format!("ring_{}", node_id.get()));
+
+                                    ring_entries.push((node_id, symbol_name, slots, slot_size));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // For each ring entry, allocate fresh IrNodeIds and create data structures.
+            for (orig_id, base_name, slots, slot_size) in ring_entries {
+                // Allocate 3 fresh IrNodeIds for head, tail, mask.
+                // We reuse orig_id for the slots structure.
+                let span = lowering.ir.get(orig_id).map(|n| n.span)
+                    .expect("ring binding should have valid span");
+
+                let head_id = lowering.ir.alloc(paideia_as_ir::IrKind::Placeholder, span);
+                let tail_id = lowering.ir.alloc(paideia_as_ir::IrKind::Placeholder, span);
+                let mask_id = lowering.ir.alloc(paideia_as_ir::IrKind::Placeholder, span);
+
+                // Create the 4 data structures.
+                let slots_size = (slots as u64) * (slot_size as u64);
+                let slots_entry = paideia_as_ir::DataEntry::new_bss(
+                    format!("{}_slots", base_name),
+                    64,  // Ring slots always aligned to 64 bytes
+                    slots_size,
+                );
+
+                let head_entry = paideia_as_ir::DataEntry::new_data(
+                    vec![0, 0, 0, 0, 0, 0, 0, 0],  // 8 zero bytes
+                    format!("{}_head", base_name),
+                    8,
+                );
+
+                let tail_entry = paideia_as_ir::DataEntry::new_data(
+                    vec![0, 0, 0, 0, 0, 0, 0, 0],  // 8 zero bytes
+                    format!("{}_tail", base_name),
+                    8,
+                );
+
+                let mask_value = (slots - 1) as i64;
+                let mask_bytes = EmitWalker::pack_u64_le_public(mask_value);
+                let mask_entry = paideia_as_ir::DataEntry::new_rodata(
+                    mask_bytes,
+                    format!("{}_mask", base_name),
+                    8,
+                );
+
+                // Register the 4 symbols (all are objects, not functions).
+                let slots_sym = paideia_as_ir::Symbol::new_with_visibility(
+                    format!("{}_slots", base_name),
+                    paideia_as_ir::SymbolKind::Object,
+                    orig_id,
+                    paideia_as_ir::Visibility::Global,
+                );
+                let head_sym = paideia_as_ir::Symbol::new_with_visibility(
+                    format!("{}_head", base_name),
+                    paideia_as_ir::SymbolKind::Object,
+                    head_id,
+                    paideia_as_ir::Visibility::Global,
+                );
+                let tail_sym = paideia_as_ir::Symbol::new_with_visibility(
+                    format!("{}_tail", base_name),
+                    paideia_as_ir::SymbolKind::Object,
+                    tail_id,
+                    paideia_as_ir::Visibility::Global,
+                );
+                let mask_sym = paideia_as_ir::Symbol::new_with_visibility(
+                    format!("{}_mask", base_name),
+                    paideia_as_ir::SymbolKind::Object,
+                    mask_id,
+                    paideia_as_ir::Visibility::Global,
+                );
+
+                // Insert symbols, replacing any existing symbol for orig_id.
+                lowering.ir.symbols_mut().insert(slots_sym);
+                lowering.ir.symbols_mut().insert(head_sym);
+                lowering.ir.symbols_mut().insert(tail_sym);
+                lowering.ir.symbols_mut().insert(mask_sym);
+
+                // Insert data entries.
+                lowering.ir.data_mut().insert(orig_id, slots_entry);
+                lowering.ir.data_mut().insert(head_id, head_entry);
+                lowering.ir.data_mut().insert(tail_id, tail_entry);
+                lowering.ir.data_mut().insert(mask_id, mask_entry);
+            }
         }
     }
 

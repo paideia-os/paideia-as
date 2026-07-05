@@ -136,10 +136,11 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
             ty,
             value,
             align,
+            ring,
             doc,
         } => {
             format!(
-                "Let {{ public: {}, mutable: {}, name: {}, generic_params: [{}], ty: {:?}, value: {}, align: {:?}, doc: {:?} }}",
+                "Let {{ public: {}, mutable: {}, name: {}, generic_params: [{}], ty: {:?}, value: {}, align: {:?}, ring: {:?}, doc: {:?} }}",
                 public,
                 mutable,
                 name,
@@ -151,6 +152,7 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 ty,
                 value,
                 align,
+                ring,
                 doc
             )
         }
@@ -965,6 +967,7 @@ mod tests {
                 ty: None,
                 value: let_value,
                 align: None,
+                ring: None,
                 doc: None,
             },
         );

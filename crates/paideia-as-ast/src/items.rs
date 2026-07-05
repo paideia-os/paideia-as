@@ -181,7 +181,7 @@ pub enum ItemData {
         doc: Option<NodeId>,
     },
 
-    /// Let binding: `let [mut] Name <T> (: Type)? = Expr @align(N)?`
+    /// Let binding: `let [mut] Name <T> (: Type)? = Expr @align(N)? @ring(slots=M, slot_size=K)?`
     Let {
         /// Whether this binding is public (`pub let`).
         public: bool,
@@ -199,6 +199,9 @@ pub enum ItemData {
         /// Optional alignment directive `@align(N)` for per-symbol alignment (PA10-006y).
         /// When `Some(N)`, the symbol must be aligned to N bytes (power of 2, 1..2^30).
         align: Option<u32>,
+        /// Optional ring buffer directive `@ring(slots=M, slot_size=K)` for ring buffers (PA14-r14-008).
+        /// When `Some((M, K))`, allocates ring structures with M slots of K bytes each.
+        ring: Option<(u32, u32)>,
         /// Optional documentation comment.
         doc: Option<NodeId>,
     },
@@ -317,6 +320,7 @@ mod tests {
             ty: Some(ty),
             value,
             align: None,
+            ring: None,
             doc: None,
         };
         match item {
@@ -328,6 +332,7 @@ mod tests {
                 ty: t,
                 value: v,
                 align: a,
+                ring: r,
                 doc: d,
             } => {
                 assert!(!mut_flag);
@@ -336,6 +341,7 @@ mod tests {
                 assert_eq!(t, Some(ty));
                 assert_eq!(v, value);
                 assert_eq!(a, None);
+                assert_eq!(r, None);
                 assert!(d.is_none());
             }
             _ => panic!("expected Let variant"),

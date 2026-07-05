@@ -737,6 +737,7 @@ mod tests {
                 ty: None,
                 value: NodeId::new(2).unwrap(),
                 align: None,
+                ring: None,
                 doc: None,
             },
         );

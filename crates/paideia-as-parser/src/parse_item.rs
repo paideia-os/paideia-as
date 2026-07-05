@@ -562,18 +562,21 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         Ok(item)
     }
 
-    /// Parse an optional alignment suffix: `@align(N)` where N is a power-of-two integer literal.
+    /// Parse optional symbol attributes: `@align(N)` or `@ring(slots=M, slot_size=K)`.
     ///
-    /// Returns `Some(N)` if the suffix is present and valid, `None` if not present.
+    /// Returns `(align, ring)` tuple with the parsed attributes, both `None` if not present.
     /// Emits diagnostics for malformed syntax or invalid values.
     ///
     /// **Diagnostics:**
-    /// - P0250: unknown symbol attribute (only `align` supported)
+    /// - P0250: unknown symbol attribute
     /// - P0251: malformed `@align(N)` syntax
-    /// - P0252: non-power-of-two or out-of-range value
-    fn parse_optional_align_suffix(&mut self) -> Result<Option<u32>, ParseError> {
+    /// - P0252: non-power-of-two or out-of-range @align value
+    /// - P0253: malformed `@ring(...)` syntax
+    /// - P0260: @ring slots must be power of two and > 0
+    /// - P0261: @ring slot_size must be > 0 or overflow
+    fn parse_optional_symbol_attributes(&mut self) -> Result<(Option<u32>, Option<(u32, u32)>), ParseError> {
         if !self.at(TokenKind::At) {
-            return Ok(None);
+            return Ok((None, None));
         }
 
         self.bump(); // consume `@`
@@ -582,18 +585,31 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         let attr_name_tok = self.expect(TokenKind::Ident)?;
         let attr_name = self.source_text_for_span(attr_name_tok.span);
 
-        if attr_name != "align" {
-            // P0250: unknown symbol attribute
-            let code = DiagnosticCode::new(Category::P, Severity::Error, 250)
-                .expect("valid P0250 code");
-            let diag = Diagnostic::error(code)
-                .message(format!("unknown symbol attribute '@{}' (only 'align' supported)", attr_name))
-                .with_span(attr_name_tok.span)
-                .finish();
-            self.emit_diagnostic(diag);
-            return Err(ParseError);
+        match attr_name {
+            "align" => {
+                let align = self.parse_align_attr()?;
+                Ok((Some(align), None))
+            }
+            "ring" => {
+                let ring = self.parse_ring_attr(attr_name_tok.span)?;
+                Ok((None, Some(ring)))
+            }
+            _ => {
+                // P0250: unknown symbol attribute
+                let code = DiagnosticCode::new(Category::P, Severity::Error, 250)
+                    .expect("valid P0250 code");
+                let diag = Diagnostic::error(code)
+                    .message(format!("unknown symbol attribute '@{}' (only 'align' and 'ring' supported)", attr_name))
+                    .with_span(attr_name_tok.span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                Err(ParseError)
+            }
         }
+    }
 
+    /// Parse `@align(N)` where N is a power-of-two integer literal.
+    fn parse_align_attr(&mut self) -> Result<u32, ParseError> {
         // Expect `(`
         if !self.eat(TokenKind::LParen) {
             let span = self
@@ -653,10 +669,191 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             return Err(ParseError);
         }
 
-        Ok(Some(value))
+        Ok(value)
     }
 
-    /// Parse a top-level let declaration with optional visibility: `[pub] let [mut] <Ident> <GenericParams>? (: Type)? = Expr @align(N)?`
+    /// Parse `@ring(slots=N, slot_size=M)` (called after @ and 'ring' are already consumed).
+    fn parse_ring_attr(&mut self, attr_name_span: Span) -> Result<(u32, u32), ParseError> {
+        // Expect `(`
+        if !self.eat(TokenKind::LParen) {
+            let span = self
+                .peek()
+                .map(|t| t.span)
+                .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 253)
+                .expect("valid P0253 code");
+            let diag = Diagnostic::error(code)
+                .message("malformed @ring(...) syntax: expected '(' after 'ring'")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        let mut slots = None;
+        let mut slot_size = None;
+
+        // Parse comma-separated key=value pairs
+        loop {
+            // Parse key (identifier)
+            let key_tok = self.expect(TokenKind::Ident)?;
+            let key = self.source_text_for_span(key_tok.span).to_string();
+
+            // Expect `=`
+            if !self.eat(TokenKind::Assign) {
+                let span = self
+                    .peek()
+                    .map(|t| t.span)
+                    .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+                let code = DiagnosticCode::new(Category::P, Severity::Error, 253)
+                    .expect("valid P0253 code");
+                let diag = Diagnostic::error(code)
+                    .message("malformed @ring(...) syntax: expected '=' after key")
+                    .with_span(span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                return Err(ParseError);
+            }
+
+            // Parse value (integer literal)
+            let val_tok = self.expect(TokenKind::IntLit)?;
+            let val_text = self.source_text_for_span(val_tok.span).to_string();
+
+            let value: u32 = val_text.parse().map_err(|_| {
+                let code = DiagnosticCode::new(Category::P, Severity::Error, 253)
+                    .expect("valid P0253 code");
+                let diag = Diagnostic::error(code)
+                    .message("@ring value must be a valid integer")
+                    .with_span(val_tok.span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                ParseError
+            })?;
+
+            // Store key=value
+            match key.as_str() {
+                "slots" => slots = Some(value),
+                "slot_size" => slot_size = Some(value),
+                _ => {
+                    let code = DiagnosticCode::new(Category::P, Severity::Error, 253)
+                        .expect("valid P0253 code");
+                    let diag = Diagnostic::error(code)
+                        .message(format!("unknown @ring key '{}' (expected 'slots' or 'slot_size')", key))
+                        .with_span(key_tok.span)
+                        .finish();
+                    self.emit_diagnostic(diag);
+                    return Err(ParseError);
+                }
+            }
+
+            // Check for comma or closing paren
+            if self.eat(TokenKind::Comma) {
+                // Continue to next key=value pair
+                continue;
+            } else if self.at(TokenKind::RParen) {
+                break;
+            } else {
+                let span = self
+                    .peek()
+                    .map(|t| t.span)
+                    .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+                let code = DiagnosticCode::new(Category::P, Severity::Error, 253)
+                    .expect("valid P0253 code");
+                let diag = Diagnostic::error(code)
+                    .message("malformed @ring(...) syntax: expected ',' or ')'")
+                    .with_span(span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                return Err(ParseError);
+            }
+        }
+
+        // Expect `)`
+        if !self.eat(TokenKind::RParen) {
+            let span = self
+                .peek()
+                .map(|t| t.span)
+                .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 253)
+                .expect("valid P0253 code");
+            let diag = Diagnostic::error(code)
+                .message("malformed @ring(...) syntax: expected ')' after values")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        // Validate that both keys are present
+        let slots_val = match slots {
+            Some(s) => s,
+            None => {
+                let code = DiagnosticCode::new(Category::P, Severity::Error, 253)
+                    .expect("valid P0253 code");
+                let diag = Diagnostic::error(code)
+                    .message("malformed @ring(...) syntax: missing 'slots' parameter")
+                    .with_span(attr_name_span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                return Err(ParseError);
+            }
+        };
+
+        let slot_size_val = match slot_size {
+            Some(ss) => ss,
+            None => {
+                let code = DiagnosticCode::new(Category::P, Severity::Error, 253)
+                    .expect("valid P0253 code");
+                let diag = Diagnostic::error(code)
+                    .message("malformed @ring(...) syntax: missing 'slot_size' parameter")
+                    .with_span(attr_name_span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                return Err(ParseError);
+            }
+        };
+
+        // Validate slots: must be power of two and > 0
+        if slots_val == 0 || (slots_val & (slots_val - 1)) != 0 {
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 260)
+                .expect("valid P0260 code");
+            let diag = Diagnostic::error(code)
+                .message(format!("@ring slots must be a power of two and > 0, got {}", slots_val))
+                .with_span(attr_name_span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        // Validate slot_size: must be > 0
+        if slot_size_val == 0 {
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 261)
+                .expect("valid P0261 code");
+            let diag = Diagnostic::error(code)
+                .message("@ring slot_size must be > 0")
+                .with_span(attr_name_span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        // Check for overflow: slots * slot_size should fit in u64
+        let _total_size = (slots_val as u64).checked_mul(slot_size_val as u64);
+        if _total_size.is_none() {
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 261)
+                .expect("valid P0261 code");
+            let diag = Diagnostic::error(code)
+                .message("@ring total size (slots * slot_size) overflows")
+                .with_span(attr_name_span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        Ok((slots_val, slot_size_val))
+    }
+
+    /// Parse a top-level let declaration with optional visibility: `[pub] let [mut] <Ident> <GenericParams>? (: Type)? = Expr @align(N)? @ring(...)?`
     fn parse_let_decl_with_visibility(&mut self, public: bool) -> Result<NodeId, ParseError> {
         let let_tok = self.expect(TokenKind::KwLet)?;
         let span_start = let_tok.span;
@@ -731,8 +928,8 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         // Parse value expression
         let value = self.parse_expr()?;
 
-        // Parse optional alignment suffix: @align(N)
-        let align = self.parse_optional_align_suffix()?;
+        // Parse optional symbol attributes (@align or @ring)
+        let (align, ring) = self.parse_optional_symbol_attributes()?;
 
         // Consume optional `;`
         self.eat(TokenKind::Semicolon);
@@ -760,6 +957,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 ty,
                 value,
                 align,
+                ring,
                 doc: None,
             },
         );

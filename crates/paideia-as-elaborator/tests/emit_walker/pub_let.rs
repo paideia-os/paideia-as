@@ -39,6 +39,7 @@ fn pub_let_flag_flows_to_ir_arena() {
             ty: None,
             value: value_id,
             align: None,
+            ring: None,
             doc: None,
         },
     );

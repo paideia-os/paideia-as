@@ -38,6 +38,7 @@ fn build_and_walk_full_module_tree() {
             ty: None,
             value: expr_x,
             align: None,
+            ring: None,
             doc: None,
         },
     );
@@ -53,6 +54,7 @@ fn build_and_walk_full_module_tree() {
             ty: None,
             value: expr_y,
             align: None,
+            ring: None,
             doc: None,
         },
     );

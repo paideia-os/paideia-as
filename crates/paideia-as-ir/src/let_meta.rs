@@ -25,6 +25,9 @@ use crate::node::IrNodeId;
 /// bindings — e.g. `let x : u32 = 42` emits a 5-byte `B8 imm32` move instead
 /// of the generic 10-byte 64-bit move. `ty` is `None` for untyped/legacy
 /// bindings, in which case the generic 64-bit path is preserved.
+///
+/// Phase 14 PA14-r14-008: `ring` carries the ring buffer directive `@ring(slots=M, slot_size=K)`
+/// for ring-buffer-annotated bindings.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LetInfo {
     /// true if this is `let mut x : T = ...`, false for `let x : T = ...`.
@@ -34,6 +37,9 @@ pub struct LetInfo {
     /// Optional alignment directive `@align(N)` for per-symbol alignment (PA10-006y).
     /// When `Some(N)`, the symbol must be aligned to N bytes (power of 2, 1..2^30).
     pub align: Option<u32>,
+    /// Optional ring buffer directive `@ring(slots=M, slot_size=K)` (PA14-r14-008).
+    /// When `Some((M, K))`, allocates ring structures with M slots of K bytes each.
+    pub ring: Option<(u32, u32)>,
 }
 
 impl LetInfo {
@@ -44,6 +50,7 @@ impl LetInfo {
             mutable: false,
             ty: None,
             align: None,
+            ring: None,
         }
     }
 
@@ -54,6 +61,7 @@ impl LetInfo {
             mutable: true,
             ty: None,
             align: None,
+            ring: None,
         }
     }
 
@@ -63,7 +71,7 @@ impl LetInfo {
     /// is known, enabling width-threaded integer-literal emission.
     #[must_use]
     pub fn with_type(mutable: bool, ty: Option<TypeId>) -> Self {
-        Self { mutable, ty, align: None }
+        Self { mutable, ty, align: None, ring: None }
     }
 
     /// Construct a LetInfo with explicit mutability, type, and alignment.
@@ -72,7 +80,16 @@ impl LetInfo {
     /// and optional alignment directive are known.
     #[must_use]
     pub fn with_align(mutable: bool, ty: Option<TypeId>, align: Option<u32>) -> Self {
-        Self { mutable, ty, align }
+        Self { mutable, ty, align, ring: None }
+    }
+
+    /// Construct a LetInfo with explicit mutability, type, alignment, and ring.
+    ///
+    /// Phase 14 PA14-r14-008: the lowerer calls this when the binding's declared type,
+    /// optional alignment directive, and optional ring buffer directive are known.
+    #[must_use]
+    pub fn with_ring(mutable: bool, ty: Option<TypeId>, align: Option<u32>, ring: Option<(u32, u32)>) -> Self {
+        Self { mutable, ty, align, ring }
     }
 }
 
@@ -175,11 +192,13 @@ mod tests {
         assert!(info.mutable);
         assert_eq!(info.ty, Some(ty));
         assert_eq!(info.align, None);
+        assert_eq!(info.ring, None);
 
         let untyped = LetInfo::with_type(false, None);
         assert!(!untyped.mutable);
         assert_eq!(untyped.ty, None);
         assert_eq!(untyped.align, None);
+        assert_eq!(untyped.ring, None);
     }
 
     #[test]
@@ -189,11 +208,30 @@ mod tests {
         assert!(info.mutable);
         assert_eq!(info.ty, Some(ty));
         assert_eq!(info.align, Some(4096));
+        assert_eq!(info.ring, None);
 
         let unaligned = LetInfo::with_align(false, None, None);
         assert!(!unaligned.mutable);
         assert_eq!(unaligned.ty, None);
         assert_eq!(unaligned.align, None);
+        assert_eq!(unaligned.ring, None);
+    }
+
+    #[test]
+    fn let_info_with_ring_records_all_fields() {
+        let ty = TypeId(7);
+        let ring_info = (256u32, 128u32);
+        let info = LetInfo::with_ring(true, Some(ty), Some(64), Some(ring_info));
+        assert!(info.mutable);
+        assert_eq!(info.ty, Some(ty));
+        assert_eq!(info.align, Some(64));
+        assert_eq!(info.ring, Some(ring_info));
+
+        let no_ring = LetInfo::with_ring(false, None, None, None);
+        assert!(!no_ring.mutable);
+        assert_eq!(no_ring.ty, None);
+        assert_eq!(no_ring.align, None);
+        assert_eq!(no_ring.ring, None);
     }
 
     #[test]
