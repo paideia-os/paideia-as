@@ -105,6 +105,7 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         | Mnemonic::Syscall
         | Mnemonic::Swapgs
         | Mnemonic::Cpuid
+        | Mnemonic::Ud2
         | Mnemonic::Cli
         | Mnemonic::Sti
         | Mnemonic::Hlt

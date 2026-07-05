@@ -264,6 +264,7 @@ fn encode_instruction_impl(
         Mnemonic::Nop => encode_nop(inst, buf),
         Mnemonic::Swapgs => encode_swapgs(inst, buf),
         Mnemonic::Cpuid => encode_cpuid(inst, buf),
+        Mnemonic::Ud2 => encode_ud2(inst, buf),
         Mnemonic::In { width } => encode_in(inst, buf, *width),
         Mnemonic::Out { width } => encode_out(inst, buf, *width),
         Mnemonic::Wrmsr => encode_wrmsr_inst(inst, buf),
@@ -1622,6 +1623,18 @@ fn encode_cpuid(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput
         });
     }
     encode_zero_operand(buf, 0x82); // sentinel for CPUID
+    Ok(EncodeOutput::new())
+}
+
+fn encode_ud2(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    if !inst.operands.is_empty() {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::Ud2,
+            expected: 0,
+            got: inst.operands.len(),
+        });
+    }
+    encode_zero_operand(buf, 0x83); // sentinel for UD2
     Ok(EncodeOutput::new())
 }
 

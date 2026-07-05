@@ -98,6 +98,8 @@ pub enum Mnemonic {
     Sti,
     /// Halt processor.
     Hlt,
+    /// Undefined instruction (causes #UD exception).
+    Ud2,
     /// Software interrupt.
     Int,
     /// No operation.
@@ -490,6 +492,7 @@ impl Mnemonic {
             Mnemonic::Cli
             | Mnemonic::Sti
             | Mnemonic::Hlt
+            | Mnemonic::Ud2
             | Mnemonic::Nop
             | Mnemonic::Swapgs
             | Mnemonic::Cpuid
@@ -636,6 +639,9 @@ impl Mnemonic {
 
             // Swap GS: 2 bytes
             Mnemonic::Swapgs => 2,
+
+            // Undefined instruction: 2 bytes
+            Mnemonic::Ud2 => 2,
 
             // Set interrupt flag: 1 byte
             Mnemonic::Sti => 1,

@@ -98,6 +98,7 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     ("cli", Mnemonic::Cli),
     ("sti", Mnemonic::Sti),
     ("hlt", Mnemonic::Hlt),
+    ("ud2", Mnemonic::Ud2),
     ("rep_stosq", Mnemonic::RepStosq),
     ("farjmp", Mnemonic::FarJmp),
     ("ljmp", Mnemonic::FarJmp), // PA10-006h: ljmp alias for farjmp (two-operand form)

@@ -1994,6 +1994,7 @@ pub fn encode_out_dx(buf: &mut CodeBuffer, width: u8) {
 ///   - 0xFB for STI
 ///   - 0x81 (sentinel) for SWAPGS
 ///   - 0x82 (sentinel) for CPUID
+///   - 0x83 (sentinel) for UD2
 pub fn encode_zero_operand(buf: &mut CodeBuffer, mnem_byte: u8) {
     match mnem_byte {
         0x90 => {
@@ -2022,6 +2023,11 @@ pub fn encode_zero_operand(buf: &mut CodeBuffer, mnem_byte: u8) {
             // CPUID: 0F A2 (two-byte encoding; sentinel)
             buf.bytes.push(0x0F);
             buf.bytes.push(0xA2);
+        }
+        0x83 => {
+            // UD2: 0F 0B (two-byte encoding; sentinel)
+            buf.bytes.push(0x0F);
+            buf.bytes.push(0x0B);
         }
         _ => {
             // Unreachable for valid mnemonics
