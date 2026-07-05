@@ -129,6 +129,8 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         | Mnemonic::Xchg
         | Mnemonic::LockCmpxchg
         | Mnemonic::LockXadd { .. }
+        | Mnemonic::LockAdd { .. }
+        | Mnemonic::LockSub { .. }
         | Mnemonic::Mfence
         | Mnemonic::Sfence
         | Mnemonic::Lfence

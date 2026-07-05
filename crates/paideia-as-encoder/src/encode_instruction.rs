@@ -341,6 +341,10 @@ fn encode_instruction_impl(
         Mnemonic::LockCmpxchg => encode_lock_cmpxchg_inst(inst, buf),
         // Phase R15 PA-R15-002: lock xadd register with memory
         Mnemonic::LockXadd { width } => encode_lock_xadd(inst, buf, *width),
+        // Phase R15 PA-R15-003: lock add immediate/register with memory
+        Mnemonic::LockAdd { width } => encode_lock_add(inst, buf, *width),
+        // Phase R15 PA-R15-003: lock sub immediate/register with memory
+        Mnemonic::LockSub { width } => encode_lock_sub(inst, buf, *width),
         // Phase R13 PA-R13-005: memory fence
         Mnemonic::Mfence => encode_mfence_inst(inst, buf),
         // Phase R14 PA-R14-004: store/load fence
@@ -687,6 +691,140 @@ fn encode_lock_xadd(
             Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::LockXadd { width } }),
+    }
+}
+
+/// Phase R15 PA-R15-003: Encode lock add instruction.
+/// Supports: [mem], imm8/imm32/r32/r64
+fn encode_lock_add(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+    width: IntWidth,
+) -> Result<EncodeOutput, EncodeError> {
+    if width != IntWidth::W32 && width != IntWidth::W64 {
+        return Err(EncodeError::Unsupported(
+            "E0032: lock_add only supports W32 and W64",
+        ));
+    }
+
+    match inst.operands.as_slice() {
+        // lock add [mem], reg form
+        [Operand::MemSib { base, index: None, scale: Scale::X1, disp }, Operand::Reg(src)] => {
+            let base_reg = reg64_from(*base)?;
+            let src_reg = reg64_from(*src)?;
+            match width {
+                IntWidth::W32 => lock_add_mem_base_disp_reg32(buf, base_reg, *disp, src_reg),
+                IntWidth::W64 => lock_add_mem_base_disp_reg64(buf, base_reg, *disp, src_reg),
+                _ => unreachable!(),
+            }
+            Ok(EncodeOutput::new())
+        }
+        // lock add [mem], imm form
+        [Operand::MemSib { base, index: None, scale: Scale::X1, disp }, Operand::Imm64(imm_val)] => {
+            let base_reg = reg64_from(*base)?;
+            let imm = *imm_val;
+
+            // Try imm8 first
+            if let Ok(imm8) = i8::try_from(imm) {
+                match width {
+                    IntWidth::W32 => {
+                        lock_add_mem_base_disp_imm8_w32(buf, base_reg, *disp, imm8);
+                    }
+                    IntWidth::W64 => {
+                        lock_add_mem_base_disp_imm8(buf, base_reg, *disp, imm8);
+                    }
+                    _ => unreachable!(),
+                }
+                return Ok(EncodeOutput::new());
+            }
+
+            // Try imm32
+            if let Ok(imm32) = i32::try_from(imm) {
+                match width {
+                    IntWidth::W32 => {
+                        lock_add_mem_base_disp_imm32_w32(buf, base_reg, *disp, imm32);
+                    }
+                    IntWidth::W64 => {
+                        lock_add_mem_base_disp_imm32(buf, base_reg, *disp, imm32);
+                    }
+                    _ => unreachable!(),
+                }
+                return Ok(EncodeOutput::new());
+            }
+
+            // imm out of range
+            Err(EncodeError::Unsupported(
+                "E0033: lock_add imm out of i32 range",
+            ))
+        }
+        _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::LockAdd { width } }),
+    }
+}
+
+/// Phase R15 PA-R15-003: Encode lock sub instruction.
+/// Supports: [mem], imm8/imm32/r32/r64
+fn encode_lock_sub(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+    width: IntWidth,
+) -> Result<EncodeOutput, EncodeError> {
+    if width != IntWidth::W32 && width != IntWidth::W64 {
+        return Err(EncodeError::Unsupported(
+            "E0032: lock_sub only supports W32 and W64",
+        ));
+    }
+
+    match inst.operands.as_slice() {
+        // lock sub [mem], reg form
+        [Operand::MemSib { base, index: None, scale: Scale::X1, disp }, Operand::Reg(src)] => {
+            let base_reg = reg64_from(*base)?;
+            let src_reg = reg64_from(*src)?;
+            match width {
+                IntWidth::W32 => lock_sub_mem_base_disp_reg32(buf, base_reg, *disp, src_reg),
+                IntWidth::W64 => lock_sub_mem_base_disp_reg64(buf, base_reg, *disp, src_reg),
+                _ => unreachable!(),
+            }
+            Ok(EncodeOutput::new())
+        }
+        // lock sub [mem], imm form
+        [Operand::MemSib { base, index: None, scale: Scale::X1, disp }, Operand::Imm64(imm_val)] => {
+            let base_reg = reg64_from(*base)?;
+            let imm = *imm_val;
+
+            // Try imm8 first
+            if let Ok(imm8) = i8::try_from(imm) {
+                match width {
+                    IntWidth::W32 => {
+                        lock_sub_mem_base_disp_imm8_w32(buf, base_reg, *disp, imm8);
+                    }
+                    IntWidth::W64 => {
+                        lock_sub_mem_base_disp_imm8(buf, base_reg, *disp, imm8);
+                    }
+                    _ => unreachable!(),
+                }
+                return Ok(EncodeOutput::new());
+            }
+
+            // Try imm32
+            if let Ok(imm32) = i32::try_from(imm) {
+                match width {
+                    IntWidth::W32 => {
+                        lock_sub_mem_base_disp_imm32_w32(buf, base_reg, *disp, imm32);
+                    }
+                    IntWidth::W64 => {
+                        lock_sub_mem_base_disp_imm32(buf, base_reg, *disp, imm32);
+                    }
+                    _ => unreachable!(),
+                }
+                return Ok(EncodeOutput::new());
+            }
+
+            // imm out of range
+            Err(EncodeError::Unsupported(
+                "E0033: lock_sub imm out of i32 range",
+            ))
+        }
+        _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::LockSub { width } }),
     }
 }
 

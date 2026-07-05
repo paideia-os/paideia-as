@@ -226,6 +226,12 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     // Phase R15 PA-R15-002 (issue #957): lock xadd [mem], r32/r64
     ("lock_xadd_d", Mnemonic::LockXadd { width: IntWidth::W32 }),
     ("lock_xadd_q", Mnemonic::LockXadd { width: IntWidth::W64 }),
+    // Phase R15 PA-R15-003 (issue #958): lock add [mem], imm/r32/r64
+    ("lock_add_d", Mnemonic::LockAdd { width: IntWidth::W32 }),
+    ("lock_add_q", Mnemonic::LockAdd { width: IntWidth::W64 }),
+    // Phase R15 PA-R15-003 (issue #958): lock sub [mem], imm/r32/r64
+    ("lock_sub_d", Mnemonic::LockSub { width: IntWidth::W32 }),
+    ("lock_sub_q", Mnemonic::LockSub { width: IntWidth::W64 }),
     // Phase R14 PA-R14-006 (issue #949): prefetch instructions
     ("prefetchnta", Mnemonic::Prefetchnta),
     ("prefetcht0", Mnemonic::Prefetcht0),

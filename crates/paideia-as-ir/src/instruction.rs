@@ -276,6 +276,22 @@ pub enum Mnemonic {
         /// Operand width selecting the encoded form (W32 or W64).
         width: IntWidth,
     },
+    /// LOCK-prefixed add: `lock add [mem], imm8/imm32/r32/r64` (PA-R15-003, #958).
+    /// Atomically adds immediate or register to memory. Two operands (mem, src).
+    /// Encoding: `F0 [REX.W] 83/81/01 /0 [imm8/imm32]` per Intel SDM Vol 2A ADD.
+    /// Effect: !{Atomic}. LOCK (Group 1) precedes REX per Vol 2A §2.1.1.
+    LockAdd {
+        /// Operand width selecting the encoded form (W32 or W64).
+        width: IntWidth,
+    },
+    /// LOCK-prefixed sub: `lock sub [mem], imm8/imm32/r32/r64` (PA-R15-003, #958).
+    /// Atomically subtracts immediate or register from memory. Two operands (mem, src).
+    /// Encoding: `F0 [REX.W] 83/81/29 /5 [imm8/imm32]` per Intel SDM Vol 2A SUB.
+    /// Effect: !{Atomic}. LOCK (Group 1) precedes REX per Vol 2A §2.1.1.
+    LockSub {
+        /// Operand width selecting the encoded form (W32 or W64).
+        width: IntWidth,
+    },
 }
 
 /// Integer operand width for width-threaded immediate moves.
@@ -644,6 +660,8 @@ impl Mnemonic {
             | Mnemonic::Xchg
             | Mnemonic::LockCmpxchg
             | Mnemonic::LockXadd { .. }
+            | Mnemonic::LockAdd { .. }
+            | Mnemonic::LockSub { .. }
             | Mnemonic::Movnti { .. } => 2,
 
             // Zero-operand instructions (continued)
@@ -826,6 +844,10 @@ impl Mnemonic {
             // Phase R15 PA-R15-002 (issue #957): lock xadd to memory, 8 bytes upper bound
             // (LOCK + REX + 0F + C1 + ModR/M + disp32 worst-case)
             Mnemonic::LockXadd { .. } => 8,
+
+            // Phase R15 PA-R15-003 (issue #958): lock add/sub to memory, 9 bytes upper bound
+            // (LOCK + REX + 81 + ModR/M + disp32 + imm32 worst-case)
+            Mnemonic::LockAdd { .. } | Mnemonic::LockSub { .. } => 9,
         }
     }
 }
