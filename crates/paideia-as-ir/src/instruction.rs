@@ -268,6 +268,14 @@ pub enum Mnemonic {
         /// Operand width selecting the encoded form (W32 or W64).
         width: IntWidth,
     },
+    /// LOCK-prefixed fetch-and-add: `lock xadd [mem], r32/r64` (PA-R15-002, #957).
+    /// Atomically adds register to memory and stores old value in register.
+    /// Two operands (mem, src reg). Encoding: `F0 [REX.W] 0F C1 /r`.
+    /// Effect: !{Atomic}. Per Intel SDM Vol 2B XADD; LOCK (Group 1) precedes REX per Vol 2A §2.1.1.
+    LockXadd {
+        /// Operand width selecting the encoded form (W32 or W64).
+        width: IntWidth,
+    },
 }
 
 /// Integer operand width for width-threaded immediate moves.
@@ -635,6 +643,7 @@ impl Mnemonic {
             | Mnemonic::Xor
             | Mnemonic::Xchg
             | Mnemonic::LockCmpxchg
+            | Mnemonic::LockXadd { .. }
             | Mnemonic::Movnti { .. } => 2,
 
             // Zero-operand instructions (continued)
@@ -813,6 +822,10 @@ impl Mnemonic {
             // Phase R14 PA-R14-003 (issue #946): non-temporal store movnti, 8 bytes upper bound
             // (REX + 0F + C3 + ModR/M + disp32 worst-case)
             Mnemonic::Movnti { .. } => 8,
+
+            // Phase R15 PA-R15-002 (issue #957): lock xadd to memory, 8 bytes upper bound
+            // (LOCK + REX + 0F + C1 + ModR/M + disp32 worst-case)
+            Mnemonic::LockXadd { .. } => 8,
         }
     }
 }

@@ -339,6 +339,8 @@ fn encode_instruction_impl(
         Mnemonic::Xchg => encode_xchg_inst(inst, buf),
         // Phase R13 PA-R13-004: lock cmpxchg register with memory
         Mnemonic::LockCmpxchg => encode_lock_cmpxchg_inst(inst, buf),
+        // Phase R15 PA-R15-002: lock xadd register with memory
+        Mnemonic::LockXadd { width } => encode_lock_xadd(inst, buf, *width),
         // Phase R13 PA-R13-005: memory fence
         Mnemonic::Mfence => encode_mfence_inst(inst, buf),
         // Phase R14 PA-R14-004: store/load fence
@@ -658,6 +660,33 @@ fn encode_lock_cmpxchg_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<
             Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::LockCmpxchg }),
+    }
+}
+
+/// Phase R15 PA-R15-002 (issue #957): Encode lock xadd instruction.
+/// Expects [MemSib { index: None, scale: Scale::X1, disp }, Reg(src)].
+/// W32/W64 dispatch. Other widths → Unsupported. Any other shape → OperandShape.
+fn encode_lock_xadd(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+    width: IntWidth,
+) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::MemSib { base, index: None, scale: Scale::X1, disp }, Operand::Reg(src)] => {
+            let base_reg = reg64_from(*base)?;
+            let src_reg = reg64_from(*src)?;
+            match width {
+                IntWidth::W32 => lock_xadd_mem_base_disp_reg32(buf, base_reg, *disp, src_reg),
+                IntWidth::W64 => lock_xadd_mem_base_disp_reg64(buf, base_reg, *disp, src_reg),
+                _ => {
+                    return Err(EncodeError::Unsupported(
+                        "E0031: lock_xadd only supports W32 and W64",
+                    ))
+                }
+            }
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::LockXadd { width } }),
     }
 }
 

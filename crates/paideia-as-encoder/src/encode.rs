@@ -1782,6 +1782,46 @@ pub fn movnti_mem_sib_disp_reg64(
     emit_mem_sib_disp(buf, src_id & 7, base_id, index_id, scale_bits, disp);
 }
 
+/// Encode `lock xadd [base + disp], src` — PA-R15-002 (issue #957).
+///
+/// Instruction: F0 REX.W 0F C1 /r
+/// Prefix order: LOCK (Group 1) precedes REX (Intel SDM Vol 2A §2.1.1).
+/// Atomically adds src to [base+disp] and stores old value in src. 64-bit form.
+pub fn lock_xadd_mem_base_disp_reg64(
+    buf: &mut CodeBuffer, base: Reg64, disp: i32, src: Reg64,
+) {
+    buf.bytes.push(0xF0); // LOCK prefix
+    let base_id = base as u8;
+    let src_id = src as u8;
+    let rex_byte = rex(true, (src_id >> 3) != 0, false, (base_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xC1);
+    emit_mem_base_disp(buf, src_id & 7, base_id, disp);
+}
+
+/// Encode `lock xadd [base + disp], src` — PA-R15-002 (issue #957).
+///
+/// Instruction: F0 0F C1 /r (no REX.W for 32-bit)
+/// Prefix order: LOCK (Group 1) precedes REX (Intel SDM Vol 2A §2.1.1).
+/// Atomically adds src to [base+disp] and stores old value in src. 32-bit form.
+pub fn lock_xadd_mem_base_disp_reg32(
+    buf: &mut CodeBuffer, base: Reg64, disp: i32, src: Reg64,
+) {
+    buf.bytes.push(0xF0); // LOCK prefix
+    let base_id = base as u8;
+    let src_id = src as u8;
+
+    // Only emit REX.B or REX.R if extended registers are used
+    if (src_id >> 3) != 0 || (base_id >> 3) != 0 {
+        buf.bytes.push(rex(false, (src_id >> 3) != 0, false, (base_id >> 3) != 0));
+    }
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xC1);
+
+    emit_mem_base_disp(buf, src_id & 7, base_id, disp);
+}
+
 /// Encode `cmp [base + disp], src` (compare memory with register).
 ///
 /// Instruction: REX.W 39 /r

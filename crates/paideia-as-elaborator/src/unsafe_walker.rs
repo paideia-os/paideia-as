@@ -223,6 +223,9 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     // Phase R14 PA-R14-003 (issue #946): non-temporal store movnti [mem], r32/r64
     ("movnti_d", Mnemonic::Movnti { width: IntWidth::W32 }),
     ("movnti_q", Mnemonic::Movnti { width: IntWidth::W64 }),
+    // Phase R15 PA-R15-002 (issue #957): lock xadd [mem], r32/r64
+    ("lock_xadd_d", Mnemonic::LockXadd { width: IntWidth::W32 }),
+    ("lock_xadd_q", Mnemonic::LockXadd { width: IntWidth::W64 }),
     // Phase R14 PA-R14-006 (issue #949): prefetch instructions
     ("prefetchnta", Mnemonic::Prefetchnta),
     ("prefetcht0", Mnemonic::Prefetcht0),
