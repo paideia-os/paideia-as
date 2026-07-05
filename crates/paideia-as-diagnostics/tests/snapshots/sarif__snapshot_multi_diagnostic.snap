@@ -1667,8 +1667,8 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               }
             }
           ],
-          "semanticVersion": "0.13.0",
-          "version": "0.13.0"
+          "semanticVersion": "0.14.0",
+          "version": "0.14.0"
         }
       }
     }

@@ -1,5 +1,44 @@
 # Changelog
 
+## v0.14.0 — DRIVER-SUBSTRATE: MMIO, ring buffers, fnptr in unsafe (paideia-os drivers foundation)
+
+**Released:** Tag pushed at PA-R14-012 closure (v0.14.0 release).
+
+Driver-substrate release. 12 planned issues + 1 in-flight backtrack landed. Focus is idiomatic MMIO, cache-control ops, ring buffer synthesis, driver-side effect vocabulary, and first-class optimization pipeline.
+
+  Encoder additions:
+    PA-R14-001 (#944)  mov_[bwdq] narrow-width mem stores  — store-form counterpart to v0.13 #930.
+    PA-R14-002 (#945)  mov r32,[mem] audit + tests         — audit-only end-to-end coverage.
+    PA-R14-002b (#1030) mov [rip+sym] narrow-width         — surfaced during #945 audit; landed in-release.
+    PA-R14-003 (#946)  movnti [mem], r32/r64               — non-temporal store.
+    PA-R14-004 (#947)  sfence / lfence                     — store + load barriers.
+    PA-R14-005 (#948)  wbinvd/invd/clflush/clflushopt       — cache-control instructions.
+    PA-R14-006 (#949)  prefetch[nta/t0/t1/t2] family       — cache-hint instructions.
+
+  Language + toolchain additions:
+    PA-R14-007 (#950)  MMIO helper stdlib skeleton         — trait MmioOps + capability paideia.mmio.
+    PA-R14-008 (#951)  @ring(slots=N, slot_size=M)         — first 1-to-N attribute synthesis.
+    PA-R14-009 (#952)  fnptr dispatch unsafe pattern docs  — combines pa-r13-003 with unsafe blocks.
+    PA-R14-010 (#953)  driver-side effect vocabulary       — MmioRead/Write, CachePolicy, NonTemporal, DmaBarrier.
+    PA-R14-011 (#954)  peephole cmp reg,0 -> test reg,reg  — first optimization pass. -O 1 flag.
+    PA-R14-012 (#955)  AHCI FIS driver corpus integration test — v0.14 canary.
+
+### Detailed bullets
+
+- **PA-R14-012** (issue #955) — AHCI FIS ring driver stub + integration test. Composes @ring synthesis, mov_q stores, movnti/clflush/sfence, cmp/jz dispatch, register-offset constants in .rodata. First real cross-feature exercise; designated v0.14 canary.
+- **PA-R14-011** (issue #954) — Peephole `cmp reg, 0` → `test reg, reg` optimization. First optimization pass in the pipeline. New `-O/--optimize <level>` CLI flag (default 0). Rewrite fires when cmp with imm 0 is followed by jz/jnz/je/jne. Correctness: test and cmp both clear CF/OF and set ZF/SF/PF identically for zero comparison. Saves 4 bytes per site. Debugger caught 2 in-flight bugs: CLI plumbing was missing in first pass; instruction_table was cloned BEFORE optimization in second pass (stale IR bug — silent no-op). Both fixed before landing.
+- **PA-R14-010** (issue #953) — Driver-side effect vocabulary. Adds CachePolicy, NonTemporal, DmaBarrier to abi.pdx alongside #950's MmioRead/MmioWrite. Documentation covers composition rules and consumer map. Effect registry interning + signature composition deferred to v0.15+. Debugger caught invalid `.pdx` fixture syntax (`effect Name = {}` vs correct `effect Name { }`) — fixed before landing.
+- **PA-R14-009** (issue #952) — Fnptr dispatch unsafe pattern docs + 11 integration tests. Documents 4 canonical dispatch shapes: reg-indirect load+call, memory-indirect base+disp, SIB table dispatch, RIP-relative. Combines pa-r13-003 (indirect call) with unsafe-block source. First-class typed fn-ptr support deferred to v0.17 pa-r17-004.
+- **PA-R14-008** (issue #951) — `@ring(slots=N, slot_size=M)` attribute. First 1-to-N attribute synthesis in paideia-as: a single Let with @ring emits 4 symbols (_slots BSS align 64, _head/_tail .data, _mask .rodata = slots-1 LE). Parser diagnostics P0253/P0260/P0261. E2E ELF verification. Debugger caught missed SARIF snapshot regen.
+- **PA-R14-007** (issue #950) — MMIO helper stdlib skeleton. Trait MmioOps with 8 fn signatures (r8/r16/r32/r64 × read/write) carrying !{RawMem, MmioRead|Write} and @{paideia.mmio}. Capability paideia.mmio added to BUILTIN_CAPABILITIES. Effect declarations MmioRead/MmioWrite added to abi.pdx.
+- **PA-R14-006** (issue #949) — `prefetchnta/t0/t1/t2` family. 4 flat Mnemonic variants; arity 1 with /0../3 opcode extension. Debugger caught missing MNEMONIC_TABLE entries + missing iced round-trip in first pass; fixed before landing.
+- **PA-R14-005** (issue #948) — `wbinvd`, `invd`, `clflush [mem]`, `clflushopt`. Full cache-control instruction set. arity-0 pair + arity-1 pair with SIB variants.
+- **PA-R14-004** (issue #947) — `sfence` (0F AE F8) + `lfence` (0F AE E8). Completes the fence trio with the pre-existing mfence.
+- **PA-R14-003** (issue #946) — `movnti_d` / `movnti_q` non-temporal stores. Mnemonic::Movnti{width}; 4 primitives (base+disp + SIB × W32 + W64).
+- **PA-R14-002b** (issue #1030) — `mov r{8,16,32,64}, [rip + sym]` narrow-width RIP-relative loads. encode_mov_sized was missing arms for MemRipRel/MemRipRelSym at narrow widths; only W64 went through the pre-existing rip-relative path. Filed by workerbee during pa-r14-002 audit; retired in-release.
+- **PA-R14-002** (issue #945) — Full mov r32, [mem] audit. Load-form narrow-width paths already worked (delivered as part of #930); this issue landed 8+2 tests covering the r32 load-form surface + surfaced the rip-relative gap #1030.
+- **PA-R14-001** (issue #944) — `mov_[bwdq] [mem], imm` distinct-mnemonic store forms. Zero IR schema change (reuses Mnemonic::MovSized{width}). First workerbee attempt tried to extend Operand::MemSib with a `size_hint` field — cascaded into ~20 struct-literal sites and syntax errors from botched sed. Reverted; redesigned to the mnemonic-only approach. Landed clean with 16 tests.
+
 ## v0.13.0 — GAP-CATCH: R14B workaround-retirement wave (paideia-os user substrate)
 
 **Released:** Tag pushed at PA-R13-014 closure (v0.13.0 release).
