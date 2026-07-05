@@ -1,5 +1,50 @@
 # Changelog
 
+## v0.13.0 — GAP-CATCH: R14B workaround-retirement wave (paideia-os user substrate)
+
+**Released:** Tag pushed at PA-R13-014 closure (v0.13.0 release).
+
+R14B-cycle encoder + elaborator additions and bug fixes commissioned by paideia-os R14B (higher-half kernel → shell demo). Fourteen planned issues + one in-flight backtrack landed. Retires the three biggest cross-repo escalations filed during paideia-os R14B (paideia-os#927 narrow-load, #928 REX.B SIB drop, #929 indirect call) plus every workaround pattern noted in `design/roadmap/paideia-as-tactical-issues.md` §3.
+
+  Encoder additions:
+    PA-R13-001 (#930)  narrow-width mov r8/r16/r32,[mem]  — retires paideia-os#927.
+    PA-R13-002 (#931)  REX.B on SIB base + dest ModR/M    — retires paideia-os#928.
+    PA-R13-003 (#932)  indirect call [mem] and call reg   — retires paideia-os#929.
+    PA-R13-004 (#933)  ud2 (0F 0B)                        — enables unreachable-tail idiom.
+    PA-R13-005 (#934)  dec/inc r64 (REX.W FF /1, /0)      — retires sub-1/add-1 loop workarounds.
+    PA-R13-006 (#935)  test r64, imm32 (REX.W F7 /0)      — retires and+cmp workaround.
+    PA-R13-007 (#936)  test r/m64, r64 audit + tests      — audit-only (already existed).
+    PA-R13-008 (#937)  cld / std (FC / FD)                — direction-flag discipline.
+    PA-R13-009 (#938)  imul three-operand form audit      — audit-only + test coverage.
+    PA-R13-011 (#940)  rep_movsb robustness audit         — audit-only (v0.12 label-drain fix was the real cure).
+    PA-R13-012 (#941)  rep_stosq robustness audit         — audit-only, same story.
+    PA-R13-013 (#942)  setcc r8 family (16 conditions)    — via Mnemonic::Setcc(Cond), mirrors Jcc(Cond).
+    PA-R13-014 (#943)  bswap r64 (REX.W 0F C8+rd)         — endianness conversion substrate.
+
+  Elaborator additions:
+    PA-R13-010 (#939)  or/and/xor r64, imm64 macro-expansion via movabs r11 + reg-reg — retires mov+shl+or workaround.
+
+  Backtracks addressed in-release:
+    PA-R13-001b (#1029) SIB base=RBP/R13 disp=0 escape — centralised SIB tail into emit_mem_sib_disp() reused by 5 call sites.
+
+### Detailed bullets
+
+- **PA-R13-014** (issue #943) — `bswap r64` (REX.W 0F C8+rd). Endianness conversion; no ModR/M byte (opcode-plus-register form). Byte-exact + iced round-trip; 16-register length sweep. `bswap rax` = `48 0F C8`; `bswap r15` = `49 0F CF`. Substrate for future network stack (Phase 8) and disk-format code.
+- **PA-R13-013** (issue #942) — SETCC family via `Mnemonic::Setcc(Cond)`. Extended `Cond` enum with `Parity`/`NotParity` (for setp/setnp). One variant + payload avoids 16-mnemonic bloat; aliases (setz/sete, seta/setnbe, setb/setc/setnae, ...) share IR variants. Encoder primitive derives SETCC opcode from JCC opcode (SDM invariant `SETCC = JCC + 0x10`). RegId sentinel range 33..36 for spl/bpl/sil/dil (bare REX required). 21 tests: byte-exact for all 16 conditions + 4 iced round-trip.
+- **PA-R13-012** (issue #941) — `rep_stosq` audit-only. Encoder was correct (`F3 48 AB`); R14B workaround in elf_lite_load was stale. Added tests/build-emit/rep_stosq_smoke.pdx + integration driver + negative encoder unit test. Follow-up: retire elf_lite manual qword zero loop in paideia-os.
+- **PA-R13-011** (issue #940) — `rep_movsb` audit-only. Encoder correct (`F3 A4`); R14B workaround was working around v0.12's label-drain bug (fixed in v0.12 #924), not a rep_movsb defect. Same treatment: fixture .pdx + Rust driver + negative encoder unit test. Follow-up: retire elf_lite byte-copy loop in paideia-os.
+- **PA-R13-010** (issue #939) — `or/and/xor r64, imm64` macro-expansion. Elaborator-level 1→2 expansion at Instruction-build time (in unsafe_walker's retarget block, next to MovSized). Reserves R11 as expander scratch; collision guard emits diagnostic 1610 when dst == r11. Trigger: `mnemonic ∈ {Or, And, Xor}` ∧ `[Reg, Imm64(v)]` ∧ `v != (v as i32 as i64)`. Emits `movabs r11, imm64; <op> dst, r11`. Labels alias to the movabs (head of expansion). Follow-ups filed: dynamic scratch rotation when dst == r11 (avoid E1710 fatal); unsafe-block r11 clobber-audit (W1711). Retires the paideia-os workaround pattern where 64-bit immediate bit-packing (aspace_map MAP_HUGE sentinel, tss.pdx IOMAP_BASE, idt.pdx IST masks) was emulated via mov+shl+or.
+- **PA-R13-009** (issue #938) — Three-operand `imul r64, r/m64, imm8/imm32` audit-only. Primitives already existed (encode.rs:593/609); dispatch correctly selected imm8 form when `imm == (imm as i8 as i64)`. Added 14 new tests to `tests/imul_three_op.rs`: spec vectors, boundary quartet (±127/128, -129), REX.R+REX.B combinations, 4 iced round-trip. Retires the elf_lite_load two-register `mov r11, 56; imul r10, r11` workaround pattern.
+- **PA-R13-008** (issue #937) — `cld` (0xFC) and `std` (0xFD). 1-byte arity-0 mnemonics; extends encode_zero_operand sentinel table (0x84 → CLD, 0x85 → STD). Retires the paideia-os workaround where elf_lite_load relied on the SysV kernel-entry DF=0 assumption instead of emitting explicit `cld` before `rep_movsb`. 6 tests: byte-exact + mode-agnostic + iced round-trip.
+- **PA-R13-007** (issue #936) — `test r/m64, r64` reg-reg form audit-only. `test_reg64_reg64` already existed at encode.rs:1441. Added 8 tests to `tests/test_reg.rs`: 6 byte-exact spanning all 4 REX combinations + 2 iced round-trip. Prepares peephole lowering `cmp r,0 → test r,r` deferred to v0.14.
+- **PA-R13-006** (issue #935) — `test r64, imm32` (REX.W F7 /0). Special-cases RAX to short form (`48 A9 <imm32>`, 6 bytes); other GPRs use general form (`REX.W F7 /0 modrm <imm32>`, 7 bytes). Values > i32 range → `EncodeError::Unsupported` (no imm64 direct encoding — the elaborator's imm64 macro-expansion at #939 doesn't apply to TEST; imm64 test emulation is the "and+cmp workaround" pointed at by the error message). No 83 /X ib subgroup for TEST. 14 tests: 4 required byte-exact vectors + rax short-form guard + i32 boundary tests + 3 iced round-trip.
+- **PA-R13-005** (issue #934) — `dec` and (scope-expanded) `inc` r64. Both encode as REX.W FF /1 and /0 respectively (differ only by ModR/M reg field). Legacy 40+rd / 48+rd short forms deliberately avoided — those bytes are repurposed as REX prefixes in long mode. Retires the paideia-os workaround pattern where loop counters used `sub r,1` instead of `dec r` (see paideia-os#512, #521). 16 tests spanning both mnemonics × 4 REX shapes + iced round-trip.
+- **PA-R13-004** (issue #933) — `ud2` (0F 0B). Undefined instruction, always raises #UD. Enables idiomatic unreachable-tail slots after iretq / sysretq / any never-return sink. Retires the paideia-os workaround at enter_userland_initial (which used `hlt` because ud2 was absent). Once paideia-os bumps the submodule, that site can express `ud2` and get real #UD handling via the wired handle_ud (from paideia-os#644 IDT vector wiring). Arity-0 sentinel pattern.
+- **PA-R13-003** (issue #932) — Indirect `call [mem]` and `call reg` (retires paideia-os#929). New IR variant `Operand::MemRipRelSym { name, addend }` disambiguates bracketed `[rip + sym]` from bare `SymbolRef`; parser change makes bare-symbol path unambiguously `SymbolRef`, bracketed path unambiguously `MemRipRelSym`. Four new encoder helpers: `call_reg64`, `call_mem_base_disp`, `call_mem_sib_disp`, `call_mem_rip_rel`. `encode_call` gains 5 new arms (Reg, base+disp MemSib, indexed MemSib, MemRipRel, MemRipRelSym). Ripple: parallel `MemRipRelSym` arms added to `encode_mov`, `encode_lea`, `encode_lgdt`, `encode_lidt`. Unblocks paideia-os syscall dispatch table (paideia-os#536) and all future function-pointer tables (VFS vops Phase 6, driver ops Phase 7, UEFI protocols Phase 12, WASM opcode dispatch Phase 10).
+- **PA-R13-002** (issue #931) — REX.B on SIB base + dest ModR/M reg field (retires paideia-os#928). `emit_indexed_load` / `emit_indexed_store` were dropping REX.R (silently forcing dest to RAX) AND REX.B (aliasing r12→rsp, r13→rbp). Fixed both helpers with real dest/src param; W8 special case forces REX prefix for r8-r15 to select SPL/BPL/SIL/DIL over AH/CH/DH/BH. `encode_mov` SIB-load path redirected to pre-existing `mov_reg64_mem_sib_disp` (which already computed all four REX bits correctly). `encode_lea` SIB path refactored to delegate to `emit_mem_sib_disp` (made pub(crate)) for free RBP/R13 disp=0 escape. Retires the aspace_teardown 4-level SIB workaround from paideia-os R15.M1 (silent r12→rsp aliasing).
+- **PA-R13-001b** (issue #1029, in-flight backtrack) — SIB base=RBP/R13 with disp=0 escape (Intel SDM Vol 2 §2.1.5 Table 2-3). Both new `mov_reg_mem_sib_disp_sized` from #930 AND pre-existing `mov_reg64_mem_sib_disp` / `mov_mem_sib_disp_reg64` / `emit_indexed_load` / `emit_indexed_store` were choosing mod=00 purely from `disp == 0`, without the RBP/R13 escape (which needs mod=01 with disp8=0 to distinguish from "no base, disp32 follows"). Centralized SIB tail into `emit_mem_sib_disp` helper; refactored 5 call sites. Filed by workerbee during #930 review; landed in-release before continuing (backtracking discipline).
+- **PA-R13-001** (issue #930) — narrow-width `mov r8/r16/r32, [mem]` (retires paideia-os#927). Reuses existing `Mnemonic::MovSized{width}` (was imm-only) by extending its operand-shape ladder; no new IR variant. Elaborator retargets `Mov [Reg, MemSib]` to `MovSized{width}` when destination register name resolves to a narrow width via `register_name_width`. Four new encoder primitives: `mov_reg8_mem_base_disp` (8A /r), `mov_reg16_mem_base_disp` (66 8B /r), `mov_reg32_mem_base_disp` (8B /r, no REX.W), `mov_reg_mem_sib_disp_sized` (width-parameterized SIB). W64 delegates to existing helpers for byte-identical regression. AH/CH/DH/BH guard: EncodeError when W8 dest RegId 4-7 combined with REX-requiring memory. Adds T0533 diagnostic (warn-only in v0.13) for width mismatch. Retires the paideia-os masked-read workaround at 9+ sites in `src/kernel/core/loader/elf_lite.pdx`. 28 tests: 24 byte-exact + 4 iced round-trip.
+
 ## v0.12.0 — R13 encoder-gap batch (paideia-os SMP/security substrate)
 
 **Released:** Tag pushed at PA-R13-011 closure (v0.12.0 release).
