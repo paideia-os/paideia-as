@@ -177,6 +177,10 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     ("shl", Mnemonic::Shl),
     ("shr", Mnemonic::Shr),
     ("sar", Mnemonic::Sar),
+    ("rol_d", Mnemonic::Rol { width: IntWidth::W32 }),
+    ("rol_q", Mnemonic::Rol { width: IntWidth::W64 }),
+    ("ror_d", Mnemonic::Ror { width: IntWidth::W32 }),
+    ("ror_q", Mnemonic::Ror { width: IntWidth::W64 }),
     ("imul", Mnemonic::Imul),
     // Phase R9 m2-001 (PA-R9-001): Push/pop instructions
     ("push", Mnemonic::Push),

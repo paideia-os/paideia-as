@@ -408,6 +408,179 @@ pub fn sar_reg64_imm8(buf: &mut CodeBuffer, reg: Reg64, imm: u8) {
     buf.bytes.push(imm);
 }
 
+/// Encode `rol reg64, imm8` or `rol reg64, 1` (rotate left).
+///
+/// Instruction: REX.W C1 /0 ib (general form) or REX.W D1 /0 (short form for imm=1)
+/// ModR/M: 0xC0 | (reg & 7)
+/// Bytes for imm != 1: `48+REX.B C1 (0xC0 | (reg&7)) imm8`
+/// Bytes for imm == 1: `48+REX.B D1 (0xC0 | (reg&7))`
+///
+/// Example: `rol rax, 1` → `48 d1 c0`
+/// Example: `rol rax, 4` → `48 c1 c0 04`
+/// Example: `rol r15, 3` → `49 c1 c7 03`
+pub fn rol_reg64_imm8(buf: &mut CodeBuffer, reg: Reg64, imm: u8) {
+    let reg_id = reg as u8;
+    let rex_byte = rex(true, false, false, (reg_id >> 3) != 0);
+
+    if imm == 1 {
+        // Short form: REX.W D1 (0xC0 | reg)
+        buf.bytes.push(rex_byte);
+        buf.bytes.push(0xD1);
+        buf.bytes.push(0xC0 | (reg_id & 7));
+    } else {
+        // General form: REX.W C1 (0xC0 | reg) imm8
+        buf.bytes.push(rex_byte);
+        buf.bytes.push(0xC1);
+        buf.bytes.push(0xC0 | (reg_id & 7));
+        buf.bytes.push(imm);
+    }
+}
+
+/// Encode `rol reg64, cl` (rotate left by CL).
+///
+/// Instruction: REX.W D3 /0
+/// ModR/M: 0xC0 | (reg & 7)
+/// Bytes: `48+REX.B D3 (0xC0 | (reg&7))`
+///
+/// Example: `rol rax, cl` → `48 d3 c0`
+pub fn rol_reg64_cl(buf: &mut CodeBuffer, reg: Reg64) {
+    let reg_id = reg as u8;
+    let rex_byte = rex(true, false, false, (reg_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0xD3);
+    buf.bytes.push(0xC0 | (reg_id & 7));
+}
+
+/// Encode `rol reg32, imm8` or `rol reg32, 1` (rotate left, 32-bit).
+///
+/// Instruction: C1 /0 ib (general form) or D1 /0 (short form for imm=1)
+/// ModR/M: 0xC0 | (reg & 7)
+/// Bytes for imm != 1: `REX.B(if needed) C1 (0xC0 | (reg&7)) imm8`
+/// Bytes for imm == 1: `REX.B(if needed) D1 (0xC0 | (reg&7))`
+///
+/// Example: `rol eax, 1` → `d1 c0`
+/// Example: `rol r8d, 2` → `41 c1 c0 02`
+pub fn rol_reg32_imm8(buf: &mut CodeBuffer, reg_id: u8, imm: u8) {
+    if imm == 1 {
+        // Short form
+        if (reg_id >> 3) != 0 {
+            buf.bytes.push(rex(false, false, false, true));
+        }
+        buf.bytes.push(0xD1);
+        buf.bytes.push(0xC0 | (reg_id & 7));
+    } else {
+        // General form
+        if (reg_id >> 3) != 0 {
+            buf.bytes.push(rex(false, false, false, true));
+        }
+        buf.bytes.push(0xC1);
+        buf.bytes.push(0xC0 | (reg_id & 7));
+        buf.bytes.push(imm);
+    }
+}
+
+/// Encode `rol reg32, cl` (rotate left by CL, 32-bit).
+///
+/// Instruction: D3 /0
+/// ModR/M: 0xC0 | (reg & 7)
+/// Bytes: `REX.B(if needed) D3 (0xC0 | (reg&7))`
+///
+/// Example: `rol eax, cl` → `d3 c0`
+/// Example: `rol r8d, cl` → `41 d3 c0`
+pub fn rol_reg32_cl(buf: &mut CodeBuffer, reg_id: u8) {
+    if (reg_id >> 3) != 0 {
+        buf.bytes.push(rex(false, false, false, true));
+    }
+    buf.bytes.push(0xD3);
+    buf.bytes.push(0xC0 | (reg_id & 7));
+}
+
+/// Encode `ror reg64, imm8` or `ror reg64, 1` (rotate right).
+///
+/// Instruction: REX.W C1 /1 ib (general form) or REX.W D1 /1 (short form for imm=1)
+/// ModR/M: 0xC8 | (reg & 7)
+/// Bytes for imm != 1: `48+REX.B C1 (0xC8 | (reg&7)) imm8`
+/// Bytes for imm == 1: `48+REX.B D1 (0xC8 | (reg&7))`
+///
+/// Example: `ror rax, 1` → `48 d1 c8`
+/// Example: `ror rax, 4` → `48 c1 c8 04`
+pub fn ror_reg64_imm8(buf: &mut CodeBuffer, reg: Reg64, imm: u8) {
+    let reg_id = reg as u8;
+    let rex_byte = rex(true, false, false, (reg_id >> 3) != 0);
+
+    if imm == 1 {
+        // Short form: REX.W D1 (0xC8 | reg)
+        buf.bytes.push(rex_byte);
+        buf.bytes.push(0xD1);
+        buf.bytes.push(0xC8 | (reg_id & 7));
+    } else {
+        // General form: REX.W C1 (0xC8 | reg) imm8
+        buf.bytes.push(rex_byte);
+        buf.bytes.push(0xC1);
+        buf.bytes.push(0xC8 | (reg_id & 7));
+        buf.bytes.push(imm);
+    }
+}
+
+/// Encode `ror reg64, cl` (rotate right by CL).
+///
+/// Instruction: REX.W D3 /1
+/// ModR/M: 0xC8 | (reg & 7)
+/// Bytes: `48+REX.B D3 (0xC8 | (reg&7))`
+///
+/// Example: `ror rax, cl` → `48 d3 c8`
+pub fn ror_reg64_cl(buf: &mut CodeBuffer, reg: Reg64) {
+    let reg_id = reg as u8;
+    let rex_byte = rex(true, false, false, (reg_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0xD3);
+    buf.bytes.push(0xC8 | (reg_id & 7));
+}
+
+/// Encode `ror reg32, imm8` or `ror reg32, 1` (rotate right, 32-bit).
+///
+/// Instruction: C1 /1 ib (general form) or D1 /1 (short form for imm=1)
+/// ModR/M: 0xC8 | (reg & 7)
+/// Bytes for imm != 1: `REX.B(if needed) C1 (0xC8 | (reg&7)) imm8`
+/// Bytes for imm == 1: `REX.B(if needed) D1 (0xC8 | (reg&7))`
+///
+/// Example: `ror eax, 1` → `d1 c8`
+/// Example: `ror r8d, 2` → `41 c1 c8 02`
+pub fn ror_reg32_imm8(buf: &mut CodeBuffer, reg_id: u8, imm: u8) {
+    if imm == 1 {
+        // Short form
+        if (reg_id >> 3) != 0 {
+            buf.bytes.push(rex(false, false, false, true));
+        }
+        buf.bytes.push(0xD1);
+        buf.bytes.push(0xC8 | (reg_id & 7));
+    } else {
+        // General form
+        if (reg_id >> 3) != 0 {
+            buf.bytes.push(rex(false, false, false, true));
+        }
+        buf.bytes.push(0xC1);
+        buf.bytes.push(0xC8 | (reg_id & 7));
+        buf.bytes.push(imm);
+    }
+}
+
+/// Encode `ror reg32, cl` (rotate right by CL, 32-bit).
+///
+/// Instruction: D3 /1
+/// ModR/M: 0xC8 | (reg & 7)
+/// Bytes: `REX.B(if needed) D3 (0xC8 | (reg&7))`
+///
+/// Example: `ror eax, cl` → `d3 c8`
+/// Example: `ror r8d, cl` → `41 d3 c8`
+pub fn ror_reg32_cl(buf: &mut CodeBuffer, reg_id: u8) {
+    if (reg_id >> 3) != 0 {
+        buf.bytes.push(rex(false, false, false, true));
+    }
+    buf.bytes.push(0xD3);
+    buf.bytes.push(0xC8 | (reg_id & 7));
+}
+
 /// Encode `xor reg64, reg64`.
 ///
 /// Instruction: REX.W 31 /r

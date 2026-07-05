@@ -322,6 +322,9 @@ fn encode_instruction_impl(
         Mnemonic::Shl => encode_shl(inst, buf),
         Mnemonic::Shr => encode_shr(inst, buf),
         Mnemonic::Sar => encode_sar(inst, buf),
+        // Phase R15 PA-R15-004: rotate operations
+        Mnemonic::Rol { width } => encode_rol(inst, buf, *width),
+        Mnemonic::Ror { width } => encode_ror(inst, buf, *width),
         // Phase 8 m1-001d: multiply and bitwise operations
         Mnemonic::Imul => encode_imul::encode_imul(inst, buf),
         Mnemonic::And => encode_and_or_xor::encode_and(inst, buf),
@@ -1206,6 +1209,122 @@ fn encode_sar(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
         _ => Err(EncodeError::Unsupported(
             "sar form not supported in phase 8 m1-001d",
         )),
+    }
+}
+
+/// Phase R15 PA-R15-004: Encode rotate-left instruction.
+fn encode_rol(inst: &Instruction, buf: &mut CodeBuffer, width: IntWidth) -> Result<EncodeOutput, EncodeError> {
+    match width {
+        IntWidth::W64 => {
+            match inst.operands.as_slice() {
+                [Operand::Reg(dst), Operand::Imm64(imm)] => {
+                    // rol r64, imm8
+                    let dst_reg = reg64_from(*dst)?;
+                    let imm_i8 = i8::try_from(*imm)
+                        .map_err(|_| EncodeError::Unsupported("E0035: rol imm must fit in i8"))?;
+                    rol_reg64_imm8(buf, dst_reg, imm_i8 as u8);
+                    Ok(EncodeOutput::new())
+                }
+                [Operand::Reg(dst), Operand::Reg(src)] => {
+                    // rol r64, cl (rotate count in CL)
+                    let dst_reg = reg64_from(*dst)?;
+                    if reg64_from(*src)? != Reg64::Rcx {
+                        return Err(EncodeError::Unsupported("E0036: rol variable count requires CL"));
+                    }
+                    rol_reg64_cl(buf, dst_reg);
+                    Ok(EncodeOutput::new())
+                }
+                _ => Err(EncodeError::OperandShape {
+                    mnemonic: Mnemonic::Rol { width },
+                }),
+            }
+        }
+        IntWidth::W32 => {
+            match inst.operands.as_slice() {
+                [Operand::Reg(dst), Operand::Imm64(imm)] => {
+                    // rol r32, imm8
+                    let _dst_reg = reg32_from(*dst)?;
+                    let dst_id = dst.0;
+                    let imm_i8 = i8::try_from(*imm)
+                        .map_err(|_| EncodeError::Unsupported("E0035: rol imm must fit in i8"))?;
+                    rol_reg32_imm8(buf, dst_id, imm_i8 as u8);
+                    Ok(EncodeOutput::new())
+                }
+                [Operand::Reg(dst), Operand::Reg(src)] => {
+                    // rol r32, cl
+                    let _dst_reg = reg32_from(*dst)?;
+                    let _src_reg = reg32_from(*src)?;
+                    if reg32_from(*src)? != Reg32::Ecx {
+                        return Err(EncodeError::Unsupported("E0036: rol variable count requires CL"));
+                    }
+                    let dst_id = dst.0;
+                    rol_reg32_cl(buf, dst_id);
+                    Ok(EncodeOutput::new())
+                }
+                _ => Err(EncodeError::OperandShape {
+                    mnemonic: Mnemonic::Rol { width },
+                }),
+            }
+        }
+        _ => Err(EncodeError::Unsupported("E0034: rol only supports W32 and W64")),
+    }
+}
+
+/// Phase R15 PA-R15-004: Encode rotate-right instruction.
+fn encode_ror(inst: &Instruction, buf: &mut CodeBuffer, width: IntWidth) -> Result<EncodeOutput, EncodeError> {
+    match width {
+        IntWidth::W64 => {
+            match inst.operands.as_slice() {
+                [Operand::Reg(dst), Operand::Imm64(imm)] => {
+                    // ror r64, imm8
+                    let dst_reg = reg64_from(*dst)?;
+                    let imm_i8 = i8::try_from(*imm)
+                        .map_err(|_| EncodeError::Unsupported("E0035: ror imm must fit in i8"))?;
+                    ror_reg64_imm8(buf, dst_reg, imm_i8 as u8);
+                    Ok(EncodeOutput::new())
+                }
+                [Operand::Reg(dst), Operand::Reg(src)] => {
+                    // ror r64, cl (rotate count in CL)
+                    let dst_reg = reg64_from(*dst)?;
+                    if reg64_from(*src)? != Reg64::Rcx {
+                        return Err(EncodeError::Unsupported("E0036: ror variable count requires CL"));
+                    }
+                    ror_reg64_cl(buf, dst_reg);
+                    Ok(EncodeOutput::new())
+                }
+                _ => Err(EncodeError::OperandShape {
+                    mnemonic: Mnemonic::Ror { width },
+                }),
+            }
+        }
+        IntWidth::W32 => {
+            match inst.operands.as_slice() {
+                [Operand::Reg(dst), Operand::Imm64(imm)] => {
+                    // ror r32, imm8
+                    let _dst_reg = reg32_from(*dst)?;
+                    let dst_id = dst.0;
+                    let imm_i8 = i8::try_from(*imm)
+                        .map_err(|_| EncodeError::Unsupported("E0035: ror imm must fit in i8"))?;
+                    ror_reg32_imm8(buf, dst_id, imm_i8 as u8);
+                    Ok(EncodeOutput::new())
+                }
+                [Operand::Reg(dst), Operand::Reg(src)] => {
+                    // ror r32, cl
+                    let _dst_reg = reg32_from(*dst)?;
+                    let _src_reg = reg32_from(*src)?;
+                    if reg32_from(*src)? != Reg32::Ecx {
+                        return Err(EncodeError::Unsupported("E0036: ror variable count requires CL"));
+                    }
+                    let dst_id = dst.0;
+                    ror_reg32_cl(buf, dst_id);
+                    Ok(EncodeOutput::new())
+                }
+                _ => Err(EncodeError::OperandShape {
+                    mnemonic: Mnemonic::Ror { width },
+                }),
+            }
+        }
+        _ => Err(EncodeError::Unsupported("E0034: ror only supports W32 and W64")),
     }
 }
 

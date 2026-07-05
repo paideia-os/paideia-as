@@ -172,6 +172,18 @@ pub enum Mnemonic {
     /// Arithmetic shift right. Operands: dst, shift_count.
     /// Phase 8 m1-001d: emits `sar r64, imm8` or `sar r64, cl`.
     Sar,
+    /// Rotate left. Operands: dst, rotate_count.
+    /// Phase R15 PA-R15-004 (issue #959): emits `rol r32/r64, imm8` or `rol r32/r64, cl`.
+    Rol {
+        /// Operand width selecting the encoded form (W32 or W64).
+        width: IntWidth,
+    },
+    /// Rotate right. Operands: dst, rotate_count.
+    /// Phase R15 PA-R15-004 (issue #959): emits `ror r32/r64, imm8` or `ror r32/r64, cl`.
+    Ror {
+        /// Operand width selecting the encoded form (W32 or W64).
+        width: IntWidth,
+    },
     /// Integer multiply. Operands: dst, src1 [, src2/imm].
     /// Phase 8 m1-001d: emits `imul r64, r64` (2 operands) or `imul r64, r64, imm` (3 operands).
     Imul,
@@ -653,6 +665,8 @@ impl Mnemonic {
             | Mnemonic::Shl
             | Mnemonic::Shr
             | Mnemonic::Sar
+            | Mnemonic::Rol { .. }
+            | Mnemonic::Ror { .. }
             | Mnemonic::Imul
             | Mnemonic::And
             | Mnemonic::Or
@@ -792,7 +806,8 @@ impl Mnemonic {
             Mnemonic::Int3 => 1,
 
             // Shift operations: 4 bytes upper bound (REX.W C1 r/m, imm8 or REX.W D3 r/m for CL variant)
-            Mnemonic::Shl | Mnemonic::Shr | Mnemonic::Sar => 4,
+            // Rotate operations: 4 bytes upper bound (REX.W C1 r/m, imm8 or REX.W D3 r/m for CL variant)
+            Mnemonic::Shl | Mnemonic::Shr | Mnemonic::Sar | Mnemonic::Rol { .. } | Mnemonic::Ror { .. } => 4,
 
             // Multiply (imul): 10 bytes upper bound for r64, r64, imm32
             Mnemonic::Imul => 10,
