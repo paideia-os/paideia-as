@@ -1,0 +1,6 @@
+// Fixture: mmio_write_u32
+// Tests that mmio_write_u32(addr, val) writes a 32-bit value to memory-mapped IO.
+
+trait MmioWriteU32 {
+  fn mmio_write_u32(addr: u64, val: u32) -> () !{RawMem, MmioWrite} @{paideia.mmio};
+}

@@ -1,0 +1,6 @@
+// Fixture: mmio_read_u32
+// Tests that mmio_read_u32(addr) reads a 32-bit value from memory-mapped IO.
+
+trait MmioReadU32 {
+  fn mmio_read_u32(addr: u64) -> u32 !{RawMem, MmioRead} @{paideia.mmio};
+}

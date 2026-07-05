@@ -42,6 +42,18 @@ module Abi = structure {
     // write !{IO} in effect rows.
   }
 
+  effect MmioRead {
+    // Built-in effect for memory-mapped I/O read from device space (pa-r14-007).
+    // Driver-side effect; full vocabulary (CachePolicy, NonTemporal, DmaBarrier)
+    // lands in pa-r14-010.
+  }
+
+  effect MmioWrite {
+    // Built-in effect for memory-mapped I/O write to device space (pa-r14-007).
+    // Driver-side effect; full vocabulary (CachePolicy, NonTemporal, DmaBarrier)
+    // lands in pa-r14-010.
+  }
+
   // ═════════════════════════════════════════════════════════════════════════
   // § 1. Semantic version (per design/toolchain/abi.md §0)
   // ═════════════════════════════════════════════════════════════════════════

@@ -1,0 +1,19 @@
+// PA-R14-007: Memory-mapped IO helper declarations.
+//
+// Trait MmioOps provides read/write operations for memory-mapped IO from/to
+// device space. Lowering to mov/store instructions deferred to consumers.
+// Full effect vocabulary (CachePolicy, NonTemporal, DmaBarrier) lands in pa-r14-010.
+//
+// Effect: !{RawMem, MmioRead} or !{RawMem, MmioWrite}
+// Capability: @{paideia.mmio}
+
+trait MmioOps {
+  fn mmio_read_u8(addr: u64) -> u8 !{RawMem, MmioRead} @{paideia.mmio};
+  fn mmio_read_u16(addr: u64) -> u16 !{RawMem, MmioRead} @{paideia.mmio};
+  fn mmio_read_u32(addr: u64) -> u32 !{RawMem, MmioRead} @{paideia.mmio};
+  fn mmio_read_u64(addr: u64) -> u64 !{RawMem, MmioRead} @{paideia.mmio};
+  fn mmio_write_u8(addr: u64, val: u8) -> () !{RawMem, MmioWrite} @{paideia.mmio};
+  fn mmio_write_u16(addr: u64, val: u16) -> () !{RawMem, MmioWrite} @{paideia.mmio};
+  fn mmio_write_u32(addr: u64, val: u32) -> () !{RawMem, MmioWrite} @{paideia.mmio};
+  fn mmio_write_u64(addr: u64, val: u64) -> () !{RawMem, MmioWrite} @{paideia.mmio};
+}
