@@ -1,0 +1,6 @@
+// Fixture: bytes_put_u8
+// Tests that put_u8(buf, off, val) writes an 8-bit value to a raw byte buffer.
+
+trait PutU8 {
+  fn put_u8(buf: u64, off: u64, val: u8) -> () !{RawMem} @{paideia.raw_mem};
+}

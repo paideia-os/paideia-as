@@ -1,0 +1,6 @@
+// Fixture: bytes_ipv4_src_addr
+// Integration example: extract IPv4 source address (bytes 12-15, big-endian).
+
+trait IPv4SrcAddr {
+  fn get_u32_be(buf: u64, off: u64) -> u32 !{RawMem} @{paideia.raw_mem};
+}

@@ -1,0 +1,6 @@
+// Fixture: bytes_get_u64_le
+// Tests that get_u64_le(buf, off) reads a 64-bit little-endian value from a raw byte buffer.
+
+trait GetU64Le {
+  fn get_u64_le(buf: u64, off: u64) -> u64 !{RawMem} @{paideia.raw_mem};
+}

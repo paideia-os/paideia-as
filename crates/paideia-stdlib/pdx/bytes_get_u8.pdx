@@ -1,0 +1,6 @@
+// Fixture: bytes_get_u8
+// Tests that get_u8(buf, off) reads an 8-bit value from a raw byte buffer.
+
+trait GetU8 {
+  fn get_u8(buf: u64, off: u64) -> u8 !{RawMem} @{paideia.raw_mem};
+}

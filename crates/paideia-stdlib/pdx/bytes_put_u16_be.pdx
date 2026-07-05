@@ -1,0 +1,6 @@
+// Fixture: bytes_put_u16_be
+// Tests that put_u16_be(buf, off, val) writes a 16-bit big-endian value to a raw byte buffer.
+
+trait PutU16Be {
+  fn put_u16_be(buf: u64, off: u64, val: u16) -> () !{RawMem} @{paideia.raw_mem};
+}

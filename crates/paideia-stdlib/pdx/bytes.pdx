@@ -1,0 +1,31 @@
+// PA-R15-007: byte-parsing helper declarations for buffer-oriented code
+// (network stack, serialization, filesystem records).
+//
+// Trait BytesOps provides typed reads/writes over a raw byte buffer at
+// (buf: u64, off: u64). Endian variants materialise as mov (LE on x86_64)
+// or mov + bswap (BE) at codegen; lowering deferred to consumers.
+//
+// Effect: !{RawMem} for both reads and writes over caller-owned memory
+// (no MMIO — plain DRAM). Capability: @{paideia.raw_mem}.
+//
+// Bounds checking is the caller's responsibility at this layer.
+
+trait BytesOps {
+  fn get_u8(buf: u64, off: u64) -> u8 !{RawMem} @{paideia.raw_mem};
+  fn put_u8(buf: u64, off: u64, val: u8) -> () !{RawMem} @{paideia.raw_mem};
+
+  fn get_u16_be(buf: u64, off: u64) -> u16 !{RawMem} @{paideia.raw_mem};
+  fn get_u16_le(buf: u64, off: u64) -> u16 !{RawMem} @{paideia.raw_mem};
+  fn put_u16_be(buf: u64, off: u64, val: u16) -> () !{RawMem} @{paideia.raw_mem};
+  fn put_u16_le(buf: u64, off: u64, val: u16) -> () !{RawMem} @{paideia.raw_mem};
+
+  fn get_u32_be(buf: u64, off: u64) -> u32 !{RawMem} @{paideia.raw_mem};
+  fn get_u32_le(buf: u64, off: u64) -> u32 !{RawMem} @{paideia.raw_mem};
+  fn put_u32_be(buf: u64, off: u64, val: u32) -> () !{RawMem} @{paideia.raw_mem};
+  fn put_u32_le(buf: u64, off: u64, val: u32) -> () !{RawMem} @{paideia.raw_mem};
+
+  fn get_u64_be(buf: u64, off: u64) -> u64 !{RawMem} @{paideia.raw_mem};
+  fn get_u64_le(buf: u64, off: u64) -> u64 !{RawMem} @{paideia.raw_mem};
+  fn put_u64_be(buf: u64, off: u64, val: u64) -> () !{RawMem} @{paideia.raw_mem};
+  fn put_u64_le(buf: u64, off: u64, val: u64) -> () !{RawMem} @{paideia.raw_mem};
+}

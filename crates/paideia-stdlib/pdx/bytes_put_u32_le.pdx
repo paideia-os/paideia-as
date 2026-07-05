@@ -1,0 +1,6 @@
+// Fixture: bytes_put_u32_le
+// Tests that put_u32_le(buf, off, val) writes a 32-bit little-endian value to a raw byte buffer.
+
+trait PutU32Le {
+  fn put_u32_le(buf: u64, off: u64, val: u32) -> () !{RawMem} @{paideia.raw_mem};
+}

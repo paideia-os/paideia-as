@@ -1,0 +1,6 @@
+// Fixture: bytes_ipv4_ttl_proto
+// Integration example: extract IPv4 ttl (byte 8) and protocol (byte 9) fields.
+
+trait IPv4TtlProto {
+  fn get_u8(buf: u64, off: u64) -> u8 !{RawMem} @{paideia.raw_mem};
+}

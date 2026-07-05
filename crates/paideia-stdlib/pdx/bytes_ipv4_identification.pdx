@@ -1,0 +1,6 @@
+// Fixture: bytes_ipv4_identification
+// Integration example: extract IPv4 identification field (bytes 4-5, big-endian).
+
+trait IPv4Identification {
+  fn get_u16_be(buf: u64, off: u64) -> u16 !{RawMem} @{paideia.raw_mem};
+}

@@ -1789,3 +1789,339 @@ fn mmio_write_u32_parses_cleanly() {
         String::from_utf8_lossy(&result.stderr)
     );
 }
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn bytes_parses_cleanly() {
+    let bin = paideia_as_bin().expect("paideia-as binary not built");
+    let pdx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/bytes.pdx");
+    let result = Command::new(bin)
+        .args(["check", &pdx.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn bytes_get_u8_parses_cleanly() {
+    let bin = paideia_as_bin().expect("paideia-as binary not built");
+    let pdx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/bytes_get_u8.pdx");
+    let result = Command::new(bin)
+        .args(["check", &pdx.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn bytes_put_u8_parses_cleanly() {
+    let bin = paideia_as_bin().expect("paideia-as binary not built");
+    let pdx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/bytes_put_u8.pdx");
+    let result = Command::new(bin)
+        .args(["check", &pdx.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn bytes_get_u16_be_parses_cleanly() {
+    let bin = paideia_as_bin().expect("paideia-as binary not built");
+    let pdx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/bytes_get_u16_be.pdx");
+    let result = Command::new(bin)
+        .args(["check", &pdx.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn bytes_get_u16_le_parses_cleanly() {
+    let bin = paideia_as_bin().expect("paideia-as binary not built");
+    let pdx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/bytes_get_u16_le.pdx");
+    let result = Command::new(bin)
+        .args(["check", &pdx.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn bytes_put_u16_be_parses_cleanly() {
+    let bin = paideia_as_bin().expect("paideia-as binary not built");
+    let pdx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/bytes_put_u16_be.pdx");
+    let result = Command::new(bin)
+        .args(["check", &pdx.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn bytes_put_u16_le_parses_cleanly() {
+    let bin = paideia_as_bin().expect("paideia-as binary not built");
+    let pdx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/bytes_put_u16_le.pdx");
+    let result = Command::new(bin)
+        .args(["check", &pdx.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn bytes_get_u32_be_parses_cleanly() {
+    let bin = paideia_as_bin().expect("paideia-as binary not built");
+    let pdx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/bytes_get_u32_be.pdx");
+    let result = Command::new(bin)
+        .args(["check", &pdx.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn bytes_get_u32_le_parses_cleanly() {
+    let bin = paideia_as_bin().expect("paideia-as binary not built");
+    let pdx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/bytes_get_u32_le.pdx");
+    let result = Command::new(bin)
+        .args(["check", &pdx.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn bytes_put_u32_be_parses_cleanly() {
+    let bin = paideia_as_bin().expect("paideia-as binary not built");
+    let pdx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/bytes_put_u32_be.pdx");
+    let result = Command::new(bin)
+        .args(["check", &pdx.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn bytes_put_u32_le_parses_cleanly() {
+    let bin = paideia_as_bin().expect("paideia-as binary not built");
+    let pdx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/bytes_put_u32_le.pdx");
+    let result = Command::new(bin)
+        .args(["check", &pdx.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn bytes_get_u64_be_parses_cleanly() {
+    let bin = paideia_as_bin().expect("paideia-as binary not built");
+    let pdx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/bytes_get_u64_be.pdx");
+    let result = Command::new(bin)
+        .args(["check", &pdx.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn bytes_get_u64_le_parses_cleanly() {
+    let bin = paideia_as_bin().expect("paideia-as binary not built");
+    let pdx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/bytes_get_u64_le.pdx");
+    let result = Command::new(bin)
+        .args(["check", &pdx.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn bytes_put_u64_be_parses_cleanly() {
+    let bin = paideia_as_bin().expect("paideia-as binary not built");
+    let pdx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/bytes_put_u64_be.pdx");
+    let result = Command::new(bin)
+        .args(["check", &pdx.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn bytes_put_u64_le_parses_cleanly() {
+    let bin = paideia_as_bin().expect("paideia-as binary not built");
+    let pdx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/bytes_put_u64_le.pdx");
+    let result = Command::new(bin)
+        .args(["check", &pdx.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn bytes_ipv4_version_ihl_parses_cleanly() {
+    let bin = paideia_as_bin().expect("paideia-as binary not built");
+    let pdx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/bytes_ipv4_version_ihl.pdx");
+    let result = Command::new(bin)
+        .args(["check", &pdx.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn bytes_ipv4_total_length_parses_cleanly() {
+    let bin = paideia_as_bin().expect("paideia-as binary not built");
+    let pdx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/bytes_ipv4_total_length.pdx");
+    let result = Command::new(bin)
+        .args(["check", &pdx.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn bytes_ipv4_identification_parses_cleanly() {
+    let bin = paideia_as_bin().expect("paideia-as binary not built");
+    let pdx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/bytes_ipv4_identification.pdx");
+    let result = Command::new(bin)
+        .args(["check", &pdx.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn bytes_ipv4_ttl_proto_parses_cleanly() {
+    let bin = paideia_as_bin().expect("paideia-as binary not built");
+    let pdx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/bytes_ipv4_ttl_proto.pdx");
+    let result = Command::new(bin)
+        .args(["check", &pdx.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn bytes_ipv4_src_addr_parses_cleanly() {
+    let bin = paideia_as_bin().expect("paideia-as binary not built");
+    let pdx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/bytes_ipv4_src_addr.pdx");
+    let result = Command::new(bin)
+        .args(["check", &pdx.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn bytes_ipv4_dst_addr_parses_cleanly() {
+    let bin = paideia_as_bin().expect("paideia-as binary not built");
+    let pdx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/bytes_ipv4_dst_addr.pdx");
+    let result = Command::new(bin)
+        .args(["check", &pdx.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}

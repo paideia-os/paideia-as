@@ -1,0 +1,6 @@
+// Fixture: bytes_ipv4_total_length
+// Integration example: extract IPv4 total_length field (bytes 2-3, big-endian).
+
+trait IPv4TotalLength {
+  fn get_u16_be(buf: u64, off: u64) -> u16 !{RawMem} @{paideia.raw_mem};
+}

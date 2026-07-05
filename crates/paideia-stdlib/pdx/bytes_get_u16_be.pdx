@@ -1,0 +1,6 @@
+// Fixture: bytes_get_u16_be
+// Tests that get_u16_be(buf, off) reads a 16-bit big-endian value from a raw byte buffer.
+
+trait GetU16Be {
+  fn get_u16_be(buf: u64, off: u64) -> u16 !{RawMem} @{paideia.raw_mem};
+}

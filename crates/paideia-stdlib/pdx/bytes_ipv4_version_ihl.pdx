@@ -1,0 +1,6 @@
+// Fixture: bytes_ipv4_version_ihl
+// Integration example: extract IPv4 version and IHL from packet.version_ihl field (byte 0).
+
+trait IPv4VersionIhl {
+  fn get_u8(buf: u64, off: u64) -> u8 !{RawMem} @{paideia.raw_mem};
+}

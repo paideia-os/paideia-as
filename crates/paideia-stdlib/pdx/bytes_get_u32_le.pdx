@@ -1,0 +1,6 @@
+// Fixture: bytes_get_u32_le
+// Tests that get_u32_le(buf, off) reads a 32-bit little-endian value from a raw byte buffer.
+
+trait GetU32Le {
+  fn get_u32_le(buf: u64, off: u64) -> u32 !{RawMem} @{paideia.raw_mem};
+}
