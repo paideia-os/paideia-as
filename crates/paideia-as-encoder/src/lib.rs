@@ -14,4 +14,5 @@ pub use dispatch::{DispatchKind, classify};
 pub use encode::*;
 pub use encode_instruction::{
     EncodeError, EncodeOutput, EncodeStats, LabelFixup, RelocKind, RelocSite, encode_instruction,
+    estimated_bytes,
 };

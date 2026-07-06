@@ -16,6 +16,7 @@ paideia-as-ir = { path = "../paideia-as-ir" }
 paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
 paideia-as-types = { path = "../paideia-as-types" }
 paideia-as-effects = { path = "../paideia-as-effects" }
+paideia-as-encoder = { path = "../paideia-as-encoder" }
 blake3 = { workspace = true }
 
 [dev-dependencies]

@@ -450,6 +450,25 @@ impl EmitWalker {
         self.state.mode_stack.pop();
     }
 
+    /// Insert an `Instruction` into the side-table and advance
+    /// `estimated_offset` by exactly the number of bytes the encoder
+    /// will emit for it.
+    ///
+    /// This is the single canonical way to emit an instruction from
+    /// `EmitWalker`. Retires ~65 scattered `state.instructions.insert(...);
+    /// state.estimated_offset += <literal>;` pairs whose size literals had
+    /// drifted from encoder reality on multiple occasions (#985, #986).
+    ///
+    /// The size is computed by calling the real encoder into a throwaway
+    /// buffer via `paideia_as_encoder::estimated_bytes`. If the encoder
+    /// cannot handle the instruction, size is 0 — callers must ensure
+    /// their instructions actually encode.
+    fn emit_inst(&mut self, node_id: IrNodeId, inst: Instruction) {
+        let bytes = paideia_as_encoder::estimated_bytes(&inst);
+        self.state.instructions.insert(node_id, inst);
+        self.state.estimated_offset += bytes;
+    }
+
     /// Phase 15 m2-002: Get the current instruction mode (Mode64 if stack is empty).
     /// Will be used in m2-002b for scope-aware mode propagation.
     fn current_mode(&self) -> InstrMode {

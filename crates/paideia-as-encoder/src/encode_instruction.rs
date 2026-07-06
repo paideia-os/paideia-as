@@ -230,6 +230,29 @@ fn find_mem_seg(operands: &[Operand]) -> Option<(usize, paideia_as_ir::SegPrefix
     None
 }
 
+/// Encode `inst` to a throwaway buffer and return how many bytes it
+/// occupies.
+///
+/// This is the single source of truth for "how big will this instruction
+/// be" that the elaborator's `estimated_offset` bookkeeping needs to
+/// track. Previously the elaborator maintained its own byte-count
+/// literals scattered across ~65 sites in `emit_walker.rs`; every one
+/// of those literals is another opportunity for the class of drift
+/// bugs surfaced in #985 (`estimated_offset += 7` while encoder emitted
+/// 10 bytes) and #986 (`+= 6` while encoder emitted 7 bytes).
+///
+/// Cost: one encode pass into a local `CodeBuffer`. Cheap enough for
+/// emit-time use. If the instruction fails to encode, returns 0 —
+/// callers that care must check `encode_instruction` separately.
+pub fn estimated_bytes(inst: &Instruction) -> u32 {
+    let mut buf = CodeBuffer::new();
+    let mut stats = EncodeStats::new();
+    match encode_instruction(inst, &mut buf, &mut stats) {
+        Ok(_) => buf.bytes.len() as u32,
+        Err(_) => 0,
+    }
+}
+
 /// Dispatch an Instruction to its mnemonic-specific encoder.
 ///
 /// Returns `Ok(EncodeOutput)` with encoding output (including relocation sites) on success, or an error if encoding fails.
