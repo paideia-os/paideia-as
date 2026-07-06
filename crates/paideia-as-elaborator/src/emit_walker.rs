@@ -3826,20 +3826,21 @@ impl EmitWalker {
             }
         };
 
-        let layout = match self.state.enum_layouts.get(&info.type_id) {
-            Some(l) => l,
-            None => {
-                self.diagnostics.push(format!(
-                    "No enum layout found for type {}",
-                    info.type_id.0
-                ));
-                return;
-            }
-        };
+        let (layout_size, layout_payload_size) =
+            match self.state.enum_layouts.get(&info.type_id) {
+                Some(l) => (l.size, l.payload_size),
+                None => {
+                    self.diagnostics.push(format!(
+                        "No enum layout found for type {}",
+                        info.type_id.0
+                    ));
+                    return;
+                }
+            };
 
         let variant_index = info.variant_index as i64;
 
-        if layout.size <= 16 {
+        if layout_size <= 16 {
             // Register form: RAX = discriminant, RDX = payload (if any)
             // Emit 1: mov rax, <variant_index>
             let disc_id = IrNodeId::new(enum_cons_id.get() * 10)
@@ -3848,33 +3849,32 @@ impl EmitWalker {
             disc_operands.push(Operand::Reg(RegId(0)));  // RAX
             disc_operands.push(Operand::Imm64(variant_index));
 
-            self.state.instructions.insert(disc_id, Instruction {
+            self.emit_inst(disc_id, Instruction {
                 mnemonic: Mnemonic::Mov,
                 operands: disc_operands,
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
             });
-            self.state.estimated_offset += 10; // 48 B8 imm64 (encoder emits movabs form)
 
             // Emit 2 only if payload_size > 0
-            if layout.payload_size > 0 {
+            if layout_payload_size > 0 {
                 let payload_id = IrNodeId::new(enum_cons_id.get() * 10 + 1)
                     .expect("virtual payload id");
                 let children = arena.children(enum_cons_id);
                 let payload_child_id = children.first().copied();
 
-                let (payload_operand, is_imm64) = match payload_child_id {
+                let payload_operand = match payload_child_id {
                     Some(child_id) => {
                         let child = arena.get(child_id);
                         match child.map(|n| n.kind) {
                             Some(IrKind::Literal) => {
                                 let val = arena.literal_values().get(child_id).unwrap_or(0);
-                                (Operand::Imm64(val), true)
+                                Operand::Imm64(val)
                             }
                             Some(IrKind::Var) => {
                                 // Var → Reg source (RDI for now, matching visit_field_assign convention)
-                                (Operand::Reg(RegId(7)), false)
+                                Operand::Reg(RegId(7))
                             }
                             _ => {
                                 self.diagnostics.push(format!(
@@ -3899,14 +3899,13 @@ impl EmitWalker {
                 payload_operands.push(Operand::Reg(RegId(2)));  // RDX
                 payload_operands.push(payload_operand);
 
-                self.state.instructions.insert(payload_id, Instruction {
+                self.emit_inst(payload_id, Instruction {
                     mnemonic: Mnemonic::Mov,
                     operands: payload_operands,
                     encoding_hint: None,
                     byte_offset_in_text: None,
                     mode: self.current_mode(),
                 });
-                self.state.estimated_offset += if is_imm64 { 10 } else { 3 }; // 48 BA imm64 movabs (encoder form)
             }
         } else {
             // Stack form: [rsp+0] = disc, [rsp+8] = payload
@@ -3922,17 +3921,15 @@ impl EmitWalker {
             });
             disc_operands.push(Operand::Imm64(variant_index));
 
-            self.state.instructions.insert(disc_id, Instruction {
+            self.emit_inst(disc_id, Instruction {
                 mnemonic: Mnemonic::Mov,
                 operands: disc_operands,
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
             });
-            // Size: 48 C7 44 24 00 disc32 = 8 bytes (disp8 = 0)
-            self.state.estimated_offset += 8;
 
-            if layout.payload_size > 0 {
+            if layout_payload_size > 0 {
                 // Emit 2: mov [rsp+8], payload_value or reg
                 let payload_id = IrNodeId::new(enum_cons_id.get() * 10 + 1)
                     .expect("virtual payload id");
@@ -3950,14 +3947,13 @@ impl EmitWalker {
                 });
                 payload_operands.push(Operand::Imm64(payload_val));
 
-                self.state.instructions.insert(payload_id, Instruction {
+                self.emit_inst(payload_id, Instruction {
                     mnemonic: Mnemonic::Mov,
                     operands: payload_operands,
                     encoding_hint: None,
                     byte_offset_in_text: None,
                     mode: self.current_mode(),
                 });
-                self.state.estimated_offset += 8;
             }
         }
     }
