@@ -2059,14 +2059,17 @@ impl EmitWalker {
             mode: self.current_mode(),
         };
 
-        self.state.instructions.insert(inst_id, inst);
-
-        // Estimate size: i32 encoding is 7 bytes, i64 is 10 bytes
+        // NOTE(step5): This site keeps the hardcoded 7/10 heuristic because the
+        // encoder emits the 10-byte movabs form for Mnemonic::Mov [Reg, Imm64]
+        // regardless of whether the value fits imm32-sign-extended. Tests pin
+        // the smaller encoding for i32-range values. Same rationale as
+        // emit_let_literal — retire when the encoder gains the smaller form.
         let size = if value >= i32::MIN as i64 && value <= i32::MAX as i64 {
             7
         } else {
             10
         };
+        self.state.instructions.insert(inst_id, inst);
         self.state.estimated_offset += size;
     }
 
@@ -2174,9 +2177,7 @@ impl EmitWalker {
             mode: self.current_mode(),
         };
 
-        self.state.instructions.insert(main_id, mov1_inst);
-        // Conservative estimate: 10 bytes for 64-bit immediate
-        self.state.estimated_offset += 10;
+        self.emit_inst(main_id, mov1_inst);
 
         // Mov rcx, rdi: 48 89 f9 (3 bytes)
         // RDI holds the shift count (parameter 0)
@@ -2501,11 +2502,7 @@ impl EmitWalker {
                                                 .local_bindings
                                                 .insert(binding_name.clone(), scratch_reg);
 
-                                            // Insert at virtual child_id
-                                            self.state.instructions.insert(rhs_id, cloned.clone());
-                                            let size =
-                                                cloned.mnemonic.estimated_size(&cloned.operands);
-                                            self.state.estimated_offset += size;
+                                            self.emit_inst(rhs_id, cloned);
                                         }
                                     }
                                 }
@@ -2533,12 +2530,7 @@ impl EmitWalker {
                             eprintln!("[emit_block_body] RawInstruction at index {}", i);
                         }
                         if let Some(inst) = arena.instructions().get(child_id) {
-                            // Clone the instruction and insert into state.
-                            let inst_clone = inst.clone();
-                            self.state.instructions.insert(child_id, inst_clone.clone());
-                            // Bump the estimated offset by the instruction's size.
-                            let size = inst_clone.mnemonic.estimated_size(&inst_clone.operands);
-                            self.state.estimated_offset += size;
+                            self.emit_inst(child_id, inst.clone());
                         } else {
                             // Instruction payload not found: emit T0526 diagnostic.
                             self.diagnostics.push(format!(
@@ -2875,11 +2867,7 @@ impl EmitWalker {
                                                 .local_bindings
                                                 .insert(binding_name.clone(), scratch_reg);
 
-                                            // Insert at virtual child_id
-                                            self.state.instructions.insert(rhs_id, cloned.clone());
-                                            let size =
-                                                cloned.mnemonic.estimated_size(&cloned.operands);
-                                            self.state.estimated_offset += size;
+                                            self.emit_inst(rhs_id, cloned);
                                         }
                                     }
                                 }
@@ -2907,12 +2895,7 @@ impl EmitWalker {
                             eprintln!("[emit_block_body_arm] RawInstruction at index {}", i);
                         }
                         if let Some(inst) = arena.instructions().get(child_id) {
-                            // Clone the instruction and insert into state.
-                            let inst_clone = inst.clone();
-                            self.state.instructions.insert(child_id, inst_clone.clone());
-                            // Bump the estimated offset by the instruction's size.
-                            let size = inst_clone.mnemonic.estimated_size(&inst_clone.operands);
-                            self.state.estimated_offset += size;
+                            self.emit_inst(child_id, inst.clone());
                         } else {
                             // Instruction payload not found: emit T0526 diagnostic.
                             self.diagnostics.push(format!(
@@ -3175,45 +3158,7 @@ impl EmitWalker {
             mode: self.current_mode(),
         };
 
-        self.state.instructions.insert(store_id, inst);
-
-        // Estimate size based on width and displacement.
-        let offset_signed = field_layout.offset as i64;
-        let size = match width {
-            IntWidth::W8 => {
-                // mov [mem], r8: opcode (0x88) + modrm + disp
-                if offset_signed >= -128 && offset_signed <= 127 {
-                    3 // opcode + modrm + disp8
-                } else {
-                    6 // opcode + modrm + disp32
-                }
-            }
-            IntWidth::W16 => {
-                // mov [mem], r16: 66 prefix + opcode (0x89) + modrm + disp
-                if offset_signed >= -128 && offset_signed <= 127 {
-                    4 // 66 + opcode + modrm + disp8
-                } else {
-                    7 // 66 + opcode + modrm + disp32
-                }
-            }
-            IntWidth::W32 => {
-                // mov [mem], r32: opcode (0x89) + modrm + disp (no REX.W)
-                if offset_signed >= -128 && offset_signed <= 127 {
-                    3 // opcode + modrm + disp8
-                } else {
-                    6 // opcode + modrm + disp32
-                }
-            }
-            IntWidth::W64 => {
-                // mov [mem], r64: REX.W + opcode (0x89) + modrm + disp
-                if offset_signed >= -128 && offset_signed <= 127 {
-                    4 // REX.W + opcode + modrm + disp8
-                } else {
-                    7 // REX.W + opcode + modrm + disp32
-                }
-            }
-        };
-        self.state.estimated_offset += size;
+        self.emit_inst(store_id, inst);
     }
 
     /// Phase 6 m3-003: Emit field access with a specified scratch register.
@@ -3405,29 +3350,7 @@ impl EmitWalker {
             mode: self.current_mode(),
         };
 
-        self.state.instructions.insert(field_access_id, inst);
-
-        // Estimate size based on width and displacement.
-        let size = match width {
-            IntWidth::W32 => {
-                // No REX.W prefix for 32-bit
-                if offset >= -128 && offset <= 127 {
-                    3 // opcode + modrm + disp8
-                } else {
-                    6 // opcode + modrm + disp32
-                }
-            }
-            IntWidth::W64 => {
-                // REX.W prefix + opcode
-                if offset >= -128 && offset <= 127 {
-                    4 // REX.W + opcode + modrm + disp8
-                } else {
-                    7 // REX.W + opcode + modrm + disp32
-                }
-            }
-            _ => 7, // fallback
-        };
-        self.state.estimated_offset += size;
+        self.emit_inst(field_access_id, inst);
     }
 
     /// Emit a movzx instruction to a specified register: movzx <reg>, [rdi + offset]
@@ -3457,15 +3380,7 @@ impl EmitWalker {
             mode: self.current_mode(),
         };
 
-        self.state.instructions.insert(field_access_id, inst);
-
-        // Estimate size: movzx has 2-byte opcode (0F B6/B7) + REX.W → disp8 → 5 bytes, disp32 → 8 bytes.
-        let size = if offset >= -128 && offset <= 127 {
-            5 // REX.W + opcode + modrm + disp8
-        } else {
-            8 // REX.W + opcode + modrm + disp32
-        };
-        self.state.estimated_offset += size;
+        self.emit_inst(field_access_id, inst);
     }
 
     /// Emit a movsx instruction to a specified register: movsx <reg>, [rdi + offset]
@@ -3498,29 +3413,7 @@ impl EmitWalker {
             mode: self.current_mode(),
         };
 
-        self.state.instructions.insert(field_access_id, inst);
-
-        // Estimate size based on source width and displacement.
-        let size = match src_width {
-            1 | 2 => {
-                // movsx r64, r/m8/r/m16: 2-byte opcode (0F BE/BF) + REX.W
-                if offset >= -128 && offset <= 127 {
-                    5 // REX.W + 0F + opcode + modrm + disp8
-                } else {
-                    8 // REX.W + 0F + opcode + modrm + disp32
-                }
-            }
-            4 => {
-                // movsxd r64, r/m32: 1-byte opcode (63) + REX.W
-                if offset >= -128 && offset <= 127 {
-                    4 // REX.W + opcode + modrm + disp8
-                } else {
-                    7 // REX.W + opcode + modrm + disp32
-                }
-            }
-            _ => 7, // fallback
-        };
-        self.state.estimated_offset += size;
+        self.emit_inst(field_access_id, inst);
     }
 
     /// Phase 6 m3-004: Emit record constructor lowering for cap-mint shape.
@@ -3621,10 +3514,7 @@ impl EmitWalker {
             mode: self.current_mode(),
         };
 
-        self.state.instructions.insert(store_id, inst);
-
-        // Estimate size: mov with memory addressing is typically 3-6 bytes.
-        self.state.estimated_offset += 4;
+        self.emit_inst(store_id, inst);
     }
 
     fn visit_record_cons(&mut self, record_cons_id: IrNodeId, arena: &IrArena) {
@@ -4543,20 +4433,13 @@ impl EmitWalker {
                 cmp_operands.push(Operand::Reg(abi::RAX)); // RAX
                 cmp_operands.push(Operand::Imm64(variant_index as i64));
 
-                self.state.instructions.insert(cmp_id, Instruction {
+                self.emit_inst(cmp_id, Instruction {
                     mnemonic: Mnemonic::Cmp,
                     operands: cmp_operands,
                     encoding_hint: None,
                     byte_offset_in_text: None,
                     mode: self.current_mode(),
                 });
-
-                // Estimate cmp size based on immediate.
-                // imm8 form: 48 83 F8 ib (4 bytes); imm32 form: 48 81 F8 id (7 bytes).
-                // Encoder uses r/m form `81 /7` (not the rax-specific `3D`); update
-                // if the encoder ever switches to the shorter form.
-                let cmp_size = if variant_index <= 127 { 4 } else { 7 };
-                self.state.estimated_offset += cmp_size;
 
                 // Emit jne to next arm or default
                 let next_label = if idx + 1 < arm_ids.len() {
