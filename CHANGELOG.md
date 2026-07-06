@@ -1,5 +1,58 @@
 # Changelog
 
+## v0.16.0 — COW-ATOMICS: atomic RMW substrate for phys_alloc + CoW refcount
+
+**Released:** Tag pushed at PA-R16-012 closure (v0.16.0 release).
+
+COW-ATOMICS release. 12 planned issues + 5 in-flight backtracks filed. Focus is the encoder + stdlib substrate for copy-on-write filesystem allocation: locked bit-test-and-set/clear/complement, locked compare-and-swap (both 32-bit and 128-bit), locked fetch-and-add completion, plus stdlib forward-declarations for bitmap scanning, per-page reference counting, lock-free freelist operations, and spinloop-hint pause instruction.
+
+  Encoder additions:
+    PA-R16-001 (#967)  bt/bts/btr/btc r/m32/r/m64, r32/r64  — bit test register forms.
+    PA-R16-002 (#968)  lock bts/btr/btc [mem], imm8         — locked bit ops, atomic page alloc fast path.
+    PA-R16-003 (#969)  lock cmpxchg [m], r32                — 32-bit CAS; CoW refcount decrement.
+    PA-R16-004 (#970)  lock cmpxchg16b [m]                  — 128-bit CAS; freelist ABA-safe pop.
+    PA-R16-005 (#971)  lock xadd [m], r32/r64 (completion)  — landed at PA-R15-002 (v0.15.0).
+    PA-R16-006 (#972)  lock and/or/xor [m], r64             — atomic RMW; flag clear/set/toggle.
+    PA-R16-007 (#973)  pause (F3 90)                        — spinloop hint in CAS retry loops.
+    PA-R16-008 (#974)  bsf / bsr / tzcnt (W64)              — bitmap-scan intrinsics for first-free.
+
+  Language + stdlib additions:
+    PA-R16-009 (#975)  refcount.pdx — per-page CoW refcounts — trait RefcountOps (incr/decr/decr_and_test).
+    PA-R16-010 (#976)  bitmap.pdx — free-page tracking       — trait BitmapOps (8 fns for bit manipulation).
+    PA-R16-011 (#977)  freelist.pdx — ABA-safe pool          — trait FreelistOps (push/pop/empty).
+    PA-R16-012 (#978)  CoW FS integration canary             — v0.16 canary composing all atomics surface.
+
+  Backtracks filed in-release (5 open; codegen + elaborator work):
+    PA-R16-004a (#1033) compile-time CPU-feature declaration + gating mechanism.
+    PA-R16-004b (#1034) register-clobber and implicit-operand tracking for LOCK-prefixed mnemonics.
+    PA-R16-005-backtrack (#1035) reclassify LOCK atomics + fences as InstructionClass::AtomicLocked — LANDED at af14387.
+    PA-R16-007-backtrack (#1036) elaborator lowering for stdlib trait methods (PauseOps::spin_hint, PerCpuOps, MmioOps, BytesOps, ChecksumOps).
+    PA-R16-backtrack (#1037) pre-existing stdlib parse failures — Phase-4 modules using unsupported 'use paideia.raw_mem;' import syntax.
+
+### Detailed bullets
+
+- **PA-R16-012** (issue #978) — CoW FS canary trait declaration modelling a minimal copy-on-write filesystem physical-page allocator via v0.16 atomics substrate (BitmapOps, RefcountOps, FreelistOps, PauseOps, PhysAllocOps). Multi-trait module test (grammar probe for single module = structure holding 5 traits); `check` and fixture assertions both green. Canary gates paideia-os Phase 16 M1 work.
+- **PA-R16-011** (issue #977) — freelist.pdx forward-declared FreelistOps trait with freelist_push/pop/empty. Lock-free ABA-safe fast-path pool backed by lock cmpxchg16b. Trait interface stable; lowering to lock cmpxchg16b primitives deferred to elaborator (#1036). Companion to #975 (refcount) and #976 (bitmap).
+- **PA-R16-010** (issue #976) — bitmap.pdx forward-declared BitmapOps trait with 8 functions: bitmap_get/word_count (read-only), bitmap_set/clear/toggle (atomic via lock bts/btr/btc), bitmap_first_free (linear scan fallback), bitmap_claim_first_free (atomic bit-search + claim). Lowering to bt/lock bts/bsr intrinsics deferred to #1036. Companion to #977 (freelist) and #975 (refcount).
+- **PA-R16-009** (issue #975) — refcount.pdx forward-declared RefcountOps trait with refcount_incr/decr/decr_and_test. Atomic per-page reference counters for CoW share tracking; all three methods carry `!{Atomic}`. Lowering to lock xadd + cmpxchg deferred to #1036. Companion to #976 (bitmap) and #977 (freelist).
+- **PA-R16-008** (issue #974) — Bitmap-scan intrinsics: bsf r64, r/m64 (bit-scan-forward), bsr r64, r/m64 (bit-scan-reverse), tzcnt r64, r/m64 (trailing-zero count). bsf/bsr: AMD/Intel forms; tzcnt: AMD BMI extension (F3 prefix). Encoding forms: RM (no REX required) + SIB variants. No W64 handling for bsf/bsr (no 32-bit form); tzcnt carries both W32/W64. Companion to #976 bitmap_first_free scaling.
+- **PA-R16-007** (issue #973) — `pause` spinloop-hint mnemonic (F3 90). 2-byte instruction; REP prefix (0xF3) + NOP (0x90). Retires the bare-NOP spinloop antipattern. Scheduling class Other. Test coverage: byte-exact (F3 90) + iced-x86 round-trip. Lowers to pause in CAS retry loops for #970/#971/#977 atomics.
+- **PA-R16-006** (issue #972) — `lock and [m], r64` / `lock or [m], r64` / `lock xor [m], r64` (locked bitwise RMW). Encoding: F0 [REX.W] [23/0B/33] /r (base+disp and SIB forms). Operand order: memory destination (ModR/M /r form), register source. Scheduling class Other. Test coverage: 12 byte-exact (3 mnemonics × 4 bases/SIBs) + iced-x86 round-trip. Enables atomic flag-set/clear/toggle in kernel spinlocks + device drivers.
+- **PA-R16-005** (issue #971) — `lock xadd [m], r32/r64` (fetch-and-add). Already landed in v0.15.0 PA-R15-002. This PA-R16 issue marks the completion of the lock + arithmetic family in v0.16.
+- **PA-R16-004** (issue #970) — `lock cmpxchg16b [m]` (128-bit CAS on 16-byte-aligned operand). Encodes as F0 REX.W 0F C7 /1 (10-byte upper bound). Implicit operand pairing: EDX:EAX (comparand), RCX:RBX (new value). Memory operand must be 16-byte aligned else #GP. Unblocks lock-free freelist (issue #977). Scheduling class Other. Test coverage: 4 byte-exact tests (16-byte-aligned `[rdi]`, `[r8]`, `[rsp]`, `[rbp]` with escape handling) + iced-x86 round-trip verifying implicit operands.
+- **PA-R16-003** (issue #969) — `lock cmpxchg [m], r32` (32-bit compare-and-swap). Encodes as F0 0F B1 /r (9-byte upper bound). Implicit RAX comparand (8-byte for r64 variant from v0.12 #917); new value in second register operand. Test coverage: 4 byte-exact tests + iced-x86 round-trip. Unblocks CoW refcount decrement-and-test atomic primitive (issue #975).
+- **PA-R16-002** (issue #968) — `lock bts [base+disp], imm8` / `lock btr [base+disp], imm8` / `lock btc [base+disp], imm8` (locked bit-test operations with immediate). Encoding: F0 0F [AB/B3/BB] /0 ib (7-byte). Immediate range i8 (0..63 for standard x86, extended by AMD). Memory form is locked; register form unsupported in R16. Also encodes SIB variant `lock bts [base+index*scale+disp], imm8`. Scheduling class Other. Test coverage: 12 byte-exact tests (3 mnemonics × 4 addressing modes) + iced-x86. Unblocks fast-path bitmap atomic set/clear (issue #976).
+- **PA-R16-001** (issue #967) — `bt / bts / btr / btc r/m64, r64` (bit-test register forms). Encoding: 0F [A3/AB/B3/BB] /r (no LOCK prefix for register form). Operand order: bit string (register or memory) / bit index. Each produces CF from selected bit; bts/btr/btc also modify the bit. Register destination forms (bts r64, r64) modify destination in-place. Scheduling class Other. Test coverage: 16 byte-exact tests (4 mnemonics × 4 REX combinations) + iced-x86 round-trip. Companion register form to #968 locked-memory operations.
+
+Cross-cut discipline:
+- Every issue closed via softarch → workerbee → debugger triangle.
+- One debugger REJECT in-release (#978) fixed before landing — no placeholder shipped.
+- Five backtrack issues filed during #970/#973/#974 and scheduled to v0.16 for elaborator + codegen follow-up.
+- Additive-only Mnemonic / Operand growth held.
+- SARIF snapshot regenerated at v0.16.0 (no new diagnostics; encoders only).
+
+---
+
 ## v0.15.0 — NET-PRIMITIVES: bit ops, checksums, endian scalars (paideia-os network stack foundation)
 
 **Released:** Tag pushed at PA-R15-011 closure (v0.15.0 release).
