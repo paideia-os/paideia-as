@@ -1,0 +1,5 @@
+// PA-R16-009 fixture: RefcountDecrAndTestSingle isolates refcount_decr_and_test for parse regression.
+
+trait RefcountDecrAndTestSingle {
+  fn refcount_decr_and_test(counter: *u32) -> bool !{Atomic};
+}

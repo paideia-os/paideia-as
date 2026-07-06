@@ -1,0 +1,22 @@
+// PA-R16-009: Atomic reference-count primitives.
+//
+// Trait RefcountOps declares three atomic RMW primitives for reference-
+// counted objects. Each primitive is atomic w.r.t. all cores on x86_64.
+// Lowering deferred to elaborator #1036:
+//   refcount_incr(p)          -> mov eax, 1  ; lock xadd_d [rdi], eax  (previous *p returned)
+//   refcount_decr(p)          -> mov eax, -1 ; lock xadd_d [rdi], eax  (previous *p returned)
+//   refcount_decr_and_test(p) -> lock dec [rdi] ; sete al              (true iff new *p == 0)
+//
+// Semantics: `_incr` and `_decr` return the *previous* value of *counter
+// (matching Linux atomic_fetch_add / atomic_fetch_sub, matching the natural
+// xadd result). `_decr_and_test` returns true iff the new refcount is zero,
+// i.e. the object is now safe to free (matching Linux atomic_dec_and_test).
+//
+// Effect: !{Atomic}. Capability: none (operates on a caller-provided *u32;
+// no privileged memory, no I/O port, no per-CPU segment override).
+
+trait RefcountOps {
+  fn refcount_incr(counter: *u32) -> u32 !{Atomic};
+  fn refcount_decr(counter: *u32) -> u32 !{Atomic};
+  fn refcount_decr_and_test(counter: *u32) -> bool !{Atomic};
+}

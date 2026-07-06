@@ -1,0 +1,5 @@
+// PA-R16-009 fixture: RefcountIncrSingle isolates refcount_incr for parse regression.
+
+trait RefcountIncrSingle {
+  fn refcount_incr(counter: *u32) -> u32 !{Atomic};
+}

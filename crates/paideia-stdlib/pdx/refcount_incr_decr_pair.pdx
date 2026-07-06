@@ -1,0 +1,6 @@
+// PA-R16-009 fixture: RefcountIncrDecrPair exercises signature-pair parsing.
+
+trait RefcountIncrDecrPair {
+  fn refcount_incr(counter: *u32) -> u32 !{Atomic};
+  fn refcount_decr(counter: *u32) -> u32 !{Atomic};
+}
