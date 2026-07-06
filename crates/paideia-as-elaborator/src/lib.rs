@@ -39,6 +39,7 @@ pub mod emit_lambda;
 pub mod emit_let;
 pub mod emit_pass_state;
 pub mod emit_store_record;
+pub mod emit_visit_lambda;
 pub mod emit_walker;
 pub mod env;
 pub mod file_module;
