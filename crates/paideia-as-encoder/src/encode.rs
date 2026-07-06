@@ -2444,6 +2444,87 @@ pub fn mov_mem_reg64_disp_reg64(buf: &mut CodeBuffer, base: Reg64, disp: i32, sr
     emit_mem_base_disp(buf, src_id & 7, base_id, disp);
 }
 
+/// Encode `mov [base + disp], r8` — pa-r17-006 (#984): 8-bit register-source store.
+///
+/// Instruction: [REX?] 88 /r
+/// Operand-size: 8-bit (register is r8, memory is r/m8)
+/// REX: MANDATORY when src ∈ {rsp, rbp, rsi, rdi} (ids 4-7) to select SPL/BPL/SIL/DIL
+///      Otherwise decoded as ah/bh/ch/dh — WRONG instruction
+/// REX.R: set if src in r8–r15 (high bit of src register)
+/// REX.B: set if base in r8–r15 (high bit of base register)
+///
+/// Examples:
+/// - `mov [rdi], al`: `88 07`
+/// - `mov [rdi + 8], r8b`: `44 88 47 08`
+/// - `mov [rdi], sil`: `40 88 37` (REX.0 required for SIL)
+pub fn mov_mem_base_disp_reg8(buf: &mut CodeBuffer, base: Reg64, disp: i32, src: Reg64) {
+    let base_id = base as u8;
+    let src_id = src as u8;
+    let src_low = src_id & 7;
+
+    // Check if src is one of {rsp, rbp, rsi, rdi} (low 3 bits: 4-7)
+    // These require REX to select byte registers SPL/BPL/SIL/DIL
+    let requires_rex_for_byte_reg = (4..=7).contains(&src_low);
+
+    let rex_byte = rex(false, (src_id >> 3) != 0, false, (base_id >> 3) != 0);
+
+    // Emit REX if needed (high bits set OR low bits in 4-7 range)
+    if (src_id >> 3) != 0 || (base_id >> 3) != 0 || requires_rex_for_byte_reg {
+        buf.bytes.push(rex_byte);
+    }
+    buf.bytes.push(0x88); // mov r/m8, r8
+    emit_mem_base_disp(buf, src_low, base_id, disp);
+}
+
+/// Encode `mov [base + disp], r16` — pa-r17-006 (#984): 16-bit register-source store.
+///
+/// Instruction: 66 [REX?] 89 /r
+/// Operand-size: 16-bit (register is r16, memory is r/m16)
+/// 66: operand-size override prefix
+/// REX.R: set if src in r8–r15 (high bit of src register)
+/// REX.B: set if base in r8–r15 (high bit of base register)
+///
+/// Examples:
+/// - `mov [rdi], ax`: `66 89 07`
+/// - `mov [rdi + 8], r8w`: `66 44 89 47 08`
+/// - `mov [r13], ax`: `66 49 89 45 00` (R13 requires disp8=0 escape)
+pub fn mov_mem_base_disp_reg16(buf: &mut CodeBuffer, base: Reg64, disp: i32, src: Reg64) {
+    let base_id = base as u8;
+    let src_id = src as u8;
+    buf.bytes.push(0x66); // operand-size override
+    let rex_byte = rex(false, (src_id >> 3) != 0, false, (base_id >> 3) != 0);
+
+    if (src_id >> 3) != 0 || (base_id >> 3) != 0 {
+        buf.bytes.push(rex_byte);
+    }
+    buf.bytes.push(0x89); // mov r/m16, r16
+    emit_mem_base_disp(buf, src_id & 7, base_id, disp);
+}
+
+/// Encode `mov [base + disp], r32` — pa-r17-006 (#984): 32-bit register-source store.
+///
+/// Instruction: [REX?] 89 /r
+/// Operand-size: 32-bit (register is r32, memory is r/m32)
+/// REX: Only for high bits (no REX.W for 32-bit operand size)
+/// REX.R: set if src in r8–r15 (high bit of src register)
+/// REX.B: set if base in r8–r15 (high bit of base register)
+///
+/// Examples:
+/// - `mov [rdi], eax`: `89 07`
+/// - `mov [rdi + 8], r8d`: `44 89 47 08`
+/// - `mov [r13], eax`: `49 89 45 00` (R13 requires disp8=0 escape)
+pub fn mov_mem_base_disp_reg32(buf: &mut CodeBuffer, base: Reg64, disp: i32, src: Reg64) {
+    let base_id = base as u8;
+    let src_id = src as u8;
+    let rex_byte = rex(false, (src_id >> 3) != 0, false, (base_id >> 3) != 0);
+
+    if (src_id >> 3) != 0 || (base_id >> 3) != 0 {
+        buf.bytes.push(rex_byte);
+    }
+    buf.bytes.push(0x89); // mov r/m32, r32
+    emit_mem_base_disp(buf, src_id & 7, base_id, disp);
+}
+
 /// Encode `mov r64, [base + index*scale + disp]` — Phase 9 m1-003: SIB addressing with displacement.
 ///
 /// Instruction: REX.W 8B /r
@@ -6701,6 +6782,238 @@ mod tests {
             let mut decoder = Decoder::new(64, bytes, DecoderOptions::NONE);
             let instr = decoder.decode();
             assert!(instr.len() > 0, "Failed to decode mov ax, [rbp + rsi*2]");
+
+            // Verify key properties
+            assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+            assert_eq!(instr.op_count(), 2);
+        }
+
+        // ── pa-r17-006 (#984): register-source store tests ────────────────────
+
+        #[test]
+        fn pa_r17_006_field_assign_u8_offset_0() {
+            // mov [rdi], dl (8-bit store)
+            // Expected: 88 17
+            // - 88: opcode (mov r/m8, r8)
+            // - 17: mod=00, reg=010 (RDX), rm=111 (RDI)
+            let mut buf = CodeBuffer::new();
+            mov_mem_base_disp_reg8(&mut buf, Reg64::Rdi, 0, Reg64::Rdx);
+            assert_eq!(buf.as_slice(), &[0x88, 0x17]);
+        }
+
+        #[test]
+        fn pa_r17_006_field_assign_u8_offset_4_disp8() {
+            // mov [rdi + 4], dl (8-bit store with disp8)
+            // Expected: 88 57 04
+            // - 88: opcode
+            // - 57: mod=01 (disp8), reg=010 (RDX), rm=111 (RDI)
+            // - 04: disp8=4
+            let mut buf = CodeBuffer::new();
+            mov_mem_base_disp_reg8(&mut buf, Reg64::Rdi, 4, Reg64::Rdx);
+            assert_eq!(buf.as_slice(), &[0x88, 0x57, 0x04]);
+        }
+
+        #[test]
+        fn pa_r17_006_field_assign_u16_offset_0() {
+            // mov [rdi], dx (16-bit store)
+            // Expected: 66 89 17
+            // - 66: operand-size override
+            // - 89: opcode (mov r/m16, r16)
+            // - 17: mod=00, reg=010 (RDX), rm=111 (RDI)
+            let mut buf = CodeBuffer::new();
+            mov_mem_base_disp_reg16(&mut buf, Reg64::Rdi, 0, Reg64::Rdx);
+            assert_eq!(buf.as_slice(), &[0x66, 0x89, 0x17]);
+        }
+
+        #[test]
+        fn pa_r17_006_field_assign_u16_offset_8_disp8() {
+            // mov [rdi + 8], dx (16-bit store with disp8)
+            // Expected: 66 89 57 08
+            // - 66: operand-size override
+            // - 89: opcode
+            // - 57: mod=01 (disp8), reg=010 (RDX), rm=111 (RDI)
+            // - 08: disp8=8
+            let mut buf = CodeBuffer::new();
+            mov_mem_base_disp_reg16(&mut buf, Reg64::Rdi, 8, Reg64::Rdx);
+            assert_eq!(buf.as_slice(), &[0x66, 0x89, 0x57, 0x08]);
+        }
+
+        #[test]
+        fn pa_r17_006_field_assign_u32_offset_0_no_rex_w() {
+            // BUG-FIX GUARD: mov [rdi], edx (32-bit store, NO REX.W prefix)
+            // Expected: 89 17 (NOT 48 89 17)
+            // - 89: opcode (mov r/m32, r32, no REX.W)
+            // - 17: mod=00, reg=010 (RDX), rm=111 (RDI)
+            let mut buf = CodeBuffer::new();
+            mov_mem_base_disp_reg32(&mut buf, Reg64::Rdi, 0, Reg64::Rdx);
+            assert_eq!(buf.as_slice(), &[0x89, 0x17]);
+        }
+
+        #[test]
+        fn pa_r17_006_field_assign_u32_offset_12_disp8() {
+            // mov [rdi + 12], edx (32-bit store with disp8)
+            // Expected: 89 57 0C
+            // - 89: opcode
+            // - 57: mod=01 (disp8), reg=010 (RDX), rm=111 (RDI)
+            // - 0C: disp8=12
+            let mut buf = CodeBuffer::new();
+            mov_mem_base_disp_reg32(&mut buf, Reg64::Rdi, 12, Reg64::Rdx);
+            assert_eq!(buf.as_slice(), &[0x89, 0x57, 0x0C]);
+        }
+
+        #[test]
+        fn pa_r17_006_field_assign_u32_offset_256_disp32() {
+            // mov [rdi + 256], edx (32-bit store with disp32)
+            // Expected: 89 97 00 01 00 00
+            // - 89: opcode
+            // - 97: mod=10 (disp32), reg=010 (RDX), rm=111 (RDI)
+            // - 00 01 00 00: disp32=256 (little-endian)
+            let mut buf = CodeBuffer::new();
+            mov_mem_base_disp_reg32(&mut buf, Reg64::Rdi, 256, Reg64::Rdx);
+            assert_eq!(buf.as_slice(), &[0x89, 0x97, 0x00, 0x01, 0x00, 0x00]);
+        }
+
+        #[test]
+        fn pa_r17_006_field_assign_u64_offset_0() {
+            // mov [rdi], rdx (64-bit store)
+            // Expected: 48 89 17
+            // - 48: REX.W
+            // - 89: opcode (mov r/m64, r64)
+            // - 17: mod=00, reg=010 (RDX), rm=111 (RDI)
+            let mut buf = CodeBuffer::new();
+            mov_mem_reg64_disp_reg64(&mut buf, Reg64::Rdi, 0, Reg64::Rdx);
+            assert_eq!(buf.as_slice(), &[0x48, 0x89, 0x17]);
+        }
+
+        #[test]
+        fn pa_r17_006_field_assign_u64_offset_24_disp8() {
+            // mov [rdi + 24], rdx (64-bit store with disp8)
+            // Expected: 48 89 57 18
+            // - 48: REX.W
+            // - 89: opcode
+            // - 57: mod=01 (disp8), reg=010 (RDX), rm=111 (RDI)
+            // - 18: disp8=24
+            let mut buf = CodeBuffer::new();
+            mov_mem_reg64_disp_reg64(&mut buf, Reg64::Rdi, 24, Reg64::Rdx);
+            assert_eq!(buf.as_slice(), &[0x48, 0x89, 0x57, 0x18]);
+        }
+
+        #[test]
+        fn pa_r17_006_field_assign_u64_offset_256_disp32() {
+            // mov [rdi + 256], rdx (64-bit store with disp32)
+            // Expected: 48 89 97 00 01 00 00
+            // - 48: REX.W
+            // - 89: opcode
+            // - 97: mod=10 (disp32), reg=010 (RDX), rm=111 (RDI)
+            // - 00 01 00 00: disp32=256 (little-endian)
+            let mut buf = CodeBuffer::new();
+            mov_mem_reg64_disp_reg64(&mut buf, Reg64::Rdi, 256, Reg64::Rdx);
+            assert_eq!(buf.as_slice(), &[0x48, 0x89, 0x97, 0x00, 0x01, 0x00, 0x00]);
+        }
+
+        #[test]
+        fn pa_r17_006_field_assign_i8_signed_same_as_u8() {
+            // Signedness is ignored for stores: mov [rdi], dl is same regardless
+            // Expected: 88 17
+            let mut buf = CodeBuffer::new();
+            mov_mem_base_disp_reg8(&mut buf, Reg64::Rdi, 0, Reg64::Rdx);
+            assert_eq!(buf.as_slice(), &[0x88, 0x17]);
+        }
+
+        #[test]
+        fn pa_r17_006_field_assign_i32_signed_same_as_u32() {
+            // Signedness is ignored for stores: mov [rdi], edx is same regardless
+            // Expected: 89 17
+            let mut buf = CodeBuffer::new();
+            mov_mem_base_disp_reg32(&mut buf, Reg64::Rdi, 0, Reg64::Rdx);
+            assert_eq!(buf.as_slice(), &[0x89, 0x17]);
+        }
+
+        #[test]
+        fn pa_r17_006_field_assign_extended_src_r10_u32() {
+            // mov [rdi + 8], r10d (R10 is r8-r15, requires REX.R)
+            // Expected: 44 89 57 08
+            // - 44: REX.R (high bit of r10=1010 is bit 3, so REX.R=1)
+            // - 89: opcode
+            // - 57: mod=01 (disp8), reg=010 (R10 low bits), rm=111 (RDI)
+            // - 08: disp8=8
+            let mut buf = CodeBuffer::new();
+            mov_mem_base_disp_reg32(&mut buf, Reg64::Rdi, 8, Reg64::R10);
+            assert_eq!(buf.as_slice(), &[0x44, 0x89, 0x57, 0x08]);
+        }
+
+        #[test]
+        fn pa_r17_006_field_assign_extended_src_r15_u64() {
+            // mov [rdi + 16], r15 (R15 is r8-r15, requires REX.R + REX.W)
+            // Expected: 4C 89 7F 10
+            // - 4C: REX.W + REX.R (r15=1111, high bit is 1)
+            // - 89: opcode
+            // - 7F: mod=01 (disp8), reg=111 (R15 low bits), rm=111 (RDI)
+            // - 10: disp8=16
+            let mut buf = CodeBuffer::new();
+            mov_mem_reg64_disp_reg64(&mut buf, Reg64::Rdi, 16, Reg64::R15);
+            assert_eq!(buf.as_slice(), &[0x4C, 0x89, 0x7F, 0x10]);
+        }
+
+        #[test]
+        fn pa_r17_006_field_assign_r13_base_disp0_forces_disp8() {
+            // R13 base with disp=0 forces disp8=0 escape (mod=01 instead of mod=00)
+            // mov [r13], rdx (R13 is r8-r15, requires REX.B)
+            // Expected: 49 89 55 00
+            // - 49: REX.W + REX.B (R13 is r8-r15)
+            // - 89: opcode
+            // - 55: mod=01 (R13 escape), reg=010 (RDX), rm=101 (R13 low bits)
+            // - 00: disp8=0 (forced)
+            let mut buf = CodeBuffer::new();
+            mov_mem_reg64_disp_reg64(&mut buf, Reg64::R13, 0, Reg64::Rdx);
+            assert_eq!(buf.as_slice(), &[0x49, 0x89, 0x55, 0x00]);
+        }
+
+        #[test]
+        fn pa_r17_006_field_assign_sil_u8_requires_rex() {
+            // BYTE-REG TRAP GUARD: mov [rdi], sil (RSI=6, byte form is SIL)
+            // Without REX, this decodes as mov [rdi], dh — WRONG
+            // Expected: 40 88 37 (REX.0 is mandatory)
+            // - 40: REX.0 (minimum REX with no bits set)
+            // - 88: opcode
+            // - 37: mod=00, reg=110 (RSI low bits), rm=111 (RDI)
+            let mut buf = CodeBuffer::new();
+            mov_mem_base_disp_reg8(&mut buf, Reg64::Rdi, 0, Reg64::Rsi);
+            assert_eq!(buf.as_slice(), &[0x40, 0x88, 0x37]);
+        }
+
+        // ── iced-x86 round-trip for store ops ────────────────────────────────
+
+        #[test]
+        fn pa_r17_006_roundtrip_mov_rdi_rdx_w32() {
+            use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+            // Round-trip: ensure iced-x86 decodes our 32-bit store correctly.
+            let mut buf = CodeBuffer::new();
+            mov_mem_base_disp_reg32(&mut buf, Reg64::Rdi, 0, Reg64::Rdx);
+            let bytes = buf.as_slice();
+
+            let mut decoder = Decoder::new(64, bytes, DecoderOptions::NONE);
+            let instr = decoder.decode();
+            assert!(instr.len() > 0, "Failed to decode mov [rdi], edx");
+
+            // Verify key properties
+            assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+            assert_eq!(instr.op_count(), 2);
+        }
+
+        #[test]
+        fn pa_r17_006_roundtrip_mov_rdi_rsi_sil_w8() {
+            use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+            // Round-trip: verify byte-register REX trap is handled (SIL requires REX).
+            let mut buf = CodeBuffer::new();
+            mov_mem_base_disp_reg8(&mut buf, Reg64::Rdi, 0, Reg64::Rsi);
+            let bytes = buf.as_slice();
+
+            let mut decoder = Decoder::new(64, bytes, DecoderOptions::NONE);
+            let instr = decoder.decode();
+            assert!(instr.len() > 0, "Failed to decode mov [rdi], sil");
 
             // Verify key properties
             assert_eq!(instr.mnemonic(), IcedMnem::Mov);
