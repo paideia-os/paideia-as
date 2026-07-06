@@ -22,6 +22,7 @@ pub mod check_linearity;
 pub mod check_match;
 pub mod check_ordered;
 pub mod check_pattern;
+pub mod cast_shape;
 pub mod check_pure;
 pub mod data_encoder;
 pub mod derive;
