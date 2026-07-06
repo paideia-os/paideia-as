@@ -638,7 +638,7 @@ fn emit_walker_unsafe_node_recorded_in_pending() {
     walker.walk(&mut arena);
 
     // Verify the unsafe node was recorded in pending_unsafe_blocks.
-    assert_eq!(walker.state().pending_unsafe_blocks.len(), 1);
+    assert_eq!(walker.state().pending_unsafe_count(), 1);
     assert_eq!(walker.state().pending_unsafe_blocks[0], unsafe_id.get());
 }
 
@@ -655,7 +655,7 @@ fn emit_walker_two_unsafe_nodes_recorded_in_order() {
     walker.walk(&mut arena);
 
     // Verify both unsafe nodes were recorded in order.
-    assert_eq!(walker.state().pending_unsafe_blocks.len(), 2);
+    assert_eq!(walker.state().pending_unsafe_count(), 2);
     assert_eq!(walker.state().pending_unsafe_blocks[0], unsafe_id_1.get());
     assert_eq!(walker.state().pending_unsafe_blocks[1], unsafe_id_2.get());
 }
@@ -1365,7 +1365,7 @@ fn emit_walker_m3_003_2_stmt_body_assigns_rax_rcx() {
         .insert(field_type_id, layout);
 
     // Simulate function entry by resetting scratch_assignment and setting current_function.
-    walker.state_mut().scratch_assignment.clear();
+    walker.state_mut().clear_scratch();
     walker.state_mut().current_function = 1;
 
     // Emit first field access (should go to RAX).
@@ -1381,7 +1381,7 @@ fn emit_walker_m3_003_2_stmt_body_assigns_rax_rcx() {
     assert_eq!(inst1.operands[0], Operand::Reg(abi::RAX)); // RAX
 
     // Verify scratch_assignment tracks the first register.
-    assert_eq!(walker.state().scratch_assignment.len(), 1);
+    assert_eq!(walker.state().scratch_count(), 1);
     assert_eq!(walker.state().scratch_assignment[0], abi::RAX);
 
     // Emit second field access (should go to RCX).
@@ -1397,7 +1397,7 @@ fn emit_walker_m3_003_2_stmt_body_assigns_rax_rcx() {
     assert_eq!(inst2.operands[0], Operand::Reg(abi::RCX)); // RCX
 
     // Verify scratch_assignment now has two registers.
-    assert_eq!(walker.state().scratch_assignment.len(), 2);
+    assert_eq!(walker.state().scratch_count(), 2);
     assert_eq!(walker.state().scratch_assignment[1], abi::RCX);
 }
 
@@ -1450,7 +1450,7 @@ fn emit_walker_m3_003_4_stmt_body_assigns_rax_rcx_rdx_r8() {
         .insert(field_type_id, layout);
 
     // Simulate function entry.
-    walker.state_mut().scratch_assignment.clear();
+    walker.state_mut().clear_scratch();
     walker.state_mut().current_function = 2;
 
     // Expected registers: RAX(0), RCX(1), RDX(2), R8(8).
@@ -1528,7 +1528,7 @@ fn emit_walker_m3_003_5_stmt_body_fires_t0517() {
         .insert(field_type_id, layout);
 
     // Simulate function entry.
-    walker.state_mut().scratch_assignment.clear();
+    walker.state_mut().clear_scratch();
     walker.state_mut().current_function = 3;
 
     // Emit first four field accesses (should succeed).
@@ -1591,7 +1591,7 @@ fn emit_walker_m3_004_cap_mint_4_stores_from_arg_regs() {
                 size: 8, signed: false },
         ],
     );
-    walker.state_mut().record_layouts.insert(type_id, layout);
+    walker.state_mut().insert_record_layout(type_id, layout);
 
     // Register RecordCons → TypeId mapping.
     arena
@@ -1677,7 +1677,7 @@ fn emit_walker_m3_004_cap_mint_with_arg_registers() {
                 size: 8, signed: false },
         ],
     );
-    walker.state_mut().record_layouts.insert(type_id, layout);
+    walker.state_mut().insert_record_layout(type_id, layout);
 
     // Register RecordCons → TypeId mapping.
     arena
@@ -1748,7 +1748,7 @@ fn emit_walker_m3_004_cap_mint_wrong_field_count_fires_t0518() {
                 size: 8, signed: false },
         ],
     );
-    walker.state_mut().record_layouts.insert(type_id, layout);
+    walker.state_mut().insert_record_layout(type_id, layout);
 
     arena
         .record_layout_table_mut()
@@ -1802,7 +1802,7 @@ fn emit_walker_m3_004_cap_mint_wrong_field_size_fires_t0518() {
                 size: 8, signed: false },
         ],
     );
-    walker.state_mut().record_layouts.insert(type_id, layout);
+    walker.state_mut().insert_record_layout(type_id, layout);
 
     arena
         .record_layout_table_mut()
@@ -1856,7 +1856,7 @@ fn emit_walker_m3_004_cap_mint_wrong_field_offset_fires_t0518() {
                 size: 8, signed: false },
         ],
     );
-    walker.state_mut().record_layouts.insert(type_id, layout);
+    walker.state_mut().insert_record_layout(type_id, layout);
 
     arena
         .record_layout_table_mut()
@@ -2885,7 +2885,7 @@ fn emit_walker_match_single_arm_emits_instructions() {
     // Walk the arena with layout registered.
     let mut walker = EmitWalker::new();
     let layout = EnumLayout::new(0);
-    walker.state_mut().enum_layouts.insert(EnumTypeId(1), layout);
+    walker.state_mut().insert_enum_layout(EnumTypeId(1), layout);
     walker.walk(&mut arena);
 
     // Verify match was processed without diagnostic errors
@@ -2928,7 +2928,7 @@ fn emit_walker_match_multiple_arms_emits_dispatch_chain() {
     // Walk the arena with layout registered.
     let mut walker = EmitWalker::new();
     let layout = EnumLayout::new(0);
-    walker.state_mut().enum_layouts.insert(EnumTypeId(1), layout);
+    walker.state_mut().insert_enum_layout(EnumTypeId(1), layout);
     walker.walk(&mut arena);
 
     // Verify instructions were emitted for both arms.
@@ -3036,7 +3036,7 @@ fn pa7c_m2_002_let_literal_assigns_first_scratch_reg() {
 
     // Verify scratch_assignment[0] == RAX (abi::RAX)
     assert_eq!(
-        walker.state().scratch_assignment.len(),
+        walker.state().scratch_count(),
         1,
         "Should have 1 scratch assignment"
     );
@@ -3096,7 +3096,7 @@ fn pa7c_m2_002_three_let_chain_assigns_distinct_scratch_regs() {
 
     // Verify scratch_assignment has 3 entries
     assert_eq!(
-        walker.state().scratch_assignment.len(),
+        walker.state().scratch_count(),
         3,
         "Should have 3 scratch assignments"
     );
@@ -3185,7 +3185,7 @@ fn pa7c_m2_002_five_let_chain_exhausts_pool_and_emits_t0527() {
 
     // Verify scratch_assignment stopped at 4 registers
     assert_eq!(
-        walker.state().scratch_assignment.len(),
+        walker.state().scratch_count(),
         4,
         "Should have only 4 scratch assignments"
     );
@@ -3539,7 +3539,7 @@ fn build_field_access(
     // Walk and emit
     let mut walker = EmitWalker::new();
     // Inject the record layout into the walker state before walking
-    walker.state_mut().record_layouts.insert(RecordTypeId(1), layout);
+    walker.state_mut().insert_record_layout(RecordTypeId(1), layout);
     walker.walk(&mut arena);
 
     // Extract the emitted instruction (should be at field_access_id)
@@ -4369,7 +4369,7 @@ fn build_and_walk_match(
     // Register layout
     let layout = EnumLayout::new(payload_size);
     let mut walker = EmitWalker::new();
-    walker.state_mut().enum_layouts.insert(EnumTypeId(1), layout);
+    walker.state_mut().insert_enum_layout(EnumTypeId(1), layout);
 
     walker.walk(&mut arena);
     walker
@@ -4655,7 +4655,7 @@ fn match_missing_arm_meta_emits_diagnostic() {
     // Deliberately do NOT register match_arm_meta entry for arm_id
     let mut walker = EmitWalker::new();
     let layout = EnumLayout::new(0);
-    walker.state_mut().enum_layouts.insert(EnumTypeId(1), layout);
+    walker.state_mut().insert_enum_layout(EnumTypeId(1), layout);
     walker.walk(&mut arena);
 
     assert!(!walker.diagnostics().is_empty());
@@ -4708,8 +4708,8 @@ fn nested_record_simple_two_fields() {
     );
 
     let mut walker = EmitWalker::new();
-    walker.state_mut().enum_layouts.insert(EnumTypeId(1), EnumLayout::new(16));
-    walker.state_mut().record_layouts.insert(RecordTypeId(100), rec_layout);
+    walker.state_mut().insert_enum_layout(EnumTypeId(1), EnumLayout::new(16));
+    walker.state_mut().insert_record_layout(RecordTypeId(100), rec_layout);
     walker.walk(&mut arena);
 
     assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());
@@ -4762,7 +4762,7 @@ fn nested_enum_over_leaf() {
     );
 
     let mut walker = EmitWalker::new();
-    walker.state_mut().enum_layouts.insert(EnumTypeId(1), EnumLayout::new(8));
+    walker.state_mut().insert_enum_layout(EnumTypeId(1), EnumLayout::new(8));
     walker.walk(&mut arena);
 
     assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());
@@ -4816,8 +4816,8 @@ fn nested_enum_over_record() {
     );
 
     let mut walker = EmitWalker::new();
-    walker.state_mut().enum_layouts.insert(EnumTypeId(1), EnumLayout::new(16));
-    walker.state_mut().record_layouts.insert(RecordTypeId(200), rec_layout);
+    walker.state_mut().insert_enum_layout(EnumTypeId(1), EnumLayout::new(16));
+    walker.state_mut().insert_record_layout(RecordTypeId(200), rec_layout);
     walker.walk(&mut arena);
 
     assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());
@@ -4886,9 +4886,9 @@ fn nested_record_over_enum_over_record() {
     );
 
     let mut walker = EmitWalker::new();
-    walker.state_mut().enum_layouts.insert(EnumTypeId(1), EnumLayout::new(16));
-    walker.state_mut().record_layouts.insert(RecordTypeId(200), point_layout);
-    walker.state_mut().record_layouts.insert(RecordTypeId(300), container_layout);
+    walker.state_mut().insert_enum_layout(EnumTypeId(1), EnumLayout::new(16));
+    walker.state_mut().insert_record_layout(RecordTypeId(200), point_layout);
+    walker.state_mut().insert_record_layout(RecordTypeId(300), container_layout);
     walker.walk(&mut arena);
 
     assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());
@@ -4936,8 +4936,8 @@ fn nested_wildcard_at_leaf() {
     );
 
     let mut walker = EmitWalker::new();
-    walker.state_mut().enum_layouts.insert(EnumTypeId(1), EnumLayout::new(16));
-    walker.state_mut().record_layouts.insert(RecordTypeId(100), rec_layout);
+    walker.state_mut().insert_enum_layout(EnumTypeId(1), EnumLayout::new(16));
+    walker.state_mut().insert_record_layout(RecordTypeId(100), rec_layout);
     walker.walk(&mut arena);
 
     assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());
@@ -5020,8 +5020,8 @@ fn nested_byte_exact_enum_over_record_offsets() {
     );
 
     let mut walker = EmitWalker::new();
-    walker.state_mut().enum_layouts.insert(EnumTypeId(1), EnumLayout::new(16));
-    walker.state_mut().record_layouts.insert(RecordTypeId(200), rec_layout);
+    walker.state_mut().insert_enum_layout(EnumTypeId(1), EnumLayout::new(16));
+    walker.state_mut().insert_record_layout(RecordTypeId(200), rec_layout);
     walker.walk(&mut arena);
 
     assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());
@@ -5091,8 +5091,8 @@ fn nested_byte_exact_record_over_enum_offsets() {
     );
 
     let mut walker = EmitWalker::new();
-    walker.state_mut().enum_layouts.insert(EnumTypeId(1), EnumLayout::new(16));
-    walker.state_mut().record_layouts.insert(RecordTypeId(300), container_layout);
+    walker.state_mut().insert_enum_layout(EnumTypeId(1), EnumLayout::new(16));
+    walker.state_mut().insert_record_layout(RecordTypeId(300), container_layout);
     walker.walk(&mut arena);
 
     assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());
@@ -5156,8 +5156,8 @@ fn nested_multiple_sibling_bindings_widths() {
     );
 
     let mut walker = EmitWalker::new();
-    walker.state_mut().enum_layouts.insert(EnumTypeId(1), EnumLayout::new(24));
-    walker.state_mut().record_layouts.insert(RecordTypeId(100), rec_layout);
+    walker.state_mut().insert_enum_layout(EnumTypeId(1), EnumLayout::new(24));
+    walker.state_mut().insert_record_layout(RecordTypeId(100), rec_layout);
     walker.walk(&mut arena);
 
     assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());
@@ -5201,7 +5201,7 @@ fn nested_missing_payload_layout_diagnostic() {
     );
 
     let mut walker = EmitWalker::new();
-    walker.state_mut().enum_layouts.insert(EnumTypeId(1), EnumLayout::new(16));
+    walker.state_mut().insert_enum_layout(EnumTypeId(1), EnumLayout::new(16));
     // Intentionally missing RecordTypeId(200)
     walker.walk(&mut arena);
 
@@ -5251,8 +5251,8 @@ fn nested_wildcard_at_multiple_levels() {
     );
 
     let mut walker = EmitWalker::new();
-    walker.state_mut().enum_layouts.insert(EnumTypeId(1), EnumLayout::new(16));
-    walker.state_mut().record_layouts.insert(RecordTypeId(300), container_layout);
+    walker.state_mut().insert_enum_layout(EnumTypeId(1), EnumLayout::new(16));
+    walker.state_mut().insert_record_layout(RecordTypeId(300), container_layout);
     walker.walk(&mut arena);
 
     assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());
@@ -5328,10 +5328,10 @@ fn nested_smoke_no_panic_on_deep_nesting() {
     );
 
     let mut walker = EmitWalker::new();
-    walker.state_mut().enum_layouts.insert(EnumTypeId(1), EnumLayout::new(8));
-    walker.state_mut().record_layouts.insert(RecordTypeId(102), c_layout);
-    walker.state_mut().record_layouts.insert(RecordTypeId(103), b_layout);
-    walker.state_mut().record_layouts.insert(RecordTypeId(104), a_layout);
+    walker.state_mut().insert_enum_layout(EnumTypeId(1), EnumLayout::new(8));
+    walker.state_mut().insert_record_layout(RecordTypeId(102), c_layout);
+    walker.state_mut().insert_record_layout(RecordTypeId(103), b_layout);
+    walker.state_mut().insert_record_layout(RecordTypeId(104), a_layout);
     walker.walk(&mut arena);
 
     assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());

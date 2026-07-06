@@ -54,7 +54,7 @@ impl EmitWalker {
                         if let Some(&rhs_id) = let_children.first() {
                             if let Some(rhs_node) = arena.get(rhs_id) {
                                 // Assign next scratch register if available.
-                                if self.state.scratch_assignment.len() >= scratch_regs.len() {
+                                if self.state.scratch_count() >= scratch_regs.len() {
                                     // Register pressure exceeded.
                                     self.diagnostics.push(format!(
                                         "T0527: register pressure exceeded in Phase 7 Let-literal bindings: more than {} in-flight bindings",
@@ -63,8 +63,8 @@ impl EmitWalker {
                                     return;
                                 }
 
-                                let scratch_reg = scratch_regs[self.state.scratch_assignment.len()];
-                                self.state.scratch_assignment.push(scratch_reg);
+                                let scratch_reg = scratch_regs[self.state.scratch_count()];
+                                self.state.assign_scratch(scratch_reg);
 
                                 // Get binding name from arena.binding_names()
                                 let binding_name = arena
@@ -423,7 +423,7 @@ impl EmitWalker {
                         if let Some(&rhs_id) = let_children.first() {
                             if let Some(rhs_node) = arena.get(rhs_id) {
                                 // Assign next scratch register if available.
-                                if self.state.scratch_assignment.len() >= scratch_regs.len() {
+                                if self.state.scratch_count() >= scratch_regs.len() {
                                     // Register pressure exceeded.
                                     self.diagnostics.push(format!(
                                         "T0527: register pressure exceeded in Phase 7 Let-literal bindings: more than {} in-flight bindings",
@@ -434,8 +434,8 @@ impl EmitWalker {
                                     return;
                                 }
 
-                                let scratch_reg = scratch_regs[self.state.scratch_assignment.len()];
-                                self.state.scratch_assignment.push(scratch_reg);
+                                let scratch_reg = scratch_regs[self.state.scratch_count()];
+                                self.state.assign_scratch(scratch_reg);
 
                                 // Get binding name from arena.binding_names()
                                 let binding_name = arena

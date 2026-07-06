@@ -127,7 +127,7 @@ impl EmitWalker {
         };
 
         // Look up the finalised layout for this type.
-        let layout = match self.state.record_layouts.get(&type_id) {
+        let layout = match self.state.record_layout(type_id) {
             Some(l) => l,
             None => {
                 // Layout not finalised → unsupported

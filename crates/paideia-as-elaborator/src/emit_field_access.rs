@@ -95,7 +95,7 @@ impl EmitWalker {
         // As a simplification for this phase, we assume all Vars are the first argument.
 
         // Look up the record layout to get field offset and size.
-        let record_layout = match self.state.record_layouts.get(&field_info.type_id) {
+        let record_layout = match self.state.record_layout(field_info.type_id) {
             Some(layout) => layout,
             None => {
                 self.diagnostics.push(format!(
@@ -173,7 +173,7 @@ impl EmitWalker {
         };
 
         // Get the record layout to extract field offset and size.
-        let record_layout = match self.state.record_layouts.get(&field_info.type_id) {
+        let record_layout = match self.state.record_layout(field_info.type_id) {
             Some(layout) => layout,
             None => {
                 self.diagnostics.push(format!(
@@ -311,7 +311,7 @@ impl EmitWalker {
         }
 
         // Look up the record layout to get field offset and size.
-        let record_layout = match self.state.record_layouts.get(&field_info.type_id) {
+        let record_layout = match self.state.record_layout(field_info.type_id) {
             Some(layout) => layout,
             None => {
                 self.diagnostics.push(format!(

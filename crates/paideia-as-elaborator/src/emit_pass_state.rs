@@ -111,9 +111,105 @@ pub struct EmitPassState {
 }
 
 impl EmitPassState {
+    // ── Record layouts ───────────────────────────────────────────────────
+
+    /// Look up the finalised layout for a record type. Returns `None` if
+    /// the layout has not yet been computed.
+    #[must_use]
+    pub fn record_layout(&self, type_id: RecordTypeId) -> Option<&RecordLayout> {
+        self.record_layouts.get(&type_id)
+    }
+
+    /// Install (or overwrite) the layout for a record type.
+    pub fn insert_record_layout(&mut self, type_id: RecordTypeId, layout: RecordLayout) {
+        self.record_layouts.insert(type_id, layout);
+    }
+
+    /// Number of finalised record layouts.
+    #[must_use]
+    pub fn record_layout_count(&self) -> usize {
+        self.record_layouts.len()
+    }
+
+    /// True if no record layouts have been finalised yet.
+    #[must_use]
+    pub fn record_layouts_is_empty(&self) -> bool {
+        self.record_layouts.is_empty()
+    }
+
+    // ── Enum layouts ─────────────────────────────────────────────────────
+
+    /// Look up the layout for an enum type.
+    #[must_use]
+    pub fn enum_layout(&self, type_id: EnumTypeId) -> Option<&EnumLayout> {
+        self.enum_layouts.get(&type_id)
+    }
+
+    /// Install (or overwrite) the layout for an enum type.
+    pub fn insert_enum_layout(&mut self, type_id: EnumTypeId, layout: EnumLayout) {
+        self.enum_layouts.insert(type_id, layout);
+    }
+
+    // ── Scratch-register assignment (per-function) ──────────────────────
+
+    /// Number of scratch registers assigned in the current function.
+    #[must_use]
+    pub fn scratch_count(&self) -> usize {
+        self.scratch_assignment.len()
+    }
+
+    /// Append `reg` to the scratch assignment sequence.
+    pub fn assign_scratch(&mut self, reg: RegId) {
+        self.scratch_assignment.push(reg);
+    }
+
+    /// Reset the scratch assignment sequence (called at function entry).
+    pub fn clear_scratch(&mut self) {
+        self.scratch_assignment.clear();
+    }
+
+    // ── Pending unsafe blocks ────────────────────────────────────────────
+
+    /// Queue `node_id` as an unsafe block for later lowering by
+    /// `UnsafeWalker`.
+    pub fn push_pending_unsafe(&mut self, node_id: u32) {
+        self.pending_unsafe_blocks.push(node_id);
+    }
+
+    /// Number of pending unsafe blocks queued.
+    #[must_use]
+    pub fn pending_unsafe_count(&self) -> usize {
+        self.pending_unsafe_blocks.len()
+    }
+
+    /// True if no unsafe blocks are queued.
+    #[must_use]
+    pub fn pending_unsafe_is_empty(&self) -> bool {
+        self.pending_unsafe_blocks.is_empty()
+    }
+
+    /// Iterate the queued unsafe-block ids in insertion order.
+    pub fn iter_pending_unsafe(&self) -> std::slice::Iter<'_, u32> {
+        self.pending_unsafe_blocks.iter()
+    }
+
     /// Drain and return the pending unsafe blocks.
     pub fn take_pending_unsafe(&mut self) -> Vec<u32> {
         std::mem::take(&mut self.pending_unsafe_blocks)
+    }
+
+    // ── Lambda emission tracking ─────────────────────────────────────────
+
+    /// Record that `lambda_id` produced bytecode. Symbol emission filters
+    /// out lambdas absent from this set.
+    pub fn mark_lambda_emitted(&mut self, lambda_id: u32) {
+        self.emitted_lambdas.insert(lambda_id);
+    }
+
+    /// Look up the lambda associated with an unsafe body.
+    #[must_use]
+    pub fn unsafe_body_lambda(&self, body_id: u32) -> Option<u32> {
+        self.unsafe_body_to_lambda.get(&body_id).copied()
     }
 
     /// Phase 6 m4-003: Register a label at the current byte offset.

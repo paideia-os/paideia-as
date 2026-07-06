@@ -149,7 +149,7 @@ impl EmitWalker {
             .entry(lambda_id.get())
             .or_insert(first_instr_id);
 
-        self.state.emitted_lambdas.insert(lambda_id.get());
+        self.state.mark_lambda_emitted(lambda_id.get());
     }
 
     /// Drive the walker over an IR arena.
@@ -272,7 +272,7 @@ impl EmitWalker {
                         }
                         IrKind::Lambda => {
                             // Phase 6 m3-003: Reset scratch_assignment at function entry.
-                            self.state.scratch_assignment.clear();
+                            self.state.clear_scratch();
                             self.state.current_function = node_id.get();
 
                             // Lambda lowering: emit Mov/Lea/Ret for simple cases.
@@ -283,13 +283,13 @@ impl EmitWalker {
                         IrKind::Unsafe => {
                             // Record unsafe node for later processing by UnsafeWalker (m3).
                             // We do not inspect block contents here.
-                            let pending_idx = self.state.pending_unsafe_blocks.len();
-                            self.state.pending_unsafe_blocks.push(node_id.get());
+                            let pending_idx = self.state.pending_unsafe_count();
+                            self.state.push_pending_unsafe(node_id.get());
 
                             // PA8-m1-002b: If this Unsafe body was referenced by a lambda,
                             // record the pending index for that lambda.
-                            if let Some(&lambda_id) =
-                                self.state.unsafe_body_to_lambda.get(&node_id.get())
+                            if let Some(lambda_id) =
+                                self.state.unsafe_body_lambda(node_id.get())
                             {
                                 self.state
                                     .unsafe_lambda_to_pending_idx

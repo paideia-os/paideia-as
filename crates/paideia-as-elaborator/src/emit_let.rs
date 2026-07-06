@@ -120,7 +120,7 @@ impl EmitWalker {
         let scratch_regs = [abi::RAX, abi::RCX, abi::RDX, abi::R8]; // RAX, RCX, RDX, R8
 
         // Check if we've exceeded register pressure.
-        if self.state.scratch_assignment.len() >= scratch_regs.len() {
+        if self.state.scratch_count() >= scratch_regs.len() {
             // Fire T0517: register pressure exceeded.
             self.diagnostics.push(format!(
                 "T0517: register pressure exceeded in Phase 6 field-bind: more than {} in-flight bindings",
@@ -130,8 +130,8 @@ impl EmitWalker {
         }
 
         // Assign the next scratch register.
-        let scratch_reg = scratch_regs[self.state.scratch_assignment.len()];
-        self.state.scratch_assignment.push(scratch_reg);
+        let scratch_reg = scratch_regs[self.state.scratch_count()];
+        self.state.assign_scratch(scratch_reg);
 
         // Emit the field access with the assigned scratch register.
         self.visit_field_access_with_reg(field_access_id, scratch_reg, arena);

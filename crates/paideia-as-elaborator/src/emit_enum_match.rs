@@ -33,7 +33,7 @@ impl EmitWalker {
         };
 
         let (layout_size, layout_payload_size) =
-            match self.state.enum_layouts.get(&info.type_id) {
+            match self.state.enum_layout(info.type_id) {
                 Some(l) => (l.size, l.payload_size),
                 None => {
                     self.diagnostics.push(format!(
@@ -182,7 +182,7 @@ impl EmitWalker {
             }
         };
 
-        let layout = match self.state.enum_layouts.get(&type_id) {
+        let layout = match self.state.enum_layout(type_id) {
             Some(l) => l,
             None => {
                 self.diagnostics.push(format!(
@@ -299,7 +299,7 @@ impl EmitWalker {
 
                 let (sub_size, sub_signed) = if let Some(payload_type_id) = payload_type {
                     // If payload_type is a record, look up its layout
-                    if let Some(rec_layout) = self.state.record_layouts.get(payload_type_id) {
+                    if let Some(rec_layout) = self.state.record_layout(*payload_type_id) {
                         // Use first field's size/signed as default for nested pattern
                         if let Some(first_field) = rec_layout.fields.first() {
                             (first_field.size, first_field.signed)
@@ -330,7 +330,7 @@ impl EmitWalker {
                 fields,
             } => {
                 // Look up record layout
-                let rec_layout = match self.state.record_layouts.get(type_id) {
+                let rec_layout = match self.state.record_layout(*type_id) {
                     Some(l) => l.clone(),
                     None => {
                         self.diagnostics.push(format!(
@@ -430,7 +430,7 @@ impl EmitWalker {
 
         // Look up layout and extract needed fields
         let (layout_size, layout_payload_size) =
-            match self.state.enum_layouts.get(&enum_type_id) {
+            match self.state.enum_layout(enum_type_id) {
                 Some(l) => (l.size, l.payload_size),
                 None => {
                     self.diagnostics.push(format!(

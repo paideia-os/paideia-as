@@ -504,7 +504,7 @@ impl EmitWalker {
                         // (This can happen if the Unsafe node's ID is lower than the Lambda's ID.)
                         // If so, find its position in pending_unsafe_blocks and record it.
                         for (idx, &pending_node_id) in
-                            self.state.pending_unsafe_blocks.iter().enumerate()
+                            self.state.iter_pending_unsafe().enumerate()
                         {
                             if pending_node_id == body_id.get() {
                                 self.state
