@@ -1,0 +1,6 @@
+// PA-R16-011 fixture: FreelistPushPopPair exercises the atomic RMW pair.
+
+trait FreelistPushPopPair {
+  fn freelist_push(head: *u64, node: *u64) -> () !{Atomic};
+  fn freelist_pop(head: *u64) -> u64 !{Atomic};
+}

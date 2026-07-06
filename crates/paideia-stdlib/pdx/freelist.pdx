@@ -1,0 +1,62 @@
+// PA-R16-011: ABA-free intrusive freelist via cmpxchg16b.
+//
+// Trait FreelistOps declares three primitives for ABA-safe concurrent
+// allocation from an intrusive singly-linked freelist. The list head is
+// a 16-byte-aligned pair: pointer (offset 0) and tag (offset 8). Tag is
+// incremented on each successful CAS to prevent ABA collisions. The 128-bit
+// compare-and-swap is atomic w.r.t. all cores via cmpxchg16b.
+//
+// Head layout (16 bytes, 16-byte-aligned):
+//   [0:8)   ptr: u64    — pointer to node (or u64::MAX for empty)
+//   [8:16)  tag: u64    — ABA tag, incremented per successful CAS
+//
+// Node layout (intrusive):
+//   [0:8)   next: u64   — pointer to next node (or u64::MAX for end-of-list)
+//   [8:∞)   user data
+//
+// ABA defense: The tag occupies [head+8, head+16). On successful push/pop,
+// tag is incremented atomically as part of the 128-bit CAS. Collision-free
+// so long as tag wraps around (u64 max ≈ 2^64 ops; realistically never wrapped).
+//
+// Sentinel: u64::MAX (0xFFFFFFFFFFFFFFFF) denotes empty/null. This value is
+// non-canonical on x86_64 (all valid pointers are < 2^47), making it safe
+// as a sentinel.
+//
+// Lowering deferred to elaborator #1036:
+//   freelist_push(head, node):
+//     load {ptr, tag} from *head (two u64s)
+//     store ptr into *node
+//     load {tag+1} as new tag
+//     RCX:RBX = {node, tag+1}
+//     lock cmpxchg16b [head]    (compare RDX:RAX to [head], swap if match)
+//     retry on ZF=0
+//
+//   freelist_pop(head):
+//     load {ptr, tag} from *head
+//     if ptr == u64::MAX, return u64::MAX
+//     load next from *ptr
+//     RCX:RBX = {next, tag+1}
+//     lock cmpxchg16b [head]
+//     retry on ZF=0
+//     return ptr
+//
+//   freelist_empty(head):
+//     mov rax, [rdi]
+//     test rax, rax
+//     sete al
+//     return (rax == 0)
+//
+// CPU-feature guard: Requires CPUID.01H:ECX[bit 13] (CMPXCHG16B).
+// Mechanism deferred to #1033 (CPU feature gating).
+//
+// Sentinel value: Use u64::MAX (0xFFFFFFFFFFFFFFFF) as the null/empty marker.
+// No Option<T> wrapper needed; callers check for u64::MAX to detect empty.
+//
+// Effect: push/pop = !{Atomic} (unsynchronized w.r.t. per-CPU, capability).
+// empty = !{} (pure read, no effects). Capability: none (caller-owned memory).
+
+trait FreelistOps {
+  fn freelist_push(head: *u64, node: *u64) -> () !{Atomic};
+  fn freelist_pop(head: *u64) -> u64 !{Atomic};
+  fn freelist_empty(head: *u64) -> bool !{};
+}

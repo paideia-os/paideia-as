@@ -1,0 +1,5 @@
+// PA-R16-011 fixture: FreelistEmptySingle isolates the non-atomic peek.
+
+trait FreelistEmptySingle {
+  fn freelist_empty(head: *u64) -> bool !{};
+}

@@ -1,0 +1,16 @@
+// PA-R16-011 fixture: FreelistStressShape declares the surface a 4-thread
+// stress test will exercise once lowering (#1036) and a threading runtime
+// both land.
+//
+// Intended shape: 4 workers, each looping N iterations of {push, pop},
+// operating on a shared head and disjoint node pools. The correctness
+// invariant is a linearization check: total pushes minus total pops equals
+// the final observable list length.
+//
+// Bodies are deferred; this fixture pins the intended driver signature so
+// it parses today. Actual multi-thread interleaving is tracked as a
+// follow-up backtrack.
+
+trait FreelistStressShape {
+  fn freelist_stress_worker(head: *u64, node_pool: *u64, iterations: u64) -> u64 !{Atomic};
+}
