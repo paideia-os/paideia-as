@@ -184,7 +184,7 @@ fn rex_w() -> u8 {
 //   - reg_field: the value to encode in ModR/M.reg (already masked to 3 bits for use)
 //   - base_id: full 8-bit register ID (will mask to 3 bits for ModR/M.r/m)
 //   - disp: displacement value (0, signed i8, or signed i32)
-fn emit_mem_base_disp(buf: &mut CodeBuffer, reg_field: u8, base_id: u8, disp: i32) {
+pub(crate) fn emit_mem_base_disp(buf: &mut CodeBuffer, reg_field: u8, base_id: u8, disp: i32) {
     let base_low = base_id & 7;
     let reg_low = reg_field & 7;
     let sib_escape = base_low == 4; // base is RSP
@@ -2278,6 +2278,49 @@ pub fn mov_reg32_mem_base_disp(buf: &mut CodeBuffer, dst: Reg64, base: Reg64, di
         buf.bytes.push(rex_byte);
     }
     buf.bytes.push(0x8B); // mov r32, r/m32
+    emit_mem_base_disp(buf, dst_id & 7, base_id, disp);
+}
+
+/// Encode `movsx r64, [base + disp]` — Phase 13 m6-001: sign-extending load from memory.
+///
+/// Instruction: REX.W opcode /r [disp]
+/// Operand-size: determined by src_width parameter
+/// - 1 byte (r/m8 → r64):  `REX.W 0F BE /r` (movsx r64, byte [mem])
+/// - 2 bytes (r/m16 → r64): `REX.W 0F BF /r` (movsx r64, word [mem])
+/// - 4 bytes (r/m32 → r64): `REX.W 63 /r` (movsxd r64, dword [mem])
+///
+/// REX.W: always set (64-bit destination)
+/// REX.R: set if dst in r8–r15
+/// REX.B: set if base in r8–r15
+/// ModR/M: depends on displacement encoding (no disp, disp8, or disp32)
+///
+/// Examples:
+/// - `movsx rax, byte [rdi]`: `48 0F BE 07`
+/// - `movsx rax, word [rdi + 8]`: `48 0F BF 47 08`
+/// - `movsx rax, dword [rdi + 8]`: `48 63 47 08`
+pub fn movsx_reg64_mem_base_disp(buf: &mut CodeBuffer, dst: Reg64, base: Reg64, disp: i32, src_width: u8) {
+    let dst_id = dst as u8;
+    let base_id = base as u8;
+    let rex_byte = rex(true, (dst_id >> 3) != 0, false, (base_id >> 3) != 0);
+
+    buf.bytes.push(rex_byte);
+    match src_width {
+        1 => {
+            buf.bytes.push(0x0F);
+            buf.bytes.push(0xBE); // movsx r64, r/m8
+        }
+        2 => {
+            buf.bytes.push(0x0F);
+            buf.bytes.push(0xBF); // movsx r64, r/m16
+        }
+        4 => {
+            buf.bytes.push(0x63); // movsxd r64, r/m32
+        }
+        _ => {
+            // Invalid source width; caller should have validated
+            return;
+        }
+    }
     emit_mem_base_disp(buf, dst_id & 7, base_id, disp);
 }
 

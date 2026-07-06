@@ -2539,7 +2539,7 @@ mod tests {
         use paideia_as_ir::record_layout::FieldLayout;
 
         let mut layouts = HashMap::new();
-        let field_layout = FieldLayout { offset: 0, size: 8 };
+        let field_layout = FieldLayout { offset: 0, size: 8, signed: false };
         layouts.insert(RecordTypeId(1), RecordLayout::new(8, 8, vec![field_layout]));
 
         // We can't easily test parse_deref_operand directly without full AST setup,
@@ -2569,11 +2569,9 @@ mod tests {
 
         let mut layouts = HashMap::new();
         let fields = vec![
-            FieldLayout { offset: 0, size: 8 }, // kind
-            FieldLayout {
-                offset: 16,
-                size: 8,
-            }, // rights
+            FieldLayout { offset: 0, size: 8, signed: false }, // kind
+            FieldLayout { offset: 16,
+                size: 8, signed: false }, // rights
         ];
         layouts.insert(RecordTypeId(1), RecordLayout::new(24, 8, fields));
 

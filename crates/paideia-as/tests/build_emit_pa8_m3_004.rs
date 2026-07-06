@@ -562,20 +562,38 @@ fn tier_b_cast_same_width_reinterpret_is_nop() {
 /// Encoder gap: the zero-extending plan (`movzx rax, <reg>`) selected for
 /// unsigned 1/2-byte widening cannot be encoded — `encode_movzx` accepts only a
 /// memory source, so the register-source cast errors `OperandShape`. (The
-/// dispatch table is correct; the encoder lacks the reg-reg `movzx` form.)
+/// Encoder now supports register-source movzx! Promoted from encoder gap to positive
+/// byte-exact assertion. The encoder emits correct x86-64 `movzx` with REX.W prefix
+/// and proper register operands.
 #[test]
 fn tier_b_cast_widen_unsigned_movzx_regreg_is_encoder_gap() {
-    for s in [shape(1, 8, false, false), shape(2, 8, false, false)] {
-        let inst = cast_instruction(s).expect("non-nop cast");
-        let mut buf = CodeBuffer::new();
-        let mut stats = EncodeStats::new();
-        let res = encode_instruction(&inst, &mut buf, &mut stats);
-        assert!(
-            res.is_err(),
-            "register-source movzx is not yet encodable; if this now succeeds, \
-             promote to a positive width assertion (shape {s:?})"
-        );
-    }
+    // Test 1: u8 -> u64 unsigned (movzx rax, dil)
+    let s1 = shape(1, 8, false, false);
+    let inst1 = cast_instruction(s1).expect("non-nop cast");
+    let mut buf1 = CodeBuffer::new();
+    let mut stats1 = EncodeStats::new();
+    encode_instruction(&inst1, &mut buf1, &mut stats1).expect("u8->u64 movzx should encode");
+    // Expected: movzx rax, dil = 48 0F B6 C7
+    // 48 = REX.W, 0F B6 = MOVZX opcode, C7 = ModRM (reg, rax=0, dil=7)
+    assert_eq!(
+        &buf1.bytes[..],
+        &[0x48, 0x0F, 0xB6, 0xC7],
+        "u8->u64 movzx (rax, dil)"
+    );
+
+    // Test 2: u16 -> u64 unsigned (movzx rax, di)
+    let s2 = shape(2, 8, false, false);
+    let inst2 = cast_instruction(s2).expect("non-nop cast");
+    let mut buf2 = CodeBuffer::new();
+    let mut stats2 = EncodeStats::new();
+    encode_instruction(&inst2, &mut buf2, &mut stats2).expect("u16->u64 movzx should encode");
+    // Expected: movzx rax, di = 48 0F B7 C7
+    // 48 = REX.W, 0F B7 = MOVZX opcode, C7 = ModRM (reg, rax=0, di=7)
+    assert_eq!(
+        &buf2.bytes[..],
+        &[0x48, 0x0F, 0xB7, 0xC7],
+        "u16->u64 movzx (rax, di)"
+    );
 }
 
 /// Encoder gap: the `mov` plans for unsigned 32->64 widening (`Mov32`) and for

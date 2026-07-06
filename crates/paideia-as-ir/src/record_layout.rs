@@ -25,13 +25,17 @@ pub struct RecordTypeId(pub u32);
 ///
 /// Phase 6 m3-001: Records the byte offset and size of a field.
 /// `offset` is the byte offset from the start of the record (aligned per field type).
-/// `size` is the field size in bytes: 1 (u8), 4 (u32), 8 (u64/*T).
+/// `size` is the field size in bytes: 1 (u8), 2 (u16/i16), 4 (u32/i32), 8 (u64/i64/*T).
+/// `signed` indicates whether the field is signed (for sign-extend loads).
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct FieldLayout {
     /// Byte offset within the record (aligned per field's natural alignment).
     pub offset: u64,
-    /// Field size in bytes (1, 4, or 8 in Phase 6).
+    /// Field size in bytes (1, 2, 4, or 8 in Phase 6/13).
     pub size: u8,
+    /// Whether the field is signed (affects load operation: zero-extend vs sign-extend).
+    #[serde(default)]
+    pub signed: bool,
 }
 
 /// Complete layout for a record type.
@@ -412,8 +416,8 @@ mod tests {
             32,
             8,
             vec![
-                FieldLayout { offset: 0, size: 8 },
-                FieldLayout { offset: 8, size: 8 },
+                FieldLayout { offset: 0, size: 8, signed: false },
+                FieldLayout { offset: 8, size: 8, signed: false },
             ],
         );
 
@@ -435,13 +439,13 @@ mod tests {
         let mut table = FinalisedLayoutTable::new();
         let type_id = RecordTypeId(1);
 
-        let layout1 = RecordLayout::new(16, 8, vec![FieldLayout { offset: 0, size: 8 }]);
+        let layout1 = RecordLayout::new(16, 8, vec![FieldLayout { offset: 0, size: 8, signed: false }]);
         let layout2 = RecordLayout::new(
             32,
             8,
             vec![
-                FieldLayout { offset: 0, size: 8 },
-                FieldLayout { offset: 8, size: 8 },
+                FieldLayout { offset: 0, size: 8, signed: false },
+                FieldLayout { offset: 8, size: 8, signed: false },
             ],
         );
 
@@ -460,7 +464,7 @@ mod tests {
 
         for i in 0u32..5 {
             let type_id = RecordTypeId(i);
-            let layout = RecordLayout::new(8, 8, vec![FieldLayout { offset: 0, size: 8 }]);
+            let layout = RecordLayout::new(8, 8, vec![FieldLayout { offset: 0, size: 8, signed: false }]);
             table.insert(type_id, layout);
             assert_eq!(table.len(), (i + 1) as usize);
         }
@@ -472,15 +476,17 @@ mod tests {
     fn field_layout_capability_struct() {
         // Capability: 4 × u64 → offsets [0, 8, 16, 24], size 32, align 8.
         let fields = vec![
-            FieldLayout { offset: 0, size: 8 },
-            FieldLayout { offset: 8, size: 8 },
+            FieldLayout { offset: 0, size: 8, signed: false },
+            FieldLayout { offset: 8, size: 8, signed: false },
             FieldLayout {
                 offset: 16,
                 size: 8,
+                signed: false,
             },
             FieldLayout {
                 offset: 24,
                 size: 8,
+                signed: false,
             },
         ];
 

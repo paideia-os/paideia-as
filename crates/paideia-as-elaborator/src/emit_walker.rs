@@ -5,7 +5,7 @@
 //! populates an InstructionSideTable + tracks per-function offsets.
 
 use paideia_as_ir::instruction::{
-    Cond, InstrMode, Instruction, InstructionSideTable, IntWidth, Mnemonic, Operand, RegId,
+    Cond, EncodingHint, InstrMode, Instruction, InstructionSideTable, IntWidth, Mnemonic, Operand, RegId,
 };
 use paideia_as_ir::record_layout::{FieldLayout, RecordLayout, RecordTypeId};
 use paideia_as_ir::{
@@ -299,11 +299,16 @@ impl EmitPassState {
     /// referenced in the IR, storing finalised layouts in self.record_layouts.
     ///
     /// Layout computation follows C ABI rules:
-    /// - u64: size 8, align 8
-    /// - u32: size 4, align 4
-    /// - u8: size 1, align 1
+    /// - u8/i8: size 1, align 1
+    /// - u16/i16: size 2, align 2 (Phase 13 m6-001)
+    /// - u32/i32: size 4, align 4
+    /// - u64/i64: size 8, align 8
     /// - *T (any pointer): size 8, align 8
     /// - Other types: rejected with diagnostic T0515
+    ///
+    /// Signedness is encoded in bit 4 of field_size_byte_code:
+    /// - Low 4 bits: size code (1, 2, 4, 8)
+    /// - Bit 4 (0x10): 1 if signed, 0 if unsigned
     ///
     /// Fields are placed at offsets that respect natural alignment (no explicit
     /// padding beyond alignment requirements). Struct alignment is the max of
@@ -326,12 +331,17 @@ impl EmitPassState {
             let mut valid = true;
 
             for (_field_name, field_size_byte_code) in fields {
-                // Decode field size byte: low 4 bits encode the size category.
-                // Phase 6 payload: 1 (u8), 4 (u32), 8 (u64/*T).
-                let (field_align, field_size) = match field_size_byte_code & 0x0F {
-                    1 => (1u8, 1u8), // u8
-                    4 => (4u8, 4u8), // u32
-                    8 => (8u8, 8u8), // u64 or *T
+                // Decode field size byte:
+                // Low 4 bits: size code (1, 2, 4, 8)
+                // Bit 4: signed flag (1 = signed, 0 = unsigned)
+                let size_code = field_size_byte_code & 0x0F;
+                let is_signed = (field_size_byte_code & 0x10) != 0;
+
+                let (field_align, field_size) = match size_code {
+                    1 => (1u8, 1u8), // u8 or i8
+                    2 => (2u8, 2u8), // u16 or i16 (Phase 13 m6-001)
+                    4 => (4u8, 4u8), // u32 or i32
+                    8 => (8u8, 8u8), // u64, i64, or *T
                     _ => {
                         // Unsupported field type.
                         valid = false;
@@ -348,10 +358,9 @@ impl EmitPassState {
                     * (field_align as u64);
 
                 // Record the field layout.
-                finalised_fields.push(FieldLayout {
-                    offset: current_offset,
+                finalised_fields.push(FieldLayout { offset: current_offset,
                     size: field_size,
-                });
+                    signed: is_signed, });
 
                 current_offset += field_size as u64;
             }
@@ -3039,37 +3048,60 @@ impl EmitWalker {
             }
         };
 
-        // Emit the appropriate instruction based on field size.
-        match field_layout.size {
-            8 => {
-                // u64 or *T: mov rax, [rdi + offset]
-                self.emit_field_access_u64(field_access_id, field_layout.offset as i32);
-            }
-            4 => {
-                // u32: mov eax, [rdi + offset]
-                self.emit_field_access_u32(field_access_id, field_layout.offset as i32);
-            }
-            1 => {
+        // Emit the appropriate instruction based on field size and signedness.
+        // Phase 13 m6-001: Dispatch on (size, signed) pairs to emit correct widening load.
+        match (field_layout.size, field_layout.signed) {
+            // Unsigned zero-extending loads
+            (1, false) => {
                 // u8: movzx rax, byte [rdi + offset]
-                self.emit_field_access_u8(field_access_id, field_layout.offset as i32);
+                self.emit_field_access_movzx(field_access_id, field_layout.offset as i32, 1);
+            }
+            (2, false) => {
+                // u16: movzx rax, word [rdi + offset]
+                self.emit_field_access_movzx(field_access_id, field_layout.offset as i32, 2);
+            }
+            (4, false) => {
+                // u32: mov eax, [rdi + offset] (32-bit load, no REX.W)
+                self.emit_field_access_mov_sized(field_access_id, field_layout.offset as i32, IntWidth::W32);
+            }
+            (8, false) => {
+                // u64 or *T: mov rax, [rdi + offset]
+                self.emit_field_access_mov_sized(field_access_id, field_layout.offset as i32, IntWidth::W64);
+            }
+            // Signed sign-extending loads
+            (1, true) => {
+                // i8: movsx rax, byte [rdi + offset]
+                self.emit_field_access_movsx(field_access_id, field_layout.offset as i32, 1);
+            }
+            (2, true) => {
+                // i16: movsx rax, word [rdi + offset]
+                self.emit_field_access_movsx(field_access_id, field_layout.offset as i32, 2);
+            }
+            (4, true) => {
+                // i32: movsxd rax, dword [rdi + offset]
+                self.emit_field_access_movsx(field_access_id, field_layout.offset as i32, 4);
+            }
+            (8, true) => {
+                // i64: mov rax, [rdi + offset]
+                self.emit_field_access_mov_sized(field_access_id, field_layout.offset as i32, IntWidth::W64);
             }
             _ => {
                 self.diagnostics.push(format!(
-                    "Unsupported field size {} for field access",
-                    field_layout.size
+                    "Unsupported field: size={}, signed={} for field access",
+                    field_layout.size, field_layout.signed
                 ));
             }
         }
     }
 
-    /// Emit u64 field access: mov rax, [rdi + offset] (3 bytes: 48 8b 47 NN or 48 8b 87 NNNNNNNN).
-    fn emit_field_access_u64(&mut self, field_access_id: IrNodeId, offset: i32) {
-        // PA8-m3-001 (generic Mov retained): memory-load move (`mov rax, [rdi+off]`).
-        // MovSized encodes `(Reg, Imm64)` only and cannot lower a memory source;
-        // load-width selection is the encoder's job, not MovSized's. (u64 load.)
-        // mov rax, [rdi + offset]
+    /// Emit a mov instruction with sized load (W32 or W64): mov r64/r32, [rdi + offset]
+    ///
+    /// Phase 13 m6-001: Handles u32, u64, and i64 field loads.
+    /// - W32: mov eax, [rdi + offset] (no REX.W) → 3 bytes disp8, 6 bytes disp32
+    /// - W64: mov rax, [rdi + offset] (REX.W) → 4 bytes disp8, 7 bytes disp32
+    fn emit_field_access_mov_sized(&mut self, field_access_id: IrNodeId, offset: i32, width: IntWidth) {
         let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        operands.push(Operand::Reg(RegId(0))); // rax (destination)
+        operands.push(Operand::Reg(RegId(0))); // rax or eax (destination)
         operands.push(Operand::MemSib {
             base: RegId(7), // rdi (first argument)
             index: None,
@@ -3078,7 +3110,7 @@ impl EmitWalker {
         });
 
         let inst = Instruction {
-            mnemonic: Mnemonic::Mov,
+            mnemonic: Mnemonic::MovSized { width },
             operands,
             encoding_hint: None,
             byte_offset_in_text: None,
@@ -3087,54 +3119,38 @@ impl EmitWalker {
 
         self.state.instructions.insert(field_access_id, inst);
 
-        // Estimate size: disp8 → 3 bytes, disp32 → 7 bytes.
-        let size = if offset >= -128 && offset <= 127 {
-            3
-        } else {
-            7
+        // Estimate size based on width and displacement.
+        let size = match width {
+            IntWidth::W32 => {
+                // No REX.W prefix for 32-bit
+                if offset >= -128 && offset <= 127 {
+                    3 // opcode + modrm + disp8
+                } else {
+                    6 // opcode + modrm + disp32
+                }
+            }
+            IntWidth::W64 => {
+                // REX.W prefix + opcode
+                if offset >= -128 && offset <= 127 {
+                    4 // REX.W + opcode + modrm + disp8
+                } else {
+                    7 // REX.W + opcode + modrm + disp32
+                }
+            }
+            _ => 7, // fallback
         };
         self.state.estimated_offset += size;
     }
 
-    /// Emit u32 field access: mov eax, [rdi + offset] (3-6 bytes).
-    fn emit_field_access_u32(&mut self, field_access_id: IrNodeId, offset: i32) {
-        // PA8-m3-001 (generic Mov retained): memory-load move (`mov eax, [rdi+off]`).
-        // Already a 32-bit load, but it is a memory-source form, not the
-        // reg-immediate shape MovSized encodes; the encoder selects the load width.
-        // mov eax, [rdi + offset]
+    /// Emit a movzx instruction (zero-extend load from memory): movzx rax, [rdi + offset]
+    ///
+    /// Phase 13 m6-001: Handles u8 and u16 field loads.
+    /// src_width: 1 (byte) or 2 (word)
+    /// - movzx rax, byte [rdi + offset] → 5 bytes disp8, 8 bytes disp32
+    /// - movzx rax, word [rdi + offset] → 5 bytes disp8, 8 bytes disp32
+    fn emit_field_access_movzx(&mut self, field_access_id: IrNodeId, offset: i32, src_width: u8) {
         let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        operands.push(Operand::Reg(RegId(0))); // eax (32-bit destination)
-        operands.push(Operand::MemSib {
-            base: RegId(7), // rdi
-            index: None,
-            scale: paideia_as_ir::instruction::Scale::X1,
-            disp: offset,
-        });
-
-        let inst = Instruction {
-            mnemonic: Mnemonic::Mov,
-            operands,
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: self.current_mode(),
-        };
-
-        self.state.instructions.insert(field_access_id, inst);
-
-        // Estimate size: no REX prefix for 32-bit → disp8 → 3 bytes, disp32 → 6 bytes.
-        let size = if offset >= -128 && offset <= 127 {
-            3
-        } else {
-            6
-        };
-        self.state.estimated_offset += size;
-    }
-
-    /// Emit u8 field access: movzx rax, byte [rdi + offset] (4-7 bytes).
-    fn emit_field_access_u8(&mut self, field_access_id: IrNodeId, offset: i32) {
-        // movzx rax, byte [rdi + offset]
-        let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        operands.push(Operand::Reg(RegId(0))); // rax (destination, zero-extended)
+        operands.push(Operand::Reg(RegId(0))); // rax (destination)
         operands.push(Operand::MemSib {
             base: RegId(7), // rdi
             index: None,
@@ -3145,18 +3161,71 @@ impl EmitWalker {
         let inst = Instruction {
             mnemonic: Mnemonic::Movzx,
             operands,
-            encoding_hint: None,
+            encoding_hint: Some(EncodingHint { opcode: 0x0F, operand_size: src_width }),
             byte_offset_in_text: None,
             mode: self.current_mode(),
         };
 
         self.state.instructions.insert(field_access_id, inst);
 
-        // Estimate size: movzx has 2-byte opcode → disp8 → 4 bytes, disp32 → 7 bytes.
+        // Estimate size: movzx has 2-byte opcode (0F B6/B7) + REX.W → disp8 → 5 bytes, disp32 → 8 bytes.
         let size = if offset >= -128 && offset <= 127 {
-            4
+            5 // REX.W + opcode + modrm + disp8
         } else {
-            7
+            8 // REX.W + opcode + modrm + disp32
+        };
+        self.state.estimated_offset += size;
+    }
+
+    /// Emit a movsx instruction (sign-extend load from memory): movsx rax, [rdi + offset]
+    ///
+    /// Phase 13 m6-001: Handles i8, i16, and i32 field loads.
+    /// src_width: 1 (byte), 2 (word), or 4 (dword)
+    /// - movsx rax, byte [rdi + offset] → 5 bytes disp8, 8 bytes disp32
+    /// - movsx rax, word [rdi + offset] → 5 bytes disp8, 8 bytes disp32
+    /// - movsxd rax, dword [rdi + offset] → 4 bytes disp8, 7 bytes disp32
+    fn emit_field_access_movsx(&mut self, field_access_id: IrNodeId, offset: i32, src_width: u8) {
+        let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        operands.push(Operand::Reg(RegId(0))); // rax (destination)
+        operands.push(Operand::MemSib {
+            base: RegId(7), // rdi
+            index: None,
+            scale: paideia_as_ir::instruction::Scale::X1,
+            disp: offset,
+        });
+
+        // Opcode varies by source width: 0x0F for 1/2-byte, 0x63 for 4-byte
+        let opcode = if src_width == 4 { 0x63 } else { 0x0F };
+
+        let inst = Instruction {
+            mnemonic: Mnemonic::Movsx,
+            operands,
+            encoding_hint: Some(EncodingHint { opcode, operand_size: src_width }),
+            byte_offset_in_text: None,
+            mode: self.current_mode(),
+        };
+
+        self.state.instructions.insert(field_access_id, inst);
+
+        // Estimate size based on source width and displacement.
+        let size = match src_width {
+            1 | 2 => {
+                // movsx r64, r/m8/r/m16: 2-byte opcode (0F BE/BF) + REX.W
+                if offset >= -128 && offset <= 127 {
+                    5 // REX.W + 0F + opcode + modrm + disp8
+                } else {
+                    8 // REX.W + 0F + opcode + modrm + disp32
+                }
+            }
+            4 => {
+                // movsxd r64, r/m32: 1-byte opcode (63) + REX.W
+                if offset >= -128 && offset <= 127 {
+                    4 // REX.W + opcode + modrm + disp8
+                } else {
+                    7 // REX.W + opcode + modrm + disp32
+                }
+            }
+            _ => 7, // fallback
         };
         self.state.estimated_offset += size;
     }
@@ -3261,49 +3330,102 @@ impl EmitWalker {
             }
         };
 
-        // Emit the appropriate instruction based on field size, using the specified register.
-        match field_layout.size {
-            8 => {
-                // u64 or *T: mov <dest_reg>, [rdi + offset]
-                self.emit_field_access_u64_reg(
-                    field_access_id,
-                    field_layout.offset as i32,
-                    dest_reg,
-                );
-            }
-            4 => {
-                // u32: mov <dest_reg_32>, [rdi + offset]
-                self.emit_field_access_u32_reg(
-                    field_access_id,
-                    field_layout.offset as i32,
-                    dest_reg,
-                );
-            }
-            1 => {
+        // Emit the appropriate instruction based on field size and signedness, using the specified register.
+        // Phase 13 m6-001: Dispatch on (size, signed) pairs to emit correct widening load.
+        match (field_layout.size, field_layout.signed) {
+            // Unsigned zero-extending loads
+            (1, false) => {
                 // u8: movzx <dest_reg>, byte [rdi + offset]
-                self.emit_field_access_u8_reg(
+                self.emit_field_access_movzx_reg(
                     field_access_id,
                     field_layout.offset as i32,
                     dest_reg,
+                    1,
+                );
+            }
+            (2, false) => {
+                // u16: movzx <dest_reg>, word [rdi + offset]
+                self.emit_field_access_movzx_reg(
+                    field_access_id,
+                    field_layout.offset as i32,
+                    dest_reg,
+                    2,
+                );
+            }
+            (4, false) => {
+                // u32: mov <dest_reg_32>, [rdi + offset]
+                self.emit_field_access_mov_sized_reg(
+                    field_access_id,
+                    field_layout.offset as i32,
+                    dest_reg,
+                    IntWidth::W32,
+                );
+            }
+            (8, false) => {
+                // u64 or *T: mov <dest_reg>, [rdi + offset]
+                self.emit_field_access_mov_sized_reg(
+                    field_access_id,
+                    field_layout.offset as i32,
+                    dest_reg,
+                    IntWidth::W64,
+                );
+            }
+            // Signed sign-extending loads
+            (1, true) => {
+                // i8: movsx <dest_reg>, byte [rdi + offset]
+                self.emit_field_access_movsx_reg(
+                    field_access_id,
+                    field_layout.offset as i32,
+                    dest_reg,
+                    1,
+                );
+            }
+            (2, true) => {
+                // i16: movsx <dest_reg>, word [rdi + offset]
+                self.emit_field_access_movsx_reg(
+                    field_access_id,
+                    field_layout.offset as i32,
+                    dest_reg,
+                    2,
+                );
+            }
+            (4, true) => {
+                // i32: movsxd <dest_reg>, dword [rdi + offset]
+                self.emit_field_access_movsx_reg(
+                    field_access_id,
+                    field_layout.offset as i32,
+                    dest_reg,
+                    4,
+                );
+            }
+            (8, true) => {
+                // i64: mov <dest_reg>, [rdi + offset]
+                self.emit_field_access_mov_sized_reg(
+                    field_access_id,
+                    field_layout.offset as i32,
+                    dest_reg,
+                    IntWidth::W64,
                 );
             }
             _ => {
                 self.diagnostics.push(format!(
-                    "Unsupported field size {} for field access",
-                    field_layout.size
+                    "Unsupported field: size={}, signed={} for field access",
+                    field_layout.size, field_layout.signed
                 ));
             }
         }
     }
 
-    /// Emit u64 field access to a specified register: mov <reg>, [rdi + offset].
-    fn emit_field_access_u64_reg(
+    /// Emit a mov instruction with sized load to a specified register: mov r64/r32, [rdi + offset]
+    ///
+    /// Phase 13 m6-001: Handles u32, u64, and i64 field loads to an arbitrary register.
+    fn emit_field_access_mov_sized_reg(
         &mut self,
         field_access_id: IrNodeId,
         offset: i32,
         dest_reg: RegId,
+        width: IntWidth,
     ) {
-        // PA8-m3-001 (generic Mov retained): memory-load move; not MovSized-encodable.
         let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
         operands.push(Operand::Reg(dest_reg)); // destination register
         operands.push(Operand::MemSib {
@@ -3314,7 +3436,7 @@ impl EmitWalker {
         });
 
         let inst = Instruction {
-            mnemonic: Mnemonic::Mov,
+            mnemonic: Mnemonic::MovSized { width },
             operands,
             encoding_hint: None,
             byte_offset_in_text: None,
@@ -3323,60 +3445,41 @@ impl EmitWalker {
 
         self.state.instructions.insert(field_access_id, inst);
 
-        // Estimate size: disp8 → 3 bytes, disp32 → 7 bytes.
-        let size = if offset >= -128 && offset <= 127 {
-            3
-        } else {
-            7
+        // Estimate size based on width and displacement.
+        let size = match width {
+            IntWidth::W32 => {
+                // No REX.W prefix for 32-bit
+                if offset >= -128 && offset <= 127 {
+                    3 // opcode + modrm + disp8
+                } else {
+                    6 // opcode + modrm + disp32
+                }
+            }
+            IntWidth::W64 => {
+                // REX.W prefix + opcode
+                if offset >= -128 && offset <= 127 {
+                    4 // REX.W + opcode + modrm + disp8
+                } else {
+                    7 // REX.W + opcode + modrm + disp32
+                }
+            }
+            _ => 7, // fallback
         };
         self.state.estimated_offset += size;
     }
 
-    /// Emit u32 field access to a specified register: mov <reg_32>, [rdi + offset].
-    fn emit_field_access_u32_reg(
+    /// Emit a movzx instruction to a specified register: movzx <reg>, [rdi + offset]
+    ///
+    /// Phase 13 m6-001: Handles u8 and u16 field loads to an arbitrary register.
+    fn emit_field_access_movzx_reg(
         &mut self,
         field_access_id: IrNodeId,
         offset: i32,
         dest_reg: RegId,
-    ) {
-        // PA8-m3-001 (generic Mov retained): memory-load move; not MovSized-encodable.
-        let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        operands.push(Operand::Reg(dest_reg)); // destination register (32-bit)
-        operands.push(Operand::MemSib {
-            base: RegId(7), // rdi
-            index: None,
-            scale: paideia_as_ir::instruction::Scale::X1,
-            disp: offset,
-        });
-
-        let inst = Instruction {
-            mnemonic: Mnemonic::Mov,
-            operands,
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: self.current_mode(),
-        };
-
-        self.state.instructions.insert(field_access_id, inst);
-
-        // Estimate size: no REX prefix for 32-bit → disp8 → 3 bytes, disp32 → 6 bytes.
-        let size = if offset >= -128 && offset <= 127 {
-            3
-        } else {
-            6
-        };
-        self.state.estimated_offset += size;
-    }
-
-    /// Emit u8 field access to a specified register: movzx <reg>, byte [rdi + offset].
-    fn emit_field_access_u8_reg(
-        &mut self,
-        field_access_id: IrNodeId,
-        offset: i32,
-        dest_reg: RegId,
+        src_width: u8,
     ) {
         let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        operands.push(Operand::Reg(dest_reg)); // destination register (zero-extended)
+        operands.push(Operand::Reg(dest_reg)); // destination register
         operands.push(Operand::MemSib {
             base: RegId(7), // rdi
             index: None,
@@ -3387,18 +3490,73 @@ impl EmitWalker {
         let inst = Instruction {
             mnemonic: Mnemonic::Movzx,
             operands,
-            encoding_hint: None,
+            encoding_hint: Some(EncodingHint { opcode: 0x0F, operand_size: src_width }),
             byte_offset_in_text: None,
             mode: self.current_mode(),
         };
 
         self.state.instructions.insert(field_access_id, inst);
 
-        // Estimate size: movzx has 2-byte opcode → disp8 → 4 bytes, disp32 → 7 bytes.
+        // Estimate size: movzx has 2-byte opcode (0F B6/B7) + REX.W → disp8 → 5 bytes, disp32 → 8 bytes.
         let size = if offset >= -128 && offset <= 127 {
-            4
+            5 // REX.W + opcode + modrm + disp8
         } else {
-            7
+            8 // REX.W + opcode + modrm + disp32
+        };
+        self.state.estimated_offset += size;
+    }
+
+    /// Emit a movsx instruction to a specified register: movsx <reg>, [rdi + offset]
+    ///
+    /// Phase 13 m6-001: Handles i8, i16, and i32 field loads to an arbitrary register.
+    fn emit_field_access_movsx_reg(
+        &mut self,
+        field_access_id: IrNodeId,
+        offset: i32,
+        dest_reg: RegId,
+        src_width: u8,
+    ) {
+        let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        operands.push(Operand::Reg(dest_reg)); // destination register
+        operands.push(Operand::MemSib {
+            base: RegId(7), // rdi
+            index: None,
+            scale: paideia_as_ir::instruction::Scale::X1,
+            disp: offset,
+        });
+
+        // Opcode varies by source width: 0x0F for 1/2-byte, 0x63 for 4-byte
+        let opcode = if src_width == 4 { 0x63 } else { 0x0F };
+
+        let inst = Instruction {
+            mnemonic: Mnemonic::Movsx,
+            operands,
+            encoding_hint: Some(EncodingHint { opcode, operand_size: src_width }),
+            byte_offset_in_text: None,
+            mode: self.current_mode(),
+        };
+
+        self.state.instructions.insert(field_access_id, inst);
+
+        // Estimate size based on source width and displacement.
+        let size = match src_width {
+            1 | 2 => {
+                // movsx r64, r/m8/r/m16: 2-byte opcode (0F BE/BF) + REX.W
+                if offset >= -128 && offset <= 127 {
+                    5 // REX.W + 0F + opcode + modrm + disp8
+                } else {
+                    8 // REX.W + 0F + opcode + modrm + disp32
+                }
+            }
+            4 => {
+                // movsxd r64, r/m32: 1-byte opcode (63) + REX.W
+                if offset >= -128 && offset <= 127 {
+                    4 // REX.W + opcode + modrm + disp8
+                } else {
+                    7 // REX.W + opcode + modrm + disp32
+                }
+            }
+            _ => 7, // fallback
         };
         self.state.estimated_offset += size;
     }
@@ -5280,7 +5438,7 @@ mod tests {
             .insert(field_access_id, field_info);
 
         // Register record layout: u64 field at offset 0, size 8.
-        let layout = RecordLayout::new(8, 8, vec![FieldLayout { offset: 0, size: 8 }]);
+        let layout = RecordLayout::new(8, 8, vec![FieldLayout { offset: 0, size: 8, signed: false }]);
         walker
             .state_mut()
             .record_layouts
@@ -5297,7 +5455,7 @@ mod tests {
             .get(field_access_id)
             .expect("instruction should exist");
 
-        assert_eq!(inst.mnemonic, Mnemonic::Mov);
+        assert_eq!(inst.mnemonic, Mnemonic::MovSized { width: IntWidth::W64 });
         assert_eq!(inst.operands.len(), 2);
         // First operand: rax (RegId(0))
         assert!(matches!(inst.operands[0], Operand::Reg(RegId(0))));
@@ -5341,8 +5499,8 @@ mod tests {
             16,
             8,
             vec![
-                FieldLayout { offset: 0, size: 8 },
-                FieldLayout { offset: 8, size: 4 },
+                FieldLayout { offset: 0, size: 8, signed: false },
+                FieldLayout { offset: 8, size: 4, signed: false },
             ],
         );
         walker
@@ -5359,7 +5517,7 @@ mod tests {
             .get(field_access_id)
             .expect("instruction should exist");
 
-        assert_eq!(inst.mnemonic, Mnemonic::Mov);
+        assert_eq!(inst.mnemonic, Mnemonic::MovSized { width: IntWidth::W32 });
         // Second operand: [rdi + 8]
         assert!(matches!(
             inst.operands[1],
@@ -5400,12 +5558,10 @@ mod tests {
             16,
             8,
             vec![
-                FieldLayout { offset: 0, size: 8 },
-                FieldLayout { offset: 8, size: 4 },
-                FieldLayout {
-                    offset: 12,
-                    size: 1,
-                },
+                FieldLayout { offset: 0, size: 8, signed: false },
+                FieldLayout { offset: 8, size: 4, signed: false },
+                FieldLayout { offset: 12,
+                    size: 1, signed: false },
             ],
         );
         walker
@@ -5465,16 +5621,12 @@ mod tests {
             24,
             8,
             vec![
-                FieldLayout { offset: 0, size: 8 },
-                FieldLayout { offset: 8, size: 4 },
-                FieldLayout {
-                    offset: 12,
-                    size: 1,
-                },
-                FieldLayout {
-                    offset: 16,
-                    size: 8,
-                },
+                FieldLayout { offset: 0, size: 8, signed: false },
+                FieldLayout { offset: 8, size: 4, signed: false },
+                FieldLayout { offset: 12,
+                    size: 1, signed: false },
+                FieldLayout { offset: 16,
+                    size: 8, signed: false },
             ],
         );
         walker
@@ -5491,7 +5643,7 @@ mod tests {
             .get(field_access_id)
             .expect("instruction should exist");
 
-        assert_eq!(inst.mnemonic, Mnemonic::Mov);
+        assert_eq!(inst.mnemonic, Mnemonic::MovSized { width: IntWidth::W64 });
         // First operand: rax
         assert!(matches!(inst.operands[0], Operand::Reg(RegId(0))));
         // Second operand: [rdi + 16]
@@ -5552,11 +5704,9 @@ mod tests {
             32,
             8,
             vec![
-                FieldLayout { offset: 0, size: 8 },
-                FieldLayout {
-                    offset: 24,
-                    size: 8,
-                },
+                FieldLayout { offset: 0, size: 8, signed: false },
+                FieldLayout { offset: 24,
+                    size: 8, signed: false },
             ],
         );
         walker
@@ -5577,7 +5727,7 @@ mod tests {
             .instructions
             .get(field_access1_id)
             .expect("first instruction should be emitted");
-        assert_eq!(inst1.mnemonic, Mnemonic::Mov);
+        assert_eq!(inst1.mnemonic, Mnemonic::MovSized { width: IntWidth::W64 });
         assert_eq!(inst1.operands[0], Operand::Reg(RegId(0))); // RAX
 
         // Verify scratch_assignment tracks the first register.
@@ -5593,7 +5743,7 @@ mod tests {
             .instructions
             .get(field_access2_id)
             .expect("second instruction should be emitted");
-        assert_eq!(inst2.mnemonic, Mnemonic::Mov);
+        assert_eq!(inst2.mnemonic, Mnemonic::MovSized { width: IntWidth::W64 });
         assert_eq!(inst2.operands[0], Operand::Reg(RegId(1))); // RCX
 
         // Verify scratch_assignment now has two registers.
@@ -5636,16 +5786,12 @@ mod tests {
             32,
             8,
             vec![
-                FieldLayout { offset: 0, size: 8 },
-                FieldLayout { offset: 8, size: 8 },
-                FieldLayout {
-                    offset: 16,
-                    size: 8,
-                },
-                FieldLayout {
-                    offset: 24,
-                    size: 8,
-                },
+                FieldLayout { offset: 0, size: 8, signed: false },
+                FieldLayout { offset: 8, size: 8, signed: false },
+                FieldLayout { offset: 16,
+                    size: 8, signed: false },
+                FieldLayout { offset: 24,
+                    size: 8, signed: false },
             ],
         );
         walker
@@ -5670,7 +5816,7 @@ mod tests {
                 .instructions
                 .get(field_access_id)
                 .expect("instruction should be emitted");
-            assert_eq!(inst.mnemonic, Mnemonic::Mov);
+            assert_eq!(inst.mnemonic, Mnemonic::MovSized { width: IntWidth::W64 });
             assert_eq!(inst.operands[0], Operand::Reg(expected_regs[i]));
 
             // Verify scratch_assignment tracks the register.
@@ -5716,20 +5862,14 @@ mod tests {
             40,
             8,
             vec![
-                FieldLayout { offset: 0, size: 8 },
-                FieldLayout { offset: 8, size: 8 },
-                FieldLayout {
-                    offset: 16,
-                    size: 8,
-                },
-                FieldLayout {
-                    offset: 24,
-                    size: 8,
-                },
-                FieldLayout {
-                    offset: 32,
-                    size: 8,
-                },
+                FieldLayout { offset: 0, size: 8, signed: false },
+                FieldLayout { offset: 8, size: 8, signed: false },
+                FieldLayout { offset: 16,
+                    size: 8, signed: false },
+                FieldLayout { offset: 24,
+                    size: 8, signed: false },
+                FieldLayout { offset: 32,
+                    size: 8, signed: false },
             ],
         );
         walker
@@ -5793,16 +5933,12 @@ mod tests {
             32,
             8,
             vec![
-                FieldLayout { offset: 0, size: 8 },
-                FieldLayout { offset: 8, size: 8 },
-                FieldLayout {
-                    offset: 16,
-                    size: 8,
-                },
-                FieldLayout {
-                    offset: 24,
-                    size: 8,
-                },
+                FieldLayout { offset: 0, size: 8, signed: false },
+                FieldLayout { offset: 8, size: 8, signed: false },
+                FieldLayout { offset: 16,
+                    size: 8, signed: false },
+                FieldLayout { offset: 24,
+                    size: 8, signed: false },
             ],
         );
         walker.state_mut().record_layouts.insert(type_id, layout);
@@ -5883,16 +6019,12 @@ mod tests {
             32,
             8,
             vec![
-                FieldLayout { offset: 0, size: 8 },
-                FieldLayout { offset: 8, size: 8 },
-                FieldLayout {
-                    offset: 16,
-                    size: 8,
-                },
-                FieldLayout {
-                    offset: 24,
-                    size: 8,
-                },
+                FieldLayout { offset: 0, size: 8, signed: false },
+                FieldLayout { offset: 8, size: 8, signed: false },
+                FieldLayout { offset: 16,
+                    size: 8, signed: false },
+                FieldLayout { offset: 24,
+                    size: 8, signed: false },
             ],
         );
         walker.state_mut().record_layouts.insert(type_id, layout);
@@ -5955,12 +6087,10 @@ mod tests {
             24,
             8,
             vec![
-                FieldLayout { offset: 0, size: 8 },
-                FieldLayout { offset: 8, size: 8 },
-                FieldLayout {
-                    offset: 16,
-                    size: 8,
-                },
+                FieldLayout { offset: 0, size: 8, signed: false },
+                FieldLayout { offset: 8, size: 8, signed: false },
+                FieldLayout { offset: 16,
+                    size: 8, signed: false },
             ],
         );
         walker.state_mut().record_layouts.insert(type_id, layout);
@@ -6009,16 +6139,12 @@ mod tests {
             32,
             8,
             vec![
-                FieldLayout { offset: 0, size: 4 }, // u32, wrong!
-                FieldLayout { offset: 4, size: 8 },
-                FieldLayout {
-                    offset: 12,
-                    size: 8,
-                },
-                FieldLayout {
-                    offset: 20,
-                    size: 8,
-                },
+                FieldLayout { offset: 0, size: 4, signed: false }, // u32, wrong!
+                FieldLayout { offset: 4, size: 8, signed: false },
+                FieldLayout { offset: 12,
+                    size: 8, signed: false },
+                FieldLayout { offset: 20,
+                    size: 8, signed: false },
             ],
         );
         walker.state_mut().record_layouts.insert(type_id, layout);
@@ -6067,16 +6193,12 @@ mod tests {
             32,
             8,
             vec![
-                FieldLayout { offset: 0, size: 8 },
-                FieldLayout { offset: 9, size: 8 }, // Wrong offset!
-                FieldLayout {
-                    offset: 16,
-                    size: 8,
-                },
-                FieldLayout {
-                    offset: 24,
-                    size: 8,
-                },
+                FieldLayout { offset: 0, size: 8, signed: false },
+                FieldLayout { offset: 9, size: 8, signed: false }, // Wrong offset!
+                FieldLayout { offset: 16,
+                    size: 8, signed: false },
+                FieldLayout { offset: 24,
+                    size: 8, signed: false },
             ],
         );
         walker.state_mut().record_layouts.insert(type_id, layout);
@@ -7705,5 +7827,259 @@ mod tests {
         // x should be in local_bindings, and should resolve to one of the bindings
         // (either outer or shadowed, depending on execution path; here we just verify it exists)
         assert!(walker.state().local_bindings.contains("x"));
+    }
+
+    // ── Phase 13 m6-001: Field access width-correctness and encoder extension tests ────
+
+    /// Helper to build a field access IR and emit through the walker.
+    /// Returns the emitted instruction.
+    fn build_field_access(
+        size: u8,
+        signed: bool,
+        offset: i32,
+    ) -> Instruction {
+        let mut arena = IrArena::new();
+
+        // Allocate: Var(rdi) → FieldAccess
+        let var_id = arena.alloc(IrKind::Var, span());
+        let deref_id = arena.alloc_with_children(IrKind::Deref, span(), [var_id]);
+        let field_access_id = arena.alloc_with_children(IrKind::FieldAccess, span(), [deref_id]);
+
+        // Register field access metadata
+        arena.field_access_info_mut().insert(
+            field_access_id,
+            paideia_as_ir::record_layout::FieldAccessInfo {
+                type_id: RecordTypeId(1),
+                field_index: 0,
+            },
+        );
+
+        // Register record layout with (size, signed, offset) through FieldLayout
+        let field_layout = FieldLayout {
+            offset: offset as u64,
+            size,
+            signed,
+        };
+        let layout = RecordLayout::new(
+            (offset as u64) + (size as u64),
+            size.max(1),
+            vec![field_layout],
+        );
+
+        // Walk and emit
+        let mut walker = EmitWalker::new();
+        // Inject the record layout into the walker state before walking
+        walker.state_mut().record_layouts.insert(RecordTypeId(1), layout);
+        walker.walk(&mut arena);
+
+        // Extract the emitted instruction (should be at field_access_id)
+        walker
+            .state()
+            .instructions
+            .get(field_access_id)
+            .cloned()
+            .expect("No instruction emitted for field access")
+    }
+
+    #[test]
+    fn field_access_u64_offset_0() {
+        let inst = build_field_access(8, false, 0);
+        assert_eq!(inst.mnemonic, Mnemonic::MovSized { width: IntWidth::W64 });
+
+        // Encode and check bytes: mov rax, [rdi] → 48 8B 07
+        let mut buf = paideia_as_encoder::CodeBuffer::new();
+        let mut stats = paideia_as_encoder::EncodeStats::new();
+        paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encode failed");
+        assert_eq!(buf.as_slice(), &[0x48, 0x8B, 0x07]);
+    }
+
+    #[test]
+    fn field_access_u64_offset_24_disp8() {
+        let inst = build_field_access(8, false, 24);
+        assert_eq!(inst.mnemonic, Mnemonic::MovSized { width: IntWidth::W64 });
+
+        // Encode: mov rax, [rdi + 24] → 48 8B 47 18
+        let mut buf = paideia_as_encoder::CodeBuffer::new();
+        let mut stats = paideia_as_encoder::EncodeStats::new();
+        paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encode failed");
+        assert_eq!(buf.as_slice(), &[0x48, 0x8B, 0x47, 0x18]);
+    }
+
+    #[test]
+    fn field_access_u64_offset_256_disp32() {
+        let inst = build_field_access(8, false, 256);
+        assert_eq!(inst.mnemonic, Mnemonic::MovSized { width: IntWidth::W64 });
+
+        // Encode: mov rax, [rdi + 256] → 48 8B 87 00 01 00 00
+        let mut buf = paideia_as_encoder::CodeBuffer::new();
+        let mut stats = paideia_as_encoder::EncodeStats::new();
+        paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encode failed");
+        assert_eq!(buf.as_slice(), &[0x48, 0x8B, 0x87, 0x00, 0x01, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn field_access_u32_offset_0_no_rex_w() {
+        // THE BUG-FIX GUARD: u32 must emit 8B not 48 8B
+        let inst = build_field_access(4, false, 0);
+        assert_eq!(inst.mnemonic, Mnemonic::MovSized { width: IntWidth::W32 });
+
+        // Encode: mov eax, [rdi] → 8B 07 (NOT 48 8B 07)
+        let mut buf = paideia_as_encoder::CodeBuffer::new();
+        let mut stats = paideia_as_encoder::EncodeStats::new();
+        paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encode failed");
+        assert_eq!(buf.as_slice(), &[0x8B, 0x07]);
+    }
+
+    #[test]
+    fn field_access_u32_offset_8() {
+        let inst = build_field_access(4, false, 8);
+        assert_eq!(inst.mnemonic, Mnemonic::MovSized { width: IntWidth::W32 });
+
+        // Encode: mov eax, [rdi + 8] → 8B 47 08
+        let mut buf = paideia_as_encoder::CodeBuffer::new();
+        let mut stats = paideia_as_encoder::EncodeStats::new();
+        paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encode failed");
+        assert_eq!(buf.as_slice(), &[0x8B, 0x47, 0x08]);
+    }
+
+    #[test]
+    fn field_access_u16_offset_0_movzx_word() {
+        let inst = build_field_access(2, false, 0);
+        assert_eq!(inst.mnemonic, Mnemonic::Movzx);
+
+        // Encode: movzx rax, word [rdi] → 48 0F B7 07
+        let mut buf = paideia_as_encoder::CodeBuffer::new();
+        let mut stats = paideia_as_encoder::EncodeStats::new();
+        paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encode failed");
+        assert_eq!(buf.as_slice(), &[0x48, 0x0F, 0xB7, 0x07]);
+    }
+
+    #[test]
+    fn field_access_u16_offset_4_movzx_word() {
+        let inst = build_field_access(2, false, 4);
+        assert_eq!(inst.mnemonic, Mnemonic::Movzx);
+
+        // Encode: movzx rax, word [rdi + 4] → 48 0F B7 47 04
+        let mut buf = paideia_as_encoder::CodeBuffer::new();
+        let mut stats = paideia_as_encoder::EncodeStats::new();
+        paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encode failed");
+        assert_eq!(buf.as_slice(), &[0x48, 0x0F, 0xB7, 0x47, 0x04]);
+    }
+
+    #[test]
+    fn field_access_u8_offset_0_movzx_byte() {
+        let inst = build_field_access(1, false, 0);
+        assert_eq!(inst.mnemonic, Mnemonic::Movzx);
+
+        // Encode: movzx rax, byte [rdi] → 48 0F B6 07
+        let mut buf = paideia_as_encoder::CodeBuffer::new();
+        let mut stats = paideia_as_encoder::EncodeStats::new();
+        paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encode failed");
+        assert_eq!(buf.as_slice(), &[0x48, 0x0F, 0xB6, 0x07]);
+    }
+
+    #[test]
+    fn field_access_u8_offset_32_movzx_byte_disp8() {
+        let inst = build_field_access(1, false, 32);
+        assert_eq!(inst.mnemonic, Mnemonic::Movzx);
+
+        // Encode: movzx rax, byte [rdi + 32] → 48 0F B6 47 20
+        let mut buf = paideia_as_encoder::CodeBuffer::new();
+        let mut stats = paideia_as_encoder::EncodeStats::new();
+        paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encode failed");
+        assert_eq!(buf.as_slice(), &[0x48, 0x0F, 0xB6, 0x47, 0x20]);
+    }
+
+    #[test]
+    fn field_access_i8_offset_0_movsx_byte() {
+        let inst = build_field_access(1, true, 0);
+        assert_eq!(inst.mnemonic, Mnemonic::Movsx);
+
+        // Encode: movsx rax, byte [rdi] → 48 0F BE 07
+        let mut buf = paideia_as_encoder::CodeBuffer::new();
+        let mut stats = paideia_as_encoder::EncodeStats::new();
+        paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encode failed");
+        assert_eq!(buf.as_slice(), &[0x48, 0x0F, 0xBE, 0x07]);
+    }
+
+    #[test]
+    fn field_access_i16_offset_4_movsx_word() {
+        let inst = build_field_access(2, true, 4);
+        assert_eq!(inst.mnemonic, Mnemonic::Movsx);
+
+        // Encode: movsx rax, word [rdi + 4] → 48 0F BF 47 04
+        let mut buf = paideia_as_encoder::CodeBuffer::new();
+        let mut stats = paideia_as_encoder::EncodeStats::new();
+        paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encode failed");
+        assert_eq!(buf.as_slice(), &[0x48, 0x0F, 0xBF, 0x47, 0x04]);
+    }
+
+    #[test]
+    fn field_access_i32_offset_8_movsxd() {
+        let inst = build_field_access(4, true, 8);
+        assert_eq!(inst.mnemonic, Mnemonic::Movsx);
+
+        // Encode: movsxd rax, dword [rdi + 8] → 48 63 47 08
+        let mut buf = paideia_as_encoder::CodeBuffer::new();
+        let mut stats = paideia_as_encoder::EncodeStats::new();
+        paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encode failed");
+        assert_eq!(buf.as_slice(), &[0x48, 0x63, 0x47, 0x08]);
+    }
+
+    #[test]
+    fn field_access_i64_offset_16_reuses_u64_path() {
+        let inst = build_field_access(8, true, 16);
+        // i64 uses MovSized W64 (same as u64)
+        assert_eq!(inst.mnemonic, Mnemonic::MovSized { width: IntWidth::W64 });
+
+        // Encode: mov rax, [rdi + 16] → 48 8B 47 10
+        let mut buf = paideia_as_encoder::CodeBuffer::new();
+        let mut stats = paideia_as_encoder::EncodeStats::new();
+        paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encode failed");
+        assert_eq!(buf.as_slice(), &[0x48, 0x8B, 0x47, 0x10]);
+    }
+
+    #[test]
+    fn field_access_ptr_field_offset_0_u64_load() {
+        // Pointers are u64 unsigned
+        let inst = build_field_access(8, false, 0);
+        assert_eq!(inst.mnemonic, Mnemonic::MovSized { width: IntWidth::W64 });
+
+        // Encode: mov rax, [rdi] → 48 8B 07
+        let mut buf = paideia_as_encoder::CodeBuffer::new();
+        let mut stats = paideia_as_encoder::EncodeStats::new();
+        paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encode failed");
+        assert_eq!(buf.as_slice(), &[0x48, 0x8B, 0x07]);
+    }
+
+    #[test]
+    fn field_access_fnptr_field_offset_16_u64_load() {
+        // Function pointers are u64 unsigned
+        let inst = build_field_access(8, false, 16);
+        assert_eq!(inst.mnemonic, Mnemonic::MovSized { width: IntWidth::W64 });
+
+        // Encode: mov rax, [rdi + 16] → 48 8B 47 10
+        let mut buf = paideia_as_encoder::CodeBuffer::new();
+        let mut stats = paideia_as_encoder::EncodeStats::new();
+        paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encode failed");
+        assert_eq!(buf.as_slice(), &[0x48, 0x8B, 0x47, 0x10]);
+    }
+
+    #[test]
+    #[ignore = "visit_field_access hardcodes base=RDI; LocalBindingTable resolution deferred to follow-up"]
+    fn field_access_var_receiver_base_rcx_offset_8() {
+        // This test documents a pre-existing limitation: visit_field_access and
+        // visit_field_access_with_reg both hardcode base: RegId(7) (rdi), ignoring
+        // the receiver register that would come from LocalBindingTable resolution.
+        //
+        // If the receiver were Var(r) with r bound to rcx in the LocalBindingTable,
+        // the instruction should emit: mov rax, [rcx + 8] → 48 8B 41 08
+        //
+        // Currently, it always emits: mov rax, [rdi + 8] → 48 8B 47 08
+        //
+        // Fixing this requires threading LocalBindingTable through visit_field_access
+        // so that the base register can be resolved from the receiver's binding.
+        // See #983 debugger review and follow-up issue for RDI-hardcode refactor.
+        unimplemented!("deferred: requires LocalBindingTable threading");
     }
 }

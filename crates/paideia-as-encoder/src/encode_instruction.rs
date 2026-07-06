@@ -6034,15 +6034,13 @@ mod tests {
 /// Opcode: 0F B6 for r/m8 → r64, 0F B7 for r/m16 → r64, etc.
 /// This is a placeholder implementation; full support deferred to future phase.
 fn encode_movzx(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
-    // Phase 6 m3-002: Placeholder MOVZX encoder.
-    // For field access lowering, we expect: movzx rax, byte [rdi + offset]
-    // Operands: [0] = rax (Reg), [1] = [rdi + offset] (MemSib)
+    // Phase 13 m6-001: MOVZX encoder supporting both register-to-register and memory-source.
+    // For field access lowering: movzx rax, byte [rdi + offset] or movzx rax, word [rdi + offset]
+    // Operands: [0] = dst (Reg), [1] = src (Reg or MemSib)
     //
-    // Opcode: 0F B6 /r (MOVZX r64, r/m8)
-    // REX.W prefix: 48
-    // ModR/M: calculate based on addressing mode
-    //
-    // For the common case: 48 0F B6 47 NN (movzx rax, byte [rdi + disp8])
+    // Opcodes:
+    // - 1 byte source: `REX.W 0F B6 /r` (movzx r64, r/m8)
+    // - 2 byte source: `REX.W 0F B7 /r` (movzx r64, r/m16)
 
     if inst.operands.len() != 2 {
         return Err(EncodeError::OperandCount {
@@ -6052,7 +6050,7 @@ fn encode_movzx(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput
         });
     }
 
-    // Extract destination (should be rax).
+    // Extract destination register
     let dest_reg = match &inst.operands[0] {
         Operand::Reg(reg) => *reg,
         _ => {
@@ -6062,83 +6060,131 @@ fn encode_movzx(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput
         }
     };
 
-    if dest_reg.0 != 0 {
-        // For now, only support rax as destination.
-        return Err(EncodeError::Unsupported(
-            "MOVZX: only rax destination supported in phase 6",
-        ));
-    }
+    // Determine source width from encoding_hint
+    let src_width = inst.encoding_hint.map(|h| h.operand_size).unwrap_or(1);
 
-    // Extract source (should be [rdi + offset]).
-    let (base_reg, disp) = match &inst.operands[1] {
-        Operand::MemSib {
-            base, index, disp, ..
-        } => {
+    match &inst.operands[1] {
+        Operand::Reg(src_reg) => {
+            // Register-to-register: already supported
+            movzx_reg64(buf, reg64_from(dest_reg)?, reg64_from(*src_reg)?, src_width);
+            Ok(EncodeOutput::new())
+        }
+        Operand::MemSib { base, index, disp, .. } => {
+            // Memory source: movzx r64, [base + disp]
             if index.is_some() {
                 return Err(EncodeError::Unsupported(
                     "MOVZX: indexed addressing not supported",
                 ));
             }
-            (*base, *disp)
+
+            match src_width {
+                1 | 2 => {
+                    movzx_reg64_mem_base_disp(buf, reg64_from(dest_reg)?, reg64_from(*base)?, *disp, src_width);
+                    Ok(EncodeOutput::new())
+                }
+                _ => {
+                    Err(EncodeError::Unsupported(
+                        "MOVZX: source width must be 1 or 2 bytes",
+                    ))
+                }
+            }
         }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Movzx,
+        }),
+    }
+}
+
+/// Encode `movzx r64, [base + disp]` — zero-extend load from memory.
+///
+/// Instruction: REX.W opcode /r [disp]
+/// Operand-size: determined by src_width parameter
+/// - 1 byte (r/m8 → r64):  `REX.W 0F B6 /r` (movzx r64, byte [mem])
+/// - 2 bytes (r/m16 → r64): `REX.W 0F B7 /r` (movzx r64, word [mem])
+///
+/// REX.W: always set (64-bit destination)
+/// REX.R: set if dst in r8–r15
+/// REX.B: set if base in r8–r15
+/// ModR/M: depends on displacement encoding (no disp, disp8, or disp32)
+///
+/// Examples:
+/// - `movzx rax, byte [rdi]`: `48 0F B6 07`
+/// - `movzx rax, word [rdi + 8]`: `48 0F B7 47 08`
+fn movzx_reg64_mem_base_disp(buf: &mut CodeBuffer, dst: Reg64, base: Reg64, disp: i32, src_width: u8) {
+    let dst_id = dst as u8;
+    let base_id = base as u8;
+    let rex_byte = rex(true, (dst_id >> 3) != 0, false, (base_id >> 3) != 0);
+
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x0F);
+    match src_width {
+        1 => buf.bytes.push(0xB6), // movzx r64, r/m8
+        2 => buf.bytes.push(0xB7), // movzx r64, r/m16
+        _ => return, // Invalid width; caller should have checked
+    }
+    emit_mem_base_disp(buf, dst_id & 7, base_id, disp);
+}
+
+/// Phase 13 m6-001: Encode MOVSX (move with sign-extend), register-to-register or memory-source.
+///
+/// MOVSX r64, r/m8/r/m16/r/m32 — sign-extends a smaller source register or memory location into a
+/// 64-bit destination. Used by the cast emit path for *widening signed* casts and field access.
+///
+/// Operands: `[Reg(dst), Reg(src)]` or `[Reg(dst), MemSib{...}]`. The source width (1, 2, or 4 bytes) is
+/// taken from `encoding_hint.operand_size`; if no hint is present we default to
+/// 4 bytes (the common `i32 as i64` widening).
+///
+/// Opcodes: width 1 → `0F BE`, width 2 → `0F BF`,
+/// width 4 → `63` (MOVSXD), all with `REX.W`.
+fn encode_movsx(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    if inst.operands.len() != 2 {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::Movsx,
+            expected: 2,
+            got: inst.operands.len(),
+        });
+    }
+
+    let dest_reg = match &inst.operands[0] {
+        Operand::Reg(reg) => *reg,
         _ => {
             return Err(EncodeError::OperandShape {
-                mnemonic: Mnemonic::Movzx,
+                mnemonic: Mnemonic::Movsx,
             });
         }
     };
 
-    if base_reg.0 != 7 {
-        // For now, only support rdi as base.
-        return Err(EncodeError::Unsupported(
-            "MOVZX: only rdi base register supported in phase 6",
-        ));
-    }
+    let src_width = inst.encoding_hint.map(|h| h.operand_size).unwrap_or(4);
 
-    // Emit: 48 0F B6 47 NN (movzx rax, byte [rdi + disp8])
-    // or:   48 0F B6 87 NNNNNNNN (movzx rax, byte [rdi + disp32])
-
-    buf.bytes.push(0x48); // REX.W (64-bit)
-    buf.bytes.push(0x0F); // Two-byte opcode
-    buf.bytes.push(0xB6); // MOVZX r64, r/m8
-
-    // ModR/M: mod=01 (disp8) or mod=10 (disp32), reg=000 (rax), r/m=111 (rdi)
-    if disp >= -128 && disp <= 127 {
-        // disp8 mode: mod=01
-        buf.bytes.push(0x47); // mod=01, reg=000, r/m=111
-        buf.bytes.push(disp as u8);
-    } else {
-        // disp32 mode: mod=10
-        buf.bytes.push(0x87); // mod=10, reg=000, r/m=111
-        buf.bytes.push((disp & 0xFF) as u8);
-        buf.bytes.push(((disp >> 8) & 0xFF) as u8);
-        buf.bytes.push(((disp >> 16) & 0xFF) as u8);
-        buf.bytes.push(((disp >> 24) & 0xFF) as u8);
-    }
-    Ok(EncodeOutput::new())
-}
-
-/// Phase 7 m4-002: Encode MOVSX (move with sign-extend), register-to-register.
-///
-/// MOVSX r64, r/m8/r/m16/r/m32 — sign-extends a smaller source register into a
-/// 64-bit destination. Used by the cast emit path for *widening signed* casts.
-///
-/// Operands: `[Reg(dst), Reg(src)]`. The source width (1, 2, or 4 bytes) is
-/// taken from `encoding_hint.operand_size`; if no hint is present we default to
-/// 4 bytes (the common `i32 as i64` widening).
-///
-/// Opcodes (see `movsx_reg64`): width 1 → `0F BE`, width 2 → `0F BF`,
-/// width 4 → `63` (MOVSXD), all with `REX.W`.
-fn encode_movsx(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
-    match inst.operands.as_slice() {
-        [Operand::Reg(dst), Operand::Reg(src)] => {
-            let src_width = inst.encoding_hint.map(|h| h.operand_size).unwrap_or(4);
-            if movsx_reg64(buf, reg64_from(*dst)?, reg64_from(*src)?, src_width) {
+    match &inst.operands[1] {
+        Operand::Reg(src_reg) => {
+            // Register-to-register: movsx r64, reg
+            if movsx_reg64(buf, reg64_from(dest_reg)?, reg64_from(*src_reg)?, src_width) {
                 Ok(EncodeOutput::new())
             } else {
                 Err(EncodeError::Unsupported(
                     "MOVSX: source width must be 1, 2, or 4 bytes",
                 ))
+            }
+        }
+        Operand::MemSib { base, index, disp, .. } => {
+            // Memory source: movsx r64, [base + disp]
+            if index.is_some() {
+                return Err(EncodeError::Unsupported(
+                    "MOVSX: indexed addressing not supported",
+                ));
+            }
+
+            match src_width {
+                1 | 2 | 4 => {
+                    movsx_reg64_mem_base_disp(buf, reg64_from(dest_reg)?, reg64_from(*base)?, *disp, src_width);
+                    Ok(EncodeOutput::new())
+                }
+                _ => {
+                    Err(EncodeError::Unsupported(
+                        "MOVSX: source width must be 1, 2, or 4 bytes",
+                    ))
+                }
             }
         }
         _ => Err(EncodeError::OperandShape {
