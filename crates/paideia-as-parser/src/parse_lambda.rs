@@ -33,8 +33,9 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
         let mut params = Vec::new();
 
-        // Parse zero or more parameter groups: (pat : ty) (pat : ty) ...
-        loop {
+        // Parse zero or more parameter groups: (pat : ty, ...) (pat : ty, ...) ...
+        // Each group can contain comma-separated parameters.
+        'outer: loop {
             self.expect(TokenKind::LParen)?;
 
             // Check for empty parameter list: () -> ...
@@ -47,23 +48,65 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 continue;
             }
 
-            // Parse pattern (for phase-1, just accept Ident)
-            let pattern = self.parse_pattern_atomic()?;
-            params.push(pattern);
+            // Parse comma-separated parameters within this group
+            'inner: loop {
+                // Parse pattern (for phase-1, just accept Ident)
+                let pattern = self.parse_pattern_atomic()?;
+                params.push(pattern);
 
-            self.expect(TokenKind::Colon)?;
+                self.expect(TokenKind::Colon)?;
 
-            // Parse type using the full type parser
-            let _ty = self.parse_type()?;
-            // In a complete parser, we'd wrap the pattern and type together.
-            // For phase-1, we store just the pattern; the type is parsed but
-            // not currently attached to the pattern node. Document this.
+                // Parse type using the full type parser
+                let ty = self.parse_type()?;
+                // Store the pattern → type mapping in the arena's hints table
+                self.arena_mut()
+                    .pattern_type_hints_mut()
+                    .insert(pattern, ty);
+
+                // Check for comma (continue inner loop) or RParen (exit inner loop)
+                if self.at(TokenKind::Comma) {
+                    self.bump(); // consume comma
+                    // Check if next token is RParen (trailing comma case)
+                    if self.at(TokenKind::RParen) {
+                        break 'inner;
+                    }
+                    // Otherwise continue parsing the next parameter in this group
+                    continue 'inner;
+                } else {
+                    // No comma, must be RParen
+                    break 'inner;
+                }
+            }
+
+            // Arity check: if more than 6 params, emit P0276 and return Err
+            if params.len() > 6 {
+                // The 7th parameter is at index 6
+                let seventh_param = params[6];
+                let seventh_span = self
+                    .arena()
+                    .get(seventh_param)
+                    .map(|nd| nd.span)
+                    .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+                let diag = paideia_as_diagnostics::Diagnostic::error(
+                    paideia_as_diagnostics::DiagnosticCode::new(
+                        paideia_as_diagnostics::Category::P,
+                        paideia_as_diagnostics::Severity::Error,
+                        276,
+                    )
+                    .unwrap(),
+                )
+                .message("lambda has more than 6 parameters".to_string())
+                .with_span(seventh_span)
+                .finish();
+                self.emit_diagnostic(diag);
+                return Err(ParseError);
+            }
 
             self.expect(TokenKind::RParen)?;
 
             // Check for another parameter group
             if !self.at(TokenKind::LParen) {
-                break;
+                break 'outer;
             }
         }
 
@@ -545,5 +588,240 @@ mod tests {
                 panic!("expected ExprLambda");
             }
         }
+    }
+
+    // New tests for multi-parameter flat syntax (Issue #1041)
+
+    #[test]
+    fn lambda_fn_two_params_flat_comma_separated() {
+        // fn (a: u64, b: u64) -> 1
+        let tokens = vec![
+            tok(TokenKind::KwFn, 0, 2),
+            tok(TokenKind::LParen, 3, 1),
+            tok(TokenKind::Ident, 4, 1), // a
+            tok(TokenKind::Colon, 5, 1),
+            tok(TokenKind::Ident, 6, 3), // u64
+            tok(TokenKind::Comma, 9, 1),
+            tok(TokenKind::Ident, 11, 1), // b
+            tok(TokenKind::Colon, 12, 1),
+            tok(TokenKind::Ident, 13, 3), // u64
+            tok(TokenKind::RParen, 16, 1),
+            tok(TokenKind::Arrow, 18, 2),
+            tok(TokenKind::IntLit, 21, 1), // 1
+            tok(TokenKind::Eof, 22, 0),
+        ];
+        let (arena, root, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected");
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprLambda);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Lambda {
+                generic_params,
+                params,
+                pipe_form,
+                ..
+            } = expr_data
+            {
+                assert!(generic_params.is_empty());
+                assert_eq!(params.len(), 2, "should have 2 params");
+                assert!(!pipe_form);
+            } else {
+                panic!("expected ExprLambda");
+            }
+        } else {
+            panic!("expected expr data");
+        }
+    }
+
+    #[test]
+    fn lambda_fn_three_params_flat() {
+        // fn (a: u64, b: u64, c: u64) -> 1
+        let tokens = vec![
+            tok(TokenKind::KwFn, 0, 2),
+            tok(TokenKind::LParen, 3, 1),
+            tok(TokenKind::Ident, 4, 1), // a
+            tok(TokenKind::Colon, 5, 1),
+            tok(TokenKind::Ident, 6, 3), // u64
+            tok(TokenKind::Comma, 9, 1),
+            tok(TokenKind::Ident, 11, 1), // b
+            tok(TokenKind::Colon, 12, 1),
+            tok(TokenKind::Ident, 13, 3), // u64
+            tok(TokenKind::Comma, 16, 1),
+            tok(TokenKind::Ident, 18, 1), // c
+            tok(TokenKind::Colon, 19, 1),
+            tok(TokenKind::Ident, 20, 3), // u64
+            tok(TokenKind::RParen, 23, 1),
+            tok(TokenKind::Arrow, 25, 2),
+            tok(TokenKind::IntLit, 28, 1), // 1
+            tok(TokenKind::Eof, 29, 0),
+        ];
+        let (arena, root, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0);
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprLambda);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Lambda { params, .. } = expr_data {
+                assert_eq!(params.len(), 3);
+            } else {
+                panic!("expected ExprLambda");
+            }
+        }
+    }
+
+    #[test]
+    fn lambda_fn_trailing_comma() {
+        // fn (a: u64, b: u64,) -> 1
+        let tokens = vec![
+            tok(TokenKind::KwFn, 0, 2),
+            tok(TokenKind::LParen, 3, 1),
+            tok(TokenKind::Ident, 4, 1), // a
+            tok(TokenKind::Colon, 5, 1),
+            tok(TokenKind::Ident, 6, 3), // u64
+            tok(TokenKind::Comma, 9, 1),
+            tok(TokenKind::Ident, 11, 1), // b
+            tok(TokenKind::Colon, 12, 1),
+            tok(TokenKind::Ident, 13, 3), // u64
+            tok(TokenKind::Comma, 16, 1), // trailing comma
+            tok(TokenKind::RParen, 17, 1),
+            tok(TokenKind::Arrow, 19, 2),
+            tok(TokenKind::IntLit, 22, 1), // 1
+            tok(TokenKind::Eof, 23, 0),
+        ];
+        let (arena, root, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0, "trailing comma should be accepted");
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprLambda);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Lambda { params, .. } = expr_data {
+                assert_eq!(params.len(), 2);
+            } else {
+                panic!("expected ExprLambda");
+            }
+        }
+    }
+
+    #[test]
+    fn lambda_fn_empty_params() {
+        // fn () -> 42
+        let tokens = vec![
+            tok(TokenKind::KwFn, 0, 2),
+            tok(TokenKind::LParen, 3, 1),
+            tok(TokenKind::RParen, 4, 1),
+            tok(TokenKind::Arrow, 6, 2),
+            tok(TokenKind::IntLit, 9, 2), // 42
+            tok(TokenKind::Eof, 11, 0),
+        ];
+        let (arena, root, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0, "empty params should be accepted");
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprLambda);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Lambda { params, .. } = expr_data {
+                assert!(params.is_empty(), "should have 0 params");
+            } else {
+                panic!("expected ExprLambda");
+            }
+        }
+    }
+
+    #[test]
+    fn lambda_fn_mixed_curried_and_flat() {
+        // fn (a: u64, b: u64) (c: u64) -> 1
+        // Should have 3 params total
+        let tokens = vec![
+            tok(TokenKind::KwFn, 0, 2),
+            tok(TokenKind::LParen, 3, 1),
+            tok(TokenKind::Ident, 4, 1), // a
+            tok(TokenKind::Colon, 5, 1),
+            tok(TokenKind::Ident, 6, 3), // u64
+            tok(TokenKind::Comma, 9, 1),
+            tok(TokenKind::Ident, 11, 1), // b
+            tok(TokenKind::Colon, 12, 1),
+            tok(TokenKind::Ident, 13, 3), // u64
+            tok(TokenKind::RParen, 16, 1),
+            tok(TokenKind::LParen, 18, 1),
+            tok(TokenKind::Ident, 19, 1), // c
+            tok(TokenKind::Colon, 20, 1),
+            tok(TokenKind::Ident, 21, 3), // u64
+            tok(TokenKind::RParen, 24, 1),
+            tok(TokenKind::Arrow, 26, 2),
+            tok(TokenKind::IntLit, 29, 1), // 1
+            tok(TokenKind::Eof, 30, 0),
+        ];
+        let (arena, root, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0, "mixed curried/flat should be accepted");
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprLambda);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Lambda { params, .. } = expr_data {
+                assert_eq!(params.len(), 3, "should accumulate into 3 params");
+            } else {
+                panic!("expected ExprLambda");
+            }
+        }
+    }
+
+    #[test]
+    fn lambda_fn_seven_params_rejects() {
+        // fn (a: u64, b: u64, c: u64, d: u64, e: u64, f: u64, g: u64) -> 1
+        // Should reject with P0276 on the 7th parameter
+        let tokens = vec![
+            tok(TokenKind::KwFn, 0, 2),
+            tok(TokenKind::LParen, 3, 1),
+            tok(TokenKind::Ident, 4, 1), // a
+            tok(TokenKind::Colon, 5, 1),
+            tok(TokenKind::Ident, 6, 3), // u64
+            tok(TokenKind::Comma, 9, 1),
+            tok(TokenKind::Ident, 11, 1), // b
+            tok(TokenKind::Colon, 12, 1),
+            tok(TokenKind::Ident, 13, 3), // u64
+            tok(TokenKind::Comma, 16, 1),
+            tok(TokenKind::Ident, 18, 1), // c
+            tok(TokenKind::Colon, 19, 1),
+            tok(TokenKind::Ident, 20, 3), // u64
+            tok(TokenKind::Comma, 23, 1),
+            tok(TokenKind::Ident, 25, 1), // d
+            tok(TokenKind::Colon, 26, 1),
+            tok(TokenKind::Ident, 27, 3), // u64
+            tok(TokenKind::Comma, 30, 1),
+            tok(TokenKind::Ident, 32, 1), // e
+            tok(TokenKind::Colon, 33, 1),
+            tok(TokenKind::Ident, 34, 3), // u64
+            tok(TokenKind::Comma, 37, 1),
+            tok(TokenKind::Ident, 39, 1), // f
+            tok(TokenKind::Colon, 40, 1),
+            tok(TokenKind::Ident, 41, 3), // u64
+            tok(TokenKind::Comma, 44, 1),
+            tok(TokenKind::Ident, 46, 1), // g (7th)
+            tok(TokenKind::Colon, 47, 1),
+            tok(TokenKind::Ident, 48, 3), // u64
+            tok(TokenKind::RParen, 51, 1),
+            tok(TokenKind::Arrow, 53, 2),
+            tok(TokenKind::IntLit, 56, 1), // 1
+            tok(TokenKind::Eof, 57, 0),
+        ];
+
+        // Parse manually to check for parse error + diagnostic
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let result = {
+            let mut p = Parser::new(&tokens, "", FileId::new(1).unwrap(), &mut arena, &mut sink);
+            p.parse_expr()
+        };
+        let diags = sink.diagnostics().to_vec();
+
+        // Should have a parse error and 1 error diagnostic (P0276)
+        assert!(result.is_err(), "parse should fail");
+        assert_eq!(diags.len(), 1, "expected P0276 error");
+        assert!(
+            diags[0].code().to_string().contains("P0276"),
+            "expected P0276 code, got: {}",
+            diags[0].code()
+        );
     }
 }

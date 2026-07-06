@@ -15,6 +15,7 @@ mod macros;
 mod modules;
 mod node_id;
 mod patterns;
+pub mod pattern_type_hints;
 pub mod pretty;
 pub mod reflect;
 mod stmts;
@@ -33,6 +34,7 @@ pub use modules::{
     TypeDecl, ValDecl,
 };
 pub use node_id::NodeId;
+pub use pattern_type_hints::PatternTypeHints;
 pub use patterns::{PatField, PatternData};
 pub use reflect::{SerializedSpan, SerializedTerm, Term, TermHead};
 pub use stmts::StmtData;

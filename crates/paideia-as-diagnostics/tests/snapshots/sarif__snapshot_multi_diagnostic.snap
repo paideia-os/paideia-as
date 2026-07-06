@@ -1,5 +1,6 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
+assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -838,6 +839,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "@jump_table requires integer-literal arms",
               "shortDescription": {
                 "text": "match with @jump_table must have integer-literal patterns only"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Issue #1041: the current System-V x86-64 lowering passes lambda parameters in RDI, RSI, RDX, RCX, R8, R9. Stack-spill of the 7th+ parameter is not yet implemented. Reduce the parameter count to 6 or fewer, or split the function into curried groups (each group is a separate lambda)."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0276",
+              "id": "P0276",
+              "name": "Lambda has more than 6 parameters",
+              "shortDescription": {
+                "text": "lambda arity exceeds System-V register-passed cap (6)"
               }
             },
             {

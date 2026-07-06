@@ -244,6 +244,8 @@ pub struct AstArena {
     /// Interned mnemonic strings (for assembly instruction names).
     /// Index 0 is unused; valid IDs start at 1.
     mnemonic_table: Vec<String>,
+    /// Per-parameter type hints for lambda parameters (pattern → type mapping).
+    pattern_type_hints: crate::PatternTypeHints,
 }
 
 impl AstArena {
@@ -267,6 +269,7 @@ impl AstArena {
             types: Vec::with_capacity(n),
             patterns: Vec::with_capacity(n),
             mnemonic_table: Vec::new(),
+            pattern_type_hints: crate::PatternTypeHints::new(),
         };
         // Reserve index 0 in mnemonic_table so that valid IDs start at 1.
         s.mnemonic_table.push(String::new());
@@ -501,6 +504,17 @@ impl AstArena {
             .get(id as usize)
             .map(|s| s.as_str())
             .unwrap_or("")
+    }
+
+    /// Borrow the pattern type hints table (read-only).
+    #[must_use]
+    pub fn pattern_type_hints(&self) -> &crate::PatternTypeHints {
+        &self.pattern_type_hints
+    }
+
+    /// Borrow the pattern type hints table (mutable).
+    pub fn pattern_type_hints_mut(&mut self) -> &mut crate::PatternTypeHints {
+        &mut self.pattern_type_hints
     }
 }
 

@@ -1072,3 +1072,12 @@ brief = "match with @jump_table must have integer-literal patterns only"
 description = "Issue #964: A match expression marked with @jump_table has a non-integer-literal arm (e.g., a variable or string pattern). Jump-table dispatch requires all arms (except the default _) to be integer literals so the elaborator can compute density and generate the dispatch offset. Convert non-literal patterns to integer literals or remove @jump_table."
 since = "0.15.0"
 deprecated = false
+
+[diagnostic.P0276]
+severity = "error"
+category = "parser"
+title = "Lambda has more than 6 parameters"
+brief = "lambda arity exceeds System-V register-passed cap (6)"
+description = "Issue #1041: the current System-V x86-64 lowering passes lambda parameters in RDI, RSI, RDX, RCX, R8, R9. Stack-spill of the 7th+ parameter is not yet implemented. Reduce the parameter count to 6 or fewer, or split the function into curried groups (each group is a separate lambda)."
+since = "0.17.0"
+deprecated = false

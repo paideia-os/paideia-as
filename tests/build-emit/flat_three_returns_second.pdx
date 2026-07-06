@@ -1,0 +1,3 @@
+module FlatThreeReturnsSecond = structure {
+  pub let flat_three_returns_second : (u64, u64, u64) -> u64 = fn(a: u64, b: u64, c: u64) -> b
+}
