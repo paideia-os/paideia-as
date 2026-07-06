@@ -1,0 +1,5 @@
+module DirectCallTwoFuncs = structure {
+  pub let first  : (u64) -> u64 = fn(x: u64) -> x
+  pub let second : (u64) -> u64 = fn(x: u64) -> x
+  pub let caller : (u64) -> u64 = fn(x: u64) -> second(x)
+}

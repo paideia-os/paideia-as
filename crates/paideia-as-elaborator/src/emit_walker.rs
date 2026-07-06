@@ -1209,55 +1209,48 @@ impl EmitWalker {
                         }
                         // App has structure: [callee, arg0, arg1, ...]
 
-                        // Phase 7 m1-001: Check if this is an inter-function call.
-                        // Shape: App { fn: Var(target_id), args: [] or [arg0] or [arg0, arg1] }
+                        // PA-r17-004: 3-way dispatch for call sites: local binding, module symbol, or cross-file.
                         if app_children.len() >= 1 {
-                            let callee_id = app_children[0];
+                            let _callee_id = app_children[0];
                             let num_args = app_children.len() - 1; // args are children[1..]
 
-                            // Check if callee is a Var (could be a function reference)
-                            if let Some(callee_node) = arena.get(callee_id) {
-                                if callee_node.kind == IrKind::Var {
-                                    // Try to resolve this Var to a function symbol.
-                                    // For Phase 7, we look for any recent Function symbol in the symbol table.
-                                    // In a fully elaborated IR, the Var would have metadata pointing to its binding.
-                                    // For now, we use a heuristic: if there's a Function symbol, use the most recent one.
-                                    if let Some(symbol) = arena
-                                        .symbols()
-                                        .iter()
-                                        .find(|sym| sym.kind == SymbolKind::Function)
-                                    {
-                                        // This is a function call! Check arg count.
-                                        if num_args <= 6 {
-                                            if cfg!(debug_assertions) {
-                                                eprintln!(
-                                                    "[emit_function_call] Lambda {} calling function {} with {} args",
-                                                    lambda_node_id.get(),
-                                                    symbol.name,
-                                                    num_args
-                                                );
-                                            }
-                                            let main_id = IrNodeId::new(lambda_node_id.get() * 2)
-                                                .expect("main instr virtual id");
-                                            self.record_lambda_entry(lambda_node_id, main_id);
-                                            self.emit_function_call(
-                                                lambda_node_id,
-                                                symbol.name.clone(),
-                                                &app_children[1..],
-                                                arena,
-                                            );
-                                            return; // Skip further App processing
-                                        } else {
-                                            // Too many arguments for Phase 7
-                                            self.diagnostics.push(format!(
-                                                "EncodeError::Unsupported(\"PA7-006 stack-spilled arg\"): function call has {} args, phase 7 only supports 0-6",
-                                                num_args
-                                            ));
-                                            return;
-                                        }
-                                    }
+                            if num_args > 6 {
+                                // Out of #982 scope; fall through to legacy (Var,Var)/(Var,Literal) paths below.
+                            } else if let Some(meta) = arena.call_sites().get(body_id) {
+                                let name = &meta.callee_name;
+
+                                // (1) Local-binding lookup — lexical scope shadows module scope.
+                                if let Some(callee_reg) = self.state.local_bindings.get(name) {
+                                    let main_id = IrNodeId::new(lambda_node_id.get() * 2)
+                                        .expect("main instr virtual id");
+                                    self.record_lambda_entry(lambda_node_id, main_id);
+                                    self.emit_indirect_call_via_reg(
+                                        lambda_node_id, callee_reg, &app_children[1..], arena,
+                                    );
+                                    return;
                                 }
+
+                                // (2) Module symbol lookup by exact name — direct call.
+                                if arena.symbols().lookup_by_name(name).is_some() {
+                                    let main_id = IrNodeId::new(lambda_node_id.get() * 2)
+                                        .expect("main instr virtual id");
+                                    self.record_lambda_entry(lambda_node_id, main_id);
+                                    self.emit_function_call(
+                                        lambda_node_id, name.clone(), &app_children[1..], arena,
+                                    );
+                                    return;
+                                }
+
+                                // (3) Cross-file — well-formed name not found locally, writer synthesizes undefined PLT.
+                                let main_id = IrNodeId::new(lambda_node_id.get() * 2)
+                                    .expect("main instr virtual id");
+                                self.record_lambda_entry(lambda_node_id, main_id);
+                                self.emit_function_call(
+                                    lambda_node_id, name.clone(), &app_children[1..], arena,
+                                );
+                                return;
                             }
+                            // Fall through to legacy paths for builtin operators (+, <<, etc.).
                         }
 
                         if app_children.len() >= 3 {
@@ -1768,6 +1761,118 @@ impl EmitWalker {
         self.state.estimated_offset += 1;
     }
 
+    /// PA-r17-004: Emit indirect call via a register holding a function pointer.
+    ///
+    /// Handles 0-6 argument calls to functions referenced via a register (callee_reg).
+    /// Structure:
+    /// - (1) `mov r11, <callee_reg>` — save fnptr BEFORE arg marshalling
+    /// - (2) `mov <arg_reg>, <arg_src>` per argument
+    /// - (3) `call r11`
+    /// - (4) `ret`
+    ///
+    /// Instruction ordering via monotonically increasing virtual IDs:
+    /// - base * 16 + 0: save (mov r11, callee)
+    /// - base * 16 + 1..N: arg moves
+    /// - base * 16 + N: call r11
+    /// - base * 16 + N+1: ret
+    fn emit_indirect_call_via_reg(
+        &mut self,
+        lambda_node_id: IrNodeId,
+        callee_reg: RegId,
+        arg_ids: &[IrNodeId],
+        arena: &IrArena,
+    ) {
+        let base = lambda_node_id.get();
+        let r11 = RegId(11);
+        let arg_regs = [RegId(7), RegId(6), RegId(2), RegId(1), RegId(8), RegId(9)];
+
+        // (1) mov r11, <callee_reg> — save fnptr BEFORE arg marshalling clobbers RDI/etc.
+        let save_id = IrNodeId::new(base * 16).expect("save instr virtual id");
+        let mut save_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+        save_ops.push(Operand::Reg(r11));
+        save_ops.push(Operand::Reg(callee_reg));
+        self.state.instructions.insert(
+            save_id,
+            Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: save_ops,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+            },
+        );
+        self.state.estimated_offset += 3;
+
+        // (2) mov <arg_reg>, <arg_src> per arg.
+        let mut seq_id = 1u32;
+        for (i, &arg_id) in arg_ids.iter().enumerate() {
+            let dst = arg_regs[i];
+            let arg_node = match arena.get(arg_id) {
+                Some(n) => n,
+                None => continue,
+            };
+            match arg_node.kind {
+                IrKind::Literal => {
+                    if let Some(v) = arena.literal_values().get(arg_id) {
+                        self.emit_mov_literal_to_reg(lambda_node_id, dst, v);
+                    }
+                }
+                IrKind::Var => {
+                    if let Some(name) = arena.binding_names().get(arg_id) {
+                        let iid = IrNodeId::new(base * 16 + seq_id).expect("arg instr virtual id");
+                        seq_id += 1;
+                        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                        ops.push(Operand::Reg(dst));
+                        ops.push(Operand::Var { name: name.to_string() });
+                        self.state.instructions.insert(
+                            iid,
+                            Instruction {
+                                mnemonic: Mnemonic::Mov,
+                                operands: ops,
+                                encoding_hint: None,
+                                byte_offset_in_text: None,
+                                mode: self.current_mode(),
+                            },
+                        );
+                        self.state.estimated_offset += 3;
+                    }
+                }
+                _ => { /* Not handled in #982 */ }
+            }
+        }
+
+        // (3) call r11
+        let call_id = IrNodeId::new(base * 16 + seq_id).expect("call instr virtual id");
+        seq_id += 1;
+        let mut call_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+        call_ops.push(Operand::Reg(r11));
+        self.state.instructions.insert(
+            call_id,
+            Instruction {
+                mnemonic: Mnemonic::Call,
+                operands: call_ops,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+            },
+        );
+        self.state.estimated_offset += 3;
+
+        // (4) ret
+        let ret_id = IrNodeId::new(base * 16 + seq_id).expect("ret instr virtual id");
+        self.state.instructions.insert(
+            ret_id,
+            Instruction {
+                mnemonic: Mnemonic::Ret,
+                operands: SmallVec::new(),
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+            },
+        );
+        self.state.estimated_offset += 1;
+    }
+
     /// Phase 7 m1-003: Emit inter-function call.
     ///
     /// PA7-006: Handles 0-6 argument calls to other functions:
@@ -1924,6 +2029,7 @@ impl EmitWalker {
     }
 
     /// Emit MOV from one register to another.
+    #[allow(dead_code)]
     fn emit_mov_reg_to_reg(&mut self, lambda_node_id: IrNodeId, src_reg: RegId, dest_reg: RegId) {
         // PA8-m3-001 (generic Mov retained): reg-to-reg move; not MovSized-encodable.
         // Virtual ID: use a large base ID to avoid collisions

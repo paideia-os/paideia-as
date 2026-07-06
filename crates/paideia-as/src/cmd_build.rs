@@ -54,7 +54,7 @@ use paideia_as_emitter_pe::{
     OPTIONAL_HEADER_PE32PLUS_SIZE, OptionalHeaderPe32Plus, SectionTable as PeSectionTable,
 };
 use paideia_as_encoder::{EncodeStats, LabelFixup};
-use paideia_as_ir::{InstructionSideTable, IrNodeId, ModuleSideTable, Visibility, walk};
+use paideia_as_ir::{InstructionSideTable, IrKind, IrNodeId, ModuleSideTable, Visibility, walk};
 use paideia_as_ir::opt::{OptDiagSink};
 use paideia_as_ir::opt::dispatch;
 use paideia_as_lexer::{Lexer, SourceText};
@@ -774,6 +774,62 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                 })
                 .unwrap_or(paideia_as_ir::instruction::InstrMode::Mode64);
             emit_walker.set_root_mode(root_mode);
+
+            // PA-r17-004: Pre-emit pass to populate call_sites metadata for App nodes.
+            // Walk IR to find all App nodes and extract callee names, storing metadata
+            // in the CallSideTable for later dispatch in emit_walker.
+            {
+                let content_ref = source_map.content(file);
+
+                // Collect all App node metadata in a separate pass to avoid borrow conflicts
+                let mut app_metadata = Vec::new();
+
+                {
+                    let ir_arena = &lowering.ir;
+
+                    // Walk all IR nodes to find App nodes
+                    for ir_idx in 0..ir_arena.len() {
+                        if let Some(ir_id) = IrNodeId::new((ir_idx + 1) as u32) {
+                            if let Some(ir_node) = ir_arena.get(ir_id) {
+                                if ir_node.kind == IrKind::App {
+                                    let app_children = ir_arena.children(ir_id);
+
+                                    // App structure: [callee, arg0, arg1, ...]
+                                    if !app_children.is_empty() {
+                                        let callee_id = app_children[0];
+                                        let arg_count = (app_children.len() - 1) as u32;
+
+                                        // Extract callee name from the callee node's span
+                                        if let Some(callee_node) = ir_arena.get(callee_id) {
+                                            let span = callee_node.span;
+                                            let start = span.byte_start() as usize;
+                                            let len = span.byte_len() as usize;
+                                            if start + len <= content_ref.len() {
+                                                let callee_text = content_ref[start..start + len].to_string();
+
+                                                // Only record if it's a valid identifier
+                                                if is_valid_identifier(&callee_text) {
+                                                    app_metadata.push((ir_id, callee_text, arg_count));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Now insert all collected metadata into the IR's call_sites table
+                for (ir_id, callee_name, arg_count) in app_metadata {
+                    let call_meta = paideia_as_ir::call_meta::CallMeta {
+                        callee_name,
+                        arg_count,
+                        is_intrinsic: false,
+                    };
+                    lowering.ir.call_sites_mut().insert(ir_id, call_meta);
+                }
+            }
 
             emit_walker.walk(&mut lowering.ir);
 

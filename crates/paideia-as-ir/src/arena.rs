@@ -9,6 +9,7 @@ use std::ops::Index;
 
 use crate::addr_of::AddrOfSideTable;
 use crate::binding_name::BindingNameTable;
+use crate::call_meta::CallSideTable;
 use crate::constant_pool::ConstantPoolTable;
 use crate::data::DataSideTable;
 use crate::instruction::InstructionSideTable;
@@ -69,6 +70,9 @@ pub struct IrArena {
     /// Side-table: set of Let node IDs marked as public (`pub let`).
     /// PA904: tracks which let bindings have explicit `pub` visibility for global export.
     public_lets: HashSet<IrNodeId>,
+    /// Side-table: call site metadata indexed by App node ID.
+    /// PA-r17-004: populated by pre-emit pass; consumed by emit_walker for indirect/direct dispatch.
+    call_sites: CallSideTable,
 }
 
 impl IrArena {
@@ -98,6 +102,7 @@ impl IrArena {
             record_layout_table: RecordLayoutTable::new(),
             addr_of_table: AddrOfSideTable::new(),
             public_lets: HashSet::new(),
+            call_sites: CallSideTable::new(),
         }
     }
 
@@ -344,6 +349,18 @@ impl IrArena {
     #[must_use]
     pub fn is_public_let(&self, id: IrNodeId) -> bool {
         self.public_lets.contains(&id)
+    }
+
+    /// Borrow the call sites side-table (read-only).
+    /// PA-r17-004: provides access to CallMeta for App nodes.
+    #[must_use]
+    pub fn call_sites(&self) -> &CallSideTable {
+        &self.call_sites
+    }
+
+    /// Borrow the call sites side-table (mutable).
+    pub fn call_sites_mut(&mut self) -> &mut CallSideTable {
+        &mut self.call_sites
     }
 }
 
