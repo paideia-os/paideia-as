@@ -55,7 +55,7 @@ pub use effect_rewrite::{
 pub use enum_layout::{
     EnumConsInfo, EnumConsSideTable, EnumDiscriminantSideTable, EnumLayout,
     FinalisedEnumLayoutTable, EnumTypeId, MatchArmMeta, MatchArmMetaSideTable,
-    MatchScrutineeTable,
+    MatchScrutineeTable, PatternBinding,
 };
 pub use handler_value::{HandlerInfo, HandlerSideTable, pretty_handler};
 pub use instruction::{
@@ -75,7 +75,7 @@ pub use modules::{
 };
 pub use monomorphisation::{MonoKey, MonomorphisationTable, TypeId};
 pub use node::{EffectRowId, IrKind, IrNodeData, IrNodeId, LinClass};
-pub use record_layout::{FieldAccessInfo, FieldAccessSideTable, RecordLayoutTable, RecordTypeId};
+pub use record_layout::{FieldAccessInfo, FieldAccessSideTable, FieldLayout, RecordLayout, RecordLayoutTable, RecordTypeId};
 pub use section_attr::{SectionAttr, SectionAttrTable};
 pub use string_literal::{StringLiteralInfo, StringLiteralTable};
 pub use symbol::{Symbol, SymbolKind, SymbolTable, Visibility};

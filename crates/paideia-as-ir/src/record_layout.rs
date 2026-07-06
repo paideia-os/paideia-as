@@ -42,6 +42,8 @@ pub struct FieldLayout {
 ///
 /// Phase 6 m3-001: Captures the computed structure size, alignment, and per-field
 /// layout information using C ABI natural-alignment rules.
+///
+/// Phase 17 m9-009 (nested patterns): Adds field names for pattern binding lookups.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RecordLayout {
     /// Total size of the record in bytes (rounded up to struct alignment).
@@ -50,6 +52,11 @@ pub struct RecordLayout {
     pub align: u8,
     /// Per-field layout (offset, size) in declaration order.
     pub fields: Vec<FieldLayout>,
+    /// Field names in declaration order, parallel to `fields`.
+    /// Used for nested pattern bindings to map names to field indices.
+    /// Added in Phase 17; defaults to empty for backward compatibility.
+    #[serde(default)]
+    pub field_names: Vec<String>,
 }
 
 impl RecordLayout {
@@ -60,7 +67,34 @@ impl RecordLayout {
             size,
             align,
             fields,
+            field_names: Vec::new(),
         }
+    }
+
+    /// Create a new record layout with field names.
+    ///
+    /// The field_names vec should be parallel to the fields vec.
+    #[must_use]
+    pub fn with_field_names(
+        size: u64,
+        align: u8,
+        fields: Vec<FieldLayout>,
+        field_names: Vec<String>,
+    ) -> Self {
+        Self {
+            size,
+            align,
+            fields,
+            field_names,
+        }
+    }
+
+    /// Look up the index of a field by name.
+    ///
+    /// Returns None if the field name is not found.
+    #[must_use]
+    pub fn field_index_by_name(&self, name: &str) -> Option<usize> {
+        self.field_names.iter().position(|n| n == name)
     }
 }
 

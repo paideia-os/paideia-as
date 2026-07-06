@@ -534,6 +534,183 @@ mod tests {
         let retrieved = table.get(type_id).unwrap();
         assert_eq!(retrieved.payload_size, 8);
     }
+
+    // ── PatternBinding tests ───────────────────────────────────────
+
+    #[test]
+    fn pattern_binding_wildcard_is_wildcard() {
+        let pb = PatternBinding::Wildcard;
+        assert!(pb.is_wildcard());
+    }
+
+    #[test]
+    fn pattern_binding_simple_not_wildcard() {
+        let pb = PatternBinding::Simple("x".to_string());
+        assert!(!pb.is_wildcard());
+    }
+
+    #[test]
+    fn pattern_binding_simple_preserves_name() {
+        let name = "my_var".to_string();
+        let pb = PatternBinding::Simple(name.clone());
+        if let PatternBinding::Simple(n) = pb {
+            assert_eq!(n, name);
+        } else {
+            panic!("Expected Simple variant");
+        }
+    }
+
+    #[test]
+    fn pattern_binding_enum_variant_unit_payload() {
+        let pb = PatternBinding::EnumVariant {
+            variant_index: 0,
+            payload_type: None,
+            payload: None,
+        };
+        assert!(!pb.is_wildcard());
+        if let PatternBinding::EnumVariant { variant_index, payload_type, payload } = pb {
+            assert_eq!(variant_index, 0);
+            assert_eq!(payload_type, None);
+            assert_eq!(payload, None);
+        } else {
+            panic!("Expected EnumVariant");
+        }
+    }
+
+    #[test]
+    fn pattern_binding_enum_variant_with_simple_payload() {
+        let inner = PatternBinding::Simple("x".to_string());
+        let pb = PatternBinding::EnumVariant {
+            variant_index: 1,
+            payload_type: None,
+            payload: Some(Box::new(inner.clone())),
+        };
+        if let PatternBinding::EnumVariant { variant_index, payload, .. } = pb {
+            assert_eq!(variant_index, 1);
+            assert_eq!(*payload.unwrap(), inner);
+        } else {
+            panic!("Expected EnumVariant");
+        }
+    }
+
+    #[test]
+    fn pattern_binding_record_empty_fields() {
+        use crate::record_layout::RecordTypeId;
+        let pb = PatternBinding::Record {
+            type_id: RecordTypeId(100),
+            fields: vec![],
+        };
+        assert!(!pb.is_wildcard());
+        if let PatternBinding::Record { type_id, fields } = pb {
+            assert_eq!(type_id, RecordTypeId(100));
+            assert_eq!(fields.len(), 0);
+        } else {
+            panic!("Expected Record");
+        }
+    }
+
+    #[test]
+    fn pattern_binding_record_multiple_fields() {
+        use crate::record_layout::RecordTypeId;
+        let pb = PatternBinding::Record {
+            type_id: RecordTypeId(42),
+            fields: vec![
+                ("x".to_string(), PatternBinding::Simple("x_var".to_string())),
+                ("y".to_string(), PatternBinding::Wildcard),
+            ],
+        };
+        if let PatternBinding::Record { fields, .. } = pb {
+            assert_eq!(fields.len(), 2);
+            assert_eq!(fields[0].0, "x");
+            assert_eq!(fields[1].0, "y");
+        } else {
+            panic!("Expected Record");
+        }
+    }
+
+    #[test]
+    fn pattern_binding_clone_equality() {
+        let pb1 = PatternBinding::Simple("x".to_string());
+        let pb2 = pb1.clone();
+        assert_eq!(pb1, pb2);
+    }
+
+    #[test]
+    fn pattern_binding_enum_variant_with_record_payload() {
+        use crate::record_layout::RecordTypeId;
+        let record_pb = PatternBinding::Record {
+            type_id: RecordTypeId(200),
+            fields: vec![("field".to_string(), PatternBinding::Simple("f".to_string()))],
+        };
+        let pb = PatternBinding::EnumVariant {
+            variant_index: 5,
+            payload_type: Some(RecordTypeId(200)),
+            payload: Some(Box::new(record_pb)),
+        };
+        assert!(!pb.is_wildcard());
+    }
+
+    // ── MatchArmMeta tests ─────────────────────────────────────────
+
+    #[test]
+    fn match_arm_meta_default_initializes_correctly() {
+        let meta = MatchArmMeta::default();
+        assert_eq!(meta.variant_index, None);
+        assert_eq!(meta.payload_binder, None);
+        assert!(!meta.is_default);
+        assert_eq!(meta.pattern_binding, None);
+    }
+
+    #[test]
+    fn match_arm_meta_explicit_construction() {
+        let meta = MatchArmMeta {
+            variant_index: Some(3),
+            payload_binder: Some("payload".to_string()),
+            is_default: false,
+            pattern_binding: Some(PatternBinding::Wildcard),
+        };
+        assert_eq!(meta.variant_index, Some(3));
+        assert!(meta.payload_binder.is_some());
+        assert!(!meta.is_default);
+        assert!(meta.pattern_binding.is_some());
+    }
+}
+
+/// Recursive pattern-binding tree for match arms.
+///
+/// Represents nested patterns such as `Point { x, y }` or `Ok(Container { field: x })`.
+/// Used in conjunction with the match arm metadata to generate code for extracting
+/// nested fields from enum payloads and record structures.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PatternBinding {
+    /// Wildcard pattern `_` — matches anything, no binding.
+    Wildcard,
+    /// Simple identifier pattern `x` — binds the value to a single register.
+    Simple(String),
+    /// Enum variant pattern `Variant(payload)` or `Variant { fields }`.
+    EnumVariant {
+        /// 0-based variant index.
+        variant_index: u32,
+        /// Payload type if the variant carries a record; None for non-record payloads.
+        payload_type: Option<crate::record_layout::RecordTypeId>,
+        /// Nested pattern for the payload; None if payload is not decomposed.
+        payload: Option<Box<PatternBinding>>,
+    },
+    /// Record pattern `Record { field1: pat1, field2: pat2, ... }`.
+    Record {
+        /// Type identifier of the record.
+        type_id: crate::record_layout::RecordTypeId,
+        /// Field bindings: (field_name, pattern) in declaration order.
+        fields: Vec<(String, PatternBinding)>,
+    },
+}
+
+impl PatternBinding {
+    /// Returns true if this pattern is a wildcard (no bindings).
+    #[must_use]
+    pub fn is_wildcard(&self) -> bool {
+        matches!(self, PatternBinding::Wildcard)
+    }
 }
 
 /// Metadata for a match arm pattern.
@@ -548,6 +725,19 @@ pub struct MatchArmMeta {
     pub payload_binder: Option<String>,
     /// `true` iff this is a default/wildcard arm.
     pub is_default: bool,
+    /// Nested pattern binding tree for complex pattern matching.
+    pub pattern_binding: Option<PatternBinding>,
+}
+
+impl Default for MatchArmMeta {
+    fn default() -> Self {
+        Self {
+            variant_index: None,
+            payload_binder: None,
+            is_default: false,
+            pattern_binding: None,
+        }
+    }
 }
 
 /// Side-table mapping match arm IrNodeIds to their metadata.

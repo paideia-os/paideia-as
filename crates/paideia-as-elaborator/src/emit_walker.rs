@@ -4467,6 +4467,202 @@ impl EmitWalker {
         self.state.estimated_offset += 3; // mov rax, [rdi+0]
     }
 
+    /// Phase 17 m9-009 (pa-r17-009): Lower nested pattern bindings.
+    ///
+    /// Recursively decomposes a PatternBinding tree, emitting load instructions
+    /// to extract nested record fields and enum payloads. Bindings are recorded
+    /// in LocalBindingTable for later variable resolution.
+    ///
+    /// Algorithm:
+    /// - `Wildcard`: no-op
+    /// - `Simple(name)`: emit width-correct load; insert into LocalBindingTable
+    /// - `EnumVariant { payload: Some(inner) }`: recurse with payload offset (base_offset + 8)
+    /// - `Record { type_id, fields }`: for each field, compute sub_offset and recurse
+    ///
+    /// Register allocation from scratch pool: [RCX(1), RDX(2), R8(8), R10(10), R11(11)]
+    /// Exhaustion emits diagnostic; no spill.
+    ///
+    /// # Panics
+    /// None under normal operation; may emit diagnostics on register exhaustion or
+    /// missing layout information.
+    #[allow(clippy::too_many_arguments)]
+    fn lower_pattern(
+        &mut self,
+        pattern: &paideia_as_ir::PatternBinding,
+        base_reg: RegId,
+        base_offset: i32,
+        arm_id: IrNodeId,
+        slot: &mut u32,
+        arena: &IrArena,
+        default_size_signed: (u8, bool),
+    ) {
+        use paideia_as_ir::PatternBinding;
+
+        match pattern {
+            PatternBinding::Wildcard => {
+                // No-op: wildcard matches anything without binding
+            }
+
+            PatternBinding::Simple(name) => {
+                // Allocate next scratch register from pool. Use the per-pattern
+                // `slot` counter (which counts leaf bindings within THIS pattern
+                // lowering), NOT `local_bindings.len()` — the latter is the
+                // whole-function cumulative binding count and would collide with
+                // outer-scope registers or spuriously trigger exhaustion after
+                // 5+ prior `let` bindings in the same function.
+                let scratch_regs = [RegId(1), RegId(2), RegId(8), RegId(10), RegId(11)];
+
+                if (*slot as usize) >= scratch_regs.len() {
+                    self.diagnostics.push(format!(
+                        "Nested pattern binding exhaustion: >5 leaves in arm {}",
+                        arm_id.get()
+                    ));
+                    return;
+                }
+
+                let reg_index = (*slot as usize) % scratch_regs.len();
+                let dest_reg = scratch_regs[reg_index];
+                let load_id = IrNodeId::new(arm_id.get() * 1000 + *slot + 1).unwrap_or(arm_id);
+                *slot += 1;
+
+                // Emit width-correct load
+                let (size, signed) = default_size_signed;
+                match (size, signed) {
+                    (1, false) => {
+                        self.emit_field_access_movzx_reg(load_id, base_offset, dest_reg, 1);
+                    }
+                    (2, false) => {
+                        self.emit_field_access_movzx_reg(load_id, base_offset, dest_reg, 2);
+                    }
+                    (4, false) => {
+                        self.emit_field_access_mov_sized_reg(
+                            load_id,
+                            base_offset,
+                            dest_reg,
+                            IntWidth::W32,
+                        );
+                    }
+                    (8, false) => {
+                        self.emit_field_access_mov_sized_reg(
+                            load_id,
+                            base_offset,
+                            dest_reg,
+                            IntWidth::W64,
+                        );
+                    }
+                    (1, true) => {
+                        self.emit_field_access_movsx_reg(load_id, base_offset, dest_reg, 1);
+                    }
+                    (2, true) => {
+                        self.emit_field_access_movsx_reg(load_id, base_offset, dest_reg, 2);
+                    }
+                    (4, true) => {
+                        self.emit_field_access_movsx_reg(load_id, base_offset, dest_reg, 4);
+                    }
+                    (8, true) => {
+                        self.emit_field_access_mov_sized_reg(
+                            load_id,
+                            base_offset,
+                            dest_reg,
+                            IntWidth::W64,
+                        );
+                    }
+                    _ => {
+                        self.diagnostics.push(format!(
+                            "Unsupported nested pattern leaf size: {} signed={}",
+                            size, signed
+                        ));
+                        return;
+                    }
+                }
+
+                // Insert binding into LocalBindingTable
+                self.state.local_bindings.insert(name.clone(), dest_reg);
+            }
+
+            PatternBinding::EnumVariant {
+                variant_index: _,
+                payload_type,
+                payload: Some(inner),
+            } => {
+                // Payload at offset 8 (enum layout standard)
+                let sub_offset = base_offset + 8;
+
+                let (sub_size, sub_signed) = if let Some(payload_type_id) = payload_type {
+                    // If payload_type is a record, look up its layout
+                    if let Some(rec_layout) = self.state.record_layouts.get(payload_type_id) {
+                        // Use first field's size/signed as default for nested pattern
+                        if let Some(first_field) = rec_layout.fields.first() {
+                            (first_field.size, first_field.signed)
+                        } else {
+                            default_size_signed
+                        }
+                    } else {
+                        // Layout not found; use default
+                        default_size_signed
+                    }
+                } else {
+                    default_size_signed
+                };
+
+                // Recurse with payload pattern
+                self.lower_pattern(inner, base_reg, sub_offset, arm_id, slot, arena, (sub_size, sub_signed));
+            }
+
+            PatternBinding::EnumVariant {
+                payload: None,
+                ..
+            } => {
+                // Unit variant; no payload to extract
+            }
+
+            PatternBinding::Record {
+                type_id,
+                fields,
+            } => {
+                // Look up record layout
+                let rec_layout = match self.state.record_layouts.get(type_id) {
+                    Some(l) => l.clone(),
+                    None => {
+                        self.diagnostics.push(format!(
+                            "No record layout found for nested pattern type {}",
+                            type_id.0
+                        ));
+                        return;
+                    }
+                };
+
+                // For each field, compute offset and recurse
+                for (field_name, sub_pattern) in fields {
+                    let field_idx = match rec_layout.field_index_by_name(field_name) {
+                        Some(idx) => idx,
+                        None => {
+                            self.diagnostics.push(format!(
+                                "Field '{}' not found in record layout type {}",
+                                field_name, type_id.0
+                            ));
+                            continue;
+                        }
+                    };
+
+                    let field_layout = &rec_layout.fields[field_idx];
+                    let sub_offset = base_offset + field_layout.offset as i32;
+                    let sub_size_signed = (field_layout.size, field_layout.signed);
+
+                    self.lower_pattern(
+                        sub_pattern,
+                        base_reg,
+                        sub_offset,
+                        arm_id,
+                        slot,
+                        arena,
+                        sub_size_signed,
+                    );
+                }
+            }
+        }
+    }
+
     /// Phase 7 m1-004 (PA7-007): Emit match-expression lowering for enum variant dispatch.
     ///
     /// Lowers `match value { Ok(x) => ..., Err(y) => ..., _ => ... }` to:
@@ -4641,8 +4837,23 @@ impl EmitWalker {
             // Register arm label
             self.state.register_label(arm_label);
 
-            // Emit payload load if binder present
-            if let Some(ref _binder) = arm_meta.payload_binder {
+            // Phase 17 m9-009: Nested pattern binding
+            // If pattern_binding is Some, invoke lower_pattern instead of legacy payload load
+            if let Some(ref pattern_binding) = arm_meta.pattern_binding {
+                self.state.local_bindings.push_scope();
+                let mut slot = 0u32;
+                self.lower_pattern(
+                    pattern_binding,
+                    RegId(7), // RDI = base register (scrutinee pointer)
+                    0,        // base_offset
+                    arm_id,
+                    &mut slot,
+                    arena,
+                    (8, false), // default: u64 unsigned
+                );
+                // Note: pop_scope happens after emit_block_body_arm below
+            } else if let Some(ref _binder) = arm_meta.payload_binder {
+                // Legacy single-payload binder (from #986)
                 if layout_payload_size > 0 {
                     let payload_load_id = IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10 + 2)
                         .expect("payload load id");
@@ -4672,6 +4883,11 @@ impl EmitWalker {
                     IrKind::Action => self.emit_block_body_arm(arm_id, arena, typer),
                     _ => {}
                 }
+            }
+
+            // Pop nested pattern scope if we pushed one
+            if arm_meta.pattern_binding.is_some() {
+                self.state.local_bindings.pop_scope();
             }
 
             // Emit jmp end
@@ -7604,6 +7820,7 @@ mod tests {
                 variant_index: None,
                 payload_binder: None,
                 is_default: true,
+                pattern_binding: None,
             },
         );
 
@@ -7637,6 +7854,7 @@ mod tests {
                 variant_index: Some(0),
                 payload_binder: None,
                 is_default: false,
+                pattern_binding: None,
             },
         );
         arena.match_arm_meta_mut().insert(
@@ -7645,6 +7863,7 @@ mod tests {
                 variant_index: Some(1),
                 payload_binder: None,
                 is_default: false,
+                pattern_binding: None,
             },
         );
 
@@ -9073,6 +9292,7 @@ mod tests {
                     variant_index: if *is_default { None } else { Some(*variant_idx) },
                     payload_binder: payload_binder.clone(),
                     is_default: *is_default,
+                    pattern_binding: None,
                 },
             );
         }
@@ -9346,6 +9566,7 @@ mod tests {
                 variant_index: Some(0),
                 payload_binder: None,
                 is_default: false,
+                pattern_binding: None,
             },
         );
 
@@ -9381,5 +9602,680 @@ mod tests {
 
         assert!(!walker.diagnostics().is_empty());
         assert!(walker.diagnostics()[0].contains("MatchArmMeta"));
+    }
+
+    // ── Phase 17 m9-009 nested pattern binding tests ─────────────────
+
+    #[test]
+    fn nested_record_simple_two_fields() {
+        // Pattern: Point { x, y } (two u64 fields)
+        use paideia_as_ir::{PatternBinding, RecordLayout, FieldLayout};
+        use paideia_as_ir::record_layout::RecordTypeId;
+
+        let mut arena = IrArena::new();
+        let scrutinee_id = arena.alloc(IrKind::Var, span());
+        let arm_id = arena.alloc(IrKind::Action, span());
+        let match_id = arena.alloc_with_children(IrKind::Match, span(), [scrutinee_id, arm_id]);
+
+        // Register match metadata with nested pattern
+        arena.match_scrutinee_table_mut().insert(match_id, EnumTypeId(1));
+
+        let pattern = PatternBinding::Record {
+            type_id: RecordTypeId(100),
+            fields: vec![
+                ("x".to_string(), PatternBinding::Simple("x_var".to_string())),
+                ("y".to_string(), PatternBinding::Simple("y_var".to_string())),
+            ],
+        };
+
+        arena.match_arm_meta_mut().insert(
+            arm_id,
+            paideia_as_ir::MatchArmMeta {
+                variant_index: Some(0),
+                payload_binder: None,
+                is_default: false,
+                pattern_binding: Some(pattern),
+            },
+        );
+
+        // Create record layout with field names
+        let rec_layout = RecordLayout::with_field_names(
+            16,
+            8,
+            vec![
+                FieldLayout { offset: 0, size: 8, signed: false },
+                FieldLayout { offset: 8, size: 8, signed: false },
+            ],
+            vec!["x".to_string(), "y".to_string()],
+        );
+
+        let mut walker = EmitWalker::new();
+        walker.state_mut().enum_layouts.insert(EnumTypeId(1), EnumLayout::new(16));
+        walker.state_mut().record_layouts.insert(RecordTypeId(100), rec_layout);
+        walker.walk(&mut arena);
+
+        assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());
+
+        // Byte-exact: verify TWO loads emitted, one at [rdi+0] into RCX,
+        // one at [rdi+8] into RDX.
+        // mov rcx, [rdi+0]  → 48 8B 0F  (no disp)
+        // mov rdx, [rdi+8]  → 48 8B 57 08
+        let moves = collect_move_bytes(&walker);
+        let load_from_rdi0_into_rcx = &[0x48u8, 0x8B, 0x0F][..];
+        let load_from_rdi8_into_rdx = &[0x48u8, 0x8B, 0x57, 0x08][..];
+        assert!(
+            moves.iter().any(|b| b.as_slice() == load_from_rdi0_into_rcx),
+            "expected `mov rcx, [rdi+0]` in emitted moves; got {:?}",
+            moves
+        );
+        assert!(
+            moves.iter().any(|b| b.as_slice() == load_from_rdi8_into_rdx),
+            "expected `mov rdx, [rdi+8]` in emitted moves; got {:?}",
+            moves
+        );
+    }
+
+    #[test]
+    fn nested_enum_over_leaf() {
+        // Pattern: Ok(x) — regression parity with #986
+        use paideia_as_ir::PatternBinding;
+
+        let mut arena = IrArena::new();
+        let scrutinee_id = arena.alloc(IrKind::Var, span());
+        let arm_id = arena.alloc(IrKind::Action, span());
+        let match_id = arena.alloc_with_children(IrKind::Match, span(), [scrutinee_id, arm_id]);
+
+        arena.match_scrutinee_table_mut().insert(match_id, EnumTypeId(1));
+
+        let pattern = PatternBinding::EnumVariant {
+            variant_index: 0,
+            payload_type: None,
+            payload: Some(Box::new(PatternBinding::Simple("payload_var".to_string()))),
+        };
+
+        arena.match_arm_meta_mut().insert(
+            arm_id,
+            paideia_as_ir::MatchArmMeta {
+                variant_index: Some(0),
+                payload_binder: None,
+                is_default: false,
+                pattern_binding: Some(pattern),
+            },
+        );
+
+        let mut walker = EmitWalker::new();
+        walker.state_mut().enum_layouts.insert(EnumTypeId(1), EnumLayout::new(8));
+        walker.walk(&mut arena);
+
+        assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());
+    }
+
+    #[test]
+    fn nested_enum_over_record() {
+        // Pattern: Ok(Point { x, y })
+        use paideia_as_ir::{PatternBinding, RecordLayout, FieldLayout};
+        use paideia_as_ir::record_layout::RecordTypeId;
+
+        let mut arena = IrArena::new();
+        let scrutinee_id = arena.alloc(IrKind::Var, span());
+        let arm_id = arena.alloc(IrKind::Action, span());
+        let match_id = arena.alloc_with_children(IrKind::Match, span(), [scrutinee_id, arm_id]);
+
+        arena.match_scrutinee_table_mut().insert(match_id, EnumTypeId(1));
+
+        let record_pattern = PatternBinding::Record {
+            type_id: RecordTypeId(200),
+            fields: vec![
+                ("x".to_string(), PatternBinding::Simple("x_var".to_string())),
+                ("y".to_string(), PatternBinding::Simple("y_var".to_string())),
+            ],
+        };
+
+        let pattern = PatternBinding::EnumVariant {
+            variant_index: 0,
+            payload_type: Some(RecordTypeId(200)),
+            payload: Some(Box::new(record_pattern)),
+        };
+
+        arena.match_arm_meta_mut().insert(
+            arm_id,
+            paideia_as_ir::MatchArmMeta {
+                variant_index: Some(0),
+                payload_binder: None,
+                is_default: false,
+                pattern_binding: Some(pattern),
+            },
+        );
+
+        let rec_layout = RecordLayout::with_field_names(
+            16,
+            8,
+            vec![
+                FieldLayout { offset: 0, size: 8, signed: false },
+                FieldLayout { offset: 8, size: 8, signed: false },
+            ],
+            vec!["x".to_string(), "y".to_string()],
+        );
+
+        let mut walker = EmitWalker::new();
+        walker.state_mut().enum_layouts.insert(EnumTypeId(1), EnumLayout::new(16));
+        walker.state_mut().record_layouts.insert(RecordTypeId(200), rec_layout);
+        walker.walk(&mut arena);
+
+        assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());
+    }
+
+    #[test]
+    fn nested_record_over_enum_over_record() {
+        // Pattern: Container { field: Ok(Point { x, y }) }
+        use paideia_as_ir::{PatternBinding, RecordLayout, FieldLayout};
+        use paideia_as_ir::record_layout::RecordTypeId;
+
+        let mut arena = IrArena::new();
+        let scrutinee_id = arena.alloc(IrKind::Var, span());
+        let arm_id = arena.alloc(IrKind::Action, span());
+        let match_id = arena.alloc_with_children(IrKind::Match, span(), [scrutinee_id, arm_id]);
+
+        arena.match_scrutinee_table_mut().insert(match_id, EnumTypeId(1));
+
+        // Inner record: Point { x, y }
+        let point_pattern = PatternBinding::Record {
+            type_id: RecordTypeId(200),
+            fields: vec![
+                ("x".to_string(), PatternBinding::Simple("x_var".to_string())),
+                ("y".to_string(), PatternBinding::Simple("y_var".to_string())),
+            ],
+        };
+
+        // Enum variant: Ok(Point { x, y })
+        let ok_pattern = PatternBinding::EnumVariant {
+            variant_index: 0,
+            payload_type: Some(RecordTypeId(200)),
+            payload: Some(Box::new(point_pattern)),
+        };
+
+        // Outer record: Container { field: Ok(...) }
+        let container_pattern = PatternBinding::Record {
+            type_id: RecordTypeId(300),
+            fields: vec![("field".to_string(), ok_pattern)],
+        };
+
+        arena.match_arm_meta_mut().insert(
+            arm_id,
+            paideia_as_ir::MatchArmMeta {
+                variant_index: Some(0),
+                payload_binder: None,
+                is_default: false,
+                pattern_binding: Some(container_pattern),
+            },
+        );
+
+        let point_layout = RecordLayout::with_field_names(
+            16,
+            8,
+            vec![
+                FieldLayout { offset: 0, size: 8, signed: false },
+                FieldLayout { offset: 8, size: 8, signed: false },
+            ],
+            vec!["x".to_string(), "y".to_string()],
+        );
+
+        let container_layout = RecordLayout::with_field_names(
+            16,
+            8,
+            vec![FieldLayout { offset: 0, size: 16, signed: false }],
+            vec!["field".to_string()],
+        );
+
+        let mut walker = EmitWalker::new();
+        walker.state_mut().enum_layouts.insert(EnumTypeId(1), EnumLayout::new(16));
+        walker.state_mut().record_layouts.insert(RecordTypeId(200), point_layout);
+        walker.state_mut().record_layouts.insert(RecordTypeId(300), container_layout);
+        walker.walk(&mut arena);
+
+        assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());
+    }
+
+    #[test]
+    fn nested_wildcard_at_leaf() {
+        // Pattern: Point { x, _ }
+        use paideia_as_ir::{PatternBinding, RecordLayout, FieldLayout};
+        use paideia_as_ir::record_layout::RecordTypeId;
+
+        let mut arena = IrArena::new();
+        let scrutinee_id = arena.alloc(IrKind::Var, span());
+        let arm_id = arena.alloc(IrKind::Action, span());
+        let match_id = arena.alloc_with_children(IrKind::Match, span(), [scrutinee_id, arm_id]);
+
+        arena.match_scrutinee_table_mut().insert(match_id, EnumTypeId(1));
+
+        let pattern = PatternBinding::Record {
+            type_id: RecordTypeId(100),
+            fields: vec![
+                ("x".to_string(), PatternBinding::Simple("x_var".to_string())),
+                ("y".to_string(), PatternBinding::Wildcard),
+            ],
+        };
+
+        arena.match_arm_meta_mut().insert(
+            arm_id,
+            paideia_as_ir::MatchArmMeta {
+                variant_index: Some(0),
+                payload_binder: None,
+                is_default: false,
+                pattern_binding: Some(pattern),
+            },
+        );
+
+        let rec_layout = RecordLayout::with_field_names(
+            16,
+            8,
+            vec![
+                FieldLayout { offset: 0, size: 8, signed: false },
+                FieldLayout { offset: 8, size: 8, signed: false },
+            ],
+            vec!["x".to_string(), "y".to_string()],
+        );
+
+        let mut walker = EmitWalker::new();
+        walker.state_mut().enum_layouts.insert(EnumTypeId(1), EnumLayout::new(16));
+        walker.state_mut().record_layouts.insert(RecordTypeId(100), rec_layout);
+        walker.walk(&mut arena);
+
+        assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());
+    }
+
+    /// Helper: collect all emitted Mov-family instructions (Mov, MovSized,
+    /// Movzx, Movsx) from a walker's state in ir-node-id order, encode each
+    /// via the real encoder, and return the byte sequences.
+    fn collect_move_bytes(walker: &EmitWalker) -> Vec<Vec<u8>> {
+        let mut ids: Vec<(&IrNodeId, &Instruction)> =
+            walker.state().instructions.entries().iter().collect();
+        ids.sort_by_key(|(id, _)| id.get());
+        let mut out = Vec::new();
+        let mut stats = paideia_as_encoder::EncodeStats::new();
+        for (_id, inst) in ids {
+            let is_move = matches!(
+                inst.mnemonic,
+                Mnemonic::Mov
+                    | Mnemonic::MovSized { .. }
+                    | Mnemonic::Movzx { .. }
+                    | Mnemonic::Movsx { .. }
+            );
+            if !is_move {
+                continue;
+            }
+            let mut buf = paideia_as_encoder::CodeBuffer::new();
+            if paideia_as_encoder::encode_instruction(inst, &mut buf, &mut stats).is_ok() {
+                out.push(buf.as_slice().to_vec());
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn nested_byte_exact_enum_over_record_offsets() {
+        // Pattern: Ok(Point { x: u8, y: u64 }) — verify byte offsets
+        use paideia_as_ir::{PatternBinding, RecordLayout, FieldLayout};
+        use paideia_as_ir::record_layout::RecordTypeId;
+
+        let mut arena = IrArena::new();
+        let scrutinee_id = arena.alloc(IrKind::Var, span());
+        let arm_id = arena.alloc(IrKind::Action, span());
+        let match_id = arena.alloc_with_children(IrKind::Match, span(), [scrutinee_id, arm_id]);
+
+        arena.match_scrutinee_table_mut().insert(match_id, EnumTypeId(1));
+
+        let record_pattern = PatternBinding::Record {
+            type_id: RecordTypeId(200),
+            fields: vec![
+                ("x".to_string(), PatternBinding::Simple("x_var".to_string())),
+                ("y".to_string(), PatternBinding::Simple("y_var".to_string())),
+            ],
+        };
+
+        let pattern = PatternBinding::EnumVariant {
+            variant_index: 0,
+            payload_type: Some(RecordTypeId(200)),
+            payload: Some(Box::new(record_pattern)),
+        };
+
+        arena.match_arm_meta_mut().insert(
+            arm_id,
+            paideia_as_ir::MatchArmMeta {
+                variant_index: Some(0),
+                payload_binder: None,
+                is_default: false,
+                pattern_binding: Some(pattern),
+            },
+        );
+
+        // Point layout: x at offset 0 (u8), y at offset 8 (u64)
+        let rec_layout = RecordLayout::with_field_names(
+            16,
+            8,
+            vec![
+                FieldLayout { offset: 0, size: 1, signed: false },
+                FieldLayout { offset: 8, size: 8, signed: false },
+            ],
+            vec!["x".to_string(), "y".to_string()],
+        );
+
+        let mut walker = EmitWalker::new();
+        walker.state_mut().enum_layouts.insert(EnumTypeId(1), EnumLayout::new(16));
+        walker.state_mut().record_layouts.insert(RecordTypeId(200), rec_layout);
+        walker.walk(&mut arena);
+
+        assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());
+
+        // Byte-exact: Ok's payload sits at [rdi+8], Point's fields nest inside:
+        //   x (u8) at [rdi + 8 + 0] = [rdi+8]  → movzx rcx, byte [rdi+8]
+        //   y (u64) at [rdi + 8 + 8] = [rdi+16] → mov rdx, [rdi+16]
+        // movzx rcx, byte [rdi+8]  → 48 0F B6 4F 08
+        // mov rdx, qword [rdi+16]  → 48 8B 57 10
+        let moves = collect_move_bytes(&walker);
+        let movzx_u8_rdi8_rcx = &[0x48u8, 0x0F, 0xB6, 0x4F, 0x08][..];
+        let mov_u64_rdi16_rdx = &[0x48u8, 0x8B, 0x57, 0x10][..];
+        assert!(
+            moves.iter().any(|b| b.as_slice() == movzx_u8_rdi8_rcx),
+            "expected `movzx rcx, byte [rdi+8]`; got {:?}",
+            moves
+        );
+        assert!(
+            moves.iter().any(|b| b.as_slice() == mov_u64_rdi16_rdx),
+            "expected `mov rdx, [rdi+16]`; got {:?}",
+            moves
+        );
+    }
+
+    #[test]
+    fn nested_byte_exact_record_over_enum_offsets() {
+        // Pattern: Container { field: Ok(v) } — field is enum (16-byte struct)
+        // But when matching, we load the enum's discriminant (u64) from the field
+        use paideia_as_ir::{PatternBinding, RecordLayout, FieldLayout};
+        use paideia_as_ir::record_layout::RecordTypeId;
+
+        let mut arena = IrArena::new();
+        let scrutinee_id = arena.alloc(IrKind::Var, span());
+        let arm_id = arena.alloc(IrKind::Action, span());
+        let match_id = arena.alloc_with_children(IrKind::Match, span(), [scrutinee_id, arm_id]);
+
+        arena.match_scrutinee_table_mut().insert(match_id, EnumTypeId(1));
+
+        let ok_pattern = PatternBinding::EnumVariant {
+            variant_index: 0,
+            payload_type: None,
+            payload: Some(Box::new(PatternBinding::Simple("v".to_string()))),
+        };
+
+        let container_pattern = PatternBinding::Record {
+            type_id: RecordTypeId(300),
+            fields: vec![("field".to_string(), ok_pattern)],
+        };
+
+        arena.match_arm_meta_mut().insert(
+            arm_id,
+            paideia_as_ir::MatchArmMeta {
+                variant_index: Some(0),
+                payload_binder: None,
+                is_default: false,
+                pattern_binding: Some(container_pattern),
+            },
+        );
+
+        // Container has a field "field" that's an enum (size 16, aligned 8)
+        // But the first field's size is 8 (the discriminant part)
+        let container_layout = RecordLayout::with_field_names(
+            16,
+            8,
+            vec![FieldLayout { offset: 0, size: 8, signed: false }],
+            vec!["field".to_string()],
+        );
+
+        let mut walker = EmitWalker::new();
+        walker.state_mut().enum_layouts.insert(EnumTypeId(1), EnumLayout::new(16));
+        walker.state_mut().record_layouts.insert(RecordTypeId(300), container_layout);
+        walker.walk(&mut arena);
+
+        assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());
+
+        // Byte-exact: Container's "field" at offset 0, then descend into Ok which
+        // shifts by enum payload_offset (+8). The leaf `v` sits at [rdi + 0 + 8] = [rdi+8].
+        // First (and only) leaf goes into RCX (first scratch after RAX reserved for disc).
+        // mov rcx, [rdi+8] → 48 8B 4F 08
+        let moves = collect_move_bytes(&walker);
+        let mov_u64_rdi8_rcx = &[0x48u8, 0x8B, 0x4F, 0x08][..];
+        assert!(
+            moves.iter().any(|b| b.as_slice() == mov_u64_rdi8_rcx),
+            "expected `mov rcx, [rdi+8]`; got {:?}",
+            moves
+        );
+    }
+
+    #[test]
+    fn nested_multiple_sibling_bindings_widths() {
+        // Pattern: Rect { a: i8, b: i16, c: u32, d: u64 } — mixed widths
+        use paideia_as_ir::{PatternBinding, RecordLayout, FieldLayout};
+        use paideia_as_ir::record_layout::RecordTypeId;
+
+        let mut arena = IrArena::new();
+        let scrutinee_id = arena.alloc(IrKind::Var, span());
+        let arm_id = arena.alloc(IrKind::Action, span());
+        let match_id = arena.alloc_with_children(IrKind::Match, span(), [scrutinee_id, arm_id]);
+
+        arena.match_scrutinee_table_mut().insert(match_id, EnumTypeId(1));
+
+        let pattern = PatternBinding::Record {
+            type_id: RecordTypeId(100),
+            fields: vec![
+                ("a".to_string(), PatternBinding::Simple("a_var".to_string())),
+                ("b".to_string(), PatternBinding::Simple("b_var".to_string())),
+                ("c".to_string(), PatternBinding::Simple("c_var".to_string())),
+                ("d".to_string(), PatternBinding::Simple("d_var".to_string())),
+            ],
+        };
+
+        arena.match_arm_meta_mut().insert(
+            arm_id,
+            paideia_as_ir::MatchArmMeta {
+                variant_index: Some(0),
+                payload_binder: None,
+                is_default: false,
+                pattern_binding: Some(pattern),
+            },
+        );
+
+        let rec_layout = RecordLayout::with_field_names(
+            24,
+            8,
+            vec![
+                FieldLayout { offset: 0, size: 1, signed: true },
+                FieldLayout { offset: 2, size: 2, signed: true },
+                FieldLayout { offset: 4, size: 4, signed: false },
+                FieldLayout { offset: 8, size: 8, signed: false },
+            ],
+            vec!["a".to_string(), "b".to_string(), "c".to_string(), "d".to_string()],
+        );
+
+        let mut walker = EmitWalker::new();
+        walker.state_mut().enum_layouts.insert(EnumTypeId(1), EnumLayout::new(24));
+        walker.state_mut().record_layouts.insert(RecordTypeId(100), rec_layout);
+        walker.walk(&mut arena);
+
+        assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());
+    }
+
+    #[test]
+    fn nested_missing_payload_layout_diagnostic() {
+        // Pattern: Ok(Point{x,y}) but Point layout is absent
+        use paideia_as_ir::{PatternBinding, RecordLayout, FieldLayout};
+        use paideia_as_ir::record_layout::RecordTypeId;
+
+        let mut arena = IrArena::new();
+        let scrutinee_id = arena.alloc(IrKind::Var, span());
+        let arm_id = arena.alloc(IrKind::Action, span());
+        let match_id = arena.alloc_with_children(IrKind::Match, span(), [scrutinee_id, arm_id]);
+
+        arena.match_scrutinee_table_mut().insert(match_id, EnumTypeId(1));
+
+        let record_pattern = PatternBinding::Record {
+            type_id: RecordTypeId(200), // This layout is NOT registered
+            fields: vec![
+                ("x".to_string(), PatternBinding::Simple("x_var".to_string())),
+                ("y".to_string(), PatternBinding::Simple("y_var".to_string())),
+            ],
+        };
+
+        let pattern = PatternBinding::EnumVariant {
+            variant_index: 0,
+            payload_type: Some(RecordTypeId(200)),
+            payload: Some(Box::new(record_pattern)),
+        };
+
+        arena.match_arm_meta_mut().insert(
+            arm_id,
+            paideia_as_ir::MatchArmMeta {
+                variant_index: Some(0),
+                payload_binder: None,
+                is_default: false,
+                pattern_binding: Some(pattern),
+            },
+        );
+
+        let mut walker = EmitWalker::new();
+        walker.state_mut().enum_layouts.insert(EnumTypeId(1), EnumLayout::new(16));
+        // Intentionally missing RecordTypeId(200)
+        walker.walk(&mut arena);
+
+        // Should emit diagnostic about missing layout
+        assert!(!walker.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn nested_wildcard_at_multiple_levels() {
+        // Pattern: Container { field: Ok(_) }
+        use paideia_as_ir::{PatternBinding, RecordLayout, FieldLayout};
+        use paideia_as_ir::record_layout::RecordTypeId;
+
+        let mut arena = IrArena::new();
+        let scrutinee_id = arena.alloc(IrKind::Var, span());
+        let arm_id = arena.alloc(IrKind::Action, span());
+        let match_id = arena.alloc_with_children(IrKind::Match, span(), [scrutinee_id, arm_id]);
+
+        arena.match_scrutinee_table_mut().insert(match_id, EnumTypeId(1));
+
+        let ok_pattern = PatternBinding::EnumVariant {
+            variant_index: 0,
+            payload_type: None,
+            payload: Some(Box::new(PatternBinding::Wildcard)),
+        };
+
+        let container_pattern = PatternBinding::Record {
+            type_id: RecordTypeId(300),
+            fields: vec![("field".to_string(), ok_pattern)],
+        };
+
+        arena.match_arm_meta_mut().insert(
+            arm_id,
+            paideia_as_ir::MatchArmMeta {
+                variant_index: Some(0),
+                payload_binder: None,
+                is_default: false,
+                pattern_binding: Some(container_pattern),
+            },
+        );
+
+        let container_layout = RecordLayout::with_field_names(
+            16,
+            8,
+            vec![FieldLayout { offset: 0, size: 16, signed: false }],
+            vec!["field".to_string()],
+        );
+
+        let mut walker = EmitWalker::new();
+        walker.state_mut().enum_layouts.insert(EnumTypeId(1), EnumLayout::new(16));
+        walker.state_mut().record_layouts.insert(RecordTypeId(300), container_layout);
+        walker.walk(&mut arena);
+
+        assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());
+    }
+
+    #[test]
+    fn nested_smoke_no_panic_on_deep_nesting() {
+        // 4-level deep nesting: no panic, no diagnostics expected
+        use paideia_as_ir::{PatternBinding, RecordLayout, FieldLayout};
+        use paideia_as_ir::record_layout::RecordTypeId;
+
+        let mut arena = IrArena::new();
+        let scrutinee_id = arena.alloc(IrKind::Var, span());
+        let arm_id = arena.alloc(IrKind::Action, span());
+        let match_id = arena.alloc_with_children(IrKind::Match, span(), [scrutinee_id, arm_id]);
+
+        arena.match_scrutinee_table_mut().insert(match_id, EnumTypeId(1));
+
+        // Level 4: A { f: simple }
+        let level4 = PatternBinding::Record {
+            type_id: RecordTypeId(104),
+            fields: vec![("f".to_string(), PatternBinding::Simple("f_var".to_string()))],
+        };
+
+        // Level 3: B { field: level4 }
+        let level3 = PatternBinding::Record {
+            type_id: RecordTypeId(103),
+            fields: vec![("field".to_string(), level4)],
+        };
+
+        // Level 2: Ok(level3)
+        let level2 = PatternBinding::EnumVariant {
+            variant_index: 0,
+            payload_type: Some(RecordTypeId(103)),
+            payload: Some(Box::new(level3)),
+        };
+
+        // Level 1: C { field: level2 }
+        let level1 = PatternBinding::Record {
+            type_id: RecordTypeId(102),
+            fields: vec![("field".to_string(), level2)],
+        };
+
+        arena.match_arm_meta_mut().insert(
+            arm_id,
+            paideia_as_ir::MatchArmMeta {
+                variant_index: Some(0),
+                payload_binder: None,
+                is_default: false,
+                pattern_binding: Some(level1),
+            },
+        );
+
+        let a_layout = RecordLayout::with_field_names(
+            8,
+            8,
+            vec![FieldLayout { offset: 0, size: 8, signed: false }],
+            vec!["f".to_string()],
+        );
+
+        let b_layout = RecordLayout::with_field_names(
+            8,
+            8,
+            vec![FieldLayout { offset: 0, size: 8, signed: false }],
+            vec!["field".to_string()],
+        );
+
+        let c_layout = RecordLayout::with_field_names(
+            8,
+            8,
+            vec![FieldLayout { offset: 0, size: 8, signed: false }],
+            vec!["field".to_string()],
+        );
+
+        let mut walker = EmitWalker::new();
+        walker.state_mut().enum_layouts.insert(EnumTypeId(1), EnumLayout::new(8));
+        walker.state_mut().record_layouts.insert(RecordTypeId(102), c_layout);
+        walker.state_mut().record_layouts.insert(RecordTypeId(103), b_layout);
+        walker.state_mut().record_layouts.insert(RecordTypeId(104), a_layout);
+        walker.walk(&mut arena);
+
+        assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());
     }
 }
