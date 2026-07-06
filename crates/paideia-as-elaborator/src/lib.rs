@@ -15,6 +15,7 @@ pub mod check_body_shape;
 pub mod check_bounds;
 pub mod check_coherence;
 pub mod check_expr;
+pub mod check_fn_ptr_sig;
 pub mod check_handler;
 pub mod check_lambda;
 pub mod check_linearity;
@@ -75,6 +76,7 @@ pub use check_bounds::{
     BoundCache, BoundResolution, T_UNSATISFIED_BOUND, resolve_bound, unsatisfied_bound_diagnostic,
 };
 pub use check_expr::{InferOutcome, check_annotation, infer_node};
+pub use check_fn_ptr_sig::{T_FN_PTR_SIG_MISMATCH, check_fn_ptr_assignment};
 pub use check_handler::{F_HANDLER_MISMATCH, HandlerImpl, check_handler, check_resume};
 pub use check_lambda::{S_ILLEGAL_CAPTURE, check_lambda};
 pub use check_linearity::{

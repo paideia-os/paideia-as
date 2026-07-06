@@ -141,7 +141,44 @@ Pattern matching in the elaborator, visitor traits, and reflection APIs uses the
 - **No paideia-os integration**: The stdlib will use function-pointer types for vops and capability dispatch, but that is outside the paideia-as scope.
 - **No lexer keyword additions**: The `->` operator and `!{...} @{...}` syntax already exist; no new keywords are needed.
 
-## 11. Cross-references
+## 12. Type Checking (issue #980)
+
+**Status**: Implementation in paideia-as-elaborator; phase-1 library relation without end-to-end plumbing.
+
+The function-pointer type checker validates assignment compatibility when a let-binding annotated with a function-pointer type receives a value. The check ensures that the value's signature is compatible with the annotated signature.
+
+### Assignment Rule
+
+When elaborating `let f : (T₁, T₂, ...) -> R !{eff} @{cap} = expr`, the elaborator verifies that `expr`'s type (call it `(S₁, S₂, ...) -> R' !{eff'} @{cap'}`) satisfies all of the following:
+
+1. **Arity**: `len([T₁, T₂, ...]) == len([S₁, S₂, ...])`
+2. **Parameter invariance**: For each `i`, `Tᵢ` and `Sᵢ` must unify (both directions, strict).
+3. **Return invariance**: `R` and `R'` must unify (both directions, strict).
+4. **Effect subset**: `eff'` ⊆ `eff` (source's effects must not exceed target's).
+5. **Capability subset**: `cap'` ⊆ `cap` (source's required capabilities must not exceed target's).
+
+### Variance Rationale
+
+Parameters and return types use **invariant** unification (no variance) in phase 1 per standard ML typing discipline. This prevents unsoundness in the presence of effects and capabilities. Variance will be revisited in a later phase if covariance/contravariance proofs are added.
+
+Effect and capability subsets are ordered differently:
+- **Widening on assignment is safe**: a pure function (`eff = ∅`) can be assigned to a binding expecting an effectful function (`eff = {io, ...}`); the assignment constrains the binding to never actually invoke effects.
+- **Narrowing is unsafe**: a function requiring effects (`eff' = {io}`) cannot be assigned to a pure binding (`eff = ∅`); the binding would be violated if called.
+
+### Diagnostic Model
+
+The checker emits a single `T0535` error per call site (short-circuit on first structural mismatch) with structured diagnostic notes indicating the specific failure reason:
+- "arity mismatch: expected N, found M"
+- "parameter i type mismatch: expected ..., found ..."
+- "return type mismatch: expected ..., found ..."
+- "effect row not subset: source may perform effects not permitted by target; extra effects: [...]"
+- "capability set not subset: source requires capabilities not held by target; extra capabilities: [...]"
+
+### Availability
+
+The `check_fn_ptr_assignment` function is available as a library relation in `paideia_as_elaborator::check_fn_ptr_sig`. End-to-end integration into let-binding elaboration awaits issue #981 (function references).
+
+## 13. Cross-references
 
 - `design/toolchain/fnptr-unsafe-pattern.md` — rationale for function-pointer safety constraints and why effects/caps are necessary
 - `design/phase-4/records-enums.md` — record types that contain function-pointer fields (vops shape)

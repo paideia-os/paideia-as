@@ -974,6 +974,15 @@ description = "Phase 13 m6-001 (PA13-001): When encoding mov r8, [mem] with dest
 since = "0.13.0"
 deprecated = false
 
+[diagnostic.T0535]
+severity = "error"
+category = "type"
+title = "Function-pointer signature mismatch in assignment"
+brief = "assignee's fn-ptr signature does not match target binding"
+description = "Issue #980 (pa-r17-002): a let-binding annotated with a function-pointer type receives a value whose signature does not match. Signature matching requires: (1) equal arity, (2) invariant parameter types, (3) invariant return type, (4) source's effect row must be a subset of the target's (widening on assignment is safe; narrowing is not), (5) source's capability set must be a subset of the target's. The specific mismatch reason appears in the diagnostic's notes."
+since = "0.17.0"
+deprecated = false
+
 [diagnostic.E0019]
 severity = "error"
 category = "lexer"
