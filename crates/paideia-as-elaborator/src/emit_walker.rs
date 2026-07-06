@@ -10,7 +10,7 @@ use paideia_as_ir::instruction::{
 use paideia_as_ir::record_layout::{FieldLayout, RecordLayout, RecordTypeId};
 use paideia_as_ir::{
     DataEntry, DataSideTable, EnumLayout, EnumTypeId, IrArena, IrKind, IrNodeId, SmallVec, Symbol,
-    SymbolKind,
+    SymbolKind, abi,
 };
 use std::collections::HashMap;
 
@@ -985,8 +985,8 @@ impl EmitWalker {
     fn visit_let_literal(&mut self, let_node_id: IrNodeId, value: i64, width: Option<IntWidth>) {
         let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
 
-        // Destination: rax (RegId(0)).
-        operands.push(Operand::Reg(RegId(0)));
+        // Destination: rax (abi::RAX).
+        operands.push(Operand::Reg(abi::RAX));
 
         // Source: immediate value.
         operands.push(Operand::Imm64(value));
@@ -1045,7 +1045,7 @@ impl EmitWalker {
         arena: &IrArena,
     ) {
         // Scratch register sequence (calling-convention scratch registers).
-        let scratch_regs = [RegId(0), RegId(1), RegId(2), RegId(8)]; // RAX, RCX, RDX, R8
+        let scratch_regs = [abi::RAX, abi::RCX, abi::RDX, abi::R8]; // RAX, RCX, RDX, R8
 
         // Check if we've exceeded register pressure.
         if self.state.scratch_assignment.len() >= scratch_regs.len() {
@@ -1146,21 +1146,21 @@ impl EmitWalker {
     /// Get the System V calling-convention register for parameter index.
     ///
     /// Map parameter index to register per x86-64 calling convention:
-    /// 0 → RDI (RegId(7))
-    /// 1 → RSI (RegId(6))
-    /// 2 → RDX (RegId(2))
-    /// 3 → RCX (RegId(1))
-    /// 4 → R8  (RegId(8))
-    /// 5 → R9  (RegId(9))
+    /// 0 → RDI (abi::RDI)
+    /// 1 → RSI (abi::RSI)
+    /// 2 → RDX (abi::RDX)
+    /// 3 → RCX (abi::RCX)
+    /// 4 → R8  (abi::R8)
+    /// 5 → R9  (abi::R9)
     /// 6+ → stack (not supported in phase-8 m1)
     fn param_index_to_reg(param_index: usize) -> Option<RegId> {
         match param_index {
-            0 => Some(RegId(7)), // RDI
-            1 => Some(RegId(6)), // RSI
-            2 => Some(RegId(2)), // RDX
-            3 => Some(RegId(1)), // RCX
-            4 => Some(RegId(8)), // R8
-            5 => Some(RegId(9)), // R9
+            0 => Some(abi::RDI), // RDI
+            1 => Some(abi::RSI), // RSI
+            2 => Some(abi::RDX), // RDX
+            3 => Some(abi::RCX), // RCX
+            4 => Some(abi::R8), // R8
+            5 => Some(abi::R9), // R9
             _ => None,           // Stack spill (not supported yet)
         }
     }
@@ -1597,14 +1597,14 @@ impl EmitWalker {
             .binding_names()
             .get(body_id)
             .and_then(|name| self.state.local_bindings.get(name))
-            .unwrap_or(RegId(7)); // RDI fallback for backward compat
+            .unwrap_or(abi::RDI); // RDI fallback for backward compat
 
         // PA8-m3-001 (generic Mov retained): this is a register-to-register move
         // (`mov rax, <src_reg>`). MovSized only encodes the `(Reg, Imm64)` shape, so it
         // cannot lower reg-reg moves; the generic Mov path is the only valid one.
         // Mov rax, <src_reg>: 48 89 XX (3 bytes, XX depends on src_reg)
         let mut mov_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        mov_operands.push(Operand::Reg(RegId(0))); // rax
+        mov_operands.push(Operand::Reg(abi::RAX)); // rax
         mov_operands.push(Operand::Reg(src_reg)); // src_reg (parameter)
 
         let mov_inst = Instruction {
@@ -1650,8 +1650,8 @@ impl EmitWalker {
         // not MovSized-encodable (MovSized is `(Reg, Imm64)` only).
         // mov rax, rdi: 48 89 f8 (3 bytes)
         let mut mov_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        mov_operands.push(Operand::Reg(RegId(0))); // rax
-        mov_operands.push(Operand::Reg(RegId(7))); // rdi (arg0)
+        mov_operands.push(Operand::Reg(abi::RAX)); // rax
+        mov_operands.push(Operand::Reg(abi::RDI)); // rdi (arg0)
 
         let mov_inst = Instruction {
             mnemonic: Mnemonic::Mov,
@@ -1666,7 +1666,7 @@ impl EmitWalker {
 
         // not rax: 48 f7 d0 (3 bytes) — REX.W F7 /2.
         let mut not_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        not_operands.push(Operand::Reg(RegId(0))); // rax
+        not_operands.push(Operand::Reg(abi::RAX)); // rax
 
         let not_inst = Instruction {
             mnemonic: Mnemonic::Not,
@@ -1739,8 +1739,8 @@ impl EmitWalker {
         let main_id = IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
         self.record_lambda_entry(lambda_node_id, main_id);
 
-        let dst = RegId(0); // rax
-        let src = RegId(7); // rdi/edi
+        let dst = abi::RAX; // rax
+        let src = abi::RDI; // rdi/edi
 
         let plan = cast_plan(shape);
         // First slot keyed on node*2; ret on node*2+1.
@@ -1777,10 +1777,10 @@ impl EmitWalker {
 
         // Lea rax, [rdi + rdi]: 48 8d 04 3f (4 bytes)
         let mut lea_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        lea_operands.push(Operand::Reg(RegId(0))); // rax (destination)
+        lea_operands.push(Operand::Reg(abi::RAX)); // rax (destination)
         lea_operands.push(Operand::MemSib {
-            base: RegId(7),        // rdi
-            index: Some(RegId(7)), // rdi
+            base: abi::RDI,        // rdi
+            index: Some(abi::RDI), // rdi
             scale: paideia_as_ir::instruction::Scale::X1,
             disp: 0,
         });
@@ -1831,8 +1831,8 @@ impl EmitWalker {
         arena: &IrArena,
     ) {
         let base = lambda_node_id.get();
-        let r11 = RegId(11);
-        let arg_regs = [RegId(7), RegId(6), RegId(2), RegId(1), RegId(8), RegId(9)];
+        let r11 = abi::R11;
+        let arg_regs = [abi::RDI, abi::RSI, abi::RDX, abi::RCX, abi::R8, abi::R9];
 
         // (1) mov r11, <callee_reg> — save fnptr BEFORE arg marshalling clobbers RDI/etc.
         let save_id = IrNodeId::new(base * 16).expect("save instr virtual id");
@@ -1939,7 +1939,7 @@ impl EmitWalker {
         self.record_lambda_entry(lambda_node_id, main_id);
 
         // ABI calling convention: arguments go to RDI, RSI, RDX, RCX, R8, R9
-        let arg_regs = [RegId(7), RegId(6), RegId(2), RegId(1), RegId(8), RegId(9)]; // RDI, RSI, RDX, RCX, R8, R9
+        let arg_regs = [abi::RDI, abi::RSI, abi::RDX, abi::RCX, abi::R8, abi::R9]; // RDI, RSI, RDX, RCX, R8, R9
 
         // Emit MOV instructions for each argument
         for (arg_idx, &arg_id) in arg_ids.iter().enumerate() {
@@ -1980,9 +1980,9 @@ impl EmitWalker {
                 IrKind::Var => {
                     // For Var arguments, check if it's a local binding or parameter
                     // For now, support copying from RDI (first parameter)
-                    if arg_idx == 0 && dest_reg != RegId(7) {
+                    if arg_idx == 0 && dest_reg != abi::RDI {
                         // Need to copy from RDI to another reg
-                        self.emit_mov_reg_to_reg(lambda_node_id, RegId(7), dest_reg);
+                        self.emit_mov_reg_to_reg(lambda_node_id, abi::RDI, dest_reg);
                     } else if arg_idx != 0 {
                         // Non-first-arg Var references require local binding lookup
                         self.diagnostics.push(format!(
@@ -2111,9 +2111,9 @@ impl EmitWalker {
 
         // Lea rax, [rdi + disp8]: 48 8d 47 NN (4 bytes)
         let mut lea_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        lea_operands.push(Operand::Reg(RegId(0))); // rax
+        lea_operands.push(Operand::Reg(abi::RAX)); // rax
         lea_operands.push(Operand::MemSib {
-            base: RegId(7), // rdi
+            base: abi::RDI, // rdi
             index: None,
             scale: paideia_as_ir::instruction::Scale::X1,
             disp,
@@ -2163,7 +2163,7 @@ impl EmitWalker {
         // MovSized at all.
         // Mov rax, imm64: 48 b8 XXXXXXXX XXXXXXXX (10 bytes, or fewer for smaller immediates)
         let mut mov1_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        mov1_operands.push(Operand::Reg(RegId(0))); // rax
+        mov1_operands.push(Operand::Reg(abi::RAX)); // rax
         mov1_operands.push(Operand::Imm64(const_val));
 
         let mov1_inst = Instruction {
@@ -2181,8 +2181,8 @@ impl EmitWalker {
         // Mov rcx, rdi: 48 89 f9 (3 bytes)
         // RDI holds the shift count (parameter 0)
         let mut mov2_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        mov2_operands.push(Operand::Reg(RegId(1))); // rcx
-        mov2_operands.push(Operand::Reg(RegId(7))); // rdi (arg0)
+        mov2_operands.push(Operand::Reg(abi::RCX)); // rcx
+        mov2_operands.push(Operand::Reg(abi::RDI)); // rdi (arg0)
 
         let mov2_inst = Instruction {
             mnemonic: Mnemonic::Mov,
@@ -2197,8 +2197,8 @@ impl EmitWalker {
 
         // Shl rax, cl: 48 d3 e0 (3 bytes)
         let mut shl_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        shl_operands.push(Operand::Reg(RegId(0))); // rax
-        shl_operands.push(Operand::Reg(RegId(1))); // rcx (implicit for variable shifts)
+        shl_operands.push(Operand::Reg(abi::RAX)); // rax
+        shl_operands.push(Operand::Reg(abi::RCX)); // rcx (implicit for variable shifts)
 
         let shl_inst = Instruction {
             mnemonic: Mnemonic::Shl,
@@ -2248,8 +2248,8 @@ impl EmitWalker {
 
         // Mov rax, rdi: 48 89 f8 (3 bytes)
         let mut mov_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        mov_operands.push(Operand::Reg(RegId(0))); // rax
-        mov_operands.push(Operand::Reg(RegId(7))); // rdi (arg0)
+        mov_operands.push(Operand::Reg(abi::RAX)); // rax
+        mov_operands.push(Operand::Reg(abi::RDI)); // rdi (arg0)
 
         let mov_inst = Instruction {
             mnemonic: Mnemonic::Mov,
@@ -2263,7 +2263,7 @@ impl EmitWalker {
 
         // Shl rax, imm8: 48 c1 e0 NN (4 bytes)
         let mut shl_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        shl_operands.push(Operand::Reg(RegId(0))); // rax
+        shl_operands.push(Operand::Reg(abi::RAX)); // rax
         shl_operands.push(Operand::Imm64(shift as i64));
 
         let shl_inst = Instruction {
@@ -2301,8 +2301,8 @@ impl EmitWalker {
         // `mov rcx, rsi`) are reg-to-reg and not MovSized-encodable.
         // Mov rax, rdi: 48 89 f8 (3 bytes)
         let mut mov1_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        mov1_operands.push(Operand::Reg(RegId(0))); // rax
-        mov1_operands.push(Operand::Reg(RegId(7))); // rdi (arg0)
+        mov1_operands.push(Operand::Reg(abi::RAX)); // rax
+        mov1_operands.push(Operand::Reg(abi::RDI)); // rdi (arg0)
 
         let mov1_inst = Instruction {
             mnemonic: Mnemonic::Mov,
@@ -2316,8 +2316,8 @@ impl EmitWalker {
 
         // Mov rcx, rsi: 48 89 f1 (3 bytes)
         let mut mov2_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        mov2_operands.push(Operand::Reg(RegId(1))); // rcx
-        mov2_operands.push(Operand::Reg(RegId(6))); // rsi (arg1)
+        mov2_operands.push(Operand::Reg(abi::RCX)); // rcx
+        mov2_operands.push(Operand::Reg(abi::RSI)); // rsi (arg1)
 
         let mov2_inst = Instruction {
             mnemonic: Mnemonic::Mov,
@@ -2332,8 +2332,8 @@ impl EmitWalker {
 
         // Shl rax, cl: 48 d3 e0 (3 bytes)
         let mut shl_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        shl_operands.push(Operand::Reg(RegId(0))); // rax
-        shl_operands.push(Operand::Reg(RegId(1))); // rcx (implicit for variable shifts)
+        shl_operands.push(Operand::Reg(abi::RAX)); // rax
+        shl_operands.push(Operand::Reg(abi::RCX)); // rcx (implicit for variable shifts)
 
         let shl_inst = Instruction {
             mnemonic: Mnemonic::Shl,
@@ -2380,7 +2380,7 @@ impl EmitWalker {
         }
 
         // Scratch register sequence for in-block let bindings.
-        let scratch_regs = [RegId(0), RegId(1), RegId(2), RegId(8)]; // RAX, RCX, RDX, R8
+        let scratch_regs = [abi::RAX, abi::RCX, abi::RDX, abi::R8]; // RAX, RCX, RDX, R8
 
         // Walk all children: statements + optional tail.
         for (i, &child_id) in block_children.iter().enumerate() {
@@ -2594,8 +2594,8 @@ impl EmitWalker {
                         let test_id =
                             IrNodeId::new(child_id.get() * 3).expect("branch test instr id");
                         let mut test_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-                        test_operands.push(Operand::Reg(RegId(0))); // rax
-                        test_operands.push(Operand::Reg(RegId(0))); // rax
+                        test_operands.push(Operand::Reg(abi::RAX)); // rax
+                        test_operands.push(Operand::Reg(abi::RAX)); // rax
 
                         let test_inst = Instruction {
                             mnemonic: Mnemonic::Test,
@@ -2758,7 +2758,7 @@ impl EmitWalker {
         }
 
         // Scratch register sequence for in-block let bindings.
-        let scratch_regs = [RegId(0), RegId(1), RegId(2), RegId(8)]; // RAX, RCX, RDX, R8
+        let scratch_regs = [abi::RAX, abi::RCX, abi::RDX, abi::R8]; // RAX, RCX, RDX, R8
 
         // Walk all children: statements + optional tail.
         for (i, &child_id) in block_children.iter().enumerate() {
@@ -3067,7 +3067,7 @@ impl EmitWalker {
         self.emit_widening_load(
             field_access_id,
             field_layout.offset as i32,
-            RegId(0), // rax
+            abi::RAX, // rax
             field_layout.size,
             field_layout.signed,
         );
@@ -3157,15 +3157,15 @@ impl EmitWalker {
         };
 
         // Emit MovSized with operands [MemSib{base: RDI, disp: offset}, Reg(RDX)]
-        // Following the same convention as visit_store: base=RDI (RegId(7)), source=RDX (RegId(2))
+        // Following the same convention as visit_store: base=RDI (abi::RDI), source=RDX (abi::RDX)
         let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
         operands.push(Operand::MemSib {
-            base: RegId(7),                               // rdi (pointer)
+            base: abi::RDI,                               // rdi (pointer)
             index: None,                                  // no index
             scale: paideia_as_ir::instruction::Scale::X1, // ignored when no index
             disp: field_layout.offset as i32,             // field offset
         });
-        operands.push(Operand::Reg(RegId(2))); // rdx (value, source)
+        operands.push(Operand::Reg(abi::RDX)); // rdx (value, source)
 
         let inst = Instruction {
             mnemonic: Mnemonic::MovSized { width },
@@ -3391,7 +3391,7 @@ impl EmitWalker {
         let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
         operands.push(Operand::Reg(dest_reg)); // destination register
         operands.push(Operand::MemSib {
-            base: RegId(7), // rdi (first argument)
+            base: abi::RDI, // rdi (first argument)
             index: None,
             scale: paideia_as_ir::instruction::Scale::X1,
             disp: offset,
@@ -3443,7 +3443,7 @@ impl EmitWalker {
         let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
         operands.push(Operand::Reg(dest_reg)); // destination register
         operands.push(Operand::MemSib {
-            base: RegId(7), // rdi
+            base: abi::RDI, // rdi
             index: None,
             scale: paideia_as_ir::instruction::Scale::X1,
             disp: offset,
@@ -3481,7 +3481,7 @@ impl EmitWalker {
         let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
         operands.push(Operand::Reg(dest_reg)); // destination register
         operands.push(Operand::MemSib {
-            base: RegId(7), // rdi
+            base: abi::RDI, // rdi
             index: None,
             scale: paideia_as_ir::instruction::Scale::X1,
             disp: offset,
@@ -3590,23 +3590,23 @@ impl EmitWalker {
             // Operands: [base, index, value] = [rdi, rsi, rdx]
             // Emit: mov [rdi + rsi*8], rdx
             operands.push(Operand::MemSib {
-                base: RegId(7),        // rdi (base)
-                index: Some(RegId(6)), // rsi (index)
+                base: abi::RDI,        // rdi (base)
+                index: Some(abi::RSI), // rsi (index)
                 scale: paideia_as_ir::instruction::Scale::X8,
                 disp: 0,
             });
-            operands.push(Operand::Reg(RegId(2))); // rdx (value, source)
+            operands.push(Operand::Reg(abi::RDX)); // rdx (value, source)
         } else {
             // m5-002: *p = value or (*p).f = value
             // Operands: [pointer, value] = [rdi, rdx]
             // Emit: mov [rdi], rdx (use MemSib with no index for [base] addressing)
             operands.push(Operand::MemSib {
-                base: RegId(7),                               // rdi (pointer)
+                base: abi::RDI,                               // rdi (pointer)
                 index: None,                                  // no index
                 scale: paideia_as_ir::instruction::Scale::X1, // ignored when no index
                 disp: 0,
             });
-            operands.push(Operand::Reg(RegId(2))); // rdx (value, source)
+            operands.push(Operand::Reg(abi::RDX)); // rdx (value, source)
         }
 
         // PA8-m3-001 (generic Mov retained): memory-*store* move (`mov [rdi], rdx`).
@@ -3704,7 +3704,7 @@ impl EmitWalker {
 
         // Argument register assignment: RSI, RDX, RCX, R8 for args 2..5
         // In RegId terms: RSI=6, RDX=2, RCX=1, R8=8
-        let arg_regs = [RegId(6), RegId(2), RegId(1), RegId(8)];
+        let arg_regs = [abi::RSI, abi::RDX, abi::RCX, abi::R8];
 
         // Emit 4 store instructions in field-declaration order.
         for (field_idx, &arg_reg) in arg_regs.iter().enumerate() {
@@ -3722,7 +3722,7 @@ impl EmitWalker {
                 // Encoding: 48 C7 47 NN 00 00 00 00 (8 bytes for small offsets)
                 let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
                 operands.push(Operand::MemSib {
-                    base: RegId(7), // rdi = buffer pointer
+                    base: abi::RDI, // rdi = buffer pointer
                     index: None,
                     scale: paideia_as_ir::instruction::Scale::X1,
                     disp: field_offset,
@@ -3755,7 +3755,7 @@ impl EmitWalker {
                 // Encoding: 48 89 47 NN (4 bytes for small offsets)
                 let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
                 operands.push(Operand::MemSib {
-                    base: RegId(7), // rdi = buffer pointer
+                    base: abi::RDI, // rdi = buffer pointer
                     index: None,
                     scale: paideia_as_ir::instruction::Scale::X1,
                     disp: field_offset,
@@ -3819,7 +3819,7 @@ impl EmitWalker {
             let disc_id = IrNodeId::new(enum_cons_id.get() * 10)
                 .expect("virtual disc id");
             let mut disc_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-            disc_operands.push(Operand::Reg(RegId(0)));  // RAX
+            disc_operands.push(Operand::Reg(abi::RAX));  // RAX
             disc_operands.push(Operand::Imm64(variant_index));
 
             self.emit_inst(disc_id, Instruction {
@@ -3847,7 +3847,7 @@ impl EmitWalker {
                             }
                             Some(IrKind::Var) => {
                                 // Var → Reg source (RDI for now, matching visit_field_assign convention)
-                                Operand::Reg(RegId(7))
+                                Operand::Reg(abi::RDI)
                             }
                             _ => {
                                 self.diagnostics.push(format!(
@@ -3869,7 +3869,7 @@ impl EmitWalker {
                 };
 
                 let mut payload_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-                payload_operands.push(Operand::Reg(RegId(2)));  // RDX
+                payload_operands.push(Operand::Reg(abi::RDX));  // RDX
                 payload_operands.push(payload_operand);
 
                 self.emit_inst(payload_id, Instruction {
@@ -3887,7 +3887,7 @@ impl EmitWalker {
                 .expect("virtual disc id");
             let mut disc_operands: SmallVec<[Operand; 3]> = SmallVec::new();
             disc_operands.push(Operand::MemSib {
-                base: RegId(4),  // RSP
+                base: abi::RSP,  // RSP
                 index: None,
                 scale: paideia_as_ir::instruction::Scale::X1,
                 disp: 0,
@@ -3913,7 +3913,7 @@ impl EmitWalker {
 
                 let mut payload_operands: SmallVec<[Operand; 3]> = SmallVec::new();
                 payload_operands.push(Operand::MemSib {
-                    base: RegId(4),
+                    base: abi::RSP,
                     index: None,
                     scale: paideia_as_ir::instruction::Scale::X1,
                     disp: 8,
@@ -3971,8 +3971,8 @@ impl EmitWalker {
         // Full type-directed encoding (cmp vs test) deferred to phase 8.
         let test_id = IrNodeId::new(branch_node_id.get() * 3).expect("test instr id");
         let mut test_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        test_operands.push(Operand::Reg(RegId(7))); // rdi
-        test_operands.push(Operand::Reg(RegId(7))); // rdi
+        test_operands.push(Operand::Reg(abi::RDI)); // rdi
+        test_operands.push(Operand::Reg(abi::RDI)); // rdi
 
         let test_inst = Instruction {
             mnemonic: Mnemonic::Test,
@@ -4081,8 +4081,8 @@ impl EmitWalker {
         // Phase 7 m1-002 minimum: assume condition is in rdi (first argument).
         let test_id = IrNodeId::new(while_node_id.get() * 4).expect("test instr id");
         let mut test_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        test_operands.push(Operand::Reg(RegId(7))); // rdi
-        test_operands.push(Operand::Reg(RegId(7))); // rdi
+        test_operands.push(Operand::Reg(abi::RDI)); // rdi
+        test_operands.push(Operand::Reg(abi::RDI)); // rdi
 
         let test_inst = Instruction {
             mnemonic: Mnemonic::Test,
@@ -4242,9 +4242,9 @@ impl EmitWalker {
         // Stack form: emit mov rax, [rdi+0] (3 bytes: 48 8B 07)
         let disc_load_id = IrNodeId::new(enum_disc_id.get() * 10).expect("disc load id");
         let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        operands.push(Operand::Reg(RegId(0))); // RAX
+        operands.push(Operand::Reg(abi::RAX)); // RAX
         operands.push(Operand::MemSib {
-            base: RegId(7), // RDI
+            base: abi::RDI, // RDI
             index: None,
             scale: paideia_as_ir::instruction::Scale::X1,
             disp: 0,
@@ -4302,7 +4302,7 @@ impl EmitWalker {
                 // whole-function cumulative binding count and would collide with
                 // outer-scope registers or spuriously trigger exhaustion after
                 // 5+ prior `let` bindings in the same function.
-                let scratch_regs = [RegId(1), RegId(2), RegId(8), RegId(10), RegId(11)];
+                let scratch_regs = [abi::RCX, abi::RDX, abi::R8, abi::R10, abi::R11];
 
                 if (*slot as usize) >= scratch_regs.len() {
                     self.diagnostics.push(format!(
@@ -4487,9 +4487,9 @@ impl EmitWalker {
             let disc_load_id = IrNodeId::new(match_node_id.get() * 100 + 900)
                 .expect("disc load id");
             let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
-            operands.push(Operand::Reg(RegId(0))); // RAX
+            operands.push(Operand::Reg(abi::RAX)); // RAX
             operands.push(Operand::MemSib {
-                base: RegId(7), // RDI
+                base: abi::RDI, // RDI
                 index: None,
                 scale: paideia_as_ir::instruction::Scale::X1,
                 disp: 0,
@@ -4540,7 +4540,7 @@ impl EmitWalker {
                 let cmp_id = IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10)
                     .expect("cmp id");
                 let mut cmp_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-                cmp_operands.push(Operand::Reg(RegId(0))); // RAX
+                cmp_operands.push(Operand::Reg(abi::RAX)); // RAX
                 cmp_operands.push(Operand::Imm64(variant_index as i64));
 
                 self.state.instructions.insert(cmp_id, Instruction {
@@ -4592,7 +4592,7 @@ impl EmitWalker {
                 let mut slot = 0u32;
                 self.lower_pattern(
                     pattern_binding,
-                    RegId(7), // RDI = base register (scrutinee pointer)
+                    abi::RDI, // RDI = base register (scrutinee pointer)
                     0,        // base_offset
                     arm_id,
                     &mut slot,
@@ -4606,9 +4606,9 @@ impl EmitWalker {
                     let payload_load_id = IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10 + 2)
                         .expect("payload load id");
                     let mut payload_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-                    payload_operands.push(Operand::Reg(RegId(2))); // RDX
+                    payload_operands.push(Operand::Reg(abi::RDX)); // RDX
                     payload_operands.push(Operand::MemSib {
-                        base: RegId(7), // RDI
+                        base: abi::RDI, // RDI
                         index: None,
                         scale: paideia_as_ir::instruction::Scale::X1,
                         disp: 8,
@@ -4724,7 +4724,7 @@ mod tests {
             .expect("instruction should be emitted");
         assert_eq!(inst.mnemonic, Mnemonic::Mov);
         assert_eq!(inst.operands.len(), 2);
-        assert_eq!(inst.operands[0], Operand::Reg(RegId(0))); // rax
+        assert_eq!(inst.operands[0], Operand::Reg(abi::RAX)); // rax
         assert_eq!(inst.operands[1], Operand::Imm64(42));
 
         // Verify offset advanced by 7 bytes (32-bit immediate encoding).
@@ -4841,7 +4841,7 @@ mod tests {
             .expect("instruction should be emitted");
         assert_eq!(inst.mnemonic, Mnemonic::Mov);
         assert_eq!(inst.operands.len(), 2);
-        assert_eq!(inst.operands[0], Operand::Reg(RegId(0))); // rax
+        assert_eq!(inst.operands[0], Operand::Reg(abi::RAX)); // rax
         assert_eq!(inst.operands[1], Operand::Imm64(value));
 
         // Verify offset advanced by 10 bytes (64-bit immediate encoding).
@@ -4875,8 +4875,8 @@ mod tests {
             .expect("main instruction should be emitted");
         assert_eq!(inst.mnemonic, Mnemonic::Mov);
         assert_eq!(inst.operands.len(), 2);
-        assert_eq!(inst.operands[0], Operand::Reg(RegId(0))); // rax
-        assert_eq!(inst.operands[1], Operand::Reg(RegId(7))); // rdi
+        assert_eq!(inst.operands[0], Operand::Reg(abi::RAX)); // rax
+        assert_eq!(inst.operands[1], Operand::Reg(abi::RDI)); // rdi
 
         let ret_inst = walker
             .state()
@@ -4925,8 +4925,8 @@ mod tests {
             .expect("mov instruction should be emitted");
         assert_eq!(mov_inst.mnemonic, Mnemonic::Mov);
         assert_eq!(mov_inst.operands.len(), 2);
-        assert_eq!(mov_inst.operands[0], Operand::Reg(RegId(0))); // rax
-        assert_eq!(mov_inst.operands[1], Operand::Reg(RegId(7))); // rdi
+        assert_eq!(mov_inst.operands[0], Operand::Reg(abi::RAX)); // rax
+        assert_eq!(mov_inst.operands[1], Operand::Reg(abi::RDI)); // rdi
 
         // not rax
         let not_inst = walker
@@ -4936,7 +4936,7 @@ mod tests {
             .expect("not instruction should be emitted");
         assert_eq!(not_inst.mnemonic, Mnemonic::Not);
         assert_eq!(not_inst.operands.len(), 1);
-        assert_eq!(not_inst.operands[0], Operand::Reg(RegId(0))); // rax
+        assert_eq!(not_inst.operands[0], Operand::Reg(abi::RAX)); // rax
 
         // ret
         let ret_inst = walker
@@ -4984,8 +4984,8 @@ mod tests {
             .expect("movsx instruction should be emitted");
         assert_eq!(movsx_inst.mnemonic, Mnemonic::Movsx);
         assert_eq!(movsx_inst.operands.len(), 2);
-        assert_eq!(movsx_inst.operands[0], Operand::Reg(RegId(0))); // rax
-        assert_eq!(movsx_inst.operands[1], Operand::Reg(RegId(7))); // rdi/edi
+        assert_eq!(movsx_inst.operands[0], Operand::Reg(abi::RAX)); // rax
+        assert_eq!(movsx_inst.operands[1], Operand::Reg(abi::RDI)); // rdi/edi
         assert_eq!(
             movsx_inst.encoding_hint.map(|h| h.operand_size),
             Some(4),
@@ -5188,7 +5188,7 @@ mod tests {
             .expect("instruction should be emitted");
         assert_eq!(inst.mnemonic, Mnemonic::Lea);
         assert_eq!(inst.operands.len(), 2);
-        assert_eq!(inst.operands[0], Operand::Reg(RegId(0))); // rax
+        assert_eq!(inst.operands[0], Operand::Reg(abi::RAX)); // rax
 
         // Check MemSib: [rdi + rdi]
         match inst.operands[1] {
@@ -5198,8 +5198,8 @@ mod tests {
                 scale,
                 disp,
             } => {
-                assert_eq!(base, RegId(7)); // rdi
-                assert_eq!(index, Some(RegId(7))); // rdi
+                assert_eq!(base, abi::RDI); // rdi
+                assert_eq!(index, Some(abi::RDI)); // rdi
                 assert_eq!(scale, paideia_as_ir::instruction::Scale::X1);
                 assert_eq!(disp, 0);
             }
@@ -5257,7 +5257,7 @@ mod tests {
             .expect("instruction should be emitted");
         assert_eq!(inst.mnemonic, Mnemonic::Lea);
         assert_eq!(inst.operands.len(), 2);
-        assert_eq!(inst.operands[0], Operand::Reg(RegId(0))); // rax
+        assert_eq!(inst.operands[0], Operand::Reg(abi::RAX)); // rax
 
         // Check MemSib: [rdi + 1]
         match inst.operands[1] {
@@ -5267,7 +5267,7 @@ mod tests {
                 scale,
                 disp,
             } => {
-                assert_eq!(base, RegId(7)); // rdi
+                assert_eq!(base, abi::RDI); // rdi
                 assert_eq!(index, None);
                 assert_eq!(scale, paideia_as_ir::instruction::Scale::X1);
                 assert_eq!(disp, 1);
@@ -5803,13 +5803,13 @@ mod tests {
 
         assert_eq!(inst.mnemonic, Mnemonic::MovSized { width: IntWidth::W64 });
         assert_eq!(inst.operands.len(), 2);
-        // First operand: rax (RegId(0))
-        assert!(matches!(inst.operands[0], Operand::Reg(RegId(0))));
+        // First operand: rax (abi::RAX)
+        assert!(matches!(inst.operands[0], Operand::Reg(abi::RAX)));
         // Second operand: [rdi + 0] (MemSib with base=rdi, disp=0)
         assert!(matches!(
             inst.operands[1],
             Operand::MemSib {
-                base: RegId(7),
+                base: abi::RDI,
                 index: None,
                 disp: 0,
                 ..
@@ -5868,7 +5868,7 @@ mod tests {
         assert!(matches!(
             inst.operands[1],
             Operand::MemSib {
-                base: RegId(7),
+                base: abi::RDI,
                 index: None,
                 disp: 8,
                 ..
@@ -5926,12 +5926,12 @@ mod tests {
 
         assert_eq!(inst.mnemonic, Mnemonic::Movzx);
         // First operand: rax
-        assert!(matches!(inst.operands[0], Operand::Reg(RegId(0))));
+        assert!(matches!(inst.operands[0], Operand::Reg(abi::RAX)));
         // Second operand: [rdi + 12]
         assert!(matches!(
             inst.operands[1],
             Operand::MemSib {
-                base: RegId(7),
+                base: abi::RDI,
                 index: None,
                 disp: 12,
                 ..
@@ -5991,12 +5991,12 @@ mod tests {
 
         assert_eq!(inst.mnemonic, Mnemonic::MovSized { width: IntWidth::W64 });
         // First operand: rax
-        assert!(matches!(inst.operands[0], Operand::Reg(RegId(0))));
+        assert!(matches!(inst.operands[0], Operand::Reg(abi::RAX)));
         // Second operand: [rdi + 16]
         assert!(matches!(
             inst.operands[1],
             Operand::MemSib {
-                base: RegId(7),
+                base: abi::RDI,
                 index: None,
                 disp: 16,
                 ..
@@ -6067,34 +6067,34 @@ mod tests {
         // Emit first field access (should go to RAX).
         walker.visit_let_field_access(field_access1_id, field_access1_id, &arena);
 
-        // Verify first instruction uses RAX (RegId(0)).
+        // Verify first instruction uses RAX (abi::RAX).
         let inst1 = walker
             .state()
             .instructions
             .get(field_access1_id)
             .expect("first instruction should be emitted");
         assert_eq!(inst1.mnemonic, Mnemonic::MovSized { width: IntWidth::W64 });
-        assert_eq!(inst1.operands[0], Operand::Reg(RegId(0))); // RAX
+        assert_eq!(inst1.operands[0], Operand::Reg(abi::RAX)); // RAX
 
         // Verify scratch_assignment tracks the first register.
         assert_eq!(walker.state().scratch_assignment.len(), 1);
-        assert_eq!(walker.state().scratch_assignment[0], RegId(0));
+        assert_eq!(walker.state().scratch_assignment[0], abi::RAX);
 
         // Emit second field access (should go to RCX).
         walker.visit_let_field_access(field_access2_id, field_access2_id, &arena);
 
-        // Verify second instruction uses RCX (RegId(1)).
+        // Verify second instruction uses RCX (abi::RCX).
         let inst2 = walker
             .state()
             .instructions
             .get(field_access2_id)
             .expect("second instruction should be emitted");
         assert_eq!(inst2.mnemonic, Mnemonic::MovSized { width: IntWidth::W64 });
-        assert_eq!(inst2.operands[0], Operand::Reg(RegId(1))); // RCX
+        assert_eq!(inst2.operands[0], Operand::Reg(abi::RCX)); // RCX
 
         // Verify scratch_assignment now has two registers.
         assert_eq!(walker.state().scratch_assignment.len(), 2);
-        assert_eq!(walker.state().scratch_assignment[1], RegId(1));
+        assert_eq!(walker.state().scratch_assignment[1], abi::RCX);
     }
 
     #[test]
@@ -6150,7 +6150,7 @@ mod tests {
         walker.state_mut().current_function = 2;
 
         // Expected registers: RAX(0), RCX(1), RDX(2), R8(8).
-        let expected_regs = [RegId(0), RegId(1), RegId(2), RegId(8)];
+        let expected_regs = [abi::RAX, abi::RCX, abi::RDX, abi::R8];
 
         // Emit four field accesses.
         for (i, &field_access_id) in field_access_ids.iter().enumerate() {
@@ -6322,7 +6322,7 @@ mod tests {
                 base, index, disp, ..
             } = &inst.operands[0]
             {
-                assert_eq!(*base, RegId(7)); // rdi
+                assert_eq!(*base, abi::RDI); // rdi
                 assert_eq!(*index, None);
                 assert_eq!(*disp, expected_offset);
             } else {
@@ -6384,7 +6384,7 @@ mod tests {
         walker.walk(&mut arena);
 
         // Verify 4 instructions; each should use the correct argument register.
-        let arg_regs = [RegId(6), RegId(2), RegId(1), RegId(8)]; // RSI, RDX, RCX, R8
+        let arg_regs = [abi::RSI, abi::RDX, abi::RCX, abi::R8]; // RSI, RDX, RCX, R8
         for (field_idx, &expected_reg) in arg_regs.iter().enumerate() {
             let inst_id =
                 IrNodeId::new(record_cons_id.get() * 10 + field_idx as u32).expect("virtual id");
@@ -6983,8 +6983,8 @@ mod tests {
             .expect("test instruction should be emitted");
         assert_eq!(test_inst.mnemonic, Mnemonic::Test);
         assert_eq!(test_inst.operands.len(), 2);
-        assert_eq!(test_inst.operands[0], Operand::Reg(RegId(7))); // rdi
-        assert_eq!(test_inst.operands[1], Operand::Reg(RegId(7))); // rdi
+        assert_eq!(test_inst.operands[0], Operand::Reg(abi::RDI)); // rdi
+        assert_eq!(test_inst.operands[1], Operand::Reg(abi::RDI)); // rdi
 
         // Verify jz instruction was emitted (6 bytes: 0F 84 XX XX XX XX).
         let jz_id = IrNodeId::new(branch_id.get() * 3 + 1).expect("jz instr id");
@@ -7188,8 +7188,8 @@ mod tests {
             .expect("test instruction should be emitted");
         assert_eq!(test_inst.mnemonic, Mnemonic::Test);
         assert_eq!(test_inst.operands.len(), 2);
-        assert_eq!(test_inst.operands[0], Operand::Reg(RegId(7))); // rdi
-        assert_eq!(test_inst.operands[1], Operand::Reg(RegId(7))); // rdi
+        assert_eq!(test_inst.operands[0], Operand::Reg(abi::RDI)); // rdi
+        assert_eq!(test_inst.operands[1], Operand::Reg(abi::RDI)); // rdi
 
         // JNZ instruction at while_id * 4 + 1
         let jnz_id = IrNodeId::new(while_id.get() * 4 + 1).expect("jnz instr id");
@@ -7730,7 +7730,7 @@ mod tests {
         let mut walker = EmitWalker::new();
         walker.walk(&mut arena);
 
-        // Verify scratch_assignment[0] == RAX (RegId(0))
+        // Verify scratch_assignment[0] == RAX (abi::RAX)
         assert_eq!(
             walker.state().scratch_assignment.len(),
             1,
@@ -7738,14 +7738,14 @@ mod tests {
         );
         assert_eq!(
             walker.state().scratch_assignment[0],
-            RegId(0),
+            abi::RAX,
             "First scratch should be RAX"
         );
 
         // Verify local_bindings.get("x") == Some(RAX)
         assert_eq!(
             walker.state().local_bindings.get("x"),
-            Some(RegId(0)),
+            Some(abi::RAX),
             "Binding 'x' should map to RAX"
         );
 
@@ -7800,34 +7800,34 @@ mod tests {
         // Verify they are RAX, RCX, RDX
         assert_eq!(
             walker.state().scratch_assignment[0],
-            RegId(0),
+            abi::RAX,
             "First should be RAX"
         );
         assert_eq!(
             walker.state().scratch_assignment[1],
-            RegId(1),
+            abi::RCX,
             "Second should be RCX"
         );
         assert_eq!(
             walker.state().scratch_assignment[2],
-            RegId(2),
+            abi::RDX,
             "Third should be RDX"
         );
 
         // Verify local_bindings
         assert_eq!(
             walker.state().local_bindings.get("a"),
-            Some(RegId(0)),
+            Some(abi::RAX),
             "Binding 'a' should map to RAX"
         );
         assert_eq!(
             walker.state().local_bindings.get("b"),
-            Some(RegId(1)),
+            Some(abi::RCX),
             "Binding 'b' should map to RCX"
         );
         assert_eq!(
             walker.state().local_bindings.get("c"),
-            Some(RegId(2)),
+            Some(abi::RDX),
             "Binding 'c' should map to RDX"
         );
 
@@ -7889,22 +7889,22 @@ mod tests {
         // Verify they are RAX, RCX, RDX, R8
         assert_eq!(
             walker.state().scratch_assignment[0],
-            RegId(0),
+            abi::RAX,
             "First should be RAX"
         );
         assert_eq!(
             walker.state().scratch_assignment[1],
-            RegId(1),
+            abi::RCX,
             "Second should be RCX"
         );
         assert_eq!(
             walker.state().scratch_assignment[2],
-            RegId(2),
+            abi::RDX,
             "Third should be RDX"
         );
         assert_eq!(
             walker.state().scratch_assignment[3],
-            RegId(8),
+            abi::R8,
             "Fourth should be R8"
         );
     }
@@ -8435,7 +8435,7 @@ mod tests {
     #[ignore = "visit_field_access hardcodes base=RDI; LocalBindingTable resolution deferred to follow-up"]
     fn field_access_var_receiver_base_rcx_offset_8() {
         // This test documents a pre-existing limitation: visit_field_access and
-        // visit_field_access_with_reg both hardcode base: RegId(7) (rdi), ignoring
+        // visit_field_access_with_reg both hardcode base: abi::RDI (rdi), ignoring
         // the receiver register that would come from LocalBindingTable resolution.
         //
         // If the receiver were Var(r) with r bound to rcx in the LocalBindingTable,
@@ -8860,7 +8860,7 @@ mod tests {
         // Check discriminant operand is MemSib [rsp+0]
         match &disc_inst.operands.as_slice() {
             [Operand::MemSib { base, disp, .. }, Operand::Imm64(_)] => {
-                assert_eq!(*base, RegId(4)); // RSP
+                assert_eq!(*base, abi::RSP); // RSP
                 assert_eq!(*disp, 0);
             }
             _ => panic!("Expected MemSib operand for stack form discriminant"),
@@ -8870,7 +8870,7 @@ mod tests {
         let payload = payload_inst.unwrap();
         match &payload.operands.as_slice() {
             [Operand::MemSib { base, disp, .. }, Operand::Imm64(_)] => {
-                assert_eq!(*base, RegId(4)); // RSP
+                assert_eq!(*base, abi::RSP); // RSP
                 assert_eq!(*disp, 8);
             }
             _ => panic!("Expected MemSib operand for stack form payload"),
@@ -8886,7 +8886,7 @@ mod tests {
         // Check discriminant operand is MemSib [rsp+0]
         match &disc_inst.operands.as_slice() {
             [Operand::MemSib { base, disp, .. }, Operand::Imm64(_)] => {
-                assert_eq!(*base, RegId(4)); // RSP
+                assert_eq!(*base, abi::RSP); // RSP
                 assert_eq!(*disp, 0);
             }
             _ => panic!("Expected MemSib operand for stack form discriminant"),
@@ -8922,7 +8922,7 @@ mod tests {
     #[test]
     fn enum_cons_variant_index_0_with_var_payload() {
         // Var-source payload exercises the IrKind::Var branch in visit_enum_cons
-        // (which resolves to Operand::Reg(RegId(7)) = RDI).
+        // (which resolves to Operand::Reg(abi::RDI) = RDI).
         // Expected: mov rax, 0 (48 B8 imm64); mov rdx, rdi (48 89 FA)
         let mut arena = IrArena::new();
         let payload_var_id = arena.alloc(IrKind::Var, span());

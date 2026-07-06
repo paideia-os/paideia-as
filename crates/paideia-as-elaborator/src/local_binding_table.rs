@@ -138,6 +138,7 @@ impl LocalBindingTable {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use paideia_as_ir::abi;
 
     #[test]
     fn local_binding_table_new_starts_empty() {
@@ -149,7 +150,7 @@ mod tests {
     #[test]
     fn local_binding_table_insert_and_get() {
         let mut table = LocalBindingTable::new();
-        let reg = RegId(0); // RAX
+        let reg = abi::RAX; // RAX
 
         table.insert("x".to_string(), reg);
         assert_eq!(table.get("x"), Some(reg));
@@ -160,21 +161,21 @@ mod tests {
     fn local_binding_table_multiple_bindings() {
         let mut table = LocalBindingTable::new();
 
-        table.insert("x".to_string(), RegId(0)); // RAX
-        table.insert("y".to_string(), RegId(1)); // RCX
-        table.insert("z".to_string(), RegId(2)); // RDX
+        table.insert("x".to_string(), abi::RAX); // RAX
+        table.insert("y".to_string(), abi::RCX); // RCX
+        table.insert("z".to_string(), abi::RDX); // RDX
 
-        assert_eq!(table.get("x"), Some(RegId(0)));
-        assert_eq!(table.get("y"), Some(RegId(1)));
-        assert_eq!(table.get("z"), Some(RegId(2)));
+        assert_eq!(table.get("x"), Some(abi::RAX));
+        assert_eq!(table.get("y"), Some(abi::RCX));
+        assert_eq!(table.get("z"), Some(abi::RDX));
         assert_eq!(table.len(), 3);
     }
 
     #[test]
     fn local_binding_table_clear() {
         let mut table = LocalBindingTable::new();
-        table.insert("x".to_string(), RegId(0));
-        table.insert("y".to_string(), RegId(1));
+        table.insert("x".to_string(), abi::RAX);
+        table.insert("y".to_string(), abi::RCX);
 
         assert_eq!(table.len(), 2);
         table.clear();
@@ -185,7 +186,7 @@ mod tests {
     #[test]
     fn local_binding_table_contains() {
         let mut table = LocalBindingTable::new();
-        table.insert("x".to_string(), RegId(0));
+        table.insert("x".to_string(), abi::RAX);
 
         assert!(table.contains("x"));
         assert!(!table.contains("y"));
@@ -203,23 +204,23 @@ mod tests {
         let mut table = LocalBindingTable::new();
 
         // Insert at root scope
-        table.insert("x".to_string(), RegId(0));
-        assert_eq!(table.get("x"), Some(RegId(0)));
+        table.insert("x".to_string(), abi::RAX);
+        assert_eq!(table.get("x"), Some(abi::RAX));
 
         // Push nested scope
         table.push_scope();
 
         // Insert in nested scope
-        table.insert("y".to_string(), RegId(1));
-        assert_eq!(table.get("y"), Some(RegId(1)));
-        assert_eq!(table.get("x"), Some(RegId(0))); // Still visible from root
+        table.insert("y".to_string(), abi::RCX);
+        assert_eq!(table.get("y"), Some(abi::RCX));
+        assert_eq!(table.get("x"), Some(abi::RAX)); // Still visible from root
 
         // Pop back to root
         table.pop_scope();
 
         // y is gone from scopes but still in flat; x remains in root scope
-        assert_eq!(table.get("x"), Some(RegId(0)));
-        assert_eq!(table.get("y"), Some(RegId(1))); // Fallback to flat after stack-walk fails
+        assert_eq!(table.get("x"), Some(abi::RAX));
+        assert_eq!(table.get("y"), Some(abi::RCX)); // Fallback to flat after stack-walk fails
     }
 
     /// PA10-005 §3.1: Scope walk finds closest binding top-down.
@@ -227,15 +228,15 @@ mod tests {
     fn scope_walk_finds_closest() {
         let mut table = LocalBindingTable::new();
 
-        table.insert("x".to_string(), RegId(0));
+        table.insert("x".to_string(), abi::RAX);
         table.push_scope();
-        table.insert("x".to_string(), RegId(1)); // Shadow outer x
+        table.insert("x".to_string(), abi::RCX); // Shadow outer x
 
-        // Walk should find RegId(1) (top scope) not RegId(0) (root)
-        assert_eq!(table.get("x"), Some(RegId(1)));
+        // Walk should find abi::RCX (top scope) not abi::RAX (root)
+        assert_eq!(table.get("x"), Some(abi::RCX));
 
         table.pop_scope();
-        assert_eq!(table.get("x"), Some(RegId(0)));
+        assert_eq!(table.get("x"), Some(abi::RAX));
     }
 
     /// PA10-005 §3.1: Shadow wins in scope walk.
@@ -243,16 +244,16 @@ mod tests {
     fn shadow_wins() {
         let mut table = LocalBindingTable::new();
 
-        table.insert("z".to_string(), RegId(2)); // Root: z → r2
+        table.insert("z".to_string(), abi::RDX); // Root: z → r2
 
         table.push_scope();
-        table.insert("z".to_string(), RegId(8)); // Nested: z → r8 (shadow)
+        table.insert("z".to_string(), abi::R8); // Nested: z → r8 (shadow)
 
-        // Scope walk finds RegId(8), not RegId(2)
-        assert_eq!(table.get("z"), Some(RegId(8)));
+        // Scope walk finds abi::R8, not abi::RDX
+        assert_eq!(table.get("z"), Some(abi::R8));
 
         table.pop_scope();
-        assert_eq!(table.get("z"), Some(RegId(2)));
+        assert_eq!(table.get("z"), Some(abi::RDX));
     }
 
     /// PA10-005 §3.1: Pop removes inner, flat preserves.
@@ -260,9 +261,9 @@ mod tests {
     fn pop_removes_inner_flat_preserves() {
         let mut table = LocalBindingTable::new();
 
-        table.insert("outer".to_string(), RegId(0));
+        table.insert("outer".to_string(), abi::RAX);
         table.push_scope();
-        table.insert("inner".to_string(), RegId(1));
+        table.insert("inner".to_string(), abi::RCX);
 
         // Before pop, both in flat
         assert!(table.flat.contains_key("outer"));
@@ -271,8 +272,8 @@ mod tests {
         table.pop_scope();
 
         // After pop, inner gone from scopes but flat still has it
-        assert_eq!(table.get("inner"), Some(RegId(1))); // Fallback to flat
-        assert_eq!(table.get("outer"), Some(RegId(0))); // Still in root scope
+        assert_eq!(table.get("inner"), Some(abi::RCX)); // Fallback to flat
+        assert_eq!(table.get("outer"), Some(abi::RAX)); // Still in root scope
     }
 
     /// PA10-005 §3.1: Clear resets to single root scope.
@@ -280,9 +281,9 @@ mod tests {
     fn clear_resets_to_root() {
         let mut table = LocalBindingTable::new();
 
-        table.insert("x".to_string(), RegId(0));
+        table.insert("x".to_string(), abi::RAX);
         table.push_scope();
-        table.insert("y".to_string(), RegId(1));
+        table.insert("y".to_string(), abi::RCX);
 
         assert_eq!(table.len(), 2);
         assert_eq!(table.scopes.len(), 2);

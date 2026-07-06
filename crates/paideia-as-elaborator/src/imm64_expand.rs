@@ -9,7 +9,7 @@
 //! This module handles the expansion logic and collision detection.
 
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, DiagnosticSink, Severity, Span};
-use paideia_as_ir::{IrArena, IrNodeId, SmallVec};
+use paideia_as_ir::{IrArena, IrNodeId, SmallVec, abi};
 use paideia_as_ir::instruction::{Instruction, InstrMode, Mnemonic, Operand, RegId};
 
 /// Diagnostic code for r11 collision in imm64 bitwise expansion (U1610).
@@ -55,7 +55,7 @@ pub fn expand_bitop_imm64(
     mode: InstrMode,
 ) -> Option<IrNodeId> {
     // Collision guard: if dst is r11, expansion is impossible.
-    if dst == RegId(11) {
+    if dst == abi::R11 {
         return None;
     }
 
@@ -64,7 +64,7 @@ pub fn expand_bitop_imm64(
 
     // Build and insert the movabs instruction
     let mut mov_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-    mov_operands.push(Operand::Reg(RegId(11)));
+    mov_operands.push(Operand::Reg(abi::R11));
     mov_operands.push(Operand::Imm64(imm));
     let mov_inst = Instruction {
         mnemonic: Mnemonic::Mov,
@@ -81,7 +81,7 @@ pub fn expand_bitop_imm64(
     // Build and insert the bitwise operation instruction
     let mut op_operands: SmallVec<[Operand; 3]> = SmallVec::new();
     op_operands.push(Operand::Reg(dst));
-    op_operands.push(Operand::Reg(RegId(11)));
+    op_operands.push(Operand::Reg(abi::R11));
     let op_inst = Instruction {
         mnemonic,
         operands: op_operands,
@@ -161,11 +161,11 @@ mod tests {
 
     #[test]
     fn collision_guard_r11() {
-        assert!(RegId(11) == RegId(11));
+        assert!(abi::R11 == abi::R11);
     }
 
     #[test]
     fn collision_guard_r10() {
-        assert!(RegId(10) != RegId(11));
+        assert!(abi::R10 != abi::R11);
     }
 }

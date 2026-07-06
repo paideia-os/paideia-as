@@ -12,7 +12,7 @@
 
 use paideia_as_ir::{
     CallSideTable, EncodingHint, InstrMode, Instruction, InstructionSideTable, IrArena, IrKind,
-    IrNodeId, LoadStoreSideTable, Mnemonic, Operand, RegId, Scale, SmallVec, Width as IrWidth,
+    IrNodeId, LoadStoreSideTable, Mnemonic, Operand, RegId, Scale, SmallVec, Width as IrWidth, abi,
 };
 
 /// Context for populating the instruction table.
@@ -82,7 +82,7 @@ fn populate_one(ctx: &PopulateContext, id: IrNodeId, table: &mut InstructionSide
             let base_reg = node_to_reg(ctx, children[0]);
             let index_reg = node_to_reg(ctx, children[1]);
             let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
-            ops.push(Operand::Reg(RegId(0))); // RAX (canonical dest; real reg-alloc is m2-004+)
+            ops.push(Operand::Reg(abi::RAX)); // RAX (canonical dest; real reg-alloc is m2-004+)
             ops.push(Operand::MemSib {
                 base: base_reg,
                 index: Some(index_reg),
@@ -158,7 +158,7 @@ fn populate_one(ctx: &PopulateContext, id: IrNodeId, table: &mut InstructionSide
 /// Real reg-alloc is m2-004 (which threads from the calling-convention
 /// arg-slot table to per-node SSA-style register assignment).
 fn node_to_reg(_ctx: &PopulateContext, _id: IrNodeId) -> RegId {
-    RegId(7) // RDI
+    abi::RDI // RDI
 }
 
 /// Convert a Width to the corresponding Scale for SIB addressing.
@@ -192,10 +192,10 @@ fn synthesise_intrinsic_instruction(
             // index_u64 reads from memory: (ptr: *u64, index: u64) -> u64
             // Synthesise: Mov RAX, [RDI + RSI*8]
             let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
-            ops.push(Operand::Reg(RegId(0))); // RAX (result register)
+            ops.push(Operand::Reg(abi::RAX)); // RAX (result register)
             ops.push(Operand::MemSib {
-                base: RegId(7),        // RDI (ptr)
-                index: Some(RegId(7)), // RSI (index) — placeholder for reg alloc
+                base: abi::RDI,        // RDI (ptr)
+                index: Some(abi::RDI), // RSI (index) — placeholder for reg alloc
                 scale: Scale::X8,
                 disp: 0,
             });
@@ -220,12 +220,12 @@ fn synthesise_intrinsic_instruction(
             // Synthesise: Mov [RDI + RSI*8], RAX
             let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
             ops.push(Operand::MemSib {
-                base: RegId(7),        // RDI (ptr)
-                index: Some(RegId(7)), // RSI (index) — placeholder for reg alloc
+                base: abi::RDI,        // RDI (ptr)
+                index: Some(abi::RDI), // RSI (index) — placeholder for reg alloc
                 scale: Scale::X8,
                 disp: 0,
             });
-            ops.push(Operand::Reg(RegId(0))); // RAX (value to write)
+            ops.push(Operand::Reg(abi::RAX)); // RAX (value to write)
             Instruction {
                 mnemonic: Mnemonic::Mov,
                 operands: ops,
@@ -246,8 +246,8 @@ fn synthesise_intrinsic_instruction(
             // ptr_sub_bytes_u64 computes byte distance: (ptr1: *u64, ptr2: *u64) -> u64
             // Synthesise: Sub RAX, RDI
             let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
-            ops.push(Operand::Reg(RegId(0))); // RAX
-            ops.push(Operand::Reg(RegId(7))); // RDI
+            ops.push(Operand::Reg(abi::RAX)); // RAX
+            ops.push(Operand::Reg(abi::RDI)); // RDI
             Instruction {
                 mnemonic: Mnemonic::Sub,
                 operands: ops,
@@ -262,8 +262,8 @@ fn synthesise_intrinsic_instruction(
         _ => {
             // Other intrinsics: stub Mov(RDI, RAX)
             let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
-            ops.push(Operand::Reg(RegId(0))); // RAX
-            ops.push(Operand::Reg(RegId(7))); // RDI
+            ops.push(Operand::Reg(abi::RAX)); // RAX
+            ops.push(Operand::Reg(abi::RDI)); // RDI
             Instruction {
                 mnemonic: Mnemonic::Mov,
                 operands: ops,
@@ -615,7 +615,7 @@ mod tests {
         assert_eq!(inst.mnemonic, Mnemonic::Mov);
         assert_eq!(inst.operands.len(), 2);
         // First operand should be RAX
-        assert!(matches!(inst.operands[0], Operand::Reg(RegId(0))));
+        assert!(matches!(inst.operands[0], Operand::Reg(abi::RAX)));
         // Second operand should be MemSib with scale X8 (for u64)
         match inst.operands[1] {
             Operand::MemSib {
@@ -661,8 +661,8 @@ mod tests {
         let inst = table.get(app_id).unwrap();
         assert_eq!(inst.mnemonic, Mnemonic::Sub);
         assert_eq!(inst.operands.len(), 2);
-        assert!(matches!(inst.operands[0], Operand::Reg(RegId(0)))); // RAX
-        assert!(matches!(inst.operands[1], Operand::Reg(RegId(7)))); // RDI
+        assert!(matches!(inst.operands[0], Operand::Reg(abi::RAX))); // RAX
+        assert!(matches!(inst.operands[1], Operand::Reg(abi::RDI))); // RDI
         assert_eq!(inst.encoding_hint.unwrap().opcode, 0x29);
         assert_eq!(inst.encoding_hint.unwrap().operand_size, 8);
     }

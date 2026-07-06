@@ -44,7 +44,7 @@ use paideia_as_ir::instruction::{
     Cond, InstrMode, Instruction, IntWidth, Mnemonic, Operand, RegId, Scale,
 };
 use paideia_as_ir::record_layout::{RecordLayout, RecordTypeId};
-use paideia_as_ir::{IrArena, IrNodeId, SmallVec};
+use paideia_as_ir::{IrArena, IrNodeId, SmallVec, abi};
 use std::collections::HashMap;
 
 /// Error type for operand parsing.
@@ -331,11 +331,11 @@ pub fn resolve_mnemonic(name: &str) -> Option<Mnemonic> {
 /// # Examples
 ///
 /// ```ignore
-/// // Register: rax → Operand::Reg(RegId(0))
-/// // Register: rdi → Operand::Reg(RegId(7))
+/// // Register: rax → Operand::Reg(abi::RAX)
+/// // Register: rdi → Operand::Reg(abi::RDI)
 /// // Immediate: 0x12345678 → Operand::Imm64(0x12345678)
 /// // Memory: [rdi + 8] → Operand::MemSib {
-/// //     base: RegId(7), index: None, scale: Scale::X1, disp: 8
+/// //     base: abi::RDI, index: None, scale: Scale::X1, disp: 8
 /// // }
 /// // Symbol (in call): call cap_alloc → Operand::SymbolRef {
 /// //     name: "cap_alloc", addend: 0
@@ -963,7 +963,7 @@ fn combine_additive_terms(
             match parse_register_from_ident(ast, right, source_map)? {
                 Operand::Reg(reg) => {
                     // Merge: if left has base, right is index; otherwise right is base
-                    if left_base == RegId(0) && left_index.is_none() {
+                    if left_base == abi::RAX && left_index.is_none() {
                         Ok((
                             reg,
                             None,
@@ -1301,7 +1301,7 @@ fn try_extract_symbol_sum(
 ///
 /// Phase 7 m2-001 (PA7C-m2-001): Sub-registers (32-bit, 16-bit, 8-bit) are supported
 /// and resolve to the same RegId as their 64-bit form. For example, "eax", "ax", and "al"
-/// all resolve to RegId(0). This maintains width-agnostic register handling; the encoder
+/// all resolve to abi::RAX. This maintains width-agnostic register handling; the encoder
 /// is responsible for width-aware MOV dispatch (follow-up issue PA7C-m2-001a).
 ///
 /// The bridge in m2-005 will interpret values >= 16 as special registers and
@@ -1310,63 +1310,63 @@ fn try_extract_symbol_sum(
 fn register_name_to_regid(name: &str) -> Option<RegId> {
     match name {
         // General-purpose registers (64-bit)
-        "rax" => Some(RegId(0)),
-        "rcx" => Some(RegId(1)),
-        "rdx" => Some(RegId(2)),
-        "rbx" => Some(RegId(3)),
-        "rsp" => Some(RegId(4)),
-        "rbp" => Some(RegId(5)),
-        "rsi" => Some(RegId(6)),
-        "rdi" => Some(RegId(7)),
-        "r8" => Some(RegId(8)),
-        "r9" => Some(RegId(9)),
-        "r10" => Some(RegId(10)),
-        "r11" => Some(RegId(11)),
-        "r12" => Some(RegId(12)),
-        "r13" => Some(RegId(13)),
-        "r14" => Some(RegId(14)),
-        "r15" => Some(RegId(15)),
+        "rax" => Some(abi::RAX),
+        "rcx" => Some(abi::RCX),
+        "rdx" => Some(abi::RDX),
+        "rbx" => Some(abi::RBX),
+        "rsp" => Some(abi::RSP),
+        "rbp" => Some(abi::RBP),
+        "rsi" => Some(abi::RSI),
+        "rdi" => Some(abi::RDI),
+        "r8" => Some(abi::R8),
+        "r9" => Some(abi::R9),
+        "r10" => Some(abi::R10),
+        "r11" => Some(abi::R11),
+        "r12" => Some(abi::R12),
+        "r13" => Some(abi::R13),
+        "r14" => Some(abi::R14),
+        "r15" => Some(abi::R15),
 
         // 32-bit sub-registers (resolve to same RegId as 64-bit form)
-        "eax" => Some(RegId(0)),
-        "ecx" => Some(RegId(1)),
-        "edx" => Some(RegId(2)),
-        "ebx" => Some(RegId(3)),
-        "esp" => Some(RegId(4)),
-        "ebp" => Some(RegId(5)),
-        "esi" => Some(RegId(6)),
-        "edi" => Some(RegId(7)),
-        "r8d" => Some(RegId(8)),
-        "r9d" => Some(RegId(9)),
-        "r10d" => Some(RegId(10)),
-        "r11d" => Some(RegId(11)),
-        "r12d" => Some(RegId(12)),
-        "r13d" => Some(RegId(13)),
-        "r14d" => Some(RegId(14)),
-        "r15d" => Some(RegId(15)),
+        "eax" => Some(abi::RAX),
+        "ecx" => Some(abi::RCX),
+        "edx" => Some(abi::RDX),
+        "ebx" => Some(abi::RBX),
+        "esp" => Some(abi::RSP),
+        "ebp" => Some(abi::RBP),
+        "esi" => Some(abi::RSI),
+        "edi" => Some(abi::RDI),
+        "r8d" => Some(abi::R8),
+        "r9d" => Some(abi::R9),
+        "r10d" => Some(abi::R10),
+        "r11d" => Some(abi::R11),
+        "r12d" => Some(abi::R12),
+        "r13d" => Some(abi::R13),
+        "r14d" => Some(abi::R14),
+        "r15d" => Some(abi::R15),
 
         // 16-bit sub-registers (resolve to same RegId as 64-bit form; r8w-r15w do not exist)
-        "ax" => Some(RegId(0)),
-        "cx" => Some(RegId(1)),
-        "dx" => Some(RegId(2)),
-        "bx" => Some(RegId(3)),
-        "sp" => Some(RegId(4)),
-        "bp" => Some(RegId(5)),
-        "si" => Some(RegId(6)),
-        "di" => Some(RegId(7)),
+        "ax" => Some(abi::RAX),
+        "cx" => Some(abi::RCX),
+        "dx" => Some(abi::RDX),
+        "bx" => Some(abi::RBX),
+        "sp" => Some(abi::RSP),
+        "bp" => Some(abi::RBP),
+        "si" => Some(abi::RSI),
+        "di" => Some(abi::RDI),
 
         // 8-bit sub-registers (resolve to same RegId as 64-bit form; al-r15b, but only al-bl exist)
-        "al" => Some(RegId(0)),
-        "cl" => Some(RegId(1)),
-        "dl" => Some(RegId(2)),
-        "bl" => Some(RegId(3)),
+        "al" => Some(abi::RAX),
+        "cl" => Some(abi::RCX),
+        "dl" => Some(abi::RDX),
+        "bl" => Some(abi::RBX),
 
         // High-byte sub-registers: share 64-bit RegId of low-byte sibling.
         // Distinguished from spl/bpl/sil/dil by ABSENCE of REX prefix at encode time.
-        "ah" => Some(RegId(4)),
-        "ch" => Some(RegId(5)),
-        "dh" => Some(RegId(6)),
-        "bh" => Some(RegId(7)),
+        "ah" => Some(abi::RSP),
+        "ch" => Some(abi::RBP),
+        "dh" => Some(abi::RSI),
+        "bh" => Some(abi::RDI),
 
         // Extended low-byte sub-registers (require REX prefix for non-rsp/rsi/rbp/rdi).
         // PA-R13-013: spl/bpl/sil/dil require REX.B encoding (compact IDs 33–36).
@@ -1376,14 +1376,14 @@ fn register_name_to_regid(name: &str) -> Option<RegId> {
         "dil" => Some(RegId(36)),
 
         // Extended low-byte sub-registers (require REX.B).
-        "r8b" => Some(RegId(8)),
-        "r9b" => Some(RegId(9)),
-        "r10b" => Some(RegId(10)),
-        "r11b" => Some(RegId(11)),
-        "r12b" => Some(RegId(12)),
-        "r13b" => Some(RegId(13)),
-        "r14b" => Some(RegId(14)),
-        "r15b" => Some(RegId(15)),
+        "r8b" => Some(abi::R8),
+        "r9b" => Some(abi::R9),
+        "r10b" => Some(abi::R10),
+        "r11b" => Some(abi::R11),
+        "r12b" => Some(abi::R12),
+        "r13b" => Some(abi::R13),
+        "r14b" => Some(abi::R14),
+        "r15b" => Some(abi::R15),
 
         // Control registers (compact encoding: 16 + index)
         "cr0" => Some(RegId(16)),
@@ -2021,17 +2021,17 @@ mod tests {
 
     #[test]
     fn register_name_to_regid_rax() {
-        assert_eq!(register_name_to_regid("rax"), Some(RegId(0)));
+        assert_eq!(register_name_to_regid("rax"), Some(abi::RAX));
     }
 
     #[test]
     fn register_name_to_regid_rdi() {
-        assert_eq!(register_name_to_regid("rdi"), Some(RegId(7)));
+        assert_eq!(register_name_to_regid("rdi"), Some(abi::RDI));
     }
 
     #[test]
     fn register_name_to_regid_r15() {
-        assert_eq!(register_name_to_regid("r15"), Some(RegId(15)));
+        assert_eq!(register_name_to_regid("r15"), Some(abi::R15));
     }
 
     #[test]
@@ -2545,7 +2545,7 @@ mod tests {
         // We can't easily test parse_deref_operand directly without full AST setup,
         // but we verify the logic: if field0 is at offset 0, MemSib disp should be 0
         let result = Operand::MemSib {
-            base: RegId(7),
+            base: abi::RDI,
             index: None,
             scale: Scale::X1,
             disp: 0,
@@ -2553,7 +2553,7 @@ mod tests {
         assert_eq!(
             result,
             Operand::MemSib {
-                base: RegId(7),
+                base: abi::RDI,
                 index: None,
                 scale: Scale::X1,
                 disp: 0,
@@ -2599,7 +2599,7 @@ mod tests {
         // Test: *p (plain dereference without field access)
         // Expected: MemSib { base: rdi (7), index: None, scale: X1, disp: 0 }
         let result = Operand::MemSib {
-            base: RegId(7),
+            base: abi::RDI,
             index: None,
             scale: Scale::X1,
             disp: 0,
@@ -2607,7 +2607,7 @@ mod tests {
         assert_eq!(
             result,
             Operand::MemSib {
-                base: RegId(7),
+                base: abi::RDI,
                 index: None,
                 scale: Scale::X1,
                 disp: 0,
