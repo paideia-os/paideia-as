@@ -1,4 +1,5 @@
 use super::*;
+use crate::emit_fixture::EmitFixture;
 use paideia_as_diagnostics::{FileId, Span};
 
 fn span() -> Span {
@@ -16,10 +17,9 @@ fn emit_walker_new_starts_empty() {
 
 #[test]
 fn emit_walker_walk_on_empty_arena_emits_zero_diagnostics() {
-    let mut walker = EmitWalker::new();
-    let mut arena = IrArena::new();
-    walker.walk(&mut arena);
-    assert!(walker.diagnostics().is_empty());
+    let mut f = EmitFixture::new();
+    f.walk();
+    f.assert_no_diagnostics();
 }
 
 #[test]
@@ -33,32 +33,19 @@ fn emit_pass_state_default_is_clean() {
 
 #[test]
 fn emit_walker_lets_literal_42_emits_7_byte_mov() {
-    let mut arena = IrArena::new();
+    let mut f = EmitFixture::new();
+    let lit_id = f.literal(42);
+    let let_id = f.let_binding(lit_id);
+    f.walk();
 
-    // Allocate: Literal node, then Let with Literal as child.
-    let lit_id = arena.alloc(IrKind::Literal, span());
-    let let_id = arena.alloc_with_children(IrKind::Let, span(), [lit_id]);
-
-    // Register the literal value 42.
-    arena.literal_values_mut().insert(lit_id, 42);
-
-    // Walk the arena.
-    let mut walker = EmitWalker::new();
-    walker.walk(&mut arena);
-
-    // Verify instruction was emitted.
-    let inst = walker
-        .state()
-        .instructions
-        .get(let_id)
-        .expect("instruction should be emitted");
+    let inst = f.instruction(let_id);
     assert_eq!(inst.mnemonic, Mnemonic::Mov);
     assert_eq!(inst.operands.len(), 2);
-    assert_eq!(inst.operands[0], Operand::Reg(abi::RAX)); // rax
+    assert_eq!(inst.operands[0], Operand::Reg(abi::RAX));
     assert_eq!(inst.operands[1], Operand::Imm64(42));
 
-    // Verify offset advanced by 7 bytes (32-bit immediate encoding).
-    assert_eq!(walker.state().estimated_offset, 7);
+    // 32-bit immediate encoding = 7 bytes.
+    assert_eq!(f.estimated_offset(), 7);
 }
 
 /// Phase 7 m4-003: `let x : u32 = 42` (typed) emits the narrow MovSized
@@ -149,80 +136,52 @@ fn emit_walker_untyped_let_with_typer_keeps_generic_mov() {
 
 #[test]
 fn emit_walker_lets_literal_64bit_emits_10_byte_mov() {
-    let mut arena = IrArena::new();
-
-    // Allocate: Literal node, then Let with Literal as child.
-    let lit_id = arena.alloc(IrKind::Literal, span());
-    let let_id = arena.alloc_with_children(IrKind::Let, span(), [lit_id]);
-
-    // Register the literal value 0xCAFE_F00D_DEAD_BEEF (as signed i64).
     let value = 0xCAFE_F00D_DEAD_BEEFu64 as i64;
-    arena.literal_values_mut().insert(lit_id, value);
+    let mut f = EmitFixture::new();
+    let lit_id = f.literal(value);
+    let let_id = f.let_binding(lit_id);
+    f.walk();
 
-    // Walk the arena.
-    let mut walker = EmitWalker::new();
-    walker.walk(&mut arena);
-
-    // Verify instruction was emitted.
-    let inst = walker
-        .state()
-        .instructions
-        .get(let_id)
-        .expect("instruction should be emitted");
+    let inst = f.instruction(let_id);
     assert_eq!(inst.mnemonic, Mnemonic::Mov);
     assert_eq!(inst.operands.len(), 2);
-    assert_eq!(inst.operands[0], Operand::Reg(abi::RAX)); // rax
+    assert_eq!(inst.operands[0], Operand::Reg(abi::RAX));
     assert_eq!(inst.operands[1], Operand::Imm64(value));
 
-    // Verify offset advanced by 10 bytes (64-bit immediate encoding).
-    assert_eq!(walker.state().estimated_offset, 10);
+    // 64-bit immediate encoding = 10 bytes.
+    assert_eq!(f.estimated_offset(), 10);
 }
 
 // ── Lambda lowering tests (m1-003) ──────────────────────────────────
 
 #[test]
 fn emit_walker_lambda_identity_emits_mov_rax_rdi_ret() {
-    let mut arena = IrArena::new();
+    let mut f = EmitFixture::new();
+    let var_id = f.var();
+    let lambda_id = f.lambda(var_id);
+    f.walk();
 
-    // Allocate: Var node (the body), then Lambda with Var as child.
-    let var_id = arena.alloc(IrKind::Var, span());
-    let lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [var_id]);
-
-    // Walk the arena.
-    let mut walker = EmitWalker::new();
-    walker.walk(&mut arena);
-
-    // Verify instructions were emitted for the lambda (mov + ret).
-    // Phase-5-m1-003: instructions are now stored at virtual node IDs (lambda_id*2, lambda_id*2+1)
-    // to ensure proper sorting during emission.
+    // Phase-5-m1-003: instructions are stored at virtual node IDs
+    // (lambda_id*2, lambda_id*2+1) to ensure proper sorting.
     let main_id = IrNodeId::new(lambda_id.get() * 2).expect("main instr id");
     let ret_id = IrNodeId::new(lambda_id.get() * 2 + 1).expect("ret instr id");
 
-    let inst = walker
-        .state()
-        .instructions
-        .get(main_id)
-        .expect("main instruction should be emitted");
+    let inst = f.instruction(main_id);
     assert_eq!(inst.mnemonic, Mnemonic::Mov);
     assert_eq!(inst.operands.len(), 2);
-    assert_eq!(inst.operands[0], Operand::Reg(abi::RAX)); // rax
-    assert_eq!(inst.operands[1], Operand::Reg(abi::RDI)); // rdi
+    assert_eq!(inst.operands[0], Operand::Reg(abi::RAX));
+    assert_eq!(inst.operands[1], Operand::Reg(abi::RDI));
 
-    let ret_inst = walker
-        .state()
-        .instructions
-        .get(ret_id)
-        .expect("ret instruction should be emitted");
-    assert_eq!(ret_inst.mnemonic, Mnemonic::Ret);
+    assert_eq!(f.instruction(ret_id).mnemonic, Mnemonic::Ret);
 
-    // Verify offset: 3 bytes for mov + 1 byte for ret = 4 bytes.
-    assert_eq!(walker.state().estimated_offset, 4);
+    // 3 bytes for mov + 1 byte for ret = 4 bytes.
+    assert_eq!(f.estimated_offset(), 4);
 
-    // Verify lambda offset recorded.
+    // Lambda offset recorded.
     assert!(
-        walker
+        f.walker
             .state()
-            .function_offsets
+            .function_offsets()
             .contains_key(&lambda_id.get())
     );
 }

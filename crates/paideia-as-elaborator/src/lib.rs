@@ -36,6 +36,8 @@ pub mod emit_call;
 pub mod emit_control_flow;
 pub mod emit_enum_match;
 pub mod emit_field_access;
+#[cfg(test)]
+pub mod emit_fixture;
 pub mod emit_lambda;
 pub mod emit_let;
 pub mod emit_pass_state;
