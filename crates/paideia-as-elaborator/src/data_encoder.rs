@@ -3,13 +3,13 @@
 //! Extracted from `EmitWalker` during the v0.17 refactor. These functions
 //! walk an `IrArena` and convert value-producing nodes (Literal, ArrayLit,
 //! RecordCons) into little-endian byte sequences suitable for embedding
-//! in the ELF/PE `.data` section.
+//! in the ELF/PE `.data` section, then wire them into a `DataSideTable`
+//! keyed by `IrNodeId` via [`populate_data_table`].
 //!
-//! Every function here is pure: no `&self`, no mutation of shared state.
-//! The population logic that consumes these bytes lives in
-//! `EmitWalker::populate_data_table`.
+//! No walker or emission state is required — every function here is a
+//! pure transformation over the IR arena.
 
-use paideia_as_ir::{IrArena, IrKind, IrNodeId};
+use paideia_as_ir::{DataEntry, DataSideTable, IrArena, IrKind, IrNodeId, RelocSpec};
 
 /// Pack an i64 value as 8 little-endian bytes.
 #[must_use]
@@ -78,6 +78,92 @@ pub fn encode_ir_value(arena: &IrArena, node_id: IrNodeId) -> Option<Vec<u8>> {
         IrKind::ArrayLit => encode_array_lit(arena, node_id),
         IrKind::RecordCons => encode_record_cons(arena, node_id),
         _ => None,
+    }
+}
+
+/// Populate a `DataSideTable` from the module-level `Let` bindings in `arena`.
+///
+/// Iterates over every node, filters for `IrKind::Let` with a supported RHS
+/// shape (Literal / ArrayLit / RecordCons / Placeholder / StringLiteral) and
+/// inserts a matching [`DataEntry`] under a synthetic `data_<node_id>` symbol.
+///
+/// Section routing:
+/// - initialised + mutable → `.data`
+/// - initialised + immutable → `.rodata`
+/// - Placeholder (uninit) → `.bss` (regardless of mutability)
+/// - StringLiteral → `.rodata` with a relocation to the interned `__str_...` symbol
+pub fn populate_data_table(arena: &IrArena, data_table: &mut DataSideTable) {
+    for i in 1..=arena.len() as u32 {
+        let Some(node_id) = IrNodeId::new(i) else { continue };
+        let Some(node) = arena.get(node_id) else { continue };
+        if node.kind != IrKind::Let {
+            continue;
+        }
+        let Some(&rhs_id) = arena.children(node_id).first() else { continue };
+        let Some(rhs_node) = arena.get(rhs_id) else { continue };
+
+        let symbol_name = format!("data_{}", node_id.get());
+        let is_mutable = arena
+            .let_meta()
+            .get(node_id)
+            .map(|info| info.mutable)
+            .unwrap_or(false);
+
+        match rhs_node.kind {
+            IrKind::Literal => {
+                if let Some(value) = arena.literal_values().get(rhs_id) {
+                    let bytes = pack_u64_le(value);
+                    let entry = if is_mutable {
+                        DataEntry::new_data(bytes, symbol_name, 8)
+                    } else {
+                        DataEntry::new_rodata(bytes, symbol_name, 8)
+                    };
+                    data_table.insert(node_id, entry);
+                }
+            }
+            IrKind::ArrayLit => {
+                if let Some(bytes) = encode_array_lit(arena, rhs_id) {
+                    let entry = if is_mutable {
+                        DataEntry::new_data(bytes, symbol_name, 8)
+                    } else {
+                        DataEntry::new_rodata(bytes, symbol_name, 8)
+                    };
+                    data_table.insert(node_id, entry);
+                }
+            }
+            IrKind::RecordCons => {
+                if let Some(bytes) = encode_record_cons(arena, rhs_id) {
+                    let entry = if is_mutable {
+                        DataEntry::new_data(bytes, symbol_name, 8)
+                    } else {
+                        DataEntry::new_rodata(bytes, symbol_name, 8)
+                    };
+                    data_table.insert(node_id, entry);
+                }
+            }
+            IrKind::Placeholder => {
+                // Phase 6 m5-004: all uninit → .bss regardless of mutability.
+                let entry = DataEntry::new_bss(symbol_name, 8, 8);
+                data_table.insert(node_id, entry);
+            }
+            IrKind::StringLiteral => {
+                if let Some(bytes) = arena.literal_bytes().get(rhs_id) {
+                    let rodata_bytes = vec![0u8; 8];
+                    let reloc = RelocSpec::new(
+                        0,
+                        format!("__str_{:016x}", crate::string_intern::fnv1a_64(bytes)),
+                    );
+                    let entry = DataEntry::new_rodata_with_relocs(
+                        rodata_bytes,
+                        symbol_name,
+                        8,
+                        vec![reloc],
+                    );
+                    data_table.insert(node_id, entry);
+                }
+            }
+            _ => {}
+        }
     }
 }
 

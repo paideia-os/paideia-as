@@ -12,7 +12,7 @@ use paideia_as_ir::record_layout::{FieldLayout, RecordLayout, RecordTypeId};
 #[cfg(test)]
 use paideia_as_ir::{EnumLayout, EnumTypeId};
 use paideia_as_ir::{
-    DataEntry, DataSideTable, IrArena, IrKind, IrNodeId, SmallVec, Symbol, SymbolKind, abi,
+    DataSideTable, IrArena, IrKind, IrNodeId, SmallVec, Symbol, SymbolKind, abi,
 };
 
 pub use crate::cast_shape::{CastPlan, CastShape, cast_plan};
@@ -377,110 +377,9 @@ impl EmitWalker {
     /// * `arena` - The IR arena containing all nodes
     /// * `data_table` - The mutable data side-table to populate
     pub fn populate_data_table(arena: &IrArena, data_table: &mut DataSideTable) {
-        // Iterate over all nodes, looking for module-level Let-Literal and Let-Uninit bindings.
-        for i in 1..=arena.len() as u32 {
-            if let Some(node_id) = IrNodeId::new(i) {
-                if let Some(node) = arena.get(node_id) {
-                    if node.kind == IrKind::Let {
-                        // Get the single child (the RHS expression).
-                        let children = arena.children(node_id);
-                        if let Some(&rhs_id) = children.first() {
-                            if let Some(rhs_node) = arena.get(rhs_id) {
-                                let symbol_name = format!("data_{}", node_id.get());
-
-                                // Check if this Let is mutable.
-                                let is_mutable = arena
-                                    .let_meta()
-                                    .get(node_id)
-                                    .map(|info| info.mutable)
-                                    .unwrap_or(false);
-
-                                match rhs_node.kind {
-                                    IrKind::Literal => {
-                                        // Literal RHS: check for a registered value.
-                                        if let Some(value) = arena.literal_values().get(rhs_id) {
-                                            // Pack the u64 value as little-endian 8 bytes.
-                                            let bytes = crate::data_encoder::pack_u64_le(value);
-
-                                            let entry = if is_mutable {
-                                                // Mutable + initialized → Data section.
-                                                DataEntry::new_data(bytes, symbol_name, 8)
-                                            } else {
-                                                // Immutable + initialized → Rodata section.
-                                                DataEntry::new_rodata(bytes, symbol_name, 8)
-                                            };
-
-                                            data_table.insert(node_id, entry);
-                                        }
-                                    }
-                                    IrKind::ArrayLit => {
-                                        // ArrayLit RHS: Phase 8 m2-002 — walk children, pack per element width.
-                                        if let Some(bytes) = crate::data_encoder::encode_array_lit(arena, rhs_id) {
-                                            let entry = if is_mutable {
-                                                DataEntry::new_data(bytes, symbol_name, 8)
-                                            } else {
-                                                DataEntry::new_rodata(bytes, symbol_name, 8)
-                                            };
-                                            data_table.insert(node_id, entry);
-                                        }
-                                    }
-                                    IrKind::RecordCons => {
-                                        // RecordCons RHS: Phase 8 m2-003 — walk fields, pack per layout.
-                                        // NOTE: requires finalised record layouts from Phase 6 m3-001.
-                                        if let Some(bytes) = crate::data_encoder::encode_record_cons(arena, rhs_id)
-                                        {
-                                            let entry = if is_mutable {
-                                                DataEntry::new_data(bytes, symbol_name, 8)
-                                            } else {
-                                                DataEntry::new_rodata(bytes, symbol_name, 8)
-                                            };
-                                            data_table.insert(node_id, entry);
-                                        }
-                                    }
-                                    IrKind::Placeholder => {
-                                        // Placeholder RHS: likely uninit marker.
-                                        // Phase 6 m5-004: Route all uninit to .bss regardless of mutability.
-                                        // Uninitialized data goes to .bss whether it's marked mut or not.
-                                        // This supports both `let x = uninit` and (future) `let mut x = uninit`.
-                                        let entry = DataEntry::new_bss(symbol_name, 8, 8);
-                                        data_table.insert(node_id, entry);
-                                    }
-                                    IrKind::StringLiteral => {
-                                        // PA10-002: String literal RHS with interned .rodata symbol.
-                                        // Look up the byte payload from the literal_bytes table.
-                                        if let Some(bytes) = arena.literal_bytes().get(rhs_id) {
-                                            // All strings are immutable and go to .rodata (ignore is_mutable flag).
-                                            // Create an 8-byte .rodata entry holding a pointer to the interned string symbol.
-                                            let rodata_bytes = vec![0u8; 8]; // Placeholder; will be back-filled by emitter.
-                                            let reloc = paideia_as_ir::RelocSpec::new(
-                                                0, // Offset 0: the entire 8 bytes hold the pointer
-                                                format!(
-                                                    "__str_{:016x}",
-                                                    crate::string_intern::fnv1a_64(bytes)
-                                                ),
-                                            );
-                                            let entry = DataEntry::new_rodata_with_relocs(
-                                                rodata_bytes,
-                                                symbol_name,
-                                                8,
-                                                vec![reloc],
-                                            );
-                                            data_table.insert(node_id, entry);
-                                        }
-                                    }
-                                    _ => {
-                                        // Other RHS shapes not handled yet.
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        crate::data_encoder::populate_data_table(arena, data_table)
     }
 
-    /// Pack a u64 value as little-endian bytes.
     /// Resolve the bound integer width for a Let node, if width-threadable.
     ///
     /// Phase 7 m4-003 (PA7C-m4-003): reads the binding's recorded
