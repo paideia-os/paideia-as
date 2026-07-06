@@ -761,7 +761,7 @@ fn print_type_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 .join(", ");
             format!("Name {{ name: {}, args: [{}] }}", name, args_str)
         }
-        TypeData::Arrow {
+        TypeData::FnPtr {
             params,
             ret,
             effects,
@@ -773,7 +773,7 @@ fn print_type_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 .collect::<Vec<_>>()
                 .join(", ");
             format!(
-                "Arrow {{ params: [{}], ret: {}, effects: {:?}, capabilities: {:?} }}",
+                "FnPtr {{ params: [{}], ret: {}, effects: {:?}, capabilities: {:?} }}",
                 params_str, ret, effects, capabilities
             )
         }

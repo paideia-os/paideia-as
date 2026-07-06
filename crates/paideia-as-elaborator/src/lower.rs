@@ -532,11 +532,11 @@ fn map_node_kind(kind: NodeKind) -> IrKind {
             IrKind::Var
         }
 
-        // Types (TypeName, TypeArrow, TypeTuple, TypeLinearClass, TypeEffectRow)
+        // Types (TypeName, TypeFnPtr, TypeTuple, TypeLinearClass, TypeEffectRow)
         // These are not lowered to IR in phase-1 (they stay in the type table).
         // If they appear as top-level nodes, map to Placeholder.
         NodeKind::TypeName
-        | NodeKind::TypeArrow
+        | NodeKind::TypeFnPtr
         | NodeKind::TypeTuple
         | NodeKind::TypeLinearClass
         | NodeKind::TypeEffectRow => IrKind::Placeholder,

@@ -85,6 +85,8 @@ pub enum TermHead {
     ByteString,
     /// `record { field1: T1, ... }` (record type).
     TypeRecord,
+    /// `(T1, T2, ...) -> T !{...} @{...}` (function-pointer type).
+    TypeFnPtr,
 }
 
 /// A typed handle to an AST expression node.
@@ -166,6 +168,7 @@ impl<'a> Term<'a> {
                 NodeKind::ExprByteString => TermHead::ByteString,
                 NodeKind::TypePtr => TermHead::TypePtr,
                 NodeKind::TypeRecord => TermHead::TypeRecord,
+                NodeKind::TypeFnPtr => TermHead::TypeFnPtr,
                 _ => {
                     // Non-expression kinds: this term does not represent an expression.
                     // Return a placeholder; Phase 2 will add dedicated handling for
@@ -190,10 +193,9 @@ impl<'a> Term<'a> {
         if let Some(ty) = self.arena.type_data(self.id) {
             if let TypeData::Ptr { pointee } = ty {
                 result.push(Term::new(self.arena, *pointee));
+                return result;
             }
-            // Other type variants either have no meaningful child terms
-            // (e.g. Name, EffectRow) or are handled elsewhere.
-            return result;
+            // Other type variants are handled below; don't return early.
         }
 
         if let Some(expr) = self.arena.expr_data(self.id) {
@@ -472,6 +474,27 @@ impl<'a> Term<'a> {
             return result;
         }
 
+        // Handle TypeFnPtr
+        if let Some(TypeData::FnPtr {
+            params,
+            ret,
+            effects,
+            capabilities,
+        }) = self.arena.type_data(self.id)
+        {
+            for &param in params {
+                result.push(Term::new(self.arena, param));
+            }
+            result.push(Term::new(self.arena, *ret));
+            if let Some(eff) = effects {
+                result.push(Term::new(self.arena, *eff));
+            }
+            if let Some(cap) = capabilities {
+                result.push(Term::new(self.arena, *cap));
+            }
+            return result;
+        }
+
         result
     }
 }
@@ -697,5 +720,176 @@ mod tests {
         // Expected stable format: Quote wrapper with a Literal body
         assert!(output.contains("Quote"));
         assert!(output.contains("body:"));
+    }
+
+    #[test]
+    fn fn_ptr_head_dispatch() {
+        let mut arena = AstArena::new();
+
+        // Create simple type nodes for params and return
+        // Note: allocate ident first to avoid borrow checker issues
+        let param_name_id = arena.alloc(NodeKind::Ident, span());
+        let param_id = arena.alloc_type(NodeKind::TypeName, span(), TypeData::Name {
+            name: param_name_id,
+            args: vec![],
+        });
+        let ret_name_id = arena.alloc(NodeKind::Ident, span());
+        let ret_id = arena.alloc_type(NodeKind::TypeName, span(), TypeData::Name {
+            name: ret_name_id,
+            args: vec![],
+        });
+
+        // Construct a TypeData::FnPtr node
+        let fn_ptr_id = arena.alloc_type(
+            NodeKind::TypeFnPtr,
+            span(),
+            TypeData::FnPtr {
+                params: vec![param_id],
+                ret: ret_id,
+                effects: None,
+                capabilities: None,
+            },
+        );
+
+        let term = Term::new(&arena, fn_ptr_id);
+        assert_eq!(term.head(), TermHead::TypeFnPtr);
+    }
+
+    #[test]
+    fn fn_ptr_children_order_minimal() {
+        let mut arena = AstArena::new();
+
+        // Create type nodes: two params and return
+        // Allocate idents first to avoid borrow checker issues
+        let t1_name_id = arena.alloc(NodeKind::Ident, span());
+        let t1_id = arena.alloc_type(NodeKind::TypeName, span(), TypeData::Name {
+            name: t1_name_id,
+            args: vec![],
+        });
+        let t2_name_id = arena.alloc(NodeKind::Ident, span());
+        let t2_id = arena.alloc_type(NodeKind::TypeName, span(), TypeData::Name {
+            name: t2_name_id,
+            args: vec![],
+        });
+        let r_name_id = arena.alloc(NodeKind::Ident, span());
+        let r_id = arena.alloc_type(NodeKind::TypeName, span(), TypeData::Name {
+            name: r_name_id,
+            args: vec![],
+        });
+
+        // Construct FnPtr with minimal fields
+        let fn_ptr_id = arena.alloc_type(
+            NodeKind::TypeFnPtr,
+            span(),
+            TypeData::FnPtr {
+                params: vec![t1_id, t2_id],
+                ret: r_id,
+                effects: None,
+                capabilities: None,
+            },
+        );
+
+        let term = Term::new(&arena, fn_ptr_id);
+        let children = term.children();
+
+        // Should have exactly 3 children: t1, t2, r (no None slots)
+        assert_eq!(children.len(), 3);
+        assert_eq!(children[0].id(), t1_id);
+        assert_eq!(children[1].id(), t2_id);
+        assert_eq!(children[2].id(), r_id);
+    }
+
+    #[test]
+    fn fn_ptr_children_order_with_effects() {
+        let mut arena = AstArena::new();
+
+        // Create type nodes
+        // Allocate idents first to avoid borrow checker issues
+        let t1_name_id = arena.alloc(NodeKind::Ident, span());
+        let t1_id = arena.alloc_type(NodeKind::TypeName, span(), TypeData::Name {
+            name: t1_name_id,
+            args: vec![],
+        });
+        let r_name_id = arena.alloc(NodeKind::Ident, span());
+        let r_id = arena.alloc_type(NodeKind::TypeName, span(), TypeData::Name {
+            name: r_name_id,
+            args: vec![],
+        });
+        let e_name_id = arena.alloc(NodeKind::Ident, span());
+        let e_id = arena.alloc_type(NodeKind::TypeName, span(), TypeData::Name {
+            name: e_name_id,
+            args: vec![],
+        });
+
+        // Construct FnPtr with effects
+        let fn_ptr_id = arena.alloc_type(
+            NodeKind::TypeFnPtr,
+            span(),
+            TypeData::FnPtr {
+                params: vec![t1_id],
+                ret: r_id,
+                effects: Some(e_id),
+                capabilities: None,
+            },
+        );
+
+        let term = Term::new(&arena, fn_ptr_id);
+        let children = term.children();
+
+        // Should have 3 children: t1, r, e (in that order)
+        assert_eq!(children.len(), 3);
+        assert_eq!(children[0].id(), t1_id);
+        assert_eq!(children[1].id(), r_id);
+        assert_eq!(children[2].id(), e_id);
+    }
+
+    #[test]
+    fn fn_ptr_children_order_full() {
+        let mut arena = AstArena::new();
+
+        // Create type nodes
+        // Allocate idents first to avoid borrow checker issues
+        let t1_name_id = arena.alloc(NodeKind::Ident, span());
+        let t1_id = arena.alloc_type(NodeKind::TypeName, span(), TypeData::Name {
+            name: t1_name_id,
+            args: vec![],
+        });
+        let r_name_id = arena.alloc(NodeKind::Ident, span());
+        let r_id = arena.alloc_type(NodeKind::TypeName, span(), TypeData::Name {
+            name: r_name_id,
+            args: vec![],
+        });
+        let e_name_id = arena.alloc(NodeKind::Ident, span());
+        let e_id = arena.alloc_type(NodeKind::TypeName, span(), TypeData::Name {
+            name: e_name_id,
+            args: vec![],
+        });
+        let c_name_id = arena.alloc(NodeKind::Ident, span());
+        let c_id = arena.alloc_type(NodeKind::TypeName, span(), TypeData::Name {
+            name: c_name_id,
+            args: vec![],
+        });
+
+        // Construct FnPtr with both effects and capabilities
+        let fn_ptr_id = arena.alloc_type(
+            NodeKind::TypeFnPtr,
+            span(),
+            TypeData::FnPtr {
+                params: vec![t1_id],
+                ret: r_id,
+                effects: Some(e_id),
+                capabilities: Some(c_id),
+            },
+        );
+
+        let term = Term::new(&arena, fn_ptr_id);
+        let children = term.children();
+
+        // Should have 4 children: t1, r, e, c (in that order)
+        assert_eq!(children.len(), 4);
+        assert_eq!(children[0].id(), t1_id);
+        assert_eq!(children[1].id(), r_id);
+        assert_eq!(children[2].id(), e_id);
+        assert_eq!(children[3].id(), c_id);
     }
 }

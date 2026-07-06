@@ -216,8 +216,8 @@ pub fn walk_stmt<V: StmtVisitor>(visitor: &mut V, arena: &AstArena, id: NodeId) 
 pub trait TypeVisitor {
     /// Visit a Name type.
     fn visit_type_name(&mut self, _arena: &AstArena, _id: NodeId) {}
-    /// Visit an Arrow type.
-    fn visit_type_arrow(&mut self, _arena: &AstArena, _id: NodeId) {}
+    /// Visit a FnPtr type.
+    fn visit_type_fn_ptr(&mut self, _arena: &AstArena, _id: NodeId) {}
     /// Visit a Tuple type.
     fn visit_type_tuple(&mut self, _arena: &AstArena, _id: NodeId) {}
     /// Visit a LinearClass type.
@@ -243,7 +243,7 @@ pub fn walk_type<V: TypeVisitor>(visitor: &mut V, arena: &AstArena, id: NodeId) 
 
     match node_data.kind {
         NodeKind::TypeName => visitor.visit_type_name(arena, id),
-        NodeKind::TypeArrow => visitor.visit_type_arrow(arena, id),
+        NodeKind::TypeFnPtr => visitor.visit_type_fn_ptr(arena, id),
         NodeKind::TypeTuple => visitor.visit_type_tuple(arena, id),
         NodeKind::TypeLinearClass => visitor.visit_type_linear_class(arena, id),
         NodeKind::TypeEffectRow => visitor.visit_type_effect_row(arena, id),

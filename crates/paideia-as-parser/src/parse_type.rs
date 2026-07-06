@@ -241,9 +241,9 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                     ret_span_end.byte_start() + ret_span_end.byte_len() - span_start.byte_start(),
                 );
                 return Ok(self.arena_mut().alloc_type(
-                    NodeKind::TypeArrow,
+                    NodeKind::TypeFnPtr,
                     span,
-                    TypeData::Arrow {
+                    TypeData::FnPtr {
                         params: vec![],
                         ret,
                         effects,
@@ -346,9 +346,9 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                     span_end.byte_start() + span_end.byte_len() - span_start.byte_start(),
                 );
                 return Ok(self.arena_mut().alloc_type(
-                    NodeKind::TypeArrow,
+                    NodeKind::TypeFnPtr,
                     span,
-                    TypeData::Arrow {
+                    TypeData::FnPtr {
                         params: elements,
                         ret,
                         effects,
@@ -416,9 +416,9 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 span_end.byte_start() + span_end.byte_len() - span_start.byte_start(),
             );
             return Ok(self.arena_mut().alloc_type(
-                NodeKind::TypeArrow,
+                NodeKind::TypeFnPtr,
                 span,
-                TypeData::Arrow {
+                TypeData::FnPtr {
                     params: elements,
                     ret,
                     effects,
@@ -1248,7 +1248,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_arrow_type() {
+    fn parse_fn_ptr_type() {
         // `(u64) -> u64` → LParen Ident RParen Arrow Ident Eof
         let tokens = vec![
             tok(TokenKind::LParen, 0),
@@ -1264,8 +1264,8 @@ mod tests {
         assert!(result.is_ok());
         let ty_id = result.unwrap();
         let ty_node = arena.get(ty_id).unwrap();
-        assert_eq!(ty_node.kind, NodeKind::TypeArrow);
-        if let Some(TypeData::Arrow {
+        assert_eq!(ty_node.kind, NodeKind::TypeFnPtr);
+        if let Some(TypeData::FnPtr {
             params,
             effects,
             capabilities,
@@ -1276,12 +1276,12 @@ mod tests {
             assert!(effects.is_none());
             assert!(capabilities.is_none());
         } else {
-            panic!("expected TypeArrow");
+            panic!("expected TypeFnPtr");
         }
     }
 
     #[test]
-    fn parse_arrow_with_effects() {
+    fn parse_fn_ptr_with_effects() {
         // `(u64) -> u64 !{io}` → LParen Ident RParen Arrow Ident EffectOpen Ident RBrace Eof
         let tokens = vec![
             tok(TokenKind::LParen, 0),
@@ -1299,15 +1299,15 @@ mod tests {
         assert_eq!(diags.len(), 0);
         assert!(result.is_ok());
         let ty_id = result.unwrap();
-        if let Some(TypeData::Arrow { effects, .. }) = arena.type_data(ty_id) {
+        if let Some(TypeData::FnPtr { effects, .. }) = arena.type_data(ty_id) {
             assert!(effects.is_some());
         } else {
-            panic!("expected TypeArrow with effects");
+            panic!("expected TypeFnPtr with effects");
         }
     }
 
     #[test]
-    fn parse_arrow_with_capabilities() {
+    fn parse_fn_ptr_with_capabilities() {
         // `(u64) -> u64 @{cap}` → LParen Ident RParen Arrow Ident CapOpen Ident RBrace Eof
         let tokens = vec![
             tok(TokenKind::LParen, 0),
@@ -1325,15 +1325,15 @@ mod tests {
         assert_eq!(diags.len(), 0);
         assert!(result.is_ok());
         let ty_id = result.unwrap();
-        if let Some(TypeData::Arrow { capabilities, .. }) = arena.type_data(ty_id) {
+        if let Some(TypeData::FnPtr { capabilities, .. }) = arena.type_data(ty_id) {
             assert!(capabilities.is_some());
         } else {
-            panic!("expected TypeArrow with capabilities");
+            panic!("expected TypeFnPtr with capabilities");
         }
     }
 
     #[test]
-    fn parse_arrow_full() {
+    fn parse_fn_ptr_full() {
         // `(u64, linear Cap) -> u64 !{io} @{Mmio.read_cap}`
         // LParen Ident Comma KwLinear Ident RParen Arrow Ident EffectOpen Ident RBrace CapOpen Ident Dot Ident RBrace Eof
         let tokens = vec![
@@ -1361,8 +1361,8 @@ mod tests {
         assert!(result.is_ok());
         let ty_id = result.unwrap();
         let ty_node = arena.get(ty_id).unwrap();
-        assert_eq!(ty_node.kind, NodeKind::TypeArrow);
-        if let Some(TypeData::Arrow {
+        assert_eq!(ty_node.kind, NodeKind::TypeFnPtr);
+        if let Some(TypeData::FnPtr {
             params,
             effects,
             capabilities,
@@ -1377,7 +1377,7 @@ mod tests {
             assert!(effects.is_some());
             assert!(capabilities.is_some());
         } else {
-            panic!("expected TypeArrow full");
+            panic!("expected TypeFnPtr full");
         }
     }
 
@@ -1503,7 +1503,7 @@ mod tests {
         let ty_id = result.unwrap();
         let ty_node = arena.get(ty_id).unwrap();
         // The outer node should be an arrow (forall wrapper is discarded in phase-1)
-        assert_eq!(ty_node.kind, NodeKind::TypeArrow);
+        assert_eq!(ty_node.kind, NodeKind::TypeFnPtr);
     }
 
     #[test]
@@ -1580,13 +1580,13 @@ mod tests {
         let ty_node = arena.get(ty_id).unwrap();
         assert_eq!(
             ty_node.kind,
-            NodeKind::TypeArrow,
+            NodeKind::TypeFnPtr,
             "expected arrow type for named-param function"
         );
-        if let Some(TypeData::Arrow { params, .. }) = arena.type_data(ty_id) {
+        if let Some(TypeData::FnPtr { params, .. }) = arena.type_data(ty_id) {
             assert_eq!(params.len(), 1, "expected 1 parameter");
         } else {
-            panic!("expected TypeArrow");
+            panic!("expected TypeFnPtr");
         }
     }
 
@@ -1614,11 +1614,11 @@ mod tests {
         assert!(result.is_ok());
         let ty_id = result.unwrap();
         let ty_node = arena.get(ty_id).unwrap();
-        assert_eq!(ty_node.kind, NodeKind::TypeArrow);
-        if let Some(TypeData::Arrow { params, .. }) = arena.type_data(ty_id) {
+        assert_eq!(ty_node.kind, NodeKind::TypeFnPtr);
+        if let Some(TypeData::FnPtr { params, .. }) = arena.type_data(ty_id) {
             assert_eq!(params.len(), 2, "expected 2 parameters");
         } else {
-            panic!("expected TypeArrow with two params");
+            panic!("expected TypeFnPtr with two params");
         }
     }
 
@@ -1646,11 +1646,11 @@ mod tests {
         assert!(result.is_ok());
         let ty_id = result.unwrap();
         let ty_node = arena.get(ty_id).unwrap();
-        assert_eq!(ty_node.kind, NodeKind::TypeArrow);
-        if let Some(TypeData::Arrow { params, .. }) = arena.type_data(ty_id) {
+        assert_eq!(ty_node.kind, NodeKind::TypeFnPtr);
+        if let Some(TypeData::FnPtr { params, .. }) = arena.type_data(ty_id) {
             assert_eq!(params.len(), 2, "expected 2 positional parameters");
         } else {
-            panic!("expected TypeArrow positional");
+            panic!("expected TypeFnPtr positional");
         }
     }
 
@@ -1676,11 +1676,11 @@ mod tests {
         assert!(result.is_ok());
         let ty_id = result.unwrap();
         let ty_node = arena.get(ty_id).unwrap();
-        assert_eq!(ty_node.kind, NodeKind::TypeArrow);
-        if let Some(TypeData::Arrow { params, .. }) = arena.type_data(ty_id) {
+        assert_eq!(ty_node.kind, NodeKind::TypeFnPtr);
+        if let Some(TypeData::FnPtr { params, .. }) = arena.type_data(ty_id) {
             assert_eq!(params.len(), 2, "expected 2 parameters (mixed)");
         } else {
-            panic!("expected TypeArrow mixed");
+            panic!("expected TypeFnPtr mixed");
         }
     }
 
@@ -1701,11 +1701,11 @@ mod tests {
         assert!(result.is_ok());
         let ty_id = result.unwrap();
         let ty_node = arena.get(ty_id).unwrap();
-        assert_eq!(ty_node.kind, NodeKind::TypeArrow);
-        if let Some(TypeData::Arrow { params, .. }) = arena.type_data(ty_id) {
+        assert_eq!(ty_node.kind, NodeKind::TypeFnPtr);
+        if let Some(TypeData::FnPtr { params, .. }) = arena.type_data(ty_id) {
             assert_eq!(params.len(), 0, "expected 0 parameters");
         } else {
-            panic!("expected TypeArrow empty");
+            panic!("expected TypeFnPtr empty");
         }
     }
 
@@ -1739,15 +1739,15 @@ mod tests {
         assert!(result.is_ok());
         let ty_id = result.unwrap();
         let ty_node = arena.get(ty_id).unwrap();
-        assert_eq!(ty_node.kind, NodeKind::TypeArrow);
-        if let Some(TypeData::Arrow { params, .. }) = arena.type_data(ty_id) {
+        assert_eq!(ty_node.kind, NodeKind::TypeFnPtr);
+        if let Some(TypeData::FnPtr { params, .. }) = arena.type_data(ty_id) {
             assert_eq!(params.len(), 1, "expected 1 parameter (a function type)");
             // Check that the param itself is an arrow
             let param_type = params[0];
             let param_node = arena.get(param_type).unwrap();
-            assert_eq!(param_node.kind, NodeKind::TypeArrow);
+            assert_eq!(param_node.kind, NodeKind::TypeFnPtr);
         } else {
-            panic!("expected outer TypeArrow");
+            panic!("expected outer TypeFnPtr");
         }
     }
 
@@ -1850,7 +1850,7 @@ mod tests {
         assert_eq!(ty_node.kind, NodeKind::TypePtr);
         if let Some(TypeData::Ptr { pointee }) = arena.type_data(ty_id) {
             let fn_node = arena.get(*pointee).unwrap();
-            assert_eq!(fn_node.kind, NodeKind::TypeArrow);
+            assert_eq!(fn_node.kind, NodeKind::TypeFnPtr);
         } else {
             panic!("expected TypePtr");
         }
@@ -1874,13 +1874,13 @@ mod tests {
         assert!(result.is_ok());
         let ty_id = result.unwrap();
         let ty_node = arena.get(ty_id).unwrap();
-        assert_eq!(ty_node.kind, NodeKind::TypeArrow);
-        if let Some(TypeData::Arrow { params, .. }) = arena.type_data(ty_id) {
+        assert_eq!(ty_node.kind, NodeKind::TypeFnPtr);
+        if let Some(TypeData::FnPtr { params, .. }) = arena.type_data(ty_id) {
             assert_eq!(params.len(), 1, "expected 1 parameter");
             let param_node = arena.get(params[0]).unwrap();
             assert_eq!(param_node.kind, NodeKind::TypePtr);
         } else {
-            panic!("expected TypeArrow");
+            panic!("expected TypeFnPtr");
         }
     }
 
@@ -1902,12 +1902,12 @@ mod tests {
         assert!(result.is_ok());
         let ty_id = result.unwrap();
         let ty_node = arena.get(ty_id).unwrap();
-        assert_eq!(ty_node.kind, NodeKind::TypeArrow);
-        if let Some(TypeData::Arrow { ret, .. }) = arena.type_data(ty_id) {
+        assert_eq!(ty_node.kind, NodeKind::TypeFnPtr);
+        if let Some(TypeData::FnPtr { ret, .. }) = arena.type_data(ty_id) {
             let ret_node = arena.get(*ret).unwrap();
             assert_eq!(ret_node.kind, NodeKind::TypePtr);
         } else {
-            panic!("expected TypeArrow");
+            panic!("expected TypeFnPtr");
         }
     }
 
@@ -2021,8 +2021,8 @@ mod tests {
         assert!(result.is_ok());
         let ty_id = result.unwrap();
         let ty_node = arena.get(ty_id).unwrap();
-        assert_eq!(ty_node.kind, NodeKind::TypeArrow);
-        if let Some(TypeData::Arrow { params, ret, .. }) = arena.type_data(ty_id) {
+        assert_eq!(ty_node.kind, NodeKind::TypeFnPtr);
+        if let Some(TypeData::FnPtr { params, ret, .. }) = arena.type_data(ty_id) {
             // First param should be *u8
             assert_eq!(params.len(), 1);
             let param_node = arena.get(params[0]).unwrap();
@@ -2031,7 +2031,7 @@ mod tests {
             let ret_node = arena.get(*ret).unwrap();
             assert_eq!(ret_node.kind, NodeKind::TypePtr);
         } else {
-            panic!("expected TypeArrow");
+            panic!("expected TypeFnPtr");
         }
     }
 
@@ -2395,13 +2395,13 @@ mod tests {
         assert!(result.is_ok());
         let ty_id = result.unwrap();
         let ty_node = arena.get(ty_id).unwrap();
-        assert_eq!(ty_node.kind, NodeKind::TypeArrow);
-        if let Some(TypeData::Arrow { params, .. }) = arena.type_data(ty_id) {
+        assert_eq!(ty_node.kind, NodeKind::TypeFnPtr);
+        if let Some(TypeData::FnPtr { params, .. }) = arena.type_data(ty_id) {
             assert_eq!(params.len(), 1, "expected 1 parameter");
             let param_node = arena.get(params[0]).unwrap();
             assert_eq!(param_node.kind, NodeKind::TypeRef);
         } else {
-            panic!("expected TypeArrow");
+            panic!("expected TypeFnPtr");
         }
     }
 
@@ -2423,12 +2423,12 @@ mod tests {
         assert!(result.is_ok());
         let ty_id = result.unwrap();
         let ty_node = arena.get(ty_id).unwrap();
-        assert_eq!(ty_node.kind, NodeKind::TypeArrow);
-        if let Some(TypeData::Arrow { ret, .. }) = arena.type_data(ty_id) {
+        assert_eq!(ty_node.kind, NodeKind::TypeFnPtr);
+        if let Some(TypeData::FnPtr { ret, .. }) = arena.type_data(ty_id) {
             let ret_node = arena.get(*ret).unwrap();
             assert_eq!(ret_node.kind, NodeKind::TypeRef);
         } else {
-            panic!("expected TypeArrow");
+            panic!("expected TypeFnPtr");
         }
     }
 
@@ -2647,5 +2647,327 @@ mod tests {
         let diag = &diags[0];
         assert_eq!(diag.code().number(), 199, "expected P0199");
         assert!(result.is_err(), "expected parse error");
+    }
+
+    // ============================================================================
+    // Additional FnPtr tests (per issue #979 pa-r17-001)
+    // ============================================================================
+
+    #[test]
+    fn parse_fn_ptr_zero_params() {
+        // `() -> u32` — zero params
+        let tokens = vec![
+            tok(TokenKind::LParen, 0),
+            tok(TokenKind::RParen, 1),
+            tok(TokenKind::Arrow, 3),
+            tok(TokenKind::Ident, 6), // u32
+            tok(TokenKind::Eof, 9),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypeFnPtr);
+        if let Some(TypeData::FnPtr { params, .. }) = arena.type_data(ty_id) {
+            assert_eq!(params.len(), 0);
+        } else {
+            panic!("expected TypeFnPtr with zero params");
+        }
+    }
+
+    #[test]
+    fn parse_fn_ptr_exact_example() {
+        // `(*u8, u64) -> u32` — AC exact example
+        let tokens = vec![
+            tok(TokenKind::LParen, 0),
+            tok(TokenKind::Star, 1),
+            tok(TokenKind::Ident, 2),  // u8
+            tok(TokenKind::Comma, 4),
+            tok(TokenKind::Ident, 6),  // u64
+            tok(TokenKind::RParen, 9),
+            tok(TokenKind::Arrow, 11),
+            tok(TokenKind::Ident, 14), // u32
+            tok(TokenKind::Eof, 17),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypeFnPtr);
+        if let Some(TypeData::FnPtr { params, .. }) = arena.type_data(ty_id) {
+            assert_eq!(params.len(), 2);
+        } else {
+            panic!("expected TypeFnPtr with two params");
+        }
+    }
+
+    #[test]
+    fn parse_fn_ptr_empty_effects() {
+        // `(u32) -> u32 !{}` — empty effect row
+        let tokens = vec![
+            tok(TokenKind::LParen, 0),
+            tok(TokenKind::Ident, 1),  // u32
+            tok(TokenKind::RParen, 4),
+            tok(TokenKind::Arrow, 6),
+            tok(TokenKind::Ident, 9),  // u32
+            tok(TokenKind::EffectOpen, 13),
+            tok(TokenKind::RBrace, 14),
+            tok(TokenKind::Eof, 15),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        if let Some(TypeData::FnPtr { effects, .. }) = arena.type_data(ty_id) {
+            assert!(effects.is_some());
+        } else {
+            panic!("expected TypeFnPtr with empty effects");
+        }
+    }
+
+    #[test]
+    fn parse_fn_ptr_trailing_comma() {
+        // `(u32, u32,) -> u32` — trailing comma
+        let tokens = vec![
+            tok(TokenKind::LParen, 0),
+            tok(TokenKind::Ident, 1),  // u32
+            tok(TokenKind::Comma, 4),
+            tok(TokenKind::Ident, 6),  // u32
+            tok(TokenKind::Comma, 9),
+            tok(TokenKind::RParen, 10),
+            tok(TokenKind::Arrow, 12),
+            tok(TokenKind::Ident, 15), // u32
+            tok(TokenKind::Eof, 18),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        if let Some(TypeData::FnPtr { params, .. }) = arena.type_data(ty_id) {
+            assert_eq!(params.len(), 2);
+        } else {
+            panic!("expected TypeFnPtr with two params (trailing comma)");
+        }
+    }
+
+    #[test]
+    fn parse_fn_ptr_as_return() {
+        // `(u32) -> ((u32) -> u32)` — fn-ptr as return
+        let tokens = vec![
+            tok(TokenKind::LParen, 0),
+            tok(TokenKind::Ident, 1),  // u32
+            tok(TokenKind::RParen, 4),
+            tok(TokenKind::Arrow, 6),
+            tok(TokenKind::LParen, 9),
+            tok(TokenKind::LParen, 10),
+            tok(TokenKind::Ident, 11), // u32
+            tok(TokenKind::RParen, 14),
+            tok(TokenKind::Arrow, 16),
+            tok(TokenKind::Ident, 19), // u32
+            tok(TokenKind::RParen, 22),
+            tok(TokenKind::Eof, 23),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let outer_id = result.unwrap();
+        let outer_node = arena.get(outer_id).unwrap();
+        assert_eq!(outer_node.kind, NodeKind::TypeFnPtr);
+        // Return type should be a TypeFnPtr
+        if let Some(TypeData::FnPtr { ret, .. }) = arena.type_data(outer_id) {
+            let ret_node = arena.get(*ret).unwrap();
+            assert_eq!(ret_node.kind, NodeKind::TypeFnPtr);
+        } else {
+            panic!("expected outer TypeFnPtr");
+        }
+    }
+
+    #[test]
+    fn parse_fn_ptr_as_param() {
+        // `((u32) -> u32) -> u32` — fn-ptr as param
+        let tokens = vec![
+            tok(TokenKind::LParen, 0),
+            tok(TokenKind::LParen, 1),
+            tok(TokenKind::Ident, 2),  // u32
+            tok(TokenKind::RParen, 5),
+            tok(TokenKind::Arrow, 7),
+            tok(TokenKind::Ident, 10), // u32
+            tok(TokenKind::RParen, 13),
+            tok(TokenKind::Arrow, 15),
+            tok(TokenKind::Ident, 18), // u32
+            tok(TokenKind::Eof, 21),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let outer_id = result.unwrap();
+        let outer_node = arena.get(outer_id).unwrap();
+        assert_eq!(outer_node.kind, NodeKind::TypeFnPtr);
+        if let Some(TypeData::FnPtr { params, .. }) = arena.type_data(outer_id) {
+            assert_eq!(params.len(), 1);
+            let param_node = arena.get(params[0]).unwrap();
+            assert_eq!(param_node.kind, NodeKind::TypeFnPtr);
+        } else {
+            panic!("expected outer TypeFnPtr");
+        }
+    }
+
+    #[test]
+    fn parse_ptr_to_fn_ptr() {
+        // `*(u32) -> u32` — *(FnPtr)
+        let tokens = vec![
+            tok(TokenKind::Star, 0),
+            tok(TokenKind::LParen, 1),
+            tok(TokenKind::Ident, 2),  // u32
+            tok(TokenKind::RParen, 5),
+            tok(TokenKind::Arrow, 7),
+            tok(TokenKind::Ident, 10), // u32
+            tok(TokenKind::Eof, 13),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let ptr_id = result.unwrap();
+        let ptr_node = arena.get(ptr_id).unwrap();
+        assert_eq!(ptr_node.kind, NodeKind::TypePtr);
+        if let Some(TypeData::Ptr { pointee }) = arena.type_data(ptr_id) {
+            let fn_node = arena.get(*pointee).unwrap();
+            assert_eq!(fn_node.kind, NodeKind::TypeFnPtr);
+        } else {
+            panic!("expected TypePtr");
+        }
+    }
+
+    #[test]
+    fn parse_fn_ptr_taking_pointer() {
+        // `(*u32) -> u32` — FnPtr taking pointer
+        let tokens = vec![
+            tok(TokenKind::LParen, 0),
+            tok(TokenKind::Star, 1),
+            tok(TokenKind::Ident, 2),  // u32
+            tok(TokenKind::RParen, 5),
+            tok(TokenKind::Arrow, 7),
+            tok(TokenKind::Ident, 10), // u32
+            tok(TokenKind::Eof, 13),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let ty_id = result.unwrap();
+        let ty_node = arena.get(ty_id).unwrap();
+        assert_eq!(ty_node.kind, NodeKind::TypeFnPtr);
+        if let Some(TypeData::FnPtr { params, .. }) = arena.type_data(ty_id) {
+            assert_eq!(params.len(), 1);
+            let param_node = arena.get(params[0]).unwrap();
+            assert_eq!(param_node.kind, NodeKind::TypePtr);
+        } else {
+            panic!("expected TypeFnPtr");
+        }
+    }
+
+    #[test]
+    fn parse_fn_ptr_in_record() {
+        // `record { f: (u32) -> u32 }` — fn-ptr in record (vops shape)
+        let tokens = vec![
+            tok(TokenKind::KwRecord, 0),
+            tok(TokenKind::LBrace, 7),
+            tok(TokenKind::Ident, 9),  // f
+            tok(TokenKind::Colon, 10),
+            tok(TokenKind::LParen, 12),
+            tok(TokenKind::Ident, 13), // u32
+            tok(TokenKind::RParen, 16),
+            tok(TokenKind::Arrow, 18),
+            tok(TokenKind::Ident, 21), // u32
+            tok(TokenKind::RBrace, 24),
+            tok(TokenKind::Eof, 25),
+        ];
+        let (arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 0);
+        assert!(result.is_ok());
+        let record_id = result.unwrap();
+        let record_node = arena.get(record_id).unwrap();
+        assert_eq!(record_node.kind, NodeKind::TypeRecord);
+        if let Some(TypeData::Record { fields }) = arena.type_data(record_id) {
+            assert_eq!(fields.len(), 1);
+            let (_field_name, field_ty) = fields[0];
+            let field_node = arena.get(field_ty).unwrap();
+            assert_eq!(field_node.kind, NodeKind::TypeFnPtr);
+        } else {
+            panic!("expected TypeRecord");
+        }
+    }
+
+    // Error tests for FnPtr
+
+    #[test]
+    fn parse_fn_ptr_missing_return_type() {
+        // `(u32) ->` — missing return type
+        let tokens = vec![
+            tok(TokenKind::LParen, 0),
+            tok(TokenKind::Ident, 1),  // u32
+            tok(TokenKind::RParen, 4),
+            tok(TokenKind::Arrow, 6),
+            tok(TokenKind::Eof, 9),
+        ];
+        let (_arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 1, "expected 1 diagnostic");
+        let diag = &diags[0];
+        assert_eq!(diag.code().number(), 100, "expected P0100 (expected type)");
+        assert!(result.is_err(), "expected parse error for missing return type");
+    }
+
+    #[test]
+    fn parse_fn_ptr_malformed_effects() {
+        // `(u32) -> u32 !` — malformed effect annot
+        let tokens = vec![
+            tok(TokenKind::LParen, 0),
+            tok(TokenKind::Ident, 1),  // u32
+            tok(TokenKind::RParen, 4),
+            tok(TokenKind::Arrow, 6),
+            tok(TokenKind::Ident, 9),  // u32
+            tok(TokenKind::EffectOpen, 13),
+            tok(TokenKind::Eof, 14),
+        ];
+        let (_arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 1, "expected 1 diagnostic");
+        let diag = &diags[0];
+        assert_eq!(diag.code().number(), 100, "expected P0100 (expected closing brace)");
+        assert!(result.is_err(), "expected parse error for malformed effects");
+    }
+
+    #[test]
+    fn parse_fn_ptr_effect_on_param() {
+        // `(u32 !{Atomic}) -> u32` — effect on param position (reject)
+        // This should parse as a type error: effects on param types are not allowed
+        let tokens = vec![
+            tok(TokenKind::LParen, 0),
+            tok(TokenKind::Ident, 1),  // u32
+            tok(TokenKind::EffectOpen, 4),
+            tok(TokenKind::Ident, 6),  // Atomic
+            tok(TokenKind::RBrace, 12),
+            tok(TokenKind::RParen, 13),
+            tok(TokenKind::Arrow, 15),
+            tok(TokenKind::Ident, 18), // u32
+            tok(TokenKind::Eof, 21),
+        ];
+        let (_arena, result, diags) = parse_t(tokens);
+
+        assert_eq!(diags.len(), 1, "expected 1 diagnostic");
+        let diag = &diags[0];
+        assert_eq!(diag.code().number(), 100, "expected P0100 (expected closing paren)");
+        assert!(result.is_err(), "expected parse error for effect on param");
     }
 }

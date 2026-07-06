@@ -1,7 +1,7 @@
 //! Type-specific structured data (§8 Type grammar).
 //!
 //! [`TypeData`] is an enum carrying the semantic payload for type nodes.
-//! Type categories: TypeName, Arrow, Tuple, LinearClass, EffectRowType.
+//! Type categories: TypeName, FnPtr, Tuple, LinearClass, EffectRowType.
 
 use crate::NodeId;
 
@@ -23,9 +23,9 @@ pub enum TypeData {
 
     /// `(T1, T2, ...) -> T !{...} @{...}`.
     ///
-    /// Function type: parameter types, return type, optional effect set, and
-    /// optional capability set.
-    Arrow {
+    /// First-class function-pointer type. Parameter types, return type, optional
+    /// effect set, and optional capability set.
+    FnPtr {
         /// Parameter types.
         params: Vec<NodeId>,
         /// Return type.
@@ -195,19 +195,19 @@ mod tests {
     }
 
     #[test]
-    fn type_arrow_constructs() {
+    fn type_fn_ptr_constructs() {
         let param1 = make_nodeid(1);
         let param2 = make_nodeid(2);
         let ret = make_nodeid(3);
         let eff = make_nodeid(4);
-        let ty = TypeData::Arrow {
+        let ty = TypeData::FnPtr {
             params: vec![param1, param2],
             ret,
             effects: Some(eff),
             capabilities: None,
         };
         match ty {
-            TypeData::Arrow {
+            TypeData::FnPtr {
                 params: p,
                 ret: r,
                 effects: e,
@@ -218,7 +218,7 @@ mod tests {
                 assert_eq!(e, Some(eff));
                 assert!(c.is_none());
             }
-            _ => panic!("expected Arrow variant"),
+            _ => panic!("expected FnPtr variant"),
         }
     }
 

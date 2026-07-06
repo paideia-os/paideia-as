@@ -154,11 +154,11 @@ pub enum NodeKind {
     /// Memory reference operand (`[addr]`).
     OperandMemoryRef,
 
-    // Types (§8 Type: TypeName | Arrow | Tuple | LinearClass | EffectRowType)
+    // Types (§8 Type: TypeName | FnPtr | Tuple | LinearClass | EffectRowType)
     /// `TypeName` or `TypeName(args)`.
     TypeName,
     /// `(T1, T2, ...) -> T !{...} @{...}`.
-    TypeArrow,
+    TypeFnPtr,
     /// `(T1, T2, ...)`.
     TypeTuple,
     /// `<LinClass> T` (linear/ordered/affine/unrestricted).
