@@ -34,6 +34,7 @@ pub mod opt;
 pub mod pretty;
 pub mod record_layout;
 pub mod section_attr;
+pub mod side_table;
 pub mod string_literal;
 pub mod symbol;
 pub mod walker;
