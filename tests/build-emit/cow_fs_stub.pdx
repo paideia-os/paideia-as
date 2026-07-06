@@ -1,0 +1,50 @@
+// PA-R16-012: v0.16 COW-ATOMICS canary.
+//
+// Surface trait model of a minimal CoW filesystem physical-page allocator.
+// Composes the v0.16 atomic primitive substrate:
+//   BitmapOps      (bitmap.pdx  — #976) — free-page tracking
+//   RefcountOps    (refcount.pdx — #975) — per-page refcounts (CoW share)
+//   FreelistOps    (freelist.pdx — #977) — ABA-safe fast-path pool
+//   PauseOps       (pause.pdx   — #973) — spin-wait hint in CAS retry loops
+//
+// PhysAllocOps aggregates the four into the phys_alloc / phys_free /
+// phys_incref / phys_decref surface a CoW file server (paideia-os
+// R16 M1) will consume. Sentinel u64::MAX from phys_alloc = out of memory.
+//
+// Body-level lowering to concrete mnemonics (lock bts/btr, lock xadd,
+// lock cmpxchg16b, pause) deferred to elaborator/codegen (#1036).
+
+module CowFsStub = structure {
+  trait BitmapOps {
+    fn bitmap_get(bmap: *u64, bit_index: u64) -> bool !{};
+    fn bitmap_word_count(bit_capacity: u64) -> u64 !{};
+    fn bitmap_set(bmap: *u64, bit_index: u64) -> bool !{Atomic};
+    fn bitmap_clear(bmap: *u64, bit_index: u64) -> bool !{Atomic};
+    fn bitmap_toggle(bmap: *u64, bit_index: u64) -> bool !{Atomic};
+    fn bitmap_first_free(bmap: *u64, bit_capacity: u64) -> u64 !{};
+    fn bitmap_claim_first_free(bmap: *u64, bit_capacity: u64) -> u64 !{Atomic};
+  }
+
+  trait RefcountOps {
+    fn refcount_incr(counter: *u32) -> u32 !{Atomic};
+    fn refcount_decr(counter: *u32) -> u32 !{Atomic};
+    fn refcount_decr_and_test(counter: *u32) -> bool !{Atomic};
+  }
+
+  trait FreelistOps {
+    fn freelist_push(head: *u64, node: *u64) -> () !{Atomic};
+    fn freelist_pop(head: *u64) -> u64 !{Atomic};
+    fn freelist_empty(head: *u64) -> bool !{};
+  }
+
+  trait PauseOps {
+    fn spin_hint() -> ();
+  }
+
+  trait PhysAllocOps {
+    fn phys_alloc(pool_bitmap: *u64, refcounts: *u32, cap: u64) -> u64 !{Atomic};
+    fn phys_free(pool_bitmap: *u64, refcounts: *u32, page_idx: u64) -> () !{Atomic};
+    fn phys_incref(refcounts: *u32, page_idx: u64) -> u32 !{Atomic};
+    fn phys_decref(refcounts: *u32, page_idx: u64) -> bool !{Atomic};
+  }
+}
