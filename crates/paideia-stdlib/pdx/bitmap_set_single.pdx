@@ -1,0 +1,5 @@
+// PA-R16-010 fixture: BitmapSetSingle isolates bitmap_set for parse regression.
+
+trait BitmapSetSingle {
+  fn bitmap_set(bmap: *u64, bit_index: u64) -> bool !{Atomic};
+}

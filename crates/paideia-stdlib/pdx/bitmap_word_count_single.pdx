@@ -1,0 +1,5 @@
+// PA-R16-010 fixture: BitmapWordCountSingle isolates bitmap_word_count (no ptr, cheapest shape).
+
+trait BitmapWordCountSingle {
+  fn bitmap_word_count(bit_capacity: u64) -> u64 !{};
+}

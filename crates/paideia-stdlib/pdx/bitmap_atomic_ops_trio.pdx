@@ -1,0 +1,7 @@
+// PA-R16-010 fixture: BitmapAtomicOpsTrio exercises atomic RMW triad together.
+
+trait BitmapAtomicOpsTrio {
+  fn bitmap_set(bmap: *u64, bit_index: u64) -> bool !{Atomic};
+  fn bitmap_clear(bmap: *u64, bit_index: u64) -> bool !{Atomic};
+  fn bitmap_toggle(bmap: *u64, bit_index: u64) -> bool !{Atomic};
+}

@@ -1,0 +1,5 @@
+// PA-R16-010 fixture: BitmapGetSingle isolates bitmap_get for parse regression.
+
+trait BitmapGetSingle {
+  fn bitmap_get(bmap: *u64, bit_index: u64) -> bool !{};
+}

@@ -1,0 +1,11 @@
+// PA-R16-010 fixture: BitmapLifecycle exercises full-surface parse.
+
+trait BitmapLifecycle {
+  fn bitmap_get(bmap: *u64, bit_index: u64) -> bool !{};
+  fn bitmap_word_count(bit_capacity: u64) -> u64 !{};
+  fn bitmap_set(bmap: *u64, bit_index: u64) -> bool !{Atomic};
+  fn bitmap_clear(bmap: *u64, bit_index: u64) -> bool !{Atomic};
+  fn bitmap_toggle(bmap: *u64, bit_index: u64) -> bool !{Atomic};
+  fn bitmap_first_free(bmap: *u64, bit_capacity: u64) -> u64 !{};
+  fn bitmap_claim_first_free(bmap: *u64, bit_capacity: u64) -> u64 !{Atomic};
+}

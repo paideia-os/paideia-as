@@ -1,0 +1,5 @@
+// PA-R16-010 fixture: BitmapFirstFreeSingle isolates bitmap_first_free (sentinel-u64 shape).
+
+trait BitmapFirstFreeSingle {
+  fn bitmap_first_free(bmap: *u64, bit_capacity: u64) -> u64 !{};
+}
