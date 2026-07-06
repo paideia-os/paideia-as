@@ -26,11 +26,11 @@ pub use crate::emit_pass_state::{EmitPassState, LoopContext};
 ///
 /// Phase 7 m1-008 (PA7-008): Tracks loop context stack for break validation.
 pub struct EmitWalker {
-    state: EmitPassState,
-    diagnostics: Vec<String>,
+    pub(crate) state: EmitPassState,
+    pub(crate) diagnostics: Vec<String>,
     /// Stack of (loop_kind, exit_label) for nested loops/while.
     /// Push on loop/while entry, pop on exit. Used to validate break statements.
-    loop_contexts: Vec<(LoopContext, String)>,
+    pub(crate) loop_contexts: Vec<(LoopContext, String)>,
 }
 
 impl EmitWalker {
@@ -111,7 +111,7 @@ impl EmitWalker {
     /// buffer via `paideia_as_encoder::estimated_bytes`. If the encoder
     /// cannot handle the instruction, size is 0 — callers must ensure
     /// their instructions actually encode.
-    fn emit_inst(&mut self, node_id: IrNodeId, inst: Instruction) {
+    pub(crate) fn emit_inst(&mut self, node_id: IrNodeId, inst: Instruction) {
         let bytes = paideia_as_encoder::estimated_bytes(&inst);
         self.state.instructions.insert(node_id, inst);
         self.state.estimated_offset += bytes;
@@ -119,7 +119,7 @@ impl EmitWalker {
 
     /// Phase 15 m2-002: Get the current instruction mode (Mode64 if stack is empty).
     /// Will be used in m2-002b for scope-aware mode propagation.
-    fn current_mode(&self) -> InstrMode {
+    pub(crate) fn current_mode(&self) -> InstrMode {
         self.state
             .mode_stack
             .last()
@@ -1017,345 +1017,6 @@ impl EmitWalker {
         }
     }
 
-    /// Emit identity lambda: `mov rax, <src_reg>; ret` (5 bytes).
-    ///
-    /// PA-r17-004: resolve the referenced parameter's register via
-    /// binding_names (populated by cmd_build pre-pass) + local_bindings
-    /// (populated by register_nested_lambda_params). Fall back to RDI
-    /// when the name is not resolvable (single-param convention +
-    /// in-crate unit tests that skip the cmd_build pre-pass).
-    fn emit_identity_lambda(&mut self, lambda_node_id: IrNodeId, body_id: IrNodeId, arena: &IrArena) {
-        // Record lambda entry and compute main_id for first instruction (node_id * 2).
-        let main_id = IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
-        self.record_lambda_entry(lambda_node_id, main_id);
-
-        // PA-r17-004: For identity lambdas in curried functions, determine which parameter
-        // is being returned. The body Var node refers to one of this lambda's parameters.
-        // We look it up via binding_names (populated by cmd_build pre-pass) + local_bindings
-        // (populated by register_nested_lambda_params). Fallback to RDI.
-        let src_reg = arena
-            .binding_names()
-            .get(body_id)
-            .and_then(|name| self.state.local_bindings.get(name))
-            .unwrap_or(abi::RDI); // RDI fallback for backward compat
-
-        // PA8-m3-001 (generic Mov retained): this is a register-to-register move
-        // (`mov rax, <src_reg>`). MovSized only encodes the `(Reg, Imm64)` shape, so it
-        // cannot lower reg-reg moves; the generic Mov path is the only valid one.
-        // Mov rax, <src_reg>: 48 89 XX (3 bytes, XX depends on src_reg)
-        let mut mov_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        mov_operands.push(Operand::Reg(abi::RAX)); // rax
-        mov_operands.push(Operand::Reg(src_reg)); // src_reg (parameter)
-
-        let mov_inst = Instruction {
-            mnemonic: Mnemonic::Mov,
-            operands: mov_operands,
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: self.current_mode(),
-        };
-
-        // Emit the mov instruction with the recorded main_id
-        self.emit_inst(main_id, mov_inst);
-
-        // Ret: c3 (1 byte)
-        // Emit ret as a separate instruction with node_id * 2 + 1 to sort right after
-        let ret_id = IrNodeId::new(lambda_node_id.get() * 2 + 1).expect("ret virtual id");
-        let ret_inst = Instruction {
-            mnemonic: Mnemonic::Ret,
-            operands: SmallVec::new(),
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: self.current_mode(),
-        };
-        self.emit_inst(ret_id, ret_inst);
-    }
-
-    /// Emit bitwise-NOT lambda: `mov rax, rdi; not rax; ret` (7 bytes:
-    /// `48 89 f8` / `48 f7 d0` / `c3`).
-    ///
-    /// Phase 7 m4-001: lowers `fn (x) -> ~x`. The operand (parameter `x`)
-    /// arrives in RDI; we move it into RAX, complement it in place, and return.
-    ///
-    /// Unlike the 2-instruction emitters (which key on `node*2` / `node*2+1`),
-    /// this emits THREE instructions, so it keys on `node*3 + {0,1,2}` to keep
-    /// them adjacent and correctly ordered in the instruction map — matching
-    /// the convention used by the Branch emitter.
-    fn emit_bitnot_lambda(&mut self, lambda_node_id: IrNodeId) {
-        // Record lambda entry and compute main_id for first instruction (node_id * 3).
-        let main_id = IrNodeId::new(lambda_node_id.get() * 3).expect("main instr virtual id");
-        self.record_lambda_entry(lambda_node_id, main_id);
-
-        // PA8-m3-001 (generic Mov retained): reg-to-reg move (`mov rax, rdi`);
-        // not MovSized-encodable (MovSized is `(Reg, Imm64)` only).
-        // mov rax, rdi: 48 89 f8 (3 bytes)
-        let mut mov_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        mov_operands.push(Operand::Reg(abi::RAX)); // rax
-        mov_operands.push(Operand::Reg(abi::RDI)); // rdi (arg0)
-
-        let mov_inst = Instruction {
-            mnemonic: Mnemonic::Mov,
-            operands: mov_operands,
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: self.current_mode(),
-        };
-
-        // Emit the mov instruction with the recorded main_id
-        self.emit_inst(main_id, mov_inst);
-
-        // not rax: 48 f7 d0 (3 bytes) — REX.W F7 /2.
-        let mut not_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        not_operands.push(Operand::Reg(abi::RAX)); // rax
-
-        let not_inst = Instruction {
-            mnemonic: Mnemonic::Not,
-            operands: not_operands,
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: self.current_mode(),
-        };
-
-        let not_id = IrNodeId::new(lambda_node_id.get() * 3 + 1).expect("not instr virtual id");
-        self.emit_inst(not_id, not_inst);
-
-        // ret: c3 (1 byte)
-        let ret_id = IrNodeId::new(lambda_node_id.get() * 3 + 2).expect("ret virtual id");
-        let ret_inst = Instruction {
-            mnemonic: Mnemonic::Ret,
-            operands: SmallVec::new(),
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: self.current_mode(),
-        };
-        self.emit_inst(ret_id, ret_inst);
-    }
-
-    /// Emit cast lambda: a single width-conversion instruction then `ret`.
-    ///
-    /// Phase 7 m4-002 / PA8 m3-002 (#826). Lowers `fn (x) -> x as TYPE`. The
-    /// operand (parameter `x`) arrives in RDI; the result is produced in RAX,
-    /// then the function returns.
-    ///
-    /// The conversion instruction is no longer hard-wired to MOVSXD. It is
-    /// selected by [`cast_plan`] from the `(src, dst)` [`CastShape`]:
-    ///
-    /// - widening signed   → `movsx{b,w}q` / `movsxd` (`Mnemonic::Movsx`,
-    ///   `operand_size` = source width selects the 0x0F BE / 0x0F BF / 0x63 form)
-    /// - widening unsigned, 1/2-byte source → `movzx` (`Mnemonic::Movzx`)
-    /// - widening unsigned, 4-byte source   → `mov r32, r32` (`Mnemonic::Mov`,
-    ///   the 32-bit write implicitly zero-extends bits 63:32)
-    /// - narrowing (to a smaller width)      → `mov r{8,16,32}` selecting the
-    ///   destination size (`Mnemonic::Mov`, `operand_size` = dst width)
-    /// - same-width reinterpret              → no-op (no conversion instruction)
-    ///
-    /// IR-pipeline callers do not yet resolve the `CastSideTable` `TypeId` to a
-    /// concrete `(width, signedness)`; the structural-cast call site therefore
-    /// passes the canonical `i32 as i64` shape. Once type resolution is wired in,
-    /// the caller threads the real `CastShape` here and the full table applies.
-    ///
-    /// Like the other 2-instruction emitters, this keys on `node*2` / `node*2+1`.
-    fn emit_cast_lambda(&mut self, lambda_node_id: IrNodeId) {
-        // Canonical structural-cast shape until TypeId resolution lands:
-        // signed 32-bit source widened to a signed 64-bit destination.
-        self.emit_cast_lambda_with_shape(
-            lambda_node_id,
-            CastShape {
-                src_width: 4,
-                dst_width: 8,
-                src_signed: true,
-                dst_signed: true,
-            },
-        );
-    }
-
-    /// Emit a cast lambda for an explicit [`CastShape`], dispatching on width
-    /// and signedness via [`cast_plan`].
-    ///
-    /// RAX (RegId 0) is the destination, RDI (RegId 7) the incoming argument.
-    /// A `CastOp::Nop` shape (same-width reinterpret) emits no conversion
-    /// instruction — only the trailing `ret`.
-    fn emit_cast_lambda_with_shape(&mut self, lambda_node_id: IrNodeId, shape: CastShape) {
-        let main_id = IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
-        self.record_lambda_entry(lambda_node_id, main_id);
-
-        let dst = abi::RAX; // rax
-        let src = abi::RDI; // rdi/edi
-
-        let plan = cast_plan(shape);
-        // First slot keyed on node*2; ret on node*2+1.
-        if let Some((mnemonic, hint, _size)) = plan.instruction() {
-            let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
-            operands.push(Operand::Reg(dst));
-            operands.push(Operand::Reg(src));
-            let inst = Instruction {
-                mnemonic,
-                operands,
-                encoding_hint: hint,
-                byte_offset_in_text: None,
-                mode: self.current_mode(),
-            };
-            self.emit_inst(main_id, inst);
-        }
-
-        // ret: c3 (1 byte)
-        let ret_id = IrNodeId::new(lambda_node_id.get() * 2 + 1).expect("ret virtual id");
-        let ret_inst = Instruction {
-            mnemonic: Mnemonic::Ret,
-            operands: SmallVec::new(),
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: self.current_mode(),
-        };
-        self.emit_inst(ret_id, ret_inst);
-    }
-
-    /// Emit double lambda: `lea rax, [rdi + rdi]; ret` (5 bytes).
-    fn emit_double_lambda(&mut self, lambda_node_id: IrNodeId) {
-        let main_id = IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
-        self.record_lambda_entry(lambda_node_id, main_id);
-
-        // Lea rax, [rdi + rdi]: 48 8d 04 3f (4 bytes)
-        let mut lea_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        lea_operands.push(Operand::Reg(abi::RAX)); // rax (destination)
-        lea_operands.push(Operand::MemSib {
-            base: abi::RDI,        // rdi
-            index: Some(abi::RDI), // rdi
-            scale: paideia_as_ir::instruction::Scale::X1,
-            disp: 0,
-        });
-
-        let lea_inst = Instruction {
-            mnemonic: Mnemonic::Lea,
-            operands: lea_operands,
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: self.current_mode(),
-        };
-
-        // Use node_id * 2 for main instruction, * 2 + 1 for ret
-        self.emit_inst(main_id, lea_inst);
-
-        // Ret: c3 (1 byte)
-        // Emit ret as a separate instruction with node_id * 2 + 1 to sort right after
-        let ret_id = IrNodeId::new(lambda_node_id.get() * 2 + 1).expect("ret virtual id");
-        let ret_inst = Instruction {
-            mnemonic: Mnemonic::Ret,
-            operands: SmallVec::new(),
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: self.current_mode(),
-        };
-        self.emit_inst(ret_id, ret_inst);
-    }
-
-    /// PA-r17-004: Emit indirect call via a register holding a function pointer.
-    ///
-    /// Handles 0-6 argument calls to functions referenced via a register (callee_reg).
-    /// Structure:
-    /// - (1) `mov r11, <callee_reg>` — save fnptr BEFORE arg marshalling
-    /// - (2) `mov <arg_reg>, <arg_src>` per argument
-    /// - (3) `call r11`
-    /// - (4) `ret`
-    ///
-    /// Instruction ordering via monotonically increasing virtual IDs:
-    /// - base * 16 + 0: save (mov r11, callee)
-    /// - base * 16 + 1..N: arg moves
-    /// - base * 16 + N: call r11
-    /// - base * 16 + N+1: ret
-    fn emit_indirect_call_via_reg(
-        &mut self,
-        lambda_node_id: IrNodeId,
-        callee_reg: RegId,
-        arg_ids: &[IrNodeId],
-        arena: &IrArena,
-    ) {
-        let base = lambda_node_id.get();
-        let r11 = abi::R11;
-        let arg_regs = [abi::RDI, abi::RSI, abi::RDX, abi::RCX, abi::R8, abi::R9];
-
-        // (1) mov r11, <callee_reg> — save fnptr BEFORE arg marshalling clobbers RDI/etc.
-        let save_id = IrNodeId::new(base * 16).expect("save instr virtual id");
-        let mut save_ops: SmallVec<[Operand; 3]> = SmallVec::new();
-        save_ops.push(Operand::Reg(r11));
-        save_ops.push(Operand::Reg(callee_reg));
-        self.emit_inst(
-            save_id,
-            Instruction {
-                mnemonic: Mnemonic::Mov,
-                operands: save_ops,
-                encoding_hint: None,
-                byte_offset_in_text: None,
-                mode: self.current_mode(),
-            },
-        );
-
-        // (2) mov <arg_reg>, <arg_src> per arg.
-        let mut seq_id = 1u32;
-        for (i, &arg_id) in arg_ids.iter().enumerate() {
-            let dst = arg_regs[i];
-            let arg_node = match arena.get(arg_id) {
-                Some(n) => n,
-                None => continue,
-            };
-            match arg_node.kind {
-                IrKind::Literal => {
-                    if let Some(v) = arena.literal_values().get(arg_id) {
-                        self.emit_mov_literal_to_reg(lambda_node_id, dst, v);
-                    }
-                }
-                IrKind::Var => {
-                    if let Some(name) = arena.binding_names().get(arg_id) {
-                        let iid = IrNodeId::new(base * 16 + seq_id).expect("arg instr virtual id");
-                        seq_id += 1;
-                        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
-                        ops.push(Operand::Reg(dst));
-                        ops.push(Operand::Var { name: name.to_string() });
-                        self.emit_inst(
-                            iid,
-                            Instruction {
-                                mnemonic: Mnemonic::Mov,
-                                operands: ops,
-                                encoding_hint: None,
-                                byte_offset_in_text: None,
-                                mode: self.current_mode(),
-                            },
-                        );
-                    }
-                }
-                _ => { /* Not handled in #982 */ }
-            }
-        }
-
-        // (3) call r11
-        let call_id = IrNodeId::new(base * 16 + seq_id).expect("call instr virtual id");
-        seq_id += 1;
-        let mut call_ops: SmallVec<[Operand; 3]> = SmallVec::new();
-        call_ops.push(Operand::Reg(r11));
-        self.emit_inst(
-            call_id,
-            Instruction {
-                mnemonic: Mnemonic::Call,
-                operands: call_ops,
-                encoding_hint: None,
-                byte_offset_in_text: None,
-                mode: self.current_mode(),
-            },
-        );
-
-        // (4) ret
-        let ret_id = IrNodeId::new(base * 16 + seq_id).expect("ret instr virtual id");
-        self.emit_inst(
-            ret_id,
-            Instruction {
-                mnemonic: Mnemonic::Ret,
-                operands: SmallVec::new(),
-                encoding_hint: None,
-                byte_offset_in_text: None,
-                mode: self.current_mode(),
-            },
-        );
-    }
 
     /// Phase 7 m1-003: Emit inter-function call.
     ///
@@ -1471,7 +1132,7 @@ impl EmitWalker {
     }
 
     /// Emit MOV of a literal value into a register.
-    fn emit_mov_literal_to_reg(&mut self, lambda_node_id: IrNodeId, dest_reg: RegId, value: i64) {
+    pub(crate) fn emit_mov_literal_to_reg(&mut self, lambda_node_id: IrNodeId, dest_reg: RegId, value: i64) {
         // PA8-m3-001 (width not available — generic Mov retained): the operand
         // shape here IS `(Reg, Imm64)`, so this site is MovSized-encodable in
         // principle. But its sole caller is emit_function_call lowering a call

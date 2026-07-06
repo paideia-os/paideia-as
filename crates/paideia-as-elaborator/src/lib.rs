@@ -30,6 +30,7 @@ pub mod effect_infer;
 pub mod effect_unify;
 pub mod effect_walker;
 pub mod elab_builtin;
+pub mod emit_lambda;
 pub mod emit_pass_state;
 pub mod emit_walker;
 pub mod env;
