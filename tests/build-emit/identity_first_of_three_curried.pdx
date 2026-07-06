@@ -1,0 +1,3 @@
+module IdentityFirstOfThreeCurried = structure {
+  pub let identity_first_of_three_curried : (u64) -> (u64) -> (u64) -> u64 = fn(a: u64)(b: u64)(c: u64) -> a
+}

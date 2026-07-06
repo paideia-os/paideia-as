@@ -1,0 +1,3 @@
+module IdentitySingleParam = structure {
+  pub let identity_single_param : (u64) -> u64 = fn(x: u64) -> x
+}

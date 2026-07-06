@@ -1010,8 +1010,8 @@ impl EmitWalker {
 
     /// Register nested lambda parameters in local_bindings.
     ///
-    /// For curried lambdas like `fn (a) (b) (c) -> body`, the nesting structure is:
-    /// Lambda(a) { body: Lambda(b) { body: Lambda(c) { body } } }
+    /// For curried lambdas like `fn (a) (b) (c) -> body`, the IR flattens to:
+    /// Lambda { params: [a, b, c], body: ... }
     ///
     /// This function walks the chain to register parameters:
     /// - Outer lambda param (index 0) → RDI
@@ -1020,35 +1020,49 @@ impl EmitWalker {
     /// etc.
     ///
     /// PA8-m1-001b: This enables resolve_var_operands to rewrite parameter Vars later.
+    /// PA-r17-004: Handle flattened multi-parameter lambdas correctly by registering
+    /// all parameters from lambda_params() if populated, otherwise fall back to the
+    /// original nesting-based approach.
     fn register_nested_lambda_params(
         &mut self,
         lambda_node_id: IrNodeId,
         arena: &IrArena,
         param_index: usize,
     ) {
-        // Register this lambda's parameter
-        if let Some(param_reg) = Self::param_index_to_reg(param_index) {
-            // PA8-m1-001c: Try to extract the real parameter name from the binding_names table
-            let param_name = if let Some(param_nodes) = arena.lambda_params().get(lambda_node_id) {
-                if param_index < param_nodes.len() {
-                    let param_node_id = param_nodes[param_index];
-                    // Look up the binding name for this parameter pattern node
-                    if let Some(real_name) = arena.binding_names().get(param_node_id) {
-                        real_name.to_string()
-                    } else {
-                        // Fall back to synthetic name if no binding found
-                        format!("_param_{}", param_index)
-                    }
-                } else {
-                    format!("_param_{}", param_index)
-                }
-            } else {
-                format!("_param_{}", param_index)
-            };
+        // PA-r17-004: If lambda_params() is populated (flattened case), register all of them.
+        // Otherwise, fall back to the original nesting-based registration.
+        if let Some(param_nodes) = arena.lambda_params().get(lambda_node_id) {
+            if !param_nodes.is_empty() {
+                // Flattened case: register all parameters
+                for (offset, &param_node_id) in param_nodes.iter().enumerate() {
+                    let current_param_index = param_index + offset;
+                    if let Some(param_reg) = Self::param_index_to_reg(current_param_index) {
+                        let param_name = if let Some(real_name) = arena.binding_names().get(param_node_id) {
+                            real_name.to_string()
+                        } else {
+                            format!("_param_{}", current_param_index)
+                        };
 
-            self.state
-                .local_bindings
-                .insert(param_name.clone(), param_reg);
+                        self.state.local_bindings.insert(param_name.clone(), param_reg);
+                        if cfg!(debug_assertions) {
+                            eprintln!(
+                                "[visit_lambda PA8-m1-001c] Lambda {} param_index={} name={} → register {}",
+                                lambda_node_id.get(),
+                                current_param_index,
+                                param_name,
+                                param_reg.0
+                            );
+                        }
+                    }
+                }
+                return; // Done with flattened case
+            }
+        }
+
+        // Original nesting-based registration (fallback for backward compat)
+        if let Some(param_reg) = Self::param_index_to_reg(param_index) {
+            let param_name = format!("_param_{}", param_index);
+            self.state.local_bindings.insert(param_name.clone(), param_reg);
             if cfg!(debug_assertions) {
                 eprintln!(
                     "[visit_lambda PA8-m1-001c] Lambda {} param_index={} name={} → register {}",
@@ -1136,7 +1150,7 @@ impl EmitWalker {
                         let main_id =
                             IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
                         self.record_lambda_entry(lambda_node_id, main_id);
-                        self.emit_identity_lambda(lambda_node_id);
+                        self.emit_identity_lambda(lambda_node_id, body_id, arena);
                     }
                     // Phase 7 m4-001: bitwise-NOT `fn (x) -> ~x`.
                     // BitNot has a single child (the operand). For the simple
@@ -1513,19 +1527,35 @@ impl EmitWalker {
         }
     }
 
-    /// Emit identity lambda: `mov rax, rdi; ret` (5 bytes).
-    fn emit_identity_lambda(&mut self, lambda_node_id: IrNodeId) {
+    /// Emit identity lambda: `mov rax, <src_reg>; ret` (5 bytes).
+    ///
+    /// PA-r17-004: resolve the referenced parameter's register via
+    /// binding_names (populated by cmd_build pre-pass) + local_bindings
+    /// (populated by register_nested_lambda_params). Fall back to RDI
+    /// when the name is not resolvable (single-param convention +
+    /// in-crate unit tests that skip the cmd_build pre-pass).
+    fn emit_identity_lambda(&mut self, lambda_node_id: IrNodeId, body_id: IrNodeId, arena: &IrArena) {
         // Record lambda entry and compute main_id for first instruction (node_id * 2).
         let main_id = IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
         self.record_lambda_entry(lambda_node_id, main_id);
 
+        // PA-r17-004: For identity lambdas in curried functions, determine which parameter
+        // is being returned. The body Var node refers to one of this lambda's parameters.
+        // We look it up via binding_names (populated by cmd_build pre-pass) + local_bindings
+        // (populated by register_nested_lambda_params). Fallback to RDI.
+        let src_reg = arena
+            .binding_names()
+            .get(body_id)
+            .and_then(|name| self.state.local_bindings.get(name))
+            .unwrap_or(RegId(7)); // RDI fallback for backward compat
+
         // PA8-m3-001 (generic Mov retained): this is a register-to-register move
-        // (`mov rax, rdi`). MovSized only encodes the `(Reg, Imm64)` shape, so it
+        // (`mov rax, <src_reg>`). MovSized only encodes the `(Reg, Imm64)` shape, so it
         // cannot lower reg-reg moves; the generic Mov path is the only valid one.
-        // Mov rax, rdi: 48 89 f8 (3 bytes)
+        // Mov rax, <src_reg>: 48 89 XX (3 bytes, XX depends on src_reg)
         let mut mov_operands: SmallVec<[Operand; 3]> = SmallVec::new();
         mov_operands.push(Operand::Reg(RegId(0))); // rax
-        mov_operands.push(Operand::Reg(RegId(7))); // rdi (arg0)
+        mov_operands.push(Operand::Reg(src_reg)); // src_reg (parameter)
 
         let mov_inst = Instruction {
             mnemonic: Mnemonic::Mov,

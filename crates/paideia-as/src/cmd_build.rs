@@ -627,6 +627,52 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
         }
     }
 
+    // PA-r17-004: Populate binding_names for use-site Var IR nodes so that
+    // emit_identity_lambda (and future Var-body lowering) can resolve
+    // parameter references via LocalBindingTable.
+    //
+    // Variable references in the source (like `fn(a) -> a`) are represented as ExprPath
+    // in the AST. During lowering, these become Var IR nodes. We extract the variable name
+    // from the last segment of the ExprPath and populate binding_names for the corresponding
+    // IR node with that name.
+    {
+        let content_ref = source_map.content(file);
+
+        // Walk AST to find all ExprPath nodes (variable references)
+        for i in 0..arena.len() {
+            if let Some(ast_id) = paideia_as_ast::NodeId::new((i + 1) as u32) {
+                if let Some(node) = arena.get(ast_id) {
+                    if node.kind == paideia_as_ast::NodeKind::ExprPath {
+                        // Extract the last segment of the path (the identifier)
+                        if let Some(paideia_as_ast::ExprData::Path { segments }) = arena.expr_data(ast_id) {
+                            if !segments.is_empty() {
+                                let last_segment_id = segments[segments.len() - 1];
+                                if let Some(segment_node) = arena.get(last_segment_id) {
+                                    // The segment should be an Ident node
+                                    if segment_node.kind == paideia_as_ast::NodeKind::Ident {
+                                        let span = segment_node.span;
+                                        let start = span.byte_start() as usize;
+                                        let len = span.byte_len() as usize;
+                                        if start + len <= content_ref.len() {
+                                            let ident_text = content_ref[start..start + len].to_string();
+                                            // Map AST ExprPath node ID to IR Var node ID
+                                            let ir_id = paideia_as_ir::IrNodeId::new(ast_id.get())
+                                                .expect("valid ir node id from ast exprpath");
+                                            // Only populate if not already set
+                                            if lowering.ir.binding_names().get(ir_id).is_none() {
+                                                lowering.ir.binding_names_mut().insert(ir_id, ident_text);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // PA10-002: Extract string and byte string literals from AST nodes
     // and populate the IR's literal_bytes table. This enables the emitter
     // to intern byte sequences and emit .rodata symbols with relocations.
