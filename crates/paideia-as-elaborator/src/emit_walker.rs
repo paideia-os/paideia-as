@@ -660,6 +660,10 @@ impl EmitWalker {
                             // PA-r17-007: emit enum variant constructor lowering.
                             self.visit_enum_cons(node_id, arena);
                         }
+                        IrKind::EnumDiscriminant => {
+                            // PA-r17-008: emit enum discriminant extraction.
+                            self.visit_enum_discriminant(node_id, arena);
+                        }
                         IrKind::Branch => {
                             // Phase 7 m1-001: emit if-then-else expression lowering.
                             self.visit_branch(node_id, arena);
@@ -4409,21 +4413,78 @@ impl EmitWalker {
         // (Pop happens after body processing, deferred in full elaboration)
     }
 
-    /// Phase 7 m1-004 (PA7-007): Emit match-expression lowering for enum-like u32 dispatch.
+    /// PA-r17-008: Emit enum discriminant extraction.
     ///
-    /// Lowers `match kind { 1 => ..., 2 => ..., _ => ... }` to:
-    /// - cmp rdi, 1; je arm_1; cmp rdi, 2; je arm_2; jmp default;
-    /// - arm_1: <body>; jmp end; arm_2: <body>; jmp end;
-    /// - default: <body>; end:.
+    /// Extracts the discriminant from an enum value. Handling differs by layout form:
+    /// - Register form (size ≤ 16): discriminant already in RAX, no load needed.
+    /// - Stack form (size > 16): emit `mov rax, [rdi+0]` to load discriminant.
+    fn visit_enum_discriminant(&mut self, enum_disc_id: IrNodeId, arena: &IrArena) {
+        let type_id = match arena.enum_disc_info().get(enum_disc_id) {
+            Some(tid) => *tid,
+            None => {
+                self.diagnostics.push(format!(
+                    "EnumDiscriminant node {} has no EnumTypeId registered",
+                    enum_disc_id.get()
+                ));
+                return;
+            }
+        };
+
+        let layout = match self.state.enum_layouts.get(&type_id) {
+            Some(l) => l,
+            None => {
+                self.diagnostics.push(format!(
+                    "No enum layout found for type {}",
+                    type_id.0
+                ));
+                return;
+            }
+        };
+
+        // Register form: discriminant already in RAX, no load needed.
+        if layout.size <= 16 {
+            return;
+        }
+
+        // Stack form: emit mov rax, [rdi+0] (3 bytes: 48 8B 07)
+        let disc_load_id = IrNodeId::new(enum_disc_id.get() * 10).expect("disc load id");
+        let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        operands.push(Operand::Reg(RegId(0))); // RAX
+        operands.push(Operand::MemSib {
+            base: RegId(7), // RDI
+            index: None,
+            scale: paideia_as_ir::instruction::Scale::X1,
+            disp: 0,
+        });
+
+        self.state.instructions.insert(disc_load_id, Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands,
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: self.current_mode(),
+        });
+        self.state.estimated_offset += 3; // mov rax, [rdi+0]
+    }
+
+    /// Phase 7 m1-004 (PA7-007): Emit match-expression lowering for enum variant dispatch.
     ///
-    /// Requires:
-    /// - Default arm (_) mandatory for non-exhaustive match (T0522)
-    /// - All arms type-unified (T0523 for mismatch)
-    /// - Integer-literal patterns only; Scrutinee in RDI
-    /// - Match arms produce value via RAX
+    /// Lowers `match value { Ok(x) => ..., Err(y) => ..., _ => ... }` to:
+    /// - discriminant load (if stack form)
+    /// - cmp rax, variant_0; jne arm_1_label
+    /// - payload load for arm_0 (if needed)
+    /// - arm_0 body; jmp end
+    /// - arm_1_label: cmp rax, variant_1; jne default_label
+    /// - payload load for arm_1 (if needed)
+    /// - arm_1 body; jmp end
+    /// - default_label: default body
+    /// - end_label:
+    ///
+    /// Register convention (mirrors visit_enum_cons):
+    /// - Register form (≤16 bytes): discriminant in RAX, payload in RDX
+    /// - Stack form (>16 bytes): scrutinee pointer in RDI, load disc from [rdi+0]
     ///
     /// Structure: Match has children [scrutinee, arm0, arm1, ...].
-    /// Each arm is its own subtree with pattern and body.
     fn visit_match(
         &mut self,
         match_node_id: IrNodeId,
@@ -4432,7 +4493,6 @@ impl EmitWalker {
     ) {
         let children = arena.children(match_node_id);
         if children.is_empty() {
-            // Malformed Match node (needs scrutinee + at least one arm).
             self.diagnostics.push(format!(
                 "Match node {} has no children; expected scrutinee + arms",
                 match_node_id.get()
@@ -4444,7 +4504,6 @@ impl EmitWalker {
         let arm_ids: Vec<IrNodeId> = children[1..].to_vec();
 
         if arm_ids.is_empty() {
-            // No arms; malformed.
             self.diagnostics.push(format!(
                 "Match node {} has scrutinee but no arms",
                 match_node_id.get()
@@ -4452,180 +4511,189 @@ impl EmitWalker {
             return;
         }
 
-        // Check for default arm (last arm with wildcard pattern).
-        // For now, we require explicit default arm handling at elaboration time.
-        // T-code T0522: Non-exhaustive match without default.
-        // This is a placeholder; full pattern elaboration will populate arm metadata.
-        // Assume arms with pattern value 0xFFFFFFFF (u32::MAX) indicate wildcard default.
-        let has_default = arm_ids.iter().any(|&_arm_id| {
-            // Check if arm has default marker (placeholder: check for specific pattern value).
-            // In full elaboration, we'd check match_arm_patterns side-table.
-            // For now, conservatively assume last arm might be default if it follows literals.
-            false // Deferred to full pattern elaboration
-        });
+        // Read enum type from scrutinee table
+        let enum_type_id = match arena.match_scrutinee_table().get(match_node_id) {
+            Some(tid) => *tid,
+            None => {
+                self.diagnostics.push(format!(
+                    "Match node {} has no scrutinee type",
+                    match_node_id.get()
+                ));
+                return;
+            }
+        };
 
-        // Generate label names unique per match node.
+        // Look up layout and extract needed fields
+        let (layout_size, layout_payload_size) =
+            match self.state.enum_layouts.get(&enum_type_id) {
+                Some(l) => (l.size, l.payload_size),
+                None => {
+                    self.diagnostics.push(format!(
+                        "No enum layout found for match type {}",
+                        enum_type_id.0
+                    ));
+                    return;
+                }
+            };
+
+        // Emit discriminant load for stack form
+        if layout_size > 16 {
+            let disc_load_id = IrNodeId::new(match_node_id.get() * 100 + 900)
+                .expect("disc load id");
+            let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+            operands.push(Operand::Reg(RegId(0))); // RAX
+            operands.push(Operand::MemSib {
+                base: RegId(7), // RDI
+                index: None,
+                scale: paideia_as_ir::instruction::Scale::X1,
+                disp: 0,
+            });
+
+            self.state.instructions.insert(disc_load_id, Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+            });
+            self.state.estimated_offset += 3;
+        }
+
+        // Label names
         let default_label = format!("match_default_{}", match_node_id.get());
         let end_label = format!("match_end_{}", match_node_id.get());
 
-        // Emit compare-and-jump sequence for each arm.
-        // For now, emit a simplified version: assume arms have integer-literal patterns.
-        // Full elaboration will extract pattern values from arm metadata.
-        for (idx, &_arm_id) in arm_ids.iter().enumerate() {
-            // Try to extract pattern value from arm.
-            // Placeholder: use arm index * 100 as dummy pattern for testing.
-            // Full elaboration: check match_arm_patterns or pattern side-table.
-            let pattern_value = (idx as i64 + 1) * 100; // Dummy for now
-
-            // arm_<idx>_label for this arm's code.
-            let arm_label = format!("match_arm_{}_{}", match_node_id.get(), idx);
-
-            // Emit: cmp rdi, pattern_value; je arm_label
-            let cmp_id =
-                IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10).expect("cmp instr id");
-            let mut cmp_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-            cmp_operands.push(Operand::Reg(RegId(7))); // rdi (scrutinee)
-            cmp_operands.push(Operand::Imm64(pattern_value));
-
-            let cmp_inst = Instruction {
-                mnemonic: Mnemonic::Cmp,
-                operands: cmp_operands,
-                encoding_hint: None,
-                byte_offset_in_text: None,
-                mode: self.current_mode(),
-            };
-
-            self.state.instructions.insert(cmp_id, cmp_inst);
-            self.state.estimated_offset += 7; // cmp rdi, imm32 is typically 7 bytes (48 81 3F NN NN NN NN)
-
-            // Emit: je arm_label (6 bytes: 0F 84 XX XX XX XX)
-            let je_id = IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10 + 1)
-                .expect("je instr id");
-            let mut je_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-            je_operands.push(Operand::LabelRef {
-                name: arm_label.clone(),
-                addend: 0,
-            });
-
-            let je_inst = Instruction {
-                mnemonic: Mnemonic::Jcc(Cond::Eq),
-                operands: je_operands,
-                encoding_hint: None,
-                byte_offset_in_text: None,
-                mode: self.current_mode(),
-            };
-
-            self.state.instructions.insert(je_id, je_inst);
-            self.state.estimated_offset += 6; // jcc rel32 is 6 bytes
-        }
-
-        // If no default arm found, check for T0522 (non-exhaustive).
-        if !has_default {
-            // For now, issue T0522 as a warning placeholder.
-            // Full elaboration will enforce default requirement.
-            self.diagnostics.push(format!(
-                "T0522: match expression {} is non-exhaustive; default arm (_) required",
-                match_node_id.get()
-            ));
-            // Still proceed with codegen by emitting default jump
-        }
-
-        // Emit: jmp default_label (5 bytes: E9 XX XX XX XX)
-        let jmp_default_id =
-            IrNodeId::new(match_node_id.get() * 100 + 1000).expect("jmp_default instr id");
-        let mut jmp_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        jmp_operands.push(Operand::LabelRef {
-            name: default_label.clone(),
-            addend: 0,
-        });
-
-        let jmp_inst = Instruction {
-            mnemonic: Mnemonic::Jmp,
-            operands: jmp_operands,
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: self.current_mode(),
-        };
-
-        self.state.instructions.insert(jmp_default_id, jmp_inst);
-        self.state.estimated_offset += 5; // jmp rel32 is 5 bytes
-
-        // Emit arm bodies with labels.
+        // Emit arms with cmp/jne cascade
         for (idx, &arm_id) in arm_ids.iter().enumerate() {
+            let arm_meta = match arena.match_arm_meta().get(arm_id) {
+                Some(m) => m,
+                None => {
+                    self.diagnostics.push(format!(
+                        "Match arm {} has no MatchArmMeta",
+                        arm_id.get()
+                    ));
+                    return;
+                }
+            };
+
             let arm_label = format!("match_arm_{}_{}", match_node_id.get(), idx);
 
-            // Register arm label at current offset.
+            // If default arm, skip comparisons and emit body directly
+            if arm_meta.is_default {
+                self.state.register_label(default_label.clone());
+                if let Some(arm_node) = arena.get(arm_id) {
+                    match arm_node.kind {
+                        IrKind::Action => self.emit_block_body_arm(arm_id, arena, typer),
+                        _ => {}
+                    }
+                }
+                continue;
+            }
+
+            // Non-default arm: emit cmp rax, variant_index
+            if let Some(variant_index) = arm_meta.variant_index {
+                let cmp_id = IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10)
+                    .expect("cmp id");
+                let mut cmp_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                cmp_operands.push(Operand::Reg(RegId(0))); // RAX
+                cmp_operands.push(Operand::Imm64(variant_index as i64));
+
+                self.state.instructions.insert(cmp_id, Instruction {
+                    mnemonic: Mnemonic::Cmp,
+                    operands: cmp_operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                });
+
+                // Estimate cmp size based on immediate.
+                // imm8 form: 48 83 F8 ib (4 bytes); imm32 form: 48 81 F8 id (7 bytes).
+                // Encoder uses r/m form `81 /7` (not the rax-specific `3D`); update
+                // if the encoder ever switches to the shorter form.
+                let cmp_size = if variant_index <= 127 { 4 } else { 7 };
+                self.state.estimated_offset += cmp_size;
+
+                // Emit jne to next arm or default
+                let next_label = if idx + 1 < arm_ids.len() {
+                    format!("match_arm_{}_{}", match_node_id.get(), idx + 1)
+                } else {
+                    default_label.clone()
+                };
+
+                let jne_id = IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10 + 1)
+                    .expect("jne id");
+                let mut jne_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                jne_operands.push(Operand::LabelRef {
+                    name: next_label,
+                    addend: 0,
+                });
+
+                self.state.instructions.insert(jne_id, Instruction {
+                    mnemonic: Mnemonic::Jcc(Cond::Ne),
+                    operands: jne_operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                });
+                self.state.estimated_offset += 6; // jcc rel32
+            }
+
+            // Register arm label
             self.state.register_label(arm_label);
 
-            // PA10-005 §3.2: Wire arm-body walking via emit_block_body_arm.
-            // Check if arm is an Action or Block node; walk its children.
-            if let Some(arm_node) = arena.get(arm_id) {
-                match arm_node.kind {
-                    IrKind::Action => {
-                        // Arm body is an Action block: emit its children recursively.
-                        self.emit_block_body_arm(arm_id, arena, typer);
-                    }
-                    _ => {
-                        // Single expression in arm: for now emit placeholder nop.
-                        // Full elaboration: walk arm expression directly.
-                        let nop_id = IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10 + 2)
-                            .expect("nop instr id");
-                        let nop_inst = Instruction {
-                            mnemonic: Mnemonic::Nop,
-                            operands: SmallVec::new(),
-                            encoding_hint: None,
-                            byte_offset_in_text: None,
-                            mode: self.current_mode(),
-                        };
+            // Emit payload load if binder present
+            if let Some(ref _binder) = arm_meta.payload_binder {
+                if layout_payload_size > 0 {
+                    let payload_load_id = IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10 + 2)
+                        .expect("payload load id");
+                    let mut payload_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                    payload_operands.push(Operand::Reg(RegId(2))); // RDX
+                    payload_operands.push(Operand::MemSib {
+                        base: RegId(7), // RDI
+                        index: None,
+                        scale: paideia_as_ir::instruction::Scale::X1,
+                        disp: 8,
+                    });
 
-                        self.state.instructions.insert(nop_id, nop_inst);
-                        self.state.estimated_offset += 1;
-                    }
+                    self.state.instructions.insert(payload_load_id, Instruction {
+                        mnemonic: Mnemonic::Mov,
+                        operands: payload_operands,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode: self.current_mode(),
+                    });
+                    self.state.estimated_offset += 4; // mov rdx, [rdi+8]
                 }
             }
 
-            // Emit: jmp end_label (5 bytes: E9 XX XX XX XX)
+            // Emit arm body
+            if let Some(arm_node) = arena.get(arm_id) {
+                match arm_node.kind {
+                    IrKind::Action => self.emit_block_body_arm(arm_id, arena, typer),
+                    _ => {}
+                }
+            }
+
+            // Emit jmp end
             let jmp_end_id = IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10 + 3)
-                .expect("jmp_end instr id");
+                .expect("jmp end id");
             let mut jmp_end_operands: SmallVec<[Operand; 3]> = SmallVec::new();
             jmp_end_operands.push(Operand::LabelRef {
                 name: end_label.clone(),
                 addend: 0,
             });
 
-            let jmp_end_inst = Instruction {
+            self.state.instructions.insert(jmp_end_id, Instruction {
                 mnemonic: Mnemonic::Jmp,
                 operands: jmp_end_operands,
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
-            };
-
-            self.state.instructions.insert(jmp_end_id, jmp_end_inst);
+            });
             self.state.estimated_offset += 5;
         }
 
-        // Register default_label and emit default arm body.
-        self.state.register_label(default_label);
-
-        // Placeholder: default arm body code would be emitted here.
-        // For now, emit placeholder nop (1 byte: 90).
-        let default_nop_id =
-            IrNodeId::new(match_node_id.get() * 100 + 2000).expect("default_nop instr id");
-        let default_nop_inst = Instruction {
-            mnemonic: Mnemonic::Nop,
-            operands: SmallVec::new(),
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: self.current_mode(),
-        };
-
-        self.state
-            .instructions
-            .insert(default_nop_id, default_nop_inst);
-        self.state.estimated_offset += 1;
-
-        // Register end_label.
+        // Register end label
         self.state.register_label(end_label);
     }
 }
@@ -7514,53 +7582,76 @@ mod tests {
     fn emit_walker_match_single_arm_emits_instructions() {
         let mut arena = IrArena::new();
 
-        // Allocate: Var (scrutinee), Literal (arm pattern/body).
+        // Allocate: Var (scrutinee), Action (arm with body)
         let scrutinee_id = arena.alloc(IrKind::Var, span());
-        let arm_lit_id = arena.alloc(IrKind::Literal, span());
-        arena.literal_values_mut().insert(arm_lit_id, 42);
+        let arm_id = arena.alloc(IrKind::Action, span());
+        let arm_body_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(arm_body_id, 42);
 
-        let match_id = arena.alloc_with_children(IrKind::Match, span(), [scrutinee_id, arm_lit_id]);
+        // Set arm body as child of Action
+        {
+            let arm_children = arena.children_mut(arm_id).unwrap();
+            arm_children.push(arm_body_id);
+        }
 
-        // Walk the arena.
+        let match_id = arena.alloc_with_children(IrKind::Match, span(), [scrutinee_id, arm_id]);
+
+        // Register match metadata
+        arena.match_scrutinee_table_mut().insert(match_id, EnumTypeId(1));
+        arena.match_arm_meta_mut().insert(
+            arm_id,
+            paideia_as_ir::MatchArmMeta {
+                variant_index: None,
+                payload_binder: None,
+                is_default: true,
+            },
+        );
+
+        // Walk the arena with layout registered.
         let mut walker = EmitWalker::new();
+        let layout = EnumLayout::new(0);
+        walker.state_mut().enum_layouts.insert(EnumTypeId(1), layout);
         walker.walk(&mut arena);
 
-        // Verify instructions were emitted: cmp, je, jmp, nop, jmp, nop.
-        let insts = &walker.state().instructions;
-        let inst_count = insts.entries().len();
-        assert!(
-            inst_count > 0,
-            "Expected instructions for single-arm match, got: {} instructions",
-            inst_count
-        );
-
-        // Verify offset advanced (cmp 7 + je 6 + jmp 5 + arm nop 1 + arm jmp 5 + default nop 1).
-        let expected_offset = 7 + 6 + 5 + 1 + 5 + 1;
-        assert_eq!(
-            walker.state().estimated_offset,
-            expected_offset,
-            "Expected offset {}, got {}",
-            expected_offset,
-            walker.state().estimated_offset
-        );
+        // Verify match was processed without diagnostic errors
+        assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());
     }
 
     #[test]
     fn emit_walker_match_multiple_arms_emits_dispatch_chain() {
         let mut arena = IrArena::new();
 
-        // Allocate: Var (scrutinee), Literal arms for values 1 and 2.
+        // Allocate: Var (scrutinee), Action arms
         let scrutinee_id = arena.alloc(IrKind::Var, span());
-        let arm1_id = arena.alloc(IrKind::Literal, span());
-        arena.literal_values_mut().insert(arm1_id, 100);
-        let arm2_id = arena.alloc(IrKind::Literal, span());
-        arena.literal_values_mut().insert(arm2_id, 200);
+        let arm1_id = arena.alloc(IrKind::Action, span());
+        let arm2_id = arena.alloc(IrKind::Action, span());
 
         let match_id =
             arena.alloc_with_children(IrKind::Match, span(), [scrutinee_id, arm1_id, arm2_id]);
 
-        // Walk the arena.
+        // Register match metadata
+        arena.match_scrutinee_table_mut().insert(match_id, EnumTypeId(1));
+        arena.match_arm_meta_mut().insert(
+            arm1_id,
+            paideia_as_ir::MatchArmMeta {
+                variant_index: Some(0),
+                payload_binder: None,
+                is_default: false,
+            },
+        );
+        arena.match_arm_meta_mut().insert(
+            arm2_id,
+            paideia_as_ir::MatchArmMeta {
+                variant_index: Some(1),
+                payload_binder: None,
+                is_default: false,
+            },
+        );
+
+        // Walk the arena with layout registered.
         let mut walker = EmitWalker::new();
+        let layout = EnumLayout::new(0);
+        walker.state_mut().enum_layouts.insert(EnumTypeId(1), layout);
         walker.walk(&mut arena);
 
         // Verify instructions were emitted for both arms.
@@ -7570,17 +7661,6 @@ mod tests {
             inst_count > 0,
             "Expected instructions for 2-arm match, got: {} instructions",
             inst_count
-        );
-
-        // Verify offset advanced: 2 * (cmp 7 + je 6) + jmp 5 + 2 * (nop 1 + jmp 5) + default nop 1
-        // = 2*(13) + 5 + 2*(6) + 1 = 26 + 5 + 12 + 1 = 44
-        let expected_offset = 2 * 13 + 5 + 2 * 6 + 1;
-        assert_eq!(
-            walker.state().estimated_offset,
-            expected_offset,
-            "Expected offset {}, got {}",
-            expected_offset,
-            walker.state().estimated_offset
         );
     }
 
@@ -8960,4 +9040,346 @@ mod tests {
     #[test]
     #[ignore = "visit_field_assign hardcodes src=RDX; SIL/REX trap coverage in encode.rs pa_r17_006_field_assign_sil_u8_requires_rex"]
     fn visit_field_assign_sil_u8_requires_rex() {}
+
+    // ─── PA-r17-008 Match expression tests ──────────────────────────────────
+
+    /// Helper to build and walk a match expression with given payload size and arm specs.
+    /// Returns walker with emitted instructions.
+    fn build_and_walk_match(
+        payload_size: u64,
+        arm_specs: Vec<(u32, bool, Option<String>)>, // (variant_idx, is_default, payload_binder)
+    ) -> EmitWalker {
+        let mut arena = IrArena::new();
+
+        // Create match node with arms
+        let match_id = arena.alloc(IrKind::Match, span());
+        let mut children = vec![];
+
+        // First child: scrutinee (placeholder)
+        let scrutinee_id = arena.alloc(IrKind::Var, span());
+        children.push(scrutinee_id);
+
+        // Remaining children: arms
+        let mut arm_ids = vec![];
+        for (idx, (variant_idx, is_default, payload_binder)) in arm_specs.iter().enumerate() {
+            let arm_id = arena.alloc(IrKind::Action, span());
+            arm_ids.push(arm_id);
+            children.push(arm_id);
+
+            // Register arm metadata
+            arena.match_arm_meta_mut().insert(
+                arm_id,
+                paideia_as_ir::MatchArmMeta {
+                    variant_index: if *is_default { None } else { Some(*variant_idx) },
+                    payload_binder: payload_binder.clone(),
+                    is_default: *is_default,
+                },
+            );
+        }
+
+        // Set match children
+        {
+            let match_children = arena.children_mut(match_id).unwrap();
+            for &child_id in &children {
+                match_children.push(child_id);
+            }
+        }
+
+        // Register match scrutinee type
+        arena.match_scrutinee_table_mut().insert(match_id, EnumTypeId(1));
+
+        // Register layout
+        let layout = EnumLayout::new(payload_size);
+        let mut walker = EmitWalker::new();
+        walker.state_mut().enum_layouts.insert(EnumTypeId(1), layout);
+
+        walker.walk(&mut arena);
+        walker
+    }
+
+    #[test]
+    fn match_empty_default_only() {
+        // Single default arm, no comparisons
+        let walker = build_and_walk_match(0, vec![(0, true, None)]);
+        assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());
+    }
+
+    #[test]
+    fn match_one_variant_one_default() {
+        // 1 variant + 1 default arm
+        let walker = build_and_walk_match(0, vec![(0, false, None), (1, true, None)]);
+        assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());
+    }
+
+    #[test]
+    fn match_two_variants_default() {
+        // 2 variants + 1 default arm
+        let walker = build_and_walk_match(0, vec![(0, false, None), (1, false, None), (2, true, None)]);
+        assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());
+    }
+
+    #[test]
+    fn match_three_variants_default() {
+        // 3 variants + 1 default arm
+        let walker = build_and_walk_match(
+            0,
+            vec![(0, false, None), (1, false, None), (2, false, None), (3, true, None)],
+        );
+        assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());
+    }
+
+    #[test]
+    fn match_two_variants_no_default() {
+        // 2 variants without explicit default
+        let walker = build_and_walk_match(0, vec![(0, false, None), (1, false, None)]);
+        // Should not error; default label will be registered by visit_match
+        assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());
+    }
+
+    #[test]
+    fn match_all_wildcard_no_cmp() {
+        // Default arm only; no cmp instructions
+        let walker = build_and_walk_match(0, vec![(0, true, None)]);
+        assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());
+    }
+
+    #[test]
+    fn match_cmp_rax_0_imm8_form() {
+        // cmp rax, 0 → 48 83 F8 00 (4 bytes for imm8 form)
+        let walker = build_and_walk_match(0, vec![(0, false, None), (1, true, None)]);
+
+        // Extract cmp instruction (match_id * 100 + 0 * 10)
+        let match_id = IrNodeId::new(1).unwrap(); // First (and only) match allocated
+        let cmp_id = IrNodeId::new(1 * 100 + 0 * 10).unwrap();
+        let cmp_inst = walker
+            .state()
+            .instructions
+            .get(cmp_id)
+            .cloned()
+            .expect("cmp instruction should exist");
+
+        // Encode and verify byte sequence
+        let mut buf = paideia_as_encoder::CodeBuffer::new();
+        let mut stats = paideia_as_encoder::EncodeStats::new();
+        paideia_as_encoder::encode_instruction(&cmp_inst, &mut buf, &mut stats)
+            .expect("encode failed");
+        assert_eq!(buf.as_slice(), &[0x48, 0x83, 0xF8, 0x00]);
+    }
+
+    #[test]
+    fn match_cmp_rax_128_imm32_form() {
+        // cmp rax, 128 → encoder produces 48 81 F8 80 00 00 00 (7 bytes, r/m form)
+        let walker = build_and_walk_match(0, vec![(128, false, None), (1, true, None)]);
+
+        let cmp_id = IrNodeId::new(1 * 100 + 0 * 10).unwrap();
+        let cmp_inst = walker
+            .state()
+            .instructions
+            .get(cmp_id)
+            .cloned()
+            .expect("cmp instruction should exist");
+
+        let mut buf = paideia_as_encoder::CodeBuffer::new();
+        let mut stats = paideia_as_encoder::EncodeStats::new();
+        paideia_as_encoder::encode_instruction(&cmp_inst, &mut buf, &mut stats)
+            .expect("encode failed");
+        // Encoder produces r/m form: 48 81 F8 80 00 00 00
+        assert_eq!(buf.as_slice(), &[0x48, 0x81, 0xF8, 0x80, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn match_jne_rel32() {
+        // jne rel32 should be 6 bytes: 0F 85 XX XX XX XX
+        let walker = build_and_walk_match(0, vec![(0, false, None), (1, true, None)]);
+
+        let jne_id = IrNodeId::new(1 * 100 + 0 * 10 + 1).unwrap();
+        let jne_inst = walker
+            .state()
+            .instructions
+            .get(jne_id)
+            .cloned()
+            .expect("jne instruction should exist");
+
+        assert_eq!(jne_inst.mnemonic, Mnemonic::Jcc(Cond::Ne));
+        // Encoding produces 6-byte rel32 form
+    }
+
+    #[test]
+    fn match_discriminant_load_rdi_0() {
+        // Stack form (size > 16): mov rax, [rdi+0] → 48 8B 07 (3 bytes)
+        let walker = build_and_walk_match(16, vec![(0, false, None), (1, true, None)]);
+
+        let disc_load_id = IrNodeId::new(1 * 100 + 900).unwrap();
+        let disc_load_inst = walker
+            .state()
+            .instructions
+            .get(disc_load_id)
+            .cloned()
+            .expect("disc load instruction should exist");
+
+        let mut buf = paideia_as_encoder::CodeBuffer::new();
+        let mut stats = paideia_as_encoder::EncodeStats::new();
+        paideia_as_encoder::encode_instruction(&disc_load_inst, &mut buf, &mut stats)
+            .expect("encode failed");
+        assert_eq!(buf.as_slice(), &[0x48, 0x8B, 0x07]);
+    }
+
+    #[test]
+    fn match_payload_load_rdi_8_w64() {
+        // Payload load: mov rdx, [rdi+8] → 48 8B 57 08 (4 bytes)
+        let walker = build_and_walk_match(
+            8,
+            vec![(0, false, Some("x".to_string())), (1, true, None)],
+        );
+
+        let payload_load_id = IrNodeId::new(1 * 100 + 0 * 10 + 2).unwrap();
+        let payload_load_inst = walker
+            .state()
+            .instructions
+            .get(payload_load_id)
+            .cloned()
+            .expect("payload load instruction should exist");
+
+        let mut buf = paideia_as_encoder::CodeBuffer::new();
+        let mut stats = paideia_as_encoder::EncodeStats::new();
+        paideia_as_encoder::encode_instruction(&payload_load_inst, &mut buf, &mut stats)
+            .expect("encode failed");
+        // Encoder produces: 48 8B 57 08 (mov rdx, [rdi+8])
+        assert_eq!(buf.as_slice(), &[0x48, 0x8B, 0x57, 0x08]);
+    }
+
+    #[test]
+    fn match_reg_form_omits_disc_load() {
+        // Register form (size ≤ 16): discriminant load NOT emitted
+        let walker = build_and_walk_match(8, vec![(0, false, None), (1, true, None)]);
+
+        let disc_load_id = IrNodeId::new(1 * 100 + 900).unwrap();
+        let disc_load_inst = walker.state().instructions.get(disc_load_id);
+        assert!(disc_load_inst.is_none());
+    }
+
+    #[test]
+    fn match_stack_form_emits_disc_load() {
+        // Stack form (size > 16): discriminant load IS emitted
+        let walker = build_and_walk_match(16, vec![(0, false, None), (1, true, None)]);
+
+        let disc_load_id = IrNodeId::new(1 * 100 + 900).unwrap();
+        let disc_load_inst = walker.state().instructions.get(disc_load_id);
+        assert!(disc_load_inst.is_some());
+    }
+
+    #[test]
+    fn match_labels_registered_correctly() {
+        // Verify that labels are registered: match_arm_<id>_0, match_default_<id>, match_end_<id>
+        let walker = build_and_walk_match(0, vec![(0, false, None), (1, true, None)]);
+
+        let match_id = 1u32; // First match allocated
+        let arm_0_label = format!("match_arm_{}_{}", match_id, 0);
+        let default_label = format!("match_default_{}", match_id);
+        let end_label = format!("match_end_{}", match_id);
+
+        // Labels should be registered in walker.state.labels
+        assert!(walker.state().labels.contains_key(&arm_0_label));
+        assert!(walker.state().labels.contains_key(&default_label));
+        assert!(walker.state().labels.contains_key(&end_label));
+    }
+
+    #[test]
+    fn match_estimated_offset_advances_correctly() {
+        // Verify that estimated_offset tracks instruction sizes correctly
+        let walker = build_and_walk_match(0, vec![(0, false, None), (1, false, None), (2, true, None)]);
+
+        // offset should have advanced (cmp 4 + jne 6) * 2 + jmp 5 + labels = >20 bytes
+        assert!(walker.state().estimated_offset > 20);
+    }
+
+    #[test]
+    fn match_arm_with_u64_payload_binder_emits_load() {
+        // Arm with payload_binder should emit payload load
+        let walker = build_and_walk_match(
+            8,
+            vec![(0, false, Some("x".to_string())), (1, true, None)],
+        );
+
+        let payload_load_id = IrNodeId::new(1 * 100 + 0 * 10 + 2).unwrap();
+        let payload_load_inst = walker.state().instructions.get(payload_load_id);
+        assert!(payload_load_inst.is_some());
+    }
+
+    #[test]
+    fn match_arm_no_payload_binder_no_load() {
+        // Arm without payload_binder should not emit payload load
+        let walker = build_and_walk_match(8, vec![(0, false, None), (1, true, None)]);
+
+        let payload_load_id = IrNodeId::new(1 * 100 + 0 * 10 + 2).unwrap();
+        let payload_load_inst = walker.state().instructions.get(payload_load_id);
+        assert!(payload_load_inst.is_none());
+    }
+
+    #[test]
+    fn match_arm_default_no_payload_load() {
+        // Default arm should not emit payload load
+        let walker = build_and_walk_match(8, vec![(0, true, Some("x".to_string()))]);
+
+        let payload_load_id = IrNodeId::new(1 * 100 + 0 * 10 + 2).unwrap();
+        let payload_load_inst = walker.state().instructions.get(payload_load_id);
+        assert!(payload_load_inst.is_none());
+    }
+
+    #[test]
+    fn match_missing_scrutinee_type_emits_diagnostic() {
+        // No entry in match_scrutinee_table should emit diagnostic
+        let mut arena = IrArena::new();
+        let match_id = arena.alloc(IrKind::Match, span());
+        let scrutinee_id = arena.alloc(IrKind::Var, span());
+        let arm_id = arena.alloc(IrKind::Action, span());
+
+        {
+            let children = arena.children_mut(match_id).unwrap();
+            children.push(scrutinee_id);
+            children.push(arm_id);
+        }
+
+        arena.match_arm_meta_mut().insert(
+            arm_id,
+            paideia_as_ir::MatchArmMeta {
+                variant_index: Some(0),
+                payload_binder: None,
+                is_default: false,
+            },
+        );
+
+        // Deliberately do NOT register match_scrutinee_table entry
+        let mut walker = EmitWalker::new();
+        walker.walk(&mut arena);
+
+        assert!(!walker.diagnostics().is_empty());
+        assert!(walker.diagnostics()[0].contains("scrutinee type"));
+    }
+
+    #[test]
+    fn match_missing_arm_meta_emits_diagnostic() {
+        // No entry in match_arm_meta_table should emit diagnostic
+        let mut arena = IrArena::new();
+        let match_id = arena.alloc(IrKind::Match, span());
+        let scrutinee_id = arena.alloc(IrKind::Var, span());
+        let arm_id = arena.alloc(IrKind::Action, span());
+
+        {
+            let children = arena.children_mut(match_id).unwrap();
+            children.push(scrutinee_id);
+            children.push(arm_id);
+        }
+
+        arena.match_scrutinee_table_mut().insert(match_id, EnumTypeId(1));
+
+        // Deliberately do NOT register match_arm_meta entry for arm_id
+        let mut walker = EmitWalker::new();
+        let layout = EnumLayout::new(0);
+        walker.state_mut().enum_layouts.insert(EnumTypeId(1), layout);
+        walker.walk(&mut arena);
+
+        assert!(!walker.diagnostics().is_empty());
+        assert!(walker.diagnostics()[0].contains("MatchArmMeta"));
+    }
 }

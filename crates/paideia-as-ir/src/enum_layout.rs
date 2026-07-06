@@ -535,3 +535,127 @@ mod tests {
         assert_eq!(retrieved.payload_size, 8);
     }
 }
+
+/// Metadata for a match arm pattern.
+///
+/// Records information about a match arm including the variant being matched,
+/// any payload binder, and whether this is a default/wildcard arm.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MatchArmMeta {
+    /// 0-based variant index if matching a specific variant, None for wildcard/default.
+    pub variant_index: Option<u32>,
+    /// Name of payload binder if arm has pattern like `Ok(x)`, None otherwise.
+    pub payload_binder: Option<String>,
+    /// `true` iff this is a default/wildcard arm.
+    pub is_default: bool,
+}
+
+/// Side-table mapping match arm IrNodeIds to their metadata.
+///
+/// Populated during elaboration as pattern bindings are resolved.
+/// Consumed during emission to generate discriminant comparisons and payload loads.
+#[derive(Default, Debug, Clone)]
+pub struct MatchArmMetaSideTable {
+    /// Sparse mapping: match arm node id -> MatchArmMeta.
+    entries: HashMap<IrNodeId, MatchArmMeta>,
+}
+
+impl MatchArmMetaSideTable {
+    /// Construct an empty match arm metadata side-table.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Insert (or overwrite) the metadata for a match arm node.
+    ///
+    /// Returns the previous entry if one existed.
+    pub fn insert(&mut self, id: IrNodeId, meta: MatchArmMeta) -> Option<MatchArmMeta> {
+        self.entries.insert(id, meta)
+    }
+
+    /// Look up the metadata for a match arm node.
+    ///
+    /// Returns `None` if the node was never registered.
+    #[must_use]
+    pub fn get(&self, id: IrNodeId) -> Option<&MatchArmMeta> {
+        self.entries.get(&id)
+    }
+
+    /// Look up (mutable) the metadata for a match arm node.
+    pub fn get_mut(&mut self, id: IrNodeId) -> Option<&mut MatchArmMeta> {
+        self.entries.get_mut(&id)
+    }
+
+    /// Number of match arms registered in this table.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// `true` iff no match arms are registered.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// Iterate over all entries.
+    pub fn iter(&self) -> impl Iterator<Item = (&IrNodeId, &MatchArmMeta)> {
+        self.entries.iter()
+    }
+}
+
+/// Side-table mapping match expression IrNodeIds to their scrutinee EnumTypeId.
+///
+/// Records which enum type a match expression scrutinizes, enabling layout lookup
+/// during code generation.
+#[derive(Default, Debug, Clone)]
+pub struct MatchScrutineeTable {
+    /// Sparse mapping: match node id -> EnumTypeId of scrutinee.
+    entries: HashMap<IrNodeId, EnumTypeId>,
+}
+
+impl MatchScrutineeTable {
+    /// Construct an empty match scrutinee side-table.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Insert (or overwrite) the scrutinee type for a match node.
+    ///
+    /// Returns the previous entry if one existed.
+    pub fn insert(&mut self, id: IrNodeId, type_id: EnumTypeId) -> Option<EnumTypeId> {
+        self.entries.insert(id, type_id)
+    }
+
+    /// Look up the scrutinee type for a match node.
+    ///
+    /// Returns `None` if the node was never registered.
+    #[must_use]
+    pub fn get(&self, id: IrNodeId) -> Option<&EnumTypeId> {
+        self.entries.get(&id)
+    }
+
+    /// Look up (mutable) the scrutinee type for a match node.
+    pub fn get_mut(&mut self, id: IrNodeId) -> Option<&mut EnumTypeId> {
+        self.entries.get_mut(&id)
+    }
+
+    /// Number of match expressions registered in this table.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// `true` iff no match expressions are registered.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// Iterate over all entries.
+    pub fn iter(&self) -> impl Iterator<Item = (&IrNodeId, &EnumTypeId)> {
+        self.entries.iter()
+    }
+}

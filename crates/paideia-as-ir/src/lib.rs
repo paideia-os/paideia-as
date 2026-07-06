@@ -54,7 +54,8 @@ pub use effect_rewrite::{
 };
 pub use enum_layout::{
     EnumConsInfo, EnumConsSideTable, EnumDiscriminantSideTable, EnumLayout,
-    FinalisedEnumLayoutTable, EnumTypeId,
+    FinalisedEnumLayoutTable, EnumTypeId, MatchArmMeta, MatchArmMetaSideTable,
+    MatchScrutineeTable,
 };
 pub use handler_value::{HandlerInfo, HandlerSideTable, pretty_handler};
 pub use instruction::{

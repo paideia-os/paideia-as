@@ -12,7 +12,10 @@ use crate::binding_name::BindingNameTable;
 use crate::call_meta::CallSideTable;
 use crate::constant_pool::ConstantPoolTable;
 use crate::data::DataSideTable;
-use crate::enum_layout::{EnumConsSideTable, FinalisedEnumLayoutTable};
+use crate::enum_layout::{
+    EnumConsSideTable, EnumDiscriminantSideTable, FinalisedEnumLayoutTable, MatchArmMetaSideTable,
+    MatchScrutineeTable,
+};
 use crate::instruction::InstructionSideTable;
 use crate::lambda_param::LambdaParamTable;
 use crate::let_meta::LetMetaTable;
@@ -71,6 +74,15 @@ pub struct IrArena {
     /// Side-table: finalised enum layouts indexed by EnumTypeId.
     /// PA-r17-007: populated during emission; consumed for register/stack form dispatch.
     enum_finalised_layouts: FinalisedEnumLayoutTable,
+    /// Side-table: enum discriminant extraction metadata indexed by EnumDiscriminant node ID.
+    /// PA-r17-008: maps EnumDiscriminant nodes to their EnumTypeId for discriminant load emission.
+    enum_disc_info_table: EnumDiscriminantSideTable,
+    /// Side-table: match arm pattern metadata indexed by match arm IrNodeId.
+    /// PA-r17-008: records variant_index, payload_binder, is_default for each arm.
+    match_arm_meta_table: MatchArmMetaSideTable,
+    /// Side-table: match scrutinee type mapping indexed by Match node ID.
+    /// PA-r17-008: maps Match nodes to their scrutinee's EnumTypeId for layout dispatch.
+    match_scrutinee_table: MatchScrutineeTable,
     /// Side-table: address-of metadata indexed by Borrow node ID.
     /// PA10-006u: populated by elaborator for `& sym` in static initializers.
     addr_of_table: AddrOfSideTable,
@@ -109,6 +121,9 @@ impl IrArena {
             record_layout_table: RecordLayoutTable::new(),
             enum_cons_table: EnumConsSideTable::new(),
             enum_finalised_layouts: FinalisedEnumLayoutTable::new(),
+            enum_disc_info_table: EnumDiscriminantSideTable::new(),
+            match_arm_meta_table: MatchArmMetaSideTable::new(),
+            match_scrutinee_table: MatchScrutineeTable::new(),
             addr_of_table: AddrOfSideTable::new(),
             public_lets: HashSet::new(),
             call_sites: CallSideTable::new(),
@@ -353,6 +368,42 @@ impl IrArena {
     /// Borrow the enum layout table (mutable).
     pub fn enum_layout_table_mut(&mut self) -> &mut FinalisedEnumLayoutTable {
         &mut self.enum_finalised_layouts
+    }
+
+    /// Borrow the enum discriminant info side-table (read-only).
+    /// PA-r17-008: provides EnumTypeId for EnumDiscriminant nodes.
+    #[must_use]
+    pub fn enum_disc_info(&self) -> &EnumDiscriminantSideTable {
+        &self.enum_disc_info_table
+    }
+
+    /// Borrow the enum discriminant info side-table (mutable).
+    pub fn enum_disc_info_mut(&mut self) -> &mut EnumDiscriminantSideTable {
+        &mut self.enum_disc_info_table
+    }
+
+    /// Borrow the match arm metadata side-table (read-only).
+    /// PA-r17-008: provides MatchArmMeta for match arm nodes.
+    #[must_use]
+    pub fn match_arm_meta(&self) -> &MatchArmMetaSideTable {
+        &self.match_arm_meta_table
+    }
+
+    /// Borrow the match arm metadata side-table (mutable).
+    pub fn match_arm_meta_mut(&mut self) -> &mut MatchArmMetaSideTable {
+        &mut self.match_arm_meta_table
+    }
+
+    /// Borrow the match scrutinee type table (read-only).
+    /// PA-r17-008: provides EnumTypeId for Match nodes.
+    #[must_use]
+    pub fn match_scrutinee_table(&self) -> &MatchScrutineeTable {
+        &self.match_scrutinee_table
+    }
+
+    /// Borrow the match scrutinee type table (mutable).
+    pub fn match_scrutinee_table_mut(&mut self) -> &mut MatchScrutineeTable {
+        &mut self.match_scrutinee_table
     }
 
     /// Borrow the address-of side-table (read-only).
