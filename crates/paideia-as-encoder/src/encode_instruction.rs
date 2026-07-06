@@ -276,6 +276,9 @@ fn encode_instruction_impl(
         Mnemonic::Adc { width } => encode_adc(inst, buf, *width),
         Mnemonic::Sbb { width } => encode_sbb(inst, buf, *width),
         Mnemonic::Popcnt { width } => encode_popcnt(inst, buf, *width),
+        Mnemonic::Bsf { width } => encode_bsf(inst, buf, *width),
+        Mnemonic::Bsr { width } => encode_bsr(inst, buf, *width),
+        Mnemonic::Tzcnt { width } => encode_tzcnt(inst, buf, *width),
         Mnemonic::Bt { width } => encode_bt(inst, buf, *width),
         Mnemonic::Bts { width } => encode_bts(inst, buf, *width),
         Mnemonic::Btr { width } => encode_btr(inst, buf, *width),
@@ -2200,6 +2203,108 @@ fn encode_popcnt(
         }
         _ => Err(EncodeError::OperandShape {
             mnemonic: Mnemonic::Popcnt { width },
+        }),
+    }
+}
+
+fn encode_bsf(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+    width: IntWidth,
+) -> Result<EncodeOutput, EncodeError> {
+    match width {
+        IntWidth::W64 => {}
+        _ => {
+            return Err(EncodeError::Unsupported(
+                "E0050: bsf only supports W64 (PA-R16-008, #974)",
+            ))
+        }
+    }
+
+    match inst.operands.as_slice() {
+        [Operand::Reg(dest), Operand::Reg(src)] => {
+            bsf_reg64_reg64(buf, reg64_from(*dest)?, reg64_from(*src)?);
+            Ok(EncodeOutput::new())
+        }
+        [Operand::Reg(dest), Operand::MemSib { base, index: None, scale: _, disp }] => {
+            bsf_reg64_mem_base_disp(buf, reg64_from(*dest)?, reg64_from(*base)?, *disp);
+            Ok(EncodeOutput::new())
+        }
+        [Operand::Reg(_), Operand::MemSib { index: Some(_), .. }] => {
+            Err(EncodeError::OperandShape {
+                mnemonic: Mnemonic::Bsf { width },
+            })
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Bsf { width },
+        }),
+    }
+}
+
+fn encode_bsr(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+    width: IntWidth,
+) -> Result<EncodeOutput, EncodeError> {
+    match width {
+        IntWidth::W64 => {}
+        _ => {
+            return Err(EncodeError::Unsupported(
+                "E0051: bsr only supports W64 (PA-R16-008, #974)",
+            ))
+        }
+    }
+
+    match inst.operands.as_slice() {
+        [Operand::Reg(dest), Operand::Reg(src)] => {
+            bsr_reg64_reg64(buf, reg64_from(*dest)?, reg64_from(*src)?);
+            Ok(EncodeOutput::new())
+        }
+        [Operand::Reg(dest), Operand::MemSib { base, index: None, scale: _, disp }] => {
+            bsr_reg64_mem_base_disp(buf, reg64_from(*dest)?, reg64_from(*base)?, *disp);
+            Ok(EncodeOutput::new())
+        }
+        [Operand::Reg(_), Operand::MemSib { index: Some(_), .. }] => {
+            Err(EncodeError::OperandShape {
+                mnemonic: Mnemonic::Bsr { width },
+            })
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Bsr { width },
+        }),
+    }
+}
+
+fn encode_tzcnt(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+    width: IntWidth,
+) -> Result<EncodeOutput, EncodeError> {
+    match width {
+        IntWidth::W64 => {}
+        _ => {
+            return Err(EncodeError::Unsupported(
+                "E0052: tzcnt only supports W64 (PA-R16-008, #974)",
+            ))
+        }
+    }
+
+    match inst.operands.as_slice() {
+        [Operand::Reg(dest), Operand::Reg(src)] => {
+            tzcnt_reg64_reg64(buf, reg64_from(*dest)?, reg64_from(*src)?);
+            Ok(EncodeOutput::new())
+        }
+        [Operand::Reg(dest), Operand::MemSib { base, index: None, scale: _, disp }] => {
+            tzcnt_reg64_mem_base_disp(buf, reg64_from(*dest)?, reg64_from(*base)?, *disp);
+            Ok(EncodeOutput::new())
+        }
+        [Operand::Reg(_), Operand::MemSib { index: Some(_), .. }] => {
+            Err(EncodeError::OperandShape {
+                mnemonic: Mnemonic::Tzcnt { width },
+            })
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Tzcnt { width },
         }),
     }
 }

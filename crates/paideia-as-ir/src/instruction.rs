@@ -344,6 +344,29 @@ pub enum Mnemonic {
         /// Operand width selecting the encoded form (W32 or W64).
         width: IntWidth,
     },
+    /// Bit scan forward: `bsf r32/r64, r/m32/r/m64` (PA-R16-008, #974).
+    /// Returns index of lowest set bit in src. ZF=1 iff src=0 (dst undefined).
+    /// Encoding: `[REX.W] 0F BC /r` per Intel SDM Vol 2A BSF (RM form: dst in reg, src in rm).
+    Bsf {
+        /// Operand width selecting the encoded form (W32 or W64).
+        width: IntWidth,
+    },
+    /// Bit scan reverse: `bsr r32/r64, r/m32/r/m64` (PA-R16-008, #974).
+    /// Returns index of highest set bit in src. ZF=1 iff src=0 (dst undefined).
+    /// Encoding: `[REX.W] 0F BD /r` per Intel SDM Vol 2A BSR (RM form: dst in reg, src in rm).
+    Bsr {
+        /// Operand width selecting the encoded form (W32 or W64).
+        width: IntWidth,
+    },
+    /// Trailing-zero count: `tzcnt r32/r64, r/m32/r/m64` (PA-R16-008, #974).
+    /// Returns count of trailing zeros. Defined for src=0 (returns operand width).
+    /// Encoding: `F3 [REX.W] 0F BC /r` per Intel SDM Vol 2A TZCNT (RM form).
+    /// Requires CPUID.07H:EBX.BMI1[bit 3]. On non-BMI1 CPUs decodes as BSF
+    /// (silent semantic drift; feature-gate mechanism tracked in #1033).
+    Tzcnt {
+        /// Operand width selecting the encoded form (W32 or W64).
+        width: IntWidth,
+    },
     /// Bit test: `bt r/m32/r/m64, r32/r64` (PA-R16-001, #967).
     /// Tests a bit in the bitmap (first operand) at index (second operand).
     /// Sets CF to bit value, OF/SF/AF/PF undefined. Two operands (bitmap, index).
@@ -776,6 +799,9 @@ impl Mnemonic {
             | Mnemonic::Adc { .. }
             | Mnemonic::Sbb { .. }
             | Mnemonic::Popcnt { .. }
+            | Mnemonic::Bsf { .. }
+            | Mnemonic::Bsr { .. }
+            | Mnemonic::Tzcnt { .. }
             | Mnemonic::Bt { .. }
             | Mnemonic::Bts { .. }
             | Mnemonic::Btr { .. }
@@ -884,6 +910,11 @@ impl Mnemonic {
 
             // Population count: 9 bytes (F3 + REX + 0F + B8 + ModR/M + disp32 max)
             Mnemonic::Popcnt { .. } => 9,
+
+            // Bit scan forward/reverse and trailing-zero count: 10 bytes
+            // Phase R16 PA-R16-008 (issue #974): bsf, bsr, tzcnt
+            // (F3 + REX + 0F + opcode + ModR/M + SIB + disp32 max for tzcnt; no F3 for bsf/bsr)
+            Mnemonic::Bsf { .. } | Mnemonic::Bsr { .. } | Mnemonic::Tzcnt { .. } => 10,
 
             // Bit test operations: 9 bytes (REX + 0F + opcode + ModR/M + disp32 max)
             // Phase R16 PA-R16-001 (issue #967): bt, bts, btr, btc

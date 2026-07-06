@@ -67,7 +67,7 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         // Phase 7 m4-002: move with sign-extend is a register ALU op.
         Mnemonic::Movsx => InstructionClass::AluReg,
         Mnemonic::Lea => InstructionClass::AluReg,
-        Mnemonic::Add | Mnemonic::Sub | Mnemonic::Cmp | Mnemonic::Test | Mnemonic::Adc { .. } | Mnemonic::Sbb { .. } | Mnemonic::Popcnt { .. } => InstructionClass::AluReg,
+        Mnemonic::Add | Mnemonic::Sub | Mnemonic::Cmp | Mnemonic::Test | Mnemonic::Adc { .. } | Mnemonic::Sbb { .. } | Mnemonic::Popcnt { .. } | Mnemonic::Bsf { .. } | Mnemonic::Bsr { .. } | Mnemonic::Tzcnt { .. } => InstructionClass::AluReg,
         // Phase 7 m4-001: bitwise NOT is a register ALU op.
         Mnemonic::Not => InstructionClass::AluReg,
         // Phase R13 PA-R13-014 (issue #943): bswap r64 is a register ALU op.
