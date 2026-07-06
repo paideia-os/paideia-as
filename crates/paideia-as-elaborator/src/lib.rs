@@ -23,6 +23,7 @@ pub mod check_match;
 pub mod check_ordered;
 pub mod check_pattern;
 pub mod check_pure;
+pub mod data_encoder;
 pub mod derive;
 pub mod effect_infer;
 pub mod effect_unify;

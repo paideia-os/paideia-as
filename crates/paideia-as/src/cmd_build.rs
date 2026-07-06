@@ -1186,7 +1186,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                 if rhs_node.kind == paideia_as_ir::IrKind::Literal {
                                     // Phase 5: Let with Literal → Rodata (or Data if mutable)
                                     if let Some(value) = lowering.ir.literal_values().get(rhs_id) {
-                                        let bytes = EmitWalker::pack_u64_le_public(value);
+                                        let bytes = paideia_as_elaborator::data_encoder::pack_u64_le(value);
                                         let explicit_align = lowering.ir.let_meta().get(node_id).and_then(|i| i.align);
                                         let is_mutable = lowering.ir.let_meta().get(node_id)
                                             .map(|info| info.mutable).unwrap_or(false);
@@ -1229,7 +1229,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                                 if let Some(value) =
                                                     lowering.ir.literal_values().get(elem_id)
                                                 {
-                                                    let elem_bytes = EmitWalker::pack_int_le_public(
+                                                    let elem_bytes = paideia_as_elaborator::data_encoder::pack_int_le(
                                                         value,
                                                         element_width,
                                                     );
@@ -1416,7 +1416,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                 );
 
                 let mask_value = (slots - 1) as i64;
-                let mask_bytes = EmitWalker::pack_u64_le_public(mask_value);
+                let mask_bytes = paideia_as_elaborator::data_encoder::pack_u64_le(mask_value);
                 let mask_entry = paideia_as_ir::DataEntry::new_rodata(
                     mask_bytes,
                     format!("{}_mask", base_name),

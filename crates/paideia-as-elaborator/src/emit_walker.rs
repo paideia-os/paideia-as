@@ -752,7 +752,7 @@ impl EmitWalker {
                                         // Literal RHS: check for a registered value.
                                         if let Some(value) = arena.literal_values().get(rhs_id) {
                                             // Pack the u64 value as little-endian 8 bytes.
-                                            let bytes = Self::pack_u64_le(value);
+                                            let bytes = crate::data_encoder::pack_u64_le(value);
 
                                             let entry = if is_mutable {
                                                 // Mutable + initialized → Data section.
@@ -767,7 +767,7 @@ impl EmitWalker {
                                     }
                                     IrKind::ArrayLit => {
                                         // ArrayLit RHS: Phase 8 m2-002 — walk children, pack per element width.
-                                        if let Some(bytes) = Self::encode_array_lit(arena, rhs_id) {
+                                        if let Some(bytes) = crate::data_encoder::encode_array_lit(arena, rhs_id) {
                                             let entry = if is_mutable {
                                                 DataEntry::new_data(bytes, symbol_name, 8)
                                             } else {
@@ -779,7 +779,7 @@ impl EmitWalker {
                                     IrKind::RecordCons => {
                                         // RecordCons RHS: Phase 8 m2-003 — walk fields, pack per layout.
                                         // NOTE: requires finalised record layouts from Phase 6 m3-001.
-                                        if let Some(bytes) = Self::encode_record_cons(arena, rhs_id)
+                                        if let Some(bytes) = crate::data_encoder::encode_record_cons(arena, rhs_id)
                                         {
                                             let entry = if is_mutable {
                                                 DataEntry::new_data(bytes, symbol_name, 8)
@@ -833,113 +833,6 @@ impl EmitWalker {
     }
 
     /// Pack a u64 value as little-endian bytes.
-    fn pack_u64_le(value: i64) -> Vec<u8> {
-        Self::pack_u64_le_public(value)
-    }
-
-    /// Pack a u64 value as little-endian bytes (public helper for external use).
-    pub fn pack_u64_le_public(value: i64) -> Vec<u8> {
-        Self::pack_int_le_public(value, 8)
-    }
-
-    /// PA10-006s: Pack an integer value as little-endian bytes with specified width.
-    ///
-    /// Packs the given i64 value as little-endian bytes with the specified byte width.
-    /// Unused high bits are truncated for widths < 8.
-    ///
-    /// # Arguments
-    /// * `value` - The i64 value to pack
-    /// * `width_bytes` - Number of bytes to emit (1, 2, 4, or 8)
-    ///
-    /// # Panics
-    /// Width must be 1, 2, 4, or 8. Panics on invalid widths.
-    pub fn pack_int_le_public(value: i64, width_bytes: u8) -> Vec<u8> {
-        let u64_val = value as u64;
-        let full_bytes = u64_val.to_le_bytes();
-        // Slice to the requested width and convert to Vec
-        full_bytes[..width_bytes as usize].to_vec()
-    }
-
-    /// Encode an ArrayLit node to bytes for data section initialization.
-    ///
-    /// Walks the element children, recursively encodes each (via encode_ir_value),
-    /// and concatenates the bytes in order.
-    ///
-    /// Phase 8 m2-002: ArrayLit { elem0, elem1, ... } → [bytes_elem0 || bytes_elem1 || ...]
-    fn encode_array_lit(arena: &IrArena, array_id: IrNodeId) -> Option<Vec<u8>> {
-        let children = arena.children(array_id);
-        let mut bytes = Vec::new();
-
-        for &elem_id in children {
-            if let Some(elem_bytes) = Self::encode_ir_value(arena, elem_id) {
-                bytes.extend_from_slice(&elem_bytes);
-            } else {
-                // Failed to encode element; skip this array.
-                return None;
-            }
-        }
-
-        Some(bytes)
-    }
-
-    /// Encode a RecordCons node to bytes for data section initialization.
-    ///
-    /// Phase 8 m2-003: RecordCons with fields [f0, f1, ...] → packed bytes per field layout.
-    /// For now, assumes all fields are simple literals (u64) and encodes in order.
-    /// Does NOT handle nested arrays/records in this MVP.
-    fn encode_record_cons(arena: &IrArena, record_id: IrNodeId) -> Option<Vec<u8>> {
-        let children = arena.children(record_id);
-        if children.is_empty() {
-            // Empty record: return empty bytes.
-            return Some(Vec::new());
-        }
-
-        // Skip the first child (type_name is a Var node), and encode field values.
-        let mut bytes = Vec::new();
-        for &field_id in &children[1..] {
-            if let Some(field_bytes) = Self::encode_ir_value(arena, field_id) {
-                bytes.extend_from_slice(&field_bytes);
-            } else {
-                // Failed to encode field; skip this record.
-                return None;
-            }
-        }
-
-        Some(bytes)
-    }
-
-    /// Recursively encode an IR value node to bytes.
-    ///
-    /// Dispatches on the node kind:
-    /// - Literal: pack as u64 little-endian
-    /// - ArrayLit: recurse on children
-    /// - RecordCons: recurse on field values (skip type_name)
-    /// Returns None if the node cannot be encoded (e.g., Var, App, etc.).
-    fn encode_ir_value(arena: &IrArena, node_id: IrNodeId) -> Option<Vec<u8>> {
-        if let Some(node) = arena.get(node_id) {
-            match node.kind {
-                IrKind::Literal => {
-                    // Literal: look up value in literal_values table.
-                    arena
-                        .literal_values()
-                        .get(node_id)
-                        .map(|v| Self::pack_u64_le(v))
-                }
-                IrKind::ArrayLit => {
-                    // ArrayLit: recurse.
-                    Self::encode_array_lit(arena, node_id)
-                }
-                IrKind::RecordCons => {
-                    // RecordCons: recurse.
-                    Self::encode_record_cons(arena, node_id)
-                }
-                _ => None, // Other nodes not encodable.
-            }
-        } else {
-            None
-        }
-    }
-
     /// Resolve the bound integer width for a Let node, if width-threadable.
     ///
     /// Phase 7 m4-003 (PA7C-m4-003): reads the binding's recorded
@@ -5238,32 +5131,6 @@ mod tests {
     // ── Data table population tests (m4-003) ──────────────────────────────────
 
     use paideia_as_ir::SectionKind;
-
-    #[test]
-    fn emit_walker_pack_u64_le_small_value() {
-        let bytes = EmitWalker::pack_u64_le(0x0102_0304_0506_0708i64);
-        assert_eq!(bytes.len(), 8);
-        assert_eq!(bytes[0], 0x08);
-        assert_eq!(bytes[1], 0x07);
-        assert_eq!(bytes[2], 0x06);
-        assert_eq!(bytes[3], 0x05);
-        assert_eq!(bytes[4], 0x04);
-        assert_eq!(bytes[5], 0x03);
-        assert_eq!(bytes[6], 0x02);
-        assert_eq!(bytes[7], 0x01);
-    }
-
-    #[test]
-    fn emit_walker_pack_u64_le_zero() {
-        let bytes = EmitWalker::pack_u64_le(0);
-        assert_eq!(bytes, vec![0, 0, 0, 0, 0, 0, 0, 0]);
-    }
-
-    #[test]
-    fn emit_walker_pack_u64_le_max() {
-        let bytes = EmitWalker::pack_u64_le(-1i64); // all bits set
-        assert_eq!(bytes, vec![0xFF; 8]);
-    }
 
     #[test]
     fn emit_walker_populate_data_table_empty_arena() {
