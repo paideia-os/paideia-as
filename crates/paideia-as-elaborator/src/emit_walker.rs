@@ -292,8 +292,7 @@ impl EmitWalker {
                                 self.state.unsafe_body_lambda(node_id.get())
                             {
                                 self.state
-                                    .unsafe_lambda_to_pending_idx
-                                    .insert(lambda_id, pending_idx);
+                                    .insert_unsafe_lambda_pending_idx(lambda_id, pending_idx);
                             }
                         }
                         IrKind::FieldAccess => {

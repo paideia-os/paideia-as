@@ -34,80 +34,80 @@ pub enum LoopContext {
 pub struct EmitPassState {
     /// The emitted instructions, keyed by IrNodeId, per the existing
     /// Phase-3 m2-001 InstructionSideTable convention.
-    pub instructions: InstructionSideTable,
+    pub(crate) instructions: InstructionSideTable,
 
     /// IrNodeId of the function currently being lowered (or 0 if none).
-    pub current_function: u32,
+    pub(crate) current_function: u32,
 
     /// Estimated byte offset within the current function. Reset to 0 on each
     /// new function entry. This is an advisory estimate based on instruction
     /// mnemonics and is verified to match the actual encoded byte count at
     /// the end of the build (phase-7-m1-003). m5 (symbols + relocs) will
     /// consume the actual offsets from Instruction.byte_offset_in_text.
-    pub estimated_offset: u32,
+    pub(crate) estimated_offset: u32,
 
     /// Lambda IR node id -> estimated byte offset within function.
     /// Populated by record_lambda_entry_with_offset during lambda emission.
     /// Used to compute function symbols' st_value in cmd_build.
-    pub function_offsets: HashMap<u32, u32>,
+    pub(crate) function_offsets: HashMap<u32, u32>,
 
     /// Lambda IR node id -> IrNodeId of its first emitted instruction.
     /// Populated by record_lambda_entry. Resolved to byte offsets
     /// post-encoding via EmitResult.offset_map (future use).
-    pub lambda_first_instr: HashMap<u32, IrNodeId>,
+    pub(crate) lambda_first_instr: HashMap<u32, IrNodeId>,
 
     /// IrNodeIds of Lambdas that actually emitted bytecode.
     /// Used to filter out symbols for non-emitting lambdas.
-    pub emitted_lambdas: HashSet<u32>,
+    pub(crate) emitted_lambdas: HashSet<u32>,
 
     /// IrNodeIds of IrKind::Unsafe nodes encountered during the walk.
     /// m3 UnsafeWalker drains this via take_pending_unsafe() and lowers
     /// the block contents.
-    pub pending_unsafe_blocks: Vec<u32>,
+    pub(crate) pending_unsafe_blocks: Vec<u32>,
 
     /// Phase 6 m3-001: C-ABI natural-alignment record layouts,
     /// keyed by RecordTypeId. Populated by finalise_record_layouts().
-    pub record_layouts: HashMap<RecordTypeId, RecordLayout>,
+    pub(crate) record_layouts: HashMap<RecordTypeId, RecordLayout>,
 
     /// PA-r17-007: Enum layouts keyed by EnumTypeId.
     /// Populated during emission pass; consumed by visit_enum_cons.
-    pub enum_layouts: HashMap<EnumTypeId, EnumLayout>,
+    pub(crate) enum_layouts: HashMap<EnumTypeId, EnumLayout>,
 
     /// Phase 6 m3-003: Scratch register assignment for in-block field bindings.
     /// Tracks which scratch registers have been assigned in the current
     /// function. Reset to empty at function entry. Sequence: RAX(0), RCX(1),
     /// RDX(2), R8(8).
-    pub scratch_assignment: Vec<RegId>,
+    pub(crate) scratch_assignment: Vec<RegId>,
 
     /// Phase 6 m4-003: Label name → byte offset mapping.
     /// Populated during unsafe block lowering when labels are encountered.
     /// Used to resolve backward label references at encoding time.
     /// Scoped to the current function; reset at function entry.
-    pub labels: HashMap<String, u32>,
+    pub(crate) labels: HashMap<String, u32>,
 
     /// Phase 6 m4-004: Label name → instruction IR node ID mapping.
     /// Populated from unsafe_walker output, used to compute actual label
     /// offsets based on instruction offsets from the encoder's offset_map.
-    pub label_to_instr: HashMap<String, IrNodeId>,
+    pub(crate) label_to_instr: HashMap<String, IrNodeId>,
 
     /// PA8-m1-002b: Unsafe lambda IR node id → index in pending_unsafe_blocks.
     /// Maps each unsafe-bodied lambda to its position in the pending list,
     /// allowing us to look up its first instruction from UnsafeWalker's
     /// first_instrs vec.
-    pub unsafe_lambda_to_pending_idx: HashMap<u32, usize>,
+    pub(crate) unsafe_lambda_to_pending_idx: HashMap<u32, usize>,
 
     /// PA8-m1-002b: Unsafe body IR node id → lambda IR node id.
     /// Used to track which lambda has which unsafe body during the walk.
-    pub unsafe_body_to_lambda: HashMap<u32, u32>,
+    pub(crate) unsafe_body_to_lambda: HashMap<u32, u32>,
 
     /// Phase 7 m1-001: Local binding table for multi-statement function bodies.
     /// Maps binding names (from let-statements) to their assigned scratch
     /// registers. Scoped to the current function; reset at function entry.
-    pub local_bindings: LocalBindingTable,
+    pub(crate) local_bindings: LocalBindingTable,
 
     /// Stack of instruction modes during nested scope walk.
     /// Used to propagate #![bits=32] or #![bits=64] from module inner_attrs.
-    pub mode_stack: Vec<InstrMode>,
+    pub(crate) mode_stack: Vec<InstrMode>,
 }
 
 impl EmitPassState {
@@ -210,6 +210,98 @@ impl EmitPassState {
     #[must_use]
     pub fn unsafe_body_lambda(&self, body_id: u32) -> Option<u32> {
         self.unsafe_body_to_lambda.get(&body_id).copied()
+    }
+
+    // ── Whole-map accessors for cross-crate consumers ────────────────────
+    //
+    // cmd_build.rs (paideia-as) needs read access to entire maps for
+    // symbol-table population and offset resolution. These accessors
+    // return borrows so callers can iterate/clone without letting them
+    // mutate the underlying storage through the map's own API. Once the
+    // fields flip to `pub(crate)`, these are the only public path.
+
+    /// Read-only view of the finalised record layouts, keyed by
+    /// `RecordTypeId`.
+    #[must_use]
+    pub fn record_layouts(&self) -> &HashMap<RecordTypeId, RecordLayout> {
+        &self.record_layouts
+    }
+
+    /// Read-only view of the label → IR-node-id map populated by the
+    /// unsafe-block lowering pass.
+    #[must_use]
+    pub fn label_to_instr(&self) -> &HashMap<String, IrNodeId> {
+        &self.label_to_instr
+    }
+
+    /// Install the label → IR-node-id map wholesale. Called by
+    /// `cmd_build` after collecting label references from the unsafe
+    /// walker.
+    pub fn set_label_to_instr(&mut self, map: HashMap<String, IrNodeId>) {
+        self.label_to_instr = map;
+    }
+
+    /// Read-only view of the function-offset map (lambda-id → byte
+    /// offset).
+    #[must_use]
+    pub fn function_offsets(&self) -> &HashMap<u32, u32> {
+        &self.function_offsets
+    }
+
+    /// Read-only view of the lambda-first-instruction map.
+    #[must_use]
+    pub fn lambda_first_instr(&self) -> &HashMap<u32, IrNodeId> {
+        &self.lambda_first_instr
+    }
+
+    /// Install the first-instruction id for `lambda_id`.
+    pub fn insert_lambda_first_instr(&mut self, lambda_id: u32, first_instr: IrNodeId) {
+        self.lambda_first_instr.insert(lambda_id, first_instr);
+    }
+
+    /// Read-only view of the unsafe-lambda → pending-block-index map.
+    /// Populated during the walk, consumed by `cmd_build` when it
+    /// projects post-encoding byte offsets back onto unsafe lambdas.
+    #[must_use]
+    pub fn unsafe_lambda_to_pending_idx(&self) -> &HashMap<u32, usize> {
+        &self.unsafe_lambda_to_pending_idx
+    }
+
+    /// Record that `lambda_id` corresponds to pending unsafe-block
+    /// index `idx`.
+    pub fn insert_unsafe_lambda_pending_idx(&mut self, lambda_id: u32, idx: usize) {
+        self.unsafe_lambda_to_pending_idx.insert(lambda_id, idx);
+    }
+
+    /// Read-only view of the emitted instructions, keyed by IR node id.
+    #[must_use]
+    pub fn instructions(&self) -> &InstructionSideTable {
+        &self.instructions
+    }
+
+    /// Read-only view of the current function's local binding table.
+    #[must_use]
+    pub fn local_bindings(&self) -> &LocalBindingTable {
+        &self.local_bindings
+    }
+
+    /// Current byte offset within the function being lowered.
+    #[must_use]
+    pub fn estimated_offset(&self) -> u32 {
+        self.estimated_offset
+    }
+
+    /// Number of instruction-mode frames currently on the stack (used by
+    /// cmd_build's #![bits] pre-flight check).
+    #[must_use]
+    pub fn mode_stack_len(&self) -> usize {
+        self.mode_stack.len()
+    }
+
+    /// True if no instruction-mode frames are on the stack (root scope).
+    #[must_use]
+    pub fn mode_stack_is_empty(&self) -> bool {
+        self.mode_stack.is_empty()
     }
 
     /// Phase 6 m4-003: Register a label at the current byte offset.

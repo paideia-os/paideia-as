@@ -835,17 +835,17 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
 
             // Phase 15 m2-002: Verify mode_stack is properly cleaned up after walk.
             debug_assert!(
-                emit_walker.state().mode_stack.is_empty()
-                    || emit_walker.state().mode_stack.len() == 1,
+                emit_walker.state().mode_stack_is_empty()
+                    || emit_walker.state().mode_stack_len() == 1,
                 "EmitWalker mode_stack should be empty or have 1 entry at end of walk; got {}",
-                emit_walker.state().mode_stack.len()
+                emit_walker.state().mode_stack_len()
             );
 
             // Phase-5-m3-005: Run UnsafeWalker to elaborate pending unsafe blocks.
             // Take pending unsafe blocks from EmitWalker state and process them.
             let pending = emit_walker.state_mut().take_pending_unsafe();
-            let record_layouts = &emit_walker.state().record_layouts;
-            let local_bindings = &emit_walker.state().local_bindings;
+            let record_layouts = emit_walker.state().record_layouts();
+            let local_bindings = emit_walker.state().local_bindings();
             let (unsafe_labels, label_to_instr, first_instrs, unsafe_diags) = UnsafeWalker::run(
                 &mut lowering.ir,
                 &arena,
@@ -864,7 +864,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
 
             // Store label_to_instr mapping for use in label offset computation after encoding
             // (We'll use this to resolve label offsets based on instruction offsets from offset_map)
-            emit_walker.state_mut().label_to_instr = label_to_instr;
+            emit_walker.state_mut().set_label_to_instr(label_to_instr);
 
             // PA8-m1-002b: Wire first_instrs back to lambda_first_instr for unsafe lambdas.
             // first_instrs[i] is the first instruction of the i-th pending unsafe block.
@@ -872,7 +872,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
             {
                 let pending_idx_map: Vec<_> = emit_walker
                     .state()
-                    .unsafe_lambda_to_pending_idx
+                    .unsafe_lambda_to_pending_idx()
                     .iter()
                     .map(|(&lambda_id, &idx)| (lambda_id, idx))
                     .collect();
@@ -880,8 +880,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                     if let Some(Some(first_instr)) = first_instrs.get(idx) {
                         emit_walker
                             .state_mut()
-                            .lambda_first_instr
-                            .insert(lambda_id, *first_instr);
+                            .insert_lambda_first_instr(lambda_id, *first_instr);
                     }
                 }
             }
@@ -892,7 +891,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
             // PA10-005 §3.5: Thread SymbolTable through for T0531 diagnostic.
             {
                 let symbol_table_clone = lowering.ir.symbols().clone();
-                let bindings = &emit_walker.state().local_bindings;
+                let bindings = emit_walker.state().local_bindings();
                 let mut _resolve_diags = Vec::new();
                 resolve_var_operands::resolve_var_operands(
                     lowering.ir.instructions_mut(),
@@ -1656,7 +1655,7 @@ fn build_elf_object(
 
     // Phase-6-m4-004: Patch label fixups after .text encoding is complete.
     // Compute actual label offsets using label_to_instr mapping and offset_map.
-    let label_to_instr = &emit_walker.state().label_to_instr;
+    let label_to_instr = emit_walker.state().label_to_instr();
     let offset_map = &emit_result.offset_map;
     let mut resolved_labels: HashMap<String, u32> = HashMap::new();
     for (label_name, instr_id) in label_to_instr {
@@ -1682,7 +1681,7 @@ fn build_elf_object(
     // encoder's reality in many legitimate shapes (e.g., let-fn bodies with
     // calls expand under encoding). Don't assert equality — just emit a
     // debug log on divergence so regressions are visible without aborting.
-    let estimated = emit_walker.state().estimated_offset as usize;
+    let estimated = emit_walker.state().estimated_offset() as usize;
     if estimated != text_bytes.len() {
         eprintln!(
             "[m1-003] estimated_offset {estimated} != encoded text_bytes {} \
@@ -1748,7 +1747,7 @@ fn build_elf_object(
     // estimated_offset at emission time, which preserves definition order.
     // We keep this behavior for backward compatibility and correctness.
     // PA8-m1-002b: For unsafe lambdas, override estimated offsets with post-encoding values.
-    let mut function_offsets = emit_walker.state().function_offsets.clone();
+    let mut function_offsets = emit_walker.state().function_offsets().clone();
     let _emitted_lambdas = emit_walker.emitted_lambdas();
     let mut emitted_any_symbol = false;
 
@@ -1758,11 +1757,11 @@ fn build_elf_object(
     {
         let unsafe_lambdas: std::collections::HashSet<u32> = emit_walker
             .state()
-            .unsafe_lambda_to_pending_idx
+            .unsafe_lambda_to_pending_idx()
             .keys()
             .copied()
             .collect();
-        let lambda_first_instr = &emit_walker.state().lambda_first_instr;
+        let lambda_first_instr = emit_walker.state().lambda_first_instr();
         let offset_map = &emit_result.offset_map;
         for (lambda_id, &first_instr) in lambda_first_instr {
             if unsafe_lambdas.contains(lambda_id) {
@@ -2429,7 +2428,7 @@ mod tests {
         emit_walker.walk(&mut arena);
 
         assert_eq!(
-            emit_walker.state().instructions.len(),
+            emit_walker.state().instructions().len(),
             0,
             "empty IR should produce zero instruction entries"
         );
@@ -2457,12 +2456,12 @@ mod tests {
         emit_walker.walk(&mut arena);
 
         assert_eq!(
-            emit_walker.state().instructions.len(),
+            emit_walker.state().instructions().len(),
             1,
             "Let+Literal should produce one instruction entry"
         );
         assert!(
-            emit_walker.state().instructions.get(let_id).is_some(),
+            emit_walker.state().instructions().get(let_id).is_some(),
             "instruction should be keyed by let_id"
         );
     }
