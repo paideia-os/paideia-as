@@ -30,6 +30,7 @@ pub mod effect_infer;
 pub mod effect_unify;
 pub mod effect_walker;
 pub mod elab_builtin;
+pub mod emit_arith_lambda;
 pub mod emit_control_flow;
 pub mod emit_enum_match;
 pub mod emit_field_access;
