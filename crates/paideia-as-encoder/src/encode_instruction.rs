@@ -245,9 +245,28 @@ fn find_mem_seg(operands: &[Operand]) -> Option<(usize, paideia_as_ir::SegPrefix
 /// emit-time use. If the instruction fails to encode, returns 0 —
 /// callers that care must check `encode_instruction` separately.
 pub fn estimated_bytes(inst: &Instruction) -> u32 {
+    // Var operands resolve to a Reg later in resolve_var_operands. For byte
+    // estimation, substitute a placeholder register (RAX) so the encoder can
+    // dispatch without panicking. Size is register-class-independent for
+    // 64-bit ops (REX.W is always present); this is the sizing invariant the
+    // walker relies on before register allocation.
+    let has_var = inst.operands.iter().any(|op| matches!(op, Operand::Var { .. }));
+    let sized_inst;
+    let target: &Instruction = if has_var {
+        let mut clone = inst.clone();
+        for op in &mut clone.operands {
+            if matches!(op, Operand::Var { .. }) {
+                *op = Operand::Reg(paideia_as_ir::RegId(0));
+            }
+        }
+        sized_inst = clone;
+        &sized_inst
+    } else {
+        inst
+    };
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
-    match encode_instruction(inst, &mut buf, &mut stats) {
+    match encode_instruction(target, &mut buf, &mut stats) {
         Ok(_) => buf.bytes.len() as u32,
         Err(_) => 0,
     }

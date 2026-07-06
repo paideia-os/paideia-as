@@ -993,14 +993,19 @@ impl EmitWalker {
 
         // Choose mnemonic + size. A sub-64-bit width emits MovSized; otherwise
         // (None or W64) we preserve the established generic 64-bit Mov path.
+        //
+        // NOTE(step5): This site keeps the hardcoded size literal because the
+        // encoder currently emits the 10-byte movabs (48 B8 imm64) form for
+        // Mnemonic::Mov [Reg, Imm64] regardless of whether the value fits
+        // in imm32-sign-extended (48 C7 C0 imm32 = 7 bytes). Numerous tests
+        // pin the smaller encoding. Once the encoder gains a smaller-form
+        // path for i32-range immediates, this size literal can be retired
+        // in favour of emit_inst.
         let (mnemonic, inst_size) = match width {
             Some(w @ (IntWidth::W8 | IntWidth::W16 | IntWidth::W32)) => {
                 (Mnemonic::MovSized { width: w }, w.estimated_size())
             }
             _ => {
-                // Generic 64-bit Mov:
-                // - i32 encoding: 7 bytes (48 c7 c0 <imm32 LE>)
-                // - i64 encoding: 10 bytes (48 b8 <imm64 LE>)
                 let size = if value >= i32::MIN as i64 && value <= i32::MAX as i64 {
                     7
                 } else {
@@ -1023,8 +1028,6 @@ impl EmitWalker {
 
         // Emit the instruction.
         self.state.instructions.insert(let_node_id, inst);
-
-        // Bump offset.
         self.state.estimated_offset += inst_size;
     }
 
@@ -1613,8 +1616,7 @@ impl EmitWalker {
         };
 
         // Emit the mov instruction with the recorded main_id
-        self.state.instructions.insert(main_id, mov_inst);
-        self.state.estimated_offset += 3;
+        self.emit_inst(main_id, mov_inst);
 
         // Ret: c3 (1 byte)
         // Emit ret as a separate instruction with node_id * 2 + 1 to sort right after
@@ -1626,8 +1628,7 @@ impl EmitWalker {
             byte_offset_in_text: None,
             mode: self.current_mode(),
         };
-        self.state.instructions.insert(ret_id, ret_inst);
-        self.state.estimated_offset += 1;
+        self.emit_inst(ret_id, ret_inst);
     }
 
     /// Emit bitwise-NOT lambda: `mov rax, rdi; not rax; ret` (7 bytes:
@@ -1661,8 +1662,7 @@ impl EmitWalker {
         };
 
         // Emit the mov instruction with the recorded main_id
-        self.state.instructions.insert(main_id, mov_inst);
-        self.state.estimated_offset += 3;
+        self.emit_inst(main_id, mov_inst);
 
         // not rax: 48 f7 d0 (3 bytes) — REX.W F7 /2.
         let mut not_operands: SmallVec<[Operand; 3]> = SmallVec::new();
@@ -1677,8 +1677,7 @@ impl EmitWalker {
         };
 
         let not_id = IrNodeId::new(lambda_node_id.get() * 3 + 1).expect("not instr virtual id");
-        self.state.instructions.insert(not_id, not_inst);
-        self.state.estimated_offset += 3;
+        self.emit_inst(not_id, not_inst);
 
         // ret: c3 (1 byte)
         let ret_id = IrNodeId::new(lambda_node_id.get() * 3 + 2).expect("ret virtual id");
@@ -1689,8 +1688,7 @@ impl EmitWalker {
             byte_offset_in_text: None,
             mode: self.current_mode(),
         };
-        self.state.instructions.insert(ret_id, ret_inst);
-        self.state.estimated_offset += 1;
+        self.emit_inst(ret_id, ret_inst);
     }
 
     /// Emit cast lambda: a single width-conversion instruction then `ret`.
@@ -1746,7 +1744,7 @@ impl EmitWalker {
 
         let plan = cast_plan(shape);
         // First slot keyed on node*2; ret on node*2+1.
-        if let Some((mnemonic, hint, size)) = plan.instruction() {
+        if let Some((mnemonic, hint, _size)) = plan.instruction() {
             let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
             operands.push(Operand::Reg(dst));
             operands.push(Operand::Reg(src));
@@ -1757,8 +1755,7 @@ impl EmitWalker {
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
             };
-            self.state.instructions.insert(main_id, inst);
-            self.state.estimated_offset += size;
+            self.emit_inst(main_id, inst);
         }
 
         // ret: c3 (1 byte)
@@ -1770,8 +1767,7 @@ impl EmitWalker {
             byte_offset_in_text: None,
             mode: self.current_mode(),
         };
-        self.state.instructions.insert(ret_id, ret_inst);
-        self.state.estimated_offset += 1;
+        self.emit_inst(ret_id, ret_inst);
     }
 
     /// Emit double lambda: `lea rax, [rdi + rdi]; ret` (5 bytes).
@@ -1798,8 +1794,7 @@ impl EmitWalker {
         };
 
         // Use node_id * 2 for main instruction, * 2 + 1 for ret
-        self.state.instructions.insert(main_id, lea_inst);
-        self.state.estimated_offset += 4;
+        self.emit_inst(main_id, lea_inst);
 
         // Ret: c3 (1 byte)
         // Emit ret as a separate instruction with node_id * 2 + 1 to sort right after
@@ -1811,8 +1806,7 @@ impl EmitWalker {
             byte_offset_in_text: None,
             mode: self.current_mode(),
         };
-        self.state.instructions.insert(ret_id, ret_inst);
-        self.state.estimated_offset += 1;
+        self.emit_inst(ret_id, ret_inst);
     }
 
     /// PA-r17-004: Emit indirect call via a register holding a function pointer.
@@ -1845,7 +1839,7 @@ impl EmitWalker {
         let mut save_ops: SmallVec<[Operand; 3]> = SmallVec::new();
         save_ops.push(Operand::Reg(r11));
         save_ops.push(Operand::Reg(callee_reg));
-        self.state.instructions.insert(
+        self.emit_inst(
             save_id,
             Instruction {
                 mnemonic: Mnemonic::Mov,
@@ -1855,7 +1849,6 @@ impl EmitWalker {
                 mode: self.current_mode(),
             },
         );
-        self.state.estimated_offset += 3;
 
         // (2) mov <arg_reg>, <arg_src> per arg.
         let mut seq_id = 1u32;
@@ -1878,7 +1871,7 @@ impl EmitWalker {
                         let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
                         ops.push(Operand::Reg(dst));
                         ops.push(Operand::Var { name: name.to_string() });
-                        self.state.instructions.insert(
+                        self.emit_inst(
                             iid,
                             Instruction {
                                 mnemonic: Mnemonic::Mov,
@@ -1888,7 +1881,6 @@ impl EmitWalker {
                                 mode: self.current_mode(),
                             },
                         );
-                        self.state.estimated_offset += 3;
                     }
                 }
                 _ => { /* Not handled in #982 */ }
@@ -1900,7 +1892,7 @@ impl EmitWalker {
         seq_id += 1;
         let mut call_ops: SmallVec<[Operand; 3]> = SmallVec::new();
         call_ops.push(Operand::Reg(r11));
-        self.state.instructions.insert(
+        self.emit_inst(
             call_id,
             Instruction {
                 mnemonic: Mnemonic::Call,
@@ -1910,11 +1902,10 @@ impl EmitWalker {
                 mode: self.current_mode(),
             },
         );
-        self.state.estimated_offset += 3;
 
         // (4) ret
         let ret_id = IrNodeId::new(base * 16 + seq_id).expect("ret instr virtual id");
-        self.state.instructions.insert(
+        self.emit_inst(
             ret_id,
             Instruction {
                 mnemonic: Mnemonic::Ret,
@@ -1924,7 +1915,6 @@ impl EmitWalker {
                 mode: self.current_mode(),
             },
         );
-        self.state.estimated_offset += 1;
     }
 
     /// Phase 7 m1-003: Emit inter-function call.
@@ -2026,8 +2016,7 @@ impl EmitWalker {
             mode: self.current_mode(),
         };
 
-        self.state.instructions.insert(main_id, call_inst);
-        self.state.estimated_offset += 5; // E8 + 4-byte rel32 placeholder
+        self.emit_inst(main_id, call_inst);
 
         // Emit RET instruction
         let ret_id = IrNodeId::new(lambda_node_id.get() * 2 + 1).expect("ret instr id");
@@ -2038,8 +2027,7 @@ impl EmitWalker {
             byte_offset_in_text: None,
             mode: self.current_mode(),
         };
-        self.state.instructions.insert(ret_id, ret_inst);
-        self.state.estimated_offset += 1; // C3
+        self.emit_inst(ret_id, ret_inst);
     }
 
     /// Emit MOV of a literal value into a register.
@@ -2103,8 +2091,7 @@ impl EmitWalker {
             mode: self.current_mode(),
         };
 
-        self.state.instructions.insert(inst_id, inst);
-        self.state.estimated_offset += 3; // mov r64, r64 is 3 bytes (48 89 c0 + variants)
+        self.emit_inst(inst_id, inst);
     }
 
     /// Emit add-immediate lambda: `lea rax, [rdi + imm]; ret`.
@@ -2141,8 +2128,7 @@ impl EmitWalker {
         };
 
         // Use node_id * 2 for main instruction, * 2 + 1 for ret
-        self.state.instructions.insert(main_id, lea_inst);
-        self.state.estimated_offset += 4;
+        self.emit_inst(main_id, lea_inst);
 
         // Ret: c3 (1 byte)
         // Emit ret as a separate instruction with node_id * 2 + 1 to sort right after
@@ -2154,8 +2140,7 @@ impl EmitWalker {
             byte_offset_in_text: None,
             mode: self.current_mode(),
         };
-        self.state.instructions.insert(ret_id, ret_inst);
-        self.state.estimated_offset += 1;
+        self.emit_inst(ret_id, ret_inst);
     }
 
     /// Phase 8 m1-001d: Emit shift-left constant-by-variable lambda: `mov rax, const; mov rcx, rdi; shl rax, cl; ret`.
@@ -2208,8 +2193,7 @@ impl EmitWalker {
         };
 
         let mov2_id = IrNodeId::new(lambda_node_id.get() * 4 + 1).expect("mov2 instr virtual id");
-        self.state.instructions.insert(mov2_id, mov2_inst);
-        self.state.estimated_offset += 3;
+        self.emit_inst(mov2_id, mov2_inst);
 
         // Shl rax, cl: 48 d3 e0 (3 bytes)
         let mut shl_operands: SmallVec<[Operand; 3]> = SmallVec::new();
@@ -2225,8 +2209,7 @@ impl EmitWalker {
         };
 
         let shl_id = IrNodeId::new(lambda_node_id.get() * 4 + 2).expect("shl instr virtual id");
-        self.state.instructions.insert(shl_id, shl_inst);
-        self.state.estimated_offset += 3;
+        self.emit_inst(shl_id, shl_inst);
 
         // Ret: c3 (1 byte)
         let ret_id = IrNodeId::new(lambda_node_id.get() * 4 + 3).expect("ret virtual id");
@@ -2237,8 +2220,7 @@ impl EmitWalker {
             byte_offset_in_text: None,
             mode: self.current_mode(),
         };
-        self.state.instructions.insert(ret_id, ret_inst);
-        self.state.estimated_offset += 1;
+        self.emit_inst(ret_id, ret_inst);
     }
 
     /// Phase 8 m1-001d: Emit shift-left immediate lambda: `mov rax, rdi; shl rax, imm8; ret`.
@@ -2277,8 +2259,7 @@ impl EmitWalker {
             mode: self.current_mode(),
         };
 
-        self.state.instructions.insert(main_id, mov_inst);
-        self.state.estimated_offset += 3;
+        self.emit_inst(main_id, mov_inst);
 
         // Shl rax, imm8: 48 c1 e0 NN (4 bytes)
         let mut shl_operands: SmallVec<[Operand; 3]> = SmallVec::new();
@@ -2294,8 +2275,7 @@ impl EmitWalker {
         };
 
         let shl_id = IrNodeId::new(lambda_node_id.get() * 3 + 1).expect("shl instr virtual id");
-        self.state.instructions.insert(shl_id, shl_inst);
-        self.state.estimated_offset += 4;
+        self.emit_inst(shl_id, shl_inst);
 
         // Ret: c3 (1 byte)
         let ret_id = IrNodeId::new(lambda_node_id.get() * 3 + 2).expect("ret virtual id");
@@ -2306,8 +2286,7 @@ impl EmitWalker {
             byte_offset_in_text: None,
             mode: self.current_mode(),
         };
-        self.state.instructions.insert(ret_id, ret_inst);
-        self.state.estimated_offset += 1;
+        self.emit_inst(ret_id, ret_inst);
     }
 
     /// Phase 8 m1-001d: Emit shift-left variable lambda: `mov rax, rdi; mov rcx, rsi; shl rax, cl; ret`.
@@ -2333,8 +2312,7 @@ impl EmitWalker {
             mode: self.current_mode(),
         };
 
-        self.state.instructions.insert(main_id, mov1_inst);
-        self.state.estimated_offset += 3;
+        self.emit_inst(main_id, mov1_inst);
 
         // Mov rcx, rsi: 48 89 f1 (3 bytes)
         let mut mov2_operands: SmallVec<[Operand; 3]> = SmallVec::new();
@@ -2350,8 +2328,7 @@ impl EmitWalker {
         };
 
         let mov2_id = IrNodeId::new(lambda_node_id.get() * 4 + 1).expect("mov2 instr virtual id");
-        self.state.instructions.insert(mov2_id, mov2_inst);
-        self.state.estimated_offset += 3;
+        self.emit_inst(mov2_id, mov2_inst);
 
         // Shl rax, cl: 48 d3 e0 (3 bytes)
         let mut shl_operands: SmallVec<[Operand; 3]> = SmallVec::new();
@@ -2367,8 +2344,7 @@ impl EmitWalker {
         };
 
         let shl_id = IrNodeId::new(lambda_node_id.get() * 4 + 2).expect("shl instr virtual id");
-        self.state.instructions.insert(shl_id, shl_inst);
-        self.state.estimated_offset += 3;
+        self.emit_inst(shl_id, shl_inst);
 
         // Ret: c3 (1 byte)
         let ret_id = IrNodeId::new(lambda_node_id.get() * 4 + 3).expect("ret virtual id");
@@ -2379,8 +2355,7 @@ impl EmitWalker {
             byte_offset_in_text: None,
             mode: self.current_mode(),
         };
-        self.state.instructions.insert(ret_id, ret_inst);
-        self.state.estimated_offset += 1;
+        self.emit_inst(ret_id, ret_inst);
     }
 
     /// Phase 7 m1-001: Emit multi-statement block body.
@@ -2463,7 +2438,7 @@ impl EmitWalker {
                                         operands.push(Operand::Reg(scratch_reg));
                                         operands.push(Operand::Imm64(value));
 
-                                        let (mnemonic, inst_size) = match width {
+                                        let (mnemonic, _inst_size) = match width {
                                             Some(
                                                 w @ (IntWidth::W8 | IntWidth::W16 | IntWidth::W32),
                                             ) => (
@@ -2494,8 +2469,7 @@ impl EmitWalker {
                                         // Use virtual ID: child_id * 3 + offset to ensure proper sorting
                                         let inst_id = IrNodeId::new(child_id.get() * 3)
                                             .expect("let literal instr id");
-                                        self.state.instructions.insert(inst_id, inst);
-                                        self.state.estimated_offset += inst_size;
+                                        self.emit_inst(inst_id, inst);
                                     }
                                 }
                                 // Edit B: Handle Unsafe RHS
@@ -2631,8 +2605,7 @@ impl EmitWalker {
                             mode: self.current_mode(),
                         };
 
-                        self.state.instructions.insert(test_id, test_inst);
-                        self.state.estimated_offset += 3;
+                        self.emit_inst(test_id, test_inst);
 
                         // Emit conditional jump (jz): jump to else-label or end-label if condition is zero
                         let target_label = if else_id.is_some() {
@@ -2656,8 +2629,7 @@ impl EmitWalker {
                             mode: self.current_mode(),
                         };
 
-                        self.state.instructions.insert(jz_id, jz_inst);
-                        self.state.estimated_offset += 6;
+                        self.emit_inst(jz_id, jz_inst);
 
                         // Register then_label at current offset.
                         self.state.register_label(then_label);
@@ -2701,8 +2673,7 @@ impl EmitWalker {
                                 mode: self.current_mode(),
                             };
 
-                            self.state.instructions.insert(jmp_id, jmp_inst);
-                            self.state.estimated_offset += 5;
+                            self.emit_inst(jmp_id, jmp_inst);
 
                             // Register else_label at current offset.
                             self.state.register_label(else_label);
@@ -2760,8 +2731,7 @@ impl EmitWalker {
             mode: self.current_mode(),
         };
         let ret_id = IrNodeId::new(block_id.get() * 2).expect("ret virtual id");
-        self.state.instructions.insert(ret_id, ret_inst);
-        self.state.estimated_offset += 1;
+        self.emit_inst(ret_id, ret_inst);
     }
 
     /// PA8-m2-001: Emit block body for branch arm (same as emit_block_body but WITHOUT final ret).
@@ -2845,7 +2815,7 @@ impl EmitWalker {
                                         operands.push(Operand::Reg(scratch_reg));
                                         operands.push(Operand::Imm64(value));
 
-                                        let (mnemonic, inst_size) = match width {
+                                        let (mnemonic, _inst_size) = match width {
                                             Some(
                                                 w @ (IntWidth::W8 | IntWidth::W16 | IntWidth::W32),
                                             ) => (
@@ -2876,8 +2846,7 @@ impl EmitWalker {
                                         // Use virtual ID: child_id * 3 + offset to ensure proper sorting
                                         let inst_id = IrNodeId::new(child_id.get() * 3)
                                             .expect("let literal instr id");
-                                        self.state.instructions.insert(inst_id, inst);
-                                        self.state.estimated_offset += inst_size;
+                                        self.emit_inst(inst_id, inst);
                                     }
                                 }
                                 // Edit B: Handle Unsafe RHS
@@ -3774,8 +3743,13 @@ impl EmitWalker {
                 // Virtual ID: record_cons_id * 10 + field_idx to sort in order.
                 let inst_id = IrNodeId::new(record_cons_id.get() * 10 + field_idx as u32)
                     .expect("virtual id");
+                // TODO(step5-encoder): encode_mov does not yet handle
+                // [MemSib, Imm64] (only MovSized does), so estimated_bytes
+                // would return 0 here. Keep the hardcoded literal until
+                // encode_mov gains this arm. Bytes: 48 C7 47 NN 00 00 00 00
+                // = 8 bytes for small offsets.
                 self.state.instructions.insert(inst_id, inst);
-                self.state.estimated_offset += 8; // mov [rdi+disp8], imm32
+                self.state.estimated_offset += 8;
             } else {
                 // Emit: mov [rdi + offset], arg_reg via MemSib.
                 // Encoding: 48 89 47 NN (4 bytes for small offsets)
@@ -3801,8 +3775,7 @@ impl EmitWalker {
                 // Virtual ID: record_cons_id * 10 + field_idx to sort in order.
                 let inst_id = IrNodeId::new(record_cons_id.get() * 10 + field_idx as u32)
                     .expect("virtual id");
-                self.state.instructions.insert(inst_id, inst);
-                self.state.estimated_offset += 4; // mov [rdi+disp8], reg
+                self.emit_inst(inst_id, inst);
             }
         }
     }
@@ -4009,8 +3982,7 @@ impl EmitWalker {
             mode: self.current_mode(),
         };
 
-        self.state.instructions.insert(test_id, test_inst);
-        self.state.estimated_offset += 3; // test r64, r64 is 3 bytes (48 85 c0 + variants)
+        self.emit_inst(test_id, test_inst);
 
         // Emit conditional jump (jz): Jump if zero to else-label (or end if no else).
         let target_label = if else_id.is_some() {
@@ -4033,8 +4005,7 @@ impl EmitWalker {
             mode: self.current_mode(),
         };
 
-        self.state.instructions.insert(jz_id, jz_inst);
-        self.state.estimated_offset += 6; // jcc rel32 is 6 bytes (0F 8X XX XX XX XX)
+        self.emit_inst(jz_id, jz_inst);
 
         // Register then_label at current offset.
         self.state.register_label(then_label);
@@ -4060,8 +4031,7 @@ impl EmitWalker {
                 mode: self.current_mode(),
             };
 
-            self.state.instructions.insert(jmp_id, jmp_inst);
-            self.state.estimated_offset += 5; // jmp rel32 is 5 bytes (E9 XX XX XX XX)
+            self.emit_inst(jmp_id, jmp_inst);
 
             // Register else_label.
             self.state.register_label(else_label);
@@ -4122,8 +4092,7 @@ impl EmitWalker {
             mode: self.current_mode(),
         };
 
-        self.state.instructions.insert(test_id, test_inst);
-        self.state.estimated_offset += 3;
+        self.emit_inst(test_id, test_inst);
 
         // Emit conditional jump (jnz): Jump if NOT zero to exit_label.
         let jnz_id = IrNodeId::new(while_node_id.get() * 4 + 1).expect("jnz instr id");
@@ -4141,8 +4110,7 @@ impl EmitWalker {
             mode: self.current_mode(),
         };
 
-        self.state.instructions.insert(jnz_id, jnz_inst);
-        self.state.estimated_offset += 6; // jcc rel32 is 6 bytes
+        self.emit_inst(jnz_id, jnz_inst);
 
         // Placeholder: emit body instructions.
         // Phase 7: actual body emission deferred.
@@ -4164,8 +4132,7 @@ impl EmitWalker {
             mode: self.current_mode(),
         };
 
-        self.state.instructions.insert(jmp_id, jmp_inst);
-        self.state.estimated_offset += 5; // jmp rel32 is 5 bytes
+        self.emit_inst(jmp_id, jmp_inst);
 
         // Register exit_label at final offset.
         self.state.register_label(exit_label.clone());
@@ -4229,8 +4196,7 @@ impl EmitWalker {
             mode: self.current_mode(),
         };
 
-        self.state.instructions.insert(jmp_id, jmp_inst);
-        self.state.estimated_offset += 5; // jmp rel32 is 5 bytes
+        self.emit_inst(jmp_id, jmp_inst);
 
         // Register exit_label at final offset.
         self.state.register_label(exit_label.clone());
@@ -4284,14 +4250,13 @@ impl EmitWalker {
             disp: 0,
         });
 
-        self.state.instructions.insert(disc_load_id, Instruction {
+        self.emit_inst(disc_load_id, Instruction {
             mnemonic: Mnemonic::Mov,
             operands,
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
         });
-        self.state.estimated_offset += 3; // mov rax, [rdi+0]
     }
 
     /// Phase 17 m9-009 (pa-r17-009): Lower nested pattern bindings.
@@ -4530,14 +4495,13 @@ impl EmitWalker {
                 disp: 0,
             });
 
-            self.state.instructions.insert(disc_load_id, Instruction {
+            self.emit_inst(disc_load_id, Instruction {
                 mnemonic: Mnemonic::Mov,
                 operands,
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
             });
-            self.state.estimated_offset += 3;
         }
 
         // Label names
@@ -4609,14 +4573,13 @@ impl EmitWalker {
                     addend: 0,
                 });
 
-                self.state.instructions.insert(jne_id, Instruction {
+                self.emit_inst(jne_id, Instruction {
                     mnemonic: Mnemonic::Jcc(Cond::Ne),
                     operands: jne_operands,
                     encoding_hint: None,
                     byte_offset_in_text: None,
                     mode: self.current_mode(),
                 });
-                self.state.estimated_offset += 6; // jcc rel32
             }
 
             // Register arm label
@@ -4651,14 +4614,13 @@ impl EmitWalker {
                         disp: 8,
                     });
 
-                    self.state.instructions.insert(payload_load_id, Instruction {
+                    self.emit_inst(payload_load_id, Instruction {
                         mnemonic: Mnemonic::Mov,
                         operands: payload_operands,
                         encoding_hint: None,
                         byte_offset_in_text: None,
                         mode: self.current_mode(),
                     });
-                    self.state.estimated_offset += 4; // mov rdx, [rdi+8]
                 }
             }
 
@@ -4684,14 +4646,13 @@ impl EmitWalker {
                 addend: 0,
             });
 
-            self.state.instructions.insert(jmp_end_id, Instruction {
+            self.emit_inst(jmp_end_id, Instruction {
                 mnemonic: Mnemonic::Jmp,
                 operands: jmp_end_operands,
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
             });
-            self.state.estimated_offset += 5;
         }
 
         // Register end label
@@ -5160,8 +5121,11 @@ mod tests {
         assert_eq!(mov.mnemonic, Mnemonic::Mov);
         assert_eq!(mov.encoding_hint.map(|h| h.operand_size), Some(4));
 
-        // mov (2) + ret (1) = 3 bytes.
-        assert_eq!(walker.state().estimated_offset, 3);
+        // Encoder emits mov (3 bytes: 48 8B FA-family) + ret (1) = 4 bytes.
+        // Previously this test asserted 3, matching a hardcoded `+= 2` in
+        // emit_cast_lambda that was drifting from encoder truth — same class
+        // of bug as #985/#986. Step 5 (emit_inst) surfaces the correct value.
+        assert_eq!(walker.state().estimated_offset, 4);
     }
 
     #[test]
@@ -6434,8 +6398,13 @@ mod tests {
             assert_eq!(inst.operands[1], Operand::Reg(expected_reg));
         }
 
-        // Verify offset: 4 stores × 4 bytes each = 16 bytes (for non-literal).
-        assert_eq!(walker.state().estimated_offset, 16);
+        // Verify offset: mov [rdi], rsi (3 bytes, no disp byte at offset 0)
+        // + 3 × mov [rdi+off], reg (4 bytes each with disp8) = 15 bytes.
+        // Previously this test asserted 16 based on a `+= 4` per store
+        // literal that overcounted the offset-0 form — same drift class as
+        // the visit_enum_cons undercounts fixed manually in #985/#986.
+        // Step 5 (emit_inst) surfaces the encoder-truth value.
+        assert_eq!(walker.state().estimated_offset, 15);
 
         // Verify no diagnostics.
         assert!(walker.diagnostics().is_empty());
