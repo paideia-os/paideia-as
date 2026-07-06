@@ -3074,187 +3074,23 @@ impl EmitWalker {
             }
         };
 
-        // Emit the appropriate instruction based on field size and signedness.
-        // Phase 13 m6-001: Dispatch on (size, signed) pairs to emit correct widening load.
-        match (field_layout.size, field_layout.signed) {
-            // Unsigned zero-extending loads
-            (1, false) => {
-                // u8: movzx rax, byte [rdi + offset]
-                self.emit_field_access_movzx(field_access_id, field_layout.offset as i32, 1);
-            }
-            (2, false) => {
-                // u16: movzx rax, word [rdi + offset]
-                self.emit_field_access_movzx(field_access_id, field_layout.offset as i32, 2);
-            }
-            (4, false) => {
-                // u32: mov eax, [rdi + offset] (32-bit load, no REX.W)
-                self.emit_field_access_mov_sized(field_access_id, field_layout.offset as i32, IntWidth::W32);
-            }
-            (8, false) => {
-                // u64 or *T: mov rax, [rdi + offset]
-                self.emit_field_access_mov_sized(field_access_id, field_layout.offset as i32, IntWidth::W64);
-            }
-            // Signed sign-extending loads
-            (1, true) => {
-                // i8: movsx rax, byte [rdi + offset]
-                self.emit_field_access_movsx(field_access_id, field_layout.offset as i32, 1);
-            }
-            (2, true) => {
-                // i16: movsx rax, word [rdi + offset]
-                self.emit_field_access_movsx(field_access_id, field_layout.offset as i32, 2);
-            }
-            (4, true) => {
-                // i32: movsxd rax, dword [rdi + offset]
-                self.emit_field_access_movsx(field_access_id, field_layout.offset as i32, 4);
-            }
-            (8, true) => {
-                // i64: mov rax, [rdi + offset]
-                self.emit_field_access_mov_sized(field_access_id, field_layout.offset as i32, IntWidth::W64);
-            }
-            _ => {
-                self.diagnostics.push(format!(
-                    "Unsupported field: size={}, signed={} for field access",
-                    field_layout.size, field_layout.signed
-                ));
-            }
-        }
+        // Route through the unified width dispatch. RAX is the fixed
+        // destination for the original visit_field_access path.
+        self.emit_widening_load(
+            field_access_id,
+            field_layout.offset as i32,
+            RegId(0), // rax
+            field_layout.size,
+            field_layout.signed,
+        );
     }
 
-    /// Emit a mov instruction with sized load (W32 or W64): mov r64/r32, [rdi + offset]
-    ///
-    /// Phase 13 m6-001: Handles u32, u64, and i64 field loads.
-    /// - W32: mov eax, [rdi + offset] (no REX.W) → 3 bytes disp8, 6 bytes disp32
-    /// - W64: mov rax, [rdi + offset] (REX.W) → 4 bytes disp8, 7 bytes disp32
-    fn emit_field_access_mov_sized(&mut self, field_access_id: IrNodeId, offset: i32, width: IntWidth) {
-        let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        operands.push(Operand::Reg(RegId(0))); // rax or eax (destination)
-        operands.push(Operand::MemSib {
-            base: RegId(7), // rdi (first argument)
-            index: None,
-            scale: paideia_as_ir::instruction::Scale::X1,
-            disp: offset,
-        });
-
-        let inst = Instruction {
-            mnemonic: Mnemonic::MovSized { width },
-            operands,
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: self.current_mode(),
-        };
-
-        self.state.instructions.insert(field_access_id, inst);
-
-        // Estimate size based on width and displacement.
-        let size = match width {
-            IntWidth::W32 => {
-                // No REX.W prefix for 32-bit
-                if offset >= -128 && offset <= 127 {
-                    3 // opcode + modrm + disp8
-                } else {
-                    6 // opcode + modrm + disp32
-                }
-            }
-            IntWidth::W64 => {
-                // REX.W prefix + opcode
-                if offset >= -128 && offset <= 127 {
-                    4 // REX.W + opcode + modrm + disp8
-                } else {
-                    7 // REX.W + opcode + modrm + disp32
-                }
-            }
-            _ => 7, // fallback
-        };
-        self.state.estimated_offset += size;
-    }
-
-    /// Emit a movzx instruction (zero-extend load from memory): movzx rax, [rdi + offset]
-    ///
-    /// Phase 13 m6-001: Handles u8 and u16 field loads.
-    /// src_width: 1 (byte) or 2 (word)
-    /// - movzx rax, byte [rdi + offset] → 5 bytes disp8, 8 bytes disp32
-    /// - movzx rax, word [rdi + offset] → 5 bytes disp8, 8 bytes disp32
-    fn emit_field_access_movzx(&mut self, field_access_id: IrNodeId, offset: i32, src_width: u8) {
-        let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        operands.push(Operand::Reg(RegId(0))); // rax (destination)
-        operands.push(Operand::MemSib {
-            base: RegId(7), // rdi
-            index: None,
-            scale: paideia_as_ir::instruction::Scale::X1,
-            disp: offset,
-        });
-
-        let inst = Instruction {
-            mnemonic: Mnemonic::Movzx,
-            operands,
-            encoding_hint: Some(EncodingHint { opcode: 0x0F, operand_size: src_width }),
-            byte_offset_in_text: None,
-            mode: self.current_mode(),
-        };
-
-        self.state.instructions.insert(field_access_id, inst);
-
-        // Estimate size: movzx has 2-byte opcode (0F B6/B7) + REX.W → disp8 → 5 bytes, disp32 → 8 bytes.
-        let size = if offset >= -128 && offset <= 127 {
-            5 // REX.W + opcode + modrm + disp8
-        } else {
-            8 // REX.W + opcode + modrm + disp32
-        };
-        self.state.estimated_offset += size;
-    }
-
-    /// Emit a movsx instruction (sign-extend load from memory): movsx rax, [rdi + offset]
-    ///
-    /// Phase 13 m6-001: Handles i8, i16, and i32 field loads.
-    /// src_width: 1 (byte), 2 (word), or 4 (dword)
-    /// - movsx rax, byte [rdi + offset] → 5 bytes disp8, 8 bytes disp32
-    /// - movsx rax, word [rdi + offset] → 5 bytes disp8, 8 bytes disp32
-    /// - movsxd rax, dword [rdi + offset] → 4 bytes disp8, 7 bytes disp32
-    fn emit_field_access_movsx(&mut self, field_access_id: IrNodeId, offset: i32, src_width: u8) {
-        let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        operands.push(Operand::Reg(RegId(0))); // rax (destination)
-        operands.push(Operand::MemSib {
-            base: RegId(7), // rdi
-            index: None,
-            scale: paideia_as_ir::instruction::Scale::X1,
-            disp: offset,
-        });
-
-        // Opcode varies by source width: 0x0F for 1/2-byte, 0x63 for 4-byte
-        let opcode = if src_width == 4 { 0x63 } else { 0x0F };
-
-        let inst = Instruction {
-            mnemonic: Mnemonic::Movsx,
-            operands,
-            encoding_hint: Some(EncodingHint { opcode, operand_size: src_width }),
-            byte_offset_in_text: None,
-            mode: self.current_mode(),
-        };
-
-        self.state.instructions.insert(field_access_id, inst);
-
-        // Estimate size based on source width and displacement.
-        let size = match src_width {
-            1 | 2 => {
-                // movsx r64, r/m8/r/m16: 2-byte opcode (0F BE/BF) + REX.W
-                if offset >= -128 && offset <= 127 {
-                    5 // REX.W + 0F + opcode + modrm + disp8
-                } else {
-                    8 // REX.W + 0F + opcode + modrm + disp32
-                }
-            }
-            4 => {
-                // movsxd r64, r/m32: 1-byte opcode (63) + REX.W
-                if offset >= -128 && offset <= 127 {
-                    4 // REX.W + opcode + modrm + disp8
-                } else {
-                    7 // REX.W + opcode + modrm + disp32
-                }
-            }
-            _ => 7, // fallback
-        };
-        self.state.estimated_offset += size;
-    }
+    // The three original RAX/RDI-hardcoded field-access helpers
+    // (emit_field_access_mov_sized, emit_field_access_movzx,
+    // emit_field_access_movsx) were retired by Step 4 of the emit-side
+    // refactor: their sole callers now route through emit_widening_load,
+    // which dispatches on (size, signed) once and delegates to the
+    // dest-register-parametric _reg variants below.
 
     /// pa-r17-006 (#984): Emit field assignment lowering for (*p).field = value shape.
     ///
@@ -3492,95 +3328,71 @@ impl EmitWalker {
             }
         };
 
-        // Emit the appropriate instruction based on field size and signedness, using the specified register.
-        // Phase 13 m6-001: Dispatch on (size, signed) pairs to emit correct widening load.
-        match (field_layout.size, field_layout.signed) {
-            // Unsigned zero-extending loads
-            (1, false) => {
-                // u8: movzx <dest_reg>, byte [rdi + offset]
-                self.emit_field_access_movzx_reg(
-                    field_access_id,
-                    field_layout.offset as i32,
-                    dest_reg,
-                    1,
-                );
-            }
-            (2, false) => {
-                // u16: movzx <dest_reg>, word [rdi + offset]
-                self.emit_field_access_movzx_reg(
-                    field_access_id,
-                    field_layout.offset as i32,
-                    dest_reg,
-                    2,
-                );
-            }
-            (4, false) => {
-                // u32: mov <dest_reg_32>, [rdi + offset]
-                self.emit_field_access_mov_sized_reg(
-                    field_access_id,
-                    field_layout.offset as i32,
-                    dest_reg,
-                    IntWidth::W32,
-                );
-            }
-            (8, false) => {
-                // u64 or *T: mov <dest_reg>, [rdi + offset]
-                self.emit_field_access_mov_sized_reg(
-                    field_access_id,
-                    field_layout.offset as i32,
-                    dest_reg,
-                    IntWidth::W64,
-                );
-            }
-            // Signed sign-extending loads
-            (1, true) => {
-                // i8: movsx <dest_reg>, byte [rdi + offset]
-                self.emit_field_access_movsx_reg(
-                    field_access_id,
-                    field_layout.offset as i32,
-                    dest_reg,
-                    1,
-                );
-            }
-            (2, true) => {
-                // i16: movsx <dest_reg>, word [rdi + offset]
-                self.emit_field_access_movsx_reg(
-                    field_access_id,
-                    field_layout.offset as i32,
-                    dest_reg,
-                    2,
-                );
-            }
-            (4, true) => {
-                // i32: movsxd <dest_reg>, dword [rdi + offset]
-                self.emit_field_access_movsx_reg(
-                    field_access_id,
-                    field_layout.offset as i32,
-                    dest_reg,
-                    4,
-                );
-            }
-            (8, true) => {
-                // i64: mov <dest_reg>, [rdi + offset]
-                self.emit_field_access_mov_sized_reg(
-                    field_access_id,
-                    field_layout.offset as i32,
-                    dest_reg,
-                    IntWidth::W64,
-                );
-            }
-            _ => {
-                self.diagnostics.push(format!(
-                    "Unsupported field: size={}, signed={} for field access",
-                    field_layout.size, field_layout.signed
-                ));
-            }
-        }
+        // Route through the unified width dispatch.
+        self.emit_widening_load(
+            field_access_id,
+            field_layout.offset as i32,
+            dest_reg,
+            field_layout.size,
+            field_layout.signed,
+        );
     }
 
     /// Emit a mov instruction with sized load to a specified register: mov r64/r32, [rdi + offset]
     ///
     /// Phase 13 m6-001: Handles u32, u64, and i64 field loads to an arbitrary register.
+    /// Unified `(size, signed)` width-dispatch for field-shaped memory loads.
+    /// Every emitter that reads a value from `[rdi + offset]` and dispatches on
+    /// its declared size (u8/u16/u32/u64 or i8/i16/i32/i64) routes through
+    /// this method.
+    ///
+    /// Retires three copy-pasted 8-arm matches previously duplicated in
+    /// `visit_field_access`, `visit_field_access_with_reg`, and
+    /// `lower_pattern`'s `Simple` leaf.
+    ///
+    /// Semantics:
+    /// * u8/u16     → `emit_field_access_movzx_reg` (zero-extend)
+    /// * u32        → `emit_field_access_mov_sized_reg` (W32, no REX.W)
+    /// * u64 / *T   → `emit_field_access_mov_sized_reg` (W64, REX.W)
+    /// * i8/i16/i32 → `emit_field_access_movsx_reg` (sign-extend / MOVSXD)
+    /// * i64        → `emit_field_access_mov_sized_reg` (W64)
+    ///
+    /// Unsupported sizes push a diagnostic string and emit nothing.
+    ///
+    /// Note: base register is still RDI in the underlying primitives (a
+    /// separate refactoring step will thread `base_reg` through).
+    fn emit_widening_load(
+        &mut self,
+        node_id: IrNodeId,
+        offset: i32,
+        dest_reg: RegId,
+        size: u8,
+        signed: bool,
+    ) {
+        match (size, signed) {
+            (1, false) => self.emit_field_access_movzx_reg(node_id, offset, dest_reg, 1),
+            (2, false) => self.emit_field_access_movzx_reg(node_id, offset, dest_reg, 2),
+            (4, false) => {
+                self.emit_field_access_mov_sized_reg(node_id, offset, dest_reg, IntWidth::W32)
+            }
+            (8, false) => {
+                self.emit_field_access_mov_sized_reg(node_id, offset, dest_reg, IntWidth::W64)
+            }
+            (1, true) => self.emit_field_access_movsx_reg(node_id, offset, dest_reg, 1),
+            (2, true) => self.emit_field_access_movsx_reg(node_id, offset, dest_reg, 2),
+            (4, true) => self.emit_field_access_movsx_reg(node_id, offset, dest_reg, 4),
+            (8, true) => {
+                self.emit_field_access_mov_sized_reg(node_id, offset, dest_reg, IntWidth::W64)
+            }
+            _ => {
+                self.diagnostics.push(format!(
+                    "Unsupported field: size={}, signed={} at node {}",
+                    size, signed, node_id.get()
+                ));
+            }
+        }
+    }
+
     fn emit_field_access_mov_sized_reg(
         &mut self,
         field_access_id: IrNodeId,
@@ -4525,55 +4337,13 @@ impl EmitWalker {
                 let load_id = IrNodeId::new(arm_id.get() * 1000 + *slot + 1).unwrap_or(arm_id);
                 *slot += 1;
 
-                // Emit width-correct load
+                // Emit width-correct load via the unified dispatch.
                 let (size, signed) = default_size_signed;
-                match (size, signed) {
-                    (1, false) => {
-                        self.emit_field_access_movzx_reg(load_id, base_offset, dest_reg, 1);
-                    }
-                    (2, false) => {
-                        self.emit_field_access_movzx_reg(load_id, base_offset, dest_reg, 2);
-                    }
-                    (4, false) => {
-                        self.emit_field_access_mov_sized_reg(
-                            load_id,
-                            base_offset,
-                            dest_reg,
-                            IntWidth::W32,
-                        );
-                    }
-                    (8, false) => {
-                        self.emit_field_access_mov_sized_reg(
-                            load_id,
-                            base_offset,
-                            dest_reg,
-                            IntWidth::W64,
-                        );
-                    }
-                    (1, true) => {
-                        self.emit_field_access_movsx_reg(load_id, base_offset, dest_reg, 1);
-                    }
-                    (2, true) => {
-                        self.emit_field_access_movsx_reg(load_id, base_offset, dest_reg, 2);
-                    }
-                    (4, true) => {
-                        self.emit_field_access_movsx_reg(load_id, base_offset, dest_reg, 4);
-                    }
-                    (8, true) => {
-                        self.emit_field_access_mov_sized_reg(
-                            load_id,
-                            base_offset,
-                            dest_reg,
-                            IntWidth::W64,
-                        );
-                    }
-                    _ => {
-                        self.diagnostics.push(format!(
-                            "Unsupported nested pattern leaf size: {} signed={}",
-                            size, signed
-                        ));
-                        return;
-                    }
+                let before = self.diagnostics.len();
+                self.emit_widening_load(load_id, base_offset, dest_reg, size, signed);
+                if self.diagnostics.len() > before {
+                    // Unsupported size — the helper already pushed a diagnostic.
+                    return;
                 }
 
                 // Insert binding into LocalBindingTable
