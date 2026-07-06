@@ -1,0 +1,3 @@
+module FnptrAddrOfCrossFileUse = structure {
+  pub let ptr : (u64) -> u64 = &identity
+}

@@ -155,6 +155,31 @@ impl DataEntry {
         }
     }
 
+    /// Construct a new data entry for .data with relocations (PA-R17-003).
+    ///
+    /// # Arguments
+    /// * `bytes` - little-endian packed bytes
+    /// * `symbol_name` - C-friendly symbol identifier
+    /// * `align` - power-of-2 alignment (e.g., 8 for 8-byte aligned)
+    /// * `relocations` - vector of relocation entries within the data
+    #[must_use]
+    pub fn new_data_with_relocs(
+        bytes: Vec<u8>,
+        symbol_name: String,
+        align: u32,
+        relocations: Vec<RelocSpec>,
+    ) -> Self {
+        let size_hint = bytes.len() as u64;
+        Self {
+            section: SectionKind::Data,
+            bytes,
+            symbol_name,
+            align,
+            size_hint,
+            relocations,
+        }
+    }
+
     /// Construct a new data entry for .bss (uninitialized, Phase 6+).
     ///
     /// # Arguments

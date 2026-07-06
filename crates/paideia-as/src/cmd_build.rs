@@ -36,7 +36,7 @@ use crate::det;
 use crate::resolve_var_operands;
 use paideia_as_ast::{AstArena, NodeId as AstNodeId, NodeKind, TypeData};
 use paideia_as_diagnostics::{
-    Catalog, DiagnosticSink, HumanRenderer, HumanSink, Severity, SourceMap, VecSink,
+    Catalog, Category, Diagnostic, DiagnosticCode, DiagnosticSink, HumanRenderer, HumanSink, Severity, SourceMap, VecSink,
 };
 use paideia_as_elaborator::{
     CapWalker, EffectRowWalker, EmitWalker, LinearityWalker, UnsafeWalker, lower_ast_to_ir,
@@ -71,6 +71,21 @@ pub enum EmitFormat {
     Pax,
     /// PE/COFF (Portable Executable) object via paideia-as-emitter-pe.
     PeCoff,
+}
+
+/// Check if a string is a valid identifier (PA-R17-003).
+///
+/// A valid identifier must start with a letter or underscore, followed by
+/// letters, digits, or underscores.
+fn is_valid_identifier(s: &str) -> bool {
+    if s.is_empty() {
+        return false;
+    }
+    let first = s.chars().next().unwrap();
+    if !first.is_ascii_alphabetic() && first != '_' {
+        return false;
+    }
+    s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// Phase 15 m2-002a: Extract the `#![bits = N]` inner attribute from the root module.
@@ -904,6 +919,116 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
         }
     }
 
+    // PA-R17-003: Address-of pre-emit pass. Resolve `&fn_name` operands and populate AddrOfSideTable.
+    // This must run after SymbolTable is populated (above) and before the data-table loop (below).
+    // TODO(#pa-r17-003b): T0535 signature check deferred to #1038.
+    if !lowering.ir.is_empty() {
+        let arena_len = lowering.ir.len();
+        // Collect all address-of entries first to avoid borrow issues
+        let mut addr_of_entries = Vec::new();
+
+        for i in 1..=arena_len as u32 {
+            if let Some(let_id) = IrNodeId::new(i) {
+                if let Some(node) = lowering.ir.get(let_id) {
+                    if node.kind == paideia_as_ir::IrKind::Let {
+                        let children: Vec<_> = lowering.ir.children(let_id).iter().copied().collect();
+                        // Look for an RHS with IrKind::Borrow
+                        for rhs_id in children {
+                            if let Some(rhs_node) = lowering.ir.get(rhs_id) {
+                                if rhs_node.kind == paideia_as_ir::IrKind::Borrow {
+                                    // Locate the Borrow's single child (the operand).
+                                    let borrow_children: Vec<_> = lowering.ir.children(rhs_id).iter().copied().collect();
+                                    if let Some(operand_id) = borrow_children.first() {
+                                        if let Some(operand_node) = lowering.ir.get(*operand_id) {
+                                            // Reject if operand kind is not Var.
+                                            if operand_node.kind != paideia_as_ir::IrKind::Var {
+                                                let diag = Diagnostic::error(
+                                                    DiagnosticCode::new(
+                                                        Category::T,
+                                                        Severity::Error,
+                                                        532,
+                                                    ).expect("T0532 is valid")
+                                                )
+                                                .message("address-of operand is not an identifier")
+                                                .with_span(operand_node.span)
+                                                .finish();
+                                                let _ = sink.emit(diag);
+                                                continue;
+                                            }
+
+                                            // Extract source text of the Var.
+                                            let span = operand_node.span;
+                                            let start = span.byte_start() as usize;
+                                            let len = span.byte_len() as usize;
+                                            let content_ref = source_map.content(file);
+                                            if start + len > content_ref.len() {
+                                                // Malformed span, skip
+                                                continue;
+                                            }
+                                            let var_name = content_ref[start..start + len].to_string();
+
+                                            // Look up name in SymbolTable.
+                                            let sym_kind = lowering.ir.symbols().lookup_by_name(&var_name).map(|s| s.kind);
+
+                                            if let Some(sym_kind) = sym_kind {
+                                                // Found locally. Check that symbol is a function.
+                                                if sym_kind != paideia_as_ir::SymbolKind::Function {
+                                                    let diag = Diagnostic::error(
+                                                        DiagnosticCode::new(
+                                                            Category::T,
+                                                            Severity::Error,
+                                                            536,
+                                                        ).expect("T0536 is valid")
+                                                    )
+                                                    .message("address-of target is not a function; data-symbol addr-of not supported in v0.17")
+                                                    .with_span(operand_node.span)
+                                                    .finish();
+                                                    let _ = sink.emit(diag);
+                                                    continue;
+                                                }
+                                                // On success, record for later insertion
+                                                addr_of_entries.push((let_id, var_name));
+                                            } else {
+                                                // Name not found locally.
+                                                // For well-formed identifiers, DO NOT reject here.
+                                                // The writer will synthesize an undefined symbol.
+                                                // Only reject if the name is malformed.
+                                                if !is_valid_identifier(&var_name) {
+                                                    let diag = Diagnostic::error(
+                                                        DiagnosticCode::new(
+                                                            Category::T,
+                                                            Severity::Error,
+                                                            534,
+                                                        ).expect("T0534 is valid")
+                                                    )
+                                                    .message("unresolved identifier in address-of expression")
+                                                    .with_span(operand_node.span)
+                                                    .finish();
+                                                    let _ = sink.emit(diag);
+                                                    continue;
+                                                }
+                                                // Well-formed name not found locally → allow cross-file reference
+                                                addr_of_entries.push((let_id, var_name));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Now populate the AddrOfSideTable with collected entries
+        for (let_id, var_name) in addr_of_entries {
+            lowering.ir.addr_of_mut().insert(
+                let_id,
+                paideia_as_ir::AddrOfMeta::new(var_name),
+            );
+        }
+    }
+
     // Phase-5-m4-003: Populate data side-table for module-level data bindings.
     // This must run after walker passes and before emit format selection.
     // PA10-007 m1-001: Use actual binding names for data symbols instead of "data_<id>".
@@ -1079,6 +1204,37 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                             paideia_as_ir::DataEntry::new_data(final_bytes, symbol_name, explicit_align.unwrap_or(1))
                                         } else {
                                             paideia_as_ir::DataEntry::new_rodata(final_bytes, symbol_name, explicit_align.unwrap_or(1))
+                                        };
+                                        data_entries.push((node_id, entry));
+                                    }
+                                } else if rhs_node.kind == paideia_as_ir::IrKind::Borrow {
+                                    // PA-R17-003 (issue #981): Let with Borrow (address-of) → 8-byte relocation slot
+                                    // Consult the AddrOfSideTable populated by the pre-emit pass above.
+                                    if let Some(meta) = lowering.ir.addr_of().get(node_id) {
+                                        let bytes = vec![0u8; 8];  // 8 zero bytes (placeholder for linker)
+                                        let reloc = paideia_as_ir::RelocSpec::with_width(
+                                            0,  // offset 0: entire 8 bytes hold the pointer
+                                            meta.symbol.clone(),
+                                            paideia_as_ir::RelocWidth::W64,
+                                            meta.addend,
+                                        );
+                                        let is_mutable = lowering.ir.let_meta().get(node_id)
+                                            .map(|info| info.mutable).unwrap_or(false);
+                                        let explicit_align = lowering.ir.let_meta().get(node_id).and_then(|i| i.align);
+                                        let entry = if is_mutable {
+                                            paideia_as_ir::DataEntry::new_data_with_relocs(
+                                                bytes,
+                                                symbol_name,
+                                                explicit_align.unwrap_or(8),
+                                                vec![reloc],
+                                            )
+                                        } else {
+                                            paideia_as_ir::DataEntry::new_rodata_with_relocs(
+                                                bytes,
+                                                symbol_name,
+                                                explicit_align.unwrap_or(8),
+                                                vec![reloc],
+                                            )
                                         };
                                         data_entries.push((node_id, entry));
                                     }
@@ -1473,43 +1629,17 @@ fn build_elf_object(
         });
     }
 
-    // PA10-006u (LOAD-BEARING): Emit relocations for data sections.
-    // Iterate entry.relocations and call writer.add_relocation for each.
-    // This was missing in PA10-002, leaving string-literal pointers unpatched.
-    for (node_id, entry) in data_table.iter() {
-        if !entry.relocations.is_empty() {
-            let data_offset = data_offsets
-                .get(node_id)
-                .copied()
-                .expect("data_offset must exist for every entry");
-            let target_section = match entry.section {
-                paideia_as_ir::SectionKind::Rodata => writer.rodata_section_id(),
-                paideia_as_ir::SectionKind::Data => writer.data_section_id(),
-                paideia_as_ir::SectionKind::Bss => writer.bss_section_id(),
-                paideia_as_ir::SectionKind::Text => writer.text_section_id(),
-            };
-            for spec in &entry.relocations {
-                let reloc_offset = data_offset + spec.offset;
-                let reloc_kind = match spec.width {
-                    paideia_as_ir::RelocWidth::W32 => {
-                        paideia_as_emitter_elf::relocs::RelocKind::Abs32
-                    }
-                    paideia_as_ir::RelocWidth::W64 => {
-                        paideia_as_emitter_elf::relocs::RelocKind::Abs64
-                    }
-                };
-                let reloc_entry = paideia_as_emitter_elf::relocs::RelocEntry {
-                    offset: reloc_offset,
-                    target: spec.symbol.clone(),
-                    kind: reloc_kind,
-                    addend: spec.addend,
-                };
-                let _ = writer.add_relocation(target_section, reloc_entry);
-            }
-        }
-    }
-
-    // Phase-5-m5-003: Emit real symbols from SymbolTable.
+    // Phase-5-m5-003: Emit real symbols from SymbolTable (REORDERED TO FIX BUG 2).
+    // CRITICAL FIX (PA-R17-003): Register all function symbols BEFORE emitting data
+    // relocations. This prevents the data-relocation loop from calling add_undefined_symbol
+    // for function targets, which would later conflict when add_symbol tries to register
+    // the actual function symbol. Sequence: emit data entries, emit function symbols,
+    // THEN emit data relocations.
+    //
+    // Original order (1668-1775) emitted data relocations (1632-1666) before function
+    // symbols, causing duplicate symbol names when a Borrow relocation targeted a
+    // function not yet registered.
+    //
     // Iterate over arena.symbols().iter() and emit one symbol per entry.
     // PA8-m1-002: Lambdas' estimated offsets are recorded during emission and should be
     // propagated directly to function symbols. The old function_offsets approach used
@@ -1624,6 +1754,43 @@ fn build_elf_object(
     // diagnostics are more useful than ours. The catalog entry exists for
     // future use by a stricter `paideia-as check --pedantic` mode.
     let _ = emitted_any_symbol; // reserved for future B1702 logic
+
+    // PA10-006u (LOAD-BEARING): Emit relocations for data sections.
+    // Iterate entry.relocations and call writer.add_relocation for each.
+    // This was missing in PA10-002, leaving string-literal pointers unpatched.
+    // (MOVED AFTER function symbol emission to fix PA-R17-003 bug 2)
+    for (node_id, entry) in data_table.iter() {
+        if !entry.relocations.is_empty() {
+            let data_offset = data_offsets
+                .get(node_id)
+                .copied()
+                .expect("data_offset must exist for every entry");
+            let target_section = match entry.section {
+                paideia_as_ir::SectionKind::Rodata => writer.rodata_section_id(),
+                paideia_as_ir::SectionKind::Data => writer.data_section_id(),
+                paideia_as_ir::SectionKind::Bss => writer.bss_section_id(),
+                paideia_as_ir::SectionKind::Text => writer.text_section_id(),
+            };
+            for spec in &entry.relocations {
+                let reloc_offset = data_offset + spec.offset;
+                let reloc_kind = match spec.width {
+                    paideia_as_ir::RelocWidth::W32 => {
+                        paideia_as_emitter_elf::relocs::RelocKind::Abs32
+                    }
+                    paideia_as_ir::RelocWidth::W64 => {
+                        paideia_as_emitter_elf::relocs::RelocKind::Abs64
+                    }
+                };
+                let reloc_entry = paideia_as_emitter_elf::relocs::RelocEntry {
+                    offset: reloc_offset,
+                    target: spec.symbol.clone(),
+                    kind: reloc_kind,
+                    addend: spec.addend,
+                };
+                let _ = writer.add_relocation(target_section, reloc_entry);
+            }
+        }
+    }
 
     // Phase-5-m4-004: Emit relocations collected from instruction encoding.
     use paideia_as_emitter_elf::RelocEntry;

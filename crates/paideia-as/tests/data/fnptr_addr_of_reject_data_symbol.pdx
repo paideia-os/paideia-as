@@ -1,0 +1,4 @@
+module FnptrAddrOfRejectDataSymbol = structure {
+  pub let some_data : u64 = 42
+  pub let bad : (u64) -> u64 = &some_data
+}

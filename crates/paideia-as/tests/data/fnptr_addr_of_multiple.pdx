@@ -1,0 +1,6 @@
+module FnptrAddrOfMultiple = structure {
+  pub let fn_one : (u64) -> u64 = fn (x : u64) -> x
+  pub let fn_two : (u64) -> u64 = fn (x : u64) -> (x + 1)
+  pub let ptr1 : (u64) -> u64 = &fn_one
+  pub let ptr2 : (u64) -> u64 = &fn_two
+}

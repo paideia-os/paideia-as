@@ -1,0 +1,4 @@
+module FnptrAddrOfMutable = structure {
+  pub let identity : (u64) -> u64 = fn (x : u64) -> x
+  pub let mut ptr : (u64) -> u64 = &identity
+}

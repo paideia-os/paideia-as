@@ -178,10 +178,68 @@ The checker emits a single `T0535` error per call site (short-circuit on first s
 
 The `check_fn_ptr_assignment` function is available as a library relation in `paideia_as_elaborator::check_fn_ptr_sig`. End-to-end integration into let-binding elaboration awaits issue #981 (function references).
 
-## 13. Cross-references
+### Status Update (issue #981)
+
+T0535 signature-check wire-up is deferred to #1038. Phase-1 ships the relocation plumbing only (issue #981).
+
+## 14. Address-of Lowering (issue #981)
+
+**Status**: Implementation in pa-r17-003 (paideia-as Phase 1 Release 17, Milestone 3).
+
+The `&fn_name` syntax takes the address of a function symbol and produces a function pointer constant suitable for static initialization. The lowering pipeline is as follows:
+
+### Syntax and Semantics
+
+`&some_fn` uses the existing `ExprData::Borrow` AST variant (no new AST nodes). The elaborator resolves the operand at module-level (static-context only) and emits a relocation record for the linker.
+
+Example:
+```
+pub let identity: (u64) -> u64 = &identity_fn;
+```
+
+### Lowering Pipeline
+
+1. **Pre-emit pass (cmd_build.rs)**: Walk module-level `IrKind::Let` nodes whose RHS is `IrKind::Borrow`.
+   - Locate the Borrow's operand (single child).
+   - Reject if operand is not `IrKind::Var` → **T0532** "address-of operand is not an identifier".
+   - Extract source text of the Var and look up the name in the SymbolTable.
+   - Reject if no such symbol AND the name is malformed/non-identifier → **T0534** "unresolved identifier in address-of expression".
+     - **For cross-file references** (name is a valid identifier, no local symbol): DO NOT reject. The writer synthesizes an undefined symbol; the linker resolves it. This allows `pub fn` definitions in one file to be referenced by `&` in another file.
+   - If found and `sym.kind != SymbolKind::Function` → **T0536** "address-of target is not a function; data-symbol addr-of not supported in v0.17".
+   - On success, populate `arena.addr_of_mut().insert(let_id, AddrOfMeta::new(sym.name.clone()))`.
+
+2. **Data-table loop (cmd_build.rs)**: Extend the existing data-table population with an `else if rhs_node.kind == IrKind::Borrow` arm.
+   - Consult `arena.addr_of().get(let_id)` to retrieve the metadata.
+   - Generate 8 zero bytes as the slot body (placeholder for linker patching).
+   - Create a `RelocSpec { width: W64, addend: 0 }` targeting the function symbol.
+   - Route to `.rodata` for immutable `let`, or `.data` for `let mut`.
+   - Use `DataEntry::new_rodata_with_relocs(...)` or `DataEntry::new_data_with_relocs(...)`.
+
+### Section Routing
+
+- **Immutable** `let ptr = &fn_name;` → `.rodata` (read-only data section).
+- **Mutable** `let mut ptr = &fn_name;` → `.data` (initialized data section, Phase 6+).
+
+The distinction allows optimizations: immutable function pointers may be placed in ROM or shared read-only pages.
+
+### Error Diagnostics
+
+- **T0532**: "address-of operand is not an identifier" (e.g., `&(1 + 2)`, `&fn_ptr()`).
+- **T0534**: "unresolved identifier in address-of expression" (malformed or unknown local name; well-formed names trigger cross-file synthesis).
+- **T0536**: "address-of target is not a function; data-symbol addr-of not supported in v0.17" (e.g., `&global_data`).
+
+### Non-goals for v0.17
+
+- **T0535 signature checking** (#1038): Deferred; phase-1 does not check that the function's actual signature matches the let-binding's annotated signature.
+- **Data-symbol addr-of**: Restricted to functions only in v0.17; addressing data symbols is deferred.
+- **`call fptr` lowering** (#982): Not in scope; function-pointer invocation is separate.
+- **Addend support**: Simple address-of only (`addend = 0`); `&fn + N` is future work.
+
+## 16. Cross-references
 
 - `design/toolchain/fnptr-unsafe-pattern.md` — rationale for function-pointer safety constraints and why effects/caps are necessary
 - `design/phase-4/records-enums.md` — record types that contain function-pointer fields (vops shape)
 - `design/phase-1/tactical-issues.md` §7 — function-pointer types in the phase-1 roadmap
-- Issue #981 — `&fn_name` syntax for taking function references
+- Issue #981 — `&fn_name` syntax for taking function references (IMPLEMENTED in pa-r17-003, relocation plumbing only)
 - Issue #982 — `call fptr` syntax for function-pointer calls
+- Issue #1038 — T0535 signature-check wire-up (deferred from #981)
