@@ -8,6 +8,7 @@
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+pub mod abi;
 pub mod addr_of;
 pub mod anf;
 mod arena;
