@@ -12,6 +12,7 @@ use crate::binding_name::BindingNameTable;
 use crate::call_meta::CallSideTable;
 use crate::constant_pool::ConstantPoolTable;
 use crate::data::DataSideTable;
+use crate::enum_layout::{EnumConsSideTable, FinalisedEnumLayoutTable};
 use crate::instruction::InstructionSideTable;
 use crate::lambda_param::LambdaParamTable;
 use crate::let_meta::LetMetaTable;
@@ -64,6 +65,12 @@ pub struct IrArena {
     /// Side-table: record constructor type mapping indexed by RecordCons node ID.
     /// Phase 6 m3-004: maps RecordCons nodes to their RecordTypeId for layout lookup.
     record_layout_table: RecordLayoutTable,
+    /// Side-table: enum constructor metadata indexed by EnumCons node ID.
+    /// PA-r17-007: maps EnumCons nodes to their EnumTypeId and variant index.
+    enum_cons_table: EnumConsSideTable,
+    /// Side-table: finalised enum layouts indexed by EnumTypeId.
+    /// PA-r17-007: populated during emission; consumed for register/stack form dispatch.
+    enum_finalised_layouts: FinalisedEnumLayoutTable,
     /// Side-table: address-of metadata indexed by Borrow node ID.
     /// PA10-006u: populated by elaborator for `& sym` in static initializers.
     addr_of_table: AddrOfSideTable,
@@ -100,6 +107,8 @@ impl IrArena {
             symbol_table: SymbolTable::new(),
             field_access_table: FieldAccessSideTable::new(),
             record_layout_table: RecordLayoutTable::new(),
+            enum_cons_table: EnumConsSideTable::new(),
+            enum_finalised_layouts: FinalisedEnumLayoutTable::new(),
             addr_of_table: AddrOfSideTable::new(),
             public_lets: HashSet::new(),
             call_sites: CallSideTable::new(),
@@ -320,6 +329,30 @@ impl IrArena {
     /// Borrow the record layout table (mutable).
     pub fn record_layout_table_mut(&mut self) -> &mut RecordLayoutTable {
         &mut self.record_layout_table
+    }
+
+    /// Borrow the enum cons side-table (read-only).
+    /// PA-r17-007: provides EnumConsInfo for EnumCons nodes.
+    #[must_use]
+    pub fn enum_cons_info(&self) -> &EnumConsSideTable {
+        &self.enum_cons_table
+    }
+
+    /// Borrow the enum cons side-table (mutable).
+    pub fn enum_cons_info_mut(&mut self) -> &mut EnumConsSideTable {
+        &mut self.enum_cons_table
+    }
+
+    /// Borrow the enum layout table (read-only).
+    /// PA-r17-007: provides EnumLayout for enum types.
+    #[must_use]
+    pub fn enum_layout_table(&self) -> &FinalisedEnumLayoutTable {
+        &self.enum_finalised_layouts
+    }
+
+    /// Borrow the enum layout table (mutable).
+    pub fn enum_layout_table_mut(&mut self) -> &mut FinalisedEnumLayoutTable {
+        &mut self.enum_finalised_layouts
     }
 
     /// Borrow the address-of side-table (read-only).

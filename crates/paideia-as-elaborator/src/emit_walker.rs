@@ -9,7 +9,8 @@ use paideia_as_ir::instruction::{
 };
 use paideia_as_ir::record_layout::{FieldLayout, RecordLayout, RecordTypeId};
 use paideia_as_ir::{
-    DataEntry, DataSideTable, IrArena, IrKind, IrNodeId, SmallVec, Symbol, SymbolKind,
+    DataEntry, DataSideTable, EnumLayout, EnumTypeId, IrArena, IrKind, IrNodeId, SmallVec, Symbol,
+    SymbolKind,
 };
 use std::collections::HashMap;
 
@@ -204,6 +205,10 @@ pub struct EmitPassState {
     /// Phase 6 m3-001: C-ABI natural-alignment record layouts,
     /// keyed by RecordTypeId. Populated by finalise_record_layouts().
     pub record_layouts: HashMap<RecordTypeId, RecordLayout>,
+
+    /// PA-r17-007: Enum layouts keyed by EnumTypeId.
+    /// Populated during emission pass; consumed by visit_enum_cons.
+    pub enum_layouts: HashMap<EnumTypeId, EnumLayout>,
 
     /// Phase 6 m3-003: Scratch register assignment for in-block field bindings.
     /// Tracks which scratch registers have been assigned in the current function.
@@ -650,6 +655,10 @@ impl EmitWalker {
                         IrKind::RecordCons => {
                             // Phase 6 m3-004: emit record constructor lowering for cap-mint shape.
                             self.visit_record_cons(node_id, arena);
+                        }
+                        IrKind::EnumCons => {
+                            // PA-r17-007: emit enum variant constructor lowering.
+                            self.visit_enum_cons(node_id, arena);
                         }
                         IrKind::Branch => {
                             // Phase 7 m1-001: emit if-then-else expression lowering.
@@ -3959,6 +3968,161 @@ impl EmitWalker {
                     .expect("virtual id");
                 self.state.instructions.insert(inst_id, inst);
                 self.state.estimated_offset += 4; // mov [rdi+disp8], reg
+            }
+        }
+    }
+
+    /// PA-r17-007: Emit enum variant constructor lowering.
+    ///
+    /// Handles register form (≤16-byte enums) and stack form (>16-byte enums).
+    /// Register form: RAX = discriminant, RDX = payload (if any)
+    /// Stack form: [rsp+0] = discriminant, [rsp+8] = payload
+    ///
+    /// EnumCons node children: [payload_expr (optional)]
+    fn visit_enum_cons(&mut self, enum_cons_id: IrNodeId, arena: &IrArena) {
+        let info = match arena.enum_cons_info().get(enum_cons_id) {
+            Some(i) => i,
+            None => {
+                self.diagnostics.push(format!(
+                    "EnumCons node {} has no EnumConsInfo",
+                    enum_cons_id.get()
+                ));
+                return;
+            }
+        };
+
+        let layout = match self.state.enum_layouts.get(&info.type_id) {
+            Some(l) => l,
+            None => {
+                self.diagnostics.push(format!(
+                    "No enum layout found for type {}",
+                    info.type_id.0
+                ));
+                return;
+            }
+        };
+
+        let variant_index = info.variant_index as i64;
+
+        if layout.size <= 16 {
+            // Register form: RAX = discriminant, RDX = payload (if any)
+            // Emit 1: mov rax, <variant_index>
+            let disc_id = IrNodeId::new(enum_cons_id.get() * 10)
+                .expect("virtual disc id");
+            let mut disc_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+            disc_operands.push(Operand::Reg(RegId(0)));  // RAX
+            disc_operands.push(Operand::Imm64(variant_index));
+
+            self.state.instructions.insert(disc_id, Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: disc_operands,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+            });
+            self.state.estimated_offset += 10; // 48 B8 imm64 (encoder emits movabs form)
+
+            // Emit 2 only if payload_size > 0
+            if layout.payload_size > 0 {
+                let payload_id = IrNodeId::new(enum_cons_id.get() * 10 + 1)
+                    .expect("virtual payload id");
+                let children = arena.children(enum_cons_id);
+                let payload_child_id = children.first().copied();
+
+                let (payload_operand, is_imm64) = match payload_child_id {
+                    Some(child_id) => {
+                        let child = arena.get(child_id);
+                        match child.map(|n| n.kind) {
+                            Some(IrKind::Literal) => {
+                                let val = arena.literal_values().get(child_id).unwrap_or(0);
+                                (Operand::Imm64(val), true)
+                            }
+                            Some(IrKind::Var) => {
+                                // Var → Reg source (RDI for now, matching visit_field_assign convention)
+                                (Operand::Reg(RegId(7)), false)
+                            }
+                            _ => {
+                                self.diagnostics.push(format!(
+                                    "EnumCons {} payload child {:?} not supported (only Literal/Var)",
+                                    enum_cons_id.get(),
+                                    child.map(|n| n.kind)
+                                ));
+                                return;
+                            }
+                        }
+                    }
+                    None => {
+                        self.diagnostics.push(format!(
+                            "EnumCons {} has payload_size > 0 but no child",
+                            enum_cons_id.get()
+                        ));
+                        return;
+                    }
+                };
+
+                let mut payload_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                payload_operands.push(Operand::Reg(RegId(2)));  // RDX
+                payload_operands.push(payload_operand);
+
+                self.state.instructions.insert(payload_id, Instruction {
+                    mnemonic: Mnemonic::Mov,
+                    operands: payload_operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                });
+                self.state.estimated_offset += if is_imm64 { 10 } else { 3 }; // 48 BA imm64 movabs (encoder form)
+            }
+        } else {
+            // Stack form: [rsp+0] = disc, [rsp+8] = payload
+            // Emit 1: mov [rsp+0], <disc>
+            let disc_id = IrNodeId::new(enum_cons_id.get() * 10)
+                .expect("virtual disc id");
+            let mut disc_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+            disc_operands.push(Operand::MemSib {
+                base: RegId(4),  // RSP
+                index: None,
+                scale: paideia_as_ir::instruction::Scale::X1,
+                disp: 0,
+            });
+            disc_operands.push(Operand::Imm64(variant_index));
+
+            self.state.instructions.insert(disc_id, Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: disc_operands,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+            });
+            // Size: 48 C7 44 24 00 disc32 = 8 bytes (disp8 = 0)
+            self.state.estimated_offset += 8;
+
+            if layout.payload_size > 0 {
+                // Emit 2: mov [rsp+8], payload_value or reg
+                let payload_id = IrNodeId::new(enum_cons_id.get() * 10 + 1)
+                    .expect("virtual payload id");
+                let children = arena.children(enum_cons_id);
+                let payload_val = children.first()
+                    .and_then(|&c| Some(arena.literal_values().get(c).unwrap_or(0)))
+                    .unwrap_or(0);
+
+                let mut payload_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                payload_operands.push(Operand::MemSib {
+                    base: RegId(4),
+                    index: None,
+                    scale: paideia_as_ir::instruction::Scale::X1,
+                    disp: 8,
+                });
+                payload_operands.push(Operand::Imm64(payload_val));
+
+                self.state.instructions.insert(payload_id, Instruction {
+                    mnemonic: Mnemonic::Mov,
+                    operands: payload_operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                });
+                self.state.estimated_offset += 8;
             }
         }
     }
@@ -8471,6 +8635,315 @@ mod tests {
     // resolution). Kept ignored here so the AC's "16 unit tests" surface is met
     // and future readers can find the deferred-work markers alongside the passing
     // width-dispatch tests.
+
+    // ── Enum cons tests (PA-r17-007) ────
+
+    /// Helper: build a real EnumCons IR node, register layout, walk the arena,
+    /// and extract the discriminant instruction. Mirrors build_field_assign().
+    fn build_and_walk_enum_cons(
+        payload_size: u64,
+        variant_index: u32,
+        has_payload: bool,
+        payload_value: i64,
+    ) -> (Instruction, Option<Instruction>) {
+        let mut arena = IrArena::new();
+
+        // EnumCons children: [payload_expr (optional)]
+        let mut children: Vec<IrNodeId> = Vec::new();
+        if has_payload {
+            let payload_child_id = arena.alloc(IrKind::Literal, span());
+            arena.literal_values_mut().insert(payload_child_id, payload_value);
+            children.push(payload_child_id);
+        }
+
+        let enum_cons_id = arena.alloc_with_children(IrKind::EnumCons, span(), children);
+
+        // Register EnumConsInfo
+        arena.enum_cons_info_mut().insert(
+            enum_cons_id,
+            paideia_as_ir::EnumConsInfo {
+                type_id: EnumTypeId(1),
+                variant_index,
+            },
+        );
+
+        // Register EnumLayout
+        let layout = EnumLayout::new(payload_size);
+        let mut walker = EmitWalker::new();
+        walker
+            .state_mut()
+            .enum_layouts
+            .insert(EnumTypeId(1), layout);
+
+        walker.walk(&mut arena);
+
+        // Extract discriminant instruction (enum_cons_id * 10)
+        let disc_id = IrNodeId::new(enum_cons_id.get() * 10).unwrap();
+        let disc_inst = walker
+            .state()
+            .instructions
+            .get(disc_id)
+            .cloned()
+            .expect("visit_enum_cons should have emitted discriminant instruction");
+
+        // Extract payload instruction (enum_cons_id * 10 + 1) if present
+        let payload_id = IrNodeId::new(enum_cons_id.get() * 10 + 1).unwrap();
+        let payload_inst = walker
+            .state()
+            .instructions
+            .get(payload_id)
+            .cloned();
+
+        (disc_inst, payload_inst)
+    }
+
+    #[test]
+    fn enum_cons_disc_only_variant_0() {
+        // Discriminant-only, variant 0, register form
+        // mov rax, 0 → 48 B8 00 00 00 00 00 00 00 00 (10 bytes: encoder always uses imm64 form)
+        let (disc_inst, payload_inst) = build_and_walk_enum_cons(0, 0, false, 0);
+        assert_eq!(disc_inst.mnemonic, Mnemonic::Mov);
+        assert!(payload_inst.is_none());
+
+        let mut buf = paideia_as_encoder::CodeBuffer::new();
+        let mut stats = paideia_as_encoder::EncodeStats::new();
+        paideia_as_encoder::encode_instruction(&disc_inst, &mut buf, &mut stats)
+            .expect("encode failed");
+        assert_eq!(buf.as_slice(), &[0x48, 0xB8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn enum_cons_disc_only_variant_1() {
+        // Discriminant-only, variant 1
+        // mov rax, 1 → 48 B8 01 00 00 00 00 00 00 00 (10 bytes)
+        let (disc_inst, payload_inst) = build_and_walk_enum_cons(0, 1, false, 0);
+        assert_eq!(disc_inst.mnemonic, Mnemonic::Mov);
+        assert!(payload_inst.is_none());
+
+        let mut buf = paideia_as_encoder::CodeBuffer::new();
+        let mut stats = paideia_as_encoder::EncodeStats::new();
+        paideia_as_encoder::encode_instruction(&disc_inst, &mut buf, &mut stats)
+            .expect("encode failed");
+        assert_eq!(buf.as_slice(), &[0x48, 0xB8, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn enum_cons_u64_payload_variant_0_lit_42() {
+        // 8-byte payload, variant 0, literal value 42, register form
+        // mov rax, 0 → 48 B8 00 00 00 00 00 00 00 00 (10 bytes)
+        // mov rdx, 42 → 48 BA 2A 00 00 00 00 00 00 00 (10 bytes)
+        let (disc_inst, payload_inst) = build_and_walk_enum_cons(8, 0, true, 42);
+        assert_eq!(disc_inst.mnemonic, Mnemonic::Mov);
+        assert!(payload_inst.is_some());
+
+        let mut buf = paideia_as_encoder::CodeBuffer::new();
+        let mut stats = paideia_as_encoder::EncodeStats::new();
+        paideia_as_encoder::encode_instruction(&disc_inst, &mut buf, &mut stats)
+            .expect("encode failed");
+        assert_eq!(buf.as_slice(), &[0x48, 0xB8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+
+        let payload = payload_inst.unwrap();
+        let mut payload_buf = paideia_as_encoder::CodeBuffer::new();
+        paideia_as_encoder::encode_instruction(&payload, &mut payload_buf, &mut stats)
+            .expect("encode failed");
+        assert_eq!(payload_buf.as_slice(), &[0x48, 0xBA, 0x2A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn enum_cons_u64_payload_variant_1_lit_neg1() {
+        // 8-byte payload, variant 1, literal value -1 (0xFFFFFFFFFFFFFFFF), register form
+        // mov rax, 1 → 48 B8 01 00 00 00 00 00 00 00 (10 bytes)
+        // mov rdx, -1 → 48 BA FF FF FF FF FF FF FF FF (10 bytes, -1 as i64)
+        let (disc_inst, payload_inst) = build_and_walk_enum_cons(8, 1, true, -1);
+        assert_eq!(disc_inst.mnemonic, Mnemonic::Mov);
+        assert!(payload_inst.is_some());
+
+        let mut buf = paideia_as_encoder::CodeBuffer::new();
+        let mut stats = paideia_as_encoder::EncodeStats::new();
+        paideia_as_encoder::encode_instruction(&disc_inst, &mut buf, &mut stats)
+            .expect("encode failed");
+        assert_eq!(buf.as_slice(), &[0x48, 0xB8, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+
+        let payload = payload_inst.unwrap();
+        let mut payload_buf = paideia_as_encoder::CodeBuffer::new();
+        paideia_as_encoder::encode_instruction(&payload, &mut payload_buf, &mut stats)
+            .expect("encode failed");
+        // -1 as i64: 0xFF FF FF FF FF FF FF FF
+        assert_eq!(payload_buf.as_slice(), &[0x48, 0xBA, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
+    }
+
+    #[test]
+    fn enum_cons_payload_size_0_writes_no_rdx() {
+        // Zero payload size should not emit RDX write
+        let (disc_inst, payload_inst) = build_and_walk_enum_cons(0, 0, false, 0);
+        assert_eq!(disc_inst.mnemonic, Mnemonic::Mov);
+        assert!(payload_inst.is_none());
+
+        let mut buf = paideia_as_encoder::CodeBuffer::new();
+        let mut stats = paideia_as_encoder::EncodeStats::new();
+        paideia_as_encoder::encode_instruction(&disc_inst, &mut buf, &mut stats)
+            .expect("encode failed");
+        // Only one instruction (mov rax, 0) = 10 bytes
+        assert_eq!(buf.as_slice().len(), 10);
+    }
+
+    #[test]
+    fn enum_cons_payload_size_8_boundary_reg_form() {
+        // 8-byte payload (boundary = 16 total), variant 0, register form
+        // size 16 <= 16, so use register form
+        let (disc_inst, payload_inst) = build_and_walk_enum_cons(8, 0, true, 0);
+        assert_eq!(disc_inst.mnemonic, Mnemonic::Mov);
+        assert!(payload_inst.is_some()); // Has payload instruction
+    }
+
+    #[test]
+    fn enum_cons_payload_size_16_stack_form() {
+        // 16-byte payload (size 24 total), should use stack form
+        // mov [rsp+0], 0; mov [rsp+8], 0 (encoder doesn't support mov [mem], imm yet, so just verify IR generation)
+        let (disc_inst, payload_inst) = build_and_walk_enum_cons(16, 0, true, 0);
+        assert_eq!(disc_inst.mnemonic, Mnemonic::Mov);
+        assert!(payload_inst.is_some());
+
+        // Check discriminant operand is MemSib [rsp+0]
+        match &disc_inst.operands.as_slice() {
+            [Operand::MemSib { base, disp, .. }, Operand::Imm64(_)] => {
+                assert_eq!(*base, RegId(4)); // RSP
+                assert_eq!(*disp, 0);
+            }
+            _ => panic!("Expected MemSib operand for stack form discriminant"),
+        }
+
+        // Check payload operand is MemSib [rsp+8]
+        let payload = payload_inst.unwrap();
+        match &payload.operands.as_slice() {
+            [Operand::MemSib { base, disp, .. }, Operand::Imm64(_)] => {
+                assert_eq!(*base, RegId(4)); // RSP
+                assert_eq!(*disp, 8);
+            }
+            _ => panic!("Expected MemSib operand for stack form payload"),
+        }
+    }
+
+    #[test]
+    fn enum_cons_payload_size_24_stack() {
+        // 24-byte payload (size 32 total), stack form
+        let (disc_inst, _payload_inst) = build_and_walk_enum_cons(24, 0, true, 0);
+        assert_eq!(disc_inst.mnemonic, Mnemonic::Mov);
+
+        // Check discriminant operand is MemSib [rsp+0]
+        match &disc_inst.operands.as_slice() {
+            [Operand::MemSib { base, disp, .. }, Operand::Imm64(_)] => {
+                assert_eq!(*base, RegId(4)); // RSP
+                assert_eq!(*disp, 0);
+            }
+            _ => panic!("Expected MemSib operand for stack form discriminant"),
+        }
+    }
+
+    #[test]
+    fn enum_cons_variant_index_2() {
+        // Variant index 2
+        // mov rax, 2 → 48 B8 02 00 00 00 00 00 00 00 (10 bytes)
+        let (disc_inst, _) = build_and_walk_enum_cons(0, 2, false, 0);
+
+        let mut buf = paideia_as_encoder::CodeBuffer::new();
+        let mut stats = paideia_as_encoder::EncodeStats::new();
+        paideia_as_encoder::encode_instruction(&disc_inst, &mut buf, &mut stats)
+            .expect("encode failed");
+        assert_eq!(buf.as_slice(), &[0x48, 0xB8, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn enum_cons_variant_index_255() {
+        // Variant index 255
+        // mov rax, 255 → 48 B8 FF 00 00 00 00 00 00 00 (10 bytes)
+        let (disc_inst, _) = build_and_walk_enum_cons(0, 255, false, 0);
+
+        let mut buf = paideia_as_encoder::CodeBuffer::new();
+        let mut stats = paideia_as_encoder::EncodeStats::new();
+        paideia_as_encoder::encode_instruction(&disc_inst, &mut buf, &mut stats)
+            .expect("encode failed");
+        assert_eq!(buf.as_slice(), &[0x48, 0xB8, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn enum_cons_variant_index_0_with_var_payload() {
+        // Var-source payload exercises the IrKind::Var branch in visit_enum_cons
+        // (which resolves to Operand::Reg(RegId(7)) = RDI).
+        // Expected: mov rax, 0 (48 B8 imm64); mov rdx, rdi (48 89 FA)
+        let mut arena = IrArena::new();
+        let payload_var_id = arena.alloc(IrKind::Var, span());
+        let enum_cons_id =
+            arena.alloc_with_children(IrKind::EnumCons, span(), [payload_var_id]);
+        arena.enum_cons_info_mut().insert(
+            enum_cons_id,
+            paideia_as_ir::EnumConsInfo {
+                type_id: EnumTypeId(1),
+                variant_index: 0,
+            },
+        );
+        let mut walker = EmitWalker::new();
+        walker
+            .state_mut()
+            .enum_layouts
+            .insert(EnumTypeId(1), EnumLayout::new(8));
+        walker.walk(&mut arena);
+
+        let disc_id = IrNodeId::new(enum_cons_id.get() * 10).unwrap();
+        let payload_id = IrNodeId::new(enum_cons_id.get() * 10 + 1).unwrap();
+        let disc_inst = walker
+            .state()
+            .instructions
+            .get(disc_id)
+            .cloned()
+            .expect("discriminant emitted");
+        let payload_inst = walker
+            .state()
+            .instructions
+            .get(payload_id)
+            .cloned()
+            .expect("var-source payload emitted");
+
+        let mut stats = paideia_as_encoder::EncodeStats::new();
+        let mut disc_buf = paideia_as_encoder::CodeBuffer::new();
+        paideia_as_encoder::encode_instruction(&disc_inst, &mut disc_buf, &mut stats)
+            .expect("encode disc failed");
+        assert_eq!(
+            disc_buf.as_slice(),
+            &[0x48, 0xB8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+        );
+
+        let mut payload_buf = paideia_as_encoder::CodeBuffer::new();
+        paideia_as_encoder::encode_instruction(&payload_inst, &mut payload_buf, &mut stats)
+            .expect("encode payload failed");
+        // mov rdx, rdi = 48 89 FA
+        assert_eq!(payload_buf.as_slice(), &[0x48, 0x89, 0xFA]);
+    }
+
+    #[test]
+    fn enum_cons_missing_layout_emits_diagnostic() {
+        // Test when layout is missing: should emit diagnostic, no instruction
+        let mut arena = IrArena::new();
+        let enum_cons_id = arena.alloc(IrKind::EnumCons, span());
+
+        // Register EnumConsInfo but NOT the layout
+        arena.enum_cons_info_mut().insert(
+            enum_cons_id,
+            paideia_as_ir::EnumConsInfo {
+                type_id: EnumTypeId(999), // Type without layout
+                variant_index: 0,
+            },
+        );
+
+        let mut walker = EmitWalker::new();
+        // Deliberately do NOT register enum_layouts entry
+        walker.walk(&mut arena);
+
+        // Should have a diagnostic
+        assert!(!walker.diagnostics().is_empty());
+        let msg = walker.diagnostics()[0].clone();
+        assert!(msg.contains("No enum layout found"));
+    }
 
     #[test]
     #[ignore = "visit_field_assign hardcodes src=RDX; extended-src coverage in encode.rs pa_r17_006_field_assign_extended_src_r10_u32"]

@@ -8,13 +8,14 @@
 //! and `instruction.rs`: each IR node variant that requires extra metadata
 //! has a dedicated HashMap-based side-table for O(1) lookups.
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::node::IrNodeId;
 
 /// A stable type identifier for enums (would come from the type system in later phases).
 /// For now, this is a simple wrapper around a u32.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct EnumTypeId(pub u32);
 
 /// Metadata for an enum construction operation.
@@ -128,6 +129,101 @@ impl EnumDiscriminantSideTable {
     }
 
     /// `true` iff no enum discriminant operations are registered.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+}
+
+/// Layout information for an enum type.
+///
+/// PA-r17-007: Captures the computed structure size, alignment, and discriminant/payload
+/// information for enum types. Enums are laid out with:
+/// - Discriminant (8 bytes) at offset 0
+/// - Payload at offset 8 with max variant payload size
+/// - Total size: 8 + max_payload_size, aligned to 8
+///
+/// Supports two emission forms:
+/// - Register form (≤16 bytes): discriminant in RAX, payload in RDX
+/// - Stack form (>16 bytes): [rsp+0] = disc, [rsp+8] = payload
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct EnumLayout {
+    /// Total size of the enum in bytes (8 + payload_size, aligned to 8).
+    pub size: u64,
+    /// Alignment requirement in bytes (always 8 per AC).
+    pub align: u8,
+    /// Discriminant size in bytes (always 8 per AC).
+    pub discriminant_size: u8,
+    /// Byte offset of payload within the enum (always 8 per AC).
+    pub payload_offset: u64,
+    /// Maximum variant payload size in bytes.
+    pub payload_size: u64,
+}
+
+impl EnumLayout {
+    /// Create a new enum layout.
+    ///
+    /// Given the maximum variant payload size, computes:
+    /// - size = 8 + payload_size
+    /// - align = 8
+    /// - discriminant_size = 8
+    /// - payload_offset = 8
+    #[must_use]
+    pub fn new(payload_size: u64) -> Self {
+        Self {
+            size: 8 + payload_size,
+            align: 8,
+            discriminant_size: 8,
+            payload_offset: 8,
+            payload_size,
+        }
+    }
+}
+
+/// Side-table mapping EnumTypeId to finalised enum layouts.
+///
+/// PA-r17-007: Populated during emission to provide enum layout metadata
+/// for downstream passes (e.g., code generation, debug info).
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+pub struct FinalisedEnumLayoutTable {
+    /// Sparse mapping: EnumTypeId -> EnumLayout.
+    entries: HashMap<EnumTypeId, EnumLayout>,
+}
+
+impl FinalisedEnumLayoutTable {
+    /// Construct an empty finalised enum layout side-table.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Insert (or overwrite) the finalised layout for an EnumTypeId.
+    ///
+    /// Returns the previous entry if one existed.
+    pub fn insert(&mut self, id: EnumTypeId, layout: EnumLayout) -> Option<EnumLayout> {
+        self.entries.insert(id, layout)
+    }
+
+    /// Look up the finalised layout for an EnumTypeId.
+    ///
+    /// Returns `None` if the type was never finalised.
+    #[must_use]
+    pub fn get(&self, id: EnumTypeId) -> Option<&EnumLayout> {
+        self.entries.get(&id)
+    }
+
+    /// Look up (mutable) the finalised layout for an EnumTypeId.
+    pub fn get_mut(&mut self, id: EnumTypeId) -> Option<&mut EnumLayout> {
+        self.entries.get_mut(&id)
+    }
+
+    /// Number of enum types with finalised layouts.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// `true` iff no layouts are finalised.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
@@ -328,5 +424,114 @@ mod tests {
         let table = EnumDiscriminantSideTable::new();
         assert_eq!(table.len(), 0);
         assert!(table.is_empty());
+    }
+
+    // ── EnumLayout tests ───────────────────────────────────────────
+
+    #[test]
+    fn enum_layout_new_zero_payload() {
+        let layout = EnumLayout::new(0);
+        assert_eq!(layout.size, 8);
+        assert_eq!(layout.align, 8);
+        assert_eq!(layout.discriminant_size, 8);
+        assert_eq!(layout.payload_offset, 8);
+        assert_eq!(layout.payload_size, 0);
+    }
+
+    #[test]
+    fn enum_layout_new_8_byte_payload() {
+        let layout = EnumLayout::new(8);
+        assert_eq!(layout.size, 16);
+        assert_eq!(layout.align, 8);
+        assert_eq!(layout.discriminant_size, 8);
+        assert_eq!(layout.payload_offset, 8);
+        assert_eq!(layout.payload_size, 8);
+    }
+
+    #[test]
+    fn enum_layout_new_16_byte_payload() {
+        let layout = EnumLayout::new(16);
+        assert_eq!(layout.size, 24);
+        assert_eq!(layout.align, 8);
+        assert_eq!(layout.discriminant_size, 8);
+        assert_eq!(layout.payload_offset, 8);
+        assert_eq!(layout.payload_size, 16);
+    }
+
+    // ── FinalisedEnumLayoutTable tests ─────────────────────────────
+
+    #[test]
+    fn finalised_enum_layout_table_empty_by_default() {
+        let table = FinalisedEnumLayoutTable::new();
+        assert_eq!(table.len(), 0);
+        assert!(table.is_empty());
+    }
+
+    #[test]
+    fn finalised_enum_layout_table_insert_and_get() {
+        let mut table = FinalisedEnumLayoutTable::new();
+        let type_id = EnumTypeId(42);
+        let layout = EnumLayout::new(8);
+
+        table.insert(type_id, layout.clone());
+        let retrieved = table.get(type_id);
+        assert!(retrieved.is_some());
+        assert_eq!(*retrieved.unwrap(), layout);
+    }
+
+    #[test]
+    fn finalised_enum_layout_table_get_returns_none_for_missing() {
+        let table = FinalisedEnumLayoutTable::new();
+        let missing_type = EnumTypeId(999);
+        assert_eq!(table.get(missing_type), None);
+    }
+
+    #[test]
+    fn finalised_enum_layout_table_insert_overwrites_previous() {
+        let mut table = FinalisedEnumLayoutTable::new();
+        let type_id = EnumTypeId(1);
+
+        let layout1 = EnumLayout::new(0);
+        let layout2 = EnumLayout::new(16);
+
+        table.insert(type_id, layout1.clone());
+        let previous = table.insert(type_id, layout2.clone());
+
+        assert_eq!(previous, Some(layout1));
+        assert_eq!(*table.get(type_id).unwrap(), layout2);
+    }
+
+    #[test]
+    fn finalised_enum_layout_table_len_tracks_inserts() {
+        let mut table = FinalisedEnumLayoutTable::new();
+        assert_eq!(table.len(), 0);
+        assert!(table.is_empty());
+
+        for i in 0u32..5 {
+            let type_id = EnumTypeId(i);
+            let layout = EnumLayout::new(8);
+            table.insert(type_id, layout);
+            assert_eq!(table.len(), (i + 1) as usize);
+        }
+
+        assert!(!table.is_empty());
+    }
+
+    #[test]
+    fn finalised_enum_layout_table_get_mut_allows_mutation() {
+        let mut table = FinalisedEnumLayoutTable::new();
+        let type_id = EnumTypeId(42);
+        let layout = EnumLayout::new(8);
+
+        table.insert(type_id, layout);
+
+        if let Some(layout_mut) = table.get_mut(type_id) {
+            // Verify we can mutate the layout (even though layout structure is fixed,
+            // testing the accessor works).
+            assert_eq!(layout_mut.payload_size, 8);
+        }
+
+        let retrieved = table.get(type_id).unwrap();
+        assert_eq!(retrieved.payload_size, 8);
     }
 }

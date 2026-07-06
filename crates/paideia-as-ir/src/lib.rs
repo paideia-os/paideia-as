@@ -52,7 +52,10 @@ pub use effect_rewrite::{
     HandlerTable, PerformRewrite, WithRewrite, rewrite_perform, rewrite_unsafe_passthrough,
     rewrite_with_save_restore,
 };
-pub use enum_layout::{EnumConsInfo, EnumConsSideTable, EnumDiscriminantSideTable, EnumTypeId};
+pub use enum_layout::{
+    EnumConsInfo, EnumConsSideTable, EnumDiscriminantSideTable, EnumLayout,
+    FinalisedEnumLayoutTable, EnumTypeId,
+};
 pub use handler_value::{HandlerInfo, HandlerSideTable, pretty_handler};
 pub use instruction::{
     Cond, EncodingHint, InstrMode, Instruction, InstructionSideTable, IntWidth, Mnemonic, Operand,
