@@ -246,6 +246,13 @@ impl EmitPassState {
         self.label_to_instr = map;
     }
 
+    /// Register a label name → IrNodeId mapping in label_to_instr.
+    /// Used by stdlib recipe splicing (#1066) to install per-recipe
+    /// synthetic labels for intra-recipe jumps.
+    pub fn insert_label(&mut self, name: String, instr_id: IrNodeId) {
+        self.label_to_instr.insert(name, instr_id);
+    }
+
     /// Read-only view of the function-offset map (lambda-id → byte
     /// offset).
     #[must_use]

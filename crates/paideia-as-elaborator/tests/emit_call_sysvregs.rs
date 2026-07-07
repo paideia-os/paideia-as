@@ -144,6 +144,7 @@ fn literal_recipe_skips_arg_marshalling() {
             mode: walker.current_mode(),
         }],
         arg_convention: ArgConvention::Literal,
+        labels: vec![],
     };
 
     // For Literal recipes, emit_call splices immediately without arg-marshalling

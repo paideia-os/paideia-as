@@ -7,6 +7,7 @@
 
 use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand};
 use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi};
+use std::collections::HashSet;
 
 use crate::emit_walker::EmitWalker;
 use crate::stdlib_lowering::ArgConvention;
@@ -43,7 +44,7 @@ impl EmitWalker {
         // PA-r16-007-registry-runtime-args (#1062): stdlib trait method lowering with
         // arg-convention awareness. Literal recipes skip arg-marshalling entirely;
         // SysVRegs recipes fall through to arg-marshalling then splice.
-        let mut sysv_recipe: Option<Vec<Instruction>> = None;
+        let mut sysv_recipe: Option<crate::stdlib_lowering::LoweringRecipe> = None;
         if let Some((trait_name, method_name)) = resolve_stdlib_trait_method(&target_name) {
             if let Some(recipe_result) = crate::stdlib_lowering::lower_stdlib_method(
                 &trait_name,
@@ -57,9 +58,33 @@ impl EmitWalker {
                         ArgConvention::Literal => {
                             // Literal path: splice instructions and return immediately,
                             // skipping arg-marshalling and Call+Ret.
-                            for (i, inst) in recipe.instructions.into_iter().enumerate() {
+                            // PA-r16-007 (#1066): Handle local labels by mangling and registering.
+                            let mangle = |local: &str| {
+                                format!("__recipe_{}_{}", lambda_node_id.get(), local)
+                            };
+                            let label_names: HashSet<&str> =
+                                recipe.labels.iter().map(|(n, _)| *n).collect();
+
+                            for (i, mut inst) in recipe.instructions.into_iter().enumerate() {
+                                // Rewrite label refs in operands
+                                for op in inst.operands.iter_mut() {
+                                    if let Operand::LabelRef { name, .. } = op {
+                                        if label_names.contains(name.as_str()) {
+                                            *name = mangle(name);
+                                        }
+                                    }
+                                }
+
                                 let iid = IrNodeId::new(lambda_node_id.get() * 16 + (i as u32) + 1)
                                     .expect("stdlib recipe virtual id");
+
+                                // Register this instruction's label bindings BEFORE emit_inst
+                                for (local_name, idx) in &recipe.labels {
+                                    if *idx == i {
+                                        self.state.insert_label(mangle(local_name), iid);
+                                    }
+                                }
+
                                 self.emit_inst(iid, inst);
                             }
                             return;
@@ -67,7 +92,7 @@ impl EmitWalker {
                         ArgConvention::SysVRegs => {
                             // SysVRegs path: stash recipe, fall through to arg-marshalling,
                             // then splice and return.
-                            sysv_recipe = Some(recipe.instructions);
+                            sysv_recipe = Some(recipe);
                         }
                     },
                     Err(crate::stdlib_lowering::StdlibLoweringError::NonLiteralArg {
@@ -150,10 +175,33 @@ impl EmitWalker {
 
         // If we have a stashed SysVRegs recipe, splice it now and return
         // (skipping Call+Ret emission).
-        if let Some(recipe_instrs) = sysv_recipe {
-            for (i, inst) in recipe_instrs.into_iter().enumerate() {
+        if let Some(recipe) = sysv_recipe {
+            // PA-r16-007 (#1066): Handle local labels for SysVRegs recipes too.
+            let mangle = |local: &str| {
+                format!("__recipe_{}_{}", lambda_node_id.get(), local)
+            };
+            let label_names: HashSet<&str> = recipe.labels.iter().map(|(n, _)| *n).collect();
+
+            for (i, mut inst) in recipe.instructions.into_iter().enumerate() {
+                // Rewrite label refs in operands
+                for op in inst.operands.iter_mut() {
+                    if let Operand::LabelRef { name, .. } = op {
+                        if label_names.contains(name.as_str()) {
+                            *name = mangle(name);
+                        }
+                    }
+                }
+
                 let iid = IrNodeId::new(lambda_node_id.get() * 16 + 100 + (i as u32) + 1)
                     .expect("stdlib SysVRegs recipe virtual id");
+
+                // Register this instruction's label bindings BEFORE emit_inst
+                for (local_name, idx) in &recipe.labels {
+                    if *idx == i {
+                        self.state.insert_label(mangle(local_name), iid);
+                    }
+                }
+
                 self.emit_inst(iid, inst);
             }
             return;  // Skip Call+Ret block

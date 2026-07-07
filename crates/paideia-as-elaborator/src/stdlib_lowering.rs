@@ -57,6 +57,14 @@ pub struct LoweringRecipe {
     /// Argument-passing convention: whether args are baked into operands (Literal)
     /// or pre-marshalled into SysV registers (SysVRegs).
     pub arg_convention: ArgConvention,
+    /// Local-label declarations for backward/forward jumps inside the recipe.
+    /// Each entry is (label_name, index_into_instructions) — the label aliases
+    /// the IrNodeId assigned to `instructions[index]` at splice time.
+    ///
+    /// PA-r16-007 (#1066): enables loop-shaped recipes like ipv4_checksum.
+    /// Labels are per-recipe and get mangled with the caller's lambda_node_id
+    /// at splice time to prevent collisions across recipe invocations.
+    pub labels: Vec<(&'static str, usize)>,
 }
 
 /// Look up the lowering recipe for `(trait_name, method_name)`.
@@ -95,6 +103,7 @@ pub fn lower_stdlib_method(
                     mode,
                 }],
                 arg_convention: ArgConvention::Literal,
+                labels: vec![],
             }))
         }
         ("PerCpuOps", "percpu_inc") => {
@@ -143,6 +152,7 @@ pub fn lower_stdlib_method(
                     mode,
                 }],
                 arg_convention: ArgConvention::Literal,
+                labels: vec![],
             }))
         }
         ("PerCpuOps", "percpu_add") => {
@@ -202,6 +212,7 @@ pub fn lower_stdlib_method(
                     mode,
                 }],
                 arg_convention: ArgConvention::Literal,
+                labels: vec![],
             }))
         }
         ("MmioOps", "mmio_read_u32") => {
@@ -248,6 +259,7 @@ pub fn lower_stdlib_method(
                     mode,
                 }],
                 arg_convention: ArgConvention::Literal,
+                labels: vec![],
             }))
         }
         ("MmioOps", "mmio_write_u32") => {
@@ -304,6 +316,7 @@ pub fn lower_stdlib_method(
                     mode,
                 }],
                 arg_convention: ArgConvention::Literal,
+                labels: vec![],
             }))
         }
         // BytesOps typed accessors: SysVRegs convention
@@ -329,6 +342,7 @@ pub fn lower_stdlib_method(
                     mode,
                 }],
                 arg_convention: ArgConvention::SysVRegs,
+                labels: vec![],
             }))
         }
         ("BytesOps", "get_u16_le") => {
@@ -352,6 +366,7 @@ pub fn lower_stdlib_method(
                     mode,
                 }],
                 arg_convention: ArgConvention::SysVRegs,
+                labels: vec![],
             }))
         }
         ("BytesOps", "get_u16_be") => {
@@ -391,6 +406,7 @@ pub fn lower_stdlib_method(
                     },
                 ],
                 arg_convention: ArgConvention::SysVRegs,
+                labels: vec![],
             }))
         }
         ("BytesOps", "get_u32_le") => {
@@ -414,6 +430,7 @@ pub fn lower_stdlib_method(
                     mode,
                 }],
                 arg_convention: ArgConvention::SysVRegs,
+                labels: vec![],
             }))
         }
         ("BytesOps", "get_u32_be") => {
@@ -450,6 +467,7 @@ pub fn lower_stdlib_method(
                     },
                 ],
                 arg_convention: ArgConvention::SysVRegs,
+                labels: vec![],
             }))
         }
         ("BytesOps", "get_u64_le") => {
@@ -473,6 +491,7 @@ pub fn lower_stdlib_method(
                     mode,
                 }],
                 arg_convention: ArgConvention::SysVRegs,
+                labels: vec![],
             }))
         }
         ("BytesOps", "get_u64_be") => {
@@ -509,6 +528,7 @@ pub fn lower_stdlib_method(
                     },
                 ],
                 arg_convention: ArgConvention::SysVRegs,
+                labels: vec![],
             }))
         }
         ("BytesOps", "put_u8") => {
@@ -546,6 +566,7 @@ pub fn lower_stdlib_method(
                     },
                 ],
                 arg_convention: ArgConvention::SysVRegs,
+                labels: vec![],
             }))
         }
         ("BytesOps", "put_u16_le") => {
@@ -583,6 +604,7 @@ pub fn lower_stdlib_method(
                     },
                 ],
                 arg_convention: ArgConvention::SysVRegs,
+                labels: vec![],
             }))
         }
         ("BytesOps", "put_u16_be") => {
@@ -633,6 +655,7 @@ pub fn lower_stdlib_method(
                     },
                 ],
                 arg_convention: ArgConvention::SysVRegs,
+                labels: vec![],
             }))
         }
         ("BytesOps", "put_u32_le") => {
@@ -670,6 +693,7 @@ pub fn lower_stdlib_method(
                     },
                 ],
                 arg_convention: ArgConvention::SysVRegs,
+                labels: vec![],
             }))
         }
         ("BytesOps", "put_u32_be") => {
@@ -717,6 +741,7 @@ pub fn lower_stdlib_method(
                     },
                 ],
                 arg_convention: ArgConvention::SysVRegs,
+                labels: vec![],
             }))
         }
         ("BytesOps", "put_u64_le") => {
@@ -754,6 +779,7 @@ pub fn lower_stdlib_method(
                     },
                 ],
                 arg_convention: ArgConvention::SysVRegs,
+                labels: vec![],
             }))
         }
         ("BytesOps", "put_u64_be") => {
@@ -801,6 +827,54 @@ pub fn lower_stdlib_method(
                     },
                 ],
                 arg_convention: ArgConvention::SysVRegs,
+                labels: vec![],
+            }))
+        }
+        // PA-r16-007 (#1066): Test recipe demonstrating loop pattern with local labels.
+        // Recipe: mov rax, 3; loop_top: dec rax; jnz loop_top
+        #[cfg(test)]
+        ("TestLoopOps", "test_countdown") => {
+            use paideia_as_ir::instruction::Cond;
+            let mut mov_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            mov_ops.push(Operand::Reg(abi::RAX));
+            mov_ops.push(Operand::Imm64(3));
+
+            let mut dec_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            dec_ops.push(Operand::Reg(abi::RAX));
+
+            let mut jcc_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            jcc_ops.push(Operand::LabelRef {
+                name: "loop_top".to_string(),
+                addend: 0,
+            });
+
+            Some(Ok(LoweringRecipe {
+                instructions: vec![
+                    Instruction {
+                        mnemonic: Mnemonic::Mov,
+                        operands: mov_ops,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                    },
+                    Instruction {
+                        mnemonic: Mnemonic::Dec,
+                        operands: dec_ops,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                    },
+                    Instruction {
+                        mnemonic: Mnemonic::Jcc(Cond::Ne),
+                        operands: jcc_ops,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                    },
+                ],
+                arg_convention: ArgConvention::Literal,
+                // loop_top label aliases instruction at index 1 (the Dec)
+                labels: vec![("loop_top", 1)],
             }))
         }
         _ => None,
@@ -1134,6 +1208,7 @@ mod tests {
                 mode: InstrMode::Mode64,
             }],
             arg_convention: ArgConvention::SysVRegs,
+            labels: vec![],
         };
 
         // Verify structure
@@ -1502,5 +1577,56 @@ mod tests {
                 width: IntWidth::W64
             }
         );
+    }
+
+    // PA-r16-007 (#1066): Tests for label support in recipes
+
+    #[test]
+    fn test_loop_ops_countdown_recipe_has_correct_shape() {
+        // Verify the test countdown recipe has the expected structure with labels.
+        let arena = IrArena::new();
+        let recipe = lower_stdlib_method("TestLoopOps", "test_countdown", InstrMode::Mode64, &[], &arena)
+            .expect("test_countdown recipe should exist")
+            .expect("test_countdown lowering should succeed");
+
+        // Verify structure: 3 instructions
+        assert_eq!(recipe.instructions.len(), 3);
+
+        // Verify mnemonics
+        assert_eq!(recipe.instructions[0].mnemonic, Mnemonic::Mov);
+        assert_eq!(recipe.instructions[1].mnemonic, Mnemonic::Dec);
+        assert_eq!(
+            recipe.instructions[2].mnemonic,
+            Mnemonic::Jcc(paideia_as_ir::instruction::Cond::Ne)
+        );
+
+        // Verify arg_convention is Literal
+        assert_eq!(recipe.arg_convention, ArgConvention::Literal);
+
+        // Verify labels: should have one label "loop_top" at index 1
+        assert_eq!(recipe.labels.len(), 1);
+        assert_eq!(recipe.labels[0].0, "loop_top");
+        assert_eq!(recipe.labels[0].1, 1);
+    }
+
+    #[test]
+    fn test_countdown_recipe_jcc_references_local_label() {
+        // Verify the Jcc operand in the test countdown recipe references the local label.
+        let arena = IrArena::new();
+        let recipe = lower_stdlib_method("TestLoopOps", "test_countdown", InstrMode::Mode64, &[], &arena)
+            .expect("test_countdown recipe should exist")
+            .expect("test_countdown lowering should succeed");
+
+        // Check the Jcc instruction (index 2) has a LabelRef operand
+        let jcc_inst = &recipe.instructions[2];
+        assert_eq!(jcc_inst.operands.len(), 1);
+
+        match &jcc_inst.operands[0] {
+            Operand::LabelRef { name, addend } => {
+                assert_eq!(name, "loop_top");
+                assert_eq!(*addend, 0);
+            }
+            _ => panic!("expected LabelRef operand in Jcc"),
+        }
     }
 }
