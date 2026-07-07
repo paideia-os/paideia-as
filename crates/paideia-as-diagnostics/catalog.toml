@@ -1046,6 +1046,15 @@ description = "Issue #1056 (pa-r16-007-followup): stdlib trait methods like PerC
 since = "0.16.0"
 deprecated = false
 
+[diagnostic.T0552]
+severity = "error"
+category = "type"
+title = "Unsupported struct field type"
+brief = "struct field type not recognized"
+description = "Issue #1070 (PA-r17-010a): Struct field types must be one of the supported primitive types (u8, i8, u16, i16, u32, i32, u64, i64) or a pointer type (*T). Unsupported types include floats (f32, f64), bools, or user-defined types. Use a supported type instead."
+since = "0.17.0"
+deprecated = false
+
 [diagnostic.E0019]
 severity = "error"
 category = "lexer"

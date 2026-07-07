@@ -23,7 +23,7 @@ use paideia_as_ast::AstArena;
 use paideia_as_diagnostics::{
     Catalog, DiagnosticSink, HumanRenderer, HumanSink, SarifEmitter, Severity, SourceMap, VecSink,
 };
-use paideia_as_elaborator::lower_ast_to_ir;
+use paideia_as_elaborator::{lower_ast_to_ir, build_struct_registry};
 use paideia_as_lexer::{Lexer, SourceText};
 use paideia_as_parser::Parser;
 
@@ -79,8 +79,11 @@ pub fn run(input: &Path, dump_ir: bool) -> ExitCode {
         }
     }
 
+    // PA-r17-010a (#1070): Build struct registry before lowering.
+    let registry = build_struct_registry(&arena, &source_map, &mut sink);
+
     // Lower (structural, diagnostics emitted for @jump_table validation).
-    let lowering = lower_ast_to_ir(&arena, &source_map, &mut sink);
+    let lowering = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry);
 
     if dump_ir {
         let dump = paideia_as_ir::pretty::dump(&lowering.ir);

@@ -40,7 +40,7 @@ use paideia_as_diagnostics::{
 };
 use paideia_as_elaborator::{
     CapWalker, EffectRowWalker, EmitWalker, LinearityWalker, UnsafeWalker, lower_ast_to_ir,
-    placeholder_for, validate_file_module_mapping,
+    build_struct_registry, placeholder_for, validate_file_module_mapping,
 };
 use paideia_as_emitter_elf::{
     Arch, ElfWriter, EmitterError, Kind, PVH_DEFAULT_ENTRY_ADDR, SymKind, SymbolEntry,
@@ -566,8 +566,12 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
         }
     }
 
+    // PA-r17-010a (#1070): Build struct registry before lowering.
+    // This enables populate_record_layout_table to look up struct types during RecordCons lowering.
+    let registry = build_struct_registry(&arena, &source_map, &mut sink);
+
     // If there are any errors so far, do not emit anything downstream.
-    let mut lowering = lower_ast_to_ir(&arena, &source_map, &mut sink);
+    let mut lowering = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry);
 
     // Phase-5-m1-001: Extract literal values from AST and populate the IR's literal_values table.
     // This enables emit_walker to look up literal values during lambda lowering.
