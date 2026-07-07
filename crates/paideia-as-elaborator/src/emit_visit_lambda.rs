@@ -221,6 +221,69 @@ impl EmitWalker {
                         }
                         // App has structure: [callee, arg0, arg1, ...]
 
+                        // PA-R17-015: Detect FieldAccess pattern for single-instruction RIP-relative call.
+                        // Matches: (vops.read)(f, buf, len) where vops is module-level.
+                        // Optimizes from mov+call (2 instructions) to single call [rip + sym + addend].
+                        if app_children.len() >= 1 {
+                            let callee_id = app_children[0];
+                            if let Some(callee_node) = arena.get(callee_id) {
+                                if callee_node.kind == IrKind::FieldAccess {
+                                    // Callee is a field access; check if it's a module-level symbol.fnptr
+                                    let fa_children = arena.children(callee_id);
+                                    if fa_children.len() >= 1 {
+                                        let receiver_id = fa_children[0];
+                                        if let Some(receiver_node) = arena.get(receiver_id) {
+                                            if receiver_node.kind == IrKind::Var {
+                                                // Receiver is a Var; extract its name.
+                                                if let Some(receiver_name) =
+                                                    arena.binding_names().get(receiver_id)
+                                                {
+                                                    // Check: NOT in local_bindings (rule out stack vars).
+                                                    if !self.state.local_bindings.contains(receiver_name) {
+                                                        // Check: IS in module symbols.
+                                                        if arena.symbols().lookup_by_name(receiver_name).is_some() {
+                                                            // Get field access metadata (type_id, field_index).
+                                                            if let Some(fa_info) =
+                                                                arena.field_access_info().get(callee_id)
+                                                            {
+                                                                // Look up the record layout to get field offset in bytes.
+                                                                let type_id = fa_info.type_id;
+                                                                let field_index = fa_info.field_index as usize;
+                                                                if let Some(layout) =
+                                                                    self.state.record_layouts.get(&type_id)
+                                                                {
+                                                                    if field_index < layout.fields.len() {
+                                                                        let field_offset =
+                                                                            layout.fields[field_index].offset as i32;
+                                                                        let main_id = IrNodeId::new(
+                                                                            lambda_node_id.get() * 2,
+                                                                        )
+                                                                        .expect("main instr virtual id");
+                                                                        self.record_lambda_entry(
+                                                                            lambda_node_id,
+                                                                            main_id,
+                                                                        );
+                                                                        self.emit_indirect_call_via_mem_rip_sym(
+                                                                            lambda_node_id,
+                                                                            receiver_name.to_string(),
+                                                                            field_offset,
+                                                                            &app_children[1..],
+                                                                            arena,
+                                                                        );
+                                                                        return;
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         // PA-r17-004: 3-way dispatch for call sites: local binding, module symbol, or cross-file.
                         if app_children.len() >= 1 {
                             let _callee_id = app_children[0];

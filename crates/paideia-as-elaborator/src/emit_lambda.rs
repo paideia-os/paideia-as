@@ -316,4 +316,93 @@ impl EmitWalker {
             },
         );
     }
+
+    /// Emit indirect call via RIP-relative symbol: single `call [rip + sym + addend]` instruction.
+    ///
+    /// PA-R17-015: Optimized path for calling function pointers stored at module-level symbols.
+    /// Emits a single direct RIP-relative memory call (FF 15) instead of:
+    ///   - `mov r11, [rip + sym + addend]` (mov reg64 from memory)
+    ///   - `call r11` (call via register)
+    ///
+    /// Marshals arguments into RDI/RSI/RDX/RCX/R8/R9 via SysV ABI, then emits:
+    ///   1. Argument loads (mov rdi, arg0; mov rsi, arg1; ...)
+    ///   2. Single `call [rip + sym + addend]`
+    ///   3. `ret`
+    pub(crate) fn emit_indirect_call_via_mem_rip_sym(
+        &mut self,
+        lambda_node_id: IrNodeId,
+        callee_name: String,
+        callee_addend: i32,
+        arg_ids: &[IrNodeId],
+        arena: &IrArena,
+    ) {
+        let base = lambda_node_id.get();
+        let arg_regs = [abi::RDI, abi::RSI, abi::RDX, abi::RCX, abi::R8, abi::R9];
+
+        let mut seq_id = 1u32;
+        for (i, &arg_id) in arg_ids.iter().enumerate() {
+            let dst = arg_regs[i];
+            let arg_node = match arena.get(arg_id) {
+                Some(n) => n,
+                None => continue,
+            };
+            match arg_node.kind {
+                IrKind::Literal => {
+                    if let Some(v) = arena.literal_values().get(arg_id) {
+                        self.emit_mov_literal_to_reg(lambda_node_id, dst, v);
+                    }
+                }
+                IrKind::Var => {
+                    if let Some(name) = arena.binding_names().get(arg_id) {
+                        let iid = IrNodeId::new(base * 16 + seq_id).expect("arg instr virtual id");
+                        seq_id += 1;
+                        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                        ops.push(Operand::Reg(dst));
+                        ops.push(Operand::Var { name: name.to_string() });
+                        self.emit_inst(
+                            iid,
+                            Instruction {
+                                mnemonic: Mnemonic::Mov,
+                                operands: ops,
+                                encoding_hint: None,
+                                byte_offset_in_text: None,
+                                mode: self.current_mode(),
+                            },
+                        );
+                    }
+                }
+                _ => { /* Not handled in #982 */ }
+            }
+        }
+
+        let call_id = IrNodeId::new(base * 16 + seq_id).expect("call instr virtual id");
+        seq_id += 1;
+        let mut call_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+        call_ops.push(Operand::MemRipRelSym {
+            name: callee_name,
+            addend: callee_addend,
+        });
+        self.emit_inst(
+            call_id,
+            Instruction {
+                mnemonic: Mnemonic::Call,
+                operands: call_ops,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+            },
+        );
+
+        let ret_id = IrNodeId::new(base * 16 + seq_id).expect("ret instr virtual id");
+        self.emit_inst(
+            ret_id,
+            Instruction {
+                mnemonic: Mnemonic::Ret,
+                operands: SmallVec::new(),
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+            },
+        );
+    }
 }

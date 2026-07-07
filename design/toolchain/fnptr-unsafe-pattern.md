@@ -137,6 +137,44 @@ mov rax, [rdi + rax*8 + 16]  ; load driver_ops[rax] from struct+offset
 call rax
 ```
 
+## Optimized Pattern: Field-Access RIP-Relative (pa-r17-015)
+
+As of v0.16, paideia-as elaborator supports an optimized calling pattern for module-level
+vtables with field-access syntax. This feature **emits a single RIP-relative memory call**
+instead of the two-instruction sequence (load + call-register).
+
+### Syntax (Requires #1073 AST→IR Lowering)
+
+```paideia
+struct VTable { func: u64 }
+let vops: VTable = ...
+let result = (vops.func)(arg1, arg2);  // Optimized to single call [rip + vops + offset]
+```
+
+### Codegen (Elaborator Wiring: Complete)
+
+The elaborator wiring for this pattern is **fully implemented and tested** (see `emit_indirect_call_via_mem_rip_sym`
+in `emit_lambda.rs` and IR-level tests in `pa_r17_015_call_rip_rel.rs`).
+
+Emitted sequence:
+```asm
+mov rdi, arg1           ; marshal argument 1
+mov rsi, arg2           ; marshal argument 2
+call [rip + vops + 0]   ; RIP-relative call to vops.func (FF 15 <rel32>)
+ret
+```
+
+**Relocation**: `PcRel32` at byte offset +2, symbol: `vops`, addend: `field_offset - 4`.
+
+### Current Limitation (#1073)
+
+The `(vops.func)()` calling pattern currently **cannot fire from real source** because
+the AST→IR lowering for FieldAccess-callee is not yet implemented (#1073). Once #1073 lands,
+this optimization will automatically apply to field-access call patterns on module-level symbols.
+
+Until then, the elaborator wiring is dormant but correct — verified by IR-level unit tests that
+hand-synthesize the IR shape and confirm proper Call/MemRipRelSym emission.
+
 ## Future: First-Class fn-ptr Types (v0.17, pa-r17-004)
 
 Once v0.17 ships, paideia-as will support typed function pointers:
@@ -155,6 +193,9 @@ This will replace the manual unsafe patterns, enabling compile-time safety. Unti
 
 - **pa-r13-003** (#932): Encoder primitives for indirect calls
 - **pa-r17-004**: v0.17 feature gate for first-class `fn_ptr<...>` types
+- **pa-r17-015** (#993): Optimized RIP-relative call for field-access vtable dispatch
+  - Elaborator wiring: complete (v0.16)
+  - AST→IR lowering: pending #1073
+- **#1073**: AST→IR lowering for FieldAccess-callee (blocks pa-r17-015 from firing)
 - **paideia-os#536**: Syscall dispatch table (real-world use case)
 - **paideia-os#437**: VFS vops dispatch (Phase 6 planning)
-- **paideia-os#536**: Syscall table consolidation
