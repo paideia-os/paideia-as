@@ -1,0 +1,10 @@
+// PA-r17-003b (#1038): T0535 test - parameter type mismatch
+//
+// Fixture: Function pointer with mismatched parameter types.
+// Lambda expects u64, but binding is typed (u32) -> u32.
+// Expected: T0535 diagnostic (parameter type mismatch) in pre-emit pass.
+
+module T0535ParamMismatch = structure {
+  let takes_u64 : (u64) -> u64 = fn(x: u64) -> x
+  pub let mismatched : (u32) -> u32 = &takes_u64
+}

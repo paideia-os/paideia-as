@@ -1,0 +1,10 @@
+// PA-r17-003b (#1038): T0535 test - compatible signature (should accept)
+//
+// Fixture: Function pointer with compatible signature.
+// Lambda has matching arity and parameter types.
+// Expected: No T0535 diagnostic; assignment succeeds.
+
+module T0535Compatible = structure {
+  let takes_u64 : (u64) -> u64 = fn(x: u64) -> x
+  pub let compatible : (u64) -> u64 = &takes_u64
+}

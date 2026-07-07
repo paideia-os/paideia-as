@@ -120,18 +120,22 @@ pub fn check_fn_ptr_assignment(
     }
 
     // Check return type (invariant).
-    if let Err(_e) = unify(types, subst, target_ret, source_ret) {
-        diags.push(
-            Diagnostic::error(t_code(T_FN_PTR_SIG_MISMATCH))
-                .message(format!(
-                    "return type mismatch: expected {}, found {}",
-                    describe_fn_sig_type(types, target_ret),
-                    describe_fn_sig_type(types, source_ret)
-                ))
-                .with_span(span)
-                .finish(),
-        );
-        return diags;
+    // Phase-1: skip check if source return type is Top (placeholder).
+    let source_ret_ty = types.get(source_ret);
+    if !matches!(source_ret_ty, Type::Top) {
+        if let Err(_e) = unify(types, subst, target_ret, source_ret) {
+            diags.push(
+                Diagnostic::error(t_code(T_FN_PTR_SIG_MISMATCH))
+                    .message(format!(
+                        "return type mismatch: expected {}, found {}",
+                        describe_fn_sig_type(types, target_ret),
+                        describe_fn_sig_type(types, source_ret)
+                    ))
+                    .with_span(span)
+                    .finish(),
+            );
+            return diags;
+        }
     }
 
     // Check effect subset (source's effects must be subset of target's).
