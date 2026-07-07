@@ -98,6 +98,24 @@ if let Some((trait_name, method_name)) = resolve_stdlib_trait_method(&target_nam
 - **Operand handling**: Requires literal-extraction at compile time; both `addr` must fit in `i32` range.
 - **TSO/Ordering**: Bare MOV is TSO-strong on WB memory; MMIO regions may require explicit fences (deferred analysis — see note below).
 
+### BytesOps Typed Accessors (PA-r16-007-followup, #1063)
+
+- **Trait**: `BytesOps` (typed buffer byte accessors with SysV arg marshalling).
+- **Methods**:
+  - Getters: `get_u8(buf, off) -> u8`, `get_u16_le(buf, off) -> u16`, `get_u32_le(buf, off) -> u32`, `get_u32_be(buf, off) -> u32`, `get_u64_le(buf, off) -> u64`, `get_u64_be(buf, off) -> u64`.
+  - Setters: `put_u8(buf, off, val) -> ()`, `put_u16_le(buf, off, val)`, `put_u32_le(buf, off, val)`, `put_u32_be(buf, off, val)`, `put_u64_le(buf, off, val)`, `put_u64_be(buf, off, val)`.
+- **Arg Convention**: `ArgConvention::SysVRegs` — args are pre-marshalled into registers before recipe splicing (unlike Literal recipes above).
+  - arg0 (buf) → RDI
+  - arg1 (off) → RSI  
+  - arg2 (val) → RDX (setters only)
+- **Getters**:
+  - LE variants (u8, u16_le, u32_le, u64_le): `MovSized{width} [RAX], MemSib{RDI, Some(RSI), X1, 0}` (load into RAX, result in return register).
+  - BE variants (u32_be, u64_be): load + `Bswap32`/`Bswap` (byte-swap after load).
+- **Setters**:
+  - LE variants (u8, u16_le, u32_le, u64_le): `Add RDI, RSI` (fold offset) + `MovSized{width} [RDI+0], RDX` (store).
+  - BE variants (u32_be, u64_be): `Bswap32`/`Bswap` [RDX] (byte-swap value) + `Add RDI, RSI` + `MovSized{width} [RDI+0], RDX`.
+- **Encoder Workaround**: `encode_mov_sized` does not currently support `[MemSib{Some(index)}, Reg]` writes (indexed store). For setter recipes, offset is folded by `Add RDI, RSI` into the base, reducing the address to `[RDI+0]` with no index.
+
 ## Explicitly Deferred
 
 ### MmioOps Variants (u8, u16, u64)
@@ -118,10 +136,19 @@ if let Some((trait_name, method_name)) = resolve_stdlib_trait_method(&target_nam
 - **Rationale**: `percpu_inc` and `percpu_add` cover typical counter uses; `read`/`write`/`dec` deferred to Phase 18 m3+.
 - **Mnemonics**: `gs:` prefix + `mov`/`sub` recipes.
 
-### 2. BytesOps (future issue)
+### 2. BytesOps Extended Methods (future issue)
+
 - **Methods**: `memcpy`, internal `rep movsb`, `rep stosb`.
 - **Blocker**: requires operand-source resolution (loading `rcx`, `rdi`, `rsi` from arguments).
 - **Mnemonics**: `mov` (args→registers) + `rep movsb`/`rep stosb`.
+
+### 2a. BytesOps::get_u16_be / put_u16_be (deferred to #1065)
+
+- **Reason**: Requires `Bswap16` primitive, which does not yet exist in paideia-as-ir.
+- **Blocker**: #1065 (Bswap16 instruction addition).
+- **Mnemonics** (once Bswap16 available):
+  - `get_u16_be`: `MovSized{W16} [RAX], MemSib + Bswap16 [RAX]`.
+  - `put_u16_be`: `Bswap16 [RDX] + Add RDI, RSI + MovSized{W16} [RDI+0], RDX`.
 
 ### 3. ChecksumOps (future issue)
 - **Methods**: `crc32b`, `crc32d`.
@@ -163,16 +190,17 @@ To add a new stdlib trait method:
 
 ## Baselines
 
-- **paideia-as-ir**: Mnemonic::{Pause, MovSized, LockInc, LockAdd} variants.
+- **paideia-as-ir**: Mnemonic::{Pause, MovSized, LockInc, LockAdd, Add, Bswap, Bswap32} variants.
 - **paideia-as-elaborator**:
-  - stdlib_lowering module: ~280 lines (PauseOps + PerCpuOps + MmioOps recipes).
-    - Unit tests: 11 tests (1 Pause, 3 PerCpuOps, 4 MmioOps, 3 negative/edge cases).
-  - emit_call.rs: resolver + early return (unchanged from #1056).
+  - stdlib_lowering module: ~500 lines (PauseOps + PerCpuOps + MmioOps + BytesOps recipes).
+    - Unit tests: 23 tests (1 Pause, 3 PerCpuOps, 4 MmioOps, 12 BytesOps, 3 negative/edge cases).
+  - emit_call.rs: resolver + early return (unchanged from #1056, extended to support ArgConvention::SysVRegs).
   - lib.rs: module declaration (unchanged).
 - **Integration tests**:
   - `stdlib_percpu_lowering.rs`: 9 test suites (PerCpuOps coverage).
   - `stdlib_mmio_lowering.rs`: 7 tests (MmioOps u32 read/write coverage).
-  - Total: 10+ integration suites, all passing.
+  - `stdlib_bytes_lowering.rs`: 4 tests (BytesOps get/put coverage, SysVRegs path verification).
+  - Total: 12 integration suites, all passing.
 - **Release canaries**: clean.
 
 ## Related Issues
@@ -181,8 +209,11 @@ To add a new stdlib trait method:
 - **#1036**: PerCpuOps lowering (elaborator) — percpu_inc, percpu_add recipes.
 - **#1056**: percpu_inc/percpu_add roundtrip integration tests.
 - **#1057**: MmioOps lowering (elaborator) — mmio_read_u32, mmio_write_u32 recipes.
+- **#1062**: ArgConvention enum + SysVRegs convention for pre-marshalled args.
+- **#1063**: BytesOps typed accessor lowering — 12 get/put recipes + SysVRegs integration.
+- **#1065**: Bswap16 primitive addition (blocker for BytesOps::get_u16_be, put_u16_be).
 - **#975–977**: RefcountOps, FreelistOps, BitmapOps (Phase 16 M1, deferred).
-- **Future**: PerCpuOps extended (read/write/dec), MmioOps variants (u8/u16/u64), BytesOps, ChecksumOps (v0.17+).
+- **Future**: PerCpuOps extended (read/write/dec), MmioOps variants (u8/u16/u64), BytesOps extended (memcpy), ChecksumOps (v0.17+).
 
 ## References
 
