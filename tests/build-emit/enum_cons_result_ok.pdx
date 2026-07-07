@@ -1,0 +1,7 @@
+// Phase 7 m4-003 (#1048/#1049): Enum variant constructor
+// Tests that Result::Ok(42u64) enum variant constructor lowers to EnumCons
+
+module EnumConsResultOk = structure {
+  enum Result { Ok(u64), Err(u64) }
+  pub let r : Result = Result::Ok(42u64)
+}

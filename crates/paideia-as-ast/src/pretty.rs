@@ -6,7 +6,7 @@
 //! [`print_type`], and [`print_pattern`].
 
 use crate::{
-    AstArena, ExprData, GenericParam, HandlerArm, ItemData, NodeId, PatternData, StmtData, TypeData,
+    AstArena, EnumVariant, ExprData, GenericParam, HandlerArm, ItemData, NodeId, PatternData, StmtData, TypeData,
 };
 
 /// Format a single GenericParam for display.
@@ -14,6 +14,25 @@ fn format_generic_param(p: &GenericParam) -> String {
     match p {
         GenericParam::Type { name, .. } => format!("{}", name),
         GenericParam::Lifetime { name } => format!("'{}", name),
+    }
+}
+
+/// Format a single EnumVariant for display.
+fn format_enum_variant(v: &EnumVariant) -> String {
+    match v {
+        EnumVariant::Unit { name } => format!("{}(unit)", name),
+        EnumVariant::Tuple { name, payload } => {
+            let payload_str = payload.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(", ");
+            format!("{}(tuple[{}])", name, payload_str)
+        }
+        EnumVariant::Record { name, fields } => {
+            let fields_str = fields
+                .iter()
+                .map(|(n, t)| format!("{}:{}", n, t))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{}(record{{{}}})", name, fields_str)
+        }
     }
 }
 
@@ -190,7 +209,7 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
         } => {
             let variants_str = variants
                 .iter()
-                .map(|id| id.to_string())
+                .map(format_enum_variant)
                 .collect::<Vec<_>>()
                 .join(", ");
             format!(

@@ -119,6 +119,7 @@ pub fn lower_ast_to_ir(
     source_map: &SourceMap,
     sink: &mut dyn DiagnosticSink,
     registry: &crate::StructRegistry,
+    enum_registry: &crate::EnumRegistry,
 ) -> LoweringResult {
     let mut ir = IrArena::with_capacity(ast.len());
     let mut ast_to_ir = HashMap::with_capacity(ast.len());
@@ -599,6 +600,12 @@ pub fn lower_ast_to_ir(
     // field indices in the registry, and insert (FieldAccess_ir_id -> FieldAccessInfo)
     // mappings into field_access_info side-table.
     populate_field_access_info(&ast, &mut ir, &ast_to_ir, registry, source_map, sink);
+
+    // Phase 7 m4-003 (#1048/#1049): Populate EnumConsInfoTable for EnumCons expressions.
+    // Walk all AST nodes with ExprCall whose callee is an ExprPath with exactly 2 segments,
+    // look up the enum type and variant index in the registry, rewrite App to EnumCons,
+    // and insert (EnumCons_ir_id -> EnumConsInfo) mappings into enum_cons_info side-table.
+    populate_enum_cons_info(&ast, &mut ir, &ast_to_ir, enum_registry, source_map, sink);
 
     // Phase-5-m1-001: Literal values are populated by cmd_build.rs Phase-5-m1-001 walk
     // before emit_walker::walk() runs. No need to duplicate that work here.
@@ -1275,6 +1282,144 @@ fn populate_field_access_info(
     }
 }
 
+/// Phase 7 m4-003 (#1048/#1049): Populate EnumConsInfoTable for EnumCons expressions.
+///
+/// Walks all AST Call nodes. For each Call whose callee is an ExprPath with exactly 2 segments:
+/// - Extracts seg0_name (enum type name) and seg1_name (variant name) from source text.
+/// - Looks up seg0_name in registry.by_name → EnumTypeId.
+/// - Looks up seg1_name in registry.variants[type_id] → variant_index.
+/// - Rewrites the IR node kind from App (placeholder) to EnumCons.
+/// - Inserts (EnumCons_ir_id -> EnumConsInfo) into enum_cons_info side-table.
+///
+/// Emits T0554 diagnostic on: known enum but unknown variant.
+/// Silently skips on: seg0 not in enum registry (that's a plain call).
+fn populate_enum_cons_info(
+    ast: &AstArena,
+    ir: &mut IrArena,
+    ast_to_ir: &HashMap<NodeId, IrNodeId>,
+    registry: &crate::EnumRegistry,
+    source_map: &SourceMap,
+    sink: &mut dyn DiagnosticSink,
+) {
+    // Walk all AST nodes with NodeKind::ExprCall
+    for ast_node_id in 1..=ast.len() {
+        let ast_id = match NodeId::new(ast_node_id as u32) {
+            Some(nid) => nid,
+            None => continue,
+        };
+
+        let ast_node = match ast.get(ast_id) {
+            Some(n) => n,
+            None => continue,
+        };
+
+        if ast_node.kind != NodeKind::ExprCall {
+            continue;
+        }
+
+        // Get the ExprData::Call to access callee
+        let callee_id = match ast.expr_data(ast_id) {
+            Some(paideia_as_ast::ExprData::Call { callee, .. }) => callee,
+            _ => continue,
+        };
+
+        // Check if callee is an ExprPath
+        let callee_node = match ast.get(*callee_id) {
+            Some(n) => n,
+            None => continue,
+        };
+
+        if callee_node.kind != NodeKind::ExprPath {
+            // Not a path; skip silently (could be a computed function)
+            continue;
+        }
+
+        // Extract path segments
+        let segments = match ast.expr_data(*callee_id) {
+            Some(paideia_as_ast::ExprData::Path { segments }) => segments,
+            _ => continue,
+        };
+
+        // We're looking for exactly 2 segments: EnumType::Variant
+        if segments.len() != 2 {
+            continue;
+        }
+
+        // Extract segment names from source text
+        let seg0_name = match extract_source_text_for_record_cons(ast, source_map, segments[0]) {
+            Some(name) => name,
+            None => continue,
+        };
+
+        let seg1_name = match extract_source_text_for_record_cons(ast, source_map, segments[1]) {
+            Some(name) => name,
+            None => continue,
+        };
+
+        // Look up the enum type in the registry
+        let type_id = match registry.get_by_name(&seg0_name) {
+            Some(id) => id,
+            None => {
+                // Enum type not found: skip silently (this could be a plain function call)
+                continue;
+            }
+        };
+
+        // Find the variant index
+        let variants = match registry.get_variants(type_id) {
+            Some(v) => v,
+            None => {
+                // No variants for this type: skip
+                continue;
+            }
+        };
+
+        let variant_index = match variants.iter().position(|(name, _)| name == &seg1_name) {
+            Some(idx) => idx as u32,
+            None => {
+                // Emit T0554 diagnostic: unknown variant in known enum
+                if let Some(variant_node) = ast.get(segments[1]) {
+                    if let Ok(code) = DiagnosticCode::new(Category::T, Severity::Error, 554) {
+                        let diag = Diagnostic::error(code)
+                            .message(format!(
+                                "Unknown variant '{}' in enum '{}'",
+                                seg1_name, seg0_name
+                            ))
+                            .with_span(variant_node.span)
+                            .finish();
+                        let _ = sink.emit(diag);
+                    }
+                }
+                continue;
+            }
+        };
+
+        // Get the corresponding IR node ID for this Call
+        let ir_call_id = match ast_to_ir.get(&ast_id) {
+            Some(id) => *id,
+            None => continue,
+        };
+
+        // Rewrite the IR node from App to EnumCons
+        // We need to mutate the IR node's kind
+        if let Some(ir_node) = ir.get_mut(ir_call_id) {
+            ir_node.kind = paideia_as_ir::IrKind::EnumCons;
+        }
+
+        // Strip the callee (first child) from the children list.
+        // App node has children [callee, arg0, arg1, ...], but EnumCons should only have [arg0, arg1, ...]
+        if let Some(children) = ir.children_mut(ir_call_id) {
+            if !children.is_empty() {
+                children.remove(0);  // Remove the callee at index 0
+            }
+        }
+
+        // Insert into enum_cons_info_mut()
+        let enum_cons_info = paideia_as_ir::EnumConsInfo { type_id, variant_index };
+        ir.enum_cons_info_mut().insert(ir_call_id, enum_cons_info);
+    }
+}
+
 /// Phase 17 m6-b (#1046): Populate the LiteralValueTable for Literal expressions.
 ///
 /// Walks all AST Literal nodes and extracts their integer values from source text,
@@ -1306,7 +1451,7 @@ mod tests {
         let (source_map, mut sink) = create_test_source_map_and_sink();
         let (source_map, mut sink) = create_test_source_map_and_sink();
         let ast = AstArena::new();
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
         assert_eq!(result.ir.len(), 0);
         assert!(result.ast_to_ir.is_empty());
     }
@@ -1317,7 +1462,7 @@ mod tests {
         let (source_map, mut sink) = create_test_source_map_and_sink();
         let mut ast = AstArena::new();
         let _id = ast.alloc(NodeKind::Placeholder, span());
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
         assert_eq!(result.ir.len(), 1);
         assert_eq!(result.ast_to_ir.len(), 1);
     }
@@ -1363,7 +1508,7 @@ mod tests {
         );
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
 
         // Verify the IR contains a Let, Literal nodes, and App.
         assert_eq!(result.ir.len(), 6);
@@ -1404,7 +1549,7 @@ mod tests {
         let id2 = ast.alloc(NodeKind::ExprLiteral, span());
         let id3 = ast.alloc(NodeKind::StmtLet, span());
 
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
 
         // Verify spans match.
         let ir1 = result.ast_to_ir[&id1];
@@ -1435,7 +1580,7 @@ mod tests {
         ast.alloc(NodeKind::ExprUnsafe, span());
 
         // This should not panic.
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
         assert_eq!(result.ir.len(), 10);
     }
 
@@ -1449,7 +1594,7 @@ mod tests {
             ast.alloc(NodeKind::Placeholder, span());
         }
 
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
         assert_eq!(result.ir.len(), ast.len());
     }
 
@@ -1463,7 +1608,7 @@ mod tests {
             ast.alloc(NodeKind::Ident, span());
         }
 
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
 
         for i in 0..ast.len() {
             let id = NodeId::new((i + 1) as u32).unwrap();
@@ -1480,7 +1625,7 @@ mod tests {
         ast.alloc(NodeKind::ExprLambda, span());
         ast.alloc(NodeKind::StmtLet, span());
 
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
 
         for i in 0..result.ir.len() {
             let ir_id = IrNodeId::new((i + 1) as u32).unwrap();
@@ -1505,7 +1650,7 @@ mod tests {
         let id2 = ast.alloc(NodeKind::ExprLambda, span());
         let id3 = ast.alloc(NodeKind::StmtLet, span());
 
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
 
         // NodeId 1 should map to IrNodeId 1.
         assert_eq!(result.ast_to_ir[&id1].get(), 1);
@@ -1527,7 +1672,7 @@ mod tests {
         ast.alloc(NodeKind::ExprCall, span()); // Should map to App
         ast.alloc(NodeKind::Module, span()); // Should map to Module
 
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
 
         let id1 = NodeId::new(1).unwrap();
         let id2 = NodeId::new(2).unwrap();
@@ -1562,7 +1707,7 @@ mod tests {
         );
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
 
         // Verify we have 3 IR nodes: OperandRegister, ExprLiteral, StmtInstruction.
         assert_eq!(result.ir.len(), 3);
@@ -1627,7 +1772,7 @@ mod tests {
         );
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
 
         // Verify the assignment lowered to Store instead of App.
         let assign_ir_id = result.ast_to_ir[&assign_expr_id];
@@ -1683,7 +1828,7 @@ mod tests {
         );
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
 
         // Verify the assignment lowered to App (regular operator desugaring)
         let assign_ir_id = result.ast_to_ir[&assign_expr_id];
@@ -1729,7 +1874,7 @@ mod tests {
         );
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
 
         // Verify the assignment lowered to Store
         let assign_ir_id = result.ast_to_ir[&assign_expr_id];
@@ -1799,7 +1944,7 @@ mod tests {
         );
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
 
         // Verify the assignment lowered to Store
         let assign_ir_id = result.ast_to_ir[&assign_expr_id];
@@ -1843,7 +1988,7 @@ mod tests {
         );
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
 
         // Verify we have 4 IR nodes: 3 Literals + 1 ArrayLit.
         assert_eq!(result.ir.len(), 4);
@@ -1885,7 +2030,7 @@ mod tests {
             ast.alloc_expr(NodeKind::ExprArrayLit, span(), ExprData::ArrayLit(vec![]));
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
 
         // Verify we have 1 IR node.
         assert_eq!(result.ir.len(), 1);
@@ -1922,7 +2067,7 @@ mod tests {
         );
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
 
         // Verify we have 3 IR nodes: elem, count, repeat.
         assert_eq!(result.ir.len(), 3);
@@ -1985,7 +2130,7 @@ mod tests {
         );
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
 
         // Verify the ArrayRepeat node maps to IrKind::ArrayLit.
         let ir_repeat_id = result.ast_to_ir[&repeat_id];
@@ -2048,7 +2193,7 @@ mod tests {
         // (In a real test, we'd need to properly populate the source map with the right content)
 
         // Lower the AST with the registry
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &registry);
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &registry, &crate::EnumRegistry::empty());
 
         // Verify the record_layout_table was NOT populated because the type name lookup
         // will fail (the span content doesn't match "Pair" in the empty source map).
@@ -2084,7 +2229,7 @@ mod tests {
         let registry = StructRegistry::empty();
 
         // Lower the AST with the empty registry
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &registry);
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &registry, &crate::EnumRegistry::empty());
 
         // The lowering should complete without panic
         assert_eq!(result.ir.len(), 4); // type_name, field_name, value, record_cons
@@ -2161,7 +2306,7 @@ mod tests {
         registry.fields.insert(vops_record_id, vec![("read".to_string(), 0x08)]); // u64
 
         // Lower the AST
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &registry);
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &registry, &crate::EnumRegistry::empty());
 
         // Verify the FieldAccess IR node was created
         let field_access_ir_id = result.ast_to_ir[&field_access_id];
@@ -2184,5 +2329,146 @@ mod tests {
             Some(expected_info),
             "populate_field_access_info should have inserted the side-table entry"
         );
+    }
+
+    #[test]
+    fn populate_enum_cons_info_basic() {
+        // Phase 7 m4-003 (#1048/#1049): Test enum cons lowering and side-table population.
+        // Construct an AST with:
+        //   enum Result { Ok(u64), Err(u64) }
+        //   let r = Result::Ok(42u64)
+        // And verify that populate_enum_cons_info correctly populates the side-table.
+        use paideia_as_ir::EnumTypeId;
+        use paideia_as_diagnostics::FileId;
+
+        // Create a source_map with proper source text for extraction
+        // Source layout: "Result" (0-5) " Ok" (6-9) "42" (10-11)
+        let mut source_map = SourceMap::new();
+        let source_text = "Result Ok 42";
+        let _file = source_map.add_file(
+            std::path::PathBuf::from("test.pdx"),
+            String::from(source_text),
+        );
+        let mut sink = VecSink::new();
+        let mut ast = AstArena::new();
+
+        // Helper to create a span at a given offset with given length
+        let file_id = FileId::new(1).unwrap();
+        let make_span = |offset: u32, len: u32| {
+            paideia_as_diagnostics::Span::new(file_id, offset, len)
+        };
+
+        // Create enum: enum Result { Ok(u64), Err(u64) }
+        let enum_name_id = ast.alloc(NodeKind::Ident, make_span(0, 6)); // "Result"
+        let u64_type_id = ast.alloc(NodeKind::Placeholder, make_span(0, 1));
+
+        let ok_variant_name_id = ast.alloc(NodeKind::Ident, make_span(7, 2)); // "Ok"
+        let err_variant_name_id = ast.alloc(NodeKind::Ident, make_span(0, 3));
+
+        let ok_variant = paideia_as_ast::EnumVariant::Tuple {
+            name: ok_variant_name_id,
+            payload: vec![u64_type_id],
+        };
+        let err_variant = paideia_as_ast::EnumVariant::Tuple {
+            name: err_variant_name_id,
+            payload: vec![u64_type_id],
+        };
+
+        let _enum_item_id = ast.alloc_item(
+            NodeKind::Enum,
+            make_span(0, 1),
+            paideia_as_ast::ItemData::Enum {
+                name: enum_name_id,
+                generic_params: vec![],
+                variants: vec![ok_variant, err_variant],
+                attributes: vec![],
+                doc: None,
+            },
+        );
+
+        // Create the path Result::Ok
+        let result_seg_id = ast.alloc(NodeKind::Ident, make_span(0, 6)); // "Result"
+        let ok_seg_id = ast.alloc(NodeKind::Ident, make_span(7, 2)); // "Ok"
+        let path_id = ast.alloc_expr(
+            NodeKind::ExprPath,
+            make_span(0, 1),
+            paideia_as_ast::ExprData::Path {
+                segments: vec![result_seg_id, ok_seg_id],
+            },
+        );
+
+        // Create the literal 42u64
+        let lit_node_id = ast.alloc(NodeKind::ExprLiteral, make_span(10, 2));
+        let lit_42_id = ast.alloc_expr(
+            NodeKind::ExprLiteral,
+            make_span(10, 2),
+            paideia_as_ast::ExprData::Literal { lit: lit_node_id },
+        );
+
+        // Create the call Result::Ok(42u64)
+        let call_id = ast.alloc_expr(
+            NodeKind::ExprCall,
+            make_span(0, 1),
+            paideia_as_ast::ExprData::Call {
+                callee: path_id,
+                args: vec![lit_42_id],
+            },
+        );
+
+        // Build the enum registry manually (simulating the registry builder)
+        let mut enum_registry = crate::EnumRegistry::empty();
+        let result_type_id = EnumTypeId(1);
+        enum_registry
+            .by_name
+            .insert("Result".to_string(), result_type_id);
+        enum_registry.variants.insert(
+            result_type_id,
+            vec![
+                ("Ok".to_string(), vec![u64_type_id]),
+                ("Err".to_string(), vec![u64_type_id]),
+            ],
+        );
+
+        // Lower the AST
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &enum_registry);
+
+        // Verify the Call IR node was created and converted to EnumCons
+        let call_ir_id = result.ast_to_ir[&call_id];
+        assert_eq!(
+            result.ir[call_ir_id].kind,
+            IrKind::EnumCons,
+            "Call to Result::Ok should be lowered as EnumCons"
+        );
+
+        // Verify the EnumConsInfo side-table entry was populated
+        let enum_cons_info_opt = result.ir.enum_cons_info().get(call_ir_id);
+        let expected_info = paideia_as_ir::EnumConsInfo {
+            type_id: result_type_id,
+            variant_index: 0, // Ok is the first variant (index 0)
+        };
+        assert_eq!(
+            enum_cons_info_opt.copied(),
+            Some(expected_info),
+            "populate_enum_cons_info should have inserted the side-table entry with correct type_id and variant_index"
+        );
+
+        // Verify that the children have been properly stripped of the callee.
+        // EnumCons should have only the payload children, no callee.
+        let children = result.ir.children(call_ir_id);
+        assert_eq!(
+            children.len(),
+            1,
+            "EnumCons node should have exactly 1 child (the payload), no callee"
+        );
+
+        // The first child should be the literal 42 (not the callee path)
+        if let Some(first_child) = children.first() {
+            let first_child_node = &result.ir[*first_child];
+            assert_eq!(
+                first_child_node.kind,
+                IrKind::Literal,
+                "First child of EnumCons should be the payload Literal node, not the callee"
+            );
+        }
     }
 }

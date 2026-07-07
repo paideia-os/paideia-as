@@ -49,7 +49,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     /// - LParen (paren, tuple, arrow)
     /// - Ident (type name)
     /// - EffectOpen/CapOpen (effect/capability rows)
-    fn parse_type_unquantified(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
+    pub(crate) fn parse_type_unquantified(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
         // Step 1: Check for linearity class prefix
         if let Some(tok) = self.peek() {
             match tok.kind {
@@ -1065,7 +1065,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     }
 
     /// Emit a P0198 ("malformed enum type") diagnostic and return Err.
-    fn error_malformed_enum(
+    pub(crate) fn error_malformed_enum(
         &mut self,
         span: paideia_as_diagnostics::Span,
         reason: &str,

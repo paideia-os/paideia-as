@@ -228,8 +228,8 @@ pub enum ItemData {
         /// Generic parameters (type parameters with optional bounds).
         /// Empty for non-generic enums.
         generic_params: Vec<crate::exprs::GenericParam>,
-        /// Enum variants.
-        variants: Vec<NodeId>,
+        /// Enum variants: each can be unit-shaped, tuple-shaped, or record-shaped.
+        variants: Vec<crate::types::EnumVariant>,
         /// Attributes applied to this enum (e.g., `#[derive(...)]`).
         attributes: Vec<ItemAttribute>,
         /// Optional documentation comment.
