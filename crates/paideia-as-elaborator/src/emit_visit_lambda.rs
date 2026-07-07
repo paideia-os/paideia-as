@@ -14,7 +14,7 @@
 //! - `emit_mov_reg_to_reg`            — reg→reg mov helper
 
 use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand, RegId};
-use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi};
+use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, SymbolKind, abi};
 
 use crate::emit_block_body::TailContext;
 use crate::emit_walker::EmitWalker;
@@ -361,6 +361,52 @@ impl EmitWalker {
                                         lambda_node_id, callee_reg, &app_children[1..], arena,
                                     );
                                     return;
+                                }
+
+                                // (1.5) PA-r17-004c: Module-scope fnptr Object → `call [rip + f]`
+                                // Matches: f(args) where f is module-level Object with Borrow(&target_fn) as RHS.
+                                // Differs from (1): name IS NOT in local_bindings (already checked above).
+                                // Differs from (2): sym.kind is Object, NOT Function.
+                                // Pattern: Let(f, Borrow(Var(target_fn))) where target_fn resolves to Function symbol.
+                                // Emit single RIP-relative indirect call: FF 15 disp32.
+                                if let Some(sym) = arena.symbols().lookup_by_name(name) {
+                                    if sym.kind == SymbolKind::Object {
+                                        // Check: Let's RHS is a Borrow whose operand is a Var resolving to a Function.
+                                        let let_node_children = arena.children(sym.ir_node);
+                                        if let Some(&rhs_id) = let_node_children.first() {
+                                            if let Some(rhs_node) = arena.get(rhs_id) {
+                                                if rhs_node.kind == IrKind::Borrow {
+                                                    // Borrow: check if its operand is a Var
+                                                    let borrow_children = arena.children(rhs_id);
+                                                    if let Some(&operand_id) = borrow_children.first() {
+                                                        if let Some(operand_node) = arena.get(operand_id) {
+                                                            if operand_node.kind == IrKind::Var {
+                                                                // Extract var name and verify it resolves to Function
+                                                                if let Some(target_fn_name) = arena.binding_names().get(operand_id) {
+                                                                    if let Some(target_sym) = arena.symbols().lookup_by_name(target_fn_name) {
+                                                                        if target_sym.kind == SymbolKind::Function {
+                                                                            // Matched fnptr Object! Emit indirect call via RIP-relative symbol.
+                                                                            let main_id = IrNodeId::new(lambda_node_id.get() * 2)
+                                                                                .expect("main instr virtual id");
+                                                                            self.record_lambda_entry(lambda_node_id, main_id);
+                                                                            self.emit_indirect_call_via_mem_rip_sym(
+                                                                                lambda_node_id,
+                                                                                name.clone(),
+                                                                                0,
+                                                                                &app_children[1..],
+                                                                                arena,
+                                                                            );
+                                                                            return;
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
 
                                 // (2) Module symbol lookup by exact name — direct call.

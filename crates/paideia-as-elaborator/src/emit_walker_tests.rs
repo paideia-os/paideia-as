@@ -2839,6 +2839,85 @@ fn emit_walker_function_call_7_args_reject() {
 }
 
 #[test]
+fn emit_walker_fnptr_object_call_rip_sym() {
+    // PA-r17-004c AC: (f)(42u32) where f is Object with AddrOf(identity)
+    // Should emit: `mov rdi, 42; call [rip + f]; ret`
+    // Key instruction: Call { MemRipRelSym { name: "f", addend: 0 } }
+    use paideia_as_ir::symbol::{Symbol, SymbolKind};
+    use paideia_as_ir::CallMeta;
+
+    let mut arena = IrArena::new();
+
+    // Allocate the function being referenced
+    let identity_lambda_id = arena.alloc(IrKind::Lambda, span());
+    let identity_sym = Symbol::new(
+        "identity".to_string(),
+        SymbolKind::Function,
+        identity_lambda_id,
+    );
+    arena.symbols_mut().insert(identity_sym);
+
+    // Allocate the fnptr Object "f" with Borrow(&identity) as RHS
+    // Structure: Let node with Borrow (address-of) as RHS
+    // Borrow should have a Var(identity) child
+    let identity_var_id = arena.alloc(IrKind::Var, span());
+    arena.binding_names_mut().insert(identity_var_id, "identity".to_string());
+
+    let borrow_id = arena.alloc_with_children(IrKind::Borrow, span(), [identity_var_id]);
+
+    let f_let_id = arena.alloc_with_children(IrKind::Let, span(), [borrow_id]);
+    let f_sym = Symbol::new("f".to_string(), SymbolKind::Object, f_let_id);
+    arena.symbols_mut().insert(f_sym);
+
+    // Allocate the argument: Literal(42)
+    let arg_id = arena.alloc(IrKind::Literal, span());
+    arena.literal_values_mut().insert(arg_id, 42);
+
+    // Allocate the callee Var: f
+    let callee_var_id = arena.alloc(IrKind::Var, span());
+    arena.binding_names_mut().insert(callee_var_id, "f".to_string());
+
+    // Allocate App node: (f)(42)
+    let app_id = arena.alloc_with_children(IrKind::App, span(), [callee_var_id, arg_id]);
+
+    // Register the call site
+    arena.call_sites_mut().insert(app_id, CallMeta {
+        callee_name: "f".to_string(),
+        arg_count: 1,
+        is_intrinsic: false,
+    });
+
+    // Allocate Lambda with App as body
+    let _lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [app_id]);
+
+    // Walk the arena
+    let mut walker = EmitWalker::new();
+    walker.walk(&mut arena);
+
+    // Verify instructions were emitted
+    let insts = walker.state().instructions.entries();
+    assert!(!insts.is_empty(), "Should emit instructions for fnptr call");
+
+    // Look for the MemRipRelSym call operand
+    let mut found_mem_rip_rel_sym_call = false;
+    for (_id, inst) in insts.iter() {
+        if inst.mnemonic == Mnemonic::Call {
+            for op in &inst.operands {
+                if let Operand::MemRipRelSym { name, addend } = op {
+                    if name == "f" && *addend == 0 {
+                        found_mem_rip_rel_sym_call = true;
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        found_mem_rip_rel_sym_call,
+        "Should emit Call {{ MemRipRelSym {{ name: \"f\", addend: 0 }} }}"
+    );
+}
+
+#[test]
 fn emit_walker_match_empty_arms_produces_diagnostic() {
     let mut arena = IrArena::new();
 

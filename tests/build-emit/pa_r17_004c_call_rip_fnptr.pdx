@@ -1,0 +1,9 @@
+// Phase 6 m3-003 (#1040): Function-pointer indirect call via RIP-relative symbol
+// Tests that (f)(42u32) lowers correctly where f is Object with AddrOf(identity)
+// and emits indirect call bytes (FF 15 for rip-relative indirect call).
+
+module PaR17004cCallRipFnptr = structure {
+  pub let identity : (u32) -> u32 !{} @{} = fn(x: u32) -> x
+  pub let f : (u32) -> u32 !{} @{} = &identity
+  pub let entry : () -> u32 !{} @{} = fn(_: ()) -> (f)(42u32)
+}
