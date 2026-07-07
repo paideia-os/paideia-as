@@ -10,6 +10,13 @@ use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi};
 
 use crate::emit_walker::EmitWalker;
 
+/// Resolve a target name to (trait_name, method_name) if it's a qualified stdlib trait method.
+/// Returns None if the target is not in the form "TraitName::method_name".
+fn resolve_stdlib_trait_method(target: &str) -> Option<(String, String)> {
+    let (t, m) = target.rsplit_once("::")?;
+    Some((t.to_string(), m.to_string()))
+}
+
 impl EmitWalker {
     /// Phase 7 m1-003: Emit inter-function call.
     ///
@@ -31,6 +38,24 @@ impl EmitWalker {
         // Record lambda entry and compute main_id for first instruction (node_id * 2).
         let main_id = IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
         self.record_lambda_entry(lambda_node_id, main_id);
+
+        // PA-r16-007-backtrack (#1036): stdlib trait method lowering.
+        // If the target resolves to a known stdlib trait method, splice the
+        // mnemonic sequence in place of the normal SysV call setup.
+        if let Some((trait_name, method_name)) = resolve_stdlib_trait_method(&target_name) {
+            if let Some(recipe) = crate::stdlib_lowering::lower_stdlib_method(
+                &trait_name,
+                &method_name,
+                self.current_mode(),
+            ) {
+                for (i, inst) in recipe.into_iter().enumerate() {
+                    let iid = IrNodeId::new(lambda_node_id.get() * 16 + (i as u32) + 1)
+                        .expect("stdlib recipe virtual id");
+                    self.emit_inst(iid, inst);
+                }
+                return;
+            }
+        }
 
         // ABI calling convention: arguments go to RDI, RSI, RDX, RCX, R8, R9
         let arg_regs = [abi::RDI, abi::RSI, abi::RDX, abi::RCX, abi::R8, abi::R9]; // RDI, RSI, RDX, RCX, R8, R9
