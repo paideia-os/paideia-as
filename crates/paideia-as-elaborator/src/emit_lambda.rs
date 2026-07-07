@@ -405,4 +405,118 @@ impl EmitWalker {
             },
         );
     }
+
+    /// PA-r17-004b: Emit indirect call via a memory location addressed by base + disp.
+    ///
+    /// Handles 0-6 argument calls to functions referenced via a field in a local-bound record.
+    /// Emission order (CRITICAL — base_reg aliases arg regs):
+    /// - (1) `mov r11, [base_reg + field_offset]` — load fnptr FIRST while base is still live
+    /// - (2) `mov <arg_reg>, <arg_src>` per argument
+    /// - (3) `call r11`
+    /// - (4) `ret`
+    ///
+    /// Instruction ordering via monotonically increasing virtual IDs:
+    /// - `base * 16 + 0`: load fnptr (mov r11, [base + disp])
+    /// - `base * 16 + 1..N`: arg moves
+    /// - `base * 16 + N`: call r11
+    /// - `base * 16 + N+1`: ret
+    pub(crate) fn emit_indirect_call_via_mem_base_disp(
+        &mut self,
+        lambda_node_id: IrNodeId,
+        base_reg: RegId,
+        field_offset: i32,
+        arg_ids: &[IrNodeId],
+        arena: &IrArena,
+    ) {
+        let base = lambda_node_id.get();
+        let r11 = abi::R11;
+        let arg_regs = [abi::RDI, abi::RSI, abi::RDX, abi::RCX, abi::R8, abi::R9];
+
+        // Step 1: Load fnptr from [base_reg + field_offset] into R11
+        let load_id = IrNodeId::new(base * 16).expect("load instr virtual id");
+        let mut load_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+        load_ops.push(Operand::Reg(r11));
+        load_ops.push(Operand::MemSib {
+            base: base_reg,
+            index: None,
+            scale: paideia_as_ir::instruction::Scale::X1,
+            disp: field_offset,
+        });
+        self.emit_inst(
+            load_id,
+            Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: load_ops,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+            },
+        );
+
+        // Step 2: Marshal arguments into arg_regs
+        let mut seq_id = 1u32;
+        for (i, &arg_id) in arg_ids.iter().enumerate() {
+            let dst = arg_regs[i];
+            let arg_node = match arena.get(arg_id) {
+                Some(n) => n,
+                None => continue,
+            };
+            match arg_node.kind {
+                IrKind::Literal => {
+                    if let Some(v) = arena.literal_values().get(arg_id) {
+                        self.emit_mov_literal_to_reg(lambda_node_id, dst, v);
+                    }
+                }
+                IrKind::Var => {
+                    if let Some(name) = arena.binding_names().get(arg_id) {
+                        let iid = IrNodeId::new(base * 16 + seq_id).expect("arg instr virtual id");
+                        seq_id += 1;
+                        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                        ops.push(Operand::Reg(dst));
+                        ops.push(Operand::Var { name: name.to_string() });
+                        self.emit_inst(
+                            iid,
+                            Instruction {
+                                mnemonic: Mnemonic::Mov,
+                                operands: ops,
+                                encoding_hint: None,
+                                byte_offset_in_text: None,
+                                mode: self.current_mode(),
+                            },
+                        );
+                    }
+                }
+                _ => { /* Not handled yet */ }
+            }
+        }
+
+        // Step 3: Call R11
+        let call_id = IrNodeId::new(base * 16 + seq_id).expect("call instr virtual id");
+        seq_id += 1;
+        let mut call_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+        call_ops.push(Operand::Reg(r11));
+        self.emit_inst(
+            call_id,
+            Instruction {
+                mnemonic: Mnemonic::Call,
+                operands: call_ops,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+            },
+        );
+
+        // Step 4: Return
+        let ret_id = IrNodeId::new(base * 16 + seq_id).expect("ret instr virtual id");
+        self.emit_inst(
+            ret_id,
+            Instruction {
+                mnemonic: Mnemonic::Ret,
+                operands: SmallVec::new(),
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+            },
+        );
+    }
 }

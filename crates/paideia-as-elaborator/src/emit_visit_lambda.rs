@@ -284,6 +284,66 @@ impl EmitWalker {
                             }
                         }
 
+                        // PA-r17-004b: Detect FieldAccess pattern for record-field callee (local-bound).
+                        // Matches: (v.read)(a, b, c) where v is local-bound (register-held record).
+                        // Differs from PA-R17-015: receiver IS in local_bindings, NOT in module symbols.
+                        if app_children.len() >= 1 {
+                            let callee_id = app_children[0];
+                            if let Some(callee_node) = arena.get(callee_id) {
+                                if callee_node.kind == IrKind::FieldAccess {
+                                    // Callee is a field access; check if it's a local-bound record field.
+                                    let fa_children = arena.children(callee_id);
+                                    if fa_children.len() >= 1 {
+                                        let receiver_id = fa_children[0];
+                                        if let Some(receiver_node) = arena.get(receiver_id) {
+                                            if receiver_node.kind == IrKind::Var {
+                                                // Receiver is a Var; extract its name.
+                                                if let Some(receiver_name) =
+                                                    arena.binding_names().get(receiver_id)
+                                                {
+                                                    // Check: IS in local_bindings (register-held record).
+                                                    if let Some(base_reg) = self.state.local_bindings.get(receiver_name) {
+                                                        // Get field access metadata (type_id, field_index).
+                                                        if let Some(fa_info) =
+                                                            arena.field_access_info().get(callee_id)
+                                                        {
+                                                            // Look up the record layout to get field offset in bytes.
+                                                            let type_id = fa_info.type_id;
+                                                            let field_index = fa_info.field_index as usize;
+                                                            if let Some(layout) =
+                                                                self.state.record_layouts.get(&type_id)
+                                                            {
+                                                                if field_index < layout.fields.len() {
+                                                                    let field_offset =
+                                                                        layout.fields[field_index].offset as i32;
+                                                                    let main_id = IrNodeId::new(
+                                                                        lambda_node_id.get() * 2,
+                                                                    )
+                                                                    .expect("main instr virtual id");
+                                                                    self.record_lambda_entry(
+                                                                        lambda_node_id,
+                                                                        main_id,
+                                                                    );
+                                                                    self.emit_indirect_call_via_mem_base_disp(
+                                                                        lambda_node_id,
+                                                                        base_reg,
+                                                                        field_offset,
+                                                                        &app_children[1..],
+                                                                        arena,
+                                                                    );
+                                                                    return;
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         // PA-r17-004: 3-way dispatch for call sites: local binding, module symbol, or cross-file.
                         if app_children.len() >= 1 {
                             let _callee_id = app_children[0];

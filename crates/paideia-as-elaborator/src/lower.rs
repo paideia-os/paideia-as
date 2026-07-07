@@ -426,6 +426,13 @@ pub fn lower_ast_to_ir(
                     }
                     children
                 }
+                ExprData::FieldAccess { receiver, .. } => {
+                    // FieldAccess: single child is the receiver expression.
+                    // The field ident is metadata (in FieldAccessInfo side-table).
+                    // Phase 6 m3-002: lowered to IrKind::FieldAccess with exactly
+                    // one child (record_value).
+                    vec![*receiver]
+                }
                 ExprData::Unsafe {
                     effects: _effects,
                     capabilities: _capabilities,
@@ -579,6 +586,12 @@ pub fn lower_ast_to_ir(
     // and insert the (RecordCons_ir_id -> RecordTypeId) mapping into record_layout_table.
     populate_record_layout_table(&ast, &mut ir, &ast_to_ir, registry, source_map, sink);
 
+    // Phase 6 m3-002 (#1073): Populate FieldAccessSideTable for FieldAccess expressions.
+    // Walk all AST nodes with ExprFieldAccess, build binding→struct_type map, look up
+    // field indices in the registry, and insert (FieldAccess_ir_id -> FieldAccessInfo)
+    // mappings into field_access_info side-table.
+    populate_field_access_info(&ast, &mut ir, &ast_to_ir, registry, source_map, sink);
+
     LoweringResult { ir, ast_to_ir }
 }
 
@@ -690,6 +703,12 @@ fn map_node_kind(kind: NodeKind) -> IrKind {
 
         // Deref (*expr): dereference a reference.
         NodeKind::ExprDeref => IrKind::Deref,
+
+        // Field access (receiver.field): access a named field of a record.
+        // Phase 6 m3-002: Lowered to dedicated IrKind::FieldAccess with side-table
+        // metadata (FieldAccessInfo: type_id, field_index) populated by
+        // populate_field_access_info pass.
+        NodeKind::ExprFieldAccess => IrKind::FieldAccess,
 
         // Operands (OperandRegister, OperandImmediate, OperandMemoryRef)
         // These do not appear as top-level nodes in phase-1, but map to Var
@@ -1053,6 +1072,196 @@ fn extract_source_text_for_record_cons(
 
     let text = &source[start..start + len];
     Some(text.to_string())
+}
+
+/// Populate the FieldAccessSideTable with FieldAccess type and field index information.
+///
+/// Phase 6 m3-002 (#1073): Walk all ExprFieldAccess nodes in the AST, look up their
+/// receiver's struct type in the registry, and insert the (ir_node_id -> FieldAccessInfo)
+/// mapping into the field_access_info side-table.
+///
+/// For each FieldAccess node:
+/// 1. Extract the receiver's name (for Ident/ExprPath only; skip computed expressions)
+/// 2. Look up the binding in the binding→struct_type map
+/// 3. Look up the struct type in registry.get_by_name
+/// 4. Find the field index matching the field name
+/// 5. Insert into field_access_info_mut()
+///
+/// Emit T0552 diagnostic on:
+/// - Receiver name in binding map but struct type unknown
+/// - Struct type found but field name unknown
+///
+/// Non-blocking: skip silently if receiver is computed (not in binding map).
+fn populate_field_access_info(
+    ast: &AstArena,
+    ir: &mut IrArena,
+    ast_to_ir: &HashMap<NodeId, IrNodeId>,
+    registry: &crate::StructRegistry,
+    source_map: &SourceMap,
+    sink: &mut dyn DiagnosticSink,
+) {
+    // Step 1: Build binding_name → struct_type_text map
+    let mut binding_to_struct_type = HashMap::new();
+
+    // Walk AST for item-level Let bindings (ItemData::Let)
+    for ast_node_id in 1..=ast.len() {
+        let ast_id = match NodeId::new(ast_node_id as u32) {
+            Some(nid) => nid,
+            None => continue,
+        };
+
+        let ast_node = match ast.get(ast_id) {
+            Some(n) => n,
+            None => continue,
+        };
+
+        // Process item-level Let bindings
+        if ast_node.kind == NodeKind::Let {
+            if let Some(paideia_as_ast::ItemData::Let { name, ty, .. }) = ast.item_data(ast_id) {
+                // Extract binding name
+                if let Some(ty_node_id) = ty {
+                    if let Some(type_text) =
+                        extract_source_text_for_record_cons(ast, source_map, *ty_node_id)
+                    {
+                        if let Some(binding_name) =
+                            extract_source_text_for_record_cons(ast, source_map, *name)
+                        {
+                            binding_to_struct_type.insert(binding_name, type_text);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Process statement-level Let bindings (StmtData::Let)
+        if ast_node.kind == NodeKind::StmtLet {
+            if let Some(paideia_as_ast::StmtData::Let { name, ty, .. }) = ast.stmt_data(ast_id) {
+                // Extract binding name and type
+                if let Some(ty_node_id) = ty {
+                    if let Some(type_text) =
+                        extract_source_text_for_record_cons(ast, source_map, *ty_node_id)
+                    {
+                        if let Some(binding_name) =
+                            extract_source_text_for_record_cons(ast, source_map, *name)
+                        {
+                            binding_to_struct_type.insert(binding_name, type_text);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Step 2: Walk all AST nodes with NodeKind::ExprFieldAccess
+    for ast_node_id in 1..=ast.len() {
+        let ast_id = match NodeId::new(ast_node_id as u32) {
+            Some(nid) => nid,
+            None => continue,
+        };
+
+        let ast_node = match ast.get(ast_id) {
+            Some(n) => n,
+            None => continue,
+        };
+
+        if ast_node.kind != NodeKind::ExprFieldAccess {
+            continue;
+        }
+
+        // Get the ExprData::FieldAccess to access receiver and field
+        let (receiver_id, field_id) = match ast.expr_data(ast_id) {
+            Some(ExprData::FieldAccess { receiver, field }) => (receiver, field),
+            _ => continue,
+        };
+
+        // Extract receiver name (only simple Ident/ExprPath, not computed expressions)
+        let receiver_name = match extract_source_text_for_record_cons(ast, source_map, *receiver_id)
+        {
+            Some(name) => name,
+            None => {
+                // Receiver is computed or we can't extract text: skip silently
+                continue;
+            }
+        };
+
+        // Extract field name
+        let field_name = match extract_source_text_for_record_cons(ast, source_map, *field_id) {
+            Some(name) => name,
+            None => {
+                // Skip if we can't extract field name
+                continue;
+            }
+        };
+
+        // Look up the struct type for this receiver
+        let struct_type_text = match binding_to_struct_type.get(&receiver_name) {
+            Some(text) => text.clone(),
+            None => {
+                // Receiver not in binding map: skip silently (non-blocking failure mode)
+                continue;
+            }
+        };
+
+        // Look up the struct type in the registry
+        let type_id = match registry.get_by_name(&struct_type_text) {
+            Some(id) => id,
+            None => {
+                // Emit T0552 diagnostic: unknown struct type
+                if let Some(receiver_node) = ast.get(*receiver_id) {
+                    if let Ok(code) = DiagnosticCode::new(Category::T, Severity::Error, 552) {
+                        let diag = Diagnostic::error(code)
+                            .message(format!(
+                                "Unsupported struct type: '{}' (not found in struct registry)",
+                                struct_type_text
+                            ))
+                            .with_span(receiver_node.span)
+                            .finish();
+                        let _ = sink.emit(diag);
+                    }
+                }
+                continue;
+            }
+        };
+
+        // Find the field index
+        let fields = match registry.get_fields(type_id) {
+            Some(f) => f,
+            None => {
+                // No fields for this type: skip
+                continue;
+            }
+        };
+
+        let field_index = match fields.iter().position(|(name, _)| name == &field_name) {
+            Some(idx) => idx as u32,
+            None => {
+                // Emit T0552 diagnostic: unknown field
+                if let Some(field_node) = ast.get(*field_id) {
+                    if let Ok(code) = DiagnosticCode::new(Category::T, Severity::Error, 552) {
+                        let diag = Diagnostic::error(code)
+                            .message(format!(
+                                "Unknown field '{}' in struct '{}'",
+                                field_name, struct_type_text
+                            ))
+                            .with_span(field_node.span)
+                            .finish();
+                        let _ = sink.emit(diag);
+                    }
+                }
+                continue;
+            }
+        };
+
+        // Get the corresponding IR node ID for this FieldAccess
+        let ir_field_access_id = match ast_to_ir.get(&ast_id) {
+            Some(id) => *id,
+            None => continue,
+        };
+
+        // Insert into field_access_info_mut()
+        let field_access_info = paideia_as_ir::FieldAccessInfo { type_id, field_index };
+        ir.field_access_info_mut().insert(ir_field_access_id, field_access_info);
+    }
 }
 
 #[cfg(test)]
@@ -1865,5 +2074,101 @@ mod tests {
 
         // The lowering should complete without panic
         assert_eq!(result.ir.len(), 4); // type_name, field_name, value, record_cons
+    }
+
+    #[test]
+    fn populate_field_access_info_basic() {
+        // Phase 6 m3-002 (#1073): Test field access lowering and side-table population.
+        // Construct an AST with:
+        //   let vops: Vops = ...
+        //   ... (vops.read)
+        // And verify that populate_field_access_info correctly populates the side-table.
+        use crate::StructRegistry;
+        use paideia_as_ir::RecordTypeId;
+        use paideia_as_diagnostics::FileId;
+
+        // Create a source_map with proper source text for extraction
+        // Source layout: "vops" (0-3), " " (4), "Vops" (5-8), " " (9), "read" (10-13)
+        let mut source_map = SourceMap::new();
+        let source_text = "vops Vops read";
+        let _file = source_map.add_file(
+            std::path::PathBuf::from("test.pdx"),
+            String::from(source_text),
+        );
+        let mut sink = VecSink::new();
+        let mut ast = AstArena::new();
+
+        // Helper to create a span at a given offset with given length
+        let file_id = FileId::new(1).unwrap();
+        let make_span = |offset: u32, len: u32| {
+            paideia_as_diagnostics::Span::new(file_id, offset, len)
+        };
+
+        // Build binding name "vops" at offset 0-3
+        let vops_binding_id = ast.alloc(NodeKind::Ident, make_span(0, 4));
+
+        // Build type name "Vops" at offset 5-8
+        let vops_type_id = ast.alloc(NodeKind::Ident, make_span(5, 4));
+
+        // Build a Let binding: let vops: Vops = <dummy>
+        // We need a dummy value expression; use a literal
+        let dummy_value_id = ast.alloc(NodeKind::ExprLiteral, make_span(0, 1));
+        let let_binding_id = ast.alloc_stmt(
+            NodeKind::StmtLet,
+            make_span(0, 1),
+            paideia_as_ast::StmtData::Let {
+                mutable: false,
+                name: vops_binding_id,
+                ty: Some(vops_type_id),
+                value: dummy_value_id,
+            },
+        );
+
+        // Build receiver "vops" in field access at offset 0-3
+        let receiver_id = ast.alloc(NodeKind::Ident, make_span(0, 4));
+
+        // Build field name "read" at offset 10-13
+        let field_name_id = ast.alloc(NodeKind::Ident, make_span(10, 4));
+
+        // Build the FieldAccess node: vops.read
+        let field_access_id = ast.alloc_expr(
+            NodeKind::ExprFieldAccess,
+            make_span(0, 1),
+            ExprData::FieldAccess {
+                receiver: receiver_id,
+                field: field_name_id,
+            },
+        );
+
+        // Create a registry with the Vops struct
+        let mut registry = StructRegistry::empty();
+        let vops_record_id = RecordTypeId(1);
+        registry.by_name.insert("Vops".to_string(), vops_record_id);
+        registry.fields.insert(vops_record_id, vec![("read".to_string(), 0x08)]); // u64
+
+        // Lower the AST
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &registry);
+
+        // Verify the FieldAccess IR node was created
+        let field_access_ir_id = result.ast_to_ir[&field_access_id];
+        assert_eq!(result.ir[field_access_ir_id].kind, IrKind::FieldAccess);
+
+        // Verify the FieldAccess has exactly one child (the receiver)
+        let children = result.ir.children(field_access_ir_id);
+        assert_eq!(children.len(), 1);
+        let receiver_ir_id = result.ast_to_ir[&receiver_id];
+        assert_eq!(children[0], receiver_ir_id);
+
+        // Phase 6 m3-002: Verify the side-table entry was populated
+        let field_access_info_opt = result.ir.field_access_info().get(field_access_ir_id);
+        let expected_info = paideia_as_ir::FieldAccessInfo {
+            type_id: vops_record_id,
+            field_index: 0,
+        };
+        assert_eq!(
+            field_access_info_opt.copied(),
+            Some(expected_info),
+            "populate_field_access_info should have inserted the side-table entry"
+        );
     }
 }

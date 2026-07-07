@@ -5647,3 +5647,146 @@ fn match_returning_large_enum_writes_rdi_slot_ir_level() {
         "Large enum (>16 bytes) should emit Mov to [RDI+disp]"
     );
 }
+
+/// PA-r17-004b (#1039): Emit indirect call via record field (local-bound callee).
+///
+/// Tests that emit_indirect_call_via_mem_base_disp correctly:
+/// 1. Loads the function pointer from [base_reg + field_offset] into R11
+/// 2. Marshals arguments into SysV registers
+/// 3. Calls through R11
+/// 4. Returns
+#[test]
+fn emit_indirect_call_via_mem_base_disp_with_args() {
+    let mut arena = IrArena::new();
+
+    // Create a lambda node
+    let lambda_id = IrNodeId::new(1).expect("lambda id");
+    arena.alloc(IrKind::Lambda, span());
+
+    // Create three Var nodes for arguments
+    let arg0_id = IrNodeId::new(2).expect("arg0 id");
+    arena.alloc(IrKind::Var, span());
+
+    let arg1_id = IrNodeId::new(3).expect("arg1 id");
+    arena.alloc(IrKind::Var, span());
+
+    let arg2_id = IrNodeId::new(4).expect("arg2 id");
+    arena.alloc(IrKind::Var, span());
+
+    // Set binding names
+    arena.binding_names_mut().insert(arg0_id, "a".to_string());
+    arena.binding_names_mut().insert(arg1_id, "b".to_string());
+    arena.binding_names_mut().insert(arg2_id, "c".to_string());
+
+    // Create EmitWalker and set local bindings
+    let mut walker = EmitWalker::new();
+    walker.state_mut().local_bindings.insert("v".to_string(), abi::RDI);
+
+    // Call emit_indirect_call_via_mem_base_disp
+    walker.emit_indirect_call_via_mem_base_disp(
+        lambda_id,
+        abi::RDI,
+        0,  // field offset = 0
+        &[arg0_id, arg1_id, arg2_id],
+        &arena,
+    );
+
+    // Verify instruction sequence
+    let instrs = &walker.state().instructions;
+
+    // Should have at least: load_fnptr, 3 arg moves, call, ret = 6 instructions
+    assert!(
+        instrs.len() >= 6,
+        "Expected at least 6 instructions, got {}",
+        instrs.len()
+    );
+
+    // First instruction should be: mov r11, [rdi + 0]
+    let first_inst = instrs
+        .get(IrNodeId::new(1 * 16).expect("load fnptr id"))
+        .expect("load fnptr instruction should exist");
+
+    assert_eq!(first_inst.mnemonic, Mnemonic::Mov, "First instruction should be mov");
+    assert_eq!(first_inst.operands.len(), 2, "mov should have 2 operands");
+
+    match &first_inst.operands[0] {
+        Operand::Reg(r) => assert_eq!(*r, abi::R11, "mov destination should be R11"),
+        _ => panic!("Expected Reg(R11)"),
+    }
+
+    match &first_inst.operands[1] {
+        Operand::MemSib { base, index, disp, .. } => {
+            assert_eq!(*base, abi::RDI, "base should be RDI");
+            assert!(index.is_none(), "index should be None");
+            assert_eq!(*disp, 0, "displacement should be 0");
+        }
+        _ => panic!("Expected MemSib for fnptr load"),
+    }
+
+    // Find the call instruction
+    let call_inst = instrs
+        .entries()
+        .iter()
+        .find(|(_, inst)| inst.mnemonic == Mnemonic::Call)
+        .map(|(_, inst)| inst)
+        .expect("Should have a Call instruction");
+
+    assert_eq!(call_inst.operands.len(), 1, "call should have 1 operand");
+    match &call_inst.operands[0] {
+        Operand::Reg(r) => assert_eq!(*r, abi::R11, "call should be through R11"),
+        _ => panic!("Expected Reg(R11) for call operand"),
+    }
+
+    // Find the ret instruction
+    let ret_inst = instrs
+        .entries()
+        .iter()
+        .find(|(_, inst)| inst.mnemonic == Mnemonic::Ret)
+        .map(|(_, inst)| inst)
+        .expect("Should have a Ret instruction");
+
+    assert_eq!(ret_inst.operands.len(), 0, "ret should have no operands");
+}
+
+/// PA-r17-004b (#1039): Verify field offset is correctly encoded in memory access.
+///
+/// Tests that emit_indirect_call_via_mem_base_disp correctly encodes a
+/// non-zero field offset in the MemSib displacement.
+#[test]
+fn emit_indirect_call_via_mem_base_disp_with_nonzero_offset() {
+    let mut arena = IrArena::new();
+
+    let lambda_id = IrNodeId::new(1).expect("lambda id");
+    arena.alloc(IrKind::Lambda, span());
+
+    let arg0_id = IrNodeId::new(2).expect("arg0 id");
+    arena.alloc(IrKind::Var, span());
+
+    arena.binding_names_mut().insert(arg0_id, "a".to_string());
+
+    let mut walker = EmitWalker::new();
+    walker.state_mut().local_bindings.insert("v".to_string(), abi::RDI);
+
+    // Call with field offset = 16
+    walker.emit_indirect_call_via_mem_base_disp(
+        lambda_id,
+        abi::RDI,
+        16,  // field offset = 16
+        &[arg0_id],
+        &arena,
+    );
+
+    // Verify first instruction encodes the offset correctly
+    let first_inst = walker
+        .state()
+        .instructions
+        .get(IrNodeId::new(1 * 16).expect("load fnptr id"))
+        .expect("load fnptr instruction should exist");
+
+    match &first_inst.operands[1] {
+        Operand::MemSib { disp, .. } => {
+            assert_eq!(*disp, 16, "Should load from offset 16");
+        }
+        _ => panic!("Expected MemSib operand"),
+    }
+}

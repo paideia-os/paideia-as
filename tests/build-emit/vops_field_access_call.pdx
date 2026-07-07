@@ -1,0 +1,15 @@
+// Phase 6 m3-002 (#1073): Field access in function call position
+// Tests that (vops.read)() lowers correctly with FieldAccess IR node
+// and emits indirect call bytes (FF 15 for rip-relative indirect call).
+
+module VopsFieldAccessCall = structure {
+  struct Vops {
+    read: u64
+  }
+
+  // Global Vops instance
+  let vops: Vops = Vops { read: 0 }
+
+  // Entry point that calls vops.read as a function
+  pub let entry : () -> () !{} @{} = fn(_: ()) -> (vops.read)()
+}
