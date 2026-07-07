@@ -607,6 +607,36 @@ fn encode_mov_sized(
             });
             Ok(output)
         }
+        // PA-R17-006b (#1046): narrow-width store to RIP-relative memory with symbol [rip + sym], src
+        [Operand::MemRipRelSym { name, addend }, Operand::Reg(src)] => {
+            let src_id = src.0;
+            // Emit width-appropriate mov [rip+disp32], src instruction
+            // Prefix (if W16) + REX (if W64 or REX.R) + opcode (1) + ModRM (1) + disp32 (4)
+            if matches!(width, IntWidth::W16) {
+                buf.bytes.push(0x66);
+            }
+            let rex_w = matches!(width, IntWidth::W64);
+            let rex_r = (src_id >> 3) != 0;
+            if rex_w || rex_r {
+                buf.bytes.push(rex(rex_w, rex_r, false, false));
+            }
+            let opcode = if matches!(width, IntWidth::W8) { 0x88 } else { 0x89 };
+            buf.bytes.push(opcode);
+            // ModR/M: mod=00, reg=src[2:0], r/m=101 (RIP-relative)
+            buf.bytes.push(0x05 | ((src_id & 7) << 3));
+            // 4-byte disp32 placeholder; relocation will patch it
+            let disp_offset = buf.bytes.len() as u32;
+            buf.bytes.extend([0, 0, 0, 0]);
+            // Emit PC32 relocation site
+            let mut output = EncodeOutput::new();
+            output.add_reloc(RelocSite {
+                byte_offset: disp_offset,
+                symbol: name.clone(),
+                kind: RelocKind::PcRel32,
+                addend: addend.wrapping_add(PC32_FIELD_BIAS),
+            });
+            Ok(output)
+        }
         // PA-R16-007: mov reg, [disp32] with width from MovSized mnemonic
         [Operand::Reg(dst), Operand::MemDisp { disp }] => {
             let dst_reg = reg64_from(*dst)?;

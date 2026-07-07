@@ -375,6 +375,27 @@ impl EmitWalker {
                         // We return early to skip the ret emission below.
                         return;
                     }
+                    IrKind::Store => {
+                        // Phase 17 m6-b: Field assignment in block body (e.g., `r.a = 42u32;`).
+                        // Check if this is a field assignment (first child is FieldAccess)
+                        // or a regular deref/array store.
+                        if cfg!(debug_assertions) {
+                            eprintln!("[emit_block_body] Store at index {}", i);
+                        }
+                        let store_children = arena.children(child_id);
+                        let is_field_assign = store_children.first()
+                            .and_then(|&c| arena.get(c))
+                            .map(|n| n.kind == IrKind::FieldAccess)
+                            .unwrap_or(false);
+
+                        if is_field_assign {
+                            // Field assignment: dispatch to visit_field_assign
+                            self.visit_field_assign(child_id, arena);
+                        } else {
+                            // Array or pointer store: dispatch to visit_store
+                            self.visit_store(child_id, arena);
+                        }
+                    }
                     _ => {
                         // Unexpected statement kind.
                         if cfg!(debug_assertions) {

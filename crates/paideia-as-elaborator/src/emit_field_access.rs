@@ -158,7 +158,7 @@ impl EmitWalker {
 
         let field_access_id = children[0];
         let _index_or_unused_id = children[1];
-        let _value_id = children[2];
+        let value_id = children[2];
 
         // Get the field access info from the side-table.
         let field_info = match arena.field_access_info().get(field_access_id) {
@@ -197,9 +197,14 @@ impl EmitWalker {
             }
         };
 
+        // Extract field layout data and drop the record_layout reference to avoid borrow conflicts.
+        let field_offset = field_layout.offset;
+        let field_size = field_layout.size;
+        let field_signed = field_layout.signed;
+
         // Dispatch on field size to emit the appropriate width.
         // Signedness is IGNORED for stores (we write N bytes regardless).
-        let width = match field_layout.size {
+        let width = match field_size {
             1 => IntWidth::W8,
             2 => IntWidth::W16,
             4 => IntWidth::W32,
@@ -207,12 +212,92 @@ impl EmitWalker {
             _ => {
                 self.diagnostics.push(format!(
                     "Unsupported field size {} for field store at offset {}",
-                    field_layout.size, field_layout.offset
+                    field_size, field_offset
                 ));
                 return;
             }
         };
 
+        // Phase 17 m6-b: Check if this is a module-level record field write.
+        // Get the FieldAccess's receiver to check if it's a module-level symbol.
+        let fa_children = arena.children(field_access_id);
+        let receiver_id = match fa_children.first() {
+            Some(&id) => id,
+            None => {
+                self.diagnostics.push(format!(
+                    "FieldAccess node {} has no receiver child",
+                    field_access_id.get()
+                ));
+                return;
+            }
+        };
+
+        let receiver_node = match arena.get(receiver_id) {
+            Some(node) => node,
+            None => return,
+        };
+
+        // Check if receiver is a Var and it's a module-level symbol (not local)
+        if receiver_node.kind == IrKind::Var {
+            if let Some(name) = arena.binding_names().get(receiver_id) {
+                if !self.state.local_bindings.contains(name)
+                    && arena.symbols().lookup_by_name(name).is_some()
+                {
+                    // This is a module-level record: emit RIP-relative write
+                    // Materialize the RHS value into RAX
+                    if let Some(value_node) = arena.get(value_id) {
+                        if value_node.kind == IrKind::Literal {
+                            // Extract immediate value from the literal
+                            if let Some(imm_val) = arena.literal_values().get(value_id) {
+                                // Emit width-appropriate immediate load into RAX
+                                // For W32 fields, use MovSized{W32} to emit 5-byte mov eax, imm32
+                                // For W64 fields, use generic Mov to emit 10-byte movabs rax, imm64
+                                let mov_id = IrNodeId::new(store_id.get() * 2).expect("mov instr virtual id");
+                                let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                                operands.push(Operand::Reg(abi::RAX));
+                                operands.push(Operand::Imm64(imm_val));
+
+                                let (mnemonic, _est_size) = match field_size {
+                                    4 => (Mnemonic::MovSized { width: IntWidth::W32 }, 5),
+                                    8 => (Mnemonic::Mov, 10),
+                                    _ => {
+                                        self.diagnostics.push(format!(
+                                            "T0519: unsupported field size {} for module-level field write",
+                                            field_size
+                                        ));
+                                        return;
+                                    }
+                                };
+
+                                let mov_inst = Instruction {
+                                    mnemonic,
+                                    operands,
+                                    encoding_hint: None,
+                                    byte_offset_in_text: None,
+                                    mode: self.current_mode(),
+                                };
+
+                                self.emit_inst(mov_id, mov_inst);
+
+                                // Emit RIP-relative write using a different virtual ID
+                                let write_id = IrNodeId::new(store_id.get() * 2 + 1).expect("write instr virtual id");
+                                self.emit_mem_write_via_rip_sym(
+                                    write_id,
+                                    abi::RAX,
+                                    name.to_string(),
+                                    field_offset as i32,
+                                    field_size,
+                                    field_signed,
+                                );
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallthrough: unsafe deref case (existing pattern)
         // Emit MovSized with operands [MemSib{base: RDI, disp: offset}, Reg(RDX)]
         // Following the same convention as visit_store: base=RDI (abi::RDI), source=RDX (abi::RDX)
         let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
@@ -220,7 +305,7 @@ impl EmitWalker {
             base: abi::RDI,                               // rdi (pointer)
             index: None,                                  // no index
             scale: paideia_as_ir::instruction::Scale::X1, // ignored when no index
-            disp: field_layout.offset as i32,             // field offset
+            disp: field_offset as i32,                    // field offset
         });
         operands.push(Operand::Reg(abi::RDX)); // rdx (value, source)
 
@@ -561,6 +646,72 @@ impl EmitWalker {
                 self.diagnostics.push(format!(
                     "T0517: emit_mem_read_via_rip_sym with size={}, signed={} not supported; deferred to future phase",
                     size, signed
+                ));
+            }
+        }
+    }
+
+    /// Phase 17 m6-b: Emit field store via RIP-relative symbol reference (write-side mirror).
+    ///
+    /// KNOWN LIMITATION: The encoder currently only supports [MemRipRelSym, Reg] patterns
+    /// with generic Mov mnemonic, and ONLY for W64 (hardcoded REX.W in encoder).
+    /// For W32 fields, this still emits the W64 form (48 89 ...) which is a silent data-corruption bug.
+    ///
+    /// Proper fix requires encoder enhancement to support width-aware [MemRipRelSym, Reg]
+    /// with MovSized mnemonic. Encoder gap: crates/paideia-as-encoder/src/encode_instruction.rs
+    /// encode_mov_sized() function lacks [MemRipRelSym, Reg] operand pattern.
+    ///
+    /// Workaround: use generic Mov (which compiles but produces W64 encoding for all sizes).
+    pub(crate) fn emit_mem_write_via_rip_sym(
+        &mut self,
+        node_id: IrNodeId,
+        src_reg: RegId,
+        sym_name: String,
+        addend: i32,
+        size: u8,
+        _signed: bool,
+    ) {
+        // PA-R17-006b: Dispatch on size and emit width-appropriate MovSized.
+        // - W32 (4 bytes): MovSized{W32} emits 6-byte 89 05 + disp32 (no REX.W)
+        // - W64 (8 bytes): MovSized{W64} emits 7-byte 48 89 05 + disp32 (with REX.W)
+        match size {
+            4 => {
+                // u32: use MovSized{W32} to emit 6-byte mov [rip+...], eax (no REX.W)
+                let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                operands.push(Operand::MemRipRelSym { name: sym_name, addend });
+                operands.push(Operand::Reg(src_reg));
+
+                let inst = Instruction {
+                    mnemonic: Mnemonic::MovSized { width: IntWidth::W32 },
+                    operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                };
+
+                self.emit_inst(node_id, inst);
+            }
+            8 => {
+                // u64: use MovSized{W64} to emit 7-byte mov [rip+...], rax (with REX.W)
+                let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                operands.push(Operand::MemRipRelSym { name: sym_name, addend });
+                operands.push(Operand::Reg(src_reg));
+
+                let inst = Instruction {
+                    mnemonic: Mnemonic::MovSized { width: IntWidth::W64 },
+                    operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                };
+
+                self.emit_inst(node_id, inst);
+            }
+            _ => {
+                // u8/u16/i8/i16/i32: not exercised by the fixture; emit diagnostic.
+                self.diagnostics.push(format!(
+                    "T0518: emit_mem_write_via_rip_sym with size={} not supported; deferred to future phase",
+                    size
                 ));
             }
         }

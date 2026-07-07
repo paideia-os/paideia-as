@@ -1,0 +1,9 @@
+// pa-r17-006-b: Global record-field write as lambda body statement
+// Tests that `fn(_: ()) -> () { r.a = 42 }` emits mov eax, 42; mov [rip + r], eax; ret
+// where r is a module-level struct instance.
+
+module FieldWriteU32 = structure {
+  struct S { a: u32 }
+  pub let r : S = S { a: 0 }
+  pub let entry : () -> () !{} @{} = fn(_: ()) -> { r.a = 42 }
+}

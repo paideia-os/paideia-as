@@ -213,10 +213,11 @@ pub fn lower_ast_to_ir(
             }
         }
         // Phase 7 m5-001 & m5-002: l-value assignment detection.
-        // Detect three patterns and lower them to Store instead of App:
+        // Phase 17 m6-b: Detect four patterns and lower them to Store instead of App:
         // 1. a[i] = value (m5-001): LHS is ExprCall with 1 argument
         // 2. *p = value (m5-002): LHS is ExprDeref
-        // 3. (*p).f = value (m5-002): LHS is ExprPostfix(FieldAccess) where expr is ExprDeref
+        // 3. (*p).f = value (m5-002): LHS is ExprFieldAccess where receiver is ExprDeref
+        // 4. r.f = value (m6-b): LHS is ExprFieldAccess where receiver is ExprPath|Ident (global/local record)
         if node.kind == paideia_as_ast::NodeKind::ExprInfix {
             if let Some(paideia_as_ast::ExprData::Infix { op, lhs, .. }) = ast.expr_data(ast_id) {
                 let op_node = &ast[*op];
@@ -232,14 +233,23 @@ pub fn lower_ast_to_ir(
                     {
                         // Pattern 2: *p = value
                         true
-                    } else if let Some(paideia_as_ast::ExprData::Postfix { expr, .. }) =
+                    } else if let Some(paideia_as_ast::ExprData::FieldAccess { receiver, .. }) =
                         ast.expr_data(*lhs)
                     {
-                        // Pattern 3: (*p).f = value (field access on a deref)
-                        if let Some(paideia_as_ast::ExprData::Deref { .. }) = ast.expr_data(*expr) {
+                        // Pattern 3 & 4: field access on deref or direct variable
+                        // Check if receiver is a Deref (Pattern 3: (*p).f = value)
+                        if let Some(paideia_as_ast::ExprData::Deref { .. }) = ast.expr_data(*receiver) {
                             true
                         } else {
-                            false
+                            // Check if receiver is a simple variable (Pattern 4: r.f = value)
+                            // A simple variable is represented as ExprPath or Ident
+                            let receiver_node = ast.get(*receiver);
+                            if let Some(n) = receiver_node {
+                                n.kind == paideia_as_ast::NodeKind::ExprPath
+                                    || n.kind == paideia_as_ast::NodeKind::Ident
+                            } else {
+                                false
+                            }
                         }
                     } else {
                         false
@@ -303,8 +313,10 @@ pub fn lower_ast_to_ir(
                 }
                 ExprData::Infix { op, lhs, rhs } => {
                     // Check if this is an l-value assignment.
-                    // Phase 7 m5-001 & m5-002: if this lowered to Store, rearrange children.
-                    // Store expects [addr, index_or_unused, value].
+                    // Phase 7 m5-001 & m5-002; Phase 17 m6-b: if this lowered to Store, rearrange children.
+                    // Store expects [addr_or_field_access, index_or_unused, value].
+                    // For field access patterns, we pass the FieldAccess IR node as child[0]
+                    // so populate_field_access_info can access field info via the side-table.
                     let store_children = if let Some(ir_node) = ir.get(ir_id) {
                         if ir_node.kind == IrKind::Store {
                             // Try Pattern 1: a[i] = value (ExprCall on LHS)
@@ -325,20 +337,16 @@ pub fn lower_ast_to_ir(
                                 // For deref store, children are [pointer, unused, value]
                                 Some(vec![*expr, *op, *rhs])
                             }
-                            // Try Pattern 3: (*p).f = value (ExprPostfix(FieldAccess) on LHS)
-                            else if let Some(paideia_as_ast::ExprData::Postfix {
-                                expr: field_expr,
-                                ..
-                            }) = ast.expr_data(*lhs)
+                            // Try Pattern 3 & 4: field access (ExprFieldAccess on LHS)
+                            // Pattern 3: (*p).f = value (field access on a deref)
+                            // Pattern 4: r.f = value (field access on a global/local record)
+                            else if let Some(paideia_as_ast::ExprData::FieldAccess { .. }) =
+                                ast.expr_data(*lhs)
                             {
-                                if let Some(paideia_as_ast::ExprData::Deref { expr: ptr }) =
-                                    ast.expr_data(*field_expr)
-                                {
-                                    // For field-access-of-deref store, children are [pointer, unused, value]
-                                    Some(vec![*ptr, *op, *rhs])
-                                } else {
-                                    None
-                                }
+                                // For field access store, children are [FieldAccess_ast, unused, value]
+                                // The AST-to-IR mapping will convert FieldAccess_ast to FieldAccess_ir
+                                // in the children transfer loop below.
+                                Some(vec![*lhs, *op, *rhs])
                             } else {
                                 None
                             }
@@ -591,6 +599,9 @@ pub fn lower_ast_to_ir(
     // field indices in the registry, and insert (FieldAccess_ir_id -> FieldAccessInfo)
     // mappings into field_access_info side-table.
     populate_field_access_info(&ast, &mut ir, &ast_to_ir, registry, source_map, sink);
+
+    // Phase-5-m1-001: Literal values are populated by cmd_build.rs Phase-5-m1-001 walk
+    // before emit_walker::walk() runs. No need to duplicate that work here.
 
     LoweringResult { ir, ast_to_ir }
 }
@@ -1264,6 +1275,11 @@ fn populate_field_access_info(
     }
 }
 
+/// Phase 17 m6-b (#1046): Populate the LiteralValueTable for Literal expressions.
+///
+/// Walks all AST Literal nodes and extracts their integer values from source text,
+/// inserting (Literal_ir_id -> value) mappings into the IR's literal_values side-table.
+/// This is needed for field assignment to access immediate values at emit time.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1755,16 +1771,14 @@ mod tests {
         );
 
         // Allocate field name: "field"
-        let field_op_id = ast.alloc(NodeKind::Ident, span());
+        let field_name_id = ast.alloc(NodeKind::Ident, span());
 
-        // Allocate ExprPostfix: (*p).field
+        // Allocate ExprFieldAccess: (*p).field
+        // This matches the shape emitted by the real parser.
         let field_access_id = ast.alloc_expr(
-            NodeKind::ExprPostfix,
+            NodeKind::ExprFieldAccess,
             span(),
-            ExprData::Postfix {
-                expr: deref_expr_id,
-                op: field_op_id,
-            },
+            ExprData::FieldAccess { receiver: deref_expr_id, field: field_name_id },
         );
 
         // Allocate value variable: x
@@ -1795,17 +1809,17 @@ mod tests {
             "Field-deref assignment should lower to Store"
         );
 
-        // Verify children are [pointer, unused, value]
+        // Verify children are [field_access, unused, value]
         let children = result.ir.children(assign_ir_id);
         assert_eq!(children.len(), 3, "Store should have 3 children");
 
-        let ptr_child_id = children[0];
+        let field_access_child_id = children[0];
         let value_child_id = children[2];
 
-        let ptr_ir_id = result.ast_to_ir[&ptr_var_id];
+        let field_access_ir_id = result.ast_to_ir[&field_access_id];
         let value_ir_id = result.ast_to_ir[&value_var_id];
 
-        assert_eq!(ptr_child_id, ptr_ir_id);
+        assert_eq!(field_access_child_id, field_access_ir_id);
         assert_eq!(value_child_id, value_ir_id);
     }
 
