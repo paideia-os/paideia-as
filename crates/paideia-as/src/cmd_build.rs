@@ -885,6 +885,10 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
             let features = extract_root_module_features(root_id, &arena, &source_map, file);
             emit_walker.state_mut().set_enabled_features(features);
 
+            // PA-r17-010c (#1072): populate finalised record layouts from the
+            // StructRegistry so visit_record_cons + emit_store_record can consume them.
+            emit_walker.state_mut().finalise_record_layouts(&registry.fields);
+
             // PA-r17-004: Pre-emit pass to populate call_sites metadata for App nodes.
             // Walk IR to find all App nodes and extract callee names, storing metadata
             // in the CallSideTable for later dispatch in emit_walker.
@@ -1261,9 +1265,11 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                         // PA10-006s: Look for ArrayLit anywhere in children, not just first.
                         // The IR structure for Let may have multiple children including Var references.
                         // PA-R12-001: Also look for StringLiteral.
+                        // PA-r17-010c (#1072): Also look for RecordCons.
                         let mut array_lit_id = None;
                         let mut literal_id = None;
                         let mut string_literal_id = None;
+                        let mut record_cons_id = None;
 
                         for &child_id in children.iter() {
                             if let Some(child_node) = lowering.ir.get(child_id) {
@@ -1273,15 +1279,19 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                     literal_id = Some(child_id);
                                 } else if child_node.kind == paideia_as_ir::IrKind::StringLiteral {
                                     string_literal_id = Some(child_id);
+                                } else if child_node.kind == paideia_as_ir::IrKind::RecordCons {
+                                    record_cons_id = Some(child_id);
                                 }
                             }
                         }
 
-                        // Try ArrayLit first, then Literal, then StringLiteral, then first child
+                        // Try ArrayLit first, then Literal, then StringLiteral, then RecordCons, then first child
                         // PA-R12-001: StringLiteral enables `let X : [u8; N] = "string"` patterns
+                        // PA-r17-010c (#1072): RecordCons enables `let x : T = T { ... }` patterns
                         let rhs_id = array_lit_id
                             .or(literal_id)
                             .or(string_literal_id)
+                            .or(record_cons_id)
                             .or_else(|| children.first().copied());
 
                         if let Some(rhs_id) = rhs_id {
@@ -1447,6 +1457,24 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                                 symbol_name,
                                                 explicit_align.unwrap_or(8),
                                                 vec![reloc],
+                                            )
+                                        };
+                                        data_entries.push((node_id, entry));
+                                    }
+                                } else if rhs_node.kind == paideia_as_ir::IrKind::RecordCons {
+                                    // PA-r17-010c (#1072): encode record fields as packed bytes.
+                                    // (No relocation support here — that's #988's scope.)
+                                    if let Some(bytes) = paideia_as_elaborator::data_encoder::encode_record_cons(&lowering.ir, rhs_id) {
+                                        let explicit_align = lowering.ir.let_meta().get(node_id).and_then(|i| i.align);
+                                        let is_mutable = lowering.ir.let_meta().get(node_id)
+                                            .map(|info| info.mutable).unwrap_or(false);
+                                        let entry = if is_mutable {
+                                            paideia_as_ir::DataEntry::new_data(
+                                                bytes, symbol_name, explicit_align.unwrap_or(8),
+                                            )
+                                        } else {
+                                            paideia_as_ir::DataEntry::new_rodata(
+                                                bytes, symbol_name, explicit_align.unwrap_or(8),
                                             )
                                         };
                                         data_entries.push((node_id, entry));
