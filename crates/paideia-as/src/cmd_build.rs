@@ -88,6 +88,93 @@ fn is_valid_identifier(s: &str) -> bool {
     s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
+/// PA-R17-003 / #988: Extract variable name from a Borrow operand.
+///
+/// Given a Borrow node's operand (expected to be a Var), extract the identifier text
+/// from the source span, validate it, and check if it refers to a function symbol.
+/// Returns `Some(var_name)` on success, or `None` if validation fails (with diagnostic
+/// emitted to sink).
+fn extract_var_name_from_operand(
+    operand_id: IrNodeId,
+    lowering: &paideia_as_elaborator::LoweringResult,
+    source_map: &SourceMap,
+    file: paideia_as_diagnostics::FileId,
+    sink: &mut VecSink,
+) -> Option<String> {
+    let operand_node = lowering.ir.get(operand_id)?;
+
+    // Reject if operand kind is not Var.
+    if operand_node.kind != paideia_as_ir::IrKind::Var {
+        let diag = Diagnostic::error(
+            DiagnosticCode::new(
+                Category::T,
+                Severity::Error,
+                532,
+            ).expect("T0532 is valid")
+        )
+        .message("address-of operand is not an identifier")
+        .with_span(operand_node.span)
+        .finish();
+        let _ = sink.emit(diag);
+        return None;
+    }
+
+    // Extract source text of the Var.
+    let span = operand_node.span;
+    let start = span.byte_start() as usize;
+    let len = span.byte_len() as usize;
+    let content_ref = source_map.content(file);
+    if start + len > content_ref.len() {
+        // Malformed span, skip
+        return None;
+    }
+    let var_name = content_ref[start..start + len].to_string();
+
+    // Look up name in SymbolTable.
+    let sym_kind = lowering.ir.symbols().lookup_by_name(&var_name).map(|s| s.kind);
+
+    if let Some(sym_kind) = sym_kind {
+        // Found locally. Check that symbol is a function.
+        if sym_kind != paideia_as_ir::SymbolKind::Function {
+            let diag = Diagnostic::error(
+                DiagnosticCode::new(
+                    Category::T,
+                    Severity::Error,
+                    536,
+                ).expect("T0536 is valid")
+            )
+            .message("address-of target is not a function; data-symbol addr-of not supported in v0.17")
+            .with_span(operand_node.span)
+            .finish();
+            let _ = sink.emit(diag);
+            return None;
+        }
+        // On success, return the name
+        Some(var_name)
+    } else {
+        // Name not found locally.
+        // For well-formed identifiers, DO NOT reject here.
+        // The writer will synthesize an undefined symbol.
+        // Only reject if the name is malformed.
+        if !is_valid_identifier(&var_name) {
+            let diag = Diagnostic::error(
+                DiagnosticCode::new(
+                    Category::T,
+                    Severity::Error,
+                    534,
+                ).expect("T0534 is valid")
+            )
+            .message("unresolved identifier in address-of expression")
+            .with_span(operand_node.span)
+            .finish();
+            let _ = sink.emit(diag);
+            return None;
+        }
+        // Well-formed name not found locally → allow cross-file reference
+        Some(var_name)
+    }
+}
+
 /// Phase 15 m2-002a: Extract the `#![bits = N]` inner attribute from the root module.
 ///
 /// Returns the bits value (32 or 64) if present, otherwise None.
@@ -1136,9 +1223,11 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
         }
     }
 
-    // PA-R17-003: Address-of pre-emit pass. Resolve `&fn_name` operands and populate AddrOfSideTable.
+    // PA-R17-003 / #988: Address-of pre-emit pass. Resolve `&fn_name` operands and populate AddrOfSideTable.
     // This must run after SymbolTable is populated (above) and before the data-table loop (below).
     // TODO(#pa-r17-003b): T0535 signature check deferred to #1038.
+    // #988 v2: Key by rhs_id (Borrow node) instead of let_id to disambiguate multiple Borrow per Let
+    // (needed for record literals with multiple fnptr fields).
     if !lowering.ir.is_empty() {
         let arena_len = lowering.ir.len();
         // Collect all address-of entries first to avoid borrow issues
@@ -1150,82 +1239,56 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                     if node.kind == paideia_as_ir::IrKind::Let {
                         let children: Vec<_> = lowering.ir.children(let_id).iter().copied().collect();
                         // Look for an RHS with IrKind::Borrow
-                        for rhs_id in children {
-                            if let Some(rhs_node) = lowering.ir.get(rhs_id) {
+                        for rhs_id in &children {
+                            if let Some(rhs_node) = lowering.ir.get(*rhs_id) {
                                 if rhs_node.kind == paideia_as_ir::IrKind::Borrow {
                                     // Locate the Borrow's single child (the operand).
-                                    let borrow_children: Vec<_> = lowering.ir.children(rhs_id).iter().copied().collect();
+                                    let borrow_children: Vec<_> = lowering.ir.children(*rhs_id).iter().copied().collect();
                                     if let Some(operand_id) = borrow_children.first() {
-                                        if let Some(operand_node) = lowering.ir.get(*operand_id) {
-                                            // Reject if operand kind is not Var.
-                                            if operand_node.kind != paideia_as_ir::IrKind::Var {
-                                                let diag = Diagnostic::error(
-                                                    DiagnosticCode::new(
-                                                        Category::T,
-                                                        Severity::Error,
-                                                        532,
-                                                    ).expect("T0532 is valid")
-                                                )
-                                                .message("address-of operand is not an identifier")
-                                                .with_span(operand_node.span)
-                                                .finish();
-                                                let _ = sink.emit(diag);
-                                                continue;
-                                            }
+                                        // Use helper to extract and validate var_name
+                                        if let Some(var_name) = extract_var_name_from_operand(
+                                            *operand_id,
+                                            &lowering,
+                                            &source_map,
+                                            file,
+                                            &mut sink,
+                                        ) {
+                                            // #988 v2: Push (rhs_id, var_name) not (let_id, var_name)
+                                            // to disambiguate multiple Borrow fields per Let
+                                            addr_of_entries.push((*rhs_id, var_name));
+                                        }
+                                    }
+                                }
+                            }
+                        }
 
-                                            // Extract source text of the Var.
-                                            let span = operand_node.span;
-                                            let start = span.byte_start() as usize;
-                                            let len = span.byte_len() as usize;
-                                            let content_ref = source_map.content(file);
-                                            if start + len > content_ref.len() {
-                                                // Malformed span, skip
-                                                continue;
-                                            }
-                                            let var_name = content_ref[start..start + len].to_string();
-
-                                            // Look up name in SymbolTable.
-                                            let sym_kind = lowering.ir.symbols().lookup_by_name(&var_name).map(|s| s.kind);
-
-                                            if let Some(sym_kind) = sym_kind {
-                                                // Found locally. Check that symbol is a function.
-                                                if sym_kind != paideia_as_ir::SymbolKind::Function {
-                                                    let diag = Diagnostic::error(
-                                                        DiagnosticCode::new(
-                                                            Category::T,
-                                                            Severity::Error,
-                                                            536,
-                                                        ).expect("T0536 is valid")
-                                                    )
-                                                    .message("address-of target is not a function; data-symbol addr-of not supported in v0.17")
-                                                    .with_span(operand_node.span)
-                                                    .finish();
-                                                    let _ = sink.emit(diag);
-                                                    continue;
+                        // #988 v2: Also handle RecordCons fields with Borrow children
+                        for rhs_id in &children {
+                            if let Some(rhs_node) = lowering.ir.get(*rhs_id) {
+                                if rhs_node.kind == paideia_as_ir::IrKind::RecordCons {
+                                    // Skip type_name child (index 0), process field children
+                                    let field_children: Vec<_> = lowering.ir.children(*rhs_id).iter().copied().collect();
+                                    for (field_idx, &field_id) in field_children.iter().enumerate() {
+                                        if field_idx == 0 {
+                                            // Skip type_name at index 0
+                                            continue;
+                                        }
+                                        if let Some(field_node) = lowering.ir.get(field_id) {
+                                            if field_node.kind == paideia_as_ir::IrKind::Borrow {
+                                                // Get the Borrow's operand
+                                                let borrow_children: Vec<_> = lowering.ir.children(field_id).iter().copied().collect();
+                                                if let Some(operand_id) = borrow_children.first() {
+                                                    if let Some(var_name) = extract_var_name_from_operand(
+                                                        *operand_id,
+                                                        &lowering,
+                                                        &source_map,
+                                                        file,
+                                                        &mut sink,
+                                                    ) {
+                                                        // Push (borrow_id, var_name) for record field
+                                                        addr_of_entries.push((field_id, var_name));
+                                                    }
                                                 }
-                                                // On success, record for later insertion
-                                                addr_of_entries.push((let_id, var_name));
-                                            } else {
-                                                // Name not found locally.
-                                                // For well-formed identifiers, DO NOT reject here.
-                                                // The writer will synthesize an undefined symbol.
-                                                // Only reject if the name is malformed.
-                                                if !is_valid_identifier(&var_name) {
-                                                    let diag = Diagnostic::error(
-                                                        DiagnosticCode::new(
-                                                            Category::T,
-                                                            Severity::Error,
-                                                            534,
-                                                        ).expect("T0534 is valid")
-                                                    )
-                                                    .message("unresolved identifier in address-of expression")
-                                                    .with_span(operand_node.span)
-                                                    .finish();
-                                                    let _ = sink.emit(diag);
-                                                    continue;
-                                                }
-                                                // Well-formed name not found locally → allow cross-file reference
-                                                addr_of_entries.push((let_id, var_name));
                                             }
                                         }
                                     }
@@ -1238,9 +1301,10 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
         }
 
         // Now populate the AddrOfSideTable with collected entries
-        for (let_id, var_name) in addr_of_entries {
+        // #988 v2: Keyed by rhs_id (Borrow node) not let_id
+        for (rhs_id, var_name) in addr_of_entries {
             lowering.ir.addr_of_mut().insert(
-                let_id,
+                rhs_id,
                 paideia_as_ir::AddrOfMeta::new(var_name),
             );
         }
@@ -1433,7 +1497,8 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                 } else if rhs_node.kind == paideia_as_ir::IrKind::Borrow {
                                     // PA-R17-003 (issue #981): Let with Borrow (address-of) → 8-byte relocation slot
                                     // Consult the AddrOfSideTable populated by the pre-emit pass above.
-                                    if let Some(meta) = lowering.ir.addr_of().get(node_id) {
+                                    // #988 v2: Access by rhs_id (Borrow node) not node_id (Let node)
+                                    if let Some(meta) = lowering.ir.addr_of().get(rhs_id) {
                                         let bytes = vec![0u8; 8];  // 8 zero bytes (placeholder for linker)
                                         let reloc = paideia_as_ir::RelocSpec::with_width(
                                             0,  // offset 0: entire 8 bytes hold the pointer
@@ -1462,20 +1527,86 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                         data_entries.push((node_id, entry));
                                     }
                                 } else if rhs_node.kind == paideia_as_ir::IrKind::RecordCons {
-                                    // PA-r17-010c (#1072): encode record fields as packed bytes.
-                                    // (No relocation support here — that's #988's scope.)
-                                    if let Some(bytes) = paideia_as_elaborator::data_encoder::encode_record_cons(&lowering.ir, rhs_id) {
+                                    // #988 v2: RecordCons emit with fnptr relocation support.
+                                    // Look up layout from record_layout_table, walk fields, and emit relocations.
+                                    let record_type_id = lowering.ir.record_layout_table().get(rhs_id);
+                                    if let Some(_type_id) = record_type_id {
+                                        // For now, we don't have access to finalised_layout_table here (it's emitter-only),
+                                        // so we'll use the IR structure directly: walk field children, check their kind,
+                                        // and emit relocations for Borrow fields.
+                                        let field_children: Vec<_> = lowering.ir.children(rhs_id).iter().copied().collect();
+                                        let mut bytes = Vec::new();
+                                        let mut relocs = Vec::new();
+
+                                        // Skip type_name at index 0, process field children
+                                        for (field_idx, &field_id) in field_children.iter().enumerate() {
+                                            if field_idx == 0 {
+                                                // Skip type_name
+                                                continue;
+                                            }
+
+                                            if let Some(field_node) = lowering.ir.get(field_id) {
+                                                if field_node.kind == paideia_as_ir::IrKind::Literal {
+                                                    // Literal field: pack as 8 bytes (MVP assumes all fields are u64)
+                                                    if let Some(value) = lowering.ir.literal_values().get(field_id) {
+                                                        let field_bytes = paideia_as_elaborator::data_encoder::pack_u64_le(value);
+                                                        bytes.extend(field_bytes);
+                                                    }
+                                                } else if field_node.kind == paideia_as_ir::IrKind::Borrow {
+                                                    // Borrow field: emit 8 zero bytes + relocation
+                                                    let offset = bytes.len() as u64;
+                                                    bytes.extend_from_slice(&[0u8; 8]);
+
+                                                    // Look up the Borrow in AddrOfSideTable (keyed by Borrow node id)
+                                                    if let Some(meta) = lowering.ir.addr_of().get(field_id) {
+                                                        let reloc = paideia_as_ir::RelocSpec::with_width(
+                                                            offset,
+                                                            meta.symbol.clone(),
+                                                            paideia_as_ir::RelocWidth::W64,
+                                                            meta.addend,
+                                                        );
+                                                        relocs.push(reloc);
+                                                    }
+                                                } else {
+                                                    // Non-Literal, non-Borrow field: emit T0536-style diagnostic
+                                                    let diag = Diagnostic::error(
+                                                        DiagnosticCode::new(
+                                                            Category::T,
+                                                            Severity::Error,
+                                                            536,
+                                                        ).expect("T0536 is valid")
+                                                    )
+                                                    .message("record field must be a literal or function pointer")
+                                                    .with_span(field_node.span)
+                                                    .finish();
+                                                    let _ = sink.emit(diag);
+                                                }
+                                            }
+                                        }
+
                                         let explicit_align = lowering.ir.let_meta().get(node_id).and_then(|i| i.align);
                                         let is_mutable = lowering.ir.let_meta().get(node_id)
                                             .map(|info| info.mutable).unwrap_or(false);
                                         let entry = if is_mutable {
-                                            paideia_as_ir::DataEntry::new_data(
-                                                bytes, symbol_name, explicit_align.unwrap_or(8),
-                                            )
+                                            if relocs.is_empty() {
+                                                paideia_as_ir::DataEntry::new_data(
+                                                    bytes, symbol_name, explicit_align.unwrap_or(8),
+                                                )
+                                            } else {
+                                                paideia_as_ir::DataEntry::new_data_with_relocs(
+                                                    bytes, symbol_name, explicit_align.unwrap_or(8), relocs,
+                                                )
+                                            }
                                         } else {
-                                            paideia_as_ir::DataEntry::new_rodata(
-                                                bytes, symbol_name, explicit_align.unwrap_or(8),
-                                            )
+                                            if relocs.is_empty() {
+                                                paideia_as_ir::DataEntry::new_rodata(
+                                                    bytes, symbol_name, explicit_align.unwrap_or(8),
+                                                )
+                                            } else {
+                                                paideia_as_ir::DataEntry::new_rodata_with_relocs(
+                                                    bytes, symbol_name, explicit_align.unwrap_or(8), relocs,
+                                                )
+                                            }
                                         };
                                         data_entries.push((node_id, entry));
                                     }
