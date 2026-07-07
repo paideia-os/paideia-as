@@ -3168,6 +3168,115 @@ pub fn jmp_mem_sib_no_base_indexed(
     Ok(disp_offset)
 }
 
+/// Encode `lock inc qword [disp32]` via SIB no-base absolute form.
+///
+/// Instruction: F0 REX.W FF /0 modrm=0x04 sib=0x25 disp32
+/// Total size: 9 bytes (for W64)
+/// Returns the byte offset where disp32 starts within the instruction.
+///
+/// PA-R16-007 (issue #1060): Used for atomic increment at absolute addresses,
+/// typically with GS-prefix for per-cpu access (MemSeg pre-pass applies prefix).
+pub fn lock_inc_mem_abs_disp32(
+    buf: &mut CodeBuffer,
+    width: IntWidth,
+    disp32: i32,
+) -> usize {
+    buf.bytes.push(0xF0); // LOCK prefix
+    let disp_offset;
+    match width {
+        IntWidth::W64 => {
+            buf.bytes.push(0x48); // REX.W
+            disp_offset = 4; // disp32 starts at byte offset 4: F0 48 FF 04 25 [disp32...]
+        }
+        IntWidth::W32 => {
+            // W32 form has no REX.W
+            disp_offset = 3; // disp32 starts at byte offset 3: F0 FF 04 25 [disp32...]
+        }
+        _ => unreachable!(),
+    }
+
+    buf.bytes.push(0xFF); // opcode for inc
+    buf.bytes.push(0x04); // ModRM: mod=00, reg=0 (/0 for inc), r/m=100 (SIB follows)
+    buf.bytes.push(0x25); // SIB: scale=00, index=100 (no index), base=101 (no base/absolute)
+    buf.bytes.extend(disp32.to_le_bytes());
+
+    disp_offset
+}
+
+/// Encode `lock add qword [disp32], imm8` via SIB no-base absolute form.
+///
+/// Instruction: F0 REX.W 83 /0 modrm=0x04 sib=0x25 disp32 imm8
+/// Total size: 10 bytes (for W64)
+/// Returns the byte offset where disp32 starts within the instruction.
+///
+/// PA-R16-007 (issue #1060): Used for atomic add at absolute addresses,
+/// typically with GS-prefix for per-cpu access (MemSeg pre-pass applies prefix).
+pub fn lock_add_mem_abs_disp32_imm8(
+    buf: &mut CodeBuffer,
+    width: IntWidth,
+    disp32: i32,
+    imm8: i8,
+) -> usize {
+    buf.bytes.push(0xF0); // LOCK prefix
+    let disp_offset;
+    match width {
+        IntWidth::W64 => {
+            buf.bytes.push(0x48); // REX.W
+            disp_offset = 4; // disp32 starts at byte offset 4: F0 48 83 04 25 [disp32...]
+        }
+        IntWidth::W32 => {
+            // W32 form has no REX.W
+            disp_offset = 3; // disp32 starts at byte offset 3: F0 83 04 25 [disp32...]
+        }
+        _ => unreachable!(),
+    }
+
+    buf.bytes.push(0x83); // opcode for add imm8
+    buf.bytes.push(0x04); // ModRM: mod=00, reg=0 (/0 for add), r/m=100 (SIB follows)
+    buf.bytes.push(0x25); // SIB: scale=00, index=100 (no index), base=101 (no base/absolute)
+    buf.bytes.extend(disp32.to_le_bytes());
+    buf.bytes.push(imm8 as u8);
+
+    disp_offset
+}
+
+/// Encode `lock add qword [disp32], imm32` via SIB no-base absolute form.
+///
+/// Instruction: F0 REX.W 81 /0 modrm=0x04 sib=0x25 disp32 imm32
+/// Total size: 13 bytes (for W64)
+/// Returns the byte offset where disp32 starts within the instruction.
+///
+/// PA-R16-007 (issue #1060): Used for atomic add at absolute addresses,
+/// typically with GS-prefix for per-cpu access (MemSeg pre-pass applies prefix).
+pub fn lock_add_mem_abs_disp32_imm32(
+    buf: &mut CodeBuffer,
+    width: IntWidth,
+    disp32: i32,
+    imm32: i32,
+) -> usize {
+    buf.bytes.push(0xF0); // LOCK prefix
+    let disp_offset;
+    match width {
+        IntWidth::W64 => {
+            buf.bytes.push(0x48); // REX.W
+            disp_offset = 4; // disp32 starts at byte offset 4: F0 48 81 04 25 [disp32...]
+        }
+        IntWidth::W32 => {
+            // W32 form has no REX.W
+            disp_offset = 3; // disp32 starts at byte offset 3: F0 81 04 25 [disp32...]
+        }
+        _ => unreachable!(),
+    }
+
+    buf.bytes.push(0x81); // opcode for add imm32
+    buf.bytes.push(0x04); // ModRM: mod=00, reg=0 (/0 for add), r/m=100 (SIB follows)
+    buf.bytes.push(0x25); // SIB: scale=00, index=100 (no index), base=101 (no base/absolute)
+    buf.bytes.extend(disp32.to_le_bytes());
+    buf.bytes.extend(imm32.to_le_bytes());
+
+    disp_offset
+}
+
 /// Encode conditional jump `jcc rel32`.
 ///
 /// Instruction: 0F 8X cd (where X is the condition code)

@@ -117,6 +117,7 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         | Mnemonic::LockXadd { .. }
         | Mnemonic::LockAdd { .. }
         | Mnemonic::LockSub { .. }
+        | Mnemonic::LockInc { .. }
         | Mnemonic::LockBts { .. }
         | Mnemonic::LockBtr { .. }
         | Mnemonic::LockBtc { .. }

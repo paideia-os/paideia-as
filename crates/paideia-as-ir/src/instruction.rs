@@ -372,6 +372,15 @@ pub enum Mnemonic {
         /// Operand width selecting the encoded form (W32 or W64).
         width: IntWidth,
     },
+    /// LOCK-prefixed increment: `lock inc [mem]` (PA-R16-007, #1060).
+    /// Atomically increments memory by 1. One operand (mem).
+    /// Encoding: `F0 [REX.W] FF /0` per Intel SDM Vol 2A INC.
+    /// Effect: !{Atomic}. LOCK (Group 1) precedes REX per Vol 2A §2.1.1.
+    /// Supports both W32 and W64 widths.
+    LockInc {
+        /// Operand width selecting the encoded form (W32 or W64).
+        width: IntWidth,
+    },
     /// Add with carry: `adc r32/r64, r/m32/r/m64` (PA-R15-005, #960).
     /// Adds register/memory to register + carry flag. Two operands (dst, src).
     /// Encoding: `[REX.W] 13 /r` (opcode 0x13 for adc reg-dst) per Intel SDM Vol 2A ADC.
@@ -856,7 +865,8 @@ impl Mnemonic {
             | Mnemonic::Dec
             | Mnemonic::Bswap
             | Mnemonic::Bswap32
-            | Mnemonic::LockCmpxchg16b => 1,
+            | Mnemonic::LockCmpxchg16b
+            | Mnemonic::LockInc { .. } => 1,
 
             // Two-operand instructions
             Mnemonic::Mov
@@ -1168,6 +1178,10 @@ impl Mnemonic {
             // Phase R15 PA-R15-003 (issue #958): lock add/sub to memory, 9 bytes upper bound
             // (LOCK + REX + 81 + ModR/M + disp32 + imm32 worst-case)
             Mnemonic::LockAdd { .. } | Mnemonic::LockSub { .. } => 9,
+
+            // Phase R16 PA-R16-007 (issue #1060): lock inc to memory, 9 bytes upper bound
+            // (LOCK + REX + FF + ModR/M + SIB + disp32 worst-case for absolute form)
+            Mnemonic::LockInc { .. } => 9,
         }
     }
 }

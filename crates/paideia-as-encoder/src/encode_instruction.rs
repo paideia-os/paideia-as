@@ -407,6 +407,8 @@ fn encode_instruction_impl(
         Mnemonic::LockAdd { width } => encode_lock_add(inst, buf, *width),
         // Phase R15 PA-R15-003: lock sub immediate/register with memory
         Mnemonic::LockSub { width } => encode_lock_sub(inst, buf, *width),
+        // Phase R16 PA-R16-007: lock inc memory (issue #1060)
+        Mnemonic::LockInc { width } => encode_lock_inc(inst, buf, *width),
         // Phase R16 PA-R16-002: lock bts/btr/btc immediate/register with memory
         Mnemonic::LockBts { width } => encode_lock_bts(inst, buf, *width),
         Mnemonic::LockBtr { width } => encode_lock_btr(inst, buf, *width),
@@ -817,7 +819,7 @@ fn encode_lock_add(
     }
 
     match inst.operands.as_slice() {
-        // lock add [mem], reg form
+        // lock add [mem], reg form (base + disp)
         [Operand::MemSib { base, index: None, scale: Scale::X1, disp }, Operand::Reg(src)] => {
             let base_reg = reg64_from(*base)?;
             let src_reg = reg64_from(*src)?;
@@ -828,7 +830,7 @@ fn encode_lock_add(
             }
             Ok(EncodeOutput::new())
         }
-        // lock add [mem], imm form
+        // lock add [mem], imm form (base + disp)
         [Operand::MemSib { base, index: None, scale: Scale::X1, disp }, Operand::Imm64(imm_val)] => {
             let base_reg = reg64_from(*base)?;
             let imm = *imm_val;
@@ -858,6 +860,27 @@ fn encode_lock_add(
                     }
                     _ => unreachable!(),
                 }
+                return Ok(EncodeOutput::new());
+            }
+
+            // imm out of range
+            Err(EncodeError::Unsupported(
+                "E0033: lock_add imm out of i32 range",
+            ))
+        }
+        // lock add [disp32], imm form (absolute displacement, SIB no-base)
+        [Operand::MemDisp { disp }, Operand::Imm64(imm_val)] => {
+            let imm = *imm_val;
+
+            // Try imm8 first
+            if let Ok(imm8) = i8::try_from(imm) {
+                lock_add_mem_abs_disp32_imm8(buf, width, *disp, imm8);
+                return Ok(EncodeOutput::new());
+            }
+
+            // Try imm32
+            if let Ok(imm32) = i32::try_from(imm) {
+                lock_add_mem_abs_disp32_imm32(buf, width, *disp, imm32);
                 return Ok(EncodeOutput::new());
             }
 
@@ -934,6 +957,30 @@ fn encode_lock_sub(
             ))
         }
         _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::LockSub { width } }),
+    }
+}
+
+/// Phase R16 PA-R16-007: Encode lock inc instruction.
+/// Supports: [mem] (one operand only).
+/// Both W32 and W64 forms supported; uses SIB no-base for absolute displacement.
+fn encode_lock_inc(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+    width: IntWidth,
+) -> Result<EncodeOutput, EncodeError> {
+    if width != IntWidth::W32 && width != IntWidth::W64 {
+        return Err(EncodeError::Unsupported(
+            "E0034: lock_inc only supports W32 and W64",
+        ));
+    }
+
+    match inst.operands.as_slice() {
+        // lock inc [mem] form with absolute displacement (SIB no-base)
+        [Operand::MemDisp { disp }] => {
+            lock_inc_mem_abs_disp32(buf, width, *disp);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::LockInc { width } }),
     }
 }
 
