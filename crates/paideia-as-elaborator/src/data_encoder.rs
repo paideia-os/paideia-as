@@ -62,12 +62,50 @@ pub fn encode_record_cons(arena: &IrArena, record_id: IrNodeId) -> Option<Vec<u8
     Some(bytes)
 }
 
+/// PA-r17-007 (#1050): Encode an EnumCons node to bytes for data section initialisation.
+///
+/// Encodes the discriminant (variant_index as u64 LE) followed by the payload bytes,
+/// padded to the full enum size. Uses the EnumLayout to determine total size and
+/// payload offset.
+///
+/// Payload is encoded by recursively calling encode_ir_value on payload children.
+/// Returns None if the enum layout is not available or payload encoding fails.
+#[must_use]
+pub fn encode_enum_cons(arena: &IrArena, enum_cons_id: IrNodeId) -> Option<Vec<u8>> {
+    // Get the enum constructor metadata (type_id and variant_index)
+    let info = arena.enum_cons_info().get(enum_cons_id)?;
+
+    // Look up the enum layout for this type
+    // If layout is not found, this is a recoverable error - return None so the data binding
+    // is skipped (no data entry created). Later, emit_enum_cons will emit a diagnostic.
+    let layout = arena.enum_layout_table().get(info.type_id)?;
+
+    // Encode discriminant as u64 little-endian
+    let discriminant = info.variant_index as i64;
+    let mut bytes = pack_u64_le(discriminant);
+
+    // Encode payload by concatenating all payload argument values
+    let payload_children = arena.children(enum_cons_id);
+    for &payload_id in payload_children {
+        let payload_bytes = encode_ir_value(arena, payload_id)?;
+        bytes.extend_from_slice(&payload_bytes);
+    }
+
+    // Pad to total enum size
+    while bytes.len() < layout.size as usize {
+        bytes.push(0);
+    }
+
+    Some(bytes)
+}
+
 /// Recursively encode an IR value node to bytes.
 ///
 /// Dispatches on node kind:
 /// - `Literal`: pack as u64 little-endian.
 /// - `ArrayLit`: recurse on children.
 /// - `RecordCons`: recurse on field values (skip type-name).
+/// - `EnumCons`: encode discriminant + payload, padded to enum size (PA-r17-007 #1050).
 ///
 /// Returns `None` for kinds that are not directly encodable (Var, App, ...).
 #[must_use]
@@ -77,6 +115,7 @@ pub fn encode_ir_value(arena: &IrArena, node_id: IrNodeId) -> Option<Vec<u8>> {
         IrKind::Literal => arena.literal_values().get(node_id).map(pack_u64_le),
         IrKind::ArrayLit => encode_array_lit(arena, node_id),
         IrKind::RecordCons => encode_record_cons(arena, node_id),
+        IrKind::EnumCons => encode_enum_cons(arena, node_id),
         _ => None,
     }
 }
@@ -133,6 +172,16 @@ pub fn populate_data_table(arena: &IrArena, data_table: &mut DataSideTable) {
             }
             IrKind::RecordCons => {
                 if let Some(bytes) = encode_record_cons(arena, rhs_id) {
+                    let entry = if is_mutable {
+                        DataEntry::new_data(bytes, symbol_name, 8)
+                    } else {
+                        DataEntry::new_rodata(bytes, symbol_name, 8)
+                    };
+                    data_table.insert(node_id, entry);
+                }
+            }
+            IrKind::EnumCons => {
+                if let Some(bytes) = encode_enum_cons(arena, rhs_id) {
                     let entry = if is_mutable {
                         DataEntry::new_data(bytes, symbol_name, 8)
                     } else {

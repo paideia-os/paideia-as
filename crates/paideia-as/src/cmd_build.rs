@@ -40,7 +40,7 @@ use paideia_as_diagnostics::{
 };
 use paideia_as_elaborator::{
     CapWalker, EffectRowWalker, EmitWalker, LinearityWalker, UnsafeWalker, lower_ast_to_ir,
-    build_struct_registry, build_enum_registry, placeholder_for, validate_file_module_mapping,
+    build_struct_registry, build_enum_registry, finalise_enum_layouts, placeholder_for, validate_file_module_mapping,
 };
 use paideia_as_types::{TypeInterner, CapSetInterner, Subst};
 use paideia_as_effects::EffectInterner;
@@ -706,6 +706,13 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
     // If there are any errors so far, do not emit anything downstream.
     let mut lowering = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &enum_registry);
 
+    // PA-r17-007 (#1050): Populate enum layouts from the enum registry.
+    // This enables emit_walker to look up enum layouts during EnumCons and EnumDiscriminant lowering.
+    let enum_layouts = finalise_enum_layouts(&enum_registry, &arena, &source_map, &mut sink);
+    for (type_id, layout) in enum_layouts {
+        lowering.ir.enum_layout_table_mut().insert(type_id, layout);
+    }
+
     // Phase-5-m1-001: Extract literal values from AST and populate the IR's literal_values table.
     // This enables emit_walker to look up literal values during lambda lowering.
     {
@@ -1018,6 +1025,12 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
             // PA-r17-010c (#1072): populate finalised record layouts from the
             // StructRegistry so visit_record_cons + emit_store_record can consume them.
             emit_walker.state_mut().finalise_record_layouts(&registry.fields);
+
+            // PA-r17-007 (#1050): Mirror enum layouts from IR into walker state.
+            // This enables visit_enum_cons + emit_enum_discriminant to consume layouts during emission.
+            for (type_id, layout) in lowering.ir.enum_layout_table().iter() {
+                emit_walker.state_mut().insert_enum_layout(*type_id, layout.clone());
+            }
 
             // PA-r17-004: Pre-emit pass to populate call_sites metadata for App nodes.
             // Walk IR to find all App nodes and extract callee names, storing metadata
@@ -1456,10 +1469,12 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                         // The IR structure for Let may have multiple children including Var references.
                         // PA-R12-001: Also look for StringLiteral.
                         // PA-r17-010c (#1072): Also look for RecordCons.
+                        // PA-r17-007 (#1050): Also look for EnumCons.
                         let mut array_lit_id = None;
                         let mut literal_id = None;
                         let mut string_literal_id = None;
                         let mut record_cons_id = None;
+                        let mut enum_cons_id = None;
 
                         for &child_id in children.iter() {
                             if let Some(child_node) = lowering.ir.get(child_id) {
@@ -1471,17 +1486,21 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                     string_literal_id = Some(child_id);
                                 } else if child_node.kind == paideia_as_ir::IrKind::RecordCons {
                                     record_cons_id = Some(child_id);
+                                } else if child_node.kind == paideia_as_ir::IrKind::EnumCons {
+                                    enum_cons_id = Some(child_id);
                                 }
                             }
                         }
 
-                        // Try ArrayLit first, then Literal, then StringLiteral, then RecordCons, then first child
+                        // Try ArrayLit first, then Literal, then StringLiteral, then RecordCons, then EnumCons, then first child
                         // PA-R12-001: StringLiteral enables `let X : [u8; N] = "string"` patterns
                         // PA-r17-010c (#1072): RecordCons enables `let x : T = T { ... }` patterns
+                        // PA-r17-007 (#1050): EnumCons enables `let x : Enum = Enum::Variant(payload)` patterns
                         let rhs_id = array_lit_id
                             .or(literal_id)
                             .or(string_literal_id)
                             .or(record_cons_id)
+                            .or(enum_cons_id)
                             .or_else(|| children.first().copied());
 
                         if let Some(rhs_id) = rhs_id {
@@ -3126,6 +3145,19 @@ fn parse_integer_literal(text: &str) -> Result<i64, ()> {
         (8, &text[2..])
     } else {
         (10, text)
+    };
+
+    // Strip integer type suffixes (u8/u16/u32/u64/i8/i16/i32/i64/usize/isize) if present.
+    // Longer suffixes must be checked first so "u64" doesn't accidentally match after "u128".
+    let digits = {
+        let mut d = digits;
+        for suffix in ["usize", "isize", "u128", "i128", "u64", "i64", "u32", "i32", "u16", "i16", "u8", "i8"] {
+            if let Some(stripped) = d.strip_suffix(suffix) {
+                d = stripped;
+                break;
+            }
+        }
+        d
     };
 
     // Remove underscores (allowed in numeric literals)

@@ -54,65 +54,61 @@ fn enum_cons_parses_and_lowers() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let output_text = format!("{}\n{}", stdout, stderr);
 
-    // Phase 7 m4-003: EnumCons emit is currently blocked by #1050 (enum_layouts population).
-    // The build should fail with T0556 diagnostic ("enum layout not populated for type_id X, deferred to #1050").
-    // This is expected until #1050 populates enum_layouts for globals.
-    if !output.status.success() {
-        // Verify we get the expected diagnostic about enum_layouts not being populated
-        assert!(
-            output_text.contains("T0556") || output_text.contains("enum layout not populated"),
-            "Expected T0556 diagnostic about enum layout not populated, but got:\n{}",
-            output_text
-        );
-    } else {
-        // If the build does succeed (e.g., after #1050 is implemented), verify the ELF output
-        assert!(
-            Path::new(output_path).exists(),
-            "Output ELF file not created at {}",
-            output_path
-        );
+    // PA-r17-007 (#1050): After #1050 is implemented, the build should now succeed.
+    // Verify the ELF output contains correct layout data for Result::Ok(42u64).
+    assert!(
+        output.status.success(),
+        "Build failed unexpectedly. stdout:\n{}\n\nstderr:\n{}",
+        stdout,
+        stderr
+    );
 
-        // Parse the ELF file using the object crate
-        let file_data = std::fs::read(output_path)
-            .expect("Failed to read ELF file");
-        let object_file = object::File::parse(&*file_data)
-            .expect("Failed to parse ELF file");
+    assert!(
+        Path::new(output_path).exists(),
+        "Output ELF file not created at {}",
+        output_path
+    );
 
-        // Find the .rodata section
-        let rodata_section = object_file
-            .sections()
-            .find(|s| s.name().ok() == Some(".rodata"))
-            .expect("No .rodata section found in ELF");
+    // Parse the ELF file using the object crate
+    let file_data = std::fs::read(output_path)
+        .expect("Failed to read ELF file");
+    let object_file = object::File::parse(&*file_data)
+        .expect("Failed to parse ELF file");
 
-        let rodata_data = rodata_section.data().expect("Failed to read .rodata data");
+    // Find the .rodata section
+    let rodata_section = object_file
+        .sections()
+        .find(|s| s.name().ok() == Some(".rodata"))
+        .expect("No .rodata section found in ELF");
 
-        // Verify the symbol 'r' exists
-        let symbol_found = object_file
-            .symbols()
-            .any(|s| s.name().ok() == Some("r"));
-        assert!(symbol_found, "Symbol 'r' not found in ELF");
+    let rodata_data = rodata_section.data().expect("Failed to read .rodata data");
 
-        // Verify the .rodata contains the expected bytes for Result::Ok(42u64):
-        // - Discriminant 0 (Ok is variant_index 0) as u64 little-endian: 00 00 00 00 00 00 00 00
-        // - Payload 42 as u64 little-endian: 2a 00 00 00 00 00 00 00
-        // Total: 16 bytes
-        let expected_bytes = vec![
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // discriminant 0 (Ok)
-            0x2a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // payload 42
-        ];
+    // Verify the symbol 'r' exists
+    let symbol_found = object_file
+        .symbols()
+        .any(|s| s.name().ok() == Some("r"));
+    assert!(symbol_found, "Symbol 'r' not found in ELF");
 
-        assert!(
-            rodata_data.len() >= expected_bytes.len(),
-            ".rodata section too small: {} bytes, expected at least {} bytes",
-            rodata_data.len(),
-            expected_bytes.len()
-        );
+    // Verify the .rodata contains the expected bytes for Result::Ok(42u64):
+    // - Discriminant 0 (Ok is variant_index 0) as u64 little-endian: 00 00 00 00 00 00 00 00
+    // - Payload 42 as u64 little-endian: 2a 00 00 00 00 00 00 00
+    // Total: 16 bytes
+    let expected_bytes = vec![
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // discriminant 0 (Ok)
+        0x2a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // payload 42
+    ];
 
-        // Check that the bytes match the expected pattern
-        assert_eq!(
-            &rodata_data[..expected_bytes.len()],
-            expected_bytes.as_slice(),
-            ".rodata content does not match expected bytes for Result::Ok(42u64)"
-        );
-    }
+    assert!(
+        rodata_data.len() >= expected_bytes.len(),
+        ".rodata section too small: {} bytes, expected at least {} bytes",
+        rodata_data.len(),
+        expected_bytes.len()
+    );
+
+    // Check that the bytes match the expected pattern
+    assert_eq!(
+        &rodata_data[..expected_bytes.len()],
+        expected_bytes.as_slice(),
+        ".rodata content does not match expected bytes for Result::Ok(42u64)"
+    );
 }
