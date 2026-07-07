@@ -16,6 +16,7 @@
 use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand, RegId};
 use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi};
 
+use crate::emit_block_body::TailContext;
 use crate::emit_walker::EmitWalker;
 
 impl EmitWalker {
@@ -521,6 +522,68 @@ impl EmitWalker {
 
                         // Don't queue or recurse here — the top-level walk() loop will
                         // encounter the Unsafe node and queue it for UnsafeWalker.
+                    }
+                    // PA-r17-013 (#991): Match-bodied lambda `fn (x) -> match x { ... }`
+                    IrKind::Match => {
+                        if cfg!(debug_assertions) {
+                            eprintln!(
+                                "[visit_lambda Match] Lambda {} body=Match",
+                                lambda_node_id.get()
+                            );
+                        }
+
+                        // Record the lambda's starting offset.
+                        let main_id = lambda_node_id;
+                        self.record_lambda_entry(lambda_node_id, main_id);
+
+                        // Derive TailContext from match return type.
+                        // Strategy: Look at the match arms to find what type they construct.
+                        // If an arm constructs an EnumCons, use that type's layout.
+                        let mut tail = TailContext::ReturnRax; // default
+
+                        let match_children = arena.children(body_id);
+                        // Match structure: [scrutinee, arm0, arm1, ...]
+                        // Try to find the return type from the first arm body
+                        if let Some(&first_arm_id) = match_children.get(1) {
+                            // Navigate through the arm structure to find the actual body
+                            // The arm body is a child of the arm node (typically Action)
+                            let arm_children = arena.children(first_arm_id);
+                            if let Some(&arm_body_id) = arm_children.first() {
+                                if let Some(arm_body_node) = arena.get(arm_body_id) {
+                                    // Check if the arm body (or its expression) is an EnumCons
+                                    if arm_body_node.kind == IrKind::EnumCons {
+                                        // Found an enum construction; get its type_id
+                                        if let Some(info) = arena.enum_cons_info().get(arm_body_id) {
+                                            if let Some(layout) = self.state.enum_layout(info.type_id) {
+                                                tail = if layout.size <= 16 {
+                                                    TailContext::ReturnRaxRdx
+                                                } else {
+                                                    TailContext::ReturnIndirect {
+                                                        disc_size: layout.discriminant_size as i32
+                                                    }
+                                                };
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Emit the match in tail position with proper context
+                        self.visit_match(body_id, arena, typer, tail);
+                        self.state.mark_match_emitted(body_id.get());
+
+                        // Emit ret at a high ID so it sorts after all match instructions
+                        let ret_id = IrNodeId::new(lambda_node_id.get() * 2 + 1)
+                            .expect("ret virtual id for match-lambda");
+                        let ret_inst = Instruction {
+                            mnemonic: Mnemonic::Ret,
+                            operands: SmallVec::new(),
+                            encoding_hint: None,
+                            byte_offset_in_text: None,
+                            mode: self.current_mode(),
+                        };
+                        self.emit_inst(ret_id, ret_inst);
                     }
                     _ => {
                         // Other lambda shapes deferred to m1-004+

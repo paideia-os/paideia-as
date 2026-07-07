@@ -5427,3 +5427,223 @@ fn nested_smoke_no_panic_on_deep_nesting() {
 
     assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());
 }
+
+// ── PA-R17-013 Match-in-return tests (synthesized IR) ──
+
+/// Test 2: match returning small enum (≤16 bytes) writes RAX or RDX.
+/// Synthesizes IR: Lambda { Match { arm0 -> EnumCons(size=12) } }
+#[test]
+fn match_returning_small_enum_writes_rax_rdx_ir_level() {
+    let mut arena = IrArena::new();
+
+    // EnumCons with small payload (12 bytes, ≤ 16)
+    let enum_cons_id = arena.alloc(IrKind::EnumCons, span());
+    arena.enum_cons_info_mut().insert(
+        enum_cons_id,
+        paideia_as_ir::EnumConsInfo {
+            type_id: EnumTypeId(1),
+            variant_index: 0,
+        },
+    );
+
+    // Match arm
+    let arm_id = arena.alloc(IrKind::Action, span());
+    {
+        let arm_children = arena.children_mut(arm_id).unwrap();
+        arm_children.push(enum_cons_id);
+    }
+    arena.match_arm_meta_mut().insert(
+        arm_id,
+        paideia_as_ir::MatchArmMeta {
+            variant_index: Some(0),
+            payload_binder: None,
+            is_default: false,
+            pattern_binding: None,
+        },
+    );
+
+    // Match
+    let scrutinee_id = arena.alloc(IrKind::Var, span());
+    let match_id = arena.alloc(IrKind::Match, span());
+    {
+        let match_children = arena.children_mut(match_id).unwrap();
+        match_children.push(scrutinee_id);
+        match_children.push(arm_id);
+    }
+    arena.match_scrutinee_table_mut().insert(match_id, EnumTypeId(1));
+
+    // Lambda
+    arena.alloc_with_children(IrKind::Lambda, span(), vec![match_id]);
+
+    // Walk
+    let mut walker = EmitWalker::new();
+    walker.state_mut().insert_enum_layout(EnumTypeId(1), EnumLayout::new(12));
+    walker.walk(&mut arena);
+
+    // Verify: Mov to RAX or RDX
+    let has_rax_or_rdx_mov = walker
+        .state()
+        .instructions
+        .entries()
+        .iter()
+        .any(|(_id, inst)| {
+            inst.mnemonic == Mnemonic::Mov
+                && !inst.operands.is_empty()
+                && (inst.operands[0] == Operand::Reg(abi::RAX)
+                    || inst.operands[0] == Operand::Reg(abi::RDX))
+        });
+
+    assert!(
+        has_rax_or_rdx_mov,
+        "Small enum (≤16 bytes) should emit Mov to RAX or RDX"
+    );
+}
+
+/// Test 6: nested match in arm body (both dispatches verified).
+/// Synthesizes IR: Lambda { Match(outer) { arm -> Match(inner) } }
+#[test]
+fn nested_match_arm_body_is_match_ir_level() {
+    let mut arena = IrArena::new();
+
+    // Inner match
+    let inner_scrutinee = arena.alloc(IrKind::Var, span());
+    let inner_arm = arena.alloc(IrKind::Action, span());
+    arena.match_arm_meta_mut().insert(
+        inner_arm,
+        paideia_as_ir::MatchArmMeta {
+            variant_index: Some(0),
+            payload_binder: None,
+            is_default: false,
+            pattern_binding: None,
+        },
+    );
+
+    let inner_match = arena.alloc(IrKind::Match, span());
+    {
+        let children = arena.children_mut(inner_match).unwrap();
+        children.push(inner_scrutinee);
+        children.push(inner_arm);
+    }
+    arena.match_scrutinee_table_mut().insert(inner_match, EnumTypeId(2));
+
+    // Outer match arm body is inner_match
+    let outer_arm = arena.alloc(IrKind::Action, span());
+    {
+        let arm_children = arena.children_mut(outer_arm).unwrap();
+        arm_children.push(inner_match);
+    }
+    arena.match_arm_meta_mut().insert(
+        outer_arm,
+        paideia_as_ir::MatchArmMeta {
+            variant_index: Some(0),
+            payload_binder: None,
+            is_default: false,
+            pattern_binding: None,
+        },
+    );
+
+    // Outer match
+    let outer_scrutinee = arena.alloc(IrKind::Var, span());
+    let outer_match = arena.alloc(IrKind::Match, span());
+    {
+        let children = arena.children_mut(outer_match).unwrap();
+        children.push(outer_scrutinee);
+        children.push(outer_arm);
+    }
+    arena.match_scrutinee_table_mut().insert(outer_match, EnumTypeId(1));
+
+    // Lambda
+    arena.alloc_with_children(IrKind::Lambda, span(), vec![outer_match]);
+
+    // Walk
+    let mut walker = EmitWalker::new();
+    walker.state_mut().insert_enum_layout(EnumTypeId(1), EnumLayout::new(0));
+    walker.state_mut().insert_enum_layout(EnumTypeId(2), EnumLayout::new(0));
+    walker.walk(&mut arena);
+
+    // Verify: both matches emit dispatch instructions (Cmp)
+    let cmp_count = walker
+        .state()
+        .instructions
+        .entries()
+        .iter()
+        .filter(|(_id, inst)| inst.mnemonic == Mnemonic::Cmp)
+        .count();
+
+    assert!(
+        cmp_count >= 2,
+        "Both outer and inner matches should emit dispatch (Cmp), got {}",
+        cmp_count
+    );
+}
+
+/// Test 7: match returning large enum (>16 bytes) writes via [RDI+disp].
+/// Synthesizes IR: Lambda { Match { arm0 -> EnumCons(size=24) } }
+#[test]
+fn match_returning_large_enum_writes_rdi_slot_ir_level() {
+    let mut arena = IrArena::new();
+
+    // EnumCons with large payload (24 bytes, > 16)
+    let enum_cons_id = arena.alloc(IrKind::EnumCons, span());
+    arena.enum_cons_info_mut().insert(
+        enum_cons_id,
+        paideia_as_ir::EnumConsInfo {
+            type_id: EnumTypeId(1),
+            variant_index: 0,
+        },
+    );
+
+    // Match arm
+    let arm_id = arena.alloc(IrKind::Action, span());
+    {
+        let arm_children = arena.children_mut(arm_id).unwrap();
+        arm_children.push(enum_cons_id);
+    }
+    arena.match_arm_meta_mut().insert(
+        arm_id,
+        paideia_as_ir::MatchArmMeta {
+            variant_index: Some(0),
+            payload_binder: None,
+            is_default: false,
+            pattern_binding: None,
+        },
+    );
+
+    // Match
+    let scrutinee_id = arena.alloc(IrKind::Var, span());
+    let match_id = arena.alloc(IrKind::Match, span());
+    {
+        let match_children = arena.children_mut(match_id).unwrap();
+        match_children.push(scrutinee_id);
+        match_children.push(arm_id);
+    }
+    arena.match_scrutinee_table_mut().insert(match_id, EnumTypeId(1));
+
+    // Lambda
+    arena.alloc_with_children(IrKind::Lambda, span(), vec![match_id]);
+
+    // Walk
+    let mut walker = EmitWalker::new();
+    walker.state_mut().insert_enum_layout(EnumTypeId(1), EnumLayout::new(24));
+    walker.walk(&mut arena);
+
+    // Verify: Mov to [RDI+disp] (MemSib operand)
+    let has_rdi_slot_mov = walker
+        .state()
+        .instructions
+        .entries()
+        .iter()
+        .any(|(_id, inst)| {
+            inst.mnemonic == Mnemonic::Mov
+                && !inst.operands.is_empty()
+                && matches!(
+                    &inst.operands[0],
+                    Operand::MemSib { base, .. } if *base == abi::RDI
+                )
+        });
+
+    assert!(
+        has_rdi_slot_mov,
+        "Large enum (>16 bytes) should emit Mov to [RDI+disp]"
+    );
+}

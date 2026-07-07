@@ -10,6 +10,7 @@
 use paideia_as_ir::instruction::{Cond, Instruction, Mnemonic, Operand, RegId};
 use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi, PassingConvention};
 
+use crate::emit_block_body::TailContext;
 use crate::emit_walker::EmitWalker;
 
 impl EmitWalker {
@@ -623,12 +624,19 @@ impl EmitWalker {
     /// - Stack form (>16 bytes): scrutinee pointer in RDI, load disc from [rdi+0]
     ///
     /// Structure: Match has children [scrutinee, arm0, arm1, ...].
+    ///
+    /// PA-r17-013 (#991): tail parameter specifies where arm body results should land.
+    /// When in ReturnRax/ReturnRaxRdx/ReturnIndirect, arm bodies propagate this context
+    /// so their expressions land in the proper return location without intermediate RAX.
     pub(crate) fn visit_match(
         &mut self,
         match_node_id: IrNodeId,
         arena: &IrArena,
         typer: Option<&paideia_as_types::TypeInterner>,
+        _tail: TailContext,
     ) {
+        // Mark this match as emitted in tail position
+        self.state.mark_match_emitted(match_node_id.get());
         let children = arena.children(match_node_id);
         if children.is_empty() {
             self.diagnostics.push(format!(
@@ -1006,7 +1014,8 @@ mod tests {
         );
 
         // Call visit_match (not visit_match_jump_table, since density_ok = false)
-        walker.visit_match(match_id, &arena, None);
+        // PA-r17-013 (#991): pass TailContext::Discard since this is a top-level test
+        walker.visit_match(match_id, &arena, None, TailContext::Discard);
 
         let instructions: Vec<&Instruction> = walker.state.instructions.iter()
             .map(|(_, instr)| instr)

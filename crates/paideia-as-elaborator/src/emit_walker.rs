@@ -343,7 +343,12 @@ impl EmitWalker {
                         IrKind::Match => {
                             // Phase 7 m1-004 (PA7-007): emit match-expression lowering.
                             // PA10-005 §3.2: Thread typer through for arm-body type-routing.
-                            self.visit_match(node_id, arena, typer);
+                            // PA-r17-013 (#991): Skip if already emitted in trailing position.
+                            // Otherwise emit with Discard tail context (result goes to RAX only).
+                            if !self.state.was_match_emitted(node_id.get()) {
+                                use crate::emit_block_body::TailContext;
+                                self.visit_match(node_id, arena, typer, TailContext::Discard);
+                            }
                         }
                         _ => {}
                     }

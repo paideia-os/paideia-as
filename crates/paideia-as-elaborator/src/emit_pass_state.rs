@@ -113,6 +113,16 @@ pub struct EmitPassState {
     /// `#![target_features = "..."]`. Populated at build entry; consumed
     /// during unsafe-block lowering to gate feature-tagged mnemonics.
     pub(crate) enabled_features: HashSet<CpuFeature>,
+
+    /// PA-r17-013 (#991): tracks Match IR nodes already emitted in
+    /// trailing position so walk_inner's top-level loop can skip them
+    /// (avoiding double-dispatch that produces post-ret dead code).
+    pub(crate) emitted_match_ids: HashSet<u32>,
+
+    /// PA-r17-013 (#991): tracks the max IrNodeId assigned via emit_inst.
+    /// Used so lambda's ret_id sorts AFTER all match instructions.
+    #[allow(dead_code)]
+    pub(crate) max_emitted_node_id: u32,
 }
 
 impl EmitPassState {
@@ -215,6 +225,26 @@ impl EmitPassState {
     #[must_use]
     pub fn unsafe_body_lambda(&self, body_id: u32) -> Option<u32> {
         self.unsafe_body_to_lambda.get(&body_id).copied()
+    }
+
+    // ── Match emission tracking (PA-r17-013) ─────────────────────────────
+
+    /// Mark a Match node as emitted in trailing position.
+    pub fn mark_match_emitted(&mut self, match_id: u32) {
+        self.emitted_match_ids.insert(match_id);
+    }
+
+    /// Check if a Match node was already emitted in trailing position.
+    #[must_use]
+    pub fn was_match_emitted(&self, match_id: u32) -> bool {
+        self.emitted_match_ids.contains(&match_id)
+    }
+
+    /// Return the max IrNodeId assigned so far via emit_inst.
+    /// Used so lambda's ret_id sorts AFTER all match instructions.
+    #[must_use]
+    pub fn max_emitted_id(&self) -> u32 {
+        self.instructions.iter().map(|(id, _)| id.get()).max().unwrap_or(0)
     }
 
     // ── Whole-map accessors for cross-crate consumers ────────────────────
