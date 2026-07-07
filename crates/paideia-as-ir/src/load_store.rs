@@ -9,8 +9,7 @@
 //! This design parallels `HandlerSideTable` and keeps `IrNodeData` at 48 bytes
 //! while allowing compact encoding of load/store attributes.
 
-use std::collections::HashMap;
-
+use crate::impl_named_side_table;
 use crate::{
     IrArena,
     node::{IrKind, IrNodeId},
@@ -80,63 +79,14 @@ pub struct LoadStoreInfo {
     pub alignment: u32,
 }
 
-/// Side-table mapping Load/Store IrNodeIds to their metadata.
-///
-/// Parallels the arena's `children_table` pattern: uses a HashMap indexed
-/// by `IrNodeId` so that lookups are O(1) and portable across systems.
-///
-/// Phase-1: populated by the IR builder (or lowerer) as Load/Store nodes
-/// are constructed. Elaborators (phase-2+) read entries to determine
-/// memory access properties.
-#[derive(Default, Debug, Clone)]
-pub struct LoadStoreSideTable {
-    /// Sparse mapping: Load/Store node id -> LoadStoreInfo.
-    /// Only Load and Store nodes have entries; other nodes don't.
-    entries: HashMap<IrNodeId, LoadStoreInfo>,
-}
-
-impl LoadStoreSideTable {
-    /// Construct an empty load/store side-table.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Insert (or overwrite) the metadata for a Load/Store node.
+impl_named_side_table!(
+    /// Side-table mapping Load/Store IrNodeIds to their metadata.
     ///
-    /// Returns the previous entry if one existed.
-    pub fn insert(&mut self, id: IrNodeId, info: LoadStoreInfo) -> Option<LoadStoreInfo> {
-        self.entries.insert(id, info)
-    }
-
-    /// Look up the metadata for a Load/Store node.
-    ///
-    /// Returns `None` if the node was never registered or is not a Load/Store node.
-    #[must_use]
-    pub fn get(&self, id: IrNodeId) -> Option<&LoadStoreInfo> {
-        self.entries.get(&id)
-    }
-
-    /// Look up (mutable) the metadata for a Load/Store node.
-    ///
-    /// Allows elaborators to mutate the metadata (if needed in future phases)
-    /// without cloning.
-    pub fn get_mut(&mut self, id: IrNodeId) -> Option<&mut LoadStoreInfo> {
-        self.entries.get_mut(&id)
-    }
-
-    /// Number of load/store operations registered in this table.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    /// `true` iff no load/store operations are registered.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-}
+    /// Phase-1: populated by the IR builder (or lowerer) as Load/Store
+    /// nodes are constructed. Elaborators (phase-2+) read entries to
+    /// determine memory access properties.
+    pub struct LoadStoreSideTable, IrNodeId => LoadStoreInfo
+);
 
 /// Allocate a Load node with side-table entry.
 ///

@@ -148,58 +148,18 @@ impl FinalisedLayoutTable {
     }
 }
 
-/// Side-table mapping RecordCons IrNodeIds to their record RecordTypeId.
-///
-/// `RecordCons` nodes allocate and populate records; the RecordTypeId determines
-/// the record layout (field count, types, alignment).
-///
-/// Phase-1: populated by the IR builder as RecordCons nodes are constructed.
-/// Elaborators and lowering passes read entries to determine record structure.
-#[derive(Default, Debug, Clone)]
-pub struct RecordLayoutTable {
-    /// Sparse mapping: RecordCons node id -> RecordTypeId.
-    entries: HashMap<IrNodeId, RecordTypeId>,
-}
-
-impl RecordLayoutTable {
-    /// Construct an empty record layout side-table.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Insert (or overwrite) the RecordTypeId for a RecordCons node.
+crate::impl_named_side_table!(
+    /// Side-table mapping RecordCons IrNodeIds to their record RecordTypeId.
     ///
-    /// Returns the previous entry if one existed.
-    pub fn insert(&mut self, id: IrNodeId, type_id: RecordTypeId) -> Option<RecordTypeId> {
-        self.entries.insert(id, type_id)
-    }
-
-    /// Look up the RecordTypeId for a RecordCons node.
+    /// `RecordCons` nodes allocate and populate records; the
+    /// RecordTypeId determines the record layout (field count, types,
+    /// alignment).
     ///
-    /// Returns `None` if the node was never registered.
-    #[must_use]
-    pub fn get(&self, id: IrNodeId) -> Option<&RecordTypeId> {
-        self.entries.get(&id)
-    }
-
-    /// Look up (mutable) the RecordTypeId for a RecordCons node.
-    pub fn get_mut(&mut self, id: IrNodeId) -> Option<&mut RecordTypeId> {
-        self.entries.get_mut(&id)
-    }
-
-    /// Number of record constructors registered in this table.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    /// `true` iff no record constructors are registered.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-}
+    /// Phase-1: populated by the IR builder as RecordCons nodes are
+    /// constructed. Elaborators and lowering passes read entries to
+    /// determine record structure.
+    pub struct RecordLayoutTable, IrNodeId => RecordTypeId
+);
 
 /// Metadata for a field access operation.
 ///
@@ -212,58 +172,17 @@ pub struct FieldAccessInfo {
     pub field_index: u32,
 }
 
-/// Side-table mapping FieldAccess IrNodeIds to their metadata.
-///
-/// `FieldAccess` nodes project a single field from a record value;
-/// this table stores the target record's TypeId and field index.
-///
-/// Phase-1: populated by the IR builder as FieldAccess nodes are constructed.
-/// Elaborators and code generators read entries to emit field projection code.
-#[derive(Default, Debug, Clone)]
-pub struct FieldAccessSideTable {
-    /// Sparse mapping: FieldAccess node id -> FieldAccessInfo.
-    entries: HashMap<IrNodeId, FieldAccessInfo>,
-}
-
-impl FieldAccessSideTable {
-    /// Construct an empty field access side-table.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Insert (or overwrite) the metadata for a FieldAccess node.
+crate::impl_named_side_table!(
+    /// Side-table mapping FieldAccess IrNodeIds to their metadata.
     ///
-    /// Returns the previous entry if one existed.
-    pub fn insert(&mut self, id: IrNodeId, info: FieldAccessInfo) -> Option<FieldAccessInfo> {
-        self.entries.insert(id, info)
-    }
-
-    /// Look up the metadata for a FieldAccess node.
+    /// `FieldAccess` nodes project a single field from a record value;
+    /// this table stores the target record's TypeId and field index.
     ///
-    /// Returns `None` if the node was never registered.
-    #[must_use]
-    pub fn get(&self, id: IrNodeId) -> Option<&FieldAccessInfo> {
-        self.entries.get(&id)
-    }
-
-    /// Look up (mutable) the metadata for a FieldAccess node.
-    pub fn get_mut(&mut self, id: IrNodeId) -> Option<&mut FieldAccessInfo> {
-        self.entries.get_mut(&id)
-    }
-
-    /// Number of field access operations registered in this table.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    /// `true` iff no field access operations are registered.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-}
+    /// Phase-1: populated by the IR builder as FieldAccess nodes are
+    /// constructed. Elaborators and code generators read entries to emit
+    /// field projection code.
+    pub struct FieldAccessSideTable, IrNodeId => FieldAccessInfo
+);
 
 #[cfg(test)]
 mod tests {

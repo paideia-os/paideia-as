@@ -9,8 +9,7 @@
 //! keeping `IrNodeData` at 48 bytes while allowing compact encoding of
 //! call attributes.
 
-use std::collections::HashMap;
-
+use crate::impl_named_side_table;
 use crate::node::IrNodeId;
 
 /// Metadata for an App (function call) IR node.
@@ -28,69 +27,29 @@ pub struct CallMeta {
     pub is_intrinsic: bool,
 }
 
-/// Side-table mapping App IrNodeIds to their call metadata.
-///
-/// Parallels the arena's `children_table` pattern: uses a HashMap indexed
-/// by `IrNodeId` so that lookups are O(1) and portable across systems.
-///
-/// Phase-1: populated by the IR builder (or elaborator) as App nodes
-/// are constructed or recognized. Elaborators (phase-2+) read entries to
-/// determine call properties and synthesise instruction payloads for
-/// intrinsic calls.
-#[derive(Default, Debug)]
-pub struct CallSideTable {
-    /// Sparse mapping: App node id -> CallMeta.
-    /// Only App nodes have entries; other nodes don't.
-    entries: HashMap<IrNodeId, CallMeta>,
-}
+impl_named_side_table!(
+    /// Side-table mapping App IrNodeIds to their call metadata.
+    ///
+    /// Phase-1: populated by the IR builder (or elaborator) as App nodes
+    /// are constructed or recognized. Elaborators (phase-2+) read entries
+    /// to determine call properties and synthesise instruction payloads
+    /// for intrinsic calls.
+    pub struct CallSideTable, IrNodeId => CallMeta
+);
 
 impl CallSideTable {
-    /// Construct an empty call side-table.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Insert (or overwrite) the metadata for an App node.
-    ///
-    /// Returns the previous entry if one existed.
-    pub fn insert(&mut self, id: IrNodeId, meta: CallMeta) -> Option<CallMeta> {
-        self.entries.insert(id, meta)
-    }
-
-    /// Look up the metadata for an App node.
-    ///
-    /// Returns `None` if the node was never registered or is not an App node.
-    #[must_use]
-    pub fn get(&self, id: IrNodeId) -> Option<&CallMeta> {
-        self.entries.get(&id)
-    }
-
     /// Iterate over all intrinsic call node ids.
     ///
     /// Filters entries to yield only nodes marked as intrinsic calls.
     pub fn intrinsic_call_ids(&self) -> impl Iterator<Item = IrNodeId> + '_ {
-        self.entries
-            .iter()
+        self.iter()
             .filter_map(|(id, m)| if m.is_intrinsic { Some(*id) } else { None })
-    }
-
-    /// Number of App nodes registered in this table.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    /// `true` iff no App nodes are registered.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
     }
 
     /// Count of intrinsic calls in the table.
     #[must_use]
     pub fn intrinsic_count(&self) -> usize {
-        self.entries.values().filter(|m| m.is_intrinsic).count()
+        self.entries().values().filter(|m| m.is_intrinsic).count()
     }
 }
 

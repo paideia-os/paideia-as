@@ -10,9 +10,8 @@
 //! it to type-check and emit handlers. The side-table design keeps
 //! `IrNodeData` at 48 bytes while allowing unbounded handler metadata.
 
-use std::collections::HashMap;
-
 use crate::IrArena;
+use crate::impl_named_side_table;
 use crate::node::IrNodeId;
 
 /// Stable identifier for an effect (e.g., `Io`, `Mmio`).
@@ -57,65 +56,14 @@ pub struct HandlerInfo {
     pub finally: Option<IrNodeId>,
 }
 
-/// Side-table mapping Handle IrNodeIds to their metadata.
-///
-/// Parallels the arena's `children_table` pattern: uses a sparse vector
-/// indexed by `IrNodeId.index()` so that lookups are O(1) and closely
-/// packed with the node arena in memory.
-///
-/// Phase-1: populated by the IR builder as handlers are constructed.
-/// Elaborators (phase-2+) read and mutate entries to populate type and
-/// linearity information.
-#[derive(Default, Debug, Clone)]
-pub struct HandlerSideTable {
-    /// Sparse table: `table[Handle.index()] = Some(HandlerInfo)`.
-    /// Only Handle nodes have entries; other nodes don't.
-    table: HashMap<IrNodeId, HandlerInfo>,
-}
-
-impl HandlerSideTable {
-    /// Construct an empty handler side-table.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Insert (or overwrite) the metadata for a Handle node.
+impl_named_side_table!(
+    /// Side-table mapping Handle IrNodeIds to their metadata.
     ///
-    /// Returns the previous entry if one existed; useful for debugging
-    /// duplicate-handler errors.
-    pub fn insert(&mut self, id: IrNodeId, info: HandlerInfo) -> Option<HandlerInfo> {
-        self.table.insert(id, info)
-    }
-
-    /// Look up the metadata for a Handle node.
-    ///
-    /// Returns `None` if the node was never registered or is not a Handle node.
-    #[must_use]
-    pub fn get(&self, id: IrNodeId) -> Option<&HandlerInfo> {
-        self.table.get(&id)
-    }
-
-    /// Look up (mutable) the metadata for a Handle node.
-    ///
-    /// Allows elaborators to mutate the handler's metadata (e.g., update
-    /// linearity or effect-row information) without cloning.
-    pub fn get_mut(&mut self, id: IrNodeId) -> Option<&mut HandlerInfo> {
-        self.table.get_mut(&id)
-    }
-
-    /// Number of handlers registered in this table.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.table.len()
-    }
-
-    /// `true` iff no handlers are registered.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.table.is_empty()
-    }
-}
+    /// Phase-1: populated by the IR builder as handlers are constructed.
+    /// Elaborators (phase-2+) read and mutate entries to populate type and
+    /// linearity information.
+    pub struct HandlerSideTable, IrNodeId => HandlerInfo
+);
 
 /// Pretty-print a handler's metadata.
 ///

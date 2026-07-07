@@ -11,8 +11,7 @@
 //!
 //! Real wiring with the borrow checker activates in phase-4-m6.
 
-use std::collections::HashMap;
-
+use crate::impl_named_side_table;
 use crate::node::IrNodeId;
 
 /// Metadata for a Borrow or BorrowMut IR node.
@@ -30,63 +29,14 @@ pub struct BorrowMeta {
     pub mutable: bool,
 }
 
-/// Side-table mapping Borrow/BorrowMut IrNodeIds to their metadata.
-///
-/// Parallels the arena's `children_table` pattern: uses a HashMap indexed
-/// by `IrNodeId` so that lookups are O(1) and portable across systems.
-///
-/// Phase-1: populated by the IR builder (or lowerer) as Borrow/BorrowMut nodes
-/// are constructed. Phase-4-m6 (borrow checker) reads entries to determine
-/// reference properties and validate borrow semantics.
-#[derive(Default, Debug, Clone)]
-pub struct BorrowSideTable {
-    /// Sparse mapping: Borrow/BorrowMut node id -> BorrowMeta.
-    /// Only Borrow and BorrowMut nodes have entries; other nodes don't.
-    entries: HashMap<IrNodeId, BorrowMeta>,
-}
-
-impl BorrowSideTable {
-    /// Construct an empty borrow side-table.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Insert (or overwrite) the metadata for a Borrow/BorrowMut node.
+impl_named_side_table!(
+    /// Side-table mapping Borrow/BorrowMut IrNodeIds to their metadata.
     ///
-    /// Returns the previous entry if one existed.
-    pub fn insert(&mut self, id: IrNodeId, meta: BorrowMeta) -> Option<BorrowMeta> {
-        self.entries.insert(id, meta)
-    }
-
-    /// Look up the metadata for a Borrow/BorrowMut node.
-    ///
-    /// Returns `None` if the node was never registered or is not a Borrow/BorrowMut node.
-    #[must_use]
-    pub fn get(&self, id: IrNodeId) -> Option<&BorrowMeta> {
-        self.entries.get(&id)
-    }
-
-    /// Look up (mutable) the metadata for a Borrow/BorrowMut node.
-    ///
-    /// Allows elaborators to mutate the metadata (if needed in future phases)
-    /// without cloning.
-    pub fn get_mut(&mut self, id: IrNodeId) -> Option<&mut BorrowMeta> {
-        self.entries.get_mut(&id)
-    }
-
-    /// Number of borrow operations registered in this table.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    /// `true` iff no borrow operations are registered.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-}
+    /// Phase-1: populated by the IR builder (or lowerer) as Borrow/BorrowMut
+    /// nodes are constructed. Phase-4-m6 (borrow checker) reads entries to
+    /// determine reference properties and validate borrow semantics.
+    pub struct BorrowSideTable, IrNodeId => BorrowMeta
+);
 
 #[cfg(test)]
 mod tests {

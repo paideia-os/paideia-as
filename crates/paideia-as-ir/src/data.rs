@@ -5,7 +5,6 @@
 //! bindings with Literal or ArrayLit bodies and stage them for ELF emission.
 
 use crate::node::IrNodeId;
-use std::collections::HashMap;
 
 /// Relocation width specifier per PA10-006u.
 ///
@@ -199,74 +198,13 @@ impl DataEntry {
     }
 }
 
-/// Side-table mapping IrNodeId (data-bearing Let nodes) → DataEntry.
-///
-/// Pattern: mirrors LiteralValueTable / LoadStoreSideTable.
-/// Indexed by Let node ID to allow the elaborator to associate data metadata
-/// with module-level let bindings.
-#[derive(Default, Debug, Clone)]
-pub struct DataSideTable {
-    /// Sparse mapping: data node id -> DataEntry.
-    entries: HashMap<IrNodeId, DataEntry>,
-}
-
-impl DataSideTable {
-    /// Construct an empty data side-table.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Insert (or overwrite) a data entry.
+crate::impl_named_side_table!(
+    /// Side-table mapping IrNodeId (data-bearing Let nodes) → DataEntry.
     ///
-    /// Returns the previous entry if one existed.
-    pub fn insert(&mut self, id: IrNodeId, entry: DataEntry) -> Option<DataEntry> {
-        self.entries.insert(id, entry)
-    }
-
-    /// Look up a data entry.
-    ///
-    /// Returns `None` if the node was never registered.
-    #[must_use]
-    pub fn get(&self, id: IrNodeId) -> Option<&DataEntry> {
-        self.entries.get(&id)
-    }
-
-    /// Look up a data entry (mutable).
-    pub fn get_mut(&mut self, id: IrNodeId) -> Option<&mut DataEntry> {
-        self.entries.get_mut(&id)
-    }
-
-    /// Number of data entries registered in this table.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    /// `true` iff no data entries are registered.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
-    /// Remove a data entry.
-    ///
-    /// Returns the entry if one existed.
-    pub fn remove(&mut self, id: IrNodeId) -> Option<DataEntry> {
-        self.entries.remove(&id)
-    }
-
-    /// Iterate over all entries (id, entry) pairs.
-    pub fn iter(&self) -> impl Iterator<Item = (&IrNodeId, &DataEntry)> {
-        self.entries.iter()
-    }
-
-    /// Borrow the underlying HashMap (read-only).
-    #[must_use]
-    pub fn entries(&self) -> &HashMap<IrNodeId, DataEntry> {
-        &self.entries
-    }
-}
+    /// Indexed by Let node ID to allow the elaborator to associate data
+    /// metadata with module-level let bindings.
+    pub struct DataSideTable, IrNodeId => DataEntry
+);
 
 #[cfg(test)]
 mod tests {

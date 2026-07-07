@@ -1084,70 +1084,12 @@ pub struct Instruction {
     pub mode: InstrMode,
 }
 
-/// Side-table mapping IrNodeId → Instruction payload.
-///
-/// Pattern: m3-007 HandlerSideTable / m1-006 LoadStoreSideTable.
-/// Keeps IrNodeData ≤ 48 bytes (const_assert pinned).
-#[derive(Default, Debug, Clone)]
-pub struct InstructionSideTable {
-    /// Sparse mapping: instruction node id -> Instruction.
-    entries: HashMap<IrNodeId, Instruction>,
-}
-
-impl InstructionSideTable {
-    /// Construct an empty instruction side-table.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Insert (or overwrite) an instruction payload.
+crate::impl_named_side_table!(
+    /// Side-table mapping IrNodeId → Instruction payload.
     ///
-    /// Returns the previous entry if one existed.
-    pub fn insert(&mut self, id: IrNodeId, inst: Instruction) -> Option<Instruction> {
-        self.entries.insert(id, inst)
-    }
-
-    /// Look up an instruction payload.
-    ///
-    /// Returns `None` if the node was never registered.
-    #[must_use]
-    pub fn get(&self, id: IrNodeId) -> Option<&Instruction> {
-        self.entries.get(&id)
-    }
-
-    /// Look up (mutable) an instruction payload.
-    ///
-    /// Allows phases to mutate the payload (operands, hints) in place.
-    pub fn get_mut(&mut self, id: IrNodeId) -> Option<&mut Instruction> {
-        self.entries.get_mut(&id)
-    }
-
-    /// Number of instructions registered in this table.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    /// `true` iff no instructions are registered.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
-    /// Remove an instruction entry.
-    ///
-    /// Returns the payload if one existed.
-    pub fn remove(&mut self, id: IrNodeId) -> Option<Instruction> {
-        self.entries.remove(&id)
-    }
-
-    /// Borrow the underlying HashMap (read-only).
-    #[must_use]
-    pub fn entries(&self) -> &std::collections::HashMap<IrNodeId, Instruction> {
-        &self.entries
-    }
-}
+    /// Keeps IrNodeData ≤ 48 bytes (const_assert pinned).
+    pub struct InstructionSideTable, IrNodeId => Instruction
+);
 
 #[cfg(test)]
 mod tests {

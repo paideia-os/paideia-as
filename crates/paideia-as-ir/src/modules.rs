@@ -10,9 +10,8 @@
 //! The side-table design keeps `IrNodeData` compact while allowing unbounded
 //! module field metadata.
 
-use std::collections::HashMap;
-
 use crate::IrArena;
+use crate::impl_named_side_table;
 use crate::node::IrNodeId;
 
 /// Kind of a module field.
@@ -67,72 +66,14 @@ pub struct ModuleInfo {
     pub functor: Option<FunctorInfo>,
 }
 
-/// Side-table mapping Module IrNodeIds to their metadata.
-///
-/// Parallels the arena's `children_table` pattern: uses a sparse HashMap
-/// indexed by `IrNodeId` so that lookups are O(1) and entries are sparsely
-/// distributed.
-///
-/// Phase-1: populated by the IR builder as modules are constructed.
-/// Elaborators (phase-2+) read and mutate entries to populate type and
-/// signature information.
-#[derive(Default, Debug, Clone)]
-pub struct ModuleSideTable {
-    /// Sparse table: `table[Module.id()] = Some(ModuleInfo)`.
-    /// Only Module nodes have entries; other nodes don't.
-    table: HashMap<IrNodeId, ModuleInfo>,
-}
-
-impl ModuleSideTable {
-    /// Construct an empty module side-table.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Insert (or overwrite) the metadata for a Module node.
+impl_named_side_table!(
+    /// Side-table mapping Module IrNodeIds to their metadata.
     ///
-    /// Returns the previous entry if one existed; useful for debugging
-    /// duplicate-module errors.
-    pub fn insert(&mut self, id: IrNodeId, info: ModuleInfo) -> Option<ModuleInfo> {
-        self.table.insert(id, info)
-    }
-
-    /// Look up the metadata for a Module node.
-    ///
-    /// Returns `None` if the node was never registered or is not a Module node.
-    #[must_use]
-    pub fn get(&self, id: IrNodeId) -> Option<&ModuleInfo> {
-        self.table.get(&id)
-    }
-
-    /// Look up (mutable) the metadata for a Module node.
-    ///
-    /// Allows elaborators to mutate the module's metadata (e.g., update
-    /// field types or functor signature) without cloning.
-    pub fn get_mut(&mut self, id: IrNodeId) -> Option<&mut ModuleInfo> {
-        self.table.get_mut(&id)
-    }
-
-    /// Number of modules registered in this table.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.table.len()
-    }
-
-    /// `true` iff no modules are registered.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.table.is_empty()
-    }
-
-    /// Iterate over all `(IrNodeId, ModuleInfo)` pairs in the table.
-    ///
-    /// Iteration order is unspecified (HashMap order).
-    pub fn iter(&self) -> impl Iterator<Item = (&IrNodeId, &ModuleInfo)> {
-        self.table.iter()
-    }
-}
+    /// Phase-1: populated by the IR builder as modules are constructed.
+    /// Elaborators (phase-2+) read and mutate entries to populate type
+    /// and signature information.
+    pub struct ModuleSideTable, IrNodeId => ModuleInfo
+);
 
 /// Pretty-print a module's metadata.
 ///

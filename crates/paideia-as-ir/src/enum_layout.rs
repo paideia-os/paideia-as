@@ -29,111 +29,31 @@ pub struct EnumConsInfo {
     pub variant_index: u32,
 }
 
-/// Side-table mapping EnumCons IrNodeIds to their metadata.
-///
-/// `EnumCons` nodes construct an enum variant with payload arguments;
-/// this table stores the enum TypeId and variant index.
-///
-/// Phase-1: populated by the IR builder as EnumCons nodes are constructed.
-/// Elaborators and code generators read entries to emit variant construction code.
-#[derive(Default, Debug, Clone)]
-pub struct EnumConsSideTable {
-    /// Sparse mapping: EnumCons node id -> EnumConsInfo.
-    entries: HashMap<IrNodeId, EnumConsInfo>,
-}
-
-impl EnumConsSideTable {
-    /// Construct an empty enum cons side-table.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Insert (or overwrite) the metadata for an EnumCons node.
+crate::impl_named_side_table!(
+    /// Side-table mapping EnumCons IrNodeIds to their metadata.
     ///
-    /// Returns the previous entry if one existed.
-    pub fn insert(&mut self, id: IrNodeId, info: EnumConsInfo) -> Option<EnumConsInfo> {
-        self.entries.insert(id, info)
-    }
-
-    /// Look up the metadata for an EnumCons node.
+    /// `EnumCons` nodes construct an enum variant with payload arguments;
+    /// this table stores the enum TypeId and variant index.
     ///
-    /// Returns `None` if the node was never registered.
-    #[must_use]
-    pub fn get(&self, id: IrNodeId) -> Option<&EnumConsInfo> {
-        self.entries.get(&id)
-    }
+    /// Phase-1: populated by the IR builder as EnumCons nodes are
+    /// constructed. Elaborators and code generators read entries to emit
+    /// variant construction code.
+    pub struct EnumConsSideTable, IrNodeId => EnumConsInfo
+);
 
-    /// Look up (mutable) the metadata for an EnumCons node.
-    pub fn get_mut(&mut self, id: IrNodeId) -> Option<&mut EnumConsInfo> {
-        self.entries.get_mut(&id)
-    }
-
-    /// Number of enum constructors registered in this table.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    /// `true` iff no enum constructors are registered.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-}
-
-/// Side-table mapping EnumDiscriminant IrNodeIds to their enum EnumTypeId.
-///
-/// `EnumDiscriminant` nodes extract the tag/discriminant from an enum value;
-/// the EnumTypeId determines the discriminant representation and interpretation.
-///
-/// Phase-1: populated by the IR builder as EnumDiscriminant nodes are constructed.
-/// Elaborators and code generators read entries to emit discriminant extraction code.
-#[derive(Default, Debug, Clone)]
-pub struct EnumDiscriminantSideTable {
-    /// Sparse mapping: EnumDiscriminant node id -> EnumTypeId.
-    entries: HashMap<IrNodeId, EnumTypeId>,
-}
-
-impl EnumDiscriminantSideTable {
-    /// Construct an empty enum discriminant side-table.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Insert (or overwrite) the EnumTypeId for an EnumDiscriminant node.
+crate::impl_named_side_table!(
+    /// Side-table mapping EnumDiscriminant IrNodeIds to their enum
+    /// EnumTypeId.
     ///
-    /// Returns the previous entry if one existed.
-    pub fn insert(&mut self, id: IrNodeId, type_id: EnumTypeId) -> Option<EnumTypeId> {
-        self.entries.insert(id, type_id)
-    }
-
-    /// Look up the EnumTypeId for an EnumDiscriminant node.
+    /// `EnumDiscriminant` nodes extract the tag/discriminant from an enum
+    /// value; the EnumTypeId determines the discriminant representation
+    /// and interpretation.
     ///
-    /// Returns `None` if the node was never registered.
-    #[must_use]
-    pub fn get(&self, id: IrNodeId) -> Option<&EnumTypeId> {
-        self.entries.get(&id)
-    }
-
-    /// Look up (mutable) the EnumTypeId for an EnumDiscriminant node.
-    pub fn get_mut(&mut self, id: IrNodeId) -> Option<&mut EnumTypeId> {
-        self.entries.get_mut(&id)
-    }
-
-    /// Number of enum discriminant operations registered in this table.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    /// `true` iff no enum discriminant operations are registered.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-}
+    /// Phase-1: populated by the IR builder as EnumDiscriminant nodes are
+    /// constructed. Elaborators and code generators read entries to emit
+    /// discriminant extraction code.
+    pub struct EnumDiscriminantSideTable, IrNodeId => EnumTypeId
+);
 
 /// Layout information for an enum type.
 ///
@@ -740,112 +660,20 @@ impl Default for MatchArmMeta {
     }
 }
 
-/// Side-table mapping match arm IrNodeIds to their metadata.
-///
-/// Populated during elaboration as pattern bindings are resolved.
-/// Consumed during emission to generate discriminant comparisons and payload loads.
-#[derive(Default, Debug, Clone)]
-pub struct MatchArmMetaSideTable {
-    /// Sparse mapping: match arm node id -> MatchArmMeta.
-    entries: HashMap<IrNodeId, MatchArmMeta>,
-}
-
-impl MatchArmMetaSideTable {
-    /// Construct an empty match arm metadata side-table.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Insert (or overwrite) the metadata for a match arm node.
+crate::impl_named_side_table!(
+    /// Side-table mapping match arm IrNodeIds to their metadata.
     ///
-    /// Returns the previous entry if one existed.
-    pub fn insert(&mut self, id: IrNodeId, meta: MatchArmMeta) -> Option<MatchArmMeta> {
-        self.entries.insert(id, meta)
-    }
+    /// Populated during elaboration as pattern bindings are resolved.
+    /// Consumed during emission to generate discriminant comparisons and
+    /// payload loads.
+    pub struct MatchArmMetaSideTable, IrNodeId => MatchArmMeta
+);
 
-    /// Look up the metadata for a match arm node.
+crate::impl_named_side_table!(
+    /// Side-table mapping match expression IrNodeIds to their scrutinee
+    /// EnumTypeId.
     ///
-    /// Returns `None` if the node was never registered.
-    #[must_use]
-    pub fn get(&self, id: IrNodeId) -> Option<&MatchArmMeta> {
-        self.entries.get(&id)
-    }
-
-    /// Look up (mutable) the metadata for a match arm node.
-    pub fn get_mut(&mut self, id: IrNodeId) -> Option<&mut MatchArmMeta> {
-        self.entries.get_mut(&id)
-    }
-
-    /// Number of match arms registered in this table.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    /// `true` iff no match arms are registered.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
-    /// Iterate over all entries.
-    pub fn iter(&self) -> impl Iterator<Item = (&IrNodeId, &MatchArmMeta)> {
-        self.entries.iter()
-    }
-}
-
-/// Side-table mapping match expression IrNodeIds to their scrutinee EnumTypeId.
-///
-/// Records which enum type a match expression scrutinizes, enabling layout lookup
-/// during code generation.
-#[derive(Default, Debug, Clone)]
-pub struct MatchScrutineeTable {
-    /// Sparse mapping: match node id -> EnumTypeId of scrutinee.
-    entries: HashMap<IrNodeId, EnumTypeId>,
-}
-
-impl MatchScrutineeTable {
-    /// Construct an empty match scrutinee side-table.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Insert (or overwrite) the scrutinee type for a match node.
-    ///
-    /// Returns the previous entry if one existed.
-    pub fn insert(&mut self, id: IrNodeId, type_id: EnumTypeId) -> Option<EnumTypeId> {
-        self.entries.insert(id, type_id)
-    }
-
-    /// Look up the scrutinee type for a match node.
-    ///
-    /// Returns `None` if the node was never registered.
-    #[must_use]
-    pub fn get(&self, id: IrNodeId) -> Option<&EnumTypeId> {
-        self.entries.get(&id)
-    }
-
-    /// Look up (mutable) the scrutinee type for a match node.
-    pub fn get_mut(&mut self, id: IrNodeId) -> Option<&mut EnumTypeId> {
-        self.entries.get_mut(&id)
-    }
-
-    /// Number of match expressions registered in this table.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    /// `true` iff no match expressions are registered.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
-    /// Iterate over all entries.
-    pub fn iter(&self) -> impl Iterator<Item = (&IrNodeId, &EnumTypeId)> {
-        self.entries.iter()
-    }
-}
+    /// Records which enum type a match expression scrutinizes, enabling
+    /// layout lookup during code generation.
+    pub struct MatchScrutineeTable, IrNodeId => EnumTypeId
+);
