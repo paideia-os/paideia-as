@@ -98,55 +98,17 @@ impl RecordLayout {
     }
 }
 
-/// Side-table mapping RecordTypeId to finalised C-ABI natural-alignment layouts.
-///
-/// Phase 6 m3-001: Populated during emission to provide record layout metadata
-/// for downstream passes (e.g., code generation, debug info).
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
-pub struct FinalisedLayoutTable {
-    /// Sparse mapping: RecordTypeId -> RecordLayout.
-    entries: HashMap<RecordTypeId, RecordLayout>,
-}
-
-impl FinalisedLayoutTable {
-    /// Construct an empty finalised layout side-table.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Insert (or overwrite) the finalised layout for a RecordTypeId.
+crate::impl_named_side_table!(
+    @serde
+    /// Side-table mapping RecordTypeId to finalised C-ABI
+    /// natural-alignment layouts.
     ///
-    /// Returns the previous entry if one existed.
-    pub fn insert(&mut self, id: RecordTypeId, layout: RecordLayout) -> Option<RecordLayout> {
-        self.entries.insert(id, layout)
-    }
-
-    /// Look up the finalised layout for a RecordTypeId.
-    ///
-    /// Returns `None` if the type was never finalised.
-    #[must_use]
-    pub fn get(&self, id: RecordTypeId) -> Option<&RecordLayout> {
-        self.entries.get(&id)
-    }
-
-    /// Look up (mutable) the finalised layout for a RecordTypeId.
-    pub fn get_mut(&mut self, id: RecordTypeId) -> Option<&mut RecordLayout> {
-        self.entries.get_mut(&id)
-    }
-
-    /// Number of record types with finalised layouts.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    /// `true` iff no layouts are finalised.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-}
+    /// Phase 6 m3-001: Populated during emission to provide record layout
+    /// metadata for downstream passes (e.g., code generation, debug info).
+    /// Serializable via serde for round-tripping through the `.paideia`
+    /// note section.
+    pub struct FinalisedLayoutTable, RecordTypeId => RecordLayout
+);
 
 crate::impl_named_side_table!(
     /// Side-table mapping RecordCons IrNodeIds to their record RecordTypeId.

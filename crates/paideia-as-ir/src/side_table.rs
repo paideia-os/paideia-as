@@ -27,7 +27,8 @@ use std::collections::hash_map::Iter;
 use std::hash::Hash;
 
 /// Generic, sparse `K -> V` map used by every `IrNodeId`-keyed side-table.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
 pub struct SparseSideTable<K, V>
 where
     K: Eq + Hash,
@@ -144,6 +145,25 @@ where
 /// ```
 #[macro_export]
 macro_rules! impl_named_side_table {
+    // Serde-aware variant: `impl_named_side_table!(@serde ...)` derives
+    // Serialize + Deserialize on the wrapper by delegating through the
+    // (also-serde-derived) inner primitive. Use for tables that ship in
+    // .paideia note sections or otherwise round-trip through JSON.
+    (
+        @serde
+        $(#[$outer:meta])*
+        $vis:vis struct $name:ident, $key:ty => $val:ty
+    ) => {
+        $(#[$outer])*
+        #[derive(Debug, Clone, ::serde::Serialize, ::serde::Deserialize)]
+        #[serde(transparent)]
+        $vis struct $name {
+            inner: $crate::side_table::SparseSideTable<$key, $val>,
+        }
+
+        $crate::impl_named_side_table!(@methods $name, $key => $val);
+    };
+
     (
         $(#[$outer:meta])*
         $vis:vis struct $name:ident, $key:ty => $val:ty
@@ -154,6 +174,12 @@ macro_rules! impl_named_side_table {
             inner: $crate::side_table::SparseSideTable<$key, $val>,
         }
 
+        $crate::impl_named_side_table!(@methods $name, $key => $val);
+    };
+
+    // Shared method block used by both variants. Not intended to be
+    // called by hand — the outer arms delegate here.
+    (@methods $name:ident, $key:ty => $val:ty) => {
         impl ::std::default::Default for $name {
             fn default() -> Self { Self::new() }
         }

@@ -100,55 +100,16 @@ impl EnumLayout {
     }
 }
 
-/// Side-table mapping EnumTypeId to finalised enum layouts.
-///
-/// PA-r17-007: Populated during emission to provide enum layout metadata
-/// for downstream passes (e.g., code generation, debug info).
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
-pub struct FinalisedEnumLayoutTable {
-    /// Sparse mapping: EnumTypeId -> EnumLayout.
-    entries: HashMap<EnumTypeId, EnumLayout>,
-}
-
-impl FinalisedEnumLayoutTable {
-    /// Construct an empty finalised enum layout side-table.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Insert (or overwrite) the finalised layout for an EnumTypeId.
+crate::impl_named_side_table!(
+    @serde
+    /// Side-table mapping EnumTypeId to finalised enum layouts.
     ///
-    /// Returns the previous entry if one existed.
-    pub fn insert(&mut self, id: EnumTypeId, layout: EnumLayout) -> Option<EnumLayout> {
-        self.entries.insert(id, layout)
-    }
-
-    /// Look up the finalised layout for an EnumTypeId.
-    ///
-    /// Returns `None` if the type was never finalised.
-    #[must_use]
-    pub fn get(&self, id: EnumTypeId) -> Option<&EnumLayout> {
-        self.entries.get(&id)
-    }
-
-    /// Look up (mutable) the finalised layout for an EnumTypeId.
-    pub fn get_mut(&mut self, id: EnumTypeId) -> Option<&mut EnumLayout> {
-        self.entries.get_mut(&id)
-    }
-
-    /// Number of enum types with finalised layouts.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    /// `true` iff no layouts are finalised.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-}
+    /// PA-r17-007: Populated during emission to provide enum layout
+    /// metadata for downstream passes (e.g., code generation, debug info).
+    /// Serializable via serde for round-tripping through the `.paideia`
+    /// note section.
+    pub struct FinalisedEnumLayoutTable, EnumTypeId => EnumLayout
+);
 
 #[cfg(test)]
 mod tests {
