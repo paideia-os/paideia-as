@@ -474,3 +474,101 @@ impl EmitPassState {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finalise_record_layouts_mixed_widths() {
+        // Phase 6 m3-001 (#1045 AC3): Test offset calculation for mixed-width fields.
+        // Verifies C-ABI natural alignment for a struct with fields at different widths:
+        // - Field a: u32 (size_code=4, size=4 bytes, align=4)
+        // - Field b: u16 (size_code=2, size=2 bytes, align=2)
+        // - Field c: ptr (size_code=8, size=8 bytes, align=8)
+        //
+        // Expected layout:
+        // - a: offset 0 (no padding needed, starts at 0)
+        // - b: offset 4 (u32 is 4 bytes, so b starts after, naturally aligned to 2)
+        // - c: offset 8 (b is 2 bytes at offset 4, so b+2=6, but c needs align 8, so pad to 8)
+        // - Struct size: 16 (c at 8, c is 8 bytes, so 8+8=16, already aligned to 8)
+        // - Struct align: 8 (max of 4, 2, 8)
+
+        let mut state = EmitPassState::default();
+
+        let type_id = RecordTypeId(1);
+        let mut record_types = HashMap::new();
+
+        // Field a: u32 (size_code = 4, unsigned)
+        // Field b: u16 (size_code = 2, unsigned)
+        // Field c: ptr (size_code = 8, unsigned)
+        let fields = vec![
+            ("a".to_string(), 0x04u8), // size_code=4 (u32)
+            ("b".to_string(), 0x02u8), // size_code=2 (u16)
+            ("c".to_string(), 0x08u8), // size_code=8 (ptr)
+        ];
+        record_types.insert(type_id, fields);
+
+        state.finalise_record_layouts(&record_types);
+
+        // Verify layout was computed
+        let layout = state.record_layout(type_id).expect("layout should exist");
+
+        // Assert field count
+        assert_eq!(
+            layout.fields.len(),
+            3,
+            "struct should have 3 fields, got: {}",
+            layout.fields.len()
+        );
+
+        // Assert field a: offset 0, size 4
+        assert_eq!(
+            layout.fields[0].offset, 0,
+            "field a should be at offset 0, got: {}",
+            layout.fields[0].offset
+        );
+        assert_eq!(
+            layout.fields[0].size, 4,
+            "field a should be size 4, got: {}",
+            layout.fields[0].size
+        );
+
+        // Assert field b: offset 4, size 2
+        assert_eq!(
+            layout.fields[1].offset, 4,
+            "field b should be at offset 4, got: {}",
+            layout.fields[1].offset
+        );
+        assert_eq!(
+            layout.fields[1].size, 2,
+            "field b should be size 2, got: {}",
+            layout.fields[1].size
+        );
+
+        // Assert field c: offset 8, size 8
+        // (b ends at 4+2=6, but c needs alignment 8, so pad to 8)
+        assert_eq!(
+            layout.fields[2].offset, 8,
+            "field c should be at offset 8, got: {}",
+            layout.fields[2].offset
+        );
+        assert_eq!(
+            layout.fields[2].size, 8,
+            "field c should be size 8, got: {}",
+            layout.fields[2].size
+        );
+
+        // Assert struct size and alignment
+        assert_eq!(
+            layout.size, 16,
+            "struct size should be 16 (c at 8, size 8), got: {}",
+            layout.size
+        );
+        assert_eq!(
+            layout.align, 8,
+            "struct alignment should be 8 (max of field aligns), got: {}",
+            layout.align
+        );
+    }
+}

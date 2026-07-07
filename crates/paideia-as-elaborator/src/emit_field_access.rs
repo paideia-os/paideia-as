@@ -489,4 +489,80 @@ impl EmitWalker {
 
         self.emit_inst(field_access_id, inst);
     }
+
+    /// pa-r17-005-e: Emit global record-field read via RIP-relative symbol.
+    ///
+    /// Emits `mov <dest_reg>, [rip + sym + addend]` for module-level records.
+    /// Handles u32 (W32) and u64 (W64) sized loads; other sizes push a diagnostic.
+    ///
+    /// For u8/u16/i8/i16/i32, the fixture does not exercise these paths, so
+    /// a diagnostic is emitted as a placeholder. This method is called from
+    /// the visit_lambda arm for FieldAccess(Var(...)) tail-position reads.
+    pub(crate) fn emit_mem_read_via_rip_sym(
+        &mut self,
+        node_id: IrNodeId,
+        dest_reg: RegId,
+        sym_name: String,
+        addend: i32,
+        size: u8,
+        signed: bool,
+    ) {
+        match (size, signed) {
+            (4, false) => {
+                // u32: emit movl (W32 without REX.W)
+                let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                operands.push(Operand::Reg(dest_reg));
+                operands.push(Operand::MemRipRelSym { name: sym_name, addend });
+
+                let inst = Instruction {
+                    mnemonic: Mnemonic::MovSized { width: IntWidth::W32 },
+                    operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                };
+
+                self.emit_inst(node_id, inst);
+            }
+            (8, false) => {
+                // u64: emit movq (W64 with REX.W)
+                let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                operands.push(Operand::Reg(dest_reg));
+                operands.push(Operand::MemRipRelSym { name: sym_name, addend });
+
+                let inst = Instruction {
+                    mnemonic: Mnemonic::MovSized { width: IntWidth::W64 },
+                    operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                };
+
+                self.emit_inst(node_id, inst);
+            }
+            (8, true) => {
+                // i64: same as u64 (W64 with REX.W)
+                let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                operands.push(Operand::Reg(dest_reg));
+                operands.push(Operand::MemRipRelSym { name: sym_name, addend });
+
+                let inst = Instruction {
+                    mnemonic: Mnemonic::MovSized { width: IntWidth::W64 },
+                    operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                };
+
+                self.emit_inst(node_id, inst);
+            }
+            _ => {
+                // u8/u16/i8/i16/i32: not exercised by the fixture; emit diagnostic.
+                self.diagnostics.push(format!(
+                    "T0517: emit_mem_read_via_rip_sym with size={}, signed={} not supported; deferred to future phase",
+                    size, signed
+                ));
+            }
+        }
+    }
 }

@@ -1,0 +1,11 @@
+// pa-r17-005-e (#1044): Multi-field record-field read as lambda returns
+// Tests that multiple field reads on the same struct emit distinct relocations
+// with appropriate addends for each field offset.
+
+module FieldReadMultiField = structure {
+  struct S3 { a: u32, b: u32, custom_name: u32 }
+  pub let r : S3 = S3 { a: 1u32, b: 2u32, custom_name: 3u32 }
+  pub let read_a : () -> u32 !{} @{} = fn(_: ()) -> r.a
+  pub let read_b : () -> u32 !{} @{} = fn(_: ()) -> r.b
+  pub let read_c : () -> u32 !{} @{} = fn(_: ()) -> r.custom_name
+}

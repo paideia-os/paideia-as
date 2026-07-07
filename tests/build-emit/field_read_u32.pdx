@@ -1,0 +1,9 @@
+// pa-r17-005-e: Global record-field read as lambda return
+// Tests that `fn (_: ()) -> r.a` emits mov eax, [rip + r + 0]; ret
+// where r is a module-level struct instance.
+
+module FieldReadU32 = structure {
+  struct S { a: u32 }
+  pub let r : S = S { a: 42u32 }
+  pub let entry : () -> u32 !{} @{} = fn(_: ()) -> r.a
+}

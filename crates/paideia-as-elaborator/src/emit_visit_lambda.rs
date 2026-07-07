@@ -164,6 +164,43 @@ impl EmitWalker {
                         self.record_lambda_entry(lambda_node_id, main_id);
                         self.emit_identity_lambda(lambda_node_id, body_id, arena);
                     }
+                    // pa-r17-005-e: Global record-field read `fn (_: ()) -> r.a`
+                    // Matches: FieldAccess(Var("r")) where r is a module-level symbol.
+                    IrKind::FieldAccess => {
+                        if cfg!(debug_assertions) {
+                            eprintln!("[emit_field_access_lambda] Lambda {}", lambda_node_id.get());
+                        }
+                        let fa_children = arena.children(body_id);
+                        let recv = fa_children.first().and_then(|&r| arena.get(r).map(|n| (r, n.kind)));
+                        if let Some((recv_id, IrKind::Var)) = recv {
+                            if let Some(name) = arena.binding_names().get(recv_id) {
+                                if !self.state.local_bindings.contains(name)
+                                    && arena.symbols().lookup_by_name(name).is_some() {
+                                    if let Some(info) = arena.field_access_info().get(body_id) {
+                                        // Extract field info before calling mutable methods to avoid borrow conflicts
+                                        let field_info = if let Some(layout) = self.state.record_layouts.get(&info.type_id) {
+                                            layout.fields.get(info.field_index as usize).map(|f| (f.offset as i32, f.size, f.signed))
+                                        } else {
+                                            None
+                                        };
+
+                                        if let Some((offset, size, signed)) = field_info {
+                                            let main_id = IrNodeId::new(lambda_node_id.get()*2).unwrap();
+                                            self.record_lambda_entry(lambda_node_id, main_id);
+                                            self.emit_mem_read_via_rip_sym(
+                                                main_id, abi::RAX,
+                                                name.to_string(), offset, size, signed);
+                                            let ret_id = IrNodeId::new(lambda_node_id.get()*2 + 1).unwrap();
+                                            self.emit_inst(ret_id, Instruction { mnemonic: Mnemonic::Ret,
+                                                operands: SmallVec::new(), encoding_hint: None,
+                                                byte_offset_in_text: None, mode: self.current_mode() });
+                                            return;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     // Phase 7 m4-001: bitwise-NOT `fn (x) -> ~x`.
                     // BitNot has a single child (the operand). For the simple
                     // single-parameter form the operand is the parameter Var,
