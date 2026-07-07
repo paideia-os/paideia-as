@@ -12,7 +12,6 @@
 //! record layout computation during emission.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 use crate::node::IrNodeId;
 

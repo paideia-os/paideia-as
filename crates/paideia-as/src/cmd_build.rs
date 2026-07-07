@@ -2487,7 +2487,7 @@ mod tests {
         assert!(
             emit_walker
                 .state()
-                .lambda_first_instr
+                .lambda_first_instr()
                 .contains_key(&lambda_id.get()),
             "lambda entry point should be recorded"
         );

@@ -7,6 +7,7 @@
 //! individual instruction functions.
 
 use paideia_as_ir::instruction::IntWidth;
+use crate::encode_instruction::EncodeError;
 
 /// x86_64 general-purpose 64-bit register identifier.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -3106,6 +3107,65 @@ pub fn jmp_rel8(buf: &mut CodeBuffer, rel: i8) {
 pub fn jmp_rel32(buf: &mut CodeBuffer, rel: i32) {
     buf.bytes.push(0xE9);
     buf.bytes.extend(rel.to_le_bytes());
+}
+
+/// Encode `jmp [disp32 + index*scale]` with no base register and no RIP.
+///
+/// PA-R15-009a: Emits `FF 24 <SIB> <disp32>` with SIB base=0b101 (no base).
+/// This encodes absolute addressing at a link-known address, suitable for kernel-mapped
+/// jump tables. x86-64 has no true RIP+SIB mode; this uses the mod=00, base=101 form
+/// which normally means RIP-relative in 64-bit mode, but with explicit disp32 it
+/// becomes `[disp32 + index*scale]` absolute.
+///
+/// Arguments:
+/// - buf: code buffer to write to
+/// - index: index register (cannot be RSP; id 4 is reserved for "no index")
+/// - scale_bits: 0=1x, 1=2x, 2=4x, 3=8x
+/// - disp32: absolute 32-bit displacement (will be relocated by linker)
+///
+/// Returns: byte offset of disp32 within the instruction (3 for registers 0-7, 4 for REX.X).
+///
+/// Instruction encoding:
+/// - [REX.X if index >= 8] 0xFF 0x24 SIB disp32
+/// - REX = 0x42 (only if index >= R8, i.e., REX.X=1)
+/// - SIB = (scale<<6) | ((index&7)<<3) | 0b101
+///
+/// Rejects: index=RSP (id 4) → EncodeError::InvalidOperand
+pub fn jmp_mem_sib_no_base_indexed(
+    buf: &mut CodeBuffer,
+    index: Reg64,
+    scale_bits: u8,
+    disp32: i32,
+) -> Result<usize, EncodeError> {
+    let index_id = index as u8;
+
+    // Reject RSP as index (index field 0b100 is reserved for "no index" in SIB)
+    if index_id == 4 {
+        return Err(EncodeError::InvalidOperand("RSP cannot be used as SIB index register"));
+    }
+
+    let disp_offset;
+
+    // Emit REX.X if index >= R8 (index_id >= 8)
+    if (index_id >> 3) != 0 {
+        buf.bytes.push(0x42); // REX prefix with X=1
+        disp_offset = 4; // disp32 starts at byte +4 after 0xFF, 0x24, SIB
+    } else {
+        disp_offset = 3; // disp32 starts at byte +3 after 0xFF, 0x24, SIB
+    }
+
+    // Emit: FF 24 SIB disp32
+    buf.bytes.push(0xFF);
+    buf.bytes.push(0x24); // ModRM: mod=00, reg=100, r/m=100 (SIB follows)
+
+    // SIB byte: (scale_bits << 6) | ((index_id & 7) << 3) | 0b101 (base=101)
+    let sib = ((scale_bits & 3) << 6) | ((index_id & 7) << 3) | 0b101;
+    buf.bytes.push(sib);
+
+    // Emit disp32
+    buf.bytes.extend(disp32.to_le_bytes());
+
+    Ok(disp_offset)
 }
 
 /// Encode conditional jump `jcc rel32`.

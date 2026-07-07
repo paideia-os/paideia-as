@@ -77,6 +77,9 @@ pub enum EncodeError {
         /// The mnemonic that had the operand shape mismatch.
         mnemonic: Mnemonic,
     },
+    /// Invalid operand value (e.g., RSP as SIB index).
+    #[error("invalid operand: {0}")]
+    InvalidOperand(&'static str),
     /// Feature not yet supported in phase 3 m2-002.
     #[error("unsupported in phase 3 m2-002: {0}")]
     Unsupported(&'static str),
@@ -2766,6 +2769,27 @@ fn encode_jmp(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
                 label_name: name.clone(),
                 addend: *addend,
                 instruction_size: 5,
+            });
+            Ok(output)
+        }
+        [Operand::MemSymIndexed { name, addend, index, scale }] => {
+            // PA-R15-009a: jmp [sym + index*scale] with absolute addressing.
+            // Emit FF 24 SIB disp32 (absolute form, not RIP-relative).
+            let scale_bits = match scale {
+                Scale::X1 => 0,
+                Scale::X2 => 1,
+                Scale::X4 => 2,
+                Scale::X8 => 3,
+            };
+            let index_reg = reg64_from(*index)?;
+            let disp_offset = jmp_mem_sib_no_base_indexed(buf, index_reg, scale_bits, 0)?;
+
+            let mut output = EncodeOutput::new();
+            output.add_reloc(RelocSite {
+                byte_offset: disp_offset as u32,
+                symbol: name.clone(),
+                kind: RelocKind::Abs32,
+                addend: *addend,
             });
             Ok(output)
         }
@@ -8792,5 +8816,261 @@ mod jcc_tests {
         let mut stats = EncodeStats::new();
         let err = encode_instruction(&inst, &mut buf, &mut stats).unwrap_err();
         assert!(matches!(err, EncodeError::OperandShape { mnemonic: Mnemonic::Xchg }));
+    }
+
+    // PA-R15-009a: jmp_mem_sib_no_base_indexed test suite (10 tests)
+
+    #[test]
+    fn encode_jmp_mem_sym_indexed_rax_8x_emits_correct_bytes() {
+        // Test 1: [sym + rax*8] → FF 24 C5 00 00 00 00 (no REX.X)
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jmp,
+            operands: smallvec::smallvec![Operand::MemSymIndexed {
+                name: "jump_table".to_string(),
+                addend: 0,
+                index: RegId(0), // rax
+                scale: Scale::X8,
+            }],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0xFF, 0x24, 0xC5, 0x00, 0x00, 0x00, 0x00]);
+        assert_eq!(output.reloc_sites.len(), 1);
+        assert_eq!(output.reloc_sites[0].byte_offset, 3);
+        assert_eq!(output.reloc_sites[0].symbol, "jump_table");
+        assert_eq!(output.reloc_sites[0].kind, RelocKind::Abs32);
+    }
+
+    #[test]
+    fn encode_jmp_mem_sym_indexed_rcx_1x_emits_correct_scale() {
+        // Test 2: [sym + rcx*1] → FF 24 0D ... (scale=0 in SIB)
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jmp,
+            operands: smallvec::smallvec![Operand::MemSymIndexed {
+                name: "vtable".to_string(),
+                addend: 0,
+                index: RegId(1), // rcx
+                scale: Scale::X1,
+            }],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice()[0], 0xFF);
+        assert_eq!(buf.as_slice()[1], 0x24);
+        // SIB: scale=0 (00), index=rcx(1) (<<3), base=101
+        // (0 << 6) | (1 << 3) | 0b101 = 0x0D
+        assert_eq!(buf.as_slice()[2], 0x0D);
+        assert_eq!(output.reloc_sites.len(), 1);
+        assert_eq!(output.reloc_sites[0].byte_offset, 3);
+    }
+
+    #[test]
+    fn encode_jmp_mem_sym_indexed_rbx_4x_emits_correct_scale() {
+        // Test 3: [sym + rbx*4] → FF 24 9D ... (scale=2 in SIB)
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jmp,
+            operands: smallvec::smallvec![Operand::MemSymIndexed {
+                name: "dispatch".to_string(),
+                addend: 0,
+                index: RegId(3), // rbx
+                scale: Scale::X4,
+            }],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice()[0], 0xFF);
+        assert_eq!(buf.as_slice()[1], 0x24);
+        // SIB: scale=2 (10), index=rbx(3) (<<3), base=101
+        // (2 << 6) | (3 << 3) | 0b101 = 0x9D
+        assert_eq!(buf.as_slice()[2], 0x9D);
+        assert_eq!(output.reloc_sites.len(), 1);
+    }
+
+    #[test]
+    fn encode_jmp_mem_sym_indexed_rdi_2x_emits_correct_scale() {
+        // Test 4: [sym + rdi*2] → FF 24 7D ... (scale=1 in SIB)
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jmp,
+            operands: smallvec::smallvec![Operand::MemSymIndexed {
+                name: "handlers".to_string(),
+                addend: 0,
+                index: RegId(7), // rdi
+                scale: Scale::X2,
+            }],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice()[0], 0xFF);
+        assert_eq!(buf.as_slice()[1], 0x24);
+        // SIB: scale=1 (01), index=rdi(7) (<<3), base=101
+        // (1 << 6) | (7 << 3) | 0b101 = 0x7D
+        assert_eq!(buf.as_slice()[2], 0x7D);
+        assert_eq!(output.reloc_sites.len(), 1);
+    }
+
+    #[test]
+    fn encode_jmp_mem_sym_indexed_r8_8x_emits_rex_x() {
+        // Test 5: [sym + r8*8] → 42 FF 24 C5 ... (REX.X prefix)
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jmp,
+            operands: smallvec::smallvec![Operand::MemSymIndexed {
+                name: "table".to_string(),
+                addend: 0,
+                index: RegId(8), // r8
+                scale: Scale::X8,
+            }],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice()[0], 0x42); // REX.X
+        assert_eq!(buf.as_slice()[1], 0xFF);
+        assert_eq!(buf.as_slice()[2], 0x24);
+        // SIB with r8 (index_id=8, low 3 bits=0): (3<<6)|(0<<3)|0b101 = 0xC5
+        assert_eq!(buf.as_slice()[3], 0xC5);
+        assert_eq!(output.reloc_sites.len(), 1);
+        assert_eq!(output.reloc_sites[0].byte_offset, 4); // disp32 at byte 4 with REX
+    }
+
+    #[test]
+    fn encode_jmp_mem_sym_indexed_r15_4x_emits_rex_x() {
+        // Test 6: [sym + r15*4] → 42 FF 24 BD ... (REX.X prefix)
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jmp,
+            operands: smallvec::smallvec![Operand::MemSymIndexed {
+                name: "jumptbl".to_string(),
+                addend: 0,
+                index: RegId(15), // r15
+                scale: Scale::X4,
+            }],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice()[0], 0x42); // REX.X
+        assert_eq!(buf.as_slice()[1], 0xFF);
+        assert_eq!(buf.as_slice()[2], 0x24);
+        // SIB with r15 (index_id=15, low 3 bits=7): (2<<6)|(7<<3)|0b101 = 0xBD
+        assert_eq!(buf.as_slice()[3], 0xBD);
+        assert_eq!(output.reloc_sites.len(), 1);
+        assert_eq!(output.reloc_sites[0].byte_offset, 4);
+    }
+
+    #[test]
+    fn encode_jmp_mem_sym_indexed_non_zero_addend_flows_into_reloc() {
+        // Test 7: Non-zero addend flows verbatim into RelocSite
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jmp,
+            operands: smallvec::smallvec![Operand::MemSymIndexed {
+                name: "handler_table".to_string(),
+                addend: 8,
+                index: RegId(2), // rdx
+                scale: Scale::X8,
+            }],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(output.reloc_sites.len(), 1);
+        assert_eq!(output.reloc_sites[0].addend, 8);
+        assert_eq!(output.reloc_sites[0].symbol, "handler_table");
+    }
+
+    #[test]
+    fn encode_jmp_mem_sym_indexed_rsp_as_index_rejects() {
+        // Test 8: [sym + rsp*8] → EncodeError::InvalidOperand (RSP cannot be index)
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jmp,
+            operands: smallvec::smallvec![Operand::MemSymIndexed {
+                name: "forbidden".to_string(),
+                addend: 0,
+                index: RegId(4), // rsp (id 4)
+                scale: Scale::X8,
+            }],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        let err = encode_instruction(&inst, &mut buf, &mut stats).unwrap_err();
+        assert!(matches!(err, EncodeError::InvalidOperand(_)));
+    }
+
+    #[test]
+    fn encode_jmp_mem_sym_indexed_rax_8x_round_trips_iced() {
+        // Test 9: Iced roundtrip: rax*8 form disassembles correctly
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jmp,
+            operands: smallvec::smallvec![Operand::MemSymIndexed {
+                name: "table".to_string(),
+                addend: 0,
+                index: RegId(0), // rax
+                scale: Scale::X8,
+            }],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Jmp);
+    }
+
+    #[test]
+    fn encode_jmp_mem_sym_indexed_r15_4x_round_trips_iced() {
+        // Test 10: Iced roundtrip: r15*4 form preserves REX.X
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Jmp,
+            operands: smallvec::smallvec![Operand::MemSymIndexed {
+                name: "handlers".to_string(),
+                addend: 0,
+                index: RegId(15), // r15
+                scale: Scale::X4,
+            }],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Jmp);
     }
 }

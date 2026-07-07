@@ -45,7 +45,7 @@ fn pa8_m1_001b_two_param_add_lambda_emits_instructions() {
     walker.walk(&mut arena);
 
     // Verify that local_bindings contains the parameter mappings
-    let bindings_count = walker.state().local_bindings.len();
+    let bindings_count = walker.state().local_bindings().len();
     eprintln!(
         "Local bindings after walk: {} entries, diagnostics: {:?}",
         bindings_count,
@@ -163,7 +163,7 @@ fn pa8_m1_001c_lambda_params_extract_real_names() {
     walker.walk(&mut arena);
 
     // Verify that the local_bindings contain the real parameter names
-    let bindings = &walker.state().local_bindings;
+    let bindings = walker.state().local_bindings();
     eprintln!("Local bindings: {:?}", bindings);
 
     // We should have registered "foo" and "bar" (along with possibly other bindings)

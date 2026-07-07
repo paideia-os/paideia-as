@@ -9,7 +9,6 @@
 //! has a dedicated HashMap-based side-table for O(1) lookups.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 use crate::node::IrNodeId;
 

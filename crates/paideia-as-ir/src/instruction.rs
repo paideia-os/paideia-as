@@ -8,7 +8,6 @@
 
 use crate::node::IrNodeId;
 use smallvec::SmallVec;
-use std::collections::HashMap;
 
 /// Instruction execution mode (bit-width).
 ///
@@ -671,6 +670,20 @@ pub enum Operand {
         /// Name of the local binding.
         name: String,
     },
+    /// Indexed memory with symbol (no base/RIP): [sym + index*scale + addend].
+    /// PA-R15-009a: used for absolute-address jump tables via jmp [sym + rX*scale].
+    /// Emits FF/4 ModRM with SIB, base=0b101 (no base), index and scale from operand.
+    /// Relocation: RelocKind::Abs32 (absolute, not RIP-relative).
+    MemSymIndexed {
+        /// Name of the symbol.
+        name: String,
+        /// Addend to apply to the symbol address.
+        addend: i32,
+        /// Index register (cannot be RSP).
+        index: RegId,
+        /// Scale factor for index.
+        scale: Scale,
+    },
 }
 
 /// x86_64 register identifier.
@@ -883,8 +896,17 @@ impl Mnemonic {
             // Conditional set byte: 4 bytes (REX + 0F + 9X + ModR/M)
             Mnemonic::Setcc(_) => 4,
 
-            // Unconditional jump: 5 bytes (1-byte opcode + 4-byte offset)
-            Mnemonic::Jmp => 5,
+            // Unconditional jump: 5 bytes (rel32) or 7-8 bytes (MemSymIndexed with SIB)
+            Mnemonic::Jmp => {
+                // PA-R15-009a: check if operand is MemSymIndexed; if so, return 7-8 bytes based on index register
+                if _operands.len() == 1 {
+                    if let Operand::MemSymIndexed { index, .. } = &_operands[0] {
+                        // 7 bytes if index < R8, 8 bytes if index >= R8 (REX.X)
+                        return if index.0 < 8 { 7 } else { 8 };
+                    }
+                }
+                5 // default for Imm64 or LabelRef
+            },
 
             // Call: 5 bytes (1-byte opcode + 4-byte offset)
             Mnemonic::Call => 5,
