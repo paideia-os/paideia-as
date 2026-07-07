@@ -1117,3 +1117,12 @@ brief = "lambda arity exceeds System-V register-passed cap (6)"
 description = "Issue #1041: the current System-V x86-64 lowering passes lambda parameters in RDI, RSI, RDX, RCX, R8, R9. Stack-spill of the 7th+ parameter is not yet implemented. Reduce the parameter count to 6 or fewer, or split the function into curried groups (each group is a separate lambda)."
 since = "0.17.0"
 deprecated = false
+
+[diagnostic.P0277]
+severity = "error"
+category = "parser"
+title = "Malformed struct field declaration"
+brief = "expected field name, colon, type, or closing brace"
+description = "Issue #1071 (pa-r17-010b): A struct field declaration is syntactically incomplete. Ensure all fields follow the pattern `name: type`, separated by commas, with proper opening and closing braces. Trailing commas are allowed. Example: `struct S { x: u64, y: u32 }`."
+since = "0.17.0"
+deprecated = false

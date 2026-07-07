@@ -165,7 +165,7 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
         } => {
             let fields_str = fields
                 .iter()
-                .map(|id| id.to_string())
+                .map(|(name_id, type_id)| format!("{}: {}", name_id, type_id))
                 .collect::<Vec<_>>()
                 .join(", ");
             format!(

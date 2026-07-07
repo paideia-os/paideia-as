@@ -1212,9 +1212,10 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         Ok(attributes)
     }
 
-    /// Parse a struct type declaration: `struct <Ident> <GenericParams>? { ... }`
+    /// Parse a struct type declaration: `struct <Ident> <GenericParams>? { field: type, ... }`
     ///
-    /// For phase-1, the body is parsed as a skeleton (just match braces).
+    /// Parses struct field declarations in the form `name: type`, separated by commas.
+    /// Trailing commas are allowed.
     /// Attributes (e.g., `#[derive(...)]`) are parsed before the struct keyword.
     fn parse_struct_decl(&mut self) -> Result<NodeId, ParseError> {
         // Parse leading attributes
@@ -1234,33 +1235,83 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             Vec::new()
         };
 
-        // Expect `{` and skip to matching `}`
+        // Expect opening brace
         self.expect(TokenKind::LBrace)?;
-        let mut depth = 1;
-        while !self.at_eof() && depth > 0 {
-            if self.at(TokenKind::LBrace) {
-                depth += 1;
-            } else if self.at(TokenKind::RBrace) {
-                depth -= 1;
+
+        let mut fields = Vec::new();
+
+        // Parse fields: name : type, name : type, ...
+        loop {
+            // Check for closing brace
+            if self.at(TokenKind::RBrace) {
+                break;
             }
-            self.bump();
+
+            // Expect field name (Ident)
+            let field_name_tok = self.expect(TokenKind::Ident)?;
+            let field_name_id = self.arena_mut().alloc(NodeKind::Ident, field_name_tok.span);
+
+            // Expect colon
+            if !self.at(TokenKind::Colon) {
+                let span = self.peek().map(|t| t.span).unwrap_or(field_name_tok.span);
+                let diag = Diagnostic::error(
+                    DiagnosticCode::new(Category::P, Severity::Error, 277)
+                        .expect("valid P0277 code"),
+                )
+                .message("malformed struct field: expected ':' after field name")
+                .with_span(span)
+                .finish();
+                self.emit_diagnostic(diag);
+                return Err(ParseError);
+            }
+            self.bump(); // consume :
+
+            // Parse field type
+            let field_type = self.parse_type()?;
+
+            fields.push((field_name_id, field_type));
+
+            // Check for comma or closing brace
+            if !self.at(TokenKind::Comma) {
+                break;
+            }
+            self.bump(); // consume comma
+
+            // Allow trailing comma before closing brace
+            if self.at(TokenKind::RBrace) {
+                break;
+            }
         }
 
-        let rbrace_span = self.peek().map(|t| t.span).unwrap_or(span_start);
+        // Expect closing brace
+        if !self.at(TokenKind::RBrace) {
+            let span = self.peek().map(|t| t.span).unwrap_or(span_start);
+            let diag = Diagnostic::error(
+                DiagnosticCode::new(Category::P, Severity::Error, 277)
+                    .expect("valid P0277 code"),
+            )
+            .message("malformed struct field: expected '}' to close struct body")
+            .with_span(span)
+            .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+        let rbrace_tok = self.bump().unwrap();
+
+        // Compute span
         let span = Span::new(
             span_start.file(),
             span_start.byte_start(),
-            rbrace_span.byte_start() + rbrace_span.byte_len() - span_start.byte_start(),
+            rbrace_tok.span.byte_start() + rbrace_tok.span.byte_len() - span_start.byte_start(),
         );
 
-        // For phase-1, allocate an empty fields vector
         let item = self.arena_mut().alloc_item(
             NodeKind::Struct,
             span,
             ItemData::Struct {
                 name: name_id,
                 generic_params,
-                fields: vec![],
+                fields,
                 attributes,
                 doc: None,
             },
@@ -2984,5 +3035,175 @@ mod tests {
                 }
             }
         }
+    }
+
+    // Struct field parsing tests (Issue #1071: pa-r17-010b)
+
+    #[test]
+    fn parse_struct_two_fields() {
+        // Test: `struct S { x: u64, y: u32 }` should parse with two fields
+        let (arena, result, diags) = parse_source_str("struct S { x: u64, y: u32 }");
+        assert!(result.is_ok(), "should parse struct with two fields");
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "should have no parse errors");
+
+        // Verify the struct has two fields
+        let root = result.unwrap();
+        if let Some(node) = arena.get(root) {
+            if let paideia_as_ast::NodeKind::Structure = node.kind {
+                if let paideia_as_ast::ItemData::Structure { items, .. } =
+                    arena.item_data(root).unwrap()
+                {
+                    if let Some(&struct_id) = items.first() {
+                        if let paideia_as_ast::ItemData::Struct { fields, .. } =
+                            arena.item_data(struct_id).unwrap()
+                        {
+                            assert_eq!(fields.len(), 2, "struct should have 2 fields");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn parse_struct_generic_field() {
+        // Test: `struct S<T> { v: T }` should parse with generic type field
+        let (arena, result, diags) = parse_source_str("struct S<T> { v: T }");
+        assert!(result.is_ok(), "should parse struct with generic field");
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "should have no parse errors");
+
+        // Verify the struct has one field
+        let root = result.unwrap();
+        if let Some(node) = arena.get(root) {
+            if let paideia_as_ast::NodeKind::Structure = node.kind {
+                if let paideia_as_ast::ItemData::Structure { items, .. } =
+                    arena.item_data(root).unwrap()
+                {
+                    if let Some(&struct_id) = items.first() {
+                        if let paideia_as_ast::ItemData::Struct { fields, generic_params, .. } =
+                            arena.item_data(struct_id).unwrap()
+                        {
+                            assert_eq!(fields.len(), 1, "struct should have 1 field");
+                            assert_eq!(generic_params.len(), 1, "struct should have 1 generic param");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn parse_struct_empty() {
+        // Test: `struct S {}` should parse as empty struct
+        let (arena, result, diags) = parse_source_str("struct S {}");
+        assert!(result.is_ok(), "should parse empty struct");
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "should have no parse errors");
+
+        // Verify the struct has no fields
+        let root = result.unwrap();
+        if let Some(node) = arena.get(root) {
+            if let paideia_as_ast::NodeKind::Structure = node.kind {
+                if let paideia_as_ast::ItemData::Structure { items, .. } =
+                    arena.item_data(root).unwrap()
+                {
+                    if let Some(&struct_id) = items.first() {
+                        if let paideia_as_ast::ItemData::Struct { fields, .. } =
+                            arena.item_data(struct_id).unwrap()
+                        {
+                            assert_eq!(fields.len(), 0, "struct should have 0 fields");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn parse_struct_single_field() {
+        // Test: `struct S { x: u64 }` should parse with single field
+        let (arena, result, diags) = parse_source_str("struct S { x: u64 }");
+        assert!(result.is_ok(), "should parse struct with single field");
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "should have no parse errors");
+
+        // Verify the struct has one field
+        let root = result.unwrap();
+        if let Some(node) = arena.get(root) {
+            if let paideia_as_ast::NodeKind::Structure = node.kind {
+                if let paideia_as_ast::ItemData::Structure { items, .. } =
+                    arena.item_data(root).unwrap()
+                {
+                    if let Some(&struct_id) = items.first() {
+                        if let paideia_as_ast::ItemData::Struct { fields, .. } =
+                            arena.item_data(struct_id).unwrap()
+                        {
+                            assert_eq!(fields.len(), 1, "struct should have 1 field");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn parse_struct_trailing_comma() {
+        // Test: `struct S { x: u64, }` should parse with trailing comma allowed
+        let (arena, result, diags) = parse_source_str("struct S { x: u64, }");
+        assert!(result.is_ok(), "should parse struct with trailing comma");
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .collect();
+        assert!(errors.is_empty(), "should have no parse errors");
+
+        // Verify the struct has one field
+        let root = result.unwrap();
+        if let Some(node) = arena.get(root) {
+            if let paideia_as_ast::NodeKind::Structure = node.kind {
+                if let paideia_as_ast::ItemData::Structure { items, .. } =
+                    arena.item_data(root).unwrap()
+                {
+                    if let Some(&struct_id) = items.first() {
+                        if let paideia_as_ast::ItemData::Struct { fields, .. } =
+                            arena.item_data(struct_id).unwrap()
+                        {
+                            assert_eq!(fields.len(), 1, "struct should have 1 field");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn parse_struct_malformed_missing_colon() {
+        // Test: `struct S { x u64 }` (missing colon) should emit P0277
+        let (_arena, _result, diags) = parse_source_str("struct S { x u64 }");
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().severity() == Severity::Error)
+            .collect();
+        assert!(!errors.is_empty(), "should have parse error");
+        // Check that at least one error has code P0277
+        let p0277_errors: Vec<_> = errors
+            .iter()
+            .filter(|d| d.code().number() == 277)
+            .collect();
+        assert!(!p0277_errors.is_empty(), "should emit P0277 for malformed field");
     }
 }

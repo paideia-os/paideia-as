@@ -213,8 +213,8 @@ pub enum ItemData {
         /// Generic parameters (type parameters with optional bounds).
         /// Empty for non-generic structs.
         generic_params: Vec<crate::exprs::GenericParam>,
-        /// Struct fields.
-        fields: Vec<NodeId>,
+        /// Struct fields: each is (field_name_node, field_type_node).
+        fields: Vec<(NodeId, NodeId)>,
         /// Attributes applied to this struct (e.g., `#[derive(...)]`).
         attributes: Vec<ItemAttribute>,
         /// Optional documentation comment.
