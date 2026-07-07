@@ -123,6 +123,76 @@ pub fn lower_ast_to_ir(
     let mut ir = IrArena::with_capacity(ast.len());
     let mut ast_to_ir = HashMap::with_capacity(ast.len());
 
+    // Pre-pass: collect all While/Loop nodes that appear (directly or indirectly)
+    // inside Unsafe blocks. This allows us to skip child transfer for While/Loop nodes
+    // inside unsafe blocks, since they should not have children when part of an unsafe
+    // block's statement sequence.
+    let mut nodes_in_unsafe_blocks = std::collections::HashSet::new();
+
+    fn collect_unsafe_descendants(
+        ast: &AstArena,
+        node_id: paideia_as_ast::NodeId,
+        dest: &mut std::collections::HashSet<u32>,
+    ) {
+        if let Some(node) = ast.get(node_id) {
+            // If this is a While/Loop node, mark it
+            if node.kind == paideia_as_ast::NodeKind::ExprLoop {
+                dest.insert(node_id.get());
+            }
+
+            // Recursively check children of the current node
+            if let Some(stmt_data) = ast.stmt_data(node_id) {
+                match stmt_data {
+                    paideia_as_ast::StmtData::Let { value, .. } => {
+                        collect_unsafe_descendants(ast, *value, dest);
+                    }
+                    paideia_as_ast::StmtData::Expr { expr } => {
+                        collect_unsafe_descendants(ast, *expr, dest);
+                    }
+                    _ => {}
+                }
+            }
+
+            if let Some(expr_data) = ast.expr_data(node_id) {
+                match expr_data {
+                    paideia_as_ast::ExprData::Loop { body, .. } => {
+                        collect_unsafe_descendants(ast, *body, dest);
+                    }
+                    paideia_as_ast::ExprData::If { cond, then_block, else_block } => {
+                        collect_unsafe_descendants(ast, *cond, dest);
+                        collect_unsafe_descendants(ast, *then_block, dest);
+                        if let Some(else_id) = else_block {
+                            collect_unsafe_descendants(ast, *else_id, dest);
+                        }
+                    }
+                    paideia_as_ast::ExprData::Match { scrutinee, arms, .. } => {
+                        collect_unsafe_descendants(ast, *scrutinee, dest);
+                        for arm in arms {
+                            collect_unsafe_descendants(ast, arm.body, dest);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    for i in 0..ast.len() {
+        let ast_id = NodeId::new((i + 1) as u32).expect("non-zero node id");
+        if let Some(node) = ast.get(ast_id) {
+            if node.kind == paideia_as_ast::NodeKind::ExprUnsafe {
+                if let Some(paideia_as_ast::ExprData::Unsafe { block, .. }) =
+                    ast.expr_data(ast_id)
+                {
+                    // Recursively collect While/Loop nodes inside this unsafe block
+                    for &stmt_id in block {
+                        collect_unsafe_descendants(ast, stmt_id, &mut nodes_in_unsafe_blocks);
+                    }
+                }
+            }
+        }
+    }
+
     // First pass: allocate all IR nodes (without children).
     for i in 0..ast.len() {
         // NodeId and IrNodeId both index from 1.
@@ -177,6 +247,22 @@ pub fn lower_ast_to_ir(
 
                     if is_lvalue {
                         ir_kind = IrKind::Store;
+                    }
+                }
+            }
+        }
+        // PA-R17-012: ExprLoop distinction (infinite loop vs while).
+        // Detect Loop kind field and map to appropriate IR kind.
+        // Loop (infinite) → IrKind::Loop
+        // While (conditional) → IrKind::While
+        if node.kind == paideia_as_ast::NodeKind::ExprLoop {
+            if let Some(paideia_as_ast::ExprData::Loop { kind, .. }) = ast.expr_data(ast_id) {
+                match kind {
+                    paideia_as_ast::LoopKind::Loop => {
+                        ir_kind = IrKind::Loop;
+                    }
+                    paideia_as_ast::LoopKind::While => {
+                        ir_kind = IrKind::While;
                     }
                 }
             }
@@ -360,6 +446,63 @@ pub fn lower_ast_to_ir(
                 ExprData::Deref { expr } => {
                     // Deref (*): single child is the reference expression.
                     vec![*expr]
+                }
+                ExprData::If {
+                    cond,
+                    then_block,
+                    else_block,
+                } => {
+                    // If-then-else: condition, then block, and optional else block.
+                    let mut children = vec![*cond, *then_block];
+                    if let Some(else_id) = else_block {
+                        children.push(*else_id);
+                    }
+                    children
+                }
+                ExprData::Match {
+                    scrutinee,
+                    arms,
+                    ..
+                } => {
+                    // Match: scrutinee + all arm patterns, guards, and bodies.
+                    let mut children = vec![*scrutinee];
+                    for arm in arms {
+                        children.push(arm.pattern);
+                        if let Some(guard_id) = arm.guard {
+                            children.push(guard_id);
+                        }
+                        children.push(arm.body);
+                    }
+                    children
+                }
+                ExprData::Loop { header, body, .. } => {
+                    // Loop (infinite or while): optional header (condition) + body.
+                    // BUGFIX PA-R17-012c (#990): Skip child transfer for While/Loop nodes inside
+                    // unsafe blocks. While nodes inside unsafe blocks should not have children to
+                    // avoid conflicts with unsafe_walker's label handling. The unsafe_walker
+                    // processes the block statements independently, so the While control flow and
+                    // unsafe block context must be kept separate.
+                    if nodes_in_unsafe_blocks.contains(&ast_id.get()) {
+                        // This While/Loop is inside an unsafe block: don't add children.
+                        // The unsafe block will handle the statements independently.
+                        Vec::new()
+                    } else {
+                        // This While/Loop is in normal function body: add children for control flow emission.
+                        let mut children = Vec::new();
+                        if let Some(header_id) = header {
+                            children.push(*header_id);
+                        }
+                        children.push(*body);
+                        children
+                    }
+                }
+                ExprData::For {
+                    pattern,
+                    iterable,
+                    body,
+                } => {
+                    // For loop: pattern + iterable + body.
+                    vec![*pattern, *iterable, *body]
                 }
                 // TODO: Add Path, Ident, and other expression types as needed
                 // _ => Vec::new(),

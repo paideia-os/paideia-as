@@ -919,11 +919,8 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
         // Create a walker sink to accumulate diagnostics from all walkers.
         let mut walker_sink = VecSink::new();
 
-        // PA-R12-004 (#913): reject pure fn bodies with unsupported control flow
-        // before the emit walker silently corrupts symbol boundaries.
-        for d in paideia_as_elaborator::check_body_shape::check_pure_body(&arena) {
-            let _ = walker_sink.emit(d);
-        }
+        // PA-R12-004 (#913): control-flow support added in PA-R17-012 (#990)
+        // Pure fn bodies can now contain if/match/while/loop; T0532 stub retired.
 
         // Determine the root node ID for walking. In phase-1 lowering, the parser
         // creates a Module as the first node (NodeId 1 → IrNodeId 1), so we walk

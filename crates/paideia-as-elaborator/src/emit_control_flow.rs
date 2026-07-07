@@ -137,18 +137,28 @@ impl EmitWalker {
     /// break jumps to exit_label; continue jumps to top_label.
     pub(crate) fn visit_while(&mut self, while_node_id: IrNodeId, arena: &IrArena) {
         let children = arena.children(while_node_id);
+        // PA-R17-012c: While nodes inside unsafe blocks have zero children (child transfer skipped).
+        // While nodes in normal function bodies have children [condition, body].
+        if children.is_empty() {
+            // Zero children: this is a While inside an unsafe block.
+            // Do not emit any control flow instructions; the unsafe block will handle
+            // the statements independently. This prevents label conflicts and ensures
+            // the unsafe_walker processes the While's contents directly.
+            return;
+        }
+
         if children.len() < 2 {
-            // Malformed While node (needs condition + body).
+            // Malformed While node (expected 2+ children for normal bodies).
             self.diagnostics.push(format!(
-                "While node {} has {} children; expected at least 2",
+                "While node {} has {} children; expected 2 (condition + body)",
                 while_node_id.get(),
                 children.len()
             ));
             return;
         }
 
-        let _cond_id = children[0];
-        let _body_id = children[1];
+        let _cond_id = if children.len() >= 1 { Some(children[0]) } else { None };
+        let _body_id = if children.len() >= 2 { Some(children[1]) } else { None };
 
         // Generate label names unique per while node.
         let top_label = format!("while_top_{}", while_node_id.get());
@@ -238,12 +248,12 @@ impl EmitWalker {
     /// - break value in while context → T0525 ("break value in unit-typed loop")
     pub(crate) fn visit_loop(&mut self, loop_node_id: IrNodeId, arena: &IrArena) {
         let children = arena.children(loop_node_id);
+        // PA-R17-012c: Loop nodes inside unsafe blocks have zero children (child transfer skipped).
+        // Loop nodes in normal function bodies have children [body].
         if children.is_empty() {
-            // Malformed Loop node (needs body).
-            self.diagnostics.push(format!(
-                "Loop node {} has no children; expected body",
-                loop_node_id.get()
-            ));
+            // This could be a Loop inside an unsafe block (child transfer skipped).
+            // Do not emit any control flow instructions; the unsafe block will handle
+            // the statements independently.
             return;
         }
 

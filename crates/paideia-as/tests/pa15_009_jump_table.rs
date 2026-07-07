@@ -87,10 +87,11 @@ fn jump_table_min_offset_parses() {
     );
 }
 
-// PA-r15-009d: E2E build test deferred due to T0532/M0305 elaborator issues.
+// PA-r15-009d: E2E build test deferred due to M0305 parser issue.
 // The defects in #1032 have been fixed (populate_jump_tables wiring, IrNodeId ordering,
 // test flakiness). Verification:
 // - populate_jump_tables is now called in cmd_build.rs (Defect 1 fixed)
 // - IrNodeIds renumbered with *1000 scheme for correct sort order (Defect 2 fixed)
 // - Test sorted instruction IDs before iterating to avoid HashMap randomization (Defect 3 fixed)
-// Full E2E build test requires resolving T0532/M0305 parser/elaborator issues, deferred to later issue.
+// T0532 control-flow stub resolved (PA-R17-012 #990).
+// Full E2E build test requires resolving M0305 parser issue, deferred to later issue.
