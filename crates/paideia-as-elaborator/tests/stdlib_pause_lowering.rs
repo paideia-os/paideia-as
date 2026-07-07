@@ -4,15 +4,18 @@
 //!
 //! This test verifies the stdlib lowering path through to instruction encoding.
 
-use paideia_as_ir::{InstrMode, Instruction, Mnemonic, SmallVec};
+use paideia_as_ir::{InstrMode, Instruction, Mnemonic, SmallVec, IrArena};
 
 #[test]
 fn stdlib_pauseops_spin_hint_lowers_to_pause_mnemonic() {
     // Call the stdlib_lowering module to get the recipe for PauseOps::spin_hint
+    let arena = IrArena::new();
     let result = paideia_as_elaborator::stdlib_lowering::lower_stdlib_method(
         "PauseOps",
         "spin_hint",
         InstrMode::Mode64,
+        &[],
+        &arena,
     );
 
     assert!(
@@ -20,10 +23,10 @@ fn stdlib_pauseops_spin_hint_lowers_to_pause_mnemonic() {
         "PauseOps::spin_hint should have a lowering recipe"
     );
 
-    let insts = result.unwrap();
-    assert_eq!(insts.len(), 1, "spin_hint should lower to exactly one instruction");
+    let result = result.unwrap().expect("spin_hint lowering should succeed");
+    assert_eq!(result.len(), 1, "spin_hint should lower to exactly one instruction");
 
-    let inst = &insts[0];
+    let inst = &result[0];
     assert_eq!(
         inst.mnemonic, Mnemonic::Pause,
         "spin_hint should lower to Pause mnemonic"
@@ -62,20 +65,26 @@ fn pause_mnemonic_encodes_to_f3_90() {
 
 #[test]
 fn unknown_trait_method_returns_none() {
+    let arena = IrArena::new();
     let result = paideia_as_elaborator::stdlib_lowering::lower_stdlib_method(
         "UnknownTrait",
         "unknown_method",
         InstrMode::Mode64,
+        &[],
+        &arena,
     );
     assert!(result.is_none());
 }
 
 #[test]
 fn pauseops_with_wrong_method_returns_none() {
+    let arena = IrArena::new();
     let result = paideia_as_elaborator::stdlib_lowering::lower_stdlib_method(
         "PauseOps",
         "wrong_method",
         InstrMode::Mode64,
+        &[],
+        &arena,
     );
     assert!(result.is_none());
 }

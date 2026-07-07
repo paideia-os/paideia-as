@@ -40,20 +40,39 @@ impl EmitWalker {
         self.record_lambda_entry(lambda_node_id, main_id);
 
         // PA-r16-007-backtrack (#1036): stdlib trait method lowering.
+        // PA-r16-007-followup (#1056): extended to pass arg_ids and arena for recipes
+        // that need to extract integer-literal arguments (e.g., PerCpuOps).
         // If the target resolves to a known stdlib trait method, splice the
         // mnemonic sequence in place of the normal SysV call setup.
         if let Some((trait_name, method_name)) = resolve_stdlib_trait_method(&target_name) {
-            if let Some(recipe) = crate::stdlib_lowering::lower_stdlib_method(
+            if let Some(recipe_result) = crate::stdlib_lowering::lower_stdlib_method(
                 &trait_name,
                 &method_name,
                 self.current_mode(),
+                arg_ids,
+                arena,
             ) {
-                for (i, inst) in recipe.into_iter().enumerate() {
-                    let iid = IrNodeId::new(lambda_node_id.get() * 16 + (i as u32) + 1)
-                        .expect("stdlib recipe virtual id");
-                    self.emit_inst(iid, inst);
+                match recipe_result {
+                    Ok(recipe) => {
+                        for (i, inst) in recipe.into_iter().enumerate() {
+                            let iid = IrNodeId::new(lambda_node_id.get() * 16 + (i as u32) + 1)
+                                .expect("stdlib recipe virtual id");
+                            self.emit_inst(iid, inst);
+                        }
+                        return;
+                    }
+                    Err(crate::stdlib_lowering::StdlibLoweringError::NonLiteralArg {
+                        arg_index,
+                        method,
+                    }) => {
+                        // T0551: stdlib intrinsic requires integer-literal argument
+                        self.diagnostics.push(format!(
+                            "T0551: stdlib intrinsic requires integer-literal argument: {} arg {}",
+                            method, arg_index
+                        ));
+                        // Fall through to normal call emission
+                    }
                 }
-                return;
             }
         }
 

@@ -1037,6 +1037,15 @@ description = "Issue #981 (pa-r17-003): in v0.17, the & (address-of) operator is
 since = "0.17.0"
 deprecated = false
 
+[diagnostic.T0551]
+severity = "error"
+category = "type"
+title = "Stdlib intrinsic requires integer-literal argument"
+brief = "stdlib trait method arg must be compile-time integer"
+description = "Issue #1056 (pa-r16-007-followup): stdlib trait methods like PerCpuOps::percpu_inc require their arguments to be integer literals known at compile time. This allows the code generator to directly encode absolute displacements and immediate values into the instruction encoding. Pass an integer literal (e.g., 0x1000, 8192) instead of a variable or expression."
+since = "0.16.0"
+deprecated = false
+
 [diagnostic.E0019]
 severity = "error"
 category = "lexer"
