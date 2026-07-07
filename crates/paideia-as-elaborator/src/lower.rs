@@ -66,8 +66,11 @@
 //! statements and complex expressions that will be elaborated later.
 
 use paideia_as_ast::{AstArena, ExprData, NodeId, NodeKind};
+use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, DiagnosticSink, Severity, SourceMap};
 use paideia_as_ir::{IrArena, IrKind, IrNodeId};
 use std::collections::HashMap;
+
+use crate::unsafe_walker::extract_integer_from_span;
 
 /// Result of lowering: the IR arena + mapping table from AST to IR.
 ///
@@ -95,6 +98,12 @@ pub struct LoweringResult {
 /// The 1-to-1 correspondence and stable indexing mean that AST NodeId N
 /// always maps to IR IrNodeId N, preserving arena structure.
 ///
+/// # Arguments
+///
+/// * `ast` - The AST arena to lower
+/// * `source_map` - The source map for extracting literal values and locations
+/// * `sink` - Diagnostic sink for emitting errors and warnings (e.g., T0550)
+///
 /// # Panics
 ///
 /// This function does not panic on malformed input. Even unknown NodeKind
@@ -104,7 +113,11 @@ pub struct LoweringResult {
 ///
 /// A `LoweringResult` containing the IR arena and the AST-to-IR mapping.
 #[must_use]
-pub fn lower_ast_to_ir(ast: &AstArena) -> LoweringResult {
+pub fn lower_ast_to_ir(
+    ast: &AstArena,
+    source_map: &SourceMap,
+    sink: &mut dyn DiagnosticSink,
+) -> LoweringResult {
     let mut ir = IrArena::with_capacity(ast.len());
     let mut ast_to_ir = HashMap::with_capacity(ast.len());
 
@@ -413,6 +426,9 @@ pub fn lower_ast_to_ir(ast: &AstArena) -> LoweringResult {
         }
     }
 
+    // PA-r15-009c (#1055): Populate match dispatch metadata for @jump_table matches.
+    populate_match_dispatch_meta(&ast, &mut ir, &ast_to_ir, source_map, sink);
+
     LoweringResult { ir, ast_to_ir }
 }
 
@@ -595,29 +611,223 @@ fn expand_array_repeat(ast: &AstArena, expr: NodeId, count: NodeId) -> Vec<NodeI
     }
 }
 
+/// PA-r15-009c (#1055): Populate match dispatch metadata for @jump_table matches.
+///
+/// For each Match node in the IR with the `@jump_table` attribute on the
+/// corresponding AST node, compute and insert the dispatch metadata (min_arm,
+/// range, covered_arms, density_ok) into the arena's side-table.
+///
+/// If any arm's pattern is not an integer literal, emit T0550 diagnostic and
+/// set `density_ok = false`.
+fn populate_match_dispatch_meta(
+    ast: &AstArena,
+    ir: &mut IrArena,
+    ast_to_ir: &HashMap<NodeId, IrNodeId>,
+    source_map: &SourceMap,
+    sink: &mut dyn DiagnosticSink,
+) {
+    // Walk through all IR nodes looking for Match nodes.
+    for ast_node_id in 1..=ast.len() {
+        let ast_id = match NodeId::new(ast_node_id as u32) {
+            Some(nid) => nid,
+            None => continue,
+        };
+
+        // Get the AST node and check if it's an ExprMatch.
+        let ast_node = match ast.get(ast_id) {
+            Some(n) => n,
+            None => continue,
+        };
+
+        if ast_node.kind != NodeKind::ExprMatch {
+            continue;
+        }
+
+        // Get the ExprData::Match to access attrs and arms.
+        let (attrs, arms) = match ast.expr_data(ast_id) {
+            Some(ExprData::Match { attrs, arms, .. }) => (attrs, arms),
+            _ => continue,
+        };
+
+        // Only process if @jump_table attribute is present.
+        if !attrs.jump_table {
+            continue;
+        }
+
+        // Get the corresponding IR node ID.
+        let ir_match_id = match ast_to_ir.get(&ast_id) {
+            Some(id) => *id,
+            None => continue,
+        };
+
+        // Extract integer values from arm patterns.
+        let mut arm_values: Vec<i64> = Vec::new();
+        let mut has_non_integer_pattern = false;
+
+        for arm in arms {
+            // Try to extract integer value from the pattern.
+            if let Some(value) = try_extract_integer_pattern(ast, arm.pattern, source_map) {
+                arm_values.push(value);
+            } else {
+                // Check if it's a wildcard (which is OK, just not counted).
+                if !is_wildcard_pattern(ast, arm.pattern, source_map) {
+                    // Non-integer, non-wildcard pattern found.
+                    // Emit T0550 diagnostic.
+                    if let Some(pattern_node) = ast.get(arm.pattern) {
+                        if let Ok(code) = DiagnosticCode::new(Category::T, Severity::Error, 550) {
+                            let diag = Diagnostic::error(code)
+                                .message("non-integer pattern in @jump_table match")
+                                .with_span(pattern_node.span)
+                                .finish();
+                            let _ = sink.emit(diag);
+                        }
+                    }
+                    has_non_integer_pattern = true;
+                }
+                // Wildcard patterns are skipped but don't cause an error.
+            }
+        }
+
+        // Compute dispatch metadata.
+        let density_ok = if has_non_integer_pattern || arm_values.is_empty() {
+            false
+        } else {
+            let min_val = *arm_values.iter().min().unwrap_or(&0);
+            let max_val = *arm_values.iter().max().unwrap_or(&0);
+            let range = (max_val - min_val + 1) as u32;
+            let covered_arms = arm_values.len() as u32;
+            covered_arms.saturating_mul(2) >= range
+        };
+
+        // Extract min_arm and range.
+        let (min_arm, range) = if !arm_values.is_empty() {
+            let min_val = *arm_values.iter().min().unwrap();
+            let max_val = *arm_values.iter().max().unwrap();
+            let r = (max_val - min_val + 1) as u32;
+            (min_val, r)
+        } else {
+            (0, 1)
+        };
+
+        let covered_arms = arm_values.len() as u32;
+
+        // Insert into the dispatch metadata side-table.
+        ir.match_dispatch_meta_mut().insert(
+            ir_match_id,
+            paideia_as_ir::MatchDispatchMeta {
+                jump_table: true,
+                min_arm,
+                range,
+                covered_arms,
+                density_ok,
+            },
+        );
+    }
+}
+
+/// Try to extract an integer value from a pattern node.
+///
+/// Returns Some(value) if the pattern is an integer literal, None otherwise.
+/// Uses the SourceMap to extract and parse the actual integer value from source.
+fn try_extract_integer_pattern(
+    ast: &AstArena,
+    pattern_id: NodeId,
+    source_map: &SourceMap,
+) -> Option<i64> {
+    let pattern_node = ast.get(pattern_id)?;
+
+    // Check if it's a PatLiteral node (real pattern literal, not expression literal).
+    if pattern_node.kind != NodeKind::PatLiteral {
+        return None;
+    }
+
+    // Get the pattern data and verify it's a Literal pattern.
+    let pattern_data = ast.pattern_data(pattern_id)?;
+    if let paideia_as_ast::PatternData::Literal { lit } = pattern_data {
+        // Use extract_integer_from_span to get the actual value from source text.
+        extract_integer_from_span(ast, *lit, source_map)
+    } else {
+        None
+    }
+}
+
+/// Check if a pattern is a wildcard (`_`).
+///
+/// Returns true if:
+/// 1. The pattern is a NodeKind::PatWildcard with PatternData::Wildcard, OR
+/// 2. The pattern is a NodeKind::PatIdent with identifier text "_"
+fn is_wildcard_pattern(ast: &AstArena, pattern_id: NodeId, source_map: &SourceMap) -> bool {
+    let pattern_node = match ast.get(pattern_id) {
+        Some(n) => n,
+        None => return false,
+    };
+
+    // Check if it's a PatWildcard node (real wildcard pattern).
+    if pattern_node.kind == NodeKind::PatWildcard {
+        if let Some(paideia_as_ast::PatternData::Wildcard) = ast.pattern_data(pattern_id) {
+            return true;
+        }
+    }
+
+    // Check if it's a PatIdent with identifier text "_"
+    if pattern_node.kind == NodeKind::PatIdent {
+        if let Some(paideia_as_ast::PatternData::Ident { .. }) = ast.pattern_data(pattern_id) {
+            // Extract the identifier text from the pattern's span
+            let span = pattern_node.span;
+            let file_id = span.file();
+            let source = source_map.content(file_id);
+            let start = span.byte_start() as usize;
+            let end = start + span.byte_len() as usize;
+            if end <= source.len() {
+                let text = &source[start..end];
+                if text == "_" {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use paideia_as_ast::{ExprData, StmtData};
-    use paideia_as_diagnostics::FileId;
+    use paideia_as_diagnostics::{FileId, SourceMap, VecSink};
 
     fn span() -> paideia_as_diagnostics::Span {
         paideia_as_diagnostics::Span::new(FileId::new(1).unwrap(), 0, 1)
     }
 
+    /// Helper to create a test SourceMap and VecSink for lowering.
+    fn create_test_source_map_and_sink() -> (SourceMap, VecSink) {
+        let mut source_map = SourceMap::new();
+        let _file = source_map.add_file(
+            std::path::PathBuf::from("test.pdx"),
+            String::from("// test source"),
+        );
+        let sink = VecSink::new();
+        (source_map, sink)
+    }
+
     #[test]
     fn lower_empty_arena() {
+        let (source_map, mut sink) = create_test_source_map_and_sink();
+        let (source_map, mut sink) = create_test_source_map_and_sink();
         let ast = AstArena::new();
-        let result = lower_ast_to_ir(&ast);
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink);
         assert_eq!(result.ir.len(), 0);
         assert!(result.ast_to_ir.is_empty());
     }
 
     #[test]
     fn lower_single_placeholder() {
+        let (source_map, mut sink) = create_test_source_map_and_sink();
+        let (source_map, mut sink) = create_test_source_map_and_sink();
         let mut ast = AstArena::new();
         let _id = ast.alloc(NodeKind::Placeholder, span());
-        let result = lower_ast_to_ir(&ast);
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink);
         assert_eq!(result.ir.len(), 1);
         assert_eq!(result.ast_to_ir.len(), 1);
     }
@@ -625,6 +835,7 @@ mod tests {
     #[test]
     fn lower_let_plus() {
         // Build: let x = 1 + 2
+        let (source_map, mut sink) = create_test_source_map_and_sink();
         // This tests AC bullet 1: lowering a small AST manually.
         let mut ast = AstArena::new();
 
@@ -662,7 +873,7 @@ mod tests {
         );
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast);
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink);
 
         // Verify the IR contains a Let, Literal nodes, and App.
         assert_eq!(result.ir.len(), 6);
@@ -695,6 +906,7 @@ mod tests {
     #[test]
     fn lower_span_preservation() {
         // AC bullet 2: every AST node's span is preserved in its IR counterpart.
+        let (source_map, mut sink) = create_test_source_map_and_sink();
         let mut ast = AstArena::new();
 
         // Allocate a few nodes with the test span.
@@ -702,7 +914,7 @@ mod tests {
         let id2 = ast.alloc(NodeKind::ExprLiteral, span());
         let id3 = ast.alloc(NodeKind::StmtLet, span());
 
-        let result = lower_ast_to_ir(&ast);
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink);
 
         // Verify spans match.
         let ir1 = result.ast_to_ir[&id1];
@@ -717,6 +929,7 @@ mod tests {
     #[test]
     fn lower_does_not_panic_on_arena() {
         // AC bullet 4: lowering should not panic on a variety of node kinds.
+        let (source_map, mut sink) = create_test_source_map_and_sink();
         let mut ast = AstArena::new();
 
         // Allocate a mix of different node kinds.
@@ -732,33 +945,35 @@ mod tests {
         ast.alloc(NodeKind::ExprUnsafe, span());
 
         // This should not panic.
-        let result = lower_ast_to_ir(&ast);
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink);
         assert_eq!(result.ir.len(), 10);
     }
 
     #[test]
     fn lower_preserves_kind_count() {
         // Assert that the number of IR nodes equals the number of AST nodes.
+        let (source_map, mut sink) = create_test_source_map_and_sink();
         let mut ast = AstArena::new();
 
         for _ in 0..50 {
             ast.alloc(NodeKind::Placeholder, span());
         }
 
-        let result = lower_ast_to_ir(&ast);
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink);
         assert_eq!(result.ir.len(), ast.len());
     }
 
     #[test]
     fn ast_to_ir_mapping_is_complete() {
         // Assert that every NodeId in the AST has an entry in the mapping.
+        let (source_map, mut sink) = create_test_source_map_and_sink();
         let mut ast = AstArena::new();
 
         for _ in 0..20 {
             ast.alloc(NodeKind::Ident, span());
         }
 
-        let result = lower_ast_to_ir(&ast);
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink);
 
         for i in 0..ast.len() {
             let id = NodeId::new((i + 1) as u32).unwrap();
@@ -769,12 +984,13 @@ mod tests {
     #[test]
     fn lower_preserves_default_lin_class_and_effect_row() {
         // Verify that all IR nodes start with Unrestricted and empty effect row.
+        let (source_map, mut sink) = create_test_source_map_and_sink();
         let mut ast = AstArena::new();
         ast.alloc(NodeKind::Placeholder, span());
         ast.alloc(NodeKind::ExprLambda, span());
         ast.alloc(NodeKind::StmtLet, span());
 
-        let result = lower_ast_to_ir(&ast);
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink);
 
         for i in 0..result.ir.len() {
             let ir_id = IrNodeId::new((i + 1) as u32).unwrap();
@@ -792,13 +1008,14 @@ mod tests {
     #[test]
     fn lower_stable_indexing() {
         // Verify that AST NodeId N ↔ IR IrNodeId N (both index from 1).
+        let (source_map, mut sink) = create_test_source_map_and_sink();
         let mut ast = AstArena::new();
 
         let id1 = ast.alloc(NodeKind::Ident, span());
         let id2 = ast.alloc(NodeKind::ExprLambda, span());
         let id3 = ast.alloc(NodeKind::StmtLet, span());
 
-        let result = lower_ast_to_ir(&ast);
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink);
 
         // NodeId 1 should map to IrNodeId 1.
         assert_eq!(result.ast_to_ir[&id1].get(), 1);
@@ -811,6 +1028,7 @@ mod tests {
     #[test]
     fn lower_mapping_is_correct_bijection() {
         // For each AST node, the mapped IR node should have matching kind.
+        let (source_map, mut sink) = create_test_source_map_and_sink();
         let mut ast = AstArena::new();
 
         // Carefully construct test data with known mappings.
@@ -819,7 +1037,7 @@ mod tests {
         ast.alloc(NodeKind::ExprCall, span()); // Should map to App
         ast.alloc(NodeKind::Module, span()); // Should map to Module
 
-        let result = lower_ast_to_ir(&ast);
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink);
 
         let id1 = NodeId::new(1).unwrap();
         let id2 = NodeId::new(2).unwrap();
@@ -835,6 +1053,7 @@ mod tests {
     #[test]
     fn lower_stmt_instruction_to_raw_instruction() {
         // AC: lower `mov rax, 1` StmtInstruction; assert single IrKind::RawInstruction;
+        let (source_map, mut sink) = create_test_source_map_and_sink();
         // assert ast_to_ir[ir_node_id] == original_node_id.
         let mut ast = AstArena::new();
 
@@ -853,7 +1072,7 @@ mod tests {
         );
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast);
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink);
 
         // Verify we have 3 IR nodes: OperandRegister, ExprLiteral, StmtInstruction.
         assert_eq!(result.ir.len(), 3);
@@ -877,6 +1096,7 @@ mod tests {
     #[test]
     fn lower_array_assign_produces_store() {
         // Phase 7 m5-001: array-index assignment `a[i] = value`.
+        let (source_map, mut sink) = create_test_source_map_and_sink();
         // Build: a[i] = x
         // This tests that an assignment to an indexed expression lowers to IrKind::Store
         // instead of IrKind::App.
@@ -917,7 +1137,7 @@ mod tests {
         );
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast);
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink);
 
         // Verify the assignment lowered to Store instead of App.
         let assign_ir_id = result.ast_to_ir[&assign_expr_id];
@@ -948,6 +1168,7 @@ mod tests {
     #[test]
     fn lower_regular_assign_produces_app() {
         // Verify that regular assignment (not to an index) still lowers to App.
+        let (source_map, mut sink) = create_test_source_map_and_sink();
         // Build: x = 5
         let mut ast = AstArena::new();
 
@@ -972,7 +1193,7 @@ mod tests {
         );
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast);
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink);
 
         // Verify the assignment lowered to App (regular operator desugaring)
         let assign_ir_id = result.ast_to_ir[&assign_expr_id];
@@ -986,6 +1207,7 @@ mod tests {
     #[test]
     fn lower_deref_assign_produces_store() {
         // Phase 7 m5-002: pointer-deref assignment `*p = value`.
+        let (source_map, mut sink) = create_test_source_map_and_sink();
         // Build: *p = x
         let mut ast = AstArena::new();
 
@@ -1017,7 +1239,7 @@ mod tests {
         );
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast);
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink);
 
         // Verify the assignment lowered to Store
         let assign_ir_id = result.ast_to_ir[&assign_expr_id];
@@ -1044,6 +1266,7 @@ mod tests {
     #[test]
     fn lower_field_deref_assign_produces_store() {
         // Phase 7 m5-002: field-access-of-deref assignment `(*p).field = value`.
+        let (source_map, mut sink) = create_test_source_map_and_sink();
         // Build: (*p).field = x
         let mut ast = AstArena::new();
 
@@ -1088,7 +1311,7 @@ mod tests {
         );
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast);
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink);
 
         // Verify the assignment lowered to Store
         let assign_ir_id = result.ast_to_ir[&assign_expr_id];
@@ -1115,6 +1338,7 @@ mod tests {
     #[test]
     fn lower_array_literal_produces_array_lit() {
         // Phase 8 m2-002: array literal `[expr0, expr1, ...]` lowers to IrKind::ArrayLit
+        let (source_map, mut sink) = create_test_source_map_and_sink();
         // with element children.
         let mut ast = AstArena::new();
 
@@ -1131,7 +1355,7 @@ mod tests {
         );
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast);
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink);
 
         // Verify we have 4 IR nodes: 3 Literals + 1 ArrayLit.
         assert_eq!(result.ir.len(), 4);
@@ -1165,6 +1389,7 @@ mod tests {
     #[test]
     fn lower_empty_array_literal() {
         // Phase 8 m2-002: empty array literal `[]` lowers to ArrayLit with no children.
+        let (source_map, mut sink) = create_test_source_map_and_sink();
         let mut ast = AstArena::new();
 
         // Allocate ExprArrayLit: []
@@ -1172,7 +1397,7 @@ mod tests {
             ast.alloc_expr(NodeKind::ExprArrayLit, span(), ExprData::ArrayLit(vec![]));
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast);
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink);
 
         // Verify we have 1 IR node.
         assert_eq!(result.ir.len(), 1);
@@ -1188,6 +1413,7 @@ mod tests {
     #[test]
     fn lower_array_repeat_with_non_literal_count() {
         // Phase 9 m1-002: array repeat `[expr; count]` where count is not a literal
+        let (source_map, mut sink) = create_test_source_map_and_sink();
         // Currently expands to a single copy with a note that P0211 should be emitted.
         let mut ast = AstArena::new();
 
@@ -1208,7 +1434,7 @@ mod tests {
         );
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast);
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink);
 
         // Verify we have 3 IR nodes: elem, count, repeat.
         assert_eq!(result.ir.len(), 3);
@@ -1236,6 +1462,7 @@ mod tests {
     #[test]
     fn lower_array_repeat_nested_structs() {
         // Phase 9 m1-002: array repeat with struct-lit as element: `[Point { x: 1, y: 2 }; count]`
+        let (source_map, mut sink) = create_test_source_map_and_sink();
         // This tests that recursion handles RecordCons nested in ArrayRepeat.
         let mut ast = AstArena::new();
 
@@ -1270,7 +1497,7 @@ mod tests {
         );
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast);
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink);
 
         // Verify the ArrayRepeat node maps to IrKind::ArrayLit.
         let ir_repeat_id = result.ast_to_ir[&repeat_id];

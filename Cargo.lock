@@ -1975,6 +1975,8 @@ dependencies = [
  "paideia-as-effects",
  "paideia-as-encoder",
  "paideia-as-ir",
+ "paideia-as-lexer",
+ "paideia-as-parser",
  "paideia-as-types",
  "smallvec",
 ]

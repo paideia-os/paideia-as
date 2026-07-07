@@ -1124,7 +1124,7 @@ fn get_register_name(
 /// PA10-006f: Parses integer literals from their source text representation.
 /// Supports decimal, hexadecimal (0x), octal (0o), and binary (0b) formats.
 /// Returns the parsed u64 value, or None if parsing fails.
-fn extract_integer_from_span(
+pub(crate) fn extract_integer_from_span(
     ast: &AstArena,
     literal_node: NodeId,
     source_map: &paideia_as_diagnostics::SourceMap,

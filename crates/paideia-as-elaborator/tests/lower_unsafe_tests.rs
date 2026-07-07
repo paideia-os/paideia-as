@@ -4,7 +4,7 @@
 //! list and emits each statement as an IR child of the Unsafe node.
 
 use paideia_as_ast::{AstArena, ExprData, NodeKind, StmtData};
-use paideia_as_diagnostics::Span;
+use paideia_as_diagnostics::{SourceMap, Span, VecSink};
 use paideia_as_elaborator::lower::lower_ast_to_ir;
 use paideia_as_ir::{InstrMode, IrKind};
 
@@ -12,11 +12,22 @@ fn test_span() -> Span {
     Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 0, 1)
 }
 
+fn create_test_source_map_and_sink() -> (SourceMap, VecSink) {
+    let mut source_map = SourceMap::new();
+    let _file = source_map.add_file(
+        std::path::PathBuf::from("test.pdx"),
+        String::from("// test source"),
+    );
+    let sink = VecSink::new();
+    (source_map, sink)
+}
+
 /// Test that ExprData::Unsafe block body is lowered into IR children.
 #[test]
 fn unsafe_block_lowers_body_to_children() {
     let mut ast = AstArena::new();
     let span = test_span();
+    let (source_map, mut sink) = create_test_source_map_and_sink();
 
     // Create a simple mnemonic
     let mnemonic_id = ast.intern_mnemonic("cli");
@@ -47,7 +58,7 @@ fn unsafe_block_lowers_body_to_children() {
     );
 
     // Lower to IR
-    let result = lower_ast_to_ir(&ast);
+    let result = lower_ast_to_ir(&ast, &source_map, &mut sink);
 
     // Find the Unsafe IR node
     let unsafe_ir_id = result.ast_to_ir[&unsafe_expr];
@@ -77,6 +88,7 @@ fn unsafe_block_lowers_body_to_children() {
 fn unsafe_block_with_three_stmts_lowers_all() {
     let mut ast = AstArena::new();
     let span = test_span();
+    let (source_map, mut sink) = create_test_source_map_and_sink();
 
     // Create three instructions: cli, hlt, nop
     let cli_mnem = ast.intern_mnemonic("cli");
@@ -124,7 +136,7 @@ fn unsafe_block_with_three_stmts_lowers_all() {
     );
 
     // Lower to IR
-    let result = lower_ast_to_ir(&ast);
+    let result = lower_ast_to_ir(&ast, &source_map, &mut sink);
 
     // Find the Unsafe IR node
     let unsafe_ir_id = result.ast_to_ir[&unsafe_expr];
@@ -154,6 +166,7 @@ fn unsafe_block_with_three_stmts_lowers_all() {
 fn unsafe_block_with_mixed_stmts_lowers_all() {
     let mut ast = AstArena::new();
     let span = test_span();
+    let (source_map, mut sink) = create_test_source_map_and_sink();
 
     // Create: let x = 0; cli; nop
     let lit = ast.alloc(NodeKind::Placeholder, span);
@@ -205,7 +218,7 @@ fn unsafe_block_with_mixed_stmts_lowers_all() {
     );
 
     // Lower to IR
-    let result = lower_ast_to_ir(&ast);
+    let result = lower_ast_to_ir(&ast, &source_map, &mut sink);
 
     // Find the Unsafe IR node
     let unsafe_ir_id = result.ast_to_ir[&unsafe_expr];

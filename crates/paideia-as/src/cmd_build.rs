@@ -466,7 +466,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
     }
 
     // If there are any errors so far, do not emit anything downstream.
-    let mut lowering = lower_ast_to_ir(&arena);
+    let mut lowering = lower_ast_to_ir(&arena, &source_map, &mut sink);
 
     // Phase-5-m1-001: Extract literal values from AST and populate the IR's literal_values table.
     // This enables emit_walker to look up literal values during lambda lowering.

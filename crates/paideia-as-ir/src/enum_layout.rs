@@ -554,6 +554,103 @@ mod tests {
         assert!(!meta.is_default);
         assert!(meta.pattern_binding.is_some());
     }
+
+    // ── MatchDispatchMeta tests ────────────────────────────────────
+
+    #[test]
+    fn match_dispatch_meta_default_construction() {
+        let meta = MatchDispatchMeta {
+            jump_table: true,
+            min_arm: 0,
+            range: 5,
+            covered_arms: 5,
+            density_ok: true,
+        };
+        assert!(meta.jump_table);
+        assert_eq!(meta.min_arm, 0);
+        assert_eq!(meta.range, 5);
+        assert_eq!(meta.covered_arms, 5);
+        assert!(meta.density_ok);
+    }
+
+    #[test]
+    fn match_dispatch_meta_density_ok_true() {
+        // Dense case: 5 arms covering 5 values → 5*2=10 >= 5 ✓
+        let meta = MatchDispatchMeta {
+            jump_table: true,
+            min_arm: 0,
+            range: 5,
+            covered_arms: 5,
+            density_ok: true,
+        };
+        assert!(meta.density_ok);
+    }
+
+    #[test]
+    fn match_dispatch_meta_density_ok_false() {
+        // Sparse case: 4 arms covering 102 values → 4*2=8 < 102 ✗
+        let meta = MatchDispatchMeta {
+            jump_table: true,
+            min_arm: 0,
+            range: 102,
+            covered_arms: 4,
+            density_ok: false,
+        };
+        assert!(!meta.density_ok);
+    }
+
+    #[test]
+    fn match_dispatch_meta_copy_and_equality() {
+        let meta1 = MatchDispatchMeta {
+            jump_table: true,
+            min_arm: 10,
+            range: 20,
+            covered_arms: 10,
+            density_ok: true,
+        };
+        let meta2 = meta1; // Copy trait
+        assert_eq!(meta1, meta2);
+    }
+
+    // ── MatchDispatchMetaSideTable tests ───────────────────────────
+
+    #[test]
+    fn match_dispatch_meta_side_table_insert_get() {
+        let mut table = MatchDispatchMetaSideTable::new();
+        let node_id = IrNodeId::new(42).expect("valid node id");
+        let meta = MatchDispatchMeta {
+            jump_table: true,
+            min_arm: 0,
+            range: 5,
+            covered_arms: 5,
+            density_ok: true,
+        };
+        table.insert(node_id, meta);
+        assert_eq!(table.get(node_id), Some(&meta));
+    }
+
+    #[test]
+    fn match_dispatch_meta_side_table_empty() {
+        let table = MatchDispatchMetaSideTable::new();
+        let node_id = IrNodeId::new(99).expect("valid node id");
+        assert_eq!(table.get(node_id), None);
+    }
+
+    #[test]
+    fn match_dispatch_meta_side_table_len() {
+        let mut table = MatchDispatchMetaSideTable::new();
+        assert_eq!(table.len(), 0);
+        let node_id1 = IrNodeId::new(1).expect("valid node id");
+        let meta1 = MatchDispatchMeta {
+            jump_table: true,
+            min_arm: 0,
+            range: 5,
+            covered_arms: 5,
+            density_ok: true,
+        };
+        table.insert(node_id1, meta1);
+        assert_eq!(table.len(), 1);
+    }
 }
 
 /// Recursive pattern-binding tree for match arms.
@@ -620,6 +717,30 @@ impl Default for MatchArmMeta {
     }
 }
 
+/// Dispatch strategy metadata for match expressions with `@jump_table`.
+///
+/// PA-r15-009c (#1055): populated by the elaborator when it recognises
+/// the `@jump_table` attribute on a match. #1032's codegen consults
+/// `density_ok` to decide between the O(1) jump-table sequence and the
+/// cmp/jne cascade fallback.
+///
+/// Density formula: `covered_arms * 2 >= range` (>= 50% coverage over
+/// the min..max integer window).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MatchDispatchMeta {
+    /// `@jump_table` attribute present on the source match.
+    pub jump_table: bool,
+    /// Minimum integer-literal pattern value across non-default arms.
+    pub min_arm: i64,
+    /// `max_arm - min_arm + 1` — the index window size.
+    pub range: u32,
+    /// Count of non-default arms whose patterns are integer literals.
+    pub covered_arms: u32,
+    /// `covered_arms * 2 >= range`. If false, codegen falls back to
+    /// cmp/jne even when `jump_table` is true.
+    pub density_ok: bool,
+}
+
 crate::impl_named_side_table!(
     /// Side-table mapping match arm IrNodeIds to their metadata.
     ///
@@ -636,4 +757,13 @@ crate::impl_named_side_table!(
     /// Records which enum type a match expression scrutinizes, enabling
     /// layout lookup during code generation.
     pub struct MatchScrutineeTable, IrNodeId => EnumTypeId
+);
+
+crate::impl_named_side_table!(
+    /// Side-table mapping match IrNodeIds to their dispatch metadata.
+    ///
+    /// PA-r15-009c (#1055): populated during elaboration for match
+    /// expressions carrying the `@jump_table` attribute. #1032's codegen
+    /// consults this to decide between jump-table and cmp/jne dispatch.
+    pub struct MatchDispatchMetaSideTable, IrNodeId => MatchDispatchMeta
 );

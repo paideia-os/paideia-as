@@ -14,7 +14,7 @@ use crate::constant_pool::ConstantPoolTable;
 use crate::data::DataSideTable;
 use crate::enum_layout::{
     EnumConsSideTable, EnumDiscriminantSideTable, FinalisedEnumLayoutTable, MatchArmMetaSideTable,
-    MatchScrutineeTable,
+    MatchDispatchMetaSideTable, MatchScrutineeTable,
 };
 use crate::instruction::InstructionSideTable;
 use crate::lambda_param::LambdaParamTable;
@@ -83,6 +83,9 @@ pub struct IrArena {
     /// Side-table: match scrutinee type mapping indexed by Match node ID.
     /// PA-r17-008: maps Match nodes to their scrutinee's EnumTypeId for layout dispatch.
     match_scrutinee_table: MatchScrutineeTable,
+    /// Side-table: match dispatch strategy metadata indexed by Match node ID.
+    /// PA-r15-009c (#1055): populated during elaboration for matches with @jump_table attribute.
+    match_dispatch_meta_table: MatchDispatchMetaSideTable,
     /// Side-table: address-of metadata indexed by Borrow node ID.
     /// PA10-006u: populated by elaborator for `& sym` in static initializers.
     addr_of_table: AddrOfSideTable,
@@ -124,6 +127,7 @@ impl IrArena {
             enum_disc_info_table: EnumDiscriminantSideTable::new(),
             match_arm_meta_table: MatchArmMetaSideTable::new(),
             match_scrutinee_table: MatchScrutineeTable::new(),
+            match_dispatch_meta_table: MatchDispatchMetaSideTable::new(),
             addr_of_table: AddrOfSideTable::new(),
             public_lets: HashSet::new(),
             call_sites: CallSideTable::new(),
@@ -404,6 +408,18 @@ impl IrArena {
     /// Borrow the match scrutinee type table (mutable).
     pub fn match_scrutinee_table_mut(&mut self) -> &mut MatchScrutineeTable {
         &mut self.match_scrutinee_table
+    }
+
+    /// Borrow the match dispatch metadata side-table (read-only).
+    /// PA-r15-009c (#1055): provides MatchDispatchMeta for Match nodes with @jump_table.
+    #[must_use]
+    pub fn match_dispatch_meta(&self) -> &MatchDispatchMetaSideTable {
+        &self.match_dispatch_meta_table
+    }
+
+    /// Borrow the match dispatch metadata side-table (mutable).
+    pub fn match_dispatch_meta_mut(&mut self) -> &mut MatchDispatchMetaSideTable {
+        &mut self.match_dispatch_meta_table
     }
 
     /// Borrow the address-of side-table (read-only).

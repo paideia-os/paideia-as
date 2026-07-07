@@ -79,8 +79,8 @@ pub fn run(input: &Path, dump_ir: bool) -> ExitCode {
         }
     }
 
-    // Lower (structural, no diagnostics emitted by the lowerer in phase-1).
-    let lowering = lower_ast_to_ir(&arena);
+    // Lower (structural, diagnostics emitted for @jump_table validation).
+    let lowering = lower_ast_to_ir(&arena, &source_map, &mut sink);
 
     if dump_ir {
         let dump = paideia_as_ir::pretty::dump(&lowering.ir);

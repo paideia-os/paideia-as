@@ -46,7 +46,7 @@ fn mode_default_no_bits_attr() {
     // Since walk_inner initializes with Mode64, we can't directly check post-walk,
     // but the behavior is verified: if set_root_mode() wasn't called, Mode64 is used.
     assert!(
-        walker.state().mode_stack.is_empty() || walker.state().mode_stack.len() == 1,
+        walker.state().mode_stack_is_empty() || walker.state().mode_stack_len() == 1,
         "mode_stack should be empty or have 1 entry after walk"
     );
 }
@@ -69,7 +69,7 @@ fn mode_propagate_bits_32() {
 
     // Verify the mode_stack was set correctly.
     assert!(
-        walker.state().mode_stack.is_empty() || walker.state().mode_stack.len() == 1,
+        walker.state().mode_stack_is_empty() || walker.state().mode_stack_len() == 1,
         "mode_stack should be empty or have 1 entry after walk"
     );
 }
@@ -90,7 +90,7 @@ fn mode_explicit_bits_64() {
 
     // Verify the mode_stack was set correctly.
     assert!(
-        walker.state().mode_stack.is_empty() || walker.state().mode_stack.len() == 1,
+        walker.state().mode_stack_is_empty() || walker.state().mode_stack_len() == 1,
         "mode_stack should be empty or have 1 entry after walk"
     );
 }
@@ -113,7 +113,7 @@ fn mode_invalid_bits_fallback_mode64() {
     // Verify mode_stack was initialized (should not be empty after walk_inner init).
     // The walk_inner initializes with Mode64 if set_root_mode() wasn't called.
     assert!(
-        walker.state().mode_stack.is_empty() || walker.state().mode_stack.len() == 1,
+        walker.state().mode_stack_is_empty() || walker.state().mode_stack_len() == 1,
         "mode_stack should be properly maintained after walk"
     );
 }
