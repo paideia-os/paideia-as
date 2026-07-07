@@ -607,6 +607,36 @@ fn encode_mov_sized(
             });
             Ok(output)
         }
+        // PA-R16-007: mov reg, [disp32] with width from MovSized mnemonic
+        [Operand::Reg(dst), Operand::MemDisp { disp }] => {
+            let dst_reg = reg64_from(*dst)?;
+            mov_reg_mem_abs_disp32(buf, width, dst_reg, *disp);
+            Ok(EncodeOutput::new())
+        }
+        // PA-R16-007: mov [disp32], reg with width from MovSized mnemonic
+        [Operand::MemDisp { disp }, Operand::Reg(src)] => {
+            let src_reg = reg64_from(*src)?;
+            mov_mem_abs_disp32_reg(buf, width, *disp, src_reg);
+            Ok(EncodeOutput::new())
+        }
+        // PA-R16-007: mov [disp32], imm with width from MovSized mnemonic
+        [Operand::MemDisp { disp }, Operand::Imm64(imm)] => {
+            match width {
+                IntWidth::W8 | IntWidth::W16 | IntWidth::W32 => {
+                    mov_mem_abs_disp32_imm(buf, width, *disp, *imm);
+                }
+                IntWidth::W64 => {
+                    // For W64, the immediate must fit in i32 range (sign-extended)
+                    if *imm < i32::MIN as i64 || *imm > i32::MAX as i64 {
+                        return Err(EncodeError::Unsupported(
+                            "mov_q [disp32], imm64 requires imm ∈ i32 sign-ext range; use movabs r11, imm64 + mov [disp32], r11",
+                        ));
+                    }
+                    mov_mem_abs_disp32_imm(buf, width, *disp, *imm);
+                }
+            }
+            Ok(EncodeOutput::new())
+        }
         operands if operands.iter().any(|op| matches!(op, Operand::Var { .. })) => {
             unreachable!("Operand::Var reached encoder — resolve_var_operands pass was skipped")
         }
@@ -1895,6 +1925,45 @@ fn encode_mov(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
                 *disp,
                 reg64_from(*src)?,
             );
+            Ok(EncodeOutput::new())
+        }
+        // PA-R16-007: mov reg, [disp32] and related absolute-address forms
+        [Operand::Reg(dest), Operand::MemDisp { disp }] => {
+            // mov reg, [disp32] — delegate to absolute-form encoder
+            // Width is determined by the register size (default W64 for r64)
+            let dest_reg = reg64_from(*dest)?;
+            let width = if let Mnemonic::MovSized { width } = inst.mnemonic {
+                width
+            } else {
+                // Plain Mov defaults to W64
+                IntWidth::W64
+            };
+            mov_reg_mem_abs_disp32(buf, width, dest_reg, *disp);
+            Ok(EncodeOutput::new())
+        }
+        [Operand::MemDisp { disp }, Operand::Reg(src)] => {
+            // mov [disp32], reg — delegate to absolute-form encoder
+            // Width is determined by the register size (default W64 for r64)
+            let src_reg = reg64_from(*src)?;
+            let width = if let Mnemonic::MovSized { width } = inst.mnemonic {
+                width
+            } else {
+                // Plain Mov defaults to W64
+                IntWidth::W64
+            };
+            mov_mem_abs_disp32_reg(buf, width, *disp, src_reg);
+            Ok(EncodeOutput::new())
+        }
+        [Operand::MemDisp { disp }, Operand::Imm64(imm)] => {
+            // mov [disp32], imm — delegate to absolute-form encoder
+            // Width must come from MovSized mnemonic; if plain Mov, default W64
+            let width = if let Mnemonic::MovSized { width } = inst.mnemonic {
+                width
+            } else {
+                // Plain Mov with immediate defaults to W64
+                IntWidth::W64
+            };
+            mov_mem_abs_disp32_imm(buf, width, *disp, *imm);
             Ok(EncodeOutput::new())
         }
         [Operand::Reg(dest), Operand::SymbolRef { name, addend }] => {
@@ -4256,12 +4325,13 @@ mod tests {
     }
 
     #[test]
-    fn encode_unsupported_mov_shape_returns_error() {
+    fn encode_mov_reg_mem_disp_plain_mov_defaults_to_w64() {
+        // PA-R16-007: plain Mov with MemDisp now supported, defaults to W64
         let mut buf = CodeBuffer::new();
         let inst = Instruction {
             mnemonic: Mnemonic::Mov,
             operands: smallvec::smallvec![
-                Operand::Reg(RegId(0)),
+                Operand::Reg(RegId(0)), // rax
                 Operand::MemDisp { disp: 0x1000 },
             ],
             encoding_hint: None,
@@ -4271,11 +4341,13 @@ mod tests {
 
         let mut stats = EncodeStats::new();
         let result = encode_instruction(&inst, &mut buf, &mut stats);
-        assert!(result.is_err());
-        match result {
-            Err(EncodeError::Unsupported(_)) => {}
-            _ => panic!("expected Unsupported error"),
-        }
+        assert!(result.is_ok(), "mov rax, [0x1000] should now be supported");
+        // Verify it encodes as W64 (with REX.W)
+        assert_eq!(
+            buf.as_slice(),
+            &[0x48, 0x8B, 0x04, 0x25, 0x00, 0x10, 0x00, 0x00],
+            "plain Mov with MemDisp defaults to W64"
+        );
     }
 
     // ── Tightened instruction encoding tests ────────────────────

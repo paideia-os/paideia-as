@@ -246,18 +246,12 @@ fn mov_rax_fs_rax_disp0_round_trips_through_iced_x86_with_fs_segment() {
     assert_eq!(decoded.segment_prefix(), IcedReg::FS);
 }
 
-// ── Known limitation (documented, not a test) ──────────────────────────────
+// ── Known limitation (now closed) ──────────────────────────────────────────
 //
 // The disp32-only / "no base" SIB form — needed for `[gs:0]` and
-// `[gs:absolute_addr]` (ModR/M mod=00 rm=100, SIB base=101, disp32) — cannot
-// be covered here. `Operand::MemSib` requires a `base: RegId` (not
-// `Option<RegId>`), and the sibling `Operand::MemDisp { disp }` variant that
-// *would* represent a no-base displacement exists in paideia-as-ir but has
-// no encoder support for `mov`/`lea` at all (see
-// `encode_unsupported_mov_shape_returns_error` in
-// crates/paideia-as-encoder/src/encode_instruction.rs, which asserts that
-// encoding `mov reg, [MemDisp]` returns `EncodeError::Unsupported`). This is
-// a pre-existing gap in the encoder unrelated to segment prefixes — adding
-// disp-only support belongs to a follow-up ticket on `MemDisp`/SIB-no-base
-// encoding, not PA-R13-002. Once that lands, `[gs:0]`/`[gs:8]` disp-only
-// load and store forms should be added here.
+// `[gs:absolute_addr]` (ModR/M mod=00 rm=100, SIB base=101, disp32) — was a
+// pre-existing gap in the encoder. The gap has been closed via #1061, which
+// added encoder support for `mov_reg_mem_abs_disp32` and
+// `mov_mem_abs_disp32_reg` primitives. Once those are integrated into the
+// IR layer, `[gs:0]`/`[gs:8]` disp-only load and store forms should be added
+// here to complement the existing segment-prefix tests.
