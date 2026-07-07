@@ -1,0 +1,29 @@
+#![target_features = "cx16"]
+module PaR16004ImplicitClobberU1613 = structure {
+  let test_lock_cmpxchg_rax_clobber : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "test U1613 warning for implicit RAX clobber in lock_cmpxchg",
+    block: {
+      lock_cmpxchg [rax], rcx
+    }
+  }
+
+  let test_lock_cmpxchg_safe : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "test no U1613 warning when no register overlap",
+    block: {
+      lock_cmpxchg [rdi], rcx
+    }
+  }
+
+  let test_lock_cmpxchg16b_clobber : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "test U1613 warning for implicit RDX:RAX clobber in lock_cmpxchg16b",
+    block: {
+      lock_cmpxchg16b [rax]
+    }
+  }
+}

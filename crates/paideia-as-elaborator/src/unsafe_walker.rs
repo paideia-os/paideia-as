@@ -1942,6 +1942,51 @@ impl UnsafeWalker {
             }
         }
 
+        // PA-r16-004-backtrack-b (#1034): Check for implicit-clobber warnings.
+        // Detect when a LOCK-prefixed mnemonic's implicit writes overlap explicit operands.
+        let clobbered = mnemonic.implicit_writes();
+        if !clobbered.is_empty() {
+            // Walk explicit operands. For each Reg/MemSib base/MemSib index that
+            // matches a clobbered register, emit U1613 (a warning, not an error).
+            for op in &parsed_operands {
+                let touched: Vec<RegId> = match op {
+                    Operand::Reg(r) => vec![*r],
+                    Operand::MemSib { base, index, .. } => {
+                        let mut v = vec![*base];
+                        if let Some(idx) = index {
+                            v.push(*idx);
+                        }
+                        v
+                    }
+                    _ => vec![],
+                };
+                for r in touched {
+                    if clobbered.contains(&r) {
+                        let instr_span = ast.get(stmt_id).map(|n| n.span).unwrap_or_else(|| {
+                            paideia_as_diagnostics::Span::new(
+                                paideia_as_diagnostics::FileId::new(1).unwrap(),
+                                0,
+                                1,
+                            )
+                        });
+                        let diag = Diagnostic::warning(
+                            DiagnosticCode::new(Category::U, Severity::Warning, 1613)
+                                .expect("valid U1613 code"),
+                        )
+                        .message(format!(
+                            "instruction '{}' implicitly writes register {:?}, which appears in an explicit operand — value will be silently overwritten",
+                            mnemonic_str, r
+                        ))
+                        .with_span(instr_span)
+                        .finish();
+                        let _ = sink.emit(diag.clone());
+                        diags.push(diag);
+                        break; // one diagnostic per instruction is enough
+                    }
+                }
+            }
+        }
+
         // Create the Instruction and insert it into the arena.
         // Phase-5-m3-004: Allocate a fresh IrNodeId for this instruction statement.
         // Each unsafe block instruction gets its own IR node in the instruction side-table,

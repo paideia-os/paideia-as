@@ -902,6 +902,15 @@ description = "Phase 16 m4-002: An instruction mnemonic inside an unsafe block r
 since = "0.16.0"
 deprecated = false
 
+[diagnostic.U1613]
+severity = "warning"
+category = "unsafe"
+title = "Implicit register clobber overlaps explicit operand"
+brief = "a LOCK-prefixed mnemonic's implicit register write overlaps a register named in its explicit operand list"
+description = "Phase 16 m4-003: A LOCK-prefixed instruction (e.g., LOCK CMPXCHG) has implicit register reads/writes that conflict with registers named in the explicit operand list. For example, `lock cmpxchg [rax], rcx` reads and writes RAX implicitly, but RAX is also the memory operand's base register — the implicit write will silently overwrite RAX after the instruction executes. This is an aliasing hazard that can lead to correctness bugs. Refactor the instruction to avoid overlapping registers, or use a different addressing mode for the memory operand."
+since = "0.16.0"
+deprecated = false
+
 [diagnostic.T0521]
 severity = "error"
 category = "type"

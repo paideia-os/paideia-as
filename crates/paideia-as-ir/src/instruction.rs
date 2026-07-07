@@ -350,6 +350,8 @@ pub enum Mnemonic {
     /// Atomically adds register to memory and stores old value in register.
     /// Two operands (mem, src reg). Encoding: `F0 [REX.W] 0F C1 /r`.
     /// Effect: !{Atomic}. Per Intel SDM Vol 2B XADD; LOCK (Group 1) precedes REX per Vol 2A §2.1.1.
+    /// Note: src reg read+write in-place on the explicit operand list — no implicit-clobber slot.
+    /// implicit_reads() and implicit_writes() return empty slice for this mnemonic.
     LockXadd {
         /// Operand width selecting the encoded form (W32 or W64).
         width: IntWidth,
@@ -918,6 +920,38 @@ impl Mnemonic {
         }
     }
 
+    /// Registers this mnemonic implicitly reads (beyond the explicit
+    /// operand list). Static tables per mnemonic. Empty slice for
+    /// mnemonics that only read their explicit operands.
+    ///
+    /// PA-r16-004-backtrack-b (#1034): register-clobber and implicit-operand tracking for LOCK-prefixed mnemonics.
+    #[must_use]
+    pub fn implicit_reads(&self) -> &'static [RegId] {
+        use crate::abi::{RAX, RDX, RBX, RCX};
+        match self {
+            Self::LockCmpxchg => &[RAX],
+            Self::LockCmpxchg32 => &[RAX],
+            Self::LockCmpxchg16b => &[RAX, RDX, RBX, RCX],
+            _ => &[],
+        }
+    }
+
+    /// Registers this mnemonic implicitly writes (beyond the explicit
+    /// operand list). Static tables per mnemonic. Empty slice for
+    /// mnemonics that only write their explicit operands.
+    ///
+    /// PA-r16-004-backtrack-b (#1034): register-clobber and implicit-operand tracking for LOCK-prefixed mnemonics.
+    #[must_use]
+    pub fn implicit_writes(&self) -> &'static [RegId] {
+        use crate::abi::{RAX, RDX};
+        match self {
+            Self::LockCmpxchg => &[RAX],
+            Self::LockCmpxchg32 => &[RAX],
+            Self::LockCmpxchg16b => &[RAX, RDX],
+            _ => &[],
+        }
+    }
+
     /// Return a conservative upper bound on the encoded size in bytes for this mnemonic.
     ///
     /// Phase 7 m2-001 (PA7C-m2-001): This is used to estimate per-instruction byte offsets
@@ -1404,6 +1438,84 @@ mod tests {
         let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
         ops.push(Operand::Imm64(0));
         assert_eq!(Mnemonic::Jmp.estimated_size(&ops), 5);
+    }
+
+    // ── Implicit reads/writes tests (PA-r16-004-backtrack-b, #1034) ──────
+
+    #[test]
+    fn implicit_reads_lock_cmpxchg_returns_rax() {
+        use crate::abi;
+        let reads = Mnemonic::LockCmpxchg.implicit_reads();
+        assert_eq!(reads.len(), 1);
+        assert_eq!(reads[0], abi::RAX);
+    }
+
+    #[test]
+    fn implicit_writes_lock_cmpxchg_returns_rax() {
+        use crate::abi;
+        let writes = Mnemonic::LockCmpxchg.implicit_writes();
+        assert_eq!(writes.len(), 1);
+        assert_eq!(writes[0], abi::RAX);
+    }
+
+    #[test]
+    fn implicit_reads_lock_cmpxchg32_returns_rax() {
+        use crate::abi;
+        let reads = Mnemonic::LockCmpxchg32.implicit_reads();
+        assert_eq!(reads.len(), 1);
+        assert_eq!(reads[0], abi::RAX);
+    }
+
+    #[test]
+    fn implicit_writes_lock_cmpxchg32_returns_rax() {
+        use crate::abi;
+        let writes = Mnemonic::LockCmpxchg32.implicit_writes();
+        assert_eq!(writes.len(), 1);
+        assert_eq!(writes[0], abi::RAX);
+    }
+
+    #[test]
+    fn implicit_reads_lock_cmpxchg16b_returns_rax_rdx_rbx_rcx() {
+        use crate::abi;
+        let reads = Mnemonic::LockCmpxchg16b.implicit_reads();
+        assert_eq!(reads.len(), 4);
+        assert_eq!(reads[0], abi::RAX);
+        assert_eq!(reads[1], abi::RDX);
+        assert_eq!(reads[2], abi::RBX);
+        assert_eq!(reads[3], abi::RCX);
+    }
+
+    #[test]
+    fn implicit_writes_lock_cmpxchg16b_returns_rax_rdx() {
+        use crate::abi;
+        let writes = Mnemonic::LockCmpxchg16b.implicit_writes();
+        assert_eq!(writes.len(), 2);
+        assert_eq!(writes[0], abi::RAX);
+        assert_eq!(writes[1], abi::RDX);
+    }
+
+    #[test]
+    fn implicit_reads_lock_add_is_empty() {
+        let reads = Mnemonic::LockAdd { width: IntWidth::W64 }.implicit_reads();
+        assert!(reads.is_empty());
+    }
+
+    #[test]
+    fn implicit_writes_lock_add_is_empty() {
+        let writes = Mnemonic::LockAdd { width: IntWidth::W64 }.implicit_writes();
+        assert!(writes.is_empty());
+    }
+
+    #[test]
+    fn implicit_reads_lock_xadd_is_empty() {
+        let reads = Mnemonic::LockXadd { width: IntWidth::W64 }.implicit_reads();
+        assert!(reads.is_empty());
+    }
+
+    #[test]
+    fn implicit_writes_lock_xadd_is_empty() {
+        let writes = Mnemonic::LockXadd { width: IntWidth::W64 }.implicit_writes();
+        assert!(writes.is_empty());
     }
 
     // ── IntWidth / MovSized tests (Phase 7 m4-003) ──────────────────────
