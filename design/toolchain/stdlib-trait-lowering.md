@@ -66,33 +66,64 @@ if let Some((trait_name, method_name)) = resolve_stdlib_trait_method(&target_nam
 - **Format**: literal source text, e.g., `"PauseOps::spin_hint"` when source has `PauseOps::spin_hint()`.
 - **Assumption**: qualified names use `::` separator (confirmed by test fixtures using `perform Io::...` syntax).
 
-## Currently Supported: PauseOps::spin_hint()
+## Currently Supported
+
+### PauseOps::spin_hint()
 
 - **Trait**: `PauseOps` (hardware pause hint for spin-waits).
 - **Method**: `spin_hint() -> ()` (no args, no return value).
 - **Mnemonic**: `pause` (x86_64 opcode `F3 90`).
 - **Instruction mode**: Propagates from context (`InstrMode::Mode64` or `Mode32`).
 
+### PerCpuOps::percpu_inc() and percpu_add() (PA-r16-007-followup, #1056)
+
+- **Trait**: `PerCpuOps` (per-CPU counter operations with GS-prefix).
+- **Methods**:
+  - `percpu_inc(counter_gs_offset: u64) -> ()` — increment counter in GS-addressable memory.
+  - `percpu_add(counter_gs_offset: u64, val: u64) -> ()` — add immediate to counter in GS-addressable memory.
+- **Mnemonics**:
+  - `percpu_inc`: `lock inc qword [gs:offset]` (LockInc with MemSeg/Gs wrapping).
+  - `percpu_add`: `lock add qword [gs:offset], imm` (LockAdd with MemSeg/Gs wrapping).
+- **Operand handling**: Requires literal-extraction at compile time; `addr_val` must fit in `i32` range.
+
+### MmioOps::mmio_read_u32() and mmio_write_u32() (PA-r16-007-followup, #1057)
+
+- **Trait**: `MmioOps` (memory-mapped I/O operations).
+- **Methods**:
+  - `mmio_read_u32(addr: u64) -> u32` — read 32-bit value from absolute MMIO address.
+  - `mmio_write_u32(addr: u64, val: u32) -> ()` — write 32-bit value to absolute MMIO address.
+- **Mnemonics**:
+  - `mmio_read_u32`: `mov eax, dword [addr]` (MovSized W32, flat memory, no segment override).
+  - `mmio_write_u32`: `mov dword [addr], imm` (MovSized W32, flat memory, no segment override).
+- **Operand handling**: Requires literal-extraction at compile time; both `addr` must fit in `i32` range.
+- **TSO/Ordering**: Bare MOV is TSO-strong on WB memory; MMIO regions may require explicit fences (deferred analysis — see note below).
+
 ## Explicitly Deferred
 
-Follow-up issues will add the remaining four stdlib traits:
+### MmioOps Variants (u8, u16, u64)
 
-### 1. PerCpuOps (future issue)
-- **Methods**: `percpu_read`, `percpu_write`, `percpu_inc`, `percpu_dec`.
-- **Blocker**: requires `disp32` operand plumbing (address-of-cpu-local register + offset).
-- **Mnemonics**: `gs:` prefix + `mov`/`add`/`sub` recipes.
+- **Methods**: `mmio_read_u8`, `mmio_write_u8`, `mmio_read_u16`, `mmio_write_u16`, `mmio_read_u64`, `mmio_write_u64`.
+- **Reason**: u32 variants (complete) cover immediate uses; u8/u16/u64 require additional width-specific recipe work.
+- **Future**: each size variant needs its own mnemonic and encoding recipe (e.g., `mov al, byte [addr]` for u8).
 
-### 2. MmioOps (future issue)
-- **Methods**: `mmio_read_u32`, `mmio_write_u32`, `mmio_read_u8`, `mmio_write_u8`.
-- **Blocker**: requires ordering-fence semantics analysis.
-- **Mnemonics**: `mov`, `mfence`, `lfence`, `sfence` recipes depending on constraints.
+### MmioOps Ordering Fences
 
-### 3. BytesOps (future issue)
+- **Question**: TSO vs. MMIO device ordering. Bare MOV is TSO-strong on Write-Back (WB) memory, but memory-mapped device regions may require explicit fences.
+- **Status**: Deferred pending softarch re-review of device-ordering requirements.
+- **Path forward**: Wrap MMIO methods in optional fence prologue/epilogue (mfence/lfence/sfence) when the device region is marked non-WB.
+
+### 1. PerCpuOps Extended Methods (future issue)
+
+- **Methods**: `percpu_read`, `percpu_write`, `percpu_dec`.
+- **Rationale**: `percpu_inc` and `percpu_add` cover typical counter uses; `read`/`write`/`dec` deferred to Phase 18 m3+.
+- **Mnemonics**: `gs:` prefix + `mov`/`sub` recipes.
+
+### 2. BytesOps (future issue)
 - **Methods**: `memcpy`, internal `rep movsb`, `rep stosb`.
 - **Blocker**: requires operand-source resolution (loading `rcx`, `rdi`, `rsi` from arguments).
 - **Mnemonics**: `mov` (args→registers) + `rep movsb`/`rep stosb`.
 
-### 4. ChecksumOps (future issue)
+### 3. ChecksumOps (future issue)
 - **Methods**: `crc32b`, `crc32d`.
 - **Blocker**: requires operand-width plumbing (immediate vs. register encodings).
 - **Mnemonics**: `crc32` with width-specific encodings.
@@ -132,20 +163,26 @@ To add a new stdlib trait method:
 
 ## Baselines
 
-- **paideia-as-ir**: 411 lines (Mnemonic::Pause variant exists).
+- **paideia-as-ir**: Mnemonic::{Pause, MovSized, LockInc, LockAdd} variants.
 - **paideia-as-elaborator**:
-  - stdlib_lowering module: new, ~50 lines.
-  - emit_call.rs: +15 lines (resolver + early return).
-  - lib.rs: +1 line (module declaration).
-  - Pre-existing: 747 lines; 7 integration suites clean.
+  - stdlib_lowering module: ~280 lines (PauseOps + PerCpuOps + MmioOps recipes).
+    - Unit tests: 11 tests (1 Pause, 3 PerCpuOps, 4 MmioOps, 3 negative/edge cases).
+  - emit_call.rs: resolver + early return (unchanged from #1056).
+  - lib.rs: module declaration (unchanged).
+- **Integration tests**:
+  - `stdlib_percpu_lowering.rs`: 9 test suites (PerCpuOps coverage).
+  - `stdlib_mmio_lowering.rs`: 7 tests (MmioOps u32 read/write coverage).
+  - Total: 10+ integration suites, all passing.
 - **Release canaries**: clean.
 
 ## Related Issues
 
 - **#973**: PauseOps trait definition (paideia-stdlib).
-- **#1036**: This issue (elaborator lowering).
+- **#1036**: PerCpuOps lowering (elaborator) — percpu_inc, percpu_add recipes.
+- **#1056**: percpu_inc/percpu_add roundtrip integration tests.
+- **#1057**: MmioOps lowering (elaborator) — mmio_read_u32, mmio_write_u32 recipes.
 - **#975–977**: RefcountOps, FreelistOps, BitmapOps (Phase 16 M1, deferred).
-- **Future**: PerCpuOps, MmioOps, BytesOps, ChecksumOps (v0.17+).
+- **Future**: PerCpuOps extended (read/write/dec), MmioOps variants (u8/u16/u64), BytesOps, ChecksumOps (v0.17+).
 
 ## References
 

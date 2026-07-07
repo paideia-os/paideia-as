@@ -13,7 +13,7 @@
 //! Scope: PauseOps::spin_hint(), PerCpuOps::percpu_inc/percpu_add in v0.16.
 //! Follow-up issues track MmioOps, BytesOps, ChecksumOps retrofits.
 
-use paideia_as_ir::{SmallVec, IrArena, IrNodeId, instruction::{InstrMode, Instruction, Mnemonic, Operand, SegPrefix}};
+use paideia_as_ir::{SmallVec, IrArena, IrNodeId, instruction::{InstrMode, Instruction, Mnemonic, Operand, SegPrefix, IntWidth}, abi};
 
 /// Error returned by lower_stdlib_method when recipe matching succeeds
 /// but argument extraction fails.
@@ -152,6 +152,102 @@ pub fn lower_stdlib_method(
             Some(Ok(vec![Instruction {
                 mnemonic: Mnemonic::LockAdd {
                     width: paideia_as_ir::instruction::IntWidth::W64,
+                },
+                operands,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode,
+            }]))
+        }
+        ("MmioOps", "mmio_read_u32") => {
+            // mmio_read_u32(addr: u64) → mov eax, dword [addr]
+            if arg_ids.len() != 1 {
+                return Some(Err(StdlibLoweringError::NonLiteralArg {
+                    arg_index: 0,
+                    method: "MmioOps::mmio_read_u32",
+                }));
+            }
+
+            let addr_val = match arena.literal_values().get(arg_ids[0]) {
+                Some(val) => val,
+                None => {
+                    return Some(Err(StdlibLoweringError::NonLiteralArg {
+                        arg_index: 0,
+                        method: "MmioOps::mmio_read_u32",
+                    }));
+                }
+            };
+
+            // Validate that addr fits in i32
+            if addr_val < i32::MIN as i64 || addr_val > i32::MAX as i64 {
+                return Some(Err(StdlibLoweringError::NonLiteralArg {
+                    arg_index: 0,
+                    method: "MmioOps::mmio_read_u32",
+                }));
+            }
+
+            let mut operands = SmallVec::new();
+            operands.push(Operand::Reg(abi::RAX));
+            operands.push(Operand::MemDisp {
+                disp: addr_val as i32,
+            });
+
+            Some(Ok(vec![Instruction {
+                mnemonic: Mnemonic::MovSized {
+                    width: IntWidth::W32,
+                },
+                operands,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode,
+            }]))
+        }
+        ("MmioOps", "mmio_write_u32") => {
+            // mmio_write_u32(addr: u64, val: u32) → mov dword [addr], imm
+            if arg_ids.len() != 2 {
+                return Some(Err(StdlibLoweringError::NonLiteralArg {
+                    arg_index: 0,
+                    method: "MmioOps::mmio_write_u32",
+                }));
+            }
+
+            let addr_val = match arena.literal_values().get(arg_ids[0]) {
+                Some(val) => val,
+                None => {
+                    return Some(Err(StdlibLoweringError::NonLiteralArg {
+                        arg_index: 0,
+                        method: "MmioOps::mmio_write_u32",
+                    }));
+                }
+            };
+
+            let val_val = match arena.literal_values().get(arg_ids[1]) {
+                Some(val) => val,
+                None => {
+                    return Some(Err(StdlibLoweringError::NonLiteralArg {
+                        arg_index: 1,
+                        method: "MmioOps::mmio_write_u32",
+                    }));
+                }
+            };
+
+            // Validate that addr fits in i32
+            if addr_val < i32::MIN as i64 || addr_val > i32::MAX as i64 {
+                return Some(Err(StdlibLoweringError::NonLiteralArg {
+                    arg_index: 0,
+                    method: "MmioOps::mmio_write_u32",
+                }));
+            }
+
+            let mut operands = SmallVec::new();
+            operands.push(Operand::MemDisp {
+                disp: addr_val as i32,
+            });
+            operands.push(Operand::Imm64(val_val));
+
+            Some(Ok(vec![Instruction {
+                mnemonic: Mnemonic::MovSized {
+                    width: IntWidth::W32,
                 },
                 operands,
                 encoding_hint: None,
@@ -327,6 +423,140 @@ mod tests {
                 assert_eq!(method, "PerCpuOps::percpu_add");
             }
             Ok(_) => panic!("expected error for non-literal arg"),
+        }
+    }
+
+    #[test]
+    fn mmio_ops_mmio_read_u32_lowers_to_mov_eax_mem_disp32() {
+        let mut arena = IrArena::new();
+        let addr_id = IrNodeId::new(1).expect("valid node id");
+        arena.literal_values_mut().insert(addr_id, 0x1000);
+
+        let result = lower_stdlib_method(
+            "MmioOps",
+            "mmio_read_u32",
+            InstrMode::Mode64,
+            &[addr_id],
+            &arena,
+        )
+        .expect("recipe should exist")
+        .expect("lowering should succeed");
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(
+            result[0].mnemonic,
+            Mnemonic::MovSized {
+                width: IntWidth::W32
+            }
+        );
+        assert_eq!(result[0].operands.len(), 2);
+
+        // Verify first operand is Reg(RAX)
+        match &result[0].operands[0] {
+            Operand::Reg(reg) => {
+                assert_eq!(*reg, abi::RAX);
+            }
+            _ => panic!("expected Reg(RAX) operand"),
+        }
+
+        // Verify second operand is MemDisp { 0x1000 }
+        match &result[0].operands[1] {
+            Operand::MemDisp { disp } => {
+                assert_eq!(*disp, 0x1000);
+            }
+            _ => panic!("expected MemDisp operand"),
+        }
+    }
+
+    #[test]
+    fn mmio_ops_mmio_write_u32_lowers_to_mov_mem_disp32_imm32() {
+        let mut arena = IrArena::new();
+        let addr_id = IrNodeId::new(1).expect("valid node id");
+        let val_id = IrNodeId::new(2).expect("valid node id");
+        arena.literal_values_mut().insert(addr_id, 0x1000);
+        arena.literal_values_mut().insert(val_id, 0x12345678);
+
+        let result = lower_stdlib_method(
+            "MmioOps",
+            "mmio_write_u32",
+            InstrMode::Mode64,
+            &[addr_id, val_id],
+            &arena,
+        )
+        .expect("recipe should exist")
+        .expect("lowering should succeed");
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(
+            result[0].mnemonic,
+            Mnemonic::MovSized {
+                width: IntWidth::W32
+            }
+        );
+        assert_eq!(result[0].operands.len(), 2);
+
+        // Verify first operand is MemDisp { 0x1000 }
+        match &result[0].operands[0] {
+            Operand::MemDisp { disp } => {
+                assert_eq!(*disp, 0x1000);
+            }
+            _ => panic!("expected MemDisp operand"),
+        }
+
+        // Verify second operand is Imm64(0x12345678)
+        match &result[0].operands[1] {
+            Operand::Imm64(val) => {
+                assert_eq!(*val, 0x12345678);
+            }
+            _ => panic!("expected Imm64 operand"),
+        }
+    }
+
+    #[test]
+    fn mmio_ops_mmio_read_u32_non_literal_addr_returns_err() {
+        let arena = IrArena::new();
+        let missing_id = IrNodeId::new(999).expect("valid node id");
+
+        let result = lower_stdlib_method(
+            "MmioOps",
+            "mmio_read_u32",
+            InstrMode::Mode64,
+            &[missing_id],
+            &arena,
+        )
+        .expect("recipe should exist");
+
+        match result {
+            Err(StdlibLoweringError::NonLiteralArg { arg_index, method }) => {
+                assert_eq!(arg_index, 0);
+                assert_eq!(method, "MmioOps::mmio_read_u32");
+            }
+            Ok(_) => panic!("expected error for non-literal arg"),
+        }
+    }
+
+    #[test]
+    fn mmio_ops_mmio_write_u32_non_literal_val_returns_err() {
+        let mut arena = IrArena::new();
+        let addr_id = IrNodeId::new(1).expect("valid node id");
+        let missing_val_id = IrNodeId::new(999).expect("valid node id");
+        arena.literal_values_mut().insert(addr_id, 0x1000);
+
+        let result = lower_stdlib_method(
+            "MmioOps",
+            "mmio_write_u32",
+            InstrMode::Mode64,
+            &[addr_id, missing_val_id],
+            &arena,
+        )
+        .expect("recipe should exist");
+
+        match result {
+            Err(StdlibLoweringError::NonLiteralArg { arg_index, method }) => {
+                assert_eq!(arg_index, 1);
+                assert_eq!(method, "MmioOps::mmio_write_u32");
+            }
+            Ok(_) => panic!("expected error for non-literal val"),
         }
     }
 }
