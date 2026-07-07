@@ -10,8 +10,13 @@
 //! integer-literal arguments at compile time (required for absolute-displacement
 //! encoding).
 //!
-//! Scope: PauseOps::spin_hint(), PerCpuOps::percpu_inc/percpu_add in v0.16.
-//! Follow-up issues track MmioOps, BytesOps, ChecksumOps retrofits.
+//! PA-r16-007-registry-runtime-args (#1062): ArgConvention enum distinguishes
+//! Literal recipes (args baked into operands at compile time) from SysVRegs
+//! recipes (args pre-marshalled into RDI/RSI/RDX/RCX/R8/R9).
+//!
+//! Scope: PauseOps::spin_hint(), PerCpuOps::percpu_inc/percpu_add,
+//! MmioOps::mmio_read_u32/mmio_write_u32 in v0.16.
+//! Follow-up issues track BytesOps, ChecksumOps retrofits.
 
 use paideia_as_ir::{SmallVec, IrArena, IrNodeId, instruction::{InstrMode, Instruction, Mnemonic, Operand, SegPrefix, IntWidth}, abi};
 
@@ -28,17 +33,48 @@ pub enum StdlibLoweringError {
     },
 }
 
+/// Argument-passing convention for a lowering recipe.
+///
+/// PA-r16-007 (#1062): distinguishes recipes that bake args into their
+/// operands at compile time (Literal) from those that expect args
+/// pre-marshalled into SysV argument registers (SysVRegs).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ArgConvention {
+    /// Recipe uses arg values as literals baked into instruction operands.
+    /// emit_call skips SysV arg-marshalling entirely.
+    Literal,
+    /// Recipe references SysV argument registers (RDI, RSI, RDX, RCX, R8, R9)
+    /// which emit_call must populate via normal SysV arg-marshalling BEFORE
+    /// splicing the recipe.
+    SysVRegs,
+}
+
+/// A lowering recipe: the instructions to splice + how args reach them.
+#[derive(Debug, Clone)]
+pub struct LoweringRecipe {
+    /// Instructions to splice in place of the function call.
+    pub instructions: Vec<Instruction>,
+    /// Argument-passing convention: whether args are baked into operands (Literal)
+    /// or pre-marshalled into SysV registers (SysVRegs).
+    pub arg_convention: ArgConvention,
+}
+
 /// Look up the lowering recipe for `(trait_name, method_name)`.
 /// Returns:
 /// - `None` if the pair is not a known stdlib trait method, signalling
 ///   emit_call should fall through to normal call emission.
 /// - `Some(Ok(recipe))` if the method matched and args were successfully
-///   extracted as integer literals. Recipe is spliced in place of the call.
+///   extracted (for Literal recipes) or matched (for SysVRegs recipes).
+///   Recipe is spliced in place of the call, with arg_convention determining
+///   whether arg-marshalling occurs before splicing.
 /// - `Some(Err(NonLiteralArg))` if the method matched but at least one arg
-///   is not an integer literal. Caller should emit diagnostic and skip lowering.
+///   is not an integer literal (only for Literal-convention recipes).
+///   Caller should emit diagnostic and skip lowering.
 ///
-/// The returned Vec<Instruction> (on Ok) is spliced in place of the call —
-/// no arg-marshalling, no `call target`, no `ret`.
+/// The returned LoweringRecipe (on Ok) indicates both the instructions to splice
+/// and whether they expect pre-marshalled SysV registers (SysVRegs) or have args
+/// baked into operands (Literal). No `call target` is ever emitted; `ret` behavior
+/// depends on the caller's function structure.
 #[must_use]
 pub fn lower_stdlib_method(
     trait_name: &str,
@@ -46,17 +82,20 @@ pub fn lower_stdlib_method(
     mode: InstrMode,
     arg_ids: &[IrNodeId],
     arena: &IrArena,
-) -> Option<Result<Vec<Instruction>, StdlibLoweringError>> {
+) -> Option<Result<LoweringRecipe, StdlibLoweringError>> {
     match (trait_name, method_name) {
         ("PauseOps", "spin_hint") => {
             // PauseOps::spin_hint takes no arguments, always succeeds.
-            Some(Ok(vec![Instruction {
-                mnemonic: Mnemonic::Pause,
-                operands: SmallVec::new(),
-                encoding_hint: None,
-                byte_offset_in_text: None,
-                mode,
-            }]))
+            Some(Ok(LoweringRecipe {
+                instructions: vec![Instruction {
+                    mnemonic: Mnemonic::Pause,
+                    operands: SmallVec::new(),
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode,
+                }],
+                arg_convention: ArgConvention::Literal,
+            }))
         }
         ("PerCpuOps", "percpu_inc") => {
             // percpu_inc(counter_gs_offset: u64) → lock inc qword [gs:offset]
@@ -93,15 +132,18 @@ pub fn lower_stdlib_method(
                 }),
             });
 
-            Some(Ok(vec![Instruction {
-                mnemonic: Mnemonic::LockInc {
-                    width: paideia_as_ir::instruction::IntWidth::W64,
-                },
-                operands,
-                encoding_hint: None,
-                byte_offset_in_text: None,
-                mode,
-            }]))
+            Some(Ok(LoweringRecipe {
+                instructions: vec![Instruction {
+                    mnemonic: Mnemonic::LockInc {
+                        width: paideia_as_ir::instruction::IntWidth::W64,
+                    },
+                    operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode,
+                }],
+                arg_convention: ArgConvention::Literal,
+            }))
         }
         ("PerCpuOps", "percpu_add") => {
             // percpu_add(counter_gs_offset: u64, val: u64) → lock add qword [gs:offset], imm
@@ -149,15 +191,18 @@ pub fn lower_stdlib_method(
             });
             operands.push(Operand::Imm64(imm_val));
 
-            Some(Ok(vec![Instruction {
-                mnemonic: Mnemonic::LockAdd {
-                    width: paideia_as_ir::instruction::IntWidth::W64,
-                },
-                operands,
-                encoding_hint: None,
-                byte_offset_in_text: None,
-                mode,
-            }]))
+            Some(Ok(LoweringRecipe {
+                instructions: vec![Instruction {
+                    mnemonic: Mnemonic::LockAdd {
+                        width: paideia_as_ir::instruction::IntWidth::W64,
+                    },
+                    operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode,
+                }],
+                arg_convention: ArgConvention::Literal,
+            }))
         }
         ("MmioOps", "mmio_read_u32") => {
             // mmio_read_u32(addr: u64) → mov eax, dword [addr]
@@ -192,15 +237,18 @@ pub fn lower_stdlib_method(
                 disp: addr_val as i32,
             });
 
-            Some(Ok(vec![Instruction {
-                mnemonic: Mnemonic::MovSized {
-                    width: IntWidth::W32,
-                },
-                operands,
-                encoding_hint: None,
-                byte_offset_in_text: None,
-                mode,
-            }]))
+            Some(Ok(LoweringRecipe {
+                instructions: vec![Instruction {
+                    mnemonic: Mnemonic::MovSized {
+                        width: IntWidth::W32,
+                    },
+                    operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode,
+                }],
+                arg_convention: ArgConvention::Literal,
+            }))
         }
         ("MmioOps", "mmio_write_u32") => {
             // mmio_write_u32(addr: u64, val: u32) → mov dword [addr], imm
@@ -245,15 +293,18 @@ pub fn lower_stdlib_method(
             });
             operands.push(Operand::Imm64(val_val));
 
-            Some(Ok(vec![Instruction {
-                mnemonic: Mnemonic::MovSized {
-                    width: IntWidth::W32,
-                },
-                operands,
-                encoding_hint: None,
-                byte_offset_in_text: None,
-                mode,
-            }]))
+            Some(Ok(LoweringRecipe {
+                instructions: vec![Instruction {
+                    mnemonic: Mnemonic::MovSized {
+                        width: IntWidth::W32,
+                    },
+                    operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode,
+                }],
+                arg_convention: ArgConvention::Literal,
+            }))
         }
         _ => None,
     }
@@ -267,12 +318,13 @@ mod tests {
     #[test]
     fn pause_ops_spin_hint_returns_pause_mnemonic() {
         let arena = IrArena::new();
-        let insts = lower_stdlib_method("PauseOps", "spin_hint", InstrMode::Mode64, &[], &arena)
+        let recipe = lower_stdlib_method("PauseOps", "spin_hint", InstrMode::Mode64, &[], &arena)
             .expect("pause recipe should exist")
             .expect("pause lowering should succeed");
-        assert_eq!(insts.len(), 1);
-        assert_eq!(insts[0].mnemonic, Mnemonic::Pause);
-        assert!(insts[0].operands.is_empty());
+        assert_eq!(recipe.instructions.len(), 1);
+        assert_eq!(recipe.instructions[0].mnemonic, Mnemonic::Pause);
+        assert!(recipe.instructions[0].operands.is_empty());
+        assert_eq!(recipe.arg_convention, ArgConvention::Literal);
     }
 
     #[test]
@@ -293,7 +345,7 @@ mod tests {
         let lit_id = IrNodeId::new(1).expect("valid node id");
         arena.literal_values_mut().insert(lit_id, 0x1000);
 
-        let result = lower_stdlib_method(
+        let recipe = lower_stdlib_method(
             "PerCpuOps",
             "percpu_inc",
             InstrMode::Mode64,
@@ -303,17 +355,18 @@ mod tests {
         .expect("recipe should exist")
         .expect("lowering should succeed");
 
-        assert_eq!(result.len(), 1);
+        assert_eq!(recipe.instructions.len(), 1);
         assert_eq!(
-            result[0].mnemonic,
+            recipe.instructions[0].mnemonic,
             Mnemonic::LockInc {
                 width: paideia_as_ir::instruction::IntWidth::W64
             }
         );
-        assert_eq!(result[0].operands.len(), 1);
+        assert_eq!(recipe.instructions[0].operands.len(), 1);
+        assert_eq!(recipe.arg_convention, ArgConvention::Literal);
 
         // Verify the operand is MemSeg { Gs, MemDisp { 0x1000 } }
-        match &result[0].operands[0] {
+        match &recipe.instructions[0].operands[0] {
             Operand::MemSeg { seg, inner } => {
                 assert_eq!(*seg, SegPrefix::Gs);
                 match inner.as_ref() {
@@ -335,7 +388,7 @@ mod tests {
         arena.literal_values_mut().insert(disp_id, 0x2000);
         arena.literal_values_mut().insert(val_id, 5);
 
-        let result = lower_stdlib_method(
+        let recipe = lower_stdlib_method(
             "PerCpuOps",
             "percpu_add",
             InstrMode::Mode64,
@@ -345,17 +398,18 @@ mod tests {
         .expect("recipe should exist")
         .expect("lowering should succeed");
 
-        assert_eq!(result.len(), 1);
+        assert_eq!(recipe.instructions.len(), 1);
         assert_eq!(
-            result[0].mnemonic,
+            recipe.instructions[0].mnemonic,
             Mnemonic::LockAdd {
                 width: paideia_as_ir::instruction::IntWidth::W64
             }
         );
-        assert_eq!(result[0].operands.len(), 2);
+        assert_eq!(recipe.instructions[0].operands.len(), 2);
+        assert_eq!(recipe.arg_convention, ArgConvention::Literal);
 
         // Verify the first operand is MemSeg { Gs, MemDisp { 0x2000 } }
-        match &result[0].operands[0] {
+        match &recipe.instructions[0].operands[0] {
             Operand::MemSeg { seg, inner } => {
                 assert_eq!(*seg, SegPrefix::Gs);
                 match inner.as_ref() {
@@ -369,7 +423,7 @@ mod tests {
         }
 
         // Verify the second operand is Imm64(5)
-        match &result[0].operands[1] {
+        match &recipe.instructions[0].operands[1] {
             Operand::Imm64(val) => {
                 assert_eq!(*val, 5);
             }
@@ -432,7 +486,7 @@ mod tests {
         let addr_id = IrNodeId::new(1).expect("valid node id");
         arena.literal_values_mut().insert(addr_id, 0x1000);
 
-        let result = lower_stdlib_method(
+        let recipe = lower_stdlib_method(
             "MmioOps",
             "mmio_read_u32",
             InstrMode::Mode64,
@@ -442,17 +496,18 @@ mod tests {
         .expect("recipe should exist")
         .expect("lowering should succeed");
 
-        assert_eq!(result.len(), 1);
+        assert_eq!(recipe.instructions.len(), 1);
         assert_eq!(
-            result[0].mnemonic,
+            recipe.instructions[0].mnemonic,
             Mnemonic::MovSized {
                 width: IntWidth::W32
             }
         );
-        assert_eq!(result[0].operands.len(), 2);
+        assert_eq!(recipe.instructions[0].operands.len(), 2);
+        assert_eq!(recipe.arg_convention, ArgConvention::Literal);
 
         // Verify first operand is Reg(RAX)
-        match &result[0].operands[0] {
+        match &recipe.instructions[0].operands[0] {
             Operand::Reg(reg) => {
                 assert_eq!(*reg, abi::RAX);
             }
@@ -460,7 +515,7 @@ mod tests {
         }
 
         // Verify second operand is MemDisp { 0x1000 }
-        match &result[0].operands[1] {
+        match &recipe.instructions[0].operands[1] {
             Operand::MemDisp { disp } => {
                 assert_eq!(*disp, 0x1000);
             }
@@ -476,7 +531,7 @@ mod tests {
         arena.literal_values_mut().insert(addr_id, 0x1000);
         arena.literal_values_mut().insert(val_id, 0x12345678);
 
-        let result = lower_stdlib_method(
+        let recipe = lower_stdlib_method(
             "MmioOps",
             "mmio_write_u32",
             InstrMode::Mode64,
@@ -486,17 +541,18 @@ mod tests {
         .expect("recipe should exist")
         .expect("lowering should succeed");
 
-        assert_eq!(result.len(), 1);
+        assert_eq!(recipe.instructions.len(), 1);
         assert_eq!(
-            result[0].mnemonic,
+            recipe.instructions[0].mnemonic,
             Mnemonic::MovSized {
                 width: IntWidth::W32
             }
         );
-        assert_eq!(result[0].operands.len(), 2);
+        assert_eq!(recipe.instructions[0].operands.len(), 2);
+        assert_eq!(recipe.arg_convention, ArgConvention::Literal);
 
         // Verify first operand is MemDisp { 0x1000 }
-        match &result[0].operands[0] {
+        match &recipe.instructions[0].operands[0] {
             Operand::MemDisp { disp } => {
                 assert_eq!(*disp, 0x1000);
             }
@@ -504,7 +560,7 @@ mod tests {
         }
 
         // Verify second operand is Imm64(0x12345678)
-        match &result[0].operands[1] {
+        match &recipe.instructions[0].operands[1] {
             Operand::Imm64(val) => {
                 assert_eq!(*val, 0x12345678);
             }
@@ -557,6 +613,46 @@ mod tests {
                 assert_eq!(method, "MmioOps::mmio_write_u32");
             }
             Ok(_) => panic!("expected error for non-literal val"),
+        }
+    }
+
+    #[test]
+    fn test_sysvregs_recipe_with_literal_synthesis() {
+        // PA-r16-007 (#1062): synthetic SysVRegs recipe for testing.
+        // This test verifies that a recipe can declare SysVRegs arg convention
+        // and include instructions that reference SysV argument registers.
+
+        // Manually construct a SysVRegs recipe (simulating what a future
+        // SysVRegs-convention recipe would produce).
+        let mut operands = SmallVec::new();
+        operands.push(Operand::Reg(abi::RAX));
+        operands.push(Operand::Reg(abi::RDI));  // Read SysV arg 0
+
+        let recipe = LoweringRecipe {
+            instructions: vec![Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: InstrMode::Mode64,
+            }],
+            arg_convention: ArgConvention::SysVRegs,
+        };
+
+        // Verify structure
+        assert_eq!(recipe.instructions.len(), 1);
+        assert_eq!(recipe.instructions[0].mnemonic, Mnemonic::Mov);
+        assert_eq!(recipe.instructions[0].operands.len(), 2);
+        assert_eq!(recipe.arg_convention, ArgConvention::SysVRegs);
+
+        // Verify operands: RAX (dest), RDI (SysV arg0)
+        match &recipe.instructions[0].operands[0] {
+            Operand::Reg(reg) => assert_eq!(*reg, abi::RAX),
+            _ => panic!("expected Reg(RAX)"),
+        }
+        match &recipe.instructions[0].operands[1] {
+            Operand::Reg(reg) => assert_eq!(*reg, abi::RDI),
+            _ => panic!("expected Reg(RDI)"),
         }
     }
 }

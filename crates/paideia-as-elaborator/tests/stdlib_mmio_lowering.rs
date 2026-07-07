@@ -27,16 +27,16 @@ fn mmio_read_u32_lowers_to_mov_eax_mem_disp32() {
         "MmioOps::mmio_read_u32 should have a lowering recipe"
     );
 
-    let insts = result
+    let recipe = result
         .unwrap()
         .expect("mmio_read_u32 lowering should succeed");
     assert_eq!(
-        insts.len(),
+        recipe.instructions.len(),
         1,
         "mmio_read_u32 should lower to exactly one instruction"
     );
 
-    let inst = &insts[0];
+    let inst = &recipe.instructions[0];
     assert_eq!(
         inst.mnemonic,
         Mnemonic::MovSized {
@@ -92,16 +92,16 @@ fn mmio_write_u32_lowers_to_mov_mem_disp32_imm32() {
         "MmioOps::mmio_write_u32 should have a lowering recipe"
     );
 
-    let insts = result
+    let recipe = result
         .unwrap()
         .expect("mmio_write_u32 lowering should succeed");
     assert_eq!(
-        insts.len(),
+        recipe.instructions.len(),
         1,
         "mmio_write_u32 should lower to exactly one instruction"
     );
 
-    let inst = &insts[0];
+    let inst = &recipe.instructions[0];
     assert_eq!(
         inst.mnemonic,
         Mnemonic::MovSized {
@@ -151,12 +151,12 @@ fn mmio_read_u32_with_large_addr() {
         &arena,
     );
 
-    let insts = result
+    let recipe = result
         .unwrap()
         .expect("mmio_read_u32 should succeed with large addr");
-    assert_eq!(insts.len(), 1);
+    assert_eq!(recipe.instructions.len(), 1);
 
-    match &insts[0].operands[1] {
+    match &recipe.instructions[0].operands[1] {
         Operand::MemDisp { disp } => {
             assert_eq!(*disp, 0x7FFFFFFF, "max i32 displacement should work");
         }
@@ -232,14 +232,14 @@ fn mmio_read_u32_encodes_to_correct_bytes() {
         &arena,
     );
 
-    let insts = result
+    let recipe = result
         .unwrap()
         .expect("mmio_read_u32 lowering should succeed");
-    assert_eq!(insts.len(), 1);
+    assert_eq!(recipe.instructions.len(), 1);
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::default();
-    let _output = encode_instruction(&insts[0], &mut buf, &mut stats)
+    let _output = encode_instruction(&recipe.instructions[0], &mut buf, &mut stats)
         .expect("encoding should succeed");
 
     // Expected bytes for: mov eax, dword [0x1000]
@@ -269,14 +269,14 @@ fn mmio_write_u32_encodes_to_correct_bytes() {
         &arena,
     );
 
-    let insts = result
+    let recipe = result
         .unwrap()
         .expect("mmio_write_u32 lowering should succeed");
-    assert_eq!(insts.len(), 1);
+    assert_eq!(recipe.instructions.len(), 1);
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::default();
-    let _output = encode_instruction(&insts[0], &mut buf, &mut stats)
+    let _output = encode_instruction(&recipe.instructions[0], &mut buf, &mut stats)
         .expect("encoding should succeed");
 
     // Expected bytes for: mov dword [0x1000], 0x12345678

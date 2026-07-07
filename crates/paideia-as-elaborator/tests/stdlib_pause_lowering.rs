@@ -24,9 +24,9 @@ fn stdlib_pauseops_spin_hint_lowers_to_pause_mnemonic() {
     );
 
     let result = result.unwrap().expect("spin_hint lowering should succeed");
-    assert_eq!(result.len(), 1, "spin_hint should lower to exactly one instruction");
+    assert_eq!(result.instructions.len(), 1, "spin_hint should lower to exactly one instruction");
 
-    let inst = &result[0];
+    let inst = &result.instructions[0];
     assert_eq!(
         inst.mnemonic, Mnemonic::Pause,
         "spin_hint should lower to Pause mnemonic"

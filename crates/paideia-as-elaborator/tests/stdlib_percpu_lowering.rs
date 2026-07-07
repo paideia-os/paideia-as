@@ -26,16 +26,16 @@ fn percpu_inc_lowers_to_gs_lock_inc() {
         "PerCpuOps::percpu_inc should have a lowering recipe"
     );
 
-    let insts = result
+    let recipe = result
         .unwrap()
         .expect("percpu_inc lowering should succeed");
     assert_eq!(
-        insts.len(),
+        recipe.instructions.len(),
         1,
         "percpu_inc should lower to exactly one instruction"
     );
 
-    let inst = &insts[0];
+    let inst = &recipe.instructions[0];
     assert_eq!(
         inst.mnemonic,
         Mnemonic::LockInc {
@@ -89,16 +89,16 @@ fn percpu_add_lowers_to_gs_lock_add() {
         "PerCpuOps::percpu_add should have a lowering recipe"
     );
 
-    let insts = result
+    let recipe = result
         .unwrap()
         .expect("percpu_add lowering should succeed");
     assert_eq!(
-        insts.len(),
+        recipe.instructions.len(),
         1,
         "percpu_add should lower to exactly one instruction"
     );
 
-    let inst = &insts[0];
+    let inst = &recipe.instructions[0];
     assert_eq!(
         inst.mnemonic,
         Mnemonic::LockAdd {
@@ -156,12 +156,12 @@ fn percpu_add_with_large_offset() {
         &arena,
     );
 
-    let insts = result
+    let recipe = result
         .unwrap()
         .expect("percpu_add should succeed with large offset");
-    assert_eq!(insts.len(), 1);
+    assert_eq!(recipe.instructions.len(), 1);
 
-    match &insts[0].operands[0] {
+    match &recipe.instructions[0].operands[0] {
         Operand::MemSeg { seg: _, inner } => match inner.as_ref() {
             Operand::MemDisp { disp } => {
                 assert_eq!(*disp, 0x7FFFFFFF, "max i32 displacement should work");
@@ -299,12 +299,12 @@ fn percpu_add_with_negative_offset() {
         &arena,
     );
 
-    let insts = result
+    let recipe = result
         .unwrap()
         .expect("percpu_add should succeed with negative offset");
-    assert_eq!(insts.len(), 1);
+    assert_eq!(recipe.instructions.len(), 1);
 
-    match &insts[0].operands[0] {
+    match &recipe.instructions[0].operands[0] {
         Operand::MemSeg { seg: _, inner } => match inner.as_ref() {
             Operand::MemDisp { disp } => {
                 assert_eq!(*disp, -256, "negative displacement should work");
@@ -332,12 +332,12 @@ fn percpu_add_with_negative_immediate() {
         &arena,
     );
 
-    let insts = result
+    let recipe = result
         .unwrap()
         .expect("percpu_add should succeed with negative immediate");
-    assert_eq!(insts.len(), 1);
+    assert_eq!(recipe.instructions.len(), 1);
 
-    match &insts[0].operands[1] {
+    match &recipe.instructions[0].operands[1] {
         Operand::Imm64(val) => {
             assert_eq!(*val, -1, "negative immediate should work");
         }

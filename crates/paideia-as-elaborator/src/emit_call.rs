@@ -9,6 +9,7 @@ use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand};
 use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi};
 
 use crate::emit_walker::EmitWalker;
+use crate::stdlib_lowering::ArgConvention;
 
 /// Resolve a target name to (trait_name, method_name) if it's a qualified stdlib trait method.
 /// Returns None if the target is not in the form "TraitName::method_name".
@@ -39,11 +40,10 @@ impl EmitWalker {
         let main_id = IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
         self.record_lambda_entry(lambda_node_id, main_id);
 
-        // PA-r16-007-backtrack (#1036): stdlib trait method lowering.
-        // PA-r16-007-followup (#1056): extended to pass arg_ids and arena for recipes
-        // that need to extract integer-literal arguments (e.g., PerCpuOps).
-        // If the target resolves to a known stdlib trait method, splice the
-        // mnemonic sequence in place of the normal SysV call setup.
+        // PA-r16-007-registry-runtime-args (#1062): stdlib trait method lowering with
+        // arg-convention awareness. Literal recipes skip arg-marshalling entirely;
+        // SysVRegs recipes fall through to arg-marshalling then splice.
+        let mut sysv_recipe: Option<Vec<Instruction>> = None;
         if let Some((trait_name, method_name)) = resolve_stdlib_trait_method(&target_name) {
             if let Some(recipe_result) = crate::stdlib_lowering::lower_stdlib_method(
                 &trait_name,
@@ -53,14 +53,23 @@ impl EmitWalker {
                 arena,
             ) {
                 match recipe_result {
-                    Ok(recipe) => {
-                        for (i, inst) in recipe.into_iter().enumerate() {
-                            let iid = IrNodeId::new(lambda_node_id.get() * 16 + (i as u32) + 1)
-                                .expect("stdlib recipe virtual id");
-                            self.emit_inst(iid, inst);
+                    Ok(recipe) => match recipe.arg_convention {
+                        ArgConvention::Literal => {
+                            // Literal path: splice instructions and return immediately,
+                            // skipping arg-marshalling and Call+Ret.
+                            for (i, inst) in recipe.instructions.into_iter().enumerate() {
+                                let iid = IrNodeId::new(lambda_node_id.get() * 16 + (i as u32) + 1)
+                                    .expect("stdlib recipe virtual id");
+                                self.emit_inst(iid, inst);
+                            }
+                            return;
                         }
-                        return;
-                    }
+                        ArgConvention::SysVRegs => {
+                            // SysVRegs path: stash recipe, fall through to arg-marshalling,
+                            // then splice and return.
+                            sysv_recipe = Some(recipe.instructions);
+                        }
+                    },
                     Err(crate::stdlib_lowering::StdlibLoweringError::NonLiteralArg {
                         arg_index,
                         method,
@@ -137,6 +146,17 @@ impl EmitWalker {
                     ));
                 }
             }
+        }
+
+        // If we have a stashed SysVRegs recipe, splice it now and return
+        // (skipping Call+Ret emission).
+        if let Some(recipe_instrs) = sysv_recipe {
+            for (i, inst) in recipe_instrs.into_iter().enumerate() {
+                let iid = IrNodeId::new(lambda_node_id.get() * 16 + 100 + (i as u32) + 1)
+                    .expect("stdlib SysVRegs recipe virtual id");
+                self.emit_inst(iid, inst);
+            }
+            return;  // Skip Call+Ret block
         }
 
         // Emit CALL instruction with the recorded main_id
