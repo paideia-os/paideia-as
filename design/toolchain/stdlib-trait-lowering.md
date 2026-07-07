@@ -126,6 +126,27 @@ if let Some((trait_name, method_name)) = resolve_stdlib_trait_method(&target_nam
     - `put_u16_be`: `Rol{W16} [RDX, 8]` + `Add RDI, RSI` + `MovSized{W16} [RDI+0], RDX`.
   - Encoding: Rol{W16} emits 0x66 operand-size prefix + REX.B (if needed) + opcode C1/D1 + ModRM.
 
+### ChecksumOps::ipv4_checksum() (PA-r16-007, #1067)
+
+- **Trait**: `ChecksumOps` (network checksum algorithms).
+- **Method**: `ipv4_checksum(hdr: &[u8], len: usize) -> u16` — compute RFC 1071 one's-complement fold checksum.
+- **Arg Convention**: `ArgConvention::SysVRegs` — args pre-marshalled into registers.
+  - arg0 (hdr pointer) → RDI
+  - arg1 (length bytes) → RSI
+  - Result in low-16 bits of RAX.
+- **Recipe**: 21-instruction RFC 1071 fold implementation with three local labels:
+  - **`loop_start` (inst 5)**: Main loop processes words (16-bit units).
+    - Load 16-bit word: `movzx rdx, word [rdi]` (zero-extend to 64-bit).
+    - Accumulate: `add rax, rdx` + `adc rax, 0` (carry propagation).
+    - Advance pointer: `add rdi, 2`, decrement counter: `dec rcx`, loop back on `jnz loop_start`.
+  - **`odd_check` (inst 11)**: Test if length is odd (remaining byte).
+    - If odd: load and accumulate single byte: `movzx rdx, byte [rdi]` + `add rax, rdx` + `adc rax, 0`.
+  - **`fold` (inst 16)**: Fold carry bits back into sum.
+    - Extract high 16 bits: `mov rdx, rax; shr rdx, 16; add rax, rdx; adc rax, 0`.
+    - One's-complement: `not rax` (result in low-16 bits of RAX).
+- **Labels**: Demonstrates label/Jcc extension from #1066 and Adc-imm from #1069.
+- **Encoding hints**: Movzx instructions include operand-size hints (0x0F opcode with width 2 for word, 1 for byte).
+
 ## Explicitly Deferred
 
 ### MmioOps Variants (u8, u16, u64)
@@ -152,7 +173,8 @@ if let Some((trait_name, method_name)) = resolve_stdlib_trait_method(&target_nam
 - **Blocker**: requires operand-source resolution (loading `rcx`, `rdi`, `rsi` from arguments).
 - **Mnemonics**: `mov` (args→registers) + `rep movsb`/`rep stosb`.
 
-### 3. ChecksumOps (future issue)
+### 3. ChecksumOps Extended Methods (future issue)
+
 - **Methods**: `crc32b`, `crc32d`.
 - **Blocker**: requires operand-width plumbing (immediate vs. register encodings).
 - **Mnemonics**: `crc32` with width-specific encodings.
@@ -192,17 +214,18 @@ To add a new stdlib trait method:
 
 ## Baselines
 
-- **paideia-as-ir**: Mnemonic::{Pause, MovSized, LockInc, LockAdd, Add, Bswap, Bswap32} variants.
+- **paideia-as-ir**: Mnemonic::{Pause, MovSized, LockInc, LockAdd, Add, Bswap, Bswap32, Xor, Shr, Test, Jcc, Movzx, Adc, Dec, Mov, Not} variants.
 - **paideia-as-elaborator**:
-  - stdlib_lowering module: ~500 lines (PauseOps + PerCpuOps + MmioOps + BytesOps recipes).
-    - Unit tests: 23 tests (1 Pause, 3 PerCpuOps, 4 MmioOps, 12 BytesOps, 3 negative/edge cases).
+  - stdlib_lowering module: ~650 lines (PauseOps + PerCpuOps + MmioOps + BytesOps + ChecksumOps recipes).
+    - Unit tests: 24 tests (1 Pause, 3 PerCpuOps, 4 MmioOps, 12 BytesOps, 1 ChecksumOps, 3 negative/edge cases).
   - emit_call.rs: resolver + early return (unchanged from #1056, extended to support ArgConvention::SysVRegs).
   - lib.rs: module declaration (unchanged).
 - **Integration tests**:
   - `stdlib_percpu_lowering.rs`: 9 test suites (PerCpuOps coverage).
   - `stdlib_mmio_lowering.rs`: 7 tests (MmioOps u32 read/write coverage).
   - `stdlib_bytes_lowering.rs`: 4 tests (BytesOps get/put coverage, SysVRegs path verification).
-  - Total: 12 integration suites, all passing.
+  - `stdlib_checksum_lowering.rs`: 6 tests (ChecksumOps::ipv4_checksum recipe shape, instruction sequence, labels, encoding hints, convention, negative cases).
+  - Total: 14 integration suites, all passing.
 - **Release canaries**: clean.
 
 ## Related Issues
@@ -214,8 +237,11 @@ To add a new stdlib trait method:
 - **#1062**: ArgConvention enum + SysVRegs convention for pre-marshalled args.
 - **#1063**: BytesOps typed accessor lowering — 12 get/put recipes + SysVRegs integration.
 - **#1065**: Rol{W16} primitive addition + BytesOps::get_u16_be, put_u16_be recipes (completed).
+- **#1066**: Recipe labels and Jcc local-label references — label mangling framework (completed).
+- **#1067**: ChecksumOps::ipv4_checksum recipe — RFC 1071 fold with label-based loops (completed).
+- **#1069**: Adc with immediate (width-aware) — carry propagation for checksum fold.
 - **#975–977**: RefcountOps, FreelistOps, BitmapOps (Phase 16 M1, deferred).
-- **Future**: PerCpuOps extended (read/write/dec), MmioOps variants (u8/u16/u64), BytesOps extended (memcpy), ChecksumOps (v0.17+).
+- **Future**: PerCpuOps extended (read/write/dec), MmioOps variants (u8/u16/u64), BytesOps extended (memcpy), ChecksumOps extended (crc32b/crc32d).
 
 ## References
 
