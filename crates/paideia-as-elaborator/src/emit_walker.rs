@@ -377,8 +377,26 @@ impl EmitWalker {
         crate::data_encoder::populate_data_table(arena, data_table)
     }
 
+    /// PA-r15-009b (#1032): Populate rodata jump tables for @jump_table matches.
+    ///
+    /// Called after populate_data_table to synthesize rodata entries for dense
+    /// match dispatch. Each rodata entry contains W64 relocations to arm body
+    /// and default labels, indexed by (arm_value - min_arm).
+    ///
+    /// # Arguments
+    /// * `arena` - The IR arena containing all nodes with jump table metadata
+    /// * `data_table` - The mutable data side-table to populate with rodata entries
+    pub fn populate_jump_tables(arena: &IrArena, data_table: &mut DataSideTable) {
+        crate::data_encoder::populate_jump_tables(arena, data_table)
+    }
 
-
+    /// PA-r15-009b (#1032): Populate rodata jump tables from a mutable arena.
+    ///
+    /// Helper function that avoids borrow checker issues by taking a mutable
+    /// reference to the arena and delegating to the internal implementation.
+    pub fn populate_jump_tables_from_arena(arena: &mut IrArena) {
+        crate::data_encoder::populate_jump_tables_from_mutable_arena(arena)
+    }
 
 
 

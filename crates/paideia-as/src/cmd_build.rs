@@ -1463,6 +1463,13 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
         }
     }
 
+    // PA-r15-009b (#1032): Populate jump tables after data table population.
+    // This synthesizes rodata entries for @jump_table dense match dispatches.
+    // Call this after the is_empty block to get mutable access to the arena.
+    if !lowering.ir.is_empty() {
+        EmitWalker::populate_jump_tables_from_arena(&mut lowering.ir);
+    }
+
     let preview = sink
         .diagnostics()
         .iter()

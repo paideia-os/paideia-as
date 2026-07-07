@@ -660,14 +660,16 @@ fn populate_match_dispatch_meta(
             None => continue,
         };
 
-        // Extract integer values from arm patterns.
+        // Extract integer values from arm patterns with their arm indices.
         let mut arm_values: Vec<i64> = Vec::new();
+        let mut arm_value_index_pairs: Vec<(i64, u32)> = Vec::new();
         let mut has_non_integer_pattern = false;
 
-        for arm in arms {
+        for (arm_idx, arm) in arms.iter().enumerate() {
             // Try to extract integer value from the pattern.
             if let Some(value) = try_extract_integer_pattern(ast, arm.pattern, source_map) {
                 arm_values.push(value);
+                arm_value_index_pairs.push((value, arm_idx as u32));
             } else {
                 // Check if it's a wildcard (which is OK, just not counted).
                 if !is_wildcard_pattern(ast, arm.pattern, source_map) {
@@ -721,6 +723,12 @@ fn populate_match_dispatch_meta(
                 covered_arms,
                 density_ok,
             },
+        );
+
+        // Also store the per-arm (value, index) pairs for rodata synthesis.
+        ir.match_jump_table_arm_values_mut().insert(
+            ir_match_id,
+            arm_value_index_pairs,
         );
     }
 }

@@ -767,3 +767,12 @@ crate::impl_named_side_table!(
     /// consults this to decide between jump-table and cmp/jne dispatch.
     pub struct MatchDispatchMetaSideTable, IrNodeId => MatchDispatchMeta
 );
+
+crate::impl_named_side_table!(
+    /// Side-table mapping match IrNodeIds to per-arm integer values and indices.
+    ///
+    /// PA-r15-009b (#1032): populated during elaboration for matches carrying
+    /// the `@jump_table` attribute. Stores (arm_value, arm_idx) pairs used during
+    /// rodata jump-table synthesis to map arm discriminants to arm body labels.
+    pub struct MatchJumpTableArmValuesSideTable, IrNodeId => Vec<(i64, u32)>
+);

@@ -14,7 +14,7 @@ use crate::constant_pool::ConstantPoolTable;
 use crate::data::DataSideTable;
 use crate::enum_layout::{
     EnumConsSideTable, EnumDiscriminantSideTable, FinalisedEnumLayoutTable, MatchArmMetaSideTable,
-    MatchDispatchMetaSideTable, MatchScrutineeTable,
+    MatchDispatchMetaSideTable, MatchJumpTableArmValuesSideTable, MatchScrutineeTable,
 };
 use crate::instruction::InstructionSideTable;
 use crate::lambda_param::LambdaParamTable;
@@ -86,6 +86,10 @@ pub struct IrArena {
     /// Side-table: match dispatch strategy metadata indexed by Match node ID.
     /// PA-r15-009c (#1055): populated during elaboration for matches with @jump_table attribute.
     match_dispatch_meta_table: MatchDispatchMetaSideTable,
+    /// Side-table: match jump-table arm values indexed by Match node ID.
+    /// PA-r15-009b (#1032): populated during elaboration for matches with @jump_table attribute.
+    /// Stores (arm_value, arm_idx) pairs for rodata jump-table synthesis.
+    match_jump_table_arm_values_table: MatchJumpTableArmValuesSideTable,
     /// Side-table: address-of metadata indexed by Borrow node ID.
     /// PA10-006u: populated by elaborator for `& sym` in static initializers.
     addr_of_table: AddrOfSideTable,
@@ -128,6 +132,7 @@ impl IrArena {
             match_arm_meta_table: MatchArmMetaSideTable::new(),
             match_scrutinee_table: MatchScrutineeTable::new(),
             match_dispatch_meta_table: MatchDispatchMetaSideTable::new(),
+            match_jump_table_arm_values_table: MatchJumpTableArmValuesSideTable::new(),
             addr_of_table: AddrOfSideTable::new(),
             public_lets: HashSet::new(),
             call_sites: CallSideTable::new(),
@@ -420,6 +425,18 @@ impl IrArena {
     /// Borrow the match dispatch metadata side-table (mutable).
     pub fn match_dispatch_meta_mut(&mut self) -> &mut MatchDispatchMetaSideTable {
         &mut self.match_dispatch_meta_table
+    }
+
+    /// Borrow the match jump-table arm values side-table (read-only).
+    /// PA-r15-009b (#1032): provides arm value/index pairs for rodata jump-table synthesis.
+    #[must_use]
+    pub fn match_jump_table_arm_values(&self) -> &MatchJumpTableArmValuesSideTable {
+        &self.match_jump_table_arm_values_table
+    }
+
+    /// Borrow the match jump-table arm values side-table (mutable).
+    pub fn match_jump_table_arm_values_mut(&mut self) -> &mut MatchJumpTableArmValuesSideTable {
+        &mut self.match_jump_table_arm_values_table
     }
 
     /// Borrow the address-of side-table (read-only).

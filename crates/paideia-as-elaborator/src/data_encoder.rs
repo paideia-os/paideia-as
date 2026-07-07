@@ -167,6 +167,104 @@ pub fn populate_data_table(arena: &IrArena, data_table: &mut DataSideTable) {
     }
 }
 
+/// PA-r15-009b (#1032): Helper to collect jump table entries from arena.
+///
+/// Scans all Match nodes with `@jump_table` and `density_ok` set, collecting
+/// rodata entries for dense jump table matches. Returns owned entries keyed
+/// by their IrNodeId, ready to be inserted into a DataSideTable.
+///
+/// This helper avoids code duplication between the mutable-arena and
+/// separate-data-table variants of jump table population.
+fn collect_jump_table_entries(arena: &IrArena) -> Vec<(IrNodeId, DataEntry)> {
+    let mut entries_to_insert: Vec<(IrNodeId, DataEntry)> = Vec::new();
+
+    for i in 1..=arena.len() as u32 {
+        let Some(node_id) = IrNodeId::new(i) else { continue };
+        let Some(node) = arena.get(node_id) else { continue };
+        if node.kind != IrKind::Match {
+            continue;
+        }
+
+        // Check if this match has jump_table metadata
+        let dispatch_meta = match arena.match_dispatch_meta().get(node_id) {
+            Some(m) => *m,  // Clone/copy the metadata
+            None => continue,
+        };
+
+        // Only synthesize if jump_table && density_ok
+        if !dispatch_meta.jump_table || !dispatch_meta.density_ok {
+            continue;
+        }
+
+        // Get the arm values and clone them
+        let arm_values_vec: Vec<(i64, u32)> = match arena.match_jump_table_arm_values().get(node_id) {
+            Some(v) => v.clone(),
+            None => {
+                // No arm values registered — shouldn't happen, but skip if it does
+                continue;
+            }
+        };
+
+        // Build a map: slot_index -> reloc target (arm body label)
+        let mut relocs: Vec<RelocSpec> = Vec::new();
+
+        // Initialize all slots to default label
+        for slot_index in 0..(dispatch_meta.range as usize) {
+            let offset = (slot_index * 8) as u64;
+            let default_label = format!("match_default_{}", node_id.get());
+            relocs.push(RelocSpec::new(offset, default_label));
+        }
+
+        // Override slots with arm-specific labels
+        for (arm_value, arm_idx) in arm_values_vec {
+            let slot_index = (arm_value - dispatch_meta.min_arm) as usize;
+            if slot_index < dispatch_meta.range as usize {
+                let offset = (slot_index * 8) as u64;
+                let arm_label = format!("match_arm_{}_{}", node_id.get(), arm_idx);
+                relocs[slot_index] = RelocSpec::new(offset, arm_label);
+            }
+        }
+
+        // Allocate the rodata bytes: one W64 slot per entry
+        let bytes = vec![0u8; (dispatch_meta.range as usize) * 8];
+        let symbol_name = format!("_jt_{}", node_id.get());
+
+        // Create the rodata entry with relocations
+        let entry = DataEntry::new_rodata_with_relocs(bytes, symbol_name, 8, relocs);
+        entries_to_insert.push((node_id, entry));
+    }
+
+    entries_to_insert
+}
+
+/// PA-r15-009b (#1032): Populate rodata jump tables from a mutable arena.
+///
+/// Takes a mutable reference to the arena, collects jump table entries,
+/// and inserts them into the arena's data table. This is the primary
+/// production entry point, called from cmd_build.rs via EmitWalker.
+pub fn populate_jump_tables_from_mutable_arena(arena: &mut IrArena) {
+    let entries = collect_jump_table_entries(arena);
+    let data_table = arena.data_mut();
+    for (node_id, entry) in entries {
+        data_table.insert(node_id, entry);
+    }
+}
+
+/// PA-r15-009b (#1032): Populate rodata jump tables from match dispatch metadata.
+///
+/// Iterates over all Match nodes with `@jump_table` and `density_ok` set. For each:
+/// 1. Allocate a rodata buffer: `(range * 8)` bytes (one W64 slot per index in [min_arm, max_arm])
+/// 2. For each arm pattern value, compute `slot_index = value - min_arm` and emit a relocation
+///    pointing to the arm body label at offset `slot_index * 8`.
+/// 3. For holes (unmatched values), emit relocations pointing to the default label.
+/// 4. Wrap in a DataEntry with symbol name `_jt_<match_id>` and insert into data_table.
+pub fn populate_jump_tables(arena: &IrArena, data_table: &mut DataSideTable) {
+    let entries = collect_jump_table_entries(arena);
+    for (node_id, entry) in entries {
+        data_table.insert(node_id, entry);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -197,5 +295,70 @@ mod tests {
         assert_eq!(pack_int_le(0x1234_5678, 4), vec![0x78, 0x56, 0x34, 0x12]);
         assert_eq!(pack_int_le(0x1234, 2), vec![0x34, 0x12]);
         assert_eq!(pack_int_le(0x42, 1), vec![0x42]);
+    }
+
+    /// PA-r15-009b test: populate_jump_tables_from_mutable_arena creates rodata entries with relocations.
+    /// Tests the shipped path that cmd_build.rs actually calls.
+    #[test]
+    fn populate_jump_tables_creates_rodata_with_relocs() {
+        use paideia_as_diagnostics::{FileId, Span};
+        use paideia_as_ir::{MatchDispatchMeta, SectionKind};
+
+        fn span() -> Span {
+            Span::new(FileId::new(1).unwrap(), 0, 1)
+        }
+
+        let mut arena = IrArena::new();
+
+        // Allocate a Match node with arms
+        let scrutinee_id = arena.alloc(IrKind::Var, span());
+        let arm_body_0 = arena.alloc(IrKind::Literal, span());
+        let arm_body_1 = arena.alloc(IrKind::Literal, span());
+        let arm_id_0 = arena.alloc_with_children(IrKind::Action, span(), [arm_body_0]);
+        let arm_id_1 = arena.alloc_with_children(IrKind::Action, span(), [arm_body_1]);
+        let match_id = arena.alloc_with_children(IrKind::Match, span(), [scrutinee_id, arm_id_0, arm_id_1]);
+
+        // Register dispatch metadata: dense, jump_table enabled
+        arena.match_dispatch_meta_mut().insert(
+            match_id,
+            MatchDispatchMeta {
+                jump_table: true,
+                min_arm: 0,
+                range: 2,
+                covered_arms: 2,
+                density_ok: true,
+            },
+        );
+
+        // Register per-arm values: two arms, values 0 and 1
+        arena.match_jump_table_arm_values_mut().insert(
+            match_id,
+            vec![(0, 0), (1, 1)],
+        );
+
+        // Call populate_jump_tables_from_mutable_arena (the shipped variant)
+        populate_jump_tables_from_mutable_arena(&mut arena);
+
+        // Verify the entry was created in arena.data()
+        let entry = arena.data().get(match_id).expect("jump table entry should exist in arena.data()");
+
+        // Check basic properties
+        assert_eq!(entry.section, SectionKind::Rodata, "Jump table should be rodata");
+        assert_eq!(entry.symbol_name, format!("_jt_{}", match_id.get()), "Symbol name should be _jt_<id>");
+        assert_eq!(entry.align, 8, "Alignment should be 8");
+        assert_eq!(entry.bytes.len(), 16, "Should have 2 slots * 8 bytes = 16 bytes total");
+
+        // Check relocations
+        assert_eq!(entry.relocations.len(), 2, "Should have 2 relocations (one per arm)");
+
+        // Relocation 0 should point to arm 0
+        let reloc0 = &entry.relocations[0];
+        assert_eq!(reloc0.offset, 0, "First relocation at offset 0");
+        assert!(reloc0.symbol.contains("match_arm"), "Relocation should reference arm body label");
+
+        // Relocation 1 should point to arm 1
+        let reloc1 = &entry.relocations[1];
+        assert_eq!(reloc1.offset, 8, "Second relocation at offset 8");
+        assert!(reloc1.symbol.contains("match_arm"), "Relocation should reference arm body label");
     }
 }

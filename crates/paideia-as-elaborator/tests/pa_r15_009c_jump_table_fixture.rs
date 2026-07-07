@@ -273,3 +273,89 @@ fn jump_table_non_int_fixture_triggers_t0550() {
         "Non-int fixture should have density_ok = false (non-integer patterns force fallback)"
     );
 }
+
+/// Test the full parse → lower → populate flow for the dense fixture.
+///
+/// This test exercises the shipped code path (populate_jump_tables_from_mutable_arena)
+/// used in cmd_build.rs. It verifies:
+/// 1. Parse and lower produce an IR with MatchDispatchMeta
+/// 2. populate_jump_tables_from_mutable_arena correctly creates rodata entries
+/// 3. The entries appear in arena.data() with correct symbol names and relocations
+#[test]
+fn jump_table_dense_populate_creates_rodata_entries() {
+    use paideia_as_elaborator::data_encoder;
+    use paideia_as_ir::{IrKind, SectionKind};
+
+    let repo_root = get_repo_root();
+    let fixture_path = repo_root.join("tests/end-to-end/codes/pa_r15_009_jump_table_dense.pdx");
+
+    let (source_map, ast) = load_and_parse_fixture(&fixture_path);
+
+    // Lower to IR and collect diagnostics.
+    let mut sink = VecSink::new();
+    let mut result = lower_ast_to_ir(&ast, &source_map, &mut sink);
+
+    // Locate the first Match node in the IR before population.
+    let mut match_node_id = None;
+    for i in 1..=result.ir.len() {
+        let ir_id = paideia_as_ir::IrNodeId::new(i as u32).expect("valid id");
+        if let Some(node) = result.ir.get(ir_id) {
+            if node.kind == IrKind::Match {
+                match_node_id = Some(ir_id);
+                break;
+            }
+        }
+    }
+
+    let match_id = match_node_id.expect("Dense fixture should have at least one Match IR node");
+
+    // Verify MatchDispatchMeta exists and is valid.
+    // Copy the metadata before calling the mutable function to avoid borrow checker issues.
+    let meta = {
+        let m = result.ir
+            .match_dispatch_meta()
+            .get(match_id)
+            .expect("Match node should have MatchDispatchMeta");
+        *m  // Copy the metadata
+    };
+
+    assert_eq!(meta.jump_table, true, "Dense fixture should have jump_table = true");
+    assert_eq!(meta.density_ok, true, "Dense fixture should pass density check");
+
+    // Call populate_jump_tables_from_mutable_arena (the shipped variant).
+    data_encoder::populate_jump_tables_from_mutable_arena(&mut result.ir);
+
+    // Verify the entry was created in arena.data().
+    let entry = result.ir.data()
+        .get(match_id)
+        .expect("Jump table entry should exist in arena.data() after populate");
+
+    // Verify section kind, symbol name, and alignment.
+    assert_eq!(entry.section, SectionKind::Rodata, "Jump table should be rodata");
+    assert_eq!(entry.symbol_name, format!("_jt_{}", match_id.get()), "Symbol name should be _jt_<id>");
+    assert_eq!(entry.align, 8, "Alignment should be 8");
+
+    // Verify bytes and relocations.
+    let expected_bytes_len = (meta.range as usize) * 8;
+    assert_eq!(entry.bytes.len(), expected_bytes_len,
+        "Bytes length should match range: expected {}, got {}", expected_bytes_len, entry.bytes.len());
+
+    let expected_reloc_count = meta.range as usize;
+    assert_eq!(entry.relocations.len(), expected_reloc_count,
+        "Should have {} relocations (one per slot in range), got {}",
+        expected_reloc_count, entry.relocations.len());
+
+    // Verify all relocations have valid offsets and symbol names.
+    for (i, reloc) in entry.relocations.iter().enumerate() {
+        let expected_offset = (i * 8) as u64;
+        assert_eq!(reloc.offset, expected_offset,
+            "Relocation {} should have offset {}, got {}", i, expected_offset, reloc.offset);
+
+        // Symbol should reference either an arm label or the default label.
+        assert!(
+            reloc.symbol.contains("match_arm") || reloc.symbol.contains("match_default"),
+            "Relocation {} should reference arm or default label, got: {}",
+            i, reloc.symbol
+        );
+    }
+}
