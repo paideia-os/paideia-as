@@ -186,3 +186,61 @@ fn rol_r15_4_round_trips_through_iced_x86() {
     let decoded = decoder.decode();
     assert_eq!(decoded.mnemonic(), IcedMnem::Rol);
 }
+
+// ===== ROL r16: byte-exact vectors (W16 encodings) — PA-R16-007 =====
+
+#[test]
+fn rol_ax_1_emits_66_d1_c0() {
+    // Operand-size override (0x66), D1, ModR/M = 11 000 000 = 0xC0
+    assert_eq!(
+        encode_reg_imm(Mnemonic::Rol { width: IntWidth::W16 }, 0, 1),
+        &[0x66, 0xD1, 0xC0]
+    );
+}
+
+#[test]
+fn rol_ax_8_emits_66_c1_c0_08() {
+    // Operand-size override (0x66), C1, ModR/M = 11 000 000 = 0xC0, imm8 = 0x08
+    assert_eq!(
+        encode_reg_imm(Mnemonic::Rol { width: IntWidth::W16 }, 0, 8),
+        &[0x66, 0xC1, 0xC0, 0x08]
+    );
+}
+
+#[test]
+fn rol_ax_cl_emits_66_d3_c0() {
+    // Operand-size override (0x66), D3, ModR/M = 11 000 000 = 0xC0
+    // Reg 0 = AX, Reg 1 = CX (CL)
+    assert_eq!(
+        encode_reg_reg(Mnemonic::Rol { width: IntWidth::W16 }, 0, 1),
+        &[0x66, 0xD3, 0xC0]
+    );
+}
+
+#[test]
+fn rol_r10w_8_emits_66_41_c1_c2_08() {
+    // Operand-size override (0x66), REX.B (0x41), C1, ModR/M = 11 000 010 = 0xC2, imm8 = 0x08
+    assert_eq!(
+        encode_reg_imm(Mnemonic::Rol { width: IntWidth::W16 }, 10, 8),
+        &[0x66, 0x41, 0xC1, 0xC2, 0x08]
+    );
+}
+
+#[test]
+fn rol_r15w_cl_emits_66_41_d3_c7() {
+    // Operand-size override (0x66), REX.B (0x41), D3, ModR/M = 11 000 111 = 0xC7
+    assert_eq!(
+        encode_reg_reg(Mnemonic::Rol { width: IntWidth::W16 }, 15, 1),
+        &[0x66, 0x41, 0xD3, 0xC7]
+    );
+}
+
+#[test]
+fn rol_r10w_8_round_trips_through_iced_x86() {
+    use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+    let bytes = encode_reg_imm(Mnemonic::Rol { width: IntWidth::W16 }, 10, 8);
+    let mut decoder = Decoder::new(64, &bytes, DecoderOptions::NONE);
+    let decoded = decoder.decode();
+    assert_eq!(decoded.mnemonic(), IcedMnem::Rol);
+}

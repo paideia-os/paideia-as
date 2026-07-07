@@ -1065,6 +1065,54 @@ pub fn rol_reg32_cl(buf: &mut CodeBuffer, reg_id: u8) {
     buf.bytes.push(0xC0 | (reg_id & 7));
 }
 
+/// Encode `rol reg16, imm8` or `rol reg16, 1` (rotate left, 16-bit).
+///
+/// Instruction: 0x66 C1 /0 ib (general form) or 0x66 D1 /0 (short form for imm=1)
+/// ModR/M: 0xC0 | (reg & 7)
+/// Bytes for imm != 1: `0x66 [REX.B(if needed)] C1 (0xC0 | (reg&7)) imm8`
+/// Bytes for imm == 1: `0x66 [REX.B(if needed)] D1 (0xC0 | (reg&7))`
+///
+/// Example: `rol ax, 1` → `66 d1 c0`
+/// Example: `rol ax, 8` → `66 c1 c0 08`
+/// Example: `rol r10w, 8` → `66 41 c1 c2 08`
+pub fn rol_reg16_imm8(buf: &mut CodeBuffer, reg_id: u8, imm: u8) {
+    if imm == 1 {
+        // Short form
+        buf.bytes.push(0x66);
+        if (reg_id >> 3) != 0 {
+            buf.bytes.push(rex(false, false, false, true));
+        }
+        buf.bytes.push(0xD1);
+        buf.bytes.push(0xC0 | (reg_id & 7));
+    } else {
+        // General form
+        buf.bytes.push(0x66);
+        if (reg_id >> 3) != 0 {
+            buf.bytes.push(rex(false, false, false, true));
+        }
+        buf.bytes.push(0xC1);
+        buf.bytes.push(0xC0 | (reg_id & 7));
+        buf.bytes.push(imm);
+    }
+}
+
+/// Encode `rol reg16, cl` (rotate left by CL, 16-bit).
+///
+/// Instruction: 0x66 D3 /0
+/// ModR/M: 0xC0 | (reg & 7)
+/// Bytes: `0x66 [REX.B(if needed)] D3 (0xC0 | (reg&7))`
+///
+/// Example: `rol ax, cl` → `66 d3 c0`
+/// Example: `rol r15w, cl` → `66 41 d3 c7`
+pub fn rol_reg16_cl(buf: &mut CodeBuffer, reg_id: u8) {
+    buf.bytes.push(0x66);
+    if (reg_id >> 3) != 0 {
+        buf.bytes.push(rex(false, false, false, true));
+    }
+    buf.bytes.push(0xD3);
+    buf.bytes.push(0xC0 | (reg_id & 7));
+}
+
 /// Encode `ror reg64, imm8` or `ror reg64, 1` (rotate right).
 ///
 /// Instruction: REX.W C1 /1 ib (general form) or REX.W D1 /1 (short form for imm=1)

@@ -1635,7 +1635,31 @@ fn encode_rol(inst: &Instruction, buf: &mut CodeBuffer, width: IntWidth) -> Resu
                 }),
             }
         }
-        _ => Err(EncodeError::Unsupported("E0034: rol only supports W32 and W64")),
+        IntWidth::W16 => {
+            match inst.operands.as_slice() {
+                [Operand::Reg(dst), Operand::Imm64(imm)] => {
+                    // rol r16, imm8
+                    let dst_id = dst.0;
+                    let imm_i8 = i8::try_from(*imm)
+                        .map_err(|_| EncodeError::Unsupported("E0035: rol imm must fit in i8"))?;
+                    rol_reg16_imm8(buf, dst_id, imm_i8 as u8);
+                    Ok(EncodeOutput::new())
+                }
+                [Operand::Reg(dst), Operand::Reg(src)] => {
+                    // rol r16, cl
+                    if src.0 != 1 {
+                        return Err(EncodeError::Unsupported("E0036: rol variable count requires CL"));
+                    }
+                    let dst_id = dst.0;
+                    rol_reg16_cl(buf, dst_id);
+                    Ok(EncodeOutput::new())
+                }
+                _ => Err(EncodeError::OperandShape {
+                    mnemonic: Mnemonic::Rol { width },
+                }),
+            }
+        }
+        _ => Err(EncodeError::Unsupported("E0034: rol only supports W16, W32, and W64")),
     }
 }
 

@@ -102,19 +102,29 @@ if let Some((trait_name, method_name)) = resolve_stdlib_trait_method(&target_nam
 
 - **Trait**: `BytesOps` (typed buffer byte accessors with SysV arg marshalling).
 - **Methods**:
-  - Getters: `get_u8(buf, off) -> u8`, `get_u16_le(buf, off) -> u16`, `get_u32_le(buf, off) -> u32`, `get_u32_be(buf, off) -> u32`, `get_u64_le(buf, off) -> u64`, `get_u64_be(buf, off) -> u64`.
-  - Setters: `put_u8(buf, off, val) -> ()`, `put_u16_le(buf, off, val)`, `put_u32_le(buf, off, val)`, `put_u32_be(buf, off, val)`, `put_u64_le(buf, off, val)`, `put_u64_be(buf, off, val)`.
+  - Getters: `get_u8(buf, off) -> u8`, `get_u16_le(buf, off) -> u16`, `get_u16_be(buf, off) -> u16`, `get_u32_le(buf, off) -> u32`, `get_u32_be(buf, off) -> u32`, `get_u64_le(buf, off) -> u64`, `get_u64_be(buf, off) -> u64`.
+  - Setters: `put_u8(buf, off, val) -> ()`, `put_u16_le(buf, off, val)`, `put_u16_be(buf, off, val)`, `put_u32_le(buf, off, val)`, `put_u32_be(buf, off, val)`, `put_u64_le(buf, off, val)`, `put_u64_be(buf, off, val)`.
 - **Arg Convention**: `ArgConvention::SysVRegs` — args are pre-marshalled into registers before recipe splicing (unlike Literal recipes above).
   - arg0 (buf) → RDI
   - arg1 (off) → RSI  
   - arg2 (val) → RDX (setters only)
 - **Getters**:
   - LE variants (u8, u16_le, u32_le, u64_le): `MovSized{width} [RAX], MemSib{RDI, Some(RSI), X1, 0}` (load into RAX, result in return register).
-  - BE variants (u32_be, u64_be): load + `Bswap32`/`Bswap` (byte-swap after load).
+  - BE variants (u16_be, u32_be, u64_be): load + byte-swap (see Byte-Swap Primitives below).
 - **Setters**:
   - LE variants (u8, u16_le, u32_le, u64_le): `Add RDI, RSI` (fold offset) + `MovSized{width} [RDI+0], RDX` (store).
-  - BE variants (u32_be, u64_be): `Bswap32`/`Bswap` [RDX] (byte-swap value) + `Add RDI, RSI` + `MovSized{width} [RDI+0], RDX`.
+  - BE variants (u16_be, u32_be, u64_be): byte-swap value + `Add RDI, RSI` + `MovSized{width} [RDI+0], RDX` (see Byte-Swap Primitives below).
 - **Encoder Workaround**: `encode_mov_sized` does not currently support `[MemSib{Some(index)}, Reg]` writes (indexed store). For setter recipes, offset is folded by `Add RDI, RSI` into the base, reducing the address to `[RDI+0]` with no index.
+
+### Byte-Swap Primitives
+
+- **u32/u64 byte-swapping**: Uses dedicated `Bswap32` and `Bswap` mnemonics (x86_64 built-in instructions).
+- **u16 byte-swapping** (PA-r16-007, #1065): Uses `Rol{W16} [reg, 8]` (16-bit rotate left by 8 bits).
+  - Rationale: Rotating left by 8 bits swaps the two bytes of a 16-bit value. No dedicated Bswap16 instruction exists.
+  - Recipes:
+    - `get_u16_be`: `MovSized{W16} [RAX], MemSib` + `Rol{W16} [RAX, 8]`.
+    - `put_u16_be`: `Rol{W16} [RDX, 8]` + `Add RDI, RSI` + `MovSized{W16} [RDI+0], RDX`.
+  - Encoding: Rol{W16} emits 0x66 operand-size prefix + REX.B (if needed) + opcode C1/D1 + ModRM.
 
 ## Explicitly Deferred
 
@@ -141,14 +151,6 @@ if let Some((trait_name, method_name)) = resolve_stdlib_trait_method(&target_nam
 - **Methods**: `memcpy`, internal `rep movsb`, `rep stosb`.
 - **Blocker**: requires operand-source resolution (loading `rcx`, `rdi`, `rsi` from arguments).
 - **Mnemonics**: `mov` (args→registers) + `rep movsb`/`rep stosb`.
-
-### 2a. BytesOps::get_u16_be / put_u16_be (deferred to #1065)
-
-- **Reason**: Requires `Bswap16` primitive, which does not yet exist in paideia-as-ir.
-- **Blocker**: #1065 (Bswap16 instruction addition).
-- **Mnemonics** (once Bswap16 available):
-  - `get_u16_be`: `MovSized{W16} [RAX], MemSib + Bswap16 [RAX]`.
-  - `put_u16_be`: `Bswap16 [RDX] + Add RDI, RSI + MovSized{W16} [RDI+0], RDX`.
 
 ### 3. ChecksumOps (future issue)
 - **Methods**: `crc32b`, `crc32d`.
@@ -211,7 +213,7 @@ To add a new stdlib trait method:
 - **#1057**: MmioOps lowering (elaborator) — mmio_read_u32, mmio_write_u32 recipes.
 - **#1062**: ArgConvention enum + SysVRegs convention for pre-marshalled args.
 - **#1063**: BytesOps typed accessor lowering — 12 get/put recipes + SysVRegs integration.
-- **#1065**: Bswap16 primitive addition (blocker for BytesOps::get_u16_be, put_u16_be).
+- **#1065**: Rol{W16} primitive addition + BytesOps::get_u16_be, put_u16_be recipes (completed).
 - **#975–977**: RefcountOps, FreelistOps, BitmapOps (Phase 16 M1, deferred).
 - **Future**: PerCpuOps extended (read/write/dec), MmioOps variants (u8/u16/u64), BytesOps extended (memcpy), ChecksumOps (v0.17+).
 

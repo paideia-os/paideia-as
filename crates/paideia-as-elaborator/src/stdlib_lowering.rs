@@ -354,6 +354,45 @@ pub fn lower_stdlib_method(
                 arg_convention: ArgConvention::SysVRegs,
             }))
         }
+        ("BytesOps", "get_u16_be") => {
+            // get_u16_be(buf, off) -> u16: MovSized{W16} [RAX], MemSib + Rol{W16} [RAX, 8]
+            let mut load_ops = SmallVec::new();
+            load_ops.push(Operand::Reg(abi::RAX));
+            load_ops.push(Operand::MemSib {
+                base: abi::RDI,
+                index: Some(abi::RSI),
+                scale: paideia_as_ir::instruction::Scale::X1,
+                disp: 0,
+            });
+
+            let mut rol_ops = SmallVec::new();
+            rol_ops.push(Operand::Reg(abi::RAX));
+            rol_ops.push(Operand::Imm64(8));
+
+            Some(Ok(LoweringRecipe {
+                instructions: vec![
+                    Instruction {
+                        mnemonic: Mnemonic::MovSized {
+                            width: IntWidth::W16,
+                        },
+                        operands: load_ops,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                    },
+                    Instruction {
+                        mnemonic: Mnemonic::Rol {
+                            width: IntWidth::W16,
+                        },
+                        operands: rol_ops,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                    },
+                ],
+                arg_convention: ArgConvention::SysVRegs,
+            }))
+        }
         ("BytesOps", "get_u32_le") => {
             // get_u32_le(buf, off) -> u32: MovSized{W32} [RAX], MemSib{RDI, Some(RSI), X1, 0}
             let mut operands = SmallVec::new();
@@ -526,6 +565,56 @@ pub fn lower_stdlib_method(
 
             Some(Ok(LoweringRecipe {
                 instructions: vec![
+                    Instruction {
+                        mnemonic: Mnemonic::Add,
+                        operands: add_ops,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                    },
+                    Instruction {
+                        mnemonic: Mnemonic::MovSized {
+                            width: IntWidth::W16,
+                        },
+                        operands: store_ops,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                    },
+                ],
+                arg_convention: ArgConvention::SysVRegs,
+            }))
+        }
+        ("BytesOps", "put_u16_be") => {
+            // put_u16_be(buf, off, val) -> (): Rol{W16} DX, 8 + Add RDI, RSI + MovSized{W16} [RDI+0], DX
+            let mut rol_ops = SmallVec::new();
+            rol_ops.push(Operand::Reg(abi::RDX));
+            rol_ops.push(Operand::Imm64(8));
+
+            let mut add_ops = SmallVec::new();
+            add_ops.push(Operand::Reg(abi::RDI));
+            add_ops.push(Operand::Reg(abi::RSI));
+
+            let mut store_ops = SmallVec::new();
+            store_ops.push(Operand::MemSib {
+                base: abi::RDI,
+                index: None,
+                scale: paideia_as_ir::instruction::Scale::X1,
+                disp: 0,
+            });
+            store_ops.push(Operand::Reg(abi::RDX));
+
+            Some(Ok(LoweringRecipe {
+                instructions: vec![
+                    Instruction {
+                        mnemonic: Mnemonic::Rol {
+                            width: IntWidth::W16,
+                        },
+                        operands: rol_ops,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                    },
                     Instruction {
                         mnemonic: Mnemonic::Add,
                         operands: add_ops,
@@ -1163,6 +1252,38 @@ mod tests {
     }
 
     #[test]
+    fn bytes_ops_get_u16_be_lowers_to_movsized_w16_plus_rol_w16() {
+        let arena = IrArena::new();
+        let recipe = lower_stdlib_method("BytesOps", "get_u16_be", InstrMode::Mode64, &[], &arena)
+            .expect("get_u16_be recipe should exist")
+            .expect("get_u16_be lowering should succeed");
+
+        assert_eq!(recipe.instructions.len(), 2);
+        assert_eq!(recipe.arg_convention, ArgConvention::SysVRegs);
+
+        // First instruction: MovSized W16
+        assert_eq!(
+            recipe.instructions[0].mnemonic,
+            Mnemonic::MovSized {
+                width: IntWidth::W16
+            }
+        );
+
+        // Second instruction: Rol W16 with imm8=8
+        assert_eq!(
+            recipe.instructions[1].mnemonic,
+            Mnemonic::Rol {
+                width: IntWidth::W16
+            }
+        );
+        assert_eq!(recipe.instructions[1].operands.len(), 2);
+        match &recipe.instructions[1].operands[1] {
+            Operand::Imm64(imm) => assert_eq!(*imm, 8),
+            _ => panic!("expected Imm64(8)"),
+        }
+    }
+
+    #[test]
     fn bytes_ops_get_u64_le_lowers_to_movsized_w64() {
         let arena = IrArena::new();
         let recipe = lower_stdlib_method("BytesOps", "get_u64_le", InstrMode::Mode64, &[], &arena)
@@ -1262,6 +1383,45 @@ mod tests {
             recipe.instructions[1].mnemonic,
             Mnemonic::MovSized {
                 width: IntWidth::W32
+            }
+        );
+    }
+
+    #[test]
+    fn bytes_ops_put_u16_be_lowers_to_rol_w16_plus_add_plus_movsized_w16() {
+        let arena = IrArena::new();
+        let recipe = lower_stdlib_method("BytesOps", "put_u16_be", InstrMode::Mode64, &[], &arena)
+            .expect("put_u16_be recipe should exist")
+            .expect("put_u16_be lowering should succeed");
+
+        assert_eq!(recipe.instructions.len(), 3);
+        assert_eq!(recipe.arg_convention, ArgConvention::SysVRegs);
+
+        // First instruction: Rol W16 with imm8=8
+        assert_eq!(
+            recipe.instructions[0].mnemonic,
+            Mnemonic::Rol {
+                width: IntWidth::W16
+            }
+        );
+        assert_eq!(recipe.instructions[0].operands.len(), 2);
+        match &recipe.instructions[0].operands[0] {
+            Operand::Reg(reg) => assert_eq!(*reg, abi::RDX),
+            _ => panic!("expected Reg(RDX)"),
+        }
+        match &recipe.instructions[0].operands[1] {
+            Operand::Imm64(imm) => assert_eq!(*imm, 8),
+            _ => panic!("expected Imm64(8)"),
+        }
+
+        // Second instruction: Add RDI, RSI
+        assert_eq!(recipe.instructions[1].mnemonic, Mnemonic::Add);
+
+        // Third instruction: MovSized W16
+        assert_eq!(
+            recipe.instructions[2].mnemonic,
+            Mnemonic::MovSized {
+                width: IntWidth::W16
             }
         );
     }
