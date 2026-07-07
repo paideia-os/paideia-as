@@ -18,7 +18,7 @@ use paideia_as_diagnostics::{SourceMap, Span, VecSink};
 use paideia_as_elaborator::{LocalBindingTable, unsafe_walker::UnsafeWalker};
 use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand, RegId};
 use paideia_as_ir::{InstrMode, IrArena};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 fn test_span() -> Span {
@@ -116,6 +116,7 @@ fn elaborate_bitop_with_imm64(
         &record_layouts,
         &local_bindings,
         InstrMode::Mode64,
+        &HashSet::new(),
     );
 
     // Also collect diagnostics from the sink itself

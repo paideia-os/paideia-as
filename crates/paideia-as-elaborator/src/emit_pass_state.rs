@@ -10,7 +10,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use paideia_as_ir::instruction::{InstrMode, InstructionSideTable, RegId};
+use paideia_as_ir::instruction::{CpuFeature, InstrMode, InstructionSideTable, RegId};
 use paideia_as_ir::record_layout::{FieldLayout, RecordLayout, RecordTypeId};
 use paideia_as_ir::{EnumLayout, EnumTypeId, IrNodeId};
 
@@ -108,6 +108,11 @@ pub struct EmitPassState {
     /// Stack of instruction modes during nested scope walk.
     /// Used to propagate #![bits=32] or #![bits=64] from module inner_attrs.
     pub(crate) mode_stack: Vec<InstrMode>,
+
+    /// PA-r16-004-backtrack-a (#1033): declared CPU feature set from
+    /// `#![target_features = "..."]`. Populated at build entry; consumed
+    /// during unsafe-block lowering to gate feature-tagged mnemonics.
+    pub(crate) enabled_features: HashSet<CpuFeature>,
 }
 
 impl EmitPassState {
@@ -302,6 +307,30 @@ impl EmitPassState {
     #[must_use]
     pub fn mode_stack_is_empty(&self) -> bool {
         self.mode_stack.is_empty()
+    }
+
+    // ── CPU features (PA-r16-004-backtrack-a #1033) ──────────────────────
+
+    /// Enable a specific CPU feature.
+    pub fn enable_feature(&mut self, feat: CpuFeature) {
+        self.enabled_features.insert(feat);
+    }
+
+    /// Read-only view of enabled CPU features.
+    #[must_use]
+    pub fn enabled_features(&self) -> &HashSet<CpuFeature> {
+        &self.enabled_features
+    }
+
+    /// Check if a specific CPU feature is enabled.
+    #[must_use]
+    pub fn has_feature(&self, feat: CpuFeature) -> bool {
+        self.enabled_features.contains(&feat)
+    }
+
+    /// Replace the entire set of enabled CPU features.
+    pub fn set_enabled_features(&mut self, feats: HashSet<CpuFeature>) {
+        self.enabled_features = feats;
     }
 
     /// Phase 6 m4-003: Register a label at the current byte offset.

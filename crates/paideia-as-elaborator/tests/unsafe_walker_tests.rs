@@ -7,7 +7,7 @@ use paideia_as_diagnostics::{SourceMap, Span, VecSink};
 use paideia_as_elaborator::{LocalBindingTable, unsafe_walker::UnsafeWalker};
 use paideia_as_ir::instruction::{IntWidth, Mnemonic};
 use paideia_as_ir::{InstrMode, IrArena};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 // Phase 6 m1-005 tests: zero-arity mnemonics
@@ -98,6 +98,7 @@ fn mov_reg_imm_mnemonic(reg_name: &str) -> Mnemonic {
         &record_layouts,
         &local_bindings,
         InstrMode::Mode64,
+        &HashSet::new(),
     );
 
     assert_eq!(
@@ -210,6 +211,7 @@ fn test_lgdt_memory_operand() {
         &record_layouts,
         &local_bindings,
         InstrMode::Mode64,
+        &HashSet::new(),
     );
 
     // Check that no errors were emitted (in a real test with proper AST nodes, this would work)
@@ -271,6 +273,7 @@ fn test_unknown_mnemonic_foozle() {
         &record_layouts,
         &local_bindings,
         InstrMode::Mode64,
+        &HashSet::new(),
     );
 
     // Check that a U1605 diagnostic was emitted
@@ -351,6 +354,7 @@ fn test_malformed_operand_incomplete_memory() {
         &record_layouts,
         &local_bindings,
         InstrMode::Mode64,
+        &HashSet::new(),
     );
 
     // Check that a U1606 diagnostic was emitted
@@ -455,6 +459,7 @@ fn parse_instruction_with_imm(
         &record_layouts,
         &local_bindings,
         InstrMode::Mode64,
+        &HashSet::new(),
     );
 
     assert_eq!(
@@ -634,6 +639,7 @@ fn parse_ljmp_instruction(
         &record_layouts,
         &local_bindings,
         InstrMode::Mode64,
+        &HashSet::new(),
     );
 
     assert_eq!(
@@ -788,6 +794,7 @@ fn test_lgdt_rip_relative_symbol() {
         &record_layouts,
         &local_bindings,
         InstrMode::Mode64,
+        &HashSet::new(),
     );
 
     // Verify the instruction was elaborated
@@ -923,6 +930,7 @@ fn parse_branch_instruction_with_label(
         &record_layouts,
         &local_bindings,
         InstrMode::Mode64,
+        &HashSet::new(),
     );
 
     // Note: This test needs the actual unsafe walker to process labels correctly
@@ -1005,6 +1013,7 @@ fn test_local_label_backward_jump() {
         &record_layouts,
         &local_bindings,
         InstrMode::Mode64,
+        &HashSet::new(),
     );
 
     // Verify instruction was parsed
@@ -1090,6 +1099,7 @@ fn test_local_label_forward_jump() {
         &record_layouts,
         &local_bindings,
         InstrMode::Mode64,
+        &HashSet::new(),
     );
 
     // Verify instruction was parsed
@@ -1173,6 +1183,7 @@ fn test_undefined_label_as_symbol_ref() {
         &record_layouts,
         &local_bindings,
         InstrMode::Mode64,
+        &HashSet::new(),
     );
 
     // For an undefined label with jmp, the label should be parsed as SymbolRef

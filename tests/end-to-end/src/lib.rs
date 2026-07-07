@@ -54,15 +54,15 @@ pub fn codes_for(path: &Path) -> Result<BTreeSet<String>, String> {
 
 /// Parse diagnostic codes from stderr output of `paideia-as build`.
 ///
-/// Looks for patterns like `S0900`, `F1100`, `C1300`, `T0501`, etc. —
-/// capital S, F, C, or T followed by exactly 4 ASCII digits. Extracts all
-/// matches in order of appearance.
+/// Looks for patterns like `S0900`, `F1100`, `C1300`, `T0501`, `U1612`, `P0241`, etc. —
+/// capital letter (S, F, C, T, U, P, etc.) followed by exactly 4 ASCII digits.
+/// Extracts all matches in order of appearance.
 fn parse_codes_from_stderr(stderr: &str) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     let bytes = stderr.as_bytes();
     let mut i = 0;
     while i + 5 <= bytes.len() {
-        if matches!(bytes[i], b'S' | b'F' | b'C' | b'T')
+        if bytes[i].is_ascii_uppercase()
             && bytes[i + 1..i + 5].iter().all(|b| b.is_ascii_digit())
         {
             if let Ok(s) = std::str::from_utf8(&bytes[i..i + 5]) {

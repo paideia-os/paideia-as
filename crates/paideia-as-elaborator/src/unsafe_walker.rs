@@ -41,11 +41,11 @@ use paideia_as_diagnostics::{
     Category, Diagnostic, DiagnosticCode, DiagnosticSink, Severity, Span,
 };
 use paideia_as_ir::instruction::{
-    Cond, InstrMode, Instruction, IntWidth, Mnemonic, Operand, RegId, Scale,
+    Cond, CpuFeature, InstrMode, Instruction, IntWidth, Mnemonic, Operand, RegId, Scale,
 };
 use paideia_as_ir::record_layout::{RecordLayout, RecordTypeId};
 use paideia_as_ir::{IrArena, IrNodeId, SmallVec, abi};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Error type for operand parsing.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1524,6 +1524,7 @@ impl UnsafeWalker {
         record_layouts: &HashMap<RecordTypeId, RecordLayout>,
         local_bindings: &LocalBindingTable,
         instr_mode: InstrMode,
+        enabled_features: &HashSet<CpuFeature>,
     ) -> (
         HashMap<String, u32>,
         HashMap<String, paideia_as_ir::IrNodeId>,
@@ -1661,6 +1662,7 @@ impl UnsafeWalker {
                                                     &labels,
                                                     local_bindings,
                                                     instr_mode,
+                                                    enabled_features,
                                                 );
 
                                                 // Track first instruction of this unsafe block
@@ -1706,7 +1708,8 @@ impl UnsafeWalker {
     ///
     /// Resolves the mnemonic, parses all operands, and inserts an Instruction
     /// into the arena's side-table. Emits diagnostics on error. Also validates
-    /// label references against the collected labels map (Phase 6 m4-002).
+    /// label references against the collected labels map (Phase 6 m4-002) and
+    /// CPU feature requirements (PA-r16-004-backtrack-a #1033).
     fn process_instruction_stmt(
         arena: &mut IrArena,
         ast: &AstArena,
@@ -1718,6 +1721,7 @@ impl UnsafeWalker {
         labels: &HashMap<String, u32>,
         local_bindings: &LocalBindingTable,
         instr_mode: InstrMode,
+        enabled_features: &HashSet<CpuFeature>,
     ) -> Option<paideia_as_ir::IrNodeId> {
         // Get the statement data.
         let stmt_data = match ast.stmt_data(stmt_id) {
@@ -1752,6 +1756,36 @@ impl UnsafeWalker {
                 return None;
             }
         };
+
+        // PA-r16-004-backtrack-a (#1033): Check if this mnemonic requires a CPU feature.
+        // If required, verify it's declared in #![target_features = "..."].
+        if let Some(required_feature) = mnemonic.required_feature() {
+            if !enabled_features.contains(&required_feature) {
+                // U1612: Instruction requires CPU feature but it is not declared
+                let instr_span = ast.get(stmt_id).map(|n| n.span).unwrap_or_else(|| {
+                    paideia_as_diagnostics::Span::new(
+                        paideia_as_diagnostics::FileId::new(1).unwrap(),
+                        0,
+                        1,
+                    )
+                });
+                let diag = Diagnostic::error(
+                    DiagnosticCode::new(Category::U, Severity::Error, 1612)
+                        .expect("valid U1612 code"),
+                )
+                .message(format!(
+                    "instruction '{}' requires CPU feature '{}' but it is not declared; add `#![target_features = \"{}\"]` at the module root",
+                    mnemonic_str,
+                    required_feature.as_str(),
+                    required_feature.as_str()
+                ))
+                .with_span(instr_span)
+                .finish();
+                let _ = sink.emit(diag.clone());
+                diags.push(diag);
+                return None; // Skip this instruction, same fail-mode as U1605/U1606
+            }
+        }
 
         // Phase 6 m1-005: Check if this is a zero-arity instruction with operands.
         // If mnemonic.arity() == 0 and operand_ids is non-empty, emit U1607 and proceed with empty operands.

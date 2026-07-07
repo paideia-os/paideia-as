@@ -290,6 +290,15 @@ description = "The #![bits = N] inner attribute specifies the target word size. 
 since = "0.11.0"
 deprecated = false
 
+[diagnostic.P0241]
+severity = "error"
+category = "parser"
+title = "Unknown CPU feature token"
+brief = "the CPU feature name is not in the accepted set (cx16, popcnt, bmi1, sse4.2, avx, avx512f)"
+description = "Phase 16 m4-001: The #![target_features = \"name\"] attribute specifies a CPU feature token that is not recognized. Valid feature tokens are: cx16, popcnt, bmi1, sse4.2, avx, avx512f. These correspond to x86_64 CPU capabilities that may be assumed for code generation. Other feature names are invalid or not yet supported. Check the feature name spelling against the accepted set, or file an issue to request additional CPU feature support."
+since = "0.16.0"
+deprecated = false
+
 [diagnostic.P0250]
 severity = "error"
 category = "parser"
@@ -882,6 +891,15 @@ title = "SymbolRef operand not supported for mnemonic in Phase 6"
 brief = "bare-identifier symbol in call position is valid only for call/jmp mnemonics"
 description = "Phase 6 m4-005: A bare-identifier symbol operand (e.g., `cap_alloc`) was used with a mnemonic that does not support symbol references. In Phase 6, only `call` and `jmp` (both conditional and unconditional) mnemonics support bare-identifier symbols in call position, which resolve to SymbolRef operands with PC-relative 32-bit relocations. Other mnemonics (mov, lea, etc.) require explicit syntax (e.g., `lea rax, [symbol]` for RIP-relative addressing). This restriction will be lifted in Phase 7+ with full symbol-address-of support. Either use call/jmp, or refactor to use supported addressing modes."
 since = "0.10.0"
+deprecated = false
+
+[diagnostic.U1612]
+severity = "error"
+category = "unsafe"
+title = "Required CPU feature not declared"
+brief = "mnemonic requires a CPU feature not present in the module's #![target_features] list"
+description = "Phase 16 m4-002: An instruction mnemonic inside an unsafe block requires a CPU feature (cx16, popcnt, bmi1, sse4.2, avx, avx512f, etc.) that is not declared in the module's #![target_features] attribute. For example, using a popcnt instruction requires declaring #![target_features = \"popcnt\"]. Either add the required feature to the module's #![target_features] list, or replace the instruction with one that doesn't require it."
+since = "0.16.0"
 deprecated = false
 
 [diagnostic.T0521]

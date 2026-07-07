@@ -8,7 +8,7 @@ use paideia_as_diagnostics::{SourceMap, Span, VecSink};
 use paideia_as_elaborator::{LocalBindingTable, unsafe_walker::UnsafeWalker};
 use paideia_as_ir::instruction::Operand;
 use paideia_as_ir::{InstrMode, IrArena};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 /// Helper to create a test span.
@@ -131,6 +131,7 @@ fn mov_symbol_memory_operand(source: &str, ast: &mut AstArena, memref_operand: N
         &record_layouts,
         &local_bindings,
         InstrMode::Mode64,
+        &HashSet::new(),
     );
 
     assert_eq!(

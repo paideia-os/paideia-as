@@ -2403,6 +2403,45 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             AttrValue::Int(int_val)
         } else if self.at(TokenKind::StringLit) {
             let str_tok = self.expect(TokenKind::StringLit)?;
+
+            // PA-r16-004-backtrack-a (#1033): Validate target_features attribute.
+            // Parse comma-separated feature tokens and emit P0241 for unknown tokens.
+            if name_text == "target_features" {
+                let str_text = self.source_text_for_span(str_tok.span);
+                // Remove surrounding quotes from the string literal.
+                let content = if str_text.starts_with('"') && str_text.ends_with('"') {
+                    &str_text[1..str_text.len() - 1]
+                } else {
+                    str_text
+                };
+
+                // Split by comma and validate each token
+                let mut errors = Vec::new();
+                for token in content.split(',') {
+                    let trimmed = token.trim();
+                    if !trimmed.is_empty() {
+                        // Use CpuFeature::from_token to check validity
+                        if paideia_as_ir::instruction::CpuFeature::from_token(trimmed).is_none() {
+                            errors.push(trimmed.to_string());
+                        }
+                    }
+                }
+
+                // Emit all errors after collecting them
+                for error_token in errors {
+                    let code = DiagnosticCode::new(Category::P, Severity::Error, 241)
+                        .expect("valid P0241 code");
+                    let diag = Diagnostic::error(code)
+                        .message(format!(
+                            "unknown CPU feature token '{}'; supported: cx16, popcnt, bmi1, sse4.2, avx, avx512f",
+                            error_token
+                        ))
+                        .with_span(str_tok.span)
+                        .finish();
+                    self.emit_diagnostic(diag);
+                }
+            }
+
             let str_id = self.arena_mut().alloc(NodeKind::Placeholder, str_tok.span);
             AttrValue::Str(str_id)
         } else if self.at(TokenKind::Ident) {

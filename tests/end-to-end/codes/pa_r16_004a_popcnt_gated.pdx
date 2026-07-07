@@ -1,0 +1,11 @@
+module PaR16004aPopcntGated = structure {
+  let f : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "test popcnt without feature declaration",
+    block: {
+      popcnt_q rax, rbx;
+      ret
+    }
+  }
+}

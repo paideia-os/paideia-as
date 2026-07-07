@@ -1,0 +1,13 @@
+#![target_features = "popcnt"]
+
+module PaR16004aPopcntEnabled = structure {
+  let f : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "test popcnt with feature declaration",
+    block: {
+      popcnt_q rax, rbx;
+      ret
+    }
+  }
+}

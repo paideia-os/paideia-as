@@ -2058,6 +2058,7 @@ dependencies = [
  "insta",
  "paideia-as-ast",
  "paideia-as-diagnostics",
+ "paideia-as-ir",
  "paideia-as-lexer",
 ]
 
