@@ -223,11 +223,9 @@ impl EmitWalker {
                         // PA-r17-004: 3-way dispatch for call sites: local binding, module symbol, or cross-file.
                         if app_children.len() >= 1 {
                             let _callee_id = app_children[0];
-                            let num_args = app_children.len() - 1; // args are children[1..]
+                            let _num_args = app_children.len() - 1; // args are children[1..]
 
-                            if num_args > 6 {
-                                // Out of #982 scope; fall through to legacy (Var,Var)/(Var,Literal) paths below.
-                            } else if let Some(meta) = arena.call_sites().get(body_id) {
+                            if let Some(meta) = arena.call_sites().get(body_id) {
                                 let name = &meta.callee_name;
 
                                 // (1) Local-binding lookup — lexical scope shadows module scope.
@@ -253,6 +251,7 @@ impl EmitWalker {
                                 }
 
                                 // (3) Cross-file — well-formed name not found locally, writer synthesizes undefined PLT.
+                                // Also handles 7+ arg calls: emit_function_call will generate EncodeError.
                                 let main_id = IrNodeId::new(lambda_node_id.get() * 2)
                                     .expect("main instr virtual id");
                                 self.record_lambda_entry(lambda_node_id, main_id);

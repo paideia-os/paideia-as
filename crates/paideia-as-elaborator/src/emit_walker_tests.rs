@@ -1,6 +1,7 @@
 use super::*;
 use crate::emit_fixture::EmitFixture;
 use paideia_as_diagnostics::{FileId, Span};
+use paideia_as_ir::CallMeta;
 
 fn span() -> Span {
     Span::new(FileId::new(1).unwrap(), 0, 1)
@@ -2129,6 +2130,13 @@ fn emit_walker_pa7_002_zero_arg_function_call() {
     let app_id = arena.alloc_with_children(IrKind::App, span(), [var_a_id]);
     let lambda_b_id = arena.alloc_with_children(IrKind::Lambda, span(), [app_id]);
 
+    // Register the call site metadata
+    arena.call_sites_mut().insert(app_id, CallMeta {
+        callee_name: "a".to_string(),
+        arg_count: 0,
+        is_intrinsic: false,
+    });
+
     // Walk the arena.
     let mut walker = EmitWalker::new();
     walker.walk(&mut arena);
@@ -2196,6 +2204,13 @@ fn emit_walker_pa7_002_one_arg_function_call() {
     arena.literal_values_mut().insert(lit_7_id, 7);
     let call_app_id = arena.alloc_with_children(IrKind::App, span(), [var_f_id, lit_7_id]);
     let lambda_g_id = arena.alloc_with_children(IrKind::Lambda, span(), [call_app_id]);
+
+    // Register the call site metadata
+    arena.call_sites_mut().insert(call_app_id, CallMeta {
+        callee_name: "f".to_string(),
+        arg_count: 1,
+        is_intrinsic: false,
+    });
 
     // Walk the arena.
     let mut walker = EmitWalker::new();
@@ -2590,6 +2605,13 @@ fn emit_walker_function_call_3_args() {
     let sym = Symbol::new("f".to_string(), SymbolKind::Function, lambda_id);
     arena.symbols_mut().insert(sym);
 
+    // Register the call site metadata
+    arena.call_sites_mut().insert(app_id, CallMeta {
+        callee_name: "f".to_string(),
+        arg_count: 3,
+        is_intrinsic: false,
+    });
+
     // Walk the arena
     let mut walker = EmitWalker::new();
     walker.walk(&mut arena);
@@ -2638,6 +2660,13 @@ fn emit_walker_function_call_4_args() {
     let sym = Symbol::new("f".to_string(), SymbolKind::Function, lambda_id);
     arena.symbols_mut().insert(sym);
 
+    // Register the call site metadata
+    arena.call_sites_mut().insert(app_id, CallMeta {
+        callee_name: "f".to_string(),
+        arg_count: 4,
+        is_intrinsic: false,
+    });
+
     // Walk the arena
     let mut walker = EmitWalker::new();
     walker.walk(&mut arena);
@@ -2679,6 +2708,13 @@ fn emit_walker_function_call_5_args() {
     // Create and register a function symbol
     let sym = Symbol::new("f".to_string(), SymbolKind::Function, lambda_id);
     arena.symbols_mut().insert(sym);
+
+    // Register the call site metadata
+    arena.call_sites_mut().insert(app_id, CallMeta {
+        callee_name: "f".to_string(),
+        arg_count: 5,
+        is_intrinsic: false,
+    });
 
     // Walk the arena
     let mut walker = EmitWalker::new();
@@ -2725,6 +2761,13 @@ fn emit_walker_function_call_6_args() {
     // Create and register a function symbol
     let sym = Symbol::new("f".to_string(), SymbolKind::Function, lambda_id);
     arena.symbols_mut().insert(sym);
+
+    // Register the call site metadata
+    arena.call_sites_mut().insert(app_id, CallMeta {
+        callee_name: "f".to_string(),
+        arg_count: 6,
+        is_intrinsic: false,
+    });
 
     // Walk the arena
     let mut walker = EmitWalker::new();
@@ -2774,16 +2817,23 @@ fn emit_walker_function_call_7_args_reject() {
     let sym = Symbol::new("f".to_string(), SymbolKind::Function, lambda_id);
     arena.symbols_mut().insert(sym);
 
+    // Register the call site metadata
+    arena.call_sites_mut().insert(app_id, CallMeta {
+        callee_name: "f".to_string(),
+        arg_count: 7,
+        is_intrinsic: false,
+    });
+
     // Walk the arena
     let mut walker = EmitWalker::new();
     walker.walk(&mut arena);
 
-    // Verify that diagnostics contain the "stack-spilled arg" error
+    // Verify that diagnostics contain the "out of bounds" error
     let diags = walker.diagnostics();
     assert!(
         diags.iter()
-            .any(|d| d.contains("stack-spilled arg") || d.contains("phase 7 only supports 0-6")),
-        "Expected stack-spill error, got: {:?}",
+            .any(|d| d.contains("out of bounds") || d.contains("max 6")),
+        "Expected out-of-bounds error, got: {:?}",
         diags
     );
 }
