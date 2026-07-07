@@ -2290,6 +2290,46 @@ fn encode_adc(
                 mnemonic: Mnemonic::Adc { width },
             })
         }
+        [Operand::Reg(dest), Operand::Imm64(imm)] => {
+            let imm_i64 = *imm;
+
+            // Check if the immediate fits in i32
+            if imm_i64 < i32::MIN as i64 || imm_i64 > i32::MAX as i64 {
+                return Err(EncodeError::Unsupported(
+                    "adc: immediate does not fit in i32",
+                ));
+            }
+
+            let imm_i32 = imm_i64 as i32;
+
+            // Choose between imm8 and imm32 forms
+            if (-128..=127).contains(&imm_i32) {
+                // Immediate fits in i8; use shorter encoding
+                match width {
+                    IntWidth::W64 => {
+                        adc_reg64_imm8(buf, reg64_from(*dest)?, imm_i32 as i8);
+                    }
+                    IntWidth::W32 => {
+                        let dst_id = reg32_from(*dest)? as u8;
+                        adc_reg32_imm8(buf, dst_id, imm_i32 as i8);
+                    }
+                    _ => unreachable!(),
+                }
+            } else {
+                // Immediate requires full i32 form
+                match width {
+                    IntWidth::W64 => {
+                        adc_reg64_imm32(buf, reg64_from(*dest)?, imm_i32);
+                    }
+                    IntWidth::W32 => {
+                        let dst_id = reg32_from(*dest)? as u8;
+                        adc_reg32_imm32(buf, dst_id, imm_i32);
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            Ok(EncodeOutput::new())
+        }
         _ => Err(EncodeError::OperandShape {
             mnemonic: Mnemonic::Adc { width },
         }),

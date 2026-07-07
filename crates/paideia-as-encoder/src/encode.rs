@@ -3610,6 +3610,70 @@ pub fn sub_reg64_imm32(buf: &mut CodeBuffer, dst: Reg64, imm: i32) {
     buf.bytes.extend(imm.to_le_bytes());
 }
 
+/// Encode `adc reg64, imm8` (8-bit immediate, sign-extended to 64-bit).
+/// PA-R16-007 (issue #1069).
+///
+/// Instruction: REX.W 83 /2 ib
+/// ModR/M: 0xD0 | reg  (mod=11 reg=010 rm=<reg&7>)
+pub fn adc_reg64_imm8(buf: &mut CodeBuffer, dst: Reg64, imm: i8) {
+    let reg_id = dst as u8;
+    let rex_byte = rex(true, false, false, (reg_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x83);
+    buf.bytes.push(0xD0 | (reg_id & 7));
+    buf.bytes.push(imm as u8);
+}
+
+/// Encode `adc reg64, imm32` (32-bit immediate, sign-extended to 64-bit).
+/// PA-R16-007 (issue #1069).
+///
+/// Instruction: REX.W 81 /2 id
+/// ModR/M: 0xD0 | reg  (mod=11 reg=010 rm=<reg&7>)
+pub fn adc_reg64_imm32(buf: &mut CodeBuffer, dst: Reg64, imm: i32) {
+    let reg_id = dst as u8;
+    let rex_byte = rex(true, false, false, (reg_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x81);
+    buf.bytes.push(0xD0 | (reg_id & 7));
+    buf.bytes.extend(imm.to_le_bytes());
+}
+
+/// Encode `adc reg32, imm8` (8-bit immediate).
+/// PA-R16-007 (issue #1069).
+///
+/// Instruction: [REX.B] 83 /2 ib
+/// ModR/M: 0xD0 | (reg_id & 7)
+/// When the high bit is set in the register ID (r8–r15), we emit REX.B.
+///
+/// Example: `adc eax, 5` → `83 d0 05`
+/// Example: `adc r8d, 5` → `41 83 d0 05`
+pub fn adc_reg32_imm8(buf: &mut CodeBuffer, reg_id: u8, imm: i8) {
+    if (reg_id >> 3) != 0 {
+        buf.bytes.push(rex(false, false, false, true));
+    }
+    buf.bytes.push(0x83);
+    buf.bytes.push(0xD0 | (reg_id & 7));
+    buf.bytes.push(imm as u8);
+}
+
+/// Encode `adc reg32, imm32` (32-bit immediate).
+/// PA-R16-007 (issue #1069).
+///
+/// Instruction: [REX.B] 81 /2 id
+/// ModR/M: 0xD0 | (reg_id & 7)
+/// When the high bit is set in the register ID (r8–r15), we emit REX.B.
+///
+/// Example: `adc eax, 0x1000` → `81 d0 00 10 00 00`
+/// Example: `adc r15d, 0x80000001` → `41 81 d7 01 00 00 80`
+pub fn adc_reg32_imm32(buf: &mut CodeBuffer, reg_id: u8, imm: i32) {
+    if (reg_id >> 3) != 0 {
+        buf.bytes.push(rex(false, false, false, true));
+    }
+    buf.bytes.push(0x81);
+    buf.bytes.push(0xD0 | (reg_id & 7));
+    buf.bytes.extend(imm.to_le_bytes());
+}
+
 /// Encode `call rel32` (near call).
 ///
 /// Instruction: E8 cd (displacement is relative to end of instruction)
