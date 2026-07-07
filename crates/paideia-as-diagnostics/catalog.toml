@@ -1032,8 +1032,8 @@ deprecated = false
 severity = "error"
 category = "type"
 title = "Address-of target is not a function; data-symbol addr-of not supported in v0.17"
-brief = "& operator applied to non-function symbol"
-description = "Issue #981 (pa-r17-003): in v0.17, the & (address-of) operator is limited to function symbols only. Taking the address of a data symbol (let-bound variable, constant, or array) is not yet supported. Use &function_name only."
+brief = "& operator applied to non-function symbol, or addend exceeds i32 range"
+description = "Issue #981 (pa-r17-003): in v0.17, the & (address-of) operator is limited to function symbols only. Taking the address of a data symbol (let-bound variable, constant, or array) is not yet supported. Use &function_name only. Issue #992 (pa-r17-014): addends in lea [rip + sym + addend] must fit in i32; offsets for record fields must not exceed i32::MAX (0x7FFFFFFF)."
 since = "0.17.0"
 deprecated = false
 

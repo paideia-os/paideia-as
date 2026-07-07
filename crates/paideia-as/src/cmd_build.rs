@@ -175,6 +175,46 @@ fn extract_var_name_from_operand(
     }
 }
 
+/// PA-R17-014 / #992: Check that an address-of addend fits in i32 for rel32 relocations.
+///
+/// When a lea instruction uses RIP-relative addressing with an addend (e.g., `lea r64, [rip + sym + addend]`),
+/// the addend must fit in a signed 32-bit integer. This function validates that constraint and emits
+/// a T0536 diagnostic on overflow.
+///
+/// NOTE: Currently this helper is future-proofing. The elaborator's try_extract_symbol_sum
+/// in unsafe_walker.rs performs early validation (lines 1271-1275), so addend overflow is
+/// already caught at elaboration time. This helper will be wired in when field-offset-derived
+/// addends are computed (issue #1043-1046 postprocessing).
+///
+/// Returns `Some(addend as i32)` on success, or `None` after emitting T0536 to the sink.
+#[allow(dead_code)]
+fn check_addend_i32(
+    addend: i64,
+    span: paideia_as_diagnostics::Span,
+    sink: &mut dyn paideia_as_diagnostics::DiagnosticSink,
+) -> Option<i32> {
+    if (i32::MIN as i64..=i32::MAX as i64).contains(&addend) {
+        Some(addend as i32)
+    } else {
+        // Emit T0536 diagnostic for addend overflow
+        let diag = Diagnostic::error(
+            DiagnosticCode::new(
+                Category::T,
+                Severity::Error,
+                536,
+            ).expect("T0536 is valid")
+        )
+        .message(format!(
+            "lea rel32 addend exceeds i32 range: {} (min: {}, max: {})",
+            addend, i32::MIN as i64, i32::MAX as i64
+        ))
+        .with_span(span)
+        .finish();
+        let _ = sink.emit(diag);
+        None
+    }
+}
+
 /// Phase 15 m2-002a: Extract the `#![bits = N]` inner attribute from the root module.
 ///
 /// Returns the bits value (32 or 64) if present, otherwise None.

@@ -3175,6 +3175,11 @@ fn encode_lea(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
 
             buf.bytes.extend([0, 0, 0, 0]); // placeholder disp32
 
+            // PA-R17-014 / #992: Defense-in-depth check: addend must fit in i32 for rel32 relocations
+            if i32::try_from(*addend as i64 + PC32_FIELD_BIAS as i64).is_err() {
+                return Err(EncodeError::Unsupported("lea rel32 addend overflows i32"));
+            }
+
             let mut output = EncodeOutput::new();
             output.add_reloc(RelocSite {
                 byte_offset: 3, // disp32 starts at byte +3 of the lea instruction (instruction-local); translator adds offset_before
@@ -3194,6 +3199,11 @@ fn encode_lea(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
             buf.bytes.push(0x8D); // LEA opcode
             buf.bytes.push(0x05 | ((dest_id & 7) << 3)); // ModR/M with rip-relative form
             buf.bytes.extend([0, 0, 0, 0]); // placeholder disp32
+
+            // PA-R17-014 / #992: Defense-in-depth check: addend must fit in i32 for rel32 relocations
+            if i32::try_from(*addend as i64 + PC32_FIELD_BIAS as i64).is_err() {
+                return Err(EncodeError::Unsupported("lea rel32 addend overflows i32"));
+            }
 
             let mut output = EncodeOutput::new();
             output.add_reloc(RelocSite {
