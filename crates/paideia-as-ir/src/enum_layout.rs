@@ -12,6 +12,19 @@ use serde::{Deserialize, Serialize};
 
 use crate::node::IrNodeId;
 
+/// PA-r17-011 (#989): calling convention for enum types.
+///
+/// Enums ≤ 16 bytes fit in RAX:RDX per SysV (discriminant in RAX,
+/// payload in RDX). Larger enums are returned via caller-supplied
+/// pointer in RDI.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum PassingConvention {
+    /// Discriminant in RAX, payload in RDX.
+    RegisterPair,
+    /// Return slot pointed to by RDI; disc at [RDI+0], payload at [RDI+disc_size].
+    Indirect,
+}
+
 /// A stable type identifier for enums (would come from the type system in later phases).
 /// For now, this is a simple wrapper around a u32.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
@@ -95,6 +108,16 @@ impl EnumLayout {
             discriminant_size: 8,
             payload_offset: 8,
             payload_size,
+        }
+    }
+
+    /// Compute the passing convention based on size.
+    #[must_use]
+    pub fn passing_convention(&self) -> PassingConvention {
+        if self.size <= 16 {
+            PassingConvention::RegisterPair
+        } else {
+            PassingConvention::Indirect
         }
     }
 }
@@ -336,6 +359,29 @@ mod tests {
         assert_eq!(layout.discriminant_size, 8);
         assert_eq!(layout.payload_offset, 8);
         assert_eq!(layout.payload_size, 16);
+    }
+
+    // ── EnumLayout::passing_convention tests (PA-r17-011) ───────
+
+    #[test]
+    fn passing_convention_12_byte_layout_is_register_pair() {
+        let layout = EnumLayout::new(4);  // disc(8) + payload(4) = 12
+        assert_eq!(layout.size, 12);
+        assert_eq!(layout.passing_convention(), PassingConvention::RegisterPair);
+    }
+
+    #[test]
+    fn passing_convention_16_byte_layout_is_register_pair() {
+        let layout = EnumLayout::new(8);  // disc(8) + payload(8) = 16 (boundary)
+        assert_eq!(layout.size, 16);
+        assert_eq!(layout.passing_convention(), PassingConvention::RegisterPair);
+    }
+
+    #[test]
+    fn passing_convention_20_byte_layout_is_indirect() {
+        let layout = EnumLayout::new(12);  // disc(8) + payload(12) = 20
+        assert_eq!(layout.size, 20);
+        assert_eq!(layout.passing_convention(), PassingConvention::Indirect);
     }
 
     // ── FinalisedEnumLayoutTable tests ─────────────────────────────

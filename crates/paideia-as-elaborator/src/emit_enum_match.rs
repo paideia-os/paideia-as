@@ -8,7 +8,7 @@
 //! bindings and match arms delegate to.
 
 use paideia_as_ir::instruction::{Cond, Instruction, Mnemonic, Operand, RegId};
-use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi};
+use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi, PassingConvention};
 
 use crate::emit_walker::EmitWalker;
 
@@ -32,7 +32,7 @@ impl EmitWalker {
             }
         };
 
-        let (layout_size, layout_payload_size) =
+        let (_layout_size, layout_payload_size) =
             match self.state.enum_layout(info.type_id) {
                 Some(l) => (l.size, l.payload_size),
                 None => {
@@ -45,121 +45,137 @@ impl EmitWalker {
             };
 
         let variant_index = info.variant_index as i64;
+        let layout = match self.state.enum_layout(info.type_id) {
+            Some(l) => l,
+            None => {
+                self.diagnostics.push(format!(
+                    "No enum layout found for type {}",
+                    info.type_id.0
+                ));
+                return;
+            }
+        };
 
-        if layout_size <= 16 {
-            // Register form: RAX = discriminant, RDX = payload (if any)
-            // Emit 1: mov rax, <variant_index>
-            let disc_id = IrNodeId::new(enum_cons_id.get() * 10)
-                .expect("virtual disc id");
-            let mut disc_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-            disc_operands.push(Operand::Reg(abi::RAX));  // RAX
-            disc_operands.push(Operand::Imm64(variant_index));
+        let discriminant_size = layout.discriminant_size as i32;
+        let passing_conv = layout.passing_convention();
 
-            self.emit_inst(disc_id, Instruction {
-                mnemonic: Mnemonic::Mov,
-                operands: disc_operands,
-                encoding_hint: None,
-                byte_offset_in_text: None,
-                mode: self.current_mode(),
-            });
+        match passing_conv {
+            PassingConvention::RegisterPair => {
+                // Register form: RAX = discriminant, RDX = payload (if any)
+                // Emit 1: mov rax, <variant_index>
+                let disc_id = IrNodeId::new(enum_cons_id.get() * 10)
+                    .expect("virtual disc id");
+                let mut disc_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                disc_operands.push(Operand::Reg(abi::RAX));  // RAX
+                disc_operands.push(Operand::Imm64(variant_index));
 
-            // Emit 2 only if payload_size > 0
-            if layout_payload_size > 0 {
-                let payload_id = IrNodeId::new(enum_cons_id.get() * 10 + 1)
-                    .expect("virtual payload id");
-                let children = arena.children(enum_cons_id);
-                let payload_child_id = children.first().copied();
+                self.emit_inst(disc_id, Instruction {
+                    mnemonic: Mnemonic::Mov,
+                    operands: disc_operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                });
 
-                let payload_operand = match payload_child_id {
-                    Some(child_id) => {
-                        let child = arena.get(child_id);
-                        match child.map(|n| n.kind) {
-                            Some(IrKind::Literal) => {
-                                let val = arena.literal_values().get(child_id).unwrap_or(0);
-                                Operand::Imm64(val)
-                            }
-                            Some(IrKind::Var) => {
-                                // Var → Reg source (RDI for now, matching visit_field_assign convention)
-                                Operand::Reg(abi::RDI)
-                            }
-                            _ => {
-                                self.diagnostics.push(format!(
-                                    "EnumCons {} payload child {:?} not supported (only Literal/Var)",
-                                    enum_cons_id.get(),
-                                    child.map(|n| n.kind)
-                                ));
-                                return;
+                // Emit 2 only if payload_size > 0
+                if layout_payload_size > 0 {
+                    let payload_id = IrNodeId::new(enum_cons_id.get() * 10 + 1)
+                        .expect("virtual payload id");
+                    let children = arena.children(enum_cons_id);
+                    let payload_child_id = children.first().copied();
+
+                    let payload_operand = match payload_child_id {
+                        Some(child_id) => {
+                            let child = arena.get(child_id);
+                            match child.map(|n| n.kind) {
+                                Some(IrKind::Literal) => {
+                                    let val = arena.literal_values().get(child_id).unwrap_or(0);
+                                    Operand::Imm64(val)
+                                }
+                                Some(IrKind::Var) => {
+                                    // Var → Reg source (RDI for now, matching visit_field_assign convention)
+                                    Operand::Reg(abi::RDI)
+                                }
+                                _ => {
+                                    self.diagnostics.push(format!(
+                                        "EnumCons {} payload child {:?} not supported (only Literal/Var)",
+                                        enum_cons_id.get(),
+                                        child.map(|n| n.kind)
+                                    ));
+                                    return;
+                                }
                             }
                         }
-                    }
-                    None => {
-                        self.diagnostics.push(format!(
-                            "EnumCons {} has payload_size > 0 but no child",
-                            enum_cons_id.get()
-                        ));
-                        return;
-                    }
-                };
+                        None => {
+                            self.diagnostics.push(format!(
+                                "EnumCons {} has payload_size > 0 but no child",
+                                enum_cons_id.get()
+                            ));
+                            return;
+                        }
+                    };
 
-                let mut payload_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-                payload_operands.push(Operand::Reg(abi::RDX));  // RDX
-                payload_operands.push(payload_operand);
+                    let mut payload_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                    payload_operands.push(Operand::Reg(abi::RDX));  // RDX
+                    payload_operands.push(payload_operand);
 
-                self.emit_inst(payload_id, Instruction {
-                    mnemonic: Mnemonic::Mov,
-                    operands: payload_operands,
-                    encoding_hint: None,
-                    byte_offset_in_text: None,
-                    mode: self.current_mode(),
-                });
+                    self.emit_inst(payload_id, Instruction {
+                        mnemonic: Mnemonic::Mov,
+                        operands: payload_operands,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode: self.current_mode(),
+                    });
+                }
             }
-        } else {
-            // Stack form: [rsp+0] = disc, [rsp+8] = payload
-            // Emit 1: mov [rsp+0], <disc>
-            let disc_id = IrNodeId::new(enum_cons_id.get() * 10)
-                .expect("virtual disc id");
-            let mut disc_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-            disc_operands.push(Operand::MemSib {
-                base: abi::RSP,  // RSP
-                index: None,
-                scale: paideia_as_ir::instruction::Scale::X1,
-                disp: 0,
-            });
-            disc_operands.push(Operand::Imm64(variant_index));
-
-            self.emit_inst(disc_id, Instruction {
-                mnemonic: Mnemonic::Mov,
-                operands: disc_operands,
-                encoding_hint: None,
-                byte_offset_in_text: None,
-                mode: self.current_mode(),
-            });
-
-            if layout_payload_size > 0 {
-                // Emit 2: mov [rsp+8], payload_value or reg
-                let payload_id = IrNodeId::new(enum_cons_id.get() * 10 + 1)
-                    .expect("virtual payload id");
-                let children = arena.children(enum_cons_id);
-                let payload_val = children.first()
-                    .and_then(|&c| Some(arena.literal_values().get(c).unwrap_or(0)))
-                    .unwrap_or(0);
-
-                let mut payload_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-                payload_operands.push(Operand::MemSib {
-                    base: abi::RSP,
+            PassingConvention::Indirect => {
+                // Indirect form: [rdi+0] = disc, [rdi+disc_size] = payload
+                // Emit 1: mov [rdi+0], <disc>
+                let disc_id = IrNodeId::new(enum_cons_id.get() * 10)
+                    .expect("virtual disc id");
+                let mut disc_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                disc_operands.push(Operand::MemSib {
+                    base: abi::RDI,  // RDI (return slot pointer)
                     index: None,
                     scale: paideia_as_ir::instruction::Scale::X1,
-                    disp: 8,
+                    disp: 0,
                 });
-                payload_operands.push(Operand::Imm64(payload_val));
+                disc_operands.push(Operand::Imm64(variant_index));
 
-                self.emit_inst(payload_id, Instruction {
+                self.emit_inst(disc_id, Instruction {
                     mnemonic: Mnemonic::Mov,
-                    operands: payload_operands,
+                    operands: disc_operands,
                     encoding_hint: None,
                     byte_offset_in_text: None,
                     mode: self.current_mode(),
                 });
+
+                if layout_payload_size > 0 {
+                    // Emit 2: mov [rdi+disc_size], payload_value or reg
+                    let payload_id = IrNodeId::new(enum_cons_id.get() * 10 + 1)
+                        .expect("virtual payload id");
+                    let children = arena.children(enum_cons_id);
+                    let payload_val = children.first()
+                        .and_then(|&c| Some(arena.literal_values().get(c).unwrap_or(0)))
+                        .unwrap_or(0);
+
+                    let mut payload_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                    payload_operands.push(Operand::MemSib {
+                        base: abi::RDI,
+                        index: None,
+                        scale: paideia_as_ir::instruction::Scale::X1,
+                        disp: discriminant_size,
+                    });
+                    payload_operands.push(Operand::Imm64(payload_val));
+
+                    self.emit_inst(payload_id, Instruction {
+                        mnemonic: Mnemonic::Mov,
+                        operands: payload_operands,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode: self.current_mode(),
+                    });
+                }
             }
         }
     }

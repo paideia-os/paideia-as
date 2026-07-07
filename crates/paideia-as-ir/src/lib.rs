@@ -58,6 +58,7 @@ pub use enum_layout::{
     EnumConsInfo, EnumConsSideTable, EnumDiscriminantSideTable, EnumLayout,
     FinalisedEnumLayoutTable, EnumTypeId, MatchArmMeta, MatchArmMetaSideTable,
     MatchDispatchMeta, MatchDispatchMetaSideTable, MatchScrutineeTable, PatternBinding,
+    PassingConvention,
 };
 pub use handler_value::{HandlerInfo, HandlerSideTable, pretty_handler};
 pub use instruction::{

@@ -4164,45 +4164,45 @@ fn enum_cons_payload_size_8_boundary_reg_form() {
 
 #[test]
 fn enum_cons_payload_size_16_stack_form() {
-    // 16-byte payload (size 24 total), should use stack form
-    // mov [rsp+0], 0; mov [rsp+8], 0 (encoder doesn't support mov [mem], imm yet, so just verify IR generation)
+    // 16-byte payload (size 24 total), should use indirect form (PA-r17-011)
+    // mov [rdi+0], 0; mov [rdi+8], 0 (encoder doesn't support mov [mem], imm yet, so just verify IR generation)
     let (disc_inst, payload_inst) = build_and_walk_enum_cons(16, 0, true, 0);
     assert_eq!(disc_inst.mnemonic, Mnemonic::Mov);
     assert!(payload_inst.is_some());
 
-    // Check discriminant operand is MemSib [rsp+0]
+    // Check discriminant operand is MemSib [rdi+0]
     match &disc_inst.operands.as_slice() {
         [Operand::MemSib { base, disp, .. }, Operand::Imm64(_)] => {
-            assert_eq!(*base, abi::RSP); // RSP
+            assert_eq!(*base, abi::RDI); // RDI (was RSP — the bug fix)
             assert_eq!(*disp, 0);
         }
-        _ => panic!("Expected MemSib operand for stack form discriminant"),
+        _ => panic!("Expected MemSib operand for indirect form discriminant"),
     }
 
-    // Check payload operand is MemSib [rsp+8]
+    // Check payload operand is MemSib [rdi+8]
     let payload = payload_inst.unwrap();
     match &payload.operands.as_slice() {
         [Operand::MemSib { base, disp, .. }, Operand::Imm64(_)] => {
-            assert_eq!(*base, abi::RSP); // RSP
+            assert_eq!(*base, abi::RDI); // RDI (was RSP — the bug fix)
             assert_eq!(*disp, 8);
         }
-        _ => panic!("Expected MemSib operand for stack form payload"),
+        _ => panic!("Expected MemSib operand for indirect form payload"),
     }
 }
 
 #[test]
 fn enum_cons_payload_size_24_stack() {
-    // 24-byte payload (size 32 total), stack form
+    // 24-byte payload (size 32 total), indirect form (PA-r17-011)
     let (disc_inst, _payload_inst) = build_and_walk_enum_cons(24, 0, true, 0);
     assert_eq!(disc_inst.mnemonic, Mnemonic::Mov);
 
-    // Check discriminant operand is MemSib [rsp+0]
+    // Check discriminant operand is MemSib [rdi+0]
     match &disc_inst.operands.as_slice() {
         [Operand::MemSib { base, disp, .. }, Operand::Imm64(_)] => {
-            assert_eq!(*base, abi::RSP); // RSP
+            assert_eq!(*base, abi::RDI); // RDI (was RSP — the bug fix)
             assert_eq!(*disp, 0);
         }
-        _ => panic!("Expected MemSib operand for stack form discriminant"),
+        _ => panic!("Expected MemSib operand for indirect form discriminant"),
     }
 }
 
@@ -4309,6 +4309,88 @@ fn enum_cons_missing_layout_emits_diagnostic() {
     assert!(!walker.diagnostics().is_empty());
     let msg = walker.diagnostics()[0].clone();
     assert!(msg.contains("No enum layout found"));
+}
+
+// ── PA-r17-011 (#989): enum passing convention tests ────────────────────
+
+#[test]
+fn enum_cons_small_writes_rax_rdx() {
+    // payload_size=8 (total 16), register pair form
+    // Should write to RAX (disc) and RDX (payload)
+    let (disc_inst, payload_inst) = build_and_walk_enum_cons(8, 0, true, 42);
+
+    // Verify discriminant write goes to RAX
+    match &disc_inst.operands.as_slice() {
+        [Operand::Reg(reg), Operand::Imm64(_)] => {
+            assert_eq!(*reg, abi::RAX, "Register form discriminant should write to RAX");
+        }
+        _ => panic!("Expected Reg operand for register form discriminant"),
+    }
+
+    // Verify payload write goes to RDX
+    assert!(payload_inst.is_some(), "Register form should emit payload write");
+    let payload = payload_inst.unwrap();
+    match &payload.operands.as_slice() {
+        [Operand::Reg(reg), Operand::Imm64(_)] => {
+            assert_eq!(*reg, abi::RDX, "Register form payload should write to RDX");
+        }
+        _ => panic!("Expected Reg operand for register form payload"),
+    }
+}
+
+#[test]
+fn enum_cons_large_writes_rdi_slot() {
+    // payload_size=24 (total 32), indirect form
+    // Should write to [RDI+0] (disc) and [RDI+8] (payload, where 8 = discriminant_size)
+    let (disc_inst, payload_inst) = build_and_walk_enum_cons(24, 0, true, 0);
+
+    // Verify discriminant write goes to [RDI+0]
+    match &disc_inst.operands.as_slice() {
+        [Operand::MemSib { base, disp, .. }, Operand::Imm64(_)] => {
+            assert_eq!(*base, abi::RDI, "Indirect form discriminant should write to [RDI+...]");
+            assert_eq!(*disp, 0, "Discriminant should be at [RDI+0]");
+        }
+        _ => panic!("Expected MemSib operand for indirect form discriminant"),
+    }
+
+    // Verify payload write goes to [RDI+8]
+    assert!(payload_inst.is_some(), "Indirect form should emit payload write");
+    let payload = payload_inst.unwrap();
+    match &payload.operands.as_slice() {
+        [Operand::MemSib { base, disp, .. }, Operand::Imm64(_)] => {
+            assert_eq!(*base, abi::RDI, "Indirect form payload should write to [RDI+...]");
+            assert_eq!(*disp, 8, "Payload should be at [RDI+8] (after 8-byte discriminant)");
+        }
+        _ => panic!("Expected MemSib operand for indirect form payload"),
+    }
+}
+
+#[test]
+fn enum_cons_large_disc_only_writes_rdi_only() {
+    // payload_size=24, but has_payload=false (still uses 24-byte layout, but no child)
+    // Should write discriminant to [RDI+0] and payload to [RDI+8] when layout_payload_size > 0
+    // This test verifies that the indirect form uses RDI, not RSP
+    let (disc_inst, payload_inst) = build_and_walk_enum_cons(24, 0, true, 0);
+
+    // Verify discriminant write goes to [RDI+0]
+    match &disc_inst.operands.as_slice() {
+        [Operand::MemSib { base, disp, .. }, Operand::Imm64(_)] => {
+            assert_eq!(*base, abi::RDI, "Indirect form discriminant should write to [RDI+...]");
+            assert_eq!(*disp, 0, "Discriminant should be at [RDI+0]");
+        }
+        _ => panic!("Expected MemSib operand for indirect form discriminant"),
+    }
+
+    // Verify payload write goes to [RDI+8]
+    assert!(payload_inst.is_some(), "Indirect form with payload_size > 0 should emit payload write");
+    let payload = payload_inst.unwrap();
+    match &payload.operands.as_slice() {
+        [Operand::MemSib { base, disp, .. }, Operand::Imm64(_)] => {
+            assert_eq!(*base, abi::RDI, "Indirect form payload should write to [RDI+...]");
+            assert_eq!(*disp, 8, "Payload should be at [RDI+8]");
+        }
+        _ => panic!("Expected MemSib operand for indirect form payload"),
+    }
 }
 
 #[test]
