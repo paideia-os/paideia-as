@@ -410,4 +410,80 @@ mod tests {
         assert_eq!(reloc1.offset, 8, "Second relocation at offset 8");
         assert!(reloc1.symbol.contains("match_arm"), "Relocation should reference arm body label");
     }
+
+    /// Issue #1091 test: encode_enum_cons with RecordCons payload.
+    /// Verifies that an EnumCons with discriminant 1 and RecordCons payload
+    /// (with nested Literal fields) encodes correctly, including the record structure.
+    #[test]
+    fn encode_enum_cons_record_payload_produces_correct_bytes() {
+        use paideia_as_diagnostics::{FileId, Span};
+        use paideia_as_ir::{EnumConsInfo, EnumLayout, EnumTypeId};
+
+        fn span() -> Span {
+            Span::new(FileId::new(1).unwrap(), 0, 1)
+        }
+
+        let mut arena = IrArena::new();
+
+        // Allocate record constructor nodes: RecordCons(type_name="Point", x=Literal(1), y=Literal(2))
+        let type_name_id = arena.alloc(IrKind::Literal, span());
+        let field_x_id = arena.alloc(IrKind::Literal, span());
+        let field_y_id = arena.alloc(IrKind::Literal, span());
+
+        arena.literal_values_mut().insert(field_x_id, 1);
+        arena.literal_values_mut().insert(field_y_id, 2);
+
+        let record_id = arena.alloc_with_children(
+            IrKind::RecordCons,
+            span(),
+            [type_name_id, field_x_id, field_y_id],
+        );
+
+        // Allocate an EnumCons node with discriminant 1 (Ok variant) and RecordCons payload
+        let enum_id = arena.alloc_with_children(IrKind::EnumCons, span(), [record_id]);
+
+        // Register the EnumConsInfo for this EnumCons
+        let enum_type_id = EnumTypeId(100);
+        arena.enum_cons_info_mut().insert(
+            enum_id,
+            EnumConsInfo {
+                type_id: enum_type_id,
+                variant_index: 1, // Ok = variant 1
+            },
+        );
+
+        // Register an EnumLayout for the enum type
+        // Assume: discriminant_size=8, payload_offset=8, payload_size=16 (2 u64 fields), total_size=24, align=8
+        arena.enum_layout_table_mut().insert(
+            enum_type_id,
+            EnumLayout {
+                size: 24,
+                align: 8,
+                discriminant_size: 8,
+                payload_offset: 8,
+                payload_size: 16,
+            },
+        );
+
+        // Encode the enum
+        let result = encode_enum_cons(&arena, enum_id);
+        assert!(result.is_some(), "encode_enum_cons should succeed with valid record payload");
+
+        let bytes = result.unwrap();
+
+        // Expected byte layout:
+        // Offset 0-7: discriminant 1 as u64 LE = [01 00 00 00 00 00 00 00]
+        // Offset 8-15: record field 1 as u64 LE = [01 00 00 00 00 00 00 00]
+        // Offset 16-23: record field 2 as u64 LE = [02 00 00 00 00 00 00 00]
+        let expected = vec![
+            0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // discriminant 1
+            0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // field x = 1
+            0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // field y = 2
+        ];
+
+        assert_eq!(
+            bytes, expected,
+            "EnumCons(discriminant=1, RecordCons(x=1, y=2)) should encode to correct bytes"
+        );
+    }
 }

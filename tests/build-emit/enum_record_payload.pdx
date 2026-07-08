@@ -1,0 +1,8 @@
+// Issue #1091: Enum variant constructor with RecordCons payload
+// Tests that enum constructors with record literal payloads parse, lower, and emit correctly
+
+module EnumRecordPayload = structure {
+  struct Point { x: u32, y: u32 }
+  enum Result { Ok(Point), Err }
+  pub let r : Result = Result::Ok(Point { x: 5u32, y: 10u32 })
+}

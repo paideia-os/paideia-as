@@ -1858,47 +1858,11 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                         data_entries.push((node_id, entry));
                                     }
                                 } else if rhs_node.kind == paideia_as_ir::IrKind::EnumCons {
-                                    // Phase 7 m4-003 (#1048/#1049): EnumCons emit.
-                                    // Emit discriminant + payload bytes into .rodata (or .data if mutable).
-                                    // Look up the enum layout from enum_layout_table.
-                                    let enum_cons_info = lowering.ir.enum_cons_info().get(rhs_id);
-                                    if let Some(info) = enum_cons_info {
-                                        let layout = lowering.ir.enum_layout_table().get(info.type_id);
-                                        if let Some(_layout) = layout {
-                                            // Emit discriminant (variant_index as u64) + payload bytes
-                                            let mut bytes = Vec::new();
-
-                                            // Emit discriminant as 8-byte u64 little-endian
-                                            let discriminant_bytes = paideia_as_elaborator::data_encoder::pack_u64_le(info.variant_index as i64);
-                                            bytes.extend(discriminant_bytes);
-
-                                            // Emit payload fields
-                                            // EnumCons children are [payload_0, payload_1, ...]
-                                            let payload_children = lowering.ir.children(rhs_id);
-                                            for &payload_id in payload_children.iter() {
-                                                if let Some(payload_node) = lowering.ir.get(payload_id) {
-                                                    if payload_node.kind == paideia_as_ir::IrKind::Literal {
-                                                        if let Some(value) = lowering.ir.literal_values().get(payload_id) {
-                                                            let payload_bytes = paideia_as_elaborator::data_encoder::pack_u64_le(value);
-                                                            bytes.extend(payload_bytes);
-                                                        }
-                                                    } else {
-                                                        // Non-Literal payload: emit diagnostic
-                                                        let diag = Diagnostic::error(
-                                                            DiagnosticCode::new(
-                                                                Category::T,
-                                                                Severity::Error,
-                                                                0555, // T0555: enum payload must be literal
-                                                            ).expect("T0555 is valid")
-                                                        )
-                                                        .message("enum variant payload must be a literal")
-                                                        .with_span(payload_node.span)
-                                                        .finish();
-                                                        let _ = sink.emit(diag);
-                                                    }
-                                                }
-                                            }
-
+                                    // Issue #1091 (#PA-r17-008): EnumCons emit via data_encoder delegation.
+                                    // Delegates to encode_enum_cons which handles discriminant + recursive payload encoding
+                                    // (including nested records), then wraps the result in DataEntry.
+                                    match paideia_as_elaborator::data_encoder::encode_enum_cons(&lowering.ir, rhs_id) {
+                                        Some(bytes) => {
                                             let explicit_align = lowering.ir.let_meta().get(node_id).and_then(|i| i.align);
                                             let is_mutable = lowering.ir.let_meta().get(node_id)
                                                 .map(|info| info.mutable).unwrap_or(false);
@@ -1916,20 +1880,30 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                                 )
                                             };
                                             data_entries.push((node_id, entry));
-                                        } else {
-                                            // No enum layout found: emit diagnostic
+                                        }
+                                        None => {
+                                            // encode_enum_cons returned None: either layout is not available or
+                                            // a payload child is not encodable. Walk payload children to find
+                                            // the first non-encodable one and emit a T0555 diagnostic with its span.
+                                            let payload_children = lowering.ir.children(rhs_id);
+                                            let mut bad_child_span = rhs_node.span;
+                                            for &payload_id in payload_children {
+                                                if paideia_as_elaborator::data_encoder::encode_ir_value(&lowering.ir, payload_id).is_none() {
+                                                    if let Some(payload_node) = lowering.ir.get(payload_id) {
+                                                        bad_child_span = payload_node.span;
+                                                    }
+                                                    break;
+                                                }
+                                            }
                                             let diag = Diagnostic::error(
                                                 DiagnosticCode::new(
                                                     Category::T,
                                                     Severity::Error,
-                                                    0556, // T0556: enum layout not populated
-                                                ).expect("T0556 is valid")
+                                                    0555, // T0555: enum payload must be encodable
+                                                ).expect("T0555 is valid")
                                             )
-                                            .message(format!(
-                                                "enum layout not populated for type_id {}, deferred to #1050",
-                                                info.type_id.0
-                                            ))
-                                            .with_span(rhs_node.span)
+                                            .message("enum variant payload must be a literal or record literal")
+                                            .with_span(bad_child_span)
                                             .finish();
                                             let _ = sink.emit(diag);
                                         }
