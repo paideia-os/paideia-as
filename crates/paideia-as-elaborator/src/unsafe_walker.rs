@@ -117,6 +117,8 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     ("std", Mnemonic::Std),
     ("hlt", Mnemonic::Hlt),
     ("ud2", Mnemonic::Ud2),
+    ("endbr64", Mnemonic::Endbr64),
+    ("endbr32", Mnemonic::Endbr32),
     ("rep_stosq", Mnemonic::RepStosq),
     ("farjmp", Mnemonic::FarJmp),
     ("ljmp", Mnemonic::FarJmp), // PA10-006h: ljmp alias for farjmp (two-operand form)
@@ -1674,6 +1676,16 @@ mod tests {
     fn resolve_mnemonic_rdtsc_case_insensitive() {
         assert_eq!(resolve_mnemonic("RDTSC"), Some(Mnemonic::Rdtsc));
         assert_eq!(resolve_mnemonic("Rdtsc"), Some(Mnemonic::Rdtsc));
+    }
+
+    #[test]
+    fn resolve_mnemonic_endbr64() {
+        assert_eq!(resolve_mnemonic("endbr64"), Some(Mnemonic::Endbr64));
+    }
+
+    #[test]
+    fn resolve_mnemonic_endbr32() {
+        assert_eq!(resolve_mnemonic("endbr32"), Some(Mnemonic::Endbr32));
     }
 
     // --- Phase 6 m3-005: Field access operand parsing tests ---

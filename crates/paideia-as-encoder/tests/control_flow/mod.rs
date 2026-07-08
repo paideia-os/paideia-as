@@ -4,6 +4,7 @@
 //! and UD2 (undefined-instruction trap).
 
 mod call_indirect;
+mod endbr;
 mod ljmp_two_operand;
 mod setcc_reg8;
 mod ud2;

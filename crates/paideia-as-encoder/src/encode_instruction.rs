@@ -345,6 +345,8 @@ fn encode_instruction_impl(
         Mnemonic::Std => encode_std(inst, buf),
         Mnemonic::Hlt => encode_hlt(inst, buf),
         Mnemonic::Nop => encode_nop(inst, buf),
+        Mnemonic::Endbr64 => encode_endbr64(inst, buf),
+        Mnemonic::Endbr32 => encode_endbr32(inst, buf),
         Mnemonic::Swapgs => encode_swapgs(inst, buf),
         Mnemonic::Cpuid => encode_cpuid(inst, buf),
         Mnemonic::Ud2 => encode_ud2(inst, buf),
@@ -3395,6 +3397,30 @@ fn encode_ud2(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
         });
     }
     encode_zero_operand(buf, 0x83); // sentinel for UD2
+    Ok(EncodeOutput::new())
+}
+
+fn encode_endbr64(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    if !inst.operands.is_empty() {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::Endbr64,
+            expected: 0,
+            got: inst.operands.len(),
+        });
+    }
+    encode_zero_operand(buf, 0x86); // sentinel for ENDBR64
+    Ok(EncodeOutput::new())
+}
+
+fn encode_endbr32(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    if !inst.operands.is_empty() {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::Endbr32,
+            expected: 0,
+            got: inst.operands.len(),
+        });
+    }
+    encode_zero_operand(buf, 0x87); // sentinel for ENDBR32
     Ok(EncodeOutput::new())
 }
 

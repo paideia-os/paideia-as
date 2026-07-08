@@ -4204,6 +4204,8 @@ pub fn encode_out_dx(buf: &mut CodeBuffer, width: u8) {
 ///   - 0x81 (sentinel) for SWAPGS
 ///   - 0x82 (sentinel) for CPUID
 ///   - 0x83 (sentinel) for UD2
+///   - 0x86 (sentinel) for ENDBR64
+///   - 0x87 (sentinel) for ENDBR32
 pub fn encode_zero_operand(buf: &mut CodeBuffer, mnem_byte: u8) {
     match mnem_byte {
         0x90 => {
@@ -4245,6 +4247,20 @@ pub fn encode_zero_operand(buf: &mut CodeBuffer, mnem_byte: u8) {
         0x85 => {
             // STD: FD (set direction flag)
             buf.bytes.push(0xFD);
+        }
+        0x86 => {
+            // ENDBR64: F3 0F 1E FA (Intel CET end branch 64-bit; sentinel)
+            buf.bytes.push(0xF3);
+            buf.bytes.push(0x0F);
+            buf.bytes.push(0x1E);
+            buf.bytes.push(0xFA);
+        }
+        0x87 => {
+            // ENDBR32: F3 0F 1E FB (Intel CET end branch 32-bit; sentinel)
+            buf.bytes.push(0xF3);
+            buf.bytes.push(0x0F);
+            buf.bytes.push(0x1E);
+            buf.bytes.push(0xFB);
         }
         _ => {
             // Unreachable for valid mnemonics
@@ -7517,6 +7533,30 @@ mod tests {
             // Verify key properties
             assert_eq!(instr.mnemonic(), IcedMnem::Mov);
             assert_eq!(instr.op_count(), 2);
+        }
+
+        #[test]
+        fn endbr64_round_trips_through_iced_x86() {
+            use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+            let mut buf = CodeBuffer::new();
+            encode_zero_operand(&mut buf, 0x86); // ENDBR64 sentinel
+
+            let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+            let instr = decoder.decode();
+            assert_eq!(instr.mnemonic(), IcedMnem::Endbr64);
+        }
+
+        #[test]
+        fn endbr32_round_trips_through_iced_x86() {
+            use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+            let mut buf = CodeBuffer::new();
+            encode_zero_operand(&mut buf, 0x87); // ENDBR32 sentinel
+
+            let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+            let instr = decoder.decode();
+            assert_eq!(instr.mnemonic(), IcedMnem::Endbr32);
         }
     }
 }

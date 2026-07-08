@@ -22,6 +22,8 @@ pub enum CpuFeature {
     Popcnt,
     /// CPUID.07H:EBX[bit 3] — Tzcnt/Andn
     Bmi1,
+    /// CPUID.07H:ECX[bit 23] — Endbr64/Endbr32 (Intel CET)
+    Cet,
     /// Reserved for later mnemonics:
     Sse42,
     /// Reserved for later mnemonics:
@@ -39,6 +41,7 @@ impl CpuFeature {
             "cx16" => Some(Self::Cx16),
             "popcnt" => Some(Self::Popcnt),
             "bmi1" => Some(Self::Bmi1),
+            "cet" => Some(Self::Cet),
             "sse4.2" | "sse42" => Some(Self::Sse42),
             "avx" => Some(Self::Avx),
             "avx512f" => Some(Self::Avx512F),
@@ -53,6 +56,7 @@ impl CpuFeature {
             Self::Cx16 => "cx16",
             Self::Popcnt => "popcnt",
             Self::Bmi1 => "bmi1",
+            Self::Cet => "cet",
             Self::Sse42 => "sse4.2",
             Self::Avx => "avx",
             Self::Avx512F => "avx512f",
@@ -160,6 +164,12 @@ pub enum Mnemonic {
     Int,
     /// No operation.
     Nop,
+    /// Intel CET End Branch 64 (indirect branch target for 64-bit mode).
+    /// Phase R15 PA-R15-M4-005 (issue #1021): emits `endbr64` (F3 0F 1E FA). Zero operands.
+    Endbr64,
+    /// Intel CET End Branch 32 (indirect branch target for 32-bit mode).
+    /// Phase R15 PA-R15-M4-005 (issue #1021): emits `endbr32` (F3 0F 1E FB). Zero operands.
+    Endbr32,
     /// REP-prefixed STOSQ (store to memory via RCX iterations).
     RepStosq,
     /// Far jump (intersegment).
@@ -820,6 +830,8 @@ impl Mnemonic {
             | Mnemonic::Hlt
             | Mnemonic::Ud2
             | Mnemonic::Nop
+            | Mnemonic::Endbr64
+            | Mnemonic::Endbr32
             | Mnemonic::Swapgs
             | Mnemonic::Cpuid
             | Mnemonic::Wrmsr
@@ -936,6 +948,7 @@ impl Mnemonic {
             Self::Popcnt { .. } => Some(CpuFeature::Popcnt),
             Self::Crc32 { .. } => Some(CpuFeature::Sse42),
             Self::Tzcnt { .. } => Some(CpuFeature::Bmi1),
+            Self::Endbr64 | Self::Endbr32 => Some(CpuFeature::Cet),
             _ => None,
         }
     }
@@ -1090,6 +1103,9 @@ impl Mnemonic {
 
             // Undefined instruction: 2 bytes
             Mnemonic::Ud2 => 2,
+
+            // Intel CET End Branch: 4 bytes
+            Mnemonic::Endbr64 | Mnemonic::Endbr32 => 4,
 
             // RepStosq: 2 bytes
             Mnemonic::RepStosq => 2,

@@ -151,6 +151,8 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         | Mnemonic::Hlt
         | Mnemonic::Int
         | Mnemonic::Nop
+        | Mnemonic::Endbr64
+        | Mnemonic::Endbr32
         | Mnemonic::RepStosq
         | Mnemonic::FarJmp
         // Phase 8 m5-001: supervisor TLB and timing mnemonics
