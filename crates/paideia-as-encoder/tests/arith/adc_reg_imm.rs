@@ -1,17 +1,19 @@
 //! Tests for ADC register + immediate encoders (PA-R16-007).
 //! Mirrors the pattern from issue #1060 (add_reg_imm tests).
 
-use paideia_as_encoder::{CodeBuffer, EncodeStats};
 use paideia_as_ir::InstrMode;
 use paideia_as_ir::instruction::{Instruction, IntWidth, Mnemonic, Operand, RegId};
 use smallvec::smallvec;
 
-/// Helper to encode ADC instruction and return bytes.
+use crate::common;
+
+/// Helper to encode ADC instruction and return bytes. Wraps the shared
+/// `common::encode_bytes` harness with the ADC-specific `Instruction`
+/// scaffolding (mnemonic + operands).
 fn encode_adc_inst(
     mnemonic: Mnemonic,
     operands: smallvec::SmallVec<[Operand; 3]>,
 ) -> Vec<u8> {
-    let mut buf = CodeBuffer::new();
     let inst = Instruction {
         mnemonic,
         operands,
@@ -19,12 +21,7 @@ fn encode_adc_inst(
         mode: InstrMode::default(),
         encoding_hint: None,
     };
-
-    let mut stats = EncodeStats::new();
-    paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
-        .expect("encoding failed for adc");
-
-    buf.as_slice().to_vec()
+    common::encode_bytes(&inst)
 }
 
 #[test]

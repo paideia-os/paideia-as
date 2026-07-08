@@ -29,7 +29,7 @@ fn or_eax_signbit_0x80000001() {
     };
 
     let mut stats = EncodeStats::new();
-    let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
+    paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
         .expect("encoding should succeed for 0x80000001");
 
     // Expected: 81 C8 01 00 00 80 (opcode 81, modrm C8, imm32 in LE)
@@ -40,6 +40,7 @@ fn or_eax_signbit_0x80000001() {
 
 /// Test 2: or eax, 0xFFFFFFFF (all bits set) → 81 C8 FF FF FF FF.
 #[test]
+#[allow(non_snake_case)]
 fn or_eax_signbit_0xFFFFFFFF() {
     let mut buf = CodeBuffer::new();
     let inst = Instruction {
@@ -54,7 +55,7 @@ fn or_eax_signbit_0xFFFFFFFF() {
     };
 
     let mut stats = EncodeStats::new();
-    let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
+    paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
         .expect("encoding should succeed for 0xFFFFFFFF");
 
     // Expected: 81 C8 FF FF FF FF
@@ -78,7 +79,7 @@ fn or_ecx_signbit_boundary() {
     };
 
     let mut stats = EncodeStats::new();
-    let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
+    paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
         .expect("encoding should succeed for 0x80000000");
 
     // Expected: 81 C9 00 00 00 80 (modrm C9 for ecx)
@@ -102,7 +103,7 @@ fn or_edx_signed_max_no_signbit() {
     };
 
     let mut stats = EncodeStats::new();
-    let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
+    paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
         .expect("encoding should succeed for 0x7FFFFFFF");
 
     // Expected: 81 CA FF FF FF 7F (modrm CA for edx)
