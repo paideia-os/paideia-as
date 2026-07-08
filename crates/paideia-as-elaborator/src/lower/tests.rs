@@ -2139,3 +2139,159 @@ fn lower_record_cons_empty_registry_preserves_literal_order() {
         "with empty registry, should preserve literal order (x field second)"
     );
 }
+
+#[test]
+fn match_scrutinee_table_populated_for_lambda_param() {
+    // Test that match scrutinee type is resolved when the scrutinee is a lambda parameter.
+    // Build AST: enum Traffic { Red, Yellow, Green, Blue }
+    //            fn(t: Traffic) -> match t { Red => 1, ... }
+    // Run lower_ast_to_ir
+    // Assert result.ir.match_scrutinee_table() contains the match node with Traffic type.
+    use paideia_as_ir::EnumTypeId;
+    use paideia_as_diagnostics::FileId;
+
+    let mut source_map = SourceMap::new();
+    let source_text = "Traffic Red Yellow Green Blue t";
+    let _file = source_map.add_file(
+        std::path::PathBuf::from("test.pdx"),
+        String::from(source_text),
+    );
+    let mut sink = VecSink::new();
+    let mut ast = AstArena::new();
+
+    let file_id = FileId::new(1).unwrap();
+    let make_span = |offset: u32, len: u32| {
+        paideia_as_diagnostics::Span::new(file_id, offset, len)
+    };
+
+    // Create enum: enum Traffic { Red, Yellow, Green, Blue }
+    let enum_name_id = ast.alloc(NodeKind::Ident, make_span(0, 7)); // "Traffic"
+    let red_variant_name_id = ast.alloc(NodeKind::Ident, make_span(8, 3)); // "Red"
+    let yellow_variant_name_id = ast.alloc(NodeKind::Ident, make_span(12, 6)); // "Yellow"
+    let green_variant_name_id = ast.alloc(NodeKind::Ident, make_span(19, 5)); // "Green"
+    let blue_variant_name_id = ast.alloc(NodeKind::Ident, make_span(25, 4)); // "Blue"
+
+    let red_variant = paideia_as_ast::EnumVariant::Unit {
+        name: red_variant_name_id,
+    };
+    let yellow_variant = paideia_as_ast::EnumVariant::Unit {
+        name: yellow_variant_name_id,
+    };
+    let green_variant = paideia_as_ast::EnumVariant::Unit {
+        name: green_variant_name_id,
+    };
+    let blue_variant = paideia_as_ast::EnumVariant::Unit {
+        name: blue_variant_name_id,
+    };
+
+    let _enum_item_id = ast.alloc_item(
+        NodeKind::Enum,
+        make_span(0, 1),
+        paideia_as_ast::ItemData::Enum {
+            name: enum_name_id,
+            generic_params: vec![],
+            variants: vec![red_variant, yellow_variant, green_variant, blue_variant],
+            attributes: vec![],
+            doc: None,
+        },
+    );
+
+    // Create lambda parameter pattern: t
+    let t_pattern_id = ast.alloc(NodeKind::PatIdent, make_span(30, 1)); // "t"
+
+    // Create lambda parameter type: Traffic
+    let traffic_type_id = ast.alloc(NodeKind::Ident, make_span(0, 7)); // "Traffic"
+
+    // Register pattern → type mapping
+    ast.pattern_type_hints_mut()
+        .insert(t_pattern_id, traffic_type_id);
+
+    // Create scrutinee reference: t
+    let scrutinee = ast.alloc(NodeKind::Ident, make_span(30, 1)); // "t"
+
+    // Create arm 1: Red => 1
+    let red_arm_pattern = ast.alloc(NodeKind::Ident, make_span(8, 3)); // "Red"
+    let red_arm_body = ast.alloc(NodeKind::ExprLiteral, make_span(0, 1));
+    let red_arm = paideia_as_ast::MatchArm {
+        pattern: red_arm_pattern,
+        guard: None,
+        body: red_arm_body,
+    };
+
+    // Create arm 2: Yellow => 2
+    let yellow_arm_pattern = ast.alloc(NodeKind::Ident, make_span(12, 6)); // "Yellow"
+    let yellow_arm_body = ast.alloc(NodeKind::ExprLiteral, make_span(0, 1));
+    let yellow_arm = paideia_as_ast::MatchArm {
+        pattern: yellow_arm_pattern,
+        guard: None,
+        body: yellow_arm_body,
+    };
+
+    // Create match expression
+    let match_id = ast.alloc_expr(
+        NodeKind::ExprMatch,
+        make_span(0, 1),
+        paideia_as_ast::ExprData::Match {
+            scrutinee,
+            arms: vec![red_arm, yellow_arm],
+            attrs: Default::default(),
+        },
+    );
+
+    // Create lambda body with the match expression
+    let lambda_id = ast.alloc_expr(
+        NodeKind::ExprLambda,
+        make_span(0, 1),
+        ExprData::Lambda {
+            generic_params: vec![],
+            params: vec![t_pattern_id],
+            body: match_id,
+            pipe_form: false,
+        },
+    );
+
+    // Build enum registry
+    let mut enum_registry = crate::EnumRegistry::empty();
+    let traffic_enum_type_id = EnumTypeId(1);
+    enum_registry
+        .by_name
+        .insert("Traffic".to_string(), traffic_enum_type_id);
+    enum_registry.variants.insert(
+        traffic_enum_type_id,
+        vec![
+            ("Red".to_string(), vec![]),
+            ("Yellow".to_string(), vec![]),
+            ("Green".to_string(), vec![]),
+            ("Blue".to_string(), vec![]),
+        ],
+    );
+
+    // Lower the AST
+    let result = lower_ast_to_ir(
+        &ast,
+        &source_map,
+        &mut sink,
+        &crate::StructRegistry::empty(),
+        &enum_registry,
+        &std::collections::HashMap::new(),
+    );
+
+    // Verify the Match IR node was created
+    let match_ir_id = result.ast_to_ir[&match_id];
+    assert_eq!(result.ir[match_ir_id].kind, IrKind::Match);
+
+    // Verify match_scrutinee_table entry
+    let scrutinee_type = result.ir.match_scrutinee_table().get(match_ir_id);
+    assert_eq!(
+        scrutinee_type.copied(),
+        Some(traffic_enum_type_id),
+        "match_scrutinee_table should contain the Traffic enum type for lambda param scrutinee"
+    );
+
+    // Verify arm metadata entries
+    let match_children = result.ir.children(match_ir_id);
+    assert!(
+        match_children.len() >= 3,
+        "Match should have scrutinee + 2 arms as children"
+    );
+}

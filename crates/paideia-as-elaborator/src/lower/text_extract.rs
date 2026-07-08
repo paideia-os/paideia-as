@@ -11,7 +11,7 @@
 //! their own registry (`StructRegistry` for field access, `EnumRegistry`
 //! for match arms).
 
-use paideia_as_ast::{AstArena, NodeId, NodeKind};
+use paideia_as_ast::{AstArena, ExprData, NodeId, NodeKind};
 use paideia_as_diagnostics::SourceMap;
 use std::collections::HashMap;
 
@@ -100,7 +100,89 @@ pub(super) fn build_binding_type_map(ast: &AstArena, source_map: &SourceMap) -> 
                 }
             }
         }
+
+        // Lambda parameter type hints (allows match scrutinee resolution for
+        // `fn(t: Traffic) -> match t {...}`).
+        if ast_node.kind == NodeKind::ExprLambda {
+            if let Some(ExprData::Lambda { params, .. }) = ast.expr_data(ast_id) {
+                for &pat_id in params {
+                    // Get the pattern's declared type via pattern_type_hints side table.
+                    if let Some(type_node_id) = ast.pattern_type_hints().get(pat_id) {
+                        // Extract param name from PatIdent (skip complex patterns).
+                        if ast.get(pat_id).map(|n| n.kind) == Some(NodeKind::PatIdent) {
+                            let name_text = extract_source_text_for_record_cons(ast, source_map, pat_id);
+                            let type_text =
+                                extract_source_text_for_record_cons(ast, source_map, type_node_id);
+                            if let (Some(n), Some(t)) = (name_text, type_text) {
+                                binding_to_type.insert(n, t);
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     binding_to_type
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use paideia_as_diagnostics::FileId;
+
+    fn make_test_span(file_id: FileId, offset: u32, len: u32) -> paideia_as_diagnostics::Span {
+        paideia_as_diagnostics::Span::new(file_id, offset, len)
+    }
+
+    #[test]
+    fn build_binding_type_map_recognizes_lambda_params() {
+        // Build AST: fn(t: Traffic) -> ...
+        // Set pattern_type_hints[pat_t] = type_traffic
+        // Call build_binding_type_map(&ast, &source_map)
+        // Assert map.get("t") == Some(&"Traffic".to_string())
+
+        let mut source_map = SourceMap::new();
+        let source_text = "t Traffic";
+        let file = source_map.add_file(
+            std::path::PathBuf::from("test.pdx"),
+            String::from(source_text),
+        );
+        let file_id = file;
+
+        let mut ast = AstArena::new();
+
+        // Create pattern node for "t" (PatIdent)
+        let t_pattern_id = ast.alloc(NodeKind::PatIdent, make_test_span(file_id, 0, 1)); // "t"
+
+        // Create type node for "Traffic"
+        let traffic_type_id = ast.alloc(NodeKind::Ident, make_test_span(file_id, 2, 7)); // "Traffic"
+
+        // Register the pattern → type mapping via pattern_type_hints
+        ast.pattern_type_hints_mut()
+            .insert(t_pattern_id, traffic_type_id);
+
+        // Create lambda expression: fn(t: Traffic) -> body
+        let body_id = ast.alloc(NodeKind::ExprLiteral, make_test_span(file_id, 0, 1));
+        let lambda_id = ast.alloc_expr(
+            NodeKind::ExprLambda,
+            make_test_span(file_id, 0, 1),
+            ExprData::Lambda {
+                generic_params: vec![],
+                params: vec![t_pattern_id],
+                body: body_id,
+                pipe_form: false,
+            },
+        );
+
+        // Call build_binding_type_map
+        let map = build_binding_type_map(&ast, &source_map);
+
+        // Assert map contains the lambda parameter binding
+        assert_eq!(
+            map.get("t"),
+            Some(&"Traffic".to_string()),
+            "Lambda param 't' should be mapped to type 'Traffic'"
+        );
+    }
 }
