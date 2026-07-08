@@ -1908,6 +1908,30 @@ pub fn fxrstor_mem_base_disp(buf: &mut CodeBuffer, base: Reg64, disp: i32) {
     emit_mem_base_disp(buf, 1, base_id, disp);
 }
 
+/// Encode `xsaveopt [base + disp]` — PA-R15-m4-005 (issue #1022).
+/// Instruction: 0F AE /6 (reg field = 110). Optimized save of processor extended state.
+pub fn xsaveopt_mem_base_disp(buf: &mut CodeBuffer, base: Reg64, disp: i32) {
+    let base_id = base as u8;
+    if (base_id >> 3) != 0 {
+        buf.bytes.push(rex(false, false, false, true));
+    }
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xAE);
+    emit_mem_base_disp(buf, 6, base_id, disp);
+}
+
+/// Encode `xrstor [base + disp]` — PA-R15-m4-005 (issue #1022).
+/// Instruction: 0F AE /5 (reg field = 101). Restore processor extended state.
+pub fn xrstor_mem_base_disp(buf: &mut CodeBuffer, base: Reg64, disp: i32) {
+    let base_id = base as u8;
+    if (base_id >> 3) != 0 {
+        buf.bytes.push(rex(false, false, false, true));
+    }
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0xAE);
+    emit_mem_base_disp(buf, 5, base_id, disp);
+}
+
 /// Encode `clflush [base + disp]` — PA-R14-005 (issue #948).
 /// Instruction: 0F AE /7 (reg field = 111). Flushes cache line to main memory.
 /// REX.B for r8-r15 base; no REX.W.

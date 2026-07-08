@@ -433,6 +433,9 @@ fn encode_instruction_impl(
         // Phase R13 PA-R13-007: fxsave/fxrstor to memory
         Mnemonic::Fxsave => encode_fxsave_inst(inst, buf),
         Mnemonic::Fxrstor => encode_fxrstor_inst(inst, buf),
+        // Phase R15 PA-R15-m4-005 (issue #1022): xsaveopt/xrstor to memory
+        Mnemonic::Xsaveopt => encode_xsaveopt_inst(inst, buf),
+        Mnemonic::Xrstor => encode_xrstor_inst(inst, buf),
         // Phase R14 PA-R14-005: cache line flush instructions
         Mnemonic::Clflush => encode_clflush_inst(inst, buf),
         Mnemonic::Clflushopt => encode_clflushopt_inst(inst, buf),
@@ -1314,6 +1317,30 @@ fn encode_fxrstor_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<Encod
             Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::Fxrstor }),
+    }
+}
+
+/// Phase R15 PA-R15-m4-005 (issue #1022): Encode xsaveopt instruction.
+/// Expects one memory operand [base + disp]. Emits via `xsaveopt_mem_base_disp`.
+fn encode_xsaveopt_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::MemSib { base, index: None, scale: Scale::X1, disp }] => {
+            xsaveopt_mem_base_disp(buf, reg64_from(*base)?, *disp);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::Xsaveopt }),
+    }
+}
+
+/// Phase R15 PA-R15-m4-005 (issue #1022): Encode xrstor instruction.
+/// Expects one memory operand [base + disp]. Emits via `xrstor_mem_base_disp`.
+fn encode_xrstor_inst(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::MemSib { base, index: None, scale: Scale::X1, disp }] => {
+            xrstor_mem_base_disp(buf, reg64_from(*base)?, *disp);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape { mnemonic: Mnemonic::Xrstor }),
     }
 }
 

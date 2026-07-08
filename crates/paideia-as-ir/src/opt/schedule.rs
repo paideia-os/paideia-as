@@ -161,6 +161,9 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         // Phase R13 PA-R13-007: FP state operations
         | Mnemonic::Fxsave
         | Mnemonic::Fxrstor
+        // Phase R15 PA-R15-m4-005 (issue #1022): extended state save/restore
+        | Mnemonic::Xsaveopt
+        | Mnemonic::Xrstor
         // Phase R14 PA-R14-003 (issue #946): non-temporal store has special cache semantics
         | Mnemonic::Movnti { .. }
         // Phase R14 PA-R14-005 (issue #948): cache control operations

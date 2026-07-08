@@ -30,6 +30,10 @@ pub enum CpuFeature {
     Avx,
     /// Reserved for later mnemonics:
     Avx512F,
+    /// CPUID.01H:ECX.XSAVE[bit 26] — Xsave/Xrstor
+    Xsave,
+    /// CPUID.01H:ECX.XSAVEOPT[bit 27] — Xsaveopt (optimized save)
+    Xsaveopt,
 }
 
 impl CpuFeature {
@@ -45,6 +49,8 @@ impl CpuFeature {
             "sse4.2" | "sse42" => Some(Self::Sse42),
             "avx" => Some(Self::Avx),
             "avx512f" => Some(Self::Avx512F),
+            "xsave" => Some(Self::Xsave),
+            "xsaveopt" => Some(Self::Xsaveopt),
             _ => None,
         }
     }
@@ -60,6 +66,8 @@ impl CpuFeature {
             Self::Sse42 => "sse4.2",
             Self::Avx => "avx",
             Self::Avx512F => "avx512f",
+            Self::Xsave => "xsave",
+            Self::Xsaveopt => "xsaveopt",
         }
     }
 }
@@ -317,6 +325,14 @@ pub enum Mnemonic {
     /// Instruction: 0F AE /1 (reg field = 001). REX.B for r8-r15 base; no REX.W.
     /// One operand (memory).
     Fxrstor,
+    /// xsaveopt [base + disp] (PA-R15-m4-005, #1022). Optimized save of processor extended state.
+    /// Instruction: 0F AE /6 (reg field = 110). REX.B for r8-r15 base; no REX.W.
+    /// One operand (memory).
+    Xsaveopt,
+    /// xrstor [base + disp] (PA-R15-m4-005, #1022). Restore processor extended state.
+    /// Instruction: 0F AE /5 (reg field = 101). REX.B for r8-r15 base; no REX.W.
+    /// One operand (memory).
+    Xrstor,
     /// clflush [base + disp] (PA-R14-005, #948). Flush cache line to main memory.
     /// Instruction: 0F AE /7 (reg field = 111). REX.B for r8-r15 base; no REX.W.
     /// One operand (memory).
@@ -875,6 +891,8 @@ impl Mnemonic {
             | Mnemonic::Ltr
             | Mnemonic::Fxsave
             | Mnemonic::Fxrstor
+            | Mnemonic::Xsaveopt
+            | Mnemonic::Xrstor
             | Mnemonic::Clflush
             | Mnemonic::Clflushopt
             | Mnemonic::Prefetchnta
@@ -949,6 +967,8 @@ impl Mnemonic {
             Self::Crc32 { .. } => Some(CpuFeature::Sse42),
             Self::Tzcnt { .. } => Some(CpuFeature::Bmi1),
             Self::Endbr64 | Self::Endbr32 => Some(CpuFeature::Cet),
+            Self::Xsaveopt => Some(CpuFeature::Xsaveopt),
+            Self::Xrstor => Some(CpuFeature::Xsave),
             _ => None,
         }
     }
@@ -1181,7 +1201,7 @@ impl Mnemonic {
 
             // Phase R13 PA-R13-007: fxsave/fxrstor to memory, 9 bytes upper bound
             // (two-byte opcode + REX.B + SIB + disp32 worst-case)
-            Mnemonic::Fxsave | Mnemonic::Fxrstor => 9,
+            Mnemonic::Fxsave | Mnemonic::Fxrstor | Mnemonic::Xsaveopt | Mnemonic::Xrstor => 9,
 
             // Phase R14 PA-R14-005: clflush/clflushopt, 9 bytes upper bound
             // (0x66 prefix + two-byte opcode + REX.B + SIB + disp32 worst-case)

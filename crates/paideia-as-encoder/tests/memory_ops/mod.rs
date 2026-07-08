@@ -7,3 +7,4 @@ mod cache_ops;
 mod mem_fences;
 mod pause;
 mod prefetch_family;
+mod xsave;

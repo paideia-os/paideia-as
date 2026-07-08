@@ -186,7 +186,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                         .expect("valid P0241 code");
                     let diag = Diagnostic::error(code)
                         .message(format!(
-                            "unknown CPU feature token '{}'; supported: cx16, popcnt, bmi1, cet, sse4.2, avx, avx512f",
+                            "unknown CPU feature token '{}'; supported: cx16, popcnt, bmi1, cet, sse4.2, avx, avx512f, xsave, xsaveopt",
                             error_token
                         ))
                         .with_span(str_tok.span)
