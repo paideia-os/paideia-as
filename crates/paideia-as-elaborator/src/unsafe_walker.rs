@@ -1476,6 +1476,9 @@ pub const U_UNKNOWN_LABEL: u16 = 1610;
 /// Diagnostic code for SymbolRef operand not supported for mnemonic (U1611).
 pub const U_SYMBOLREF_NOT_SUPPORTED: u16 = 1611;
 
+/// Diagnostic code for unsupported statement in unsafe block (U1614).
+pub const U_UNSUPPORTED_STMT_IN_UNSAFE: u16 = 1614;
+
 /// Helper: create a U-category error code.
 fn u_code(n: u16) -> DiagnosticCode {
     DiagnosticCode::new(Category::U, Severity::Error, n).expect("valid U code")
@@ -1684,6 +1687,39 @@ impl UnsafeWalker {
                                                         pending_labels.clear();
                                                     }
                                                 }
+                                            } else {
+                                                // U1614: Unsupported statement kind in unsafe block
+                                                let stmt_kind = ast
+                                                    .get(stmt_id)
+                                                    .map(|n| n.kind)
+                                                    .unwrap_or(NodeKind::Placeholder);
+                                                let stmt_span = ast
+                                                    .get(stmt_id)
+                                                    .map(|n| n.span)
+                                                    .unwrap_or_else(|| {
+                                                        paideia_as_diagnostics::Span::new(
+                                                            paideia_as_diagnostics::FileId::new(1)
+                                                                .unwrap(),
+                                                            0,
+                                                            1,
+                                                        )
+                                                    });
+                                                let diag = Diagnostic::error(
+                                                    DiagnosticCode::new(
+                                                        Category::U,
+                                                        Severity::Error,
+                                                        U_UNSUPPORTED_STMT_IN_UNSAFE,
+                                                    )
+                                                    .expect("valid U1614 code"),
+                                                )
+                                                .message(format!(
+                                                    "unsupported statement in unsafe block: {:?} — only asm mnemonics and labels are emitted today (see #1088 for follow-up)",
+                                                    stmt_kind
+                                                ))
+                                                .with_span(stmt_span)
+                                                .finish();
+                                                let _ = sink.emit(diag.clone());
+                                                diags.push(diag);
                                             }
                                         }
                                     }

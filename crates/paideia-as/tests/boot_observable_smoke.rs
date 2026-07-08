@@ -1,12 +1,19 @@
 //! PA10-006: End-to-end "boot to banner and cap smoke" fixture.
 //!
-//! This test verifies that PA10-001..005 features compose end-to-end via the
+//! This test verifies that PA10-001..004 features compose end-to-end via the
 //! boot_observable.pdx fixture. The fixture exercises:
 //! - PA10-001: PVH ELF note generation (automatic via build pipeline)
 //! - PA10-002: String literal lowering to .rodata (banner constant)
 //! - PA10-003: Bitwise arithmetic for handle decoding (AND/OR/XOR operations)
 //! - PA10-004: Narrow-form Mov instructions (r8-imm, r16-imm, r8-r8, r16-r16)
-//! - PA10-005: Nested let-of-Var in deep block bodies (scope stack with fallback)
+//!
+//! The fixture is now straight-line asm mnemonics with hardcoded port literals
+//! (no let bindings) rather than the nested let-of-Var pattern it originally
+//! exercised.
+//!
+//! PA10-005 nested-let-of-Var coverage retired 2026-07-08 in #1077 — StmtLet
+//! inside unsafe blocks now fires U1614 per #1088 follow-up. Re-add real
+//! coverage once #1088 lands.
 //!
 //! Acceptance criteria:
 //! - build --emit elf64 exits 0

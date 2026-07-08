@@ -1,6 +1,5 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
-assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -678,6 +677,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "Phase 16 m4-001: The #![target_features = \"name\"] attribute specifies a CPU feature token that is not recognized. Valid feature tokens are: cx16, popcnt, bmi1, sse4.2, avx, avx512f. These correspond to x86_64 CPU capabilities that may be assumed for code generation. Other feature names are invalid or not yet supported. Check the feature name spelling against the accepted set, or file an issue to request additional CPU feature support."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0241",
+              "id": "P0241",
+              "name": "Unknown CPU feature token",
+              "shortDescription": {
+                "text": "the CPU feature name is not in the accepted set (cx16, popcnt, bmi1, sse4.2, avx, avx512f)"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "Phase 10 PA10-006y: A postfix symbol attribute was used on a let declaration, but the attribute name is not recognized. Currently, only '@align(N)' is supported for per-symbol alignment. Check that the attribute name is spelled correctly. Example: `let mut pml4 : [u64; 512] = uninit @align(4096)`."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0250",
@@ -853,6 +866,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "Lambda has more than 6 parameters",
               "shortDescription": {
                 "text": "lambda arity exceeds System-V register-passed cap (6)"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Issue #1071 (pa-r17-010b): A struct field declaration is syntactically incomplete. Ensure all fields follow the pattern `name: type`, separated by commas, with proper opening and closing braces. Trailing commas are allowed. Example: `struct S { x: u64, y: u32 }`."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0277",
+              "id": "P0277",
+              "name": "Malformed struct field declaration",
+              "shortDescription": {
+                "text": "expected field name, colon, type, or closing brace"
               }
             },
             {
@@ -1224,6 +1251,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "The field-access lowering path in emit_mem_read_via_rip_sym currently only\nhandles u32 and u64 loads. Fields typed u8/u16/i8/i16/i32 are recognized but\ntheir movzx/movsx lowering is deferred to Phase 17 m6-b. This diagnostic\nreplaces the earlier T0517 reuse at emit_field_access.rs (issue #1080).\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0529",
+              "id": "T0529",
+              "name": "Field read width not yet lowered",
+              "shortDescription": {
+                "text": "only u32/u64 field reads supported; u8/u16/i8/i16/i32 deferred"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "Phase 10 m1-001 (PA10-005): PA10-005 nested var lookup. When resolve_var_operands fails to find a binding in the local binding table, it checks the module's SymbolTable. If found there, this diagnostic is emitted instead of T0528. This indicates the variable is module-scoped (e.g., a global let-fn or let-const) and cannot be directly accessed within function-local unsafe blocks without explicit capture or higher-level binding. Either move the reference outside the unsafe block, or declare a local let binding that captures the module-scoped value."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0531",
@@ -1294,13 +1335,41 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #981 (pa-r17-003): in v0.17, the & (address-of) operator is limited to function symbols only. Taking the address of a data symbol (let-bound variable, constant, or array) is not yet supported. Use &function_name only."
+                "text": "Issue #981 (pa-r17-003): in v0.17, the & (address-of) operator is limited to function symbols only. Taking the address of a data symbol (let-bound variable, constant, or array) is not yet supported. Use &function_name only. Issue #992 (pa-r17-014): addends in lea [rip + sym + addend] must fit in i32; offsets for record fields must not exceed i32::MAX (0x7FFFFFFF)."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0536",
               "id": "T0536",
               "name": "Address-of target is not a function; data-symbol addr-of not supported in v0.17",
               "shortDescription": {
-                "text": "& operator applied to non-function symbol"
+                "text": "& operator applied to non-function symbol, or addend exceeds i32 range"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Issue #1056 (pa-r16-007-followup): stdlib trait methods like PerCpuOps::percpu_inc require their arguments to be integer literals known at compile time. This allows the code generator to directly encode absolute displacements and immediate values into the instruction encoding. Pass an integer literal (e.g., 0x1000, 8192) instead of a variable or expression."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0551",
+              "id": "T0551",
+              "name": "Stdlib intrinsic requires integer-literal argument",
+              "shortDescription": {
+                "text": "stdlib trait method arg must be compile-time integer"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Issue #1070 (PA-r17-010a): Struct field types must be one of the supported primitive types (u8, i8, u16, i16, u32, i32, u64, i64) or a pointer type (*T). Unsupported types include floats (f32, f64), bools, or user-defined types. Use a supported type instead."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0552",
+              "id": "T0552",
+              "name": "Unsupported struct field type",
+              "shortDescription": {
+                "text": "struct field type not recognized"
               }
             },
             {
@@ -1707,6 +1776,48 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "SymbolRef operand not supported for mnemonic in Phase 6",
               "shortDescription": {
                 "text": "bare-identifier symbol in call position is valid only for call/jmp mnemonics"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase 16 m4-002: An instruction mnemonic inside an unsafe block requires a CPU feature (cx16, popcnt, bmi1, sse4.2, avx, avx512f, etc.) that is not declared in the module's #![target_features] attribute. For example, using a popcnt instruction requires declaring #![target_features = \"popcnt\"]. Either add the required feature to the module's #![target_features] list, or replace the instruction with one that doesn't require it."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1612",
+              "id": "U1612",
+              "name": "Required CPU feature not declared",
+              "shortDescription": {
+                "text": "mnemonic requires a CPU feature not present in the module's #![target_features] list"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "fullDescription": {
+                "text": "Phase 16 m4-003: A LOCK-prefixed instruction (e.g., LOCK CMPXCHG) has implicit register reads/writes that conflict with registers named in the explicit operand list. For example, `lock cmpxchg [rax], rcx` reads and writes RAX implicitly, but RAX is also the memory operand's base register — the implicit write will silently overwrite RAX after the instruction executes. This is an aliasing hazard that can lead to correctness bugs. Refactor the instruction to avoid overlapping registers, or use a different addressing mode for the memory operand."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1613",
+              "id": "U1613",
+              "name": "Implicit register clobber overlaps explicit operand",
+              "shortDescription": {
+                "text": "a LOCK-prefixed mnemonic's implicit register write overlaps a register named in its explicit operand list"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Historically the unsafe-block emit path only routes StmtInstruction and\nStmtLabel through the walker. All other statement kinds (call expressions,\nlet bindings, field-access reads, etc.) reach the walker but emit zero\nbytes. This diagnostic makes that drop explicit rather than silent.\n\nThe parser (parse_unsafe.rs) and lowering (lower.rs) accept the full\nstatement grammar inside unsafe blocks; the emit routing to close the gap\nis tracked in follow-up #1088.\n\nWorkaround: move non-asm statements outside the unsafe block, or wait for\n#1088 to land the full routing.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1614",
+              "id": "U1614",
+              "name": "Unsupported statement in unsafe block",
+              "shortDescription": {
+                "text": "unsafe { block: { ... } } currently emits only asm mnemonics and labels; other statement kinds are silently dropped in codegen"
               }
             },
             {

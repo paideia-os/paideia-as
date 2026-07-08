@@ -1,0 +1,17 @@
+module PaR17UnsafeCallStmt = structure {
+    let dummy_fn : () -> u64 !{} @{} = fn(_: ()) -> 42u64
+
+    let test_unsafe_call_stmt : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+        effects: {}
+        capabilities: {}
+        justification: "test unsafe block with call expression"
+        block: {
+            dummy_fn()
+        }
+    }
+
+    let _start : () -> () !{} @{} = fn(_: ()) -> {
+        let _result : u64 = test_unsafe_call_stmt();
+        ()
+    }
+}

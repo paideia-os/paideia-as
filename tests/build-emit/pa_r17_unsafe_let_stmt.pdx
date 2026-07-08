@@ -1,0 +1,16 @@
+module PaR17UnsafeLetStmt = structure {
+    let test_unsafe_let_stmt : () -> () !{} @{} = fn(_: ()) -> unsafe {
+        effects: {}
+        capabilities: {}
+        justification: "test unsafe block with let statement"
+        block: {
+            let x : u64 = 42
+            ret
+        }
+    }
+
+    let _start : () -> () !{} @{} = fn(_: ()) -> {
+        let _result : () = test_unsafe_let_stmt();
+        ()
+    }
+}

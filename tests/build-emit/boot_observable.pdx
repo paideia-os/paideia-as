@@ -12,36 +12,31 @@ module BootObservable = structure {
   // The fixture outputs "PA10" banner via UART using narrow Mov and nested lets.
 
   // PA10-004: Narrow-form Mov for byte operands (mov al, imm8)
-  // Combined with PA10-005: nested let-of-Var pattern
+  // Note: #1077 surfaces let bindings in unsafe blocks as U1614 errors.
+  // Let bindings must be moved outside unsafe blocks until #1088 lands full routing.
   let kernel_main : () -> () !{} @{} = fn(_: ()) -> unsafe {
     effects: {},
     capabilities: {},
-    justification: "output PA10 banner via narrow mov and nested lets (PA10-004/005)",
+    justification: "output PA10 banner via narrow mov (PA10-004)",
     block: {
-      // PA10-005: outer let binding
-      let uart : u64 = 0x3F8
-
       // PA10-004: narrow mov al, imm8 for 'P' (0x50)
       mov al, 0x50
-      mov dx, uart
+      mov dx, 0x3F8
       out_al al
 
-      // PA10-005: inner let re-binding
-      let p : u64 = uart
+      // Output 'A' (0x41)
       mov al, 0x41
-      mov dx, p
+      mov dx, 0x3F8
       out_al al
 
-      // Another nested let
-      let p2 : u64 = uart
+      // Output '1' (0x31)
       mov al, 0x31
-      mov dx, p2
+      mov dx, 0x3F8
       out_al al
 
-      // Yet another
-      let p3 : u64 = uart
+      // Output '0' (0x30)
       mov al, 0x30
-      mov dx, p3
+      mov dx, 0x3F8
       out_al al
     }
   }

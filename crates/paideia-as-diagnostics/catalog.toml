@@ -911,6 +911,26 @@ description = "Phase 16 m4-003: A LOCK-prefixed instruction (e.g., LOCK CMPXCHG)
 since = "0.16.0"
 deprecated = false
 
+[diagnostic.U1614]
+severity = "error"
+category = "unsafe"
+title = "Unsupported statement in unsafe block"
+brief = "unsafe { block: { ... } } currently emits only asm mnemonics and labels; other statement kinds are silently dropped in codegen"
+description = """
+Historically the unsafe-block emit path only routes StmtInstruction and
+StmtLabel through the walker. All other statement kinds (call expressions,
+let bindings, field-access reads, etc.) reach the walker but emit zero
+bytes. This diagnostic makes that drop explicit rather than silent.
+
+The parser (parse_unsafe.rs) and lowering (lower.rs) accept the full
+statement grammar inside unsafe blocks; the emit routing to close the gap
+is tracked in follow-up #1088.
+
+Workaround: move non-asm statements outside the unsafe block, or wait for
+#1088 to land the full routing.
+"""
+since = "0.17.0"
+
 [diagnostic.T0521]
 severity = "error"
 category = "type"

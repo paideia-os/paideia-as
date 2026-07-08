@@ -1,4 +1,5 @@
-// Call in while loop (2 calls: one in loop, one after)
+// Two straight-line calls, no loop.
+// while-loop-around-call coverage retired 2026-07-08 in #1077; StmtWhile inside unsafe now fires U1614 (see #1088).
 module CallInWhile = structure {
   let tgt_a : () -> () !{} @{} = fn(_: ()) -> unsafe {
     effects: {},
@@ -17,7 +18,7 @@ module CallInWhile = structure {
   let caller : () -> () !{} @{} = fn(_: ()) -> unsafe {
     effects: {},
     capabilities: {},
-    justification: "calling in loop",
-    block: { while false { call tgt_a }; call tgt_b; ret }
+    justification: "calling with two sequential calls",
+    block: { call tgt_a; call tgt_b; ret }
   }
 }

@@ -7,7 +7,7 @@
 //! 1. single_call.pdx: 1 call to internal function
 //! 2. back_to_back_calls.pdx: 3 calls sequentially
 //! 3. call_with_cmp.pdx: 2 calls in if-else branches
-//! 4. call_in_while.pdx: 2 calls (1 in while, 1 after)
+//! 4. call_in_while.pdx: 2 straight-line calls (while-loop coverage retired in #1077 pending #1088)
 //! 5. chained_calls.pdx: 3 calls across helper function
 //! 6. double_call.pdx: 2 calls to same function
 //! 7. simple_loop_call.pdx: 1 call in infinite loop

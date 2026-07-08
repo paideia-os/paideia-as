@@ -1,0 +1,23 @@
+module PaR17UnsafeWhileStmt = structure {
+    let tgt : () -> () !{} @{} = fn(_: ()) -> unsafe {
+        effects: {}
+        capabilities: {}
+        justification: "while-loop target"
+        block: { ret }
+    }
+
+    let test_unsafe_while_stmt : () -> () !{} @{} = fn(_: ()) -> unsafe {
+        effects: {}
+        capabilities: {}
+        justification: "test unsafe block with while statement"
+        block: {
+            while false { call tgt }
+            ret
+        }
+    }
+
+    let _start : () -> () !{} @{} = fn(_: ()) -> {
+        let _result : () = test_unsafe_while_stmt();
+        ()
+    }
+}
