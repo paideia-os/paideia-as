@@ -13,7 +13,7 @@
 
 use paideia_as_ast::{AstArena, ExprData, NodeKind};
 use paideia_as_diagnostics::{FileId, Span, VecSink, SourceMap};
-use paideia_as_elaborator::{lower_ast_to_ir, struct_registry::StructRegistry};
+use paideia_as_elaborator::{lower_ast_to_ir, struct_registry::StructRegistry, EnumRegistry};
 
 fn ast_span(start: u32) -> Span {
     Span::new(FileId::new(1).unwrap(), start, 1)
@@ -70,7 +70,7 @@ fn match_returning_literal_u32_writes_rax() {
     let mut sink = VecSink::new();
     let registry = StructRegistry::empty();
 
-    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry);
+    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty());
 
     // Should lower without T0532 errors
     let t0532_diags: Vec<_> = sink
@@ -138,7 +138,7 @@ fn match_2_arms_dispatch_and_ret_ordering() {
     let mut sink = VecSink::new();
     let registry = StructRegistry::empty();
 
-    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry);
+    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty());
 
     // Verify IR was created with arms
     assert!(!result.ast_to_ir.is_empty(), "IR should be created");
@@ -183,7 +183,7 @@ fn match_default_only_no_dispatch() {
     let mut sink = VecSink::new();
     let registry = StructRegistry::empty();
 
-    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry);
+    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty());
 
     // Should lower without errors
     assert!(!result.ast_to_ir.is_empty(), "IR should be created");
@@ -238,7 +238,7 @@ fn match_with_payload_binder() {
     let mut sink = VecSink::new();
     let registry = StructRegistry::empty();
 
-    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry);
+    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty());
 
     assert!(!result.ast_to_ir.is_empty(), "IR should be created");
 }
@@ -316,7 +316,7 @@ fn nested_match_arm_body_is_match() {
     let mut sink = VecSink::new();
     let registry = StructRegistry::empty();
 
-    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry);
+    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty());
 
     assert!(!result.ast_to_ir.is_empty(), "IR should be created with nested matches");
 }
@@ -373,7 +373,7 @@ fn pure_fn_match_no_t0532_regression() {
     let mut sink = VecSink::new();
     let registry = StructRegistry::empty();
 
-    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry);
+    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty());
 
     // Should compile without T0532 diagnostic
     let t0532_diags: Vec<_> = sink

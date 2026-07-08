@@ -4,6 +4,7 @@
 //! m1-004 Unsafe) lands as siblings inside this module. The walker
 //! populates an InstructionSideTable + tracks per-function offsets.
 
+use paideia_as_diagnostics::{Diagnostic, DiagnosticCode};
 use paideia_as_ir::instruction::{InstrMode, Instruction};
 #[cfg(test)]
 use paideia_as_ir::instruction::{Cond, IntWidth, Mnemonic, Operand};
@@ -25,7 +26,16 @@ pub use crate::emit_pass_state::{EmitPassState, LoopContext};
 /// Phase 7 m1-008 (PA7-008): Tracks loop context stack for break validation.
 pub struct EmitWalker {
     pub(crate) state: EmitPassState,
+    /// Legacy free-form diagnostic buffer. Each entry is a `format!` string
+    /// with a `T####:` prefix. Retirement into `structured_diagnostics` is
+    /// tracked as a follow-up in `.plans/refactor-2026-07-07.md`.
     pub(crate) diagnostics: Vec<String>,
+    /// Canonical typed diagnostic buffer introduced in the v0.17 refactor
+    /// (Step 3, 2026-07-07). All NEW EmitWalker diagnostics must be pushed
+    /// via `push_typed_diag`, which routes here. Drained by cmd_build.rs
+    /// via `take_typed_diagnostics()` into the shared `DiagnosticSink`,
+    /// making silent-fire-then-discard impossible for new push sites.
+    pub(crate) structured_diagnostics: Vec<Diagnostic>,
     /// Stack of (loop_kind, exit_label) for nested loops/while.
     /// Push on loop/while entry, pop on exit. Used to validate break statements.
     pub(crate) loop_contexts: Vec<(LoopContext, String)>,
@@ -38,6 +48,7 @@ impl EmitWalker {
         Self {
             state: EmitPassState::default(),
             diagnostics: Vec::new(),
+            structured_diagnostics: Vec::new(),
             loop_contexts: Vec::new(),
         }
     }
@@ -54,10 +65,37 @@ impl EmitWalker {
         &mut self.state
     }
 
-    /// Access the accumulated diagnostics.
+    /// Access the accumulated legacy free-form diagnostics.
+    ///
+    /// New code should use `push_typed_diag` / `take_typed_diagnostics`
+    /// instead — see the v0.17 refactor plan (2026-07-07) for the
+    /// migration path.
     #[must_use]
     pub fn diagnostics(&self) -> &[String] {
         &self.diagnostics
+    }
+
+    /// Push a canonical typed diagnostic (Step 3, v0.17 refactor).
+    ///
+    /// The `code` names a T####/S####/etc. entry in the diagnostic
+    /// catalog. `message` is the human-readable body; no `T####:` prefix
+    /// is required because the code already carries the identity.
+    ///
+    /// The diagnostic accumulates in `structured_diagnostics` and is
+    /// drained by `cmd_build::run` into the shared `DiagnosticSink` right
+    /// after `emit_walker.walk(...)`. Silent-fire-then-discard cannot
+    /// happen here — the drain wiring is a static compile-time contract.
+    pub fn push_typed_diag(&mut self, code: DiagnosticCode, message: impl Into<String>) {
+        let diag = Diagnostic::error(code).message(message).finish();
+        self.structured_diagnostics.push(diag);
+    }
+
+    /// Drain and return the typed diagnostics accumulated during the walk.
+    ///
+    /// Called once by `cmd_build::run` after the emit walk completes.
+    #[must_use]
+    pub fn take_typed_diagnostics(&mut self) -> Vec<Diagnostic> {
+        std::mem::take(&mut self.structured_diagnostics)
     }
 
     /// Phase 15 m2-002a: Set the root module's instruction mode.
@@ -180,6 +218,27 @@ impl EmitWalker {
         // If set_root_mode() was not called, default to Mode64.
         if self.state.mode_stack.is_empty() {
             self.state.mode_stack.push(InstrMode::Mode64);
+        }
+
+        // Fix B (#1085): Pre-pass to prevent Match double-emission.
+        // For every Lambda whose direct body child is a Match, mark the Match as already emitted.
+        // This ensures the Match is not visited twice (once in trailing position, once in Discard context).
+        for i in 1..=arena.len() as u32 {
+            if let Some(lambda_id) = IrNodeId::new(i) {
+                if let Some(lambda_node) = arena.get(lambda_id) {
+                    if lambda_node.kind == IrKind::Lambda {
+                        let children = arena.children(lambda_id);
+                        // Lambda has one child: the body expression
+                        if let Some(&body_id) = children.first() {
+                            if let Some(body_node) = arena.get(body_id) {
+                                if body_node.kind == IrKind::Match {
+                                    self.state.mark_match_emitted(body_id.get());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // Iterate over all nodes, looking for Let, Lambda, and Unsafe nodes.

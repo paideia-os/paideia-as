@@ -265,6 +265,14 @@ impl EmitPassState {
     /// Read-only view of the label → IR-node-id map populated by the
     /// unsafe-block lowering pass.
     #[must_use]
+    /// Read-only view of the label name → estimated byte offset map.
+    /// Populated by `register_label()` during instruction emission (e.g., match arm labels).
+    pub fn labels(&self) -> &HashMap<String, u32> {
+        &self.labels
+    }
+
+    /// Read-only view of the label name → instruction IR node ID map.
+    /// Used to compute actual label offsets based on instruction offsets from the encoder.
     pub fn label_to_instr(&self) -> &HashMap<String, IrNodeId> {
         &self.label_to_instr
     }
@@ -273,7 +281,11 @@ impl EmitPassState {
     /// `cmd_build` after collecting label references from the unsafe
     /// walker.
     pub fn set_label_to_instr(&mut self, map: HashMap<String, IrNodeId>) {
-        self.label_to_instr = map;
+        // Merge the new labels with existing ones, preserving any labels
+        // that were registered during normal emit (e.g., match arm labels)
+        for (name, instr_id) in map {
+            self.label_to_instr.insert(name, instr_id);
+        }
     }
 
     /// Register a label name → IrNodeId mapping in label_to_instr.

@@ -480,13 +480,11 @@ pub fn lower_ast_to_ir(
                     arms,
                     ..
                 } => {
-                    // Match: scrutinee + all arm patterns, guards, and bodies.
+                    // Match: scrutinee + arm bodies only.
+                    // Patterns and guards are dropped here; populate_match_arm_meta
+                    // walks AST arms directly to extract pattern classification.
                     let mut children = vec![*scrutinee];
                     for arm in arms {
-                        children.push(arm.pattern);
-                        if let Some(guard_id) = arm.guard {
-                            children.push(guard_id);
-                        }
                         children.push(arm.body);
                     }
                     children
@@ -606,6 +604,11 @@ pub fn lower_ast_to_ir(
     // look up the enum type and variant index in the registry, rewrite App to EnumCons,
     // and insert (EnumCons_ir_id -> EnumConsInfo) mappings into enum_cons_info side-table.
     populate_enum_cons_info(&ast, &mut ir, &ast_to_ir, enum_registry, source_map, sink);
+
+    // Phase 7 m9-009 (#1081/#1082): Populate MatchArmMeta for match arms and
+    // match_scrutinee_table for match expressions. Walks AST ExprMatch nodes to
+    // classify arm patterns and resolve scrutinee enum types.
+    populate_match_arm_meta(&ast, &mut ir, &ast_to_ir, enum_registry, source_map, sink);
 
     // Phase-5-m1-001: Literal values are populated by cmd_build.rs Phase-5-m1-001 walk
     // before emit_walker::walk() runs. No need to duplicate that work here.
@@ -1092,6 +1095,72 @@ fn extract_source_text_for_record_cons(
     Some(text.to_string())
 }
 
+/// Build the `binding_name → declared_type_text` map used by multiple
+/// populators (`populate_field_access_info`, `populate_match_arm_meta`).
+///
+/// Walks the AST once and collects every `NodeKind::Let` (item-level) and
+/// `NodeKind::StmtLet` (statement-level) binding that has an explicit type
+/// annotation. Keyed on the source text of the binding name; valued on the
+/// source text of the declared type. Downstream populators filter the map
+/// against their own registry (StructRegistry for field access,
+/// EnumRegistry for match arms).
+///
+/// Refactor 2026-07-07 Step 7: extracted from duplicated Step-1 walks that
+/// previously lived at `populate_field_access_info` and
+/// `populate_match_arm_meta`. Retires the "update one, forget the other"
+/// hazard for any future change to how binding types are extracted.
+fn build_binding_type_map(ast: &AstArena, source_map: &SourceMap) -> HashMap<String, String> {
+    let mut binding_to_type = HashMap::new();
+
+    for ast_node_id in 1..=ast.len() {
+        let ast_id = match NodeId::new(ast_node_id as u32) {
+            Some(nid) => nid,
+            None => continue,
+        };
+
+        let ast_node = match ast.get(ast_id) {
+            Some(n) => n,
+            None => continue,
+        };
+
+        // Process item-level Let bindings (ItemData::Let).
+        if ast_node.kind == NodeKind::Let {
+            if let Some(paideia_as_ast::ItemData::Let { name, ty, .. }) = ast.item_data(ast_id) {
+                if let Some(ty_node_id) = ty {
+                    if let Some(type_text) =
+                        extract_source_text_for_record_cons(ast, source_map, *ty_node_id)
+                    {
+                        if let Some(binding_name) =
+                            extract_source_text_for_record_cons(ast, source_map, *name)
+                        {
+                            binding_to_type.insert(binding_name, type_text);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Process statement-level Let bindings (StmtData::Let).
+        if ast_node.kind == NodeKind::StmtLet {
+            if let Some(paideia_as_ast::StmtData::Let { name, ty, .. }) = ast.stmt_data(ast_id) {
+                if let Some(ty_node_id) = ty {
+                    if let Some(type_text) =
+                        extract_source_text_for_record_cons(ast, source_map, *ty_node_id)
+                    {
+                        if let Some(binding_name) =
+                            extract_source_text_for_record_cons(ast, source_map, *name)
+                        {
+                            binding_to_type.insert(binding_name, type_text);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    binding_to_type
+}
+
 /// Populate the FieldAccessSideTable with FieldAccess type and field index information.
 ///
 /// Phase 6 m3-002 (#1073): Walk all ExprFieldAccess nodes in the AST, look up their
@@ -1118,57 +1187,10 @@ fn populate_field_access_info(
     source_map: &SourceMap,
     sink: &mut dyn DiagnosticSink,
 ) {
-    // Step 1: Build binding_name → struct_type_text map
-    let mut binding_to_struct_type = HashMap::new();
-
-    // Walk AST for item-level Let bindings (ItemData::Let)
-    for ast_node_id in 1..=ast.len() {
-        let ast_id = match NodeId::new(ast_node_id as u32) {
-            Some(nid) => nid,
-            None => continue,
-        };
-
-        let ast_node = match ast.get(ast_id) {
-            Some(n) => n,
-            None => continue,
-        };
-
-        // Process item-level Let bindings
-        if ast_node.kind == NodeKind::Let {
-            if let Some(paideia_as_ast::ItemData::Let { name, ty, .. }) = ast.item_data(ast_id) {
-                // Extract binding name
-                if let Some(ty_node_id) = ty {
-                    if let Some(type_text) =
-                        extract_source_text_for_record_cons(ast, source_map, *ty_node_id)
-                    {
-                        if let Some(binding_name) =
-                            extract_source_text_for_record_cons(ast, source_map, *name)
-                        {
-                            binding_to_struct_type.insert(binding_name, type_text);
-                        }
-                    }
-                }
-            }
-        }
-
-        // Process statement-level Let bindings (StmtData::Let)
-        if ast_node.kind == NodeKind::StmtLet {
-            if let Some(paideia_as_ast::StmtData::Let { name, ty, .. }) = ast.stmt_data(ast_id) {
-                // Extract binding name and type
-                if let Some(ty_node_id) = ty {
-                    if let Some(type_text) =
-                        extract_source_text_for_record_cons(ast, source_map, *ty_node_id)
-                    {
-                        if let Some(binding_name) =
-                            extract_source_text_for_record_cons(ast, source_map, *name)
-                        {
-                            binding_to_struct_type.insert(binding_name, type_text);
-                        }
-                    }
-                }
-            }
-        }
-    }
+    // Step 1: Build binding_name → struct_type_text map.
+    // Refactor 2026-07-07 Step 7: extracted into build_binding_type_map,
+    // shared with populate_match_arm_meta.
+    let binding_to_struct_type = build_binding_type_map(ast, source_map);
 
     // Step 2: Walk all AST nodes with NodeKind::ExprFieldAccess
     for ast_node_id in 1..=ast.len() {
@@ -1417,6 +1439,177 @@ fn populate_enum_cons_info(
         // Insert into enum_cons_info_mut()
         let enum_cons_info = paideia_as_ir::EnumConsInfo { type_id, variant_index };
         ir.enum_cons_info_mut().insert(ir_call_id, enum_cons_info);
+    }
+}
+
+/// Phase 7 m9-009 (#1081/#1082): Populate MatchArmMeta side-table for match arms.
+///
+/// Walks all AST ExprMatch nodes and their arms, classifying patterns:
+/// - Wildcard or PatIdent with text "_" → default arm
+/// - PatIdent with variant name text → bare-variant no-payload arm
+/// - PatEnumVariant { path, args } → variant with optional payload binder
+/// - Other patterns → emit T0556 diagnostic
+///
+/// Requires enum_registry threaded, which provides variant names for lookup.
+fn populate_match_arm_meta(
+    ast: &AstArena,
+    ir: &mut IrArena,
+    ast_to_ir: &HashMap<NodeId, IrNodeId>,
+    registry: &crate::EnumRegistry,
+    source_map: &SourceMap,
+    sink: &mut dyn DiagnosticSink,
+) {
+    // Step 1: Build binding_name → enum_type_text map for enum bindings.
+    // Refactor 2026-07-07 Step 7: extracted into build_binding_type_map,
+    // shared with populate_field_access_info.
+    let binding_to_enum_type = build_binding_type_map(ast, source_map);
+
+    // Step 2: Walk all AST ExprMatch nodes
+    for ast_node_id in 1..=ast.len() {
+        let ast_id = match NodeId::new(ast_node_id as u32) {
+            Some(nid) => nid,
+            None => continue,
+        };
+
+        let ast_node = match ast.get(ast_id) {
+            Some(n) => n,
+            None => continue,
+        };
+
+        if ast_node.kind != NodeKind::ExprMatch {
+            continue;
+        }
+
+        // Get ExprData::Match to access scrutinee and arms
+        let (scrutinee, arms) = match ast.expr_data(ast_id) {
+            Some(paideia_as_ast::ExprData::Match { scrutinee, arms, .. }) => (scrutinee, arms),
+            _ => continue,
+        };
+
+        // Resolve scrutinee type
+        let scrutinee_text = match extract_source_text_for_record_cons(ast, source_map, *scrutinee) {
+            Some(text) => text,
+            None => continue,
+        };
+
+        let enum_type_text = match binding_to_enum_type.get(&scrutinee_text) {
+            Some(text) => text.clone(),
+            None => continue,
+        };
+
+        let type_id = match registry.get_by_name(&enum_type_text) {
+            Some(id) => id,
+            None => continue,
+        };
+
+        let variants = match registry.get_variants(type_id) {
+            Some(v) => v,
+            None => continue,
+        };
+
+        // Get the IR match node
+        let match_ir_id = match ast_to_ir.get(&ast_id) {
+            Some(id) => *id,
+            None => continue,
+        };
+
+        // Insert enum type into match_scrutinee_table
+        ir.match_scrutinee_table_mut().insert(match_ir_id, type_id);
+
+        // Step 3: Process each arm
+        // Get children of the match IR node: [scrutinee, arm_body1, arm_body2, ...]
+        let match_children = ir.children(match_ir_id);
+        let arm_ir_ids = if !match_children.is_empty() {
+            match_children[1..].to_vec()
+        } else {
+            Vec::new()
+        };
+
+        for (arm_idx, arm) in arms.iter().enumerate() {
+            // Get the corresponding arm IR id from children
+            let arm_ir_id = match arm_ir_ids.get(arm_idx) {
+                Some(id) => *id,
+                None => continue,
+            };
+
+            // Classify the pattern
+            let pattern_node = match ast.get(arm.pattern) {
+                Some(n) => n,
+                None => continue,
+            };
+
+            let mut arm_meta = paideia_as_ir::MatchArmMeta::default();
+
+            match pattern_node.kind {
+                NodeKind::PatWildcard => {
+                    arm_meta.is_default = true;
+                }
+                NodeKind::PatIdent => {
+                    // Extract pattern source text
+                    if let Some(pattern_text) =
+                        extract_source_text_for_record_cons(ast, source_map, arm.pattern)
+                    {
+                        if pattern_text == "_" {
+                            arm_meta.is_default = true;
+                        } else {
+                            // Check if this matches a bare variant name
+                            if let Some((variant_idx, _)) =
+                                variants.iter().enumerate().find(|(_, (name, _))| name == &pattern_text)
+                            {
+                                arm_meta.variant_index = Some(variant_idx as u32);
+                            }
+                        }
+                    }
+                }
+                NodeKind::PatEnumVariant => {
+                    // Extract variant path and arguments
+                    if let Some(paideia_as_ast::PatternData::EnumVariant { path, args }) =
+                        ast.pattern_data(arm.pattern)
+                    {
+                        // Get variant name from path source text
+                        if let Some(variant_text) =
+                            extract_source_text_for_record_cons(ast, source_map, *path)
+                        {
+                            // Find variant index
+                            if let Some((variant_idx, _)) = variants
+                                .iter()
+                                .enumerate()
+                                .find(|(_, (name, _))| name == &variant_text)
+                            {
+                                arm_meta.variant_index = Some(variant_idx as u32);
+
+                                // Extract payload binder if args.len() == 1 and args[0] is PatIdent
+                                if args.len() == 1 {
+                                    if let Some(arg_node) = ast.get(args[0]) {
+                                        if arg_node.kind == NodeKind::PatIdent {
+                                            if let Some(binder_text) =
+                                                extract_source_text_for_record_cons(ast, source_map, args[0])
+                                            {
+                                                arm_meta.payload_binder = Some(binder_text);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    // Emit T0556 diagnostic: unsupported match arm pattern kind
+                    if let Ok(code) = DiagnosticCode::new(Category::T, Severity::Error, 556) {
+                        let diag = Diagnostic::error(code)
+                            .message("unsupported match arm pattern kind".to_string())
+                            .with_span(pattern_node.span)
+                            .finish();
+                        let _ = sink.emit(diag);
+                    }
+                    continue;
+                }
+            }
+
+            // Insert arm metadata
+            ir.match_arm_meta_mut().insert(arm_ir_id, arm_meta);
+        }
     }
 }
 
@@ -2470,5 +2663,488 @@ mod tests {
                 "First child of EnumCons should be the payload Literal node, not the callee"
             );
         }
+    }
+
+    #[test]
+    fn populate_match_arm_meta_basic() {
+        // Fix C (#1085): Test populate_match_arm_meta_basic - enum match with all variant arms.
+        // Construct an AST with:
+        //   enum Result { Ok(u64), Err(u64) }
+        //   let r: Result = ...
+        //   match r {
+        //     Ok(x) => ...,
+        //     Err(e) => ...
+        //   }
+        // Verify that match_arm_meta side-table entries are populated with correct EnumTypeId and variant indices.
+        use paideia_as_ir::EnumTypeId;
+        use paideia_as_diagnostics::FileId;
+
+        let mut source_map = SourceMap::new();
+        let source_text = "Result Ok Err r x e";
+        let _file = source_map.add_file(
+            std::path::PathBuf::from("test.pdx"),
+            String::from(source_text),
+        );
+        let mut sink = VecSink::new();
+        let mut ast = AstArena::new();
+
+        let file_id = FileId::new(1).unwrap();
+        let make_span = |offset: u32, len: u32| {
+            paideia_as_diagnostics::Span::new(file_id, offset, len)
+        };
+
+        // Create enum: enum Result { Ok(u64), Err(u64) }
+        let enum_name_id = ast.alloc(NodeKind::Ident, make_span(0, 6)); // "Result"
+        let u64_type_id = ast.alloc(NodeKind::Placeholder, make_span(0, 1));
+
+        let ok_variant_name_id = ast.alloc(NodeKind::Ident, make_span(7, 2)); // "Ok"
+        let err_variant_name_id = ast.alloc(NodeKind::Ident, make_span(10, 3)); // "Err"
+
+        let ok_variant = paideia_as_ast::EnumVariant::Tuple {
+            name: ok_variant_name_id,
+            payload: vec![u64_type_id],
+        };
+        let err_variant = paideia_as_ast::EnumVariant::Tuple {
+            name: err_variant_name_id,
+            payload: vec![u64_type_id],
+        };
+
+        let _enum_item_id = ast.alloc_item(
+            NodeKind::Enum,
+            make_span(0, 1),
+            paideia_as_ast::ItemData::Enum {
+                name: enum_name_id,
+                generic_params: vec![],
+                variants: vec![ok_variant, err_variant],
+                attributes: vec![],
+                doc: None,
+            },
+        );
+
+        // Create binding: let r: Result = ...
+        let r_binding_id = ast.alloc(NodeKind::Ident, make_span(14, 1)); // "r"
+        let result_type_id = ast.alloc(NodeKind::Ident, make_span(0, 6)); // "Result"
+        let dummy_value_id = ast.alloc(NodeKind::ExprLiteral, make_span(0, 1));
+        let let_binding_id = ast.alloc_stmt(
+            NodeKind::StmtLet,
+            make_span(0, 1),
+            paideia_as_ast::StmtData::Let {
+                mutable: false,
+                name: r_binding_id,
+                ty: Some(result_type_id),
+                value: dummy_value_id,
+            },
+        );
+
+        // Create scrutinee reference: r
+        let scrutinee = ast.alloc(NodeKind::Ident, make_span(14, 1)); // "r"
+
+        // Create arm 1: Ok(x)
+        let ok_pattern_id = ast.alloc(NodeKind::Ident, make_span(7, 2)); // "Ok"
+        let x_binding_id = ast.alloc(NodeKind::Ident, make_span(17, 1)); // "x"
+        let ok_arm_pattern = ast.alloc_pattern(
+            NodeKind::PatEnumVariant,
+            make_span(0, 1),
+            paideia_as_ast::PatternData::EnumVariant {
+                path: ok_pattern_id,
+                args: vec![x_binding_id],
+            },
+        );
+        let ok_arm_body = ast.alloc(NodeKind::ExprLiteral, make_span(0, 1));
+        let ok_arm = paideia_as_ast::MatchArm {
+            pattern: ok_arm_pattern,
+            guard: None,
+            body: ok_arm_body,
+        };
+
+        // Create arm 2: Err(e)
+        let err_pattern_id = ast.alloc(NodeKind::Ident, make_span(10, 3)); // "Err"
+        let e_binding_id = ast.alloc(NodeKind::Ident, make_span(19, 1)); // "e"
+        let err_arm_pattern = ast.alloc_pattern(
+            NodeKind::PatEnumVariant,
+            make_span(0, 1),
+            paideia_as_ast::PatternData::EnumVariant {
+                path: err_pattern_id,
+                args: vec![e_binding_id],
+            },
+        );
+        let err_arm_body = ast.alloc(NodeKind::ExprLiteral, make_span(0, 1));
+        let err_arm = paideia_as_ast::MatchArm {
+            pattern: err_arm_pattern,
+            guard: None,
+            body: err_arm_body,
+        };
+
+        // Create match expression
+        let match_id = ast.alloc_expr(
+            NodeKind::ExprMatch,
+            make_span(0, 1),
+            paideia_as_ast::ExprData::Match {
+                scrutinee,
+                arms: vec![ok_arm, err_arm],
+                attrs: Default::default(),
+            },
+        );
+
+        // Build enum registry
+        let mut enum_registry = crate::EnumRegistry::empty();
+        let result_enum_type_id = EnumTypeId(1);
+        enum_registry
+            .by_name
+            .insert("Result".to_string(), result_enum_type_id);
+        enum_registry.variants.insert(
+            result_enum_type_id,
+            vec![
+                ("Ok".to_string(), vec![u64_type_id]),
+                ("Err".to_string(), vec![u64_type_id]),
+            ],
+        );
+
+        // Lower the AST
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &enum_registry);
+
+        // Verify the Match IR node was created
+        let match_ir_id = result.ast_to_ir[&match_id];
+        assert_eq!(result.ir[match_ir_id].kind, IrKind::Match);
+
+        // Verify match_scrutinee_table entry
+        let scrutinee_type = result.ir.match_scrutinee_table().get(match_ir_id);
+        assert_eq!(
+            scrutinee_type.copied(),
+            Some(result_enum_type_id),
+            "match_scrutinee_table should contain the Result enum type"
+        );
+
+        // Verify arm metadata entries
+        let match_children = result.ir.children(match_ir_id);
+        assert!(match_children.len() >= 3, "Match should have scrutinee + 2 arms as children");
+
+        // Get arm body IDs (skip scrutinee at index 0)
+        let ok_arm_ir_id = match_children[1];
+        let err_arm_ir_id = match_children[2];
+
+        // Verify Ok arm metadata
+        let ok_arm_meta = result.ir.match_arm_meta().get(ok_arm_ir_id);
+        assert!(ok_arm_meta.is_some(), "Ok arm should have meta entry");
+        let ok_meta = ok_arm_meta.unwrap();
+        assert_eq!(
+            ok_meta.variant_index,
+            Some(0),
+            "Ok arm should have variant_index = 0"
+        );
+        assert!(!ok_meta.is_default, "Ok arm should not be marked default");
+
+        // Verify Err arm metadata
+        let err_arm_meta = result.ir.match_arm_meta().get(err_arm_ir_id);
+        assert!(err_arm_meta.is_some(), "Err arm should have meta entry");
+        let err_meta = err_arm_meta.unwrap();
+        assert_eq!(
+            err_meta.variant_index,
+            Some(1),
+            "Err arm should have variant_index = 1"
+        );
+        assert!(!err_meta.is_default, "Err arm should not be marked default");
+    }
+
+    #[test]
+    fn populate_match_arm_meta_default_wildcard() {
+        // Fix C (#1085): Test populate_match_arm_meta_default_wildcard - match with wildcard default arm.
+        // Construct an AST with:
+        //   enum Result { Ok(u64), Err(u64) }
+        //   let r: Result = ...
+        //   match r {
+        //     Ok(x) => ...,
+        //     _ => ...
+        //   }
+        // Verify that the wildcard arm is marked with is_default = true and variant_index = None.
+        use paideia_as_ir::EnumTypeId;
+        use paideia_as_diagnostics::FileId;
+
+        let mut source_map = SourceMap::new();
+        let source_text = "Result Ok r x";
+        let _file = source_map.add_file(
+            std::path::PathBuf::from("test.pdx"),
+            String::from(source_text),
+        );
+        let mut sink = VecSink::new();
+        let mut ast = AstArena::new();
+
+        let file_id = FileId::new(1).unwrap();
+        let make_span = |offset: u32, len: u32| {
+            paideia_as_diagnostics::Span::new(file_id, offset, len)
+        };
+
+        // Create enum: enum Result { Ok(u64), Err(u64) }
+        let enum_name_id = ast.alloc(NodeKind::Ident, make_span(0, 6)); // "Result"
+        let u64_type_id = ast.alloc(NodeKind::Placeholder, make_span(0, 1));
+
+        let ok_variant_name_id = ast.alloc(NodeKind::Ident, make_span(7, 2)); // "Ok"
+        let err_variant_name_id = ast.alloc(NodeKind::Ident, make_span(0, 3)); // "Err"
+
+        let ok_variant = paideia_as_ast::EnumVariant::Tuple {
+            name: ok_variant_name_id,
+            payload: vec![u64_type_id],
+        };
+        let err_variant = paideia_as_ast::EnumVariant::Tuple {
+            name: err_variant_name_id,
+            payload: vec![u64_type_id],
+        };
+
+        let _enum_item_id = ast.alloc_item(
+            NodeKind::Enum,
+            make_span(0, 1),
+            paideia_as_ast::ItemData::Enum {
+                name: enum_name_id,
+                generic_params: vec![],
+                variants: vec![ok_variant, err_variant],
+                attributes: vec![],
+                doc: None,
+            },
+        );
+
+        // Create binding: let r: Result = ...
+        let r_binding_id = ast.alloc(NodeKind::Ident, make_span(10, 1)); // "r"
+        let result_type_id = ast.alloc(NodeKind::Ident, make_span(0, 6)); // "Result"
+        let dummy_value_id = ast.alloc(NodeKind::ExprLiteral, make_span(0, 1));
+        let _let_binding_id = ast.alloc_stmt(
+            NodeKind::StmtLet,
+            make_span(0, 1),
+            paideia_as_ast::StmtData::Let {
+                mutable: false,
+                name: r_binding_id,
+                ty: Some(result_type_id),
+                value: dummy_value_id,
+            },
+        );
+
+        // Create scrutinee reference: r
+        let scrutinee = ast.alloc(NodeKind::Ident, make_span(10, 1)); // "r"
+
+        // Create arm 1: Ok(x)
+        let ok_pattern_id = ast.alloc(NodeKind::Ident, make_span(7, 2)); // "Ok"
+        let x_binding_id = ast.alloc(NodeKind::Ident, make_span(12, 1)); // "x"
+        let ok_arm_pattern = ast.alloc_pattern(
+            NodeKind::PatEnumVariant,
+            make_span(0, 1),
+            paideia_as_ast::PatternData::EnumVariant {
+                path: ok_pattern_id,
+                args: vec![x_binding_id],
+            },
+        );
+        let ok_arm_body = ast.alloc(NodeKind::ExprLiteral, make_span(0, 1));
+        let ok_arm = paideia_as_ast::MatchArm {
+            pattern: ok_arm_pattern,
+            guard: None,
+            body: ok_arm_body,
+        };
+
+        // Create arm 2: _ (wildcard)
+        let wildcard_pattern = ast.alloc_pattern(
+            NodeKind::PatWildcard,
+            make_span(0, 1),
+            paideia_as_ast::PatternData::Wildcard,
+        );
+        let wildcard_arm_body = ast.alloc(NodeKind::ExprLiteral, make_span(0, 1));
+        let wildcard_arm = paideia_as_ast::MatchArm {
+            pattern: wildcard_pattern,
+            guard: None,
+            body: wildcard_arm_body,
+        };
+
+        // Create match expression
+        let match_id = ast.alloc_expr(
+            NodeKind::ExprMatch,
+            make_span(0, 1),
+            paideia_as_ast::ExprData::Match {
+                scrutinee,
+                arms: vec![ok_arm, wildcard_arm],
+                attrs: Default::default(),
+            },
+        );
+
+        // Build enum registry
+        let mut enum_registry = crate::EnumRegistry::empty();
+        let result_enum_type_id = EnumTypeId(1);
+        enum_registry
+            .by_name
+            .insert("Result".to_string(), result_enum_type_id);
+        enum_registry.variants.insert(
+            result_enum_type_id,
+            vec![
+                ("Ok".to_string(), vec![u64_type_id]),
+                ("Err".to_string(), vec![u64_type_id]),
+            ],
+        );
+
+        // Lower the AST
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &enum_registry);
+
+        // Verify the Match IR node was created
+        let match_ir_id = result.ast_to_ir[&match_id];
+        assert_eq!(result.ir[match_ir_id].kind, IrKind::Match);
+
+        // Verify arm metadata entries
+        let match_children = result.ir.children(match_ir_id);
+        assert!(match_children.len() >= 3, "Match should have scrutinee + 2 arms as children");
+
+        // Get arm body IDs (skip scrutinee at index 0)
+        let ok_arm_ir_id = match_children[1];
+        let wildcard_arm_ir_id = match_children[2];
+
+        // Verify wildcard arm metadata
+        let wildcard_arm_meta = result.ir.match_arm_meta().get(wildcard_arm_ir_id);
+        assert!(wildcard_arm_meta.is_some(), "Wildcard arm should have meta entry");
+        let wildcard_meta = wildcard_arm_meta.unwrap();
+        assert!(
+            wildcard_meta.is_default,
+            "Wildcard arm should be marked with is_default = true"
+        );
+        assert_eq!(
+            wildcard_meta.variant_index, None,
+            "Wildcard arm should have variant_index = None"
+        );
+    }
+
+    #[test]
+    fn populate_match_arm_meta_bare_ident_variant() {
+        // Fix C (#1085): Test populate_match_arm_meta_bare_ident_variant - bare Ok(x) pattern (no path prefix).
+        // Construct an AST with:
+        //   enum Result { Ok(u64), Err(u64) }
+        //   let r: Result = ...
+        //   match r {
+        //     Ok(x) => ...,
+        //   }
+        // Verify that the bare Ok variant pattern (without Result:: prefix) is correctly resolved
+        // against the scrutinee's enum type, and variant_index is correctly populated.
+        use paideia_as_ir::EnumTypeId;
+        use paideia_as_diagnostics::FileId;
+
+        let mut source_map = SourceMap::new();
+        let source_text = "Result Ok r x";
+        let _file = source_map.add_file(
+            std::path::PathBuf::from("test.pdx"),
+            String::from(source_text),
+        );
+        let mut sink = VecSink::new();
+        let mut ast = AstArena::new();
+
+        let file_id = FileId::new(1).unwrap();
+        let make_span = |offset: u32, len: u32| {
+            paideia_as_diagnostics::Span::new(file_id, offset, len)
+        };
+
+        // Create enum: enum Result { Ok(u64), Err(u64) }
+        let enum_name_id = ast.alloc(NodeKind::Ident, make_span(0, 6)); // "Result"
+        let u64_type_id = ast.alloc(NodeKind::Placeholder, make_span(0, 1));
+
+        let ok_variant_name_id = ast.alloc(NodeKind::Ident, make_span(7, 2)); // "Ok"
+        let err_variant_name_id = ast.alloc(NodeKind::Ident, make_span(0, 3)); // "Err"
+
+        let ok_variant = paideia_as_ast::EnumVariant::Tuple {
+            name: ok_variant_name_id,
+            payload: vec![u64_type_id],
+        };
+        let err_variant = paideia_as_ast::EnumVariant::Tuple {
+            name: err_variant_name_id,
+            payload: vec![u64_type_id],
+        };
+
+        let _enum_item_id = ast.alloc_item(
+            NodeKind::Enum,
+            make_span(0, 1),
+            paideia_as_ast::ItemData::Enum {
+                name: enum_name_id,
+                generic_params: vec![],
+                variants: vec![ok_variant, err_variant],
+                attributes: vec![],
+                doc: None,
+            },
+        );
+
+        // Create binding: let r: Result = ...
+        let r_binding_id = ast.alloc(NodeKind::Ident, make_span(10, 1)); // "r"
+        let result_type_id = ast.alloc(NodeKind::Ident, make_span(0, 6)); // "Result"
+        let dummy_value_id = ast.alloc(NodeKind::ExprLiteral, make_span(0, 1));
+        let _let_binding_id = ast.alloc_stmt(
+            NodeKind::StmtLet,
+            make_span(0, 1),
+            paideia_as_ast::StmtData::Let {
+                mutable: false,
+                name: r_binding_id,
+                ty: Some(result_type_id),
+                value: dummy_value_id,
+            },
+        );
+
+        // Create scrutinee reference: r
+        let scrutinee = ast.alloc(NodeKind::Ident, make_span(10, 1)); // "r"
+
+        // Create arm: Ok(x) - bare variant name, no Result:: prefix
+        let ok_pattern_id = ast.alloc(NodeKind::Ident, make_span(7, 2)); // "Ok"
+        let x_binding_id = ast.alloc(NodeKind::Ident, make_span(12, 1)); // "x"
+        let ok_arm_pattern = ast.alloc_pattern(
+            NodeKind::PatEnumVariant,
+            make_span(0, 1),
+            paideia_as_ast::PatternData::EnumVariant {
+                path: ok_pattern_id,
+                args: vec![x_binding_id],
+            },
+        );
+        let ok_arm_body = ast.alloc(NodeKind::ExprLiteral, make_span(0, 1));
+        let ok_arm = paideia_as_ast::MatchArm {
+            pattern: ok_arm_pattern,
+            guard: None,
+            body: ok_arm_body,
+        };
+
+        // Create match expression
+        let match_id = ast.alloc_expr(
+            NodeKind::ExprMatch,
+            make_span(0, 1),
+            paideia_as_ast::ExprData::Match {
+                scrutinee,
+                arms: vec![ok_arm],
+                attrs: Default::default(),
+            },
+        );
+
+        // Build enum registry
+        let mut enum_registry = crate::EnumRegistry::empty();
+        let result_enum_type_id = EnumTypeId(1);
+        enum_registry
+            .by_name
+            .insert("Result".to_string(), result_enum_type_id);
+        enum_registry.variants.insert(
+            result_enum_type_id,
+            vec![
+                ("Ok".to_string(), vec![u64_type_id]),
+                ("Err".to_string(), vec![u64_type_id]),
+            ],
+        );
+
+        // Lower the AST
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &enum_registry);
+
+        // Verify the Match IR node was created
+        let match_ir_id = result.ast_to_ir[&match_id];
+        assert_eq!(result.ir[match_ir_id].kind, IrKind::Match);
+
+        // Verify arm metadata entries
+        let match_children = result.ir.children(match_ir_id);
+        assert!(match_children.len() >= 2, "Match should have scrutinee + 1 arm as children");
+
+        // Get arm body ID (skip scrutinee at index 0)
+        let ok_arm_ir_id = match_children[1];
+
+        // Verify Ok arm metadata
+        let ok_arm_meta = result.ir.match_arm_meta().get(ok_arm_ir_id);
+        assert!(ok_arm_meta.is_some(), "Ok arm should have meta entry");
+        let ok_meta = ok_arm_meta.unwrap();
+        assert_eq!(
+            ok_meta.variant_index,
+            Some(0),
+            "Ok arm should have variant_index = 0 (resolved against Result enum)"
+        );
+        assert!(!ok_meta.is_default, "Ok arm should not be marked default");
     }
 }

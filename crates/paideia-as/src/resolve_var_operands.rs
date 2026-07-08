@@ -9,32 +9,61 @@
 //! PA10-005 §3.4-3.5: Thread SymbolTable through to distinguish module-scope symbols
 //! (emit T0531) from unresolved bindings (emit T0528).
 
+use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity};
 use paideia_as_elaborator::LocalBindingTable;
 use paideia_as_ir::{IrNodeId, Operand, SymbolTable, instruction::InstructionSideTable};
 
 #[cfg(test)]
 use paideia_as_ir::InstrMode;
 
+/// Build the canonical T0528 diagnostic for an unresolved local binding.
+fn make_t0528(name: &str) -> Diagnostic {
+    let code = DiagnosticCode::new(Category::T, Severity::Error, 528)
+        .expect("T0528 is registered in the diagnostic catalog");
+    Diagnostic::error(code)
+        .message(format!("unresolved local binding '{}'", name))
+        .finish()
+}
+
+/// Build the canonical T0531 diagnostic for a name found only in the module
+/// SymbolTable (PA10-005 §3.5).
+fn make_t0531(name: &str) -> Diagnostic {
+    let code = DiagnosticCode::new(Category::T, Severity::Error, 531)
+        .expect("T0531 is registered in the diagnostic catalog");
+    Diagnostic::error(code)
+        .message(format!(
+            "local binding not found; found '{}' in module SymbolTable but it is module-scoped",
+            name
+        ))
+        .finish()
+}
+
 /// Resolve all Operand::Var operands in the instruction table to Operand::Reg.
 ///
 /// Walks every instruction in the side table; for each Var operand, performs
 /// a local binding lookup. On success, rewrites to Reg. On failure, checks the
-/// module SymbolTable; if found there, emits T0531; if not found anywhere, emits T0528
-/// and leaves Var in place.
+/// module SymbolTable; if found there, pushes a T0531 diagnostic; if not found
+/// anywhere, pushes a T0528 diagnostic and leaves Var in place.
 ///
 /// PA10-005 §3.4-3.5: `symbol_table` parameter enables T0531 diagnostic emission.
+///
+/// Step 2 of the v0.17 refactor plan (2026-07-07): the diagnostics parameter
+/// is now `&mut Vec<Diagnostic>` rather than `&mut Vec<String>`, so callers
+/// no longer need to string-parse `T####:` prefixes to route into the
+/// canonical `DiagnosticSink`. Retires the `700` catch-all fallback that
+/// used to fabricate an unregistered code on parse failure.
 ///
 /// # Arguments
 ///
 /// * `instructions` - The instruction side-table to mutate in place.
 /// * `bindings` - The local binding table (populated by EmitWalker).
 /// * `symbol_table` - Owned SymbolTable clone (for distinguishing module-scope symbols).
-/// * `diagnostics` - Mutable diagnostics vec; T0528/T0531 entries are pushed here.
+/// * `diagnostics` - Mutable typed diagnostics vec; T0528/T0531 entries are pushed here.
 pub(crate) fn resolve_var_operands(
     instructions: &mut InstructionSideTable,
     bindings: &LocalBindingTable,
     symbol_table: Option<SymbolTable>,
-    diagnostics: &mut Vec<String>,
+    diagnostics: &mut Vec<Diagnostic>,
 ) {
     // Collect all node IDs to avoid borrow conflicts.
     let node_ids: Vec<IrNodeId> = instructions.entries().keys().copied().collect();
@@ -52,19 +81,12 @@ pub(crate) fn resolve_var_operands(
                         // check module SymbolTable for module-scoped symbol.
                         if let Some(ref sym_table) = symbol_table {
                             if sym_table.lookup_by_name(name).is_some() {
-                                // Found in module SymbolTable: emit T0531.
-                                let msg = format!(
-                                    "T0531: local binding not found; checking module SymbolTable (found '{}' but it is module-scoped)",
-                                    name
-                                );
-                                diagnostics.push(msg);
+                                diagnostics.push(make_t0531(name));
                                 // Leave Var in place for downstream error recovery.
                                 continue;
                             }
                         }
-                        // Not found anywhere: emit T0528.
-                        let msg = format!("T0528: unresolved local binding '{}'", name);
-                        diagnostics.push(msg);
+                        diagnostics.push(make_t0528(name));
                         // Leave Var in place for downstream error recovery.
                     }
                 }
@@ -103,7 +125,7 @@ mod tests {
         instructions.insert(node_id, inst);
 
         // Resolve variables.
-        let mut diags = Vec::new();
+        let mut diags: Vec<Diagnostic> = Vec::new();
         resolve_var_operands(&mut instructions, &bindings, None, &mut diags);
 
         // Verify the Var was rewritten to Reg and no diagnostics were emitted.
@@ -134,13 +156,15 @@ mod tests {
         instructions.insert(node_id, inst);
 
         // Resolve variables.
-        let mut diags = Vec::new();
+        let mut diags: Vec<Diagnostic> = Vec::new();
         resolve_var_operands(&mut instructions, &bindings, None, &mut diags);
 
         // Verify a diagnostic was emitted and the Var was left in place.
         assert_eq!(diags.len(), 1);
-        assert!(diags[0].contains("T0528"));
-        assert!(diags[0].contains("undefined_var"));
+        let d = &diags[0];
+        assert_eq!(d.code().category(), Category::T);
+        assert_eq!(d.code().number(), 528);
+        assert!(d.message().contains("undefined_var"));
         let unresolved = instructions.get(node_id).unwrap();
         assert!(matches!(&unresolved.operands[0], Operand::Var { .. }));
     }

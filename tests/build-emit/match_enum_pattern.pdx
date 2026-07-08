@@ -1,0 +1,12 @@
+// Phase 7 m9-009 (#1051/#1081/#1082): Match expression with enum variants
+// Tests that match arms with enum variant patterns emit dispatch code with cmp/jne cascade
+// Now supports bare enum variant patterns (Ok(x)) and path-qualified (Result::Ok(x))
+
+module MatchEnumPattern = structure {
+  enum Result { Ok(u64), Err(u64) }
+  pub let r : Result = Result::Ok(42u64)
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> match r {
+    Ok(x) => x
+    Err(e) => 0u64
+  }
+}

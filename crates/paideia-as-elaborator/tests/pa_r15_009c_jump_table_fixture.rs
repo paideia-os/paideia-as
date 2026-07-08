@@ -68,7 +68,7 @@ fn jump_table_dense_fixture_wildcard_ok() {
 
     // Lower to IR and collect diagnostics.
     let mut sink = VecSink::new();
-    let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &paideia_as_elaborator::StructRegistry::empty());
+    let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &paideia_as_elaborator::StructRegistry::empty(), &paideia_as_elaborator::EnumRegistry::empty());
 
     // Check that no T0550 errors were emitted.
     let diagnostics = sink.into_diagnostics();
@@ -148,7 +148,7 @@ fn jump_table_sparse_fixture_wildcard_ok() {
 
     // Lower to IR and collect diagnostics.
     let mut sink = VecSink::new();
-    let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &paideia_as_elaborator::StructRegistry::empty());
+    let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &paideia_as_elaborator::StructRegistry::empty(), &paideia_as_elaborator::EnumRegistry::empty());
 
     // Check that no T0550 errors were emitted (even though density is low).
     // T0550 should only be emitted for non-integer, non-wildcard patterns.
@@ -230,7 +230,7 @@ fn jump_table_non_int_fixture_triggers_t0550() {
 
     // Lower to IR and collect diagnostics.
     let mut sink = VecSink::new();
-    let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &paideia_as_elaborator::StructRegistry::empty());
+    let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &paideia_as_elaborator::StructRegistry::empty(), &paideia_as_elaborator::EnumRegistry::empty());
 
     // Check that T0550 errors WERE emitted (for the non-integer pattern).
     let diagnostics = sink.into_diagnostics();
@@ -293,7 +293,7 @@ fn jump_table_dense_populate_creates_rodata_entries() {
 
     // Lower to IR and collect diagnostics.
     let mut sink = VecSink::new();
-    let mut result = lower_ast_to_ir(&ast, &source_map, &mut sink, &paideia_as_elaborator::StructRegistry::empty());
+    let mut result = lower_ast_to_ir(&ast, &source_map, &mut sink, &paideia_as_elaborator::StructRegistry::empty(), &paideia_as_elaborator::EnumRegistry::empty());
 
     // Locate the first Match node in the IR before population.
     let mut match_node_id = None;

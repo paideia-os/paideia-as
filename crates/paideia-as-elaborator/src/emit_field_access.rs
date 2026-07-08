@@ -25,109 +25,13 @@ impl EmitWalker {
     /// - movzx rax, byte [rdi + offset] for u8 fields (4-7 bytes)
     ///
     /// If the pattern is not Deref(Var(arg0)), emits T0516 diagnostic and skips emission.
+    ///
+    /// Refactor 2026-07-07 Step 6: this is now a thin wrapper over
+    /// `visit_field_access_with_reg` with `dest_reg = abi::RAX`. Retires the
+    /// ~100-line near-clone that had drifted vs the parametric version and
+    /// was a classic "update one, forget the other" hazard.
     pub(crate) fn visit_field_access(&mut self, field_access_id: IrNodeId, arena: &IrArena) {
-        // Get the field access info from the side-table.
-        let field_info = match arena.field_access_info().get(field_access_id) {
-            Some(info) => info,
-            None => {
-                // No field access info registered; skip (may happen before elaboration).
-                return;
-            }
-        };
-
-        // Get the FieldAccess node's single child (the record value).
-        let children = arena.children(field_access_id);
-        let record_value_id = match children.first() {
-            Some(&id) => id,
-            None => {
-                // No child; malformed FieldAccess node.
-                self.diagnostics.push(format!(
-                    "FieldAccess node {} has no child",
-                    field_access_id.get()
-                ));
-                return;
-            }
-        };
-
-        // Check that the record value is a Deref.
-        let record_value_node = match arena.get(record_value_id) {
-            Some(node) => node,
-            None => return,
-        };
-
-        if record_value_node.kind != IrKind::Deref {
-            // Not a dereference; pattern not supported yet.
-            self.diagnostics.push(format!(
-                "T0516: field access on non-Deref shape (kind={:?})",
-                record_value_node.kind
-            ));
-            return;
-        }
-
-        // Get the child of Deref (the pointer being dereferenced).
-        let deref_children = arena.children(record_value_id);
-        let ptr_id = match deref_children.first() {
-            Some(&id) => id,
-            None => {
-                self.diagnostics
-                    .push(format!("Deref node {} has no child", record_value_id.get()));
-                return;
-            }
-        };
-
-        // Check that the pointer is a Var.
-        let ptr_node = match arena.get(ptr_id) {
-            Some(node) => node,
-            None => return,
-        };
-
-        if ptr_node.kind != IrKind::Var {
-            // Not a variable; pattern not supported yet.
-            self.diagnostics.push(format!(
-                "T0516: field access on non-Var shape (kind={:?})",
-                ptr_node.kind
-            ));
-            return;
-        }
-
-        // For now, we only support first argument (rdi).
-        // Ideally, we'd track which argument this Var refers to, but we don't have that info yet.
-        // As a simplification for this phase, we assume all Vars are the first argument.
-
-        // Look up the record layout to get field offset and size.
-        let record_layout = match self.state.record_layout(field_info.type_id) {
-            Some(layout) => layout,
-            None => {
-                self.diagnostics.push(format!(
-                    "No record layout found for type {}",
-                    field_info.type_id.0
-                ));
-                return;
-            }
-        };
-
-        // Get the field layout.
-        let field_index = field_info.field_index as usize;
-        let field_layout = match record_layout.fields.get(field_index) {
-            Some(layout) => layout,
-            None => {
-                self.diagnostics.push(format!(
-                    "Field index {} out of bounds for record type {}",
-                    field_index, field_info.type_id.0
-                ));
-                return;
-            }
-        };
-
-        // Route through the unified width dispatch. RAX is the fixed
-        // destination for the original visit_field_access path.
-        self.emit_widening_load(
-            field_access_id,
-            field_layout.offset as i32,
-            abi::RAX, // rax
-            field_layout.size,
-            field_layout.signed,
-        );
+        self.visit_field_access_with_reg(field_access_id, abi::RAX, arena);
     }
 
     // The three original RAX/RDI-hardcoded field-access helpers

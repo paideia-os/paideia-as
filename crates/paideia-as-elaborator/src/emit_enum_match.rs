@@ -715,6 +715,9 @@ impl EmitWalker {
         let default_label = format!("match_default_{}", match_node_id.get());
         let end_label = format!("match_end_{}", match_node_id.get());
 
+        // Track whether we saw a default arm to properly register the default_label
+        let mut default_arm_registered = false;
+
         // Emit arms with cmp/jne cascade
         for (idx, &arm_id) in arm_ids.iter().enumerate() {
             let arm_meta = match arena.match_arm_meta().get(arm_id) {
@@ -733,6 +736,7 @@ impl EmitWalker {
             // If default arm, skip comparisons and emit body directly
             if arm_meta.is_default {
                 self.state.register_label(default_label.clone());
+                default_arm_registered = true;
                 if let Some(arm_node) = arena.get(arm_id) {
                     match arm_node.kind {
                         IrKind::Action => self.emit_block_body_arm(arm_id, arena, typer),
@@ -782,7 +786,7 @@ impl EmitWalker {
                 });
             }
 
-            // Register arm label
+            // Register arm label at current estimated offset
             self.state.register_label(arm_label);
 
             // Phase 17 m9-009: Nested pattern binding
@@ -800,7 +804,7 @@ impl EmitWalker {
                     (8, false), // default: u64 unsigned
                 );
                 // Note: pop_scope happens after emit_block_body_arm below
-            } else if let Some(ref _binder) = arm_meta.payload_binder {
+            } else if let Some(ref binder) = arm_meta.payload_binder {
                 // Legacy single-payload binder (from #986)
                 if layout_payload_size > 0 {
                     let payload_load_id = IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10 + 2)
@@ -821,14 +825,60 @@ impl EmitWalker {
                         byte_offset_in_text: None,
                         mode: self.current_mode(),
                     });
+
+                    // Set up local binding for the payload binder variable
+                    self.state.local_bindings.insert(binder.clone(), abi::RDX);
                 }
             }
 
-            // Emit arm body
+            // Emit arm body based on its IR kind
             if let Some(arm_node) = arena.get(arm_id) {
                 match arm_node.kind {
-                    IrKind::Action => self.emit_block_body_arm(arm_id, arena, typer),
-                    _ => {}
+                    IrKind::Action => {
+                        // Action (Block) arm: emit all statements + tail
+                        self.emit_block_body_arm(arm_id, arena, typer)
+                    }
+                    IrKind::Literal => {
+                        // Literal arm (e.g., `0u64`): move value to RAX
+                        if let Some(value) = arena.literal_values().get(arm_id) {
+                            self.emit_mov_literal_to_reg(
+                                IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10 + 4)
+                                    .expect("literal arm mov id"),
+                                abi::RAX,
+                                value,
+                            );
+                        }
+                    }
+                    IrKind::Var => {
+                        // Var arm (e.g., `x`): move variable value to RAX
+                        // Get binding name from binding_names table
+                        if let Some(var_name) = arena.binding_names().get(arm_id) {
+                            if let Some(var_reg) = self.state.local_bindings.get(var_name) {
+                                // Variable is already in a register; move it to RAX if needed
+                                if var_reg != abi::RAX {
+                                    let mov_id = IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10 + 5)
+                                        .expect("var arm mov id");
+                                    let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                                    operands.push(Operand::Reg(abi::RAX));
+                                    operands.push(Operand::Reg(var_reg));
+                                    self.emit_inst(mov_id, Instruction {
+                                        mnemonic: Mnemonic::Mov,
+                                        operands,
+                                        encoding_hint: None,
+                                        byte_offset_in_text: None,
+                                        mode: self.current_mode(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    _ => {
+                        // Other IR kinds: emit diagnostic (arm body lowered to unsupported kind)
+                        self.diagnostics.push(format!(
+                            "unsupported match arm body IR kind: {:?}",
+                            arm_node.kind
+                        ));
+                    }
                 }
             }
 
@@ -853,6 +903,12 @@ impl EmitWalker {
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
             });
+        }
+
+        // Register default label if no explicit default arm was present
+        // (when all arms are non-default enum variants, the last arm's jne jumps here)
+        if !default_arm_registered {
+            self.state.register_label(default_label);
         }
 
         // Register end label

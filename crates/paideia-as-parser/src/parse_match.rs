@@ -149,11 +149,15 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
     /// Parse a pattern for use in match arms.
     ///
-    /// For phase-1, supports:
+    /// Supports:
     /// - Identifier (including wildcard `_`)
     /// - Integer literal
     /// - String literal
     /// - Character literal
+    /// - Enum variant patterns (bare or path-qualified):
+    ///   - Bare variant with args: `Ok(x)`, `Err(e)`
+    ///   - Path-qualified: `Result::Ok(x)`, `Option::None`
+    ///   - Bare variant without args: `Pending`
     ///
     /// Returns a pattern node.
     fn parse_pattern_match(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
@@ -165,14 +169,97 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 TokenKind::Ident => {
                     self.bump();
                     let ident_id = self.arena_mut().alloc(NodeKind::Ident, span);
-                    Ok(self.arena_mut().alloc_pattern(
-                        NodeKind::PatIdent,
-                        span,
-                        PatternData::Ident {
-                            name: ident_id,
-                            mutable: false,
-                        },
-                    ))
+
+                    // Check for enum variant patterns:
+                    // 1. `::Variant(...)` → EnumVariant with path-qualified form
+                    // 2. `(...)` → EnumVariant with bare variant (args present)
+                    // Otherwise → plain Ident pattern
+                    if self.at(TokenKind::ColonColon) {
+                        // Path-qualified variant: `Type::Variant(...)`
+                        self.bump(); // consume `::`
+
+                        let variant_tok = self.expect(TokenKind::Ident)?;
+                        let variant_id = self.arena_mut().alloc(NodeKind::Ident, variant_tok.span);
+
+                        // Parse arguments: `(pat1, pat2, ...)` or nothing
+                        let args = if self.at(TokenKind::LParen) {
+                            self.bump(); // consume `(`
+                            let mut args = vec![];
+                            while !self.at(TokenKind::RParen) {
+                                let arg = self.parse_pattern_match()?;
+                                args.push(arg);
+                                if !self.at(TokenKind::RParen) {
+                                    self.expect(TokenKind::Comma)?;
+                                }
+                            }
+                            self.expect(TokenKind::RParen)?;
+                            args
+                        } else {
+                            vec![]
+                        };
+
+                        let last_span = if let Some(last_arg) = args.last() {
+                            self.arena()
+                                .get(*last_arg)
+                                .map(|n| n.span)
+                                .unwrap_or(variant_tok.span)
+                        } else {
+                            variant_tok.span
+                        };
+
+                        let span_final = Span::new(
+                            span.file(),
+                            span.byte_start(),
+                            last_span.byte_start() + last_span.byte_len() - span.byte_start(),
+                        );
+
+                        Ok(self.arena_mut().alloc_pattern(
+                            NodeKind::PatEnumVariant,
+                            span_final,
+                            PatternData::EnumVariant {
+                                path: variant_id,
+                                args,
+                            },
+                        ))
+                    } else if self.at(TokenKind::LParen) {
+                        // Bare variant with args: `Ok(x)`, `Err(e)`
+                        self.bump(); // consume `(`
+                        let mut args = vec![];
+                        while !self.at(TokenKind::RParen) {
+                            let arg = self.parse_pattern_match()?;
+                            args.push(arg);
+                            if !self.at(TokenKind::RParen) {
+                                self.expect(TokenKind::Comma)?;
+                            }
+                        }
+                        let rparen_tok = self.expect(TokenKind::RParen)?;
+
+                        let span_final = Span::new(
+                            span.file(),
+                            span.byte_start(),
+                            rparen_tok.span.byte_start() + rparen_tok.span.byte_len()
+                                - span.byte_start(),
+                        );
+
+                        Ok(self.arena_mut().alloc_pattern(
+                            NodeKind::PatEnumVariant,
+                            span_final,
+                            PatternData::EnumVariant {
+                                path: ident_id,
+                                args,
+                            },
+                        ))
+                    } else {
+                        // Plain ident pattern
+                        Ok(self.arena_mut().alloc_pattern(
+                            NodeKind::PatIdent,
+                            span,
+                            PatternData::Ident {
+                                name: ident_id,
+                                mutable: false,
+                            },
+                        ))
+                    }
                 }
 
                 TokenKind::IntLit => {
@@ -518,5 +605,137 @@ mod tests {
         // Parse should still succeed and build an AST
         let node = arena.get(root).unwrap();
         assert_eq!(node.kind, NodeKind::ExprMatch);
+    }
+
+    #[test]
+    fn parse_pattern_match_enum_variant_bare_with_arg() {
+        // Test parsing: match x { Ok(y) => ... }
+        let tokens = vec![
+            tok(TokenKind::KwMatch, 0, 5),  // match
+            tok(TokenKind::Ident, 6, 1),    // x
+            tok(TokenKind::LBrace, 8, 1),
+            tok(TokenKind::Ident, 10, 2),   // Ok
+            tok(TokenKind::LParen, 12, 1),  // (
+            tok(TokenKind::Ident, 13, 1),   // y
+            tok(TokenKind::RParen, 14, 1),  // )
+            tok(TokenKind::FatArrow, 16, 2), // =>
+            tok(TokenKind::IntLit, 19, 1),  // 0
+            tok(TokenKind::RBrace, 20, 1),
+            tok(TokenKind::Eof, 21, 0),
+        ];
+        let (arena, root, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected for enum variant pattern");
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprMatch);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Match { arms, .. } = expr_data {
+                assert_eq!(arms.len(), 1);
+                let pattern_node = arena.get(arms[0].pattern).unwrap();
+                assert_eq!(
+                    pattern_node.kind,
+                    NodeKind::PatEnumVariant,
+                    "expected PatEnumVariant for Ok(y) pattern"
+                );
+                if let Some(PatternData::EnumVariant { path, args }) =
+                    arena.pattern_data(arms[0].pattern)
+                {
+                    assert_eq!(args.len(), 1, "expected 1 argument in Ok(y)");
+                    // Verify that path is an Ident node (not Placeholder)
+                    let path_node = arena.get(*path).unwrap();
+                    assert_eq!(path_node.kind, NodeKind::Ident, "path should be Ident node");
+                } else {
+                    panic!("expected EnumVariant pattern data");
+                }
+            } else {
+                panic!("expected ExprMatch");
+            }
+        }
+    }
+
+    #[test]
+    fn parse_pattern_match_enum_variant_qualified() {
+        // Test parsing: match x { Result::Ok(y) => ... }
+        let tokens = vec![
+            tok(TokenKind::KwMatch, 0, 5),    // match
+            tok(TokenKind::Ident, 6, 1),      // x
+            tok(TokenKind::LBrace, 8, 1),
+            tok(TokenKind::Ident, 10, 6),     // Result
+            tok(TokenKind::ColonColon, 16, 2), // ::
+            tok(TokenKind::Ident, 18, 2),     // Ok
+            tok(TokenKind::LParen, 20, 1),    // (
+            tok(TokenKind::Ident, 21, 1),     // y
+            tok(TokenKind::RParen, 22, 1),    // )
+            tok(TokenKind::FatArrow, 24, 2),  // =>
+            tok(TokenKind::IntLit, 27, 1),    // 0
+            tok(TokenKind::RBrace, 28, 1),
+            tok(TokenKind::Eof, 29, 0),
+        ];
+        let (arena, root, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected for path-qualified variant");
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprMatch);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Match { arms, .. } = expr_data {
+                assert_eq!(arms.len(), 1);
+                let pattern_node = arena.get(arms[0].pattern).unwrap();
+                assert_eq!(
+                    pattern_node.kind,
+                    NodeKind::PatEnumVariant,
+                    "expected PatEnumVariant for Result::Ok(y) pattern"
+                );
+                if let Some(PatternData::EnumVariant { path, args }) =
+                    arena.pattern_data(arms[0].pattern)
+                {
+                    assert_eq!(args.len(), 1, "expected 1 argument in Ok(y)");
+                    let path_node = arena.get(*path).unwrap();
+                    assert_eq!(path_node.kind, NodeKind::Ident, "path should be Ident node");
+                } else {
+                    panic!("expected EnumVariant pattern data");
+                }
+            } else {
+                panic!("expected ExprMatch");
+            }
+        }
+    }
+
+    #[test]
+    fn parse_pattern_match_enum_variant_multiple_args() {
+        // Test parsing: match x { Pair(a, b) => ... }
+        let tokens = vec![
+            tok(TokenKind::KwMatch, 0, 5),   // match
+            tok(TokenKind::Ident, 6, 1),     // x
+            tok(TokenKind::LBrace, 8, 1),
+            tok(TokenKind::Ident, 10, 4),    // Pair
+            tok(TokenKind::LParen, 14, 1),   // (
+            tok(TokenKind::Ident, 15, 1),    // a
+            tok(TokenKind::Comma, 16, 1),
+            tok(TokenKind::Ident, 18, 1),    // b
+            tok(TokenKind::RParen, 19, 1),   // )
+            tok(TokenKind::FatArrow, 21, 2), // =>
+            tok(TokenKind::IntLit, 24, 1),   // 0
+            tok(TokenKind::RBrace, 25, 1),
+            tok(TokenKind::Eof, 26, 0),
+        ];
+        let (arena, root, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected for multi-arg variant");
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprMatch);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Match { arms, .. } = expr_data {
+                assert_eq!(arms.len(), 1);
+                if let Some(PatternData::EnumVariant { path: _, args }) =
+                    arena.pattern_data(arms[0].pattern)
+                {
+                    assert_eq!(args.len(), 2, "expected 2 arguments in Pair(a, b)");
+                } else {
+                    panic!("expected EnumVariant pattern data");
+                }
+            } else {
+                panic!("expected ExprMatch");
+            }
+        }
     }
 }

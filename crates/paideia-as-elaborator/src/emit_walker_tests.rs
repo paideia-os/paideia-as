@@ -5869,3 +5869,46 @@ fn emit_indirect_call_via_mem_base_disp_with_nonzero_offset() {
         _ => panic!("Expected MemSib operand"),
     }
 }
+
+// Refactor 2026-07-07 Step 3: contract test for the typed diagnostic pipe.
+// Guarantees that a T-code pushed via `push_typed_diag` round-trips through
+// `take_typed_diagnostics` with its category+number preserved. This is the
+// static compile-time contract that replaces the fragile string round-trip
+// retired from `resolve_var_operands` in Step 2.
+
+#[test]
+fn push_typed_diag_round_trips_code_and_message() {
+    use paideia_as_diagnostics::{Category, DiagnosticCode, Severity};
+
+    let mut walker = EmitWalker::new();
+    let code = DiagnosticCode::new(Category::T, Severity::Error, 528)
+        .expect("T0528 is in the catalog");
+    walker.push_typed_diag(code, "unresolved local binding 'x'");
+
+    let drained = walker.take_typed_diagnostics();
+    assert_eq!(drained.len(), 1);
+    let d = &drained[0];
+    assert_eq!(d.code().category(), Category::T);
+    assert_eq!(d.code().number(), 528);
+    assert!(d.message().contains("'x'"));
+
+    // A second take yields nothing — the buffer is drained by move.
+    assert!(walker.take_typed_diagnostics().is_empty());
+}
+
+#[test]
+fn typed_and_legacy_diagnostic_buffers_are_independent() {
+    use paideia_as_diagnostics::{Category, DiagnosticCode, Severity};
+
+    let mut walker = EmitWalker::new();
+    walker.diagnostics.push("T0526: legacy path".to_string());
+    let code = DiagnosticCode::new(Category::T, Severity::Error, 527)
+        .expect("T0527 is in the catalog");
+    walker.push_typed_diag(code, "typed path");
+
+    // Legacy buffer is untouched by typed take.
+    let typed = walker.take_typed_diagnostics();
+    assert_eq!(typed.len(), 1);
+    assert_eq!(walker.diagnostics().len(), 1);
+    assert!(walker.diagnostics()[0].starts_with("T0526:"));
+}

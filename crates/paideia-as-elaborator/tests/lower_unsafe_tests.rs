@@ -58,7 +58,7 @@ fn unsafe_block_lowers_body_to_children() {
     );
 
     // Lower to IR
-    let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &paideia_as_elaborator::StructRegistry::empty());
+    let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &paideia_as_elaborator::StructRegistry::empty(), &paideia_as_elaborator::EnumRegistry::empty());
 
     // Find the Unsafe IR node
     let unsafe_ir_id = result.ast_to_ir[&unsafe_expr];
@@ -136,7 +136,7 @@ fn unsafe_block_with_three_stmts_lowers_all() {
     );
 
     // Lower to IR
-    let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &paideia_as_elaborator::StructRegistry::empty());
+    let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &paideia_as_elaborator::StructRegistry::empty(), &paideia_as_elaborator::EnumRegistry::empty());
 
     // Find the Unsafe IR node
     let unsafe_ir_id = result.ast_to_ir[&unsafe_expr];
@@ -218,7 +218,7 @@ fn unsafe_block_with_mixed_stmts_lowers_all() {
     );
 
     // Lower to IR
-    let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &paideia_as_elaborator::StructRegistry::empty());
+    let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &paideia_as_elaborator::StructRegistry::empty(), &paideia_as_elaborator::EnumRegistry::empty());
 
     // Find the Unsafe IR node
     let unsafe_ir_id = result.ast_to_ir[&unsafe_expr];

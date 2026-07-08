@@ -1098,6 +1098,15 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                 emit_walker.state().mode_stack_len()
             );
 
+            // Refactor 2026-07-07 Step 3 (FLOOR): drain the canonical typed
+            // diagnostic pipe from EmitWalker into walker_sink so no new
+            // T-code can be silently discarded. The legacy `Vec<String>`
+            // buffer accessed via `emit_walker.diagnostics()` still exists
+            // but is not drained here — retirement is a follow-up.
+            for diag in emit_walker.take_typed_diagnostics() {
+                let _ = walker_sink.emit(diag);
+            }
+
             // Phase-5-m3-005: Run UnsafeWalker to elaborate pending unsafe blocks.
             // Take pending unsafe blocks from EmitWalker state and process them.
             let pending = emit_walker.state_mut().take_pending_unsafe();
@@ -1148,17 +1157,25 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
             // Call resolve_var_operands on the arena's owned instruction table,
             // then re-clone for the encoder pipeline.
             // PA10-005 §3.5: Thread SymbolTable through for T0531 diagnostic.
+            //
+            // Refactor 2026-07-07 Step 2: resolve_var_operands now returns
+            // typed `Diagnostic` values (was `Vec<String>` requiring a
+            // string re-parse to recover the T-code). This retires the
+            // fragile `msg_str.find(':')` decoder and the fabricated `700`
+            // catch-all that hid diagnostic-catalog mismatches.
             {
                 let symbol_table_clone = lowering.ir.symbols().clone();
                 let bindings = emit_walker.state().local_bindings();
-                let mut _resolve_diags = Vec::new();
+                let mut resolve_diags: Vec<paideia_as_diagnostics::Diagnostic> = Vec::new();
                 resolve_var_operands::resolve_var_operands(
                     lowering.ir.instructions_mut(),
                     bindings,
                     Some(symbol_table_clone),
-                    &mut _resolve_diags,
+                    &mut resolve_diags,
                 );
-                // TODO: wire _resolve_diags to walker_sink once T0528/T0531 diagnostic emission is standardized
+                for diag in resolve_diags {
+                    let _ = walker_sink.emit(diag);
+                }
             }
 
             for d in unsafe_diags {
@@ -2156,8 +2173,16 @@ fn build_elf_object(
     // Phase-6-m4-004: Patch label fixups after .text encoding is complete.
     // Compute actual label offsets using label_to_instr mapping and offset_map.
     let label_to_instr = emit_walker.state().label_to_instr();
+    let direct_labels = emit_walker.state().labels();
     let offset_map = &emit_result.offset_map;
     let mut resolved_labels: HashMap<String, u32> = HashMap::new();
+
+    // First, add direct labels (populated by register_label during emit)
+    for (label_name, offset) in direct_labels {
+        resolved_labels.insert(label_name.clone(), *offset);
+    }
+
+    // Then, add labels from label_to_instr (computed via offset_map)
     for (label_name, instr_id) in label_to_instr {
         if let Some(&byte_offset_u64) = offset_map.get(instr_id) {
             resolved_labels.insert(label_name.clone(), byte_offset_u64 as u32);

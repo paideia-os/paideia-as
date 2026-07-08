@@ -166,7 +166,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                         self.bump(); // consume `::`
 
                         let variant_tok = self.expect(TokenKind::Ident)?;
-                        let _variant_id = self.arena_mut().alloc(NodeKind::Ident, variant_tok.span);
+                        let variant_id = self.arena_mut().alloc(NodeKind::Ident, variant_tok.span);
 
                         // Parse arguments: `(pat1, pat2, ...)` or nothing
                         let args = if self.at(TokenKind::LParen) {
@@ -194,7 +194,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                             variant_tok.span
                         };
 
-                        let variant_path = self.arena_mut().alloc(NodeKind::Placeholder, span);
+                        let variant_path = variant_id;
 
                         let span_final = Span::new(
                             span.file(),
