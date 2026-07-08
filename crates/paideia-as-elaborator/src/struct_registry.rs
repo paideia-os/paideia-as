@@ -97,12 +97,11 @@ pub fn build_struct_registry(
                                 }
                             };
 
-                            // Record the field type node ID for T0535 checking
-                            field_type_node_ids.push(*field_type_id);
-
                             // Check if this is a function-pointer type
                             if let Some(type_data) = ast.type_data(*field_type_id) {
                                 if matches!(type_data, TypeData::FnPtr { .. }) {
+                                    // Record the field type node ID for T0535 checking
+                                    field_type_node_ids.push(*field_type_id);
                                     // Function-pointer fields are encoded as 8-byte pointers
                                     field_descriptors.push((field_name, 0x08));
                                     continue;
@@ -121,6 +120,8 @@ pub fn build_struct_registry(
                             // Decode the field type to byte_code
                             match decode_field_type(&type_text) {
                                 Some(code) => {
+                                    // Record the field type node ID for T0535 checking
+                                    field_type_node_ids.push(*field_type_id);
                                     field_descriptors.push((field_name, code));
                                 }
                                 None => {
@@ -291,5 +292,69 @@ mod tests {
         // Verify the registry is empty
         assert_eq!(registry.by_name.len(), 0);
         assert_eq!(registry.fields.len(), 0);
+    }
+
+    #[test]
+    fn test_build_struct_registry_alignment_with_unsupported_field() {
+        use paideia_as_ast::AstArena;
+        use paideia_as_diagnostics::{SourceMap, VecSink, FileId, Span};
+        use std::path::PathBuf;
+
+        // Create minimal source content: "struct S { good: u64, bad: f32 }"
+        // Layout: S at 7, good at 11, u64 at 17, bad at 23, f32 at 28
+        let source = "struct S { good: u64, bad: f32 }";
+        let mut source_map = SourceMap::new();
+        let file_id = source_map.add_file(PathBuf::from("test.pdx"), source.to_string());
+
+        // Create AST arena
+        let mut ast = AstArena::new();
+
+        // Allocate nodes for struct name, field names, and field types
+        // All nodes need NodeKind, span, and optional data.
+        let struct_name_id = ast.alloc(NodeKind::Ident, Span::new(file_id, 7, 1));
+        let field_good_name_id = ast.alloc(NodeKind::Ident, Span::new(file_id, 11, 4));
+        let field_good_type_id = ast.alloc(NodeKind::Placeholder, Span::new(file_id, 17, 3));
+        let field_bad_name_id = ast.alloc(NodeKind::Ident, Span::new(file_id, 23, 3));
+        // f32 is unsupported by decode_field_type, so it will trigger T0552 skip path
+        let field_bad_type_id = ast.alloc(NodeKind::Placeholder, Span::new(file_id, 28, 3));
+
+        // Create ItemData::Struct with both fields
+        let struct_data = ItemData::Struct {
+            name: struct_name_id,
+            generic_params: Vec::new(),
+            fields: vec![
+                (field_good_name_id, field_good_type_id),
+                (field_bad_name_id, field_bad_type_id),
+            ],
+            attributes: Vec::new(),
+            doc: None,
+        };
+
+        // Allocate the struct item node
+        ast.alloc_item(NodeKind::Struct, Span::new(file_id, 0, 33), struct_data);
+
+        // Build the registry
+        let mut sink = VecSink::new();
+        let registry = build_struct_registry(&ast, &source_map, &mut sink);
+
+        // Verify the registry has exactly one struct
+        assert_eq!(registry.by_name.len(), 1);
+        let type_id = registry.get_by_name("S").expect("struct S should be in registry");
+
+        // CRITICAL: Verify fields and field_type_nodes have the same length
+        // Before the fix, field_type_nodes would have 2 entries while fields has 1
+        let fields_count = registry.fields.get(&type_id).map(|v| v.len());
+        let field_type_nodes_count = registry.field_type_nodes.get(&type_id).map(|v| v.len());
+
+        assert_eq!(fields_count, Some(1), "should have 1 accepted field (u64)");
+        assert_eq!(field_type_nodes_count, Some(1), "field_type_nodes should match fields length");
+        assert_eq!(fields_count, field_type_nodes_count, "fields and field_type_nodes must be aligned");
+
+        // Verify the accepted field is the 'good' one
+        if let Some(fields) = registry.fields.get(&type_id) {
+            assert_eq!(fields.len(), 1);
+            assert_eq!(fields[0].0, "good", "the accepted field should be 'good'");
+            assert_eq!(fields[0].1, 0x08, "good: u64 should encode as 0x08");
+        }
     }
 }
