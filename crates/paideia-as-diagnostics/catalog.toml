@@ -983,6 +983,20 @@ description = "Phase 7 m2-003 (PA7C-m2-003): An unsafe.instruction operand refer
 since = "0.12.2"
 deprecated = false
 
+[diagnostic.T0529]
+severity = "error"
+category = "type"
+title = "Field read width not yet lowered"
+brief = "only u32/u64 field reads supported; u8/u16/i8/i16/i32 deferred"
+description = """
+The field-access lowering path in emit_mem_read_via_rip_sym currently only
+handles u32 and u64 loads. Fields typed u8/u16/i8/i16/i32 are recognized but
+their movzx/movsx lowering is deferred to Phase 17 m6-b. This diagnostic
+replaces the earlier T0517 reuse at emit_field_access.rs (issue #1080).
+"""
+since = "0.17.0"
+deprecated = false
+
 [diagnostic.T0531]
 severity = "error"
 category = "type"

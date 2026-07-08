@@ -546,11 +546,14 @@ impl EmitWalker {
                 self.emit_inst(node_id, inst);
             }
             _ => {
-                // u8/u16/i8/i16/i32: not exercised by the fixture; emit diagnostic.
-                self.diagnostics.push(format!(
-                    "T0517: emit_mem_read_via_rip_sym with size={}, signed={} not supported; deferred to future phase",
+                // u8/u16/i8/i16/i32: not exercised by the fixture; emit T0529 typed diagnostic.
+                let code = "T0529".parse::<paideia_as_diagnostics::DiagnosticCode>()
+                    .expect("T0529 is a valid diagnostic code");
+                let message = format!(
+                    "field read with size={}, signed={} not yet lowered",
                     size, signed
-                ));
+                );
+                self.push_typed_diag(code, message);
             }
         }
     }

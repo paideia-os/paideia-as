@@ -1503,12 +1503,74 @@ fn emit_walker_m3_003_5_stmt_body_fires_t0517() {
     // Emit fifth field access (should fire T0517).
     walker.visit_let_field_access(field_access_ids[4], field_access_ids[4], &arena);
 
-    // Verify T0517 diagnostic was fired.
-    let diags = walker.diagnostics();
-    assert!(!diags.is_empty(), "T0517 should be fired for 5th binding");
+    // Verify T0517 diagnostic was fired via the typed diagnostic pipe.
+    let typed_diags = walker.take_typed_diagnostics();
+    assert!(!typed_diags.is_empty(), "T0517 should be fired for 5th binding");
     assert!(
-        diags.iter().any(|d| d.contains("T0517")),
-        "Diagnostic should mention T0517"
+        typed_diags.iter().any(|d| d.code().to_string() == "T0517"),
+        "Diagnostic should have code T0517"
+    );
+}
+
+#[test]
+fn emit_walker_t0529_unsupported_field_width_u16() {
+    // Issue #1080: T0529 fires when field read size is u16 (not yet lowered).
+    // This exercises the emit_mem_read_via_rip_sym path which only handles u32/u64.
+    use paideia_as_ir::record_layout::{FieldAccessInfo, FieldLayout};
+
+    let mut arena = IrArena::new();
+    let mut walker = EmitWalker::new();
+
+    let span_ref = span();
+    let field_type_id = RecordTypeId(103);
+
+    // Create a single field access with u16 size.
+    let var_id = arena.alloc(IrKind::Var, span_ref);
+    let deref_id = arena.alloc_with_children(IrKind::Deref, span_ref, [var_id]);
+    let field_access_id =
+        arena.alloc_with_children(IrKind::FieldAccess, span_ref, [deref_id]);
+
+    let field_info = FieldAccessInfo {
+        type_id: field_type_id,
+        field_index: 0,
+    };
+    arena
+        .field_access_info_mut()
+        .insert(field_access_id, field_info);
+
+    // Record layout: one u16 field (unsigned, size=2).
+    let layout = RecordLayout::new(
+        2,
+        2,
+        vec![
+            FieldLayout { offset: 0, size: 2, signed: false },
+        ],
+    );
+    walker
+        .state_mut()
+        .record_layouts
+        .insert(field_type_id, layout);
+
+    // Simulate function entry.
+    walker.state_mut().clear_scratch();
+    walker.state_mut().current_function = 5;
+
+    // Directly call emit_widening_load with u16 (size=2, signed=false)
+    // to trigger the unsupported case in emit_mem_read_via_rip_sym.
+    // However, emit_widening_load routes u16 unsigned to emit_field_access_movzx_reg,
+    // not emit_mem_read_via_rip_sym. Let's call emit_mem_read_via_rip_sym directly.
+    walker.emit_mem_read_via_rip_sym(field_access_id, abi::RAX, "test_symbol".to_string(), 0, 2, false);
+
+    // Verify T0529 diagnostic was fired via the typed diagnostic pipe.
+    let typed_diags = walker.take_typed_diagnostics();
+    assert!(!typed_diags.is_empty(), "T0529 should be fired for u16 field width");
+    assert!(
+        typed_diags.iter().any(|d| d.code().to_string() == "T0529"),
+        "Diagnostic should have code T0529"
+    );
+    assert!(
+        typed_diags.iter().any(|d| d.message().contains("size=2") && d.message().contains("signed=false")),
+        "Diagnostic should mention size=2 and signed=false"
     );
 }
 

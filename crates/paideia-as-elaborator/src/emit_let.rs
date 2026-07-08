@@ -106,7 +106,8 @@ impl EmitWalker {
     /// Phase 6 m3-003: Emit instruction for Let with FieldAccess RHS.
     ///
     /// Handles in-block field bindings by assigning scratch registers in sequence:
-    /// RAX(0), RCX(1), RDX(2), R8(8). After 4 in-flight bindings, fires T0517.
+    /// RAX(0), RCX(1), RDX(2), R8(8). After 4 in-flight bindings, fires T0517 via
+    /// the typed diagnostic pipe.
     ///
     /// Delegates to visit_field_access_with_reg to emit the mov instruction
     /// to the assigned scratch register instead of RAX.
@@ -121,11 +122,14 @@ impl EmitWalker {
 
         // Check if we've exceeded register pressure.
         if self.state.scratch_count() >= scratch_regs.len() {
-            // Fire T0517: register pressure exceeded.
-            self.diagnostics.push(format!(
-                "T0517: register pressure exceeded in Phase 6 field-bind: more than {} in-flight bindings",
+            // Fire T0517: register pressure exceeded (typed diagnostic).
+            let code = "T0517".parse::<paideia_as_diagnostics::DiagnosticCode>()
+                .expect("T0517 is a valid diagnostic code");
+            let message = format!(
+                "register pressure exceeded: more than {} in-flight bindings",
                 scratch_regs.len()
-            ));
+            );
+            self.push_typed_diag(code, message);
             return;
         }
 
