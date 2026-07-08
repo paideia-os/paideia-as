@@ -321,6 +321,7 @@ fn encode_instruction_impl(
         Mnemonic::Adc { width } => encode_adc(inst, buf, *width),
         Mnemonic::Sbb { width } => encode_sbb(inst, buf, *width),
         Mnemonic::Popcnt { width } => encode_popcnt(inst, buf, *width),
+        Mnemonic::Crc32 { width } => encode_crc32(inst, buf, *width),
         Mnemonic::Bsf { width } => encode_bsf(inst, buf, *width),
         Mnemonic::Bsr { width } => encode_bsr(inst, buf, *width),
         Mnemonic::Tzcnt { width } => encode_tzcnt(inst, buf, *width),
@@ -2572,6 +2573,40 @@ fn encode_tzcnt(
         }
         _ => Err(EncodeError::OperandShape {
             mnemonic: Mnemonic::Tzcnt { width },
+        }),
+    }
+}
+
+fn encode_crc32(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+    width: IntWidth,
+) -> Result<EncodeOutput, EncodeError> {
+    match width {
+        IntWidth::W64 => {}
+        _ => {
+            return Err(EncodeError::Unsupported(
+                "E0053: crc32 only supports W64 (PA-R15-006, #1005)",
+            ))
+        }
+    }
+
+    match inst.operands.as_slice() {
+        [Operand::Reg(dest), Operand::Reg(src)] => {
+            crc32_reg64_reg64(buf, reg64_from(*dest)?, reg64_from(*src)?);
+            Ok(EncodeOutput::new())
+        }
+        [Operand::Reg(dest), Operand::MemSib { base, index: None, scale: _, disp }] => {
+            crc32_reg64_mem_base_disp(buf, reg64_from(*dest)?, reg64_from(*base)?, *disp);
+            Ok(EncodeOutput::new())
+        }
+        [Operand::Reg(_), Operand::MemSib { index: Some(_), .. }] => {
+            Err(EncodeError::OperandShape {
+                mnemonic: Mnemonic::Crc32 { width },
+            })
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Crc32 { width },
         }),
     }
 }

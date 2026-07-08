@@ -405,6 +405,14 @@ pub enum Mnemonic {
         /// Operand width selecting the encoded form (W32 or W64).
         width: IntWidth,
     },
+    /// CRC32 checksum: `crc32 r64, r/m64` (PA-R15-006, #1005).
+    /// Accumulates CRC32 checksum. Two operands (dst, src).
+    /// Encoding: `F2 [REX.W] 0F 38 F1 /r` per Intel SDM Vol 2B CRC32.
+    /// Requires SSE 4.2 CPUID.01H:ECX.SSE42[bit 20].
+    Crc32 {
+        /// Operand width selecting the encoded form (W64 only).
+        width: IntWidth,
+    },
     /// Bit scan forward: `bsf r32/r64, r/m32/r/m64` (PA-R16-008, #974).
     /// Returns index of lowest set bit in src. ZF=1 iff src=0 (dst undefined).
     /// Encoding: `[REX.W] 0F BC /r` per Intel SDM Vol 2A BSF (RM form: dst in reg, src in rm).
@@ -875,6 +883,7 @@ impl Mnemonic {
             | Mnemonic::Adc { .. }
             | Mnemonic::Sbb { .. }
             | Mnemonic::Popcnt { .. }
+            | Mnemonic::Crc32 { .. }
             | Mnemonic::Bsf { .. }
             | Mnemonic::Bsr { .. }
             | Mnemonic::Tzcnt { .. }
@@ -925,6 +934,7 @@ impl Mnemonic {
         match self {
             Self::LockCmpxchg16b => Some(CpuFeature::Cx16),
             Self::Popcnt { .. } => Some(CpuFeature::Popcnt),
+            Self::Crc32 { .. } => Some(CpuFeature::Sse42),
             Self::Tzcnt { .. } => Some(CpuFeature::Bmi1),
             _ => None,
         }
@@ -1041,6 +1051,9 @@ impl Mnemonic {
 
             // Population count: 9 bytes (F3 + REX + 0F + B8 + ModR/M + disp32 max)
             Mnemonic::Popcnt { .. } => 9,
+
+            // CRC32 checksum: 9 bytes (F2 + REX + 0F + 38 + F1 + ModR/M + disp32 max)
+            Mnemonic::Crc32 { .. } => 9,
 
             // Bit scan forward/reverse and trailing-zero count: 10 bytes
             // Phase R16 PA-R16-008 (issue #974): bsf, bsr, tzcnt

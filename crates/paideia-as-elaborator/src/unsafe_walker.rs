@@ -266,6 +266,8 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     // Phase R15 PA-R15-006 (issue #961): popcnt population count
     ("popcnt_d", Mnemonic::Popcnt { width: IntWidth::W32 }),
     ("popcnt_q", Mnemonic::Popcnt { width: IntWidth::W64 }),
+    // Phase R15 PA-R15-006 (issue #1005): crc32 checksum (W64 only)
+    ("crc32_q", Mnemonic::Crc32 { width: IntWidth::W64 }),
     // Phase R16 PA-R16-008 (issue #974): bit scan and trailing-zero count (W64 only)
     ("bsf_q", Mnemonic::Bsf { width: IntWidth::W64 }),
     ("bsr_q", Mnemonic::Bsr { width: IntWidth::W64 }),

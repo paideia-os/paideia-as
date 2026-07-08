@@ -567,6 +567,39 @@ pub fn popcnt_reg32_mem_base_disp(buf: &mut CodeBuffer, dst_id: u8, base_id: u8,
     emit_mem_base_disp(buf, dst_id & 7, base_id, disp);
 }
 
+/// Encode `crc32 reg64, reg64` (CRC32 checksum from register, 64-bit).
+///
+/// Instruction: F2 REX.W 0F 38 F1 /r (PA-R15-006, #1005)
+/// ModR/M: 0xC0 | (dst<<3) | src
+/// CPUID requirement: SSE 4.2.
+pub fn crc32_reg64_reg64(buf: &mut CodeBuffer, dst: Reg64, src: Reg64) {
+    let dst_id = dst as u8;
+    let src_id = src as u8;
+    buf.bytes.push(0xF2);
+    let rex_byte = rex(true, (dst_id >> 3) != 0, false, (src_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0x38);
+    buf.bytes.push(0xF1);
+    buf.bytes.push(0xC0 | ((dst_id & 7) << 3) | (src_id & 7));
+}
+
+/// Encode `crc32 reg64, [base + disp]` (CRC32 checksum from memory, 64-bit).
+///
+/// Instruction: F2 REX.W 0F 38 F1 /r (PA-R15-006, #1005)
+/// ModR/M+SIB: emit_mem_base_disp with dst in reg field
+pub fn crc32_reg64_mem_base_disp(buf: &mut CodeBuffer, dst: Reg64, base: Reg64, disp: i32) {
+    let dst_id = dst as u8;
+    let base_id = base as u8;
+    buf.bytes.push(0xF2);
+    let rex_byte = rex(true, (dst_id >> 3) != 0, false, (base_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0x38);
+    buf.bytes.push(0xF1);
+    emit_mem_base_disp(buf, dst_id & 7, base_id, disp);
+}
+
 /// Encode `bsf reg64, reg64` (bit scan forward, 64-bit).
 ///
 /// Instruction: REX.W 0F BC /r (PA-R16-008, #974)
