@@ -196,7 +196,7 @@ impl EmitWalker {
                         if cfg!(debug_assertions) {
                             eprintln!("[emit_block_body] StmtExpr at index {}", i);
                         }
-                        // TODO: Emit the expression, discard result.
+                        self.emit_action_stmt(child_id, arena, typer);
                     }
                     IrKind::RawInstruction => {
                         // Phase 7 m2-001 (PA7C-m2-001): RawInstruction child of Action.
@@ -582,7 +582,7 @@ impl EmitWalker {
                         if cfg!(debug_assertions) {
                             eprintln!("[emit_block_body_arm] StmtExpr at index {}", i);
                         }
-                        // TODO: Emit the expression, discard result.
+                        self.emit_action_stmt(child_id, arena, typer);
                     }
                     IrKind::RawInstruction => {
                         // Phase 7 m2-001 (PA7C-m2-001): RawInstruction child of Action.
@@ -759,6 +759,81 @@ impl EmitWalker {
                 }
                 _ => {
                     // Other expression kinds deferred
+                }
+            }
+        }
+    }
+
+    /// Phase 7 m4-003: Emit statement-position action (StmtExpr).
+    ///
+    /// Issue #1088: Route call expressions inside unsafe blocks through the emit pipeline.
+    /// Handles Action nodes whose children are expression kinds (App, FieldAccess, Var, Literal).
+    /// Result is discarded (no return-value placement).
+    pub(crate) fn emit_action_stmt(
+        &mut self,
+        action_id: IrNodeId,
+        arena: &IrArena,
+        _typer: Option<&paideia_as_types::TypeInterner>,
+    ) {
+        let action_children = arena.children(action_id);
+        if let Some(&child_id) = action_children.first() {
+            if let Some(child_node) = arena.get(child_id) {
+                match child_node.kind {
+                    IrKind::App => {
+                        // Call expression in statement position.
+                        // Extract callee (first child of App) and arguments.
+                        let app_children = arena.children(child_id);
+                        if app_children.len() > 0 {
+                            let callee_id = app_children[0];
+                            if let Some(callee_node) = arena.get(callee_id) {
+                                if callee_node.kind == IrKind::Var {
+                                    if let Some(target_name) = arena.binding_names().get(callee_id) {
+                                        self.emit_call_stmt(
+                                            action_id,
+                                            target_name.to_string(),
+                                            &app_children[1..],
+                                            arena,
+                                        );
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                        // Fall through: emit U1614 if callee extraction fails
+                        self.diagnostics.push(format!(
+                            "U1614: unroutable call expression in statement position (internal compiler error)"
+                        ));
+                    }
+                    IrKind::FieldAccess => {
+                        // Field access in statement position (e.g., `obj.field;`).
+                        // Side effect depends on the target field; for now, skip silently.
+                        if cfg!(debug_assertions) {
+                            eprintln!(
+                                "[emit_action_stmt] FieldAccess in statement position — skipped"
+                            );
+                        }
+                    }
+                    IrKind::Var => {
+                        // Bare identifier in statement position (e.g., `x;`).
+                        // No side effects; skip silently.
+                        if cfg!(debug_assertions) {
+                            eprintln!("[emit_action_stmt] Var in statement position — skipped");
+                        }
+                    }
+                    IrKind::Literal => {
+                        // Literal in statement position (e.g., `42;`).
+                        // No side effects; skip silently.
+                        if cfg!(debug_assertions) {
+                            eprintln!("[emit_action_stmt] Literal in statement position — skipped");
+                        }
+                    }
+                    _ => {
+                        // Unroutable statement kind.
+                        self.diagnostics.push(format!(
+                            "U1614: unroutable statement kind in Action: {:?}",
+                            child_node.kind
+                        ));
+                    }
                 }
             }
         }

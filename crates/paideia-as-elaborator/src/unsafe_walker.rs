@@ -704,6 +704,15 @@ impl UnsafeWalker {
                                                         pending_labels.clear();
                                                     }
                                                 }
+                                            } else if ast_stmt_node.kind == NodeKind::StmtExpr {
+                                                // Issue #1088: StmtExpr (call expressions, field access, etc.)
+                                                // are now routable via the emit pipeline. UnsafeWalker ignores
+                                                // them; they'll be emitted later by emit_pending_unsafe_bodies.
+                                                if cfg!(debug_assertions) {
+                                                    eprintln!(
+                                                        "[unsafe_walker] StmtExpr in unsafe block (deferred to emit pipeline)"
+                                                    );
+                                                }
                                             } else {
                                                 // U1614: Unsupported statement kind in unsafe block
                                                 let stmt_kind = ast

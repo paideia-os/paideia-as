@@ -462,6 +462,71 @@ impl EmitWalker {
         crate::data_encoder::populate_jump_tables_from_mutable_arena(arena)
     }
 
+    /// Phase 7 m4-003: Emit pending unsafe-block statement bodies.
+    ///
+    /// Issue #1088: After UnsafeWalker processes raw instructions and labels,
+    /// emit any pending action statements (call expressions, etc.) through the
+    /// standard IR emit pipeline. Statements not yet routable fire U1614 fallback.
+    pub fn emit_pending_unsafe_bodies(
+        &mut self,
+        pending: Vec<u32>,
+        arena: &IrArena,
+        typer: Option<&paideia_as_types::TypeInterner>,
+    ) {
+        for id_u32 in pending {
+            let Some(unsafe_id) = IrNodeId::new(id_u32) else { continue };
+            for &child in arena.children(unsafe_id).iter() {
+                let Some(node) = arena.get(child) else { continue };
+                match node.kind {
+                    IrKind::RawInstruction | IrKind::Label | IrKind::Placeholder => {
+                        // UnsafeWalker already emitted (RawInstruction); IrKind::Label
+                        // is a reserved/dead variant kept as a defensive skip; StmtLabel
+                        // actually lowers to IrKind::Placeholder, which is a no-op here.
+                    }
+                    IrKind::Var => {
+                        // Bare identifier in unsafe block (e.g., `x;`).
+                        // No side effects; skip.
+                    }
+                    IrKind::Literal => {
+                        // Literal in unsafe block (e.g., `42;`).
+                        // No side effects; skip.
+                    }
+                    IrKind::Action => {
+                        // Statement-position expression: delegate to emit_action_stmt.
+                        self.emit_action_stmt(child, arena, typer);
+                    }
+                    _ => {
+                        // Unroutable statement kind (Let, Loop, While, Return, etc.).
+                        self.push_typed_diag_u1614(
+                            node.span,
+                            format!("unroutable statement kind in unsafe block: {:?}", node.kind),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Helper to push U1614 diagnostic with span (internal use).
+    fn push_typed_diag_u1614(
+        &mut self,
+        span: paideia_as_diagnostics::Span,
+        message: impl Into<String>,
+    ) {
+        let code = DiagnosticCode::new(
+            paideia_as_diagnostics::Category::U,
+            paideia_as_diagnostics::Severity::Error,
+            1614,
+        );
+        if let Ok(code) = code {
+            let diag = Diagnostic::error(code)
+                .message(message)
+                .with_span(span)
+                .finish();
+            self.structured_diagnostics.push(diag);
+        }
+    }
+
 
 
 

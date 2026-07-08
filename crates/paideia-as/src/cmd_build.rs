@@ -612,6 +612,8 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
             // Phase-5-m3-005: Run UnsafeWalker to elaborate pending unsafe blocks.
             // Take pending unsafe blocks from EmitWalker state and process them.
             let pending = emit_walker.state_mut().take_pending_unsafe();
+            // Issue #1088: Clone pending for emit_pending_unsafe_bodies (after UnsafeWalker).
+            let pending_for_ir_emit = pending.clone();
             let record_layouts = emit_walker.state().record_layouts();
             let local_bindings = emit_walker.state().local_bindings();
             let enabled_features = emit_walker.state().enabled_features();
@@ -653,6 +655,19 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                             .insert_lambda_first_instr(lambda_id, *first_instr);
                     }
                 }
+            }
+
+            // Phase 7 m4-003: Emit pending unsafe-block statement bodies.
+            // Issue #1088: After UnsafeWalker processes raw instructions and labels,
+            // emit any pending action statements (call expressions, etc.) through the
+            // standard IR emit pipeline.
+            emit_walker.emit_pending_unsafe_bodies(
+                pending_for_ir_emit,
+                &lowering.ir,
+                None,
+            );
+            for diag in emit_walker.take_typed_diagnostics() {
+                let _ = walker_sink.emit(diag);
             }
 
             // Phase-7-m2-003: Resolve Operand::Var references to Operand::Reg.

@@ -20,17 +20,13 @@ fn resolve_stdlib_trait_method(target: &str) -> Option<(String, String)> {
 }
 
 impl EmitWalker {
-    /// Phase 7 m1-003: Emit inter-function call.
+    /// Phase 7 m1-003: Emit call arguments and CALL instruction (no RET).
     ///
-    /// PA7-006: Handles 0-6 argument calls to other functions:
-    /// - 0-arg call: `call target; ret` (6 bytes total)
-    /// - 1-arg call: `mov rdi, arg0; call target; ret` (3+5+1 bytes)
-    /// - 2-arg call: `mov rdi, arg0; mov rsi, arg1; call target; ret` (3+3+5+1 bytes)
-    /// - 3-6 arg calls: extend to RDX, RCX, R8, R9
+    /// Emits argument marshalling (MOV to RDI, RSI, ...) and CALL instruction.
+    /// Does NOT emit RET. Call `emit_ret_after_call` separately for statement-position calls.
     ///
-    /// Supports arg sources: immediate literals, local-binding via LocalBindingTable,
-    /// symbol refs to globals. > 6 args rejected with EncodeError::Unsupported.
-    pub(crate) fn emit_function_call(
+    /// Records lambda entry as a side effect.
+    fn emit_call_args_and_call(
         &mut self,
         lambda_node_id: IrNodeId,
         target_name: String,
@@ -111,7 +107,7 @@ impl EmitWalker {
         }
 
         // ABI calling convention: arguments go to RDI, RSI, RDX, RCX, R8, R9
-        let arg_regs = [abi::RDI, abi::RSI, abi::RDX, abi::RCX, abi::R8, abi::R9]; // RDI, RSI, RDX, RCX, R8, R9
+        let arg_regs = [abi::RDI, abi::RSI, abi::RDX, abi::RCX, abi::R8, abi::R9];
 
         // Emit MOV instructions for each argument
         for (arg_idx, &arg_id) in arg_ids.iter().enumerate() {
@@ -223,8 +219,13 @@ impl EmitWalker {
         };
 
         self.emit_inst(main_id, call_inst);
+    }
 
-        // Emit RET instruction
+    /// Emit RET instruction after a call (or standalone for statement-position calls).
+    ///
+    /// Issue #1088: For statement-position calls (call expressions whose result is discarded),
+    /// emit only the RET, not the full function-call sequence.
+    fn emit_ret_after_call(&mut self, lambda_node_id: IrNodeId) {
         let ret_id = IrNodeId::new(lambda_node_id.get() * 2 + 1).expect("ret instr id");
         let ret_inst = Instruction {
             mnemonic: Mnemonic::Ret,
@@ -234,5 +235,40 @@ impl EmitWalker {
             mode: self.current_mode(),
         };
         self.emit_inst(ret_id, ret_inst);
+    }
+
+    /// Phase 7 m1-003: Emit inter-function call.
+    ///
+    /// PA7-006: Handles 0-6 argument calls to other functions:
+    /// - 0-arg call: `call target; ret` (6 bytes total)
+    /// - 1-arg call: `mov rdi, arg0; call target; ret` (3+5+1 bytes)
+    /// - 2-arg call: `mov rdi, arg0; mov rsi, arg1; call target; ret` (3+3+5+1 bytes)
+    /// - 3-6 arg calls: extend to RDX, RCX, R8, R9
+    ///
+    /// Supports arg sources: immediate literals, local-binding via LocalBindingTable,
+    /// symbol refs to globals. > 6 args rejected with EncodeError::Unsupported.
+    pub(crate) fn emit_function_call(
+        &mut self,
+        lambda_node_id: IrNodeId,
+        target_name: String,
+        arg_ids: &[IrNodeId],
+        arena: &IrArena,
+    ) {
+        self.emit_call_args_and_call(lambda_node_id, target_name, arg_ids, arena);
+        self.emit_ret_after_call(lambda_node_id);
+    }
+
+    /// Phase 7 m4-003: Emit call statement (expression-statement form).
+    ///
+    /// Issue #1088: Route call expressions inside unsafe blocks through the emit pipeline.
+    /// Emits arguments and CALL only (no RET), as the result is discarded.
+    pub(crate) fn emit_call_stmt(
+        &mut self,
+        lambda_node_id: IrNodeId,
+        target_name: String,
+        arg_ids: &[IrNodeId],
+        arena: &IrArena,
+    ) {
+        self.emit_call_args_and_call(lambda_node_id, target_name, arg_ids, arena);
     }
 }

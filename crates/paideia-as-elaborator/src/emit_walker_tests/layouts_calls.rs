@@ -2279,3 +2279,118 @@ fn emit_walker_loop_context_tracking() {
     walker.pop_loop_context();
     assert_eq!(walker.current_loop_context(), None);
 }
+
+#[test]
+fn emit_pending_unsafe_bodies_routes_action_app() {
+    // Issue #1088: emit_pending_unsafe_bodies should route Action nodes with App children
+    // through emit_call_stmt, emitting the CALL instruction.
+    let mut arena = IrArena::new();
+
+    // Allocate: Lambda for target function.
+    let target_lambda_id = arena.alloc(IrKind::Lambda, span());
+    let target_symbol = Symbol::new("target_fn".to_string(), SymbolKind::Function, target_lambda_id);
+    arena.symbols_mut().insert(target_symbol);
+
+    // Allocate: Var node for callee (binding name = "target_fn").
+    let callee_id = arena.alloc(IrKind::Var, span());
+    arena.binding_names_mut().insert(callee_id, "target_fn".to_string());
+
+    // Allocate: App node (callee + args).
+    let app_id = arena.alloc_with_children(IrKind::App, span(), [callee_id]);
+
+    // Allocate: Action node (wrapping App).
+    let action_id = arena.alloc_with_children(IrKind::Action, span(), [app_id]);
+
+    // Allocate: Unsafe block (containing Action).
+    let unsafe_id = arena.alloc_with_children(IrKind::Unsafe, span(), [action_id]);
+
+    // Create walker and emit pending unsafe bodies.
+    let mut walker = EmitWalker::new();
+    let pending = vec![unsafe_id.get()];
+    walker.emit_pending_unsafe_bodies(pending, &arena, None);
+
+    // Verify: a CALL instruction was emitted.
+    let insts = &walker.state().instructions;
+    let call_found = insts.entries().iter().any(|(_, inst)| {
+        inst.mnemonic == paideia_as_ir::instruction::Mnemonic::Call
+    });
+    assert!(
+        call_found,
+        "Expected CALL instruction in pending unsafe body, got {} instructions",
+        insts.entries().len()
+    );
+
+    // Verify: no U1614 diagnostics were emitted.
+    let diags = &walker.structured_diagnostics;
+    let u1614_found = diags.iter().any(|d| {
+        d.code().number() == 1614
+    });
+    assert!(
+        !u1614_found,
+        "Expected no U1614 diagnostics, got {} diagnostics",
+        diags.len()
+    );
+}
+
+#[test]
+fn emit_pending_unsafe_bodies_skips_label_sibling() {
+    // Issue #1088 regression: StmtLabel lowers to IrKind::Placeholder (not
+    // IrKind::Label, which is a dead/reserved variant). emit_pending_unsafe_bodies
+    // must skip Placeholder siblings (already emitted as labels by UnsafeWalker)
+    // instead of falling through to the U1614 "unroutable statement kind" arm.
+    //
+    // Mirrors boot/entry.pdx: a `halt:` label followed by a call statement inside
+    // the same unsafe block.
+    let mut arena = IrArena::new();
+
+    // Allocate: Lambda for target function.
+    let target_lambda_id = arena.alloc(IrKind::Lambda, span());
+    let target_symbol = Symbol::new("target_fn".to_string(), SymbolKind::Function, target_lambda_id);
+    arena.symbols_mut().insert(target_symbol);
+
+    // Allocate: Var node for callee (binding name = "target_fn").
+    let callee_id = arena.alloc(IrKind::Var, span());
+    arena.binding_names_mut().insert(callee_id, "target_fn".to_string());
+
+    // Allocate: App node (callee + args).
+    let app_id = arena.alloc_with_children(IrKind::App, span(), [callee_id]);
+
+    // Allocate: Action node (wrapping App).
+    let action_id = arena.alloc_with_children(IrKind::Action, span(), [app_id]);
+
+    // Allocate: Placeholder node (label sibling, e.g. `halt:`) — already emitted
+    // by UnsafeWalker prior to this pass, so it must be a no-op here.
+    let label_id = arena.alloc(IrKind::Placeholder, span());
+
+    // Allocate: Unsafe block containing the label placeholder followed by the
+    // action statement, matching the `halt:` + call ordering in boot/entry.pdx.
+    let unsafe_id = arena.alloc_with_children(IrKind::Unsafe, span(), [label_id, action_id]);
+
+    // Create walker and emit pending unsafe bodies.
+    let mut walker = EmitWalker::new();
+    let pending = vec![unsafe_id.get()];
+    walker.emit_pending_unsafe_bodies(pending, &arena, None);
+
+    // Verify: a CALL instruction was still emitted for the Action sibling.
+    let insts = &walker.state().instructions;
+    let call_found = insts.entries().iter().any(|(_, inst)| {
+        inst.mnemonic == paideia_as_ir::instruction::Mnemonic::Call
+    });
+    assert!(
+        call_found,
+        "Expected CALL instruction alongside label placeholder, got {} instructions",
+        insts.entries().len()
+    );
+
+    // Verify: no U1614 diagnostics were emitted (the Placeholder must not fall
+    // through to the unroutable-statement-kind arm).
+    let diags = &walker.structured_diagnostics;
+    let u1614_found = diags.iter().any(|d| {
+        d.code().number() == 1614
+    });
+    assert!(
+        !u1614_found,
+        "Expected no U1614 diagnostics for label placeholder, got {} diagnostics",
+        diags.len()
+    );
+}
