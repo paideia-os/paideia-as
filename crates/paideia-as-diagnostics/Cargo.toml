@@ -6,9 +6,14 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+autotests = false
 
 [lib]
 name = "paideia_as_diagnostics"
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
 
 [dependencies]
 thiserror = { workspace = true }
