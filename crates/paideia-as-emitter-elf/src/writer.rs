@@ -354,7 +354,7 @@ impl ElfWriter {
         let flags = match entry.kind {
             RelocKind::PC32 => RelocationFlags::Generic {
                 kind: RelocationKind::Relative,
-                encoding: RelocationEncoding::X86Branch,
+                encoding: RelocationEncoding::Generic,
                 size: 32,
             },
             RelocKind::Abs32 => RelocationFlags::Generic {
