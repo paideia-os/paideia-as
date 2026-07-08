@@ -3,10 +3,12 @@
 //! Phase 8 m4-001: verify that lower.rs walks the unsafe block's statement
 //! list and emits each statement as an IR child of the Unsafe node.
 
+use std::collections::HashMap;
+
 use paideia_as_ast::{AstArena, ExprData, NodeKind, StmtData};
 use paideia_as_diagnostics::{SourceMap, Span, VecSink};
 use paideia_as_elaborator::lower::lower_ast_to_ir;
-use paideia_as_ir::{InstrMode, IrKind};
+use paideia_as_ir::IrKind;
 
 fn test_span() -> Span {
     Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 0, 1)
@@ -58,7 +60,7 @@ fn unsafe_block_lowers_body_to_children() {
     );
 
     // Lower to IR
-    let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &paideia_as_elaborator::StructRegistry::empty(), &paideia_as_elaborator::EnumRegistry::empty());
+    let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &paideia_as_elaborator::StructRegistry::empty(), &paideia_as_elaborator::EnumRegistry::empty(), &HashMap::new());
 
     // Find the Unsafe IR node
     let unsafe_ir_id = result.ast_to_ir[&unsafe_expr];
@@ -136,7 +138,7 @@ fn unsafe_block_with_three_stmts_lowers_all() {
     );
 
     // Lower to IR
-    let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &paideia_as_elaborator::StructRegistry::empty(), &paideia_as_elaborator::EnumRegistry::empty());
+    let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &paideia_as_elaborator::StructRegistry::empty(), &paideia_as_elaborator::EnumRegistry::empty(), &HashMap::new());
 
     // Find the Unsafe IR node
     let unsafe_ir_id = result.ast_to_ir[&unsafe_expr];
@@ -218,7 +220,7 @@ fn unsafe_block_with_mixed_stmts_lowers_all() {
     );
 
     // Lower to IR
-    let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &paideia_as_elaborator::StructRegistry::empty(), &paideia_as_elaborator::EnumRegistry::empty());
+    let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &paideia_as_elaborator::StructRegistry::empty(), &paideia_as_elaborator::EnumRegistry::empty(), &HashMap::new());
 
     // Find the Unsafe IR node
     let unsafe_ir_id = result.ast_to_ir[&unsafe_expr];
