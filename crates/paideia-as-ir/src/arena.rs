@@ -13,7 +13,7 @@ use crate::call_meta::CallSideTable;
 use crate::constant_pool::ConstantPoolTable;
 use crate::data::DataSideTable;
 use crate::enum_layout::{
-    EnumConsSideTable, EnumDiscriminantSideTable, FinalisedEnumLayoutTable, MatchArmMetaSideTable,
+    EnumConsSideTable, EnumDiscriminantSideTable, EnumVariantPayloadTable, FinalisedEnumLayoutTable, MatchArmMetaSideTable,
     MatchDispatchMetaSideTable, MatchJumpTableArmValuesSideTable, MatchScrutineeTable,
 };
 use crate::instruction::InstructionSideTable;
@@ -74,6 +74,9 @@ pub struct IrArena {
     /// Side-table: finalised enum layouts indexed by EnumTypeId.
     /// PA-r17-007: populated during emission; consumed for register/stack form dispatch.
     enum_finalised_layouts: FinalisedEnumLayoutTable,
+    /// Side-table: per-variant record payload type lookup indexed by (EnumTypeId, variant_idx).
+    /// Issue #1054: populated during elaboration to enable type-directed code generation.
+    enum_variant_payload_table: EnumVariantPayloadTable,
     /// Side-table: enum discriminant extraction metadata indexed by EnumDiscriminant node ID.
     /// PA-r17-008: maps EnumDiscriminant nodes to their EnumTypeId for discriminant load emission.
     enum_disc_info_table: EnumDiscriminantSideTable,
@@ -128,6 +131,7 @@ impl IrArena {
             record_layout_table: RecordLayoutTable::new(),
             enum_cons_table: EnumConsSideTable::new(),
             enum_finalised_layouts: FinalisedEnumLayoutTable::new(),
+            enum_variant_payload_table: EnumVariantPayloadTable::new(),
             enum_disc_info_table: EnumDiscriminantSideTable::new(),
             match_arm_meta_table: MatchArmMetaSideTable::new(),
             match_scrutinee_table: MatchScrutineeTable::new(),
@@ -389,6 +393,18 @@ impl IrArena {
     /// Borrow the enum discriminant info side-table (mutable).
     pub fn enum_disc_info_mut(&mut self) -> &mut EnumDiscriminantSideTable {
         &mut self.enum_disc_info_table
+    }
+
+    /// Borrow the enum variant payload side-table (read-only).
+    /// Issue #1054: provides RecordTypeId for per-variant payload lookup.
+    #[must_use]
+    pub fn enum_variant_payload_table(&self) -> &EnumVariantPayloadTable {
+        &self.enum_variant_payload_table
+    }
+
+    /// Borrow the enum variant payload side-table (mutable).
+    pub fn enum_variant_payload_table_mut(&mut self) -> &mut EnumVariantPayloadTable {
+        &mut self.enum_variant_payload_table
     }
 
     /// Borrow the match arm metadata side-table (read-only).

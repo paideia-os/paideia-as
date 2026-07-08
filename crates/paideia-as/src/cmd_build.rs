@@ -40,7 +40,7 @@ use paideia_as_diagnostics::{
 };
 use paideia_as_elaborator::{
     CapWalker, EffectRowWalker, EmitWalker, LinearityWalker, UnsafeWalker, lower_ast_to_ir,
-    build_struct_registry, build_enum_registry, finalise_enum_layouts, placeholder_for, validate_file_module_mapping,
+    build_struct_registry, build_enum_registry, finalise_enum_layouts, finalise_enum_variant_payloads, placeholder_for, validate_file_module_mapping,
 };
 use paideia_as_types::{TypeInterner, CapSetInterner, Subst};
 use paideia_as_effects::EffectInterner;
@@ -711,6 +711,14 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
     let enum_layouts = finalise_enum_layouts(&enum_registry, &arena, &source_map, &mut sink);
     for (type_id, layout) in enum_layouts {
         lowering.ir.enum_layout_table_mut().insert(type_id, layout);
+    }
+
+    // Issue #1054: Populate enum variant payload types from the enum and struct registries.
+    // This enables type-directed code generation for variant payloads.
+    let payload_map = finalise_enum_variant_payloads(&enum_registry, &registry, &arena, &source_map);
+    for ((enum_id, variant_idx), payload) in payload_map {
+        lowering.ir.enum_variant_payload_table_mut()
+            .insert(enum_id, variant_idx, payload);
     }
 
     // Phase-5-m1-001: Extract literal values from AST and populate the IR's literal_values table.

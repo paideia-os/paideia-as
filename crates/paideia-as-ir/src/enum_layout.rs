@@ -9,8 +9,10 @@
 //! has a dedicated HashMap-based side-table for O(1) lookups.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use crate::node::IrNodeId;
+use crate::record_layout::RecordTypeId;
 
 /// PA-r17-011 (#989): calling convention for enum types.
 ///
@@ -132,6 +134,62 @@ crate::impl_named_side_table!(
     /// note section.
     pub struct FinalisedEnumLayoutTable, EnumTypeId => EnumLayout
 );
+
+/// Side-table for per-variant record payload type lookup.
+///
+/// Maps (EnumTypeId, variant_index) pairs to their RecordTypeId payload,
+/// or None if the variant has no record payload.
+///
+/// Issue #1054: Enables efficient type-directed code generation for
+/// variant payloads during enum construction and pattern matching.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct EnumVariantPayloadTable {
+    inner: HashMap<(EnumTypeId, u32), Option<RecordTypeId>>,
+}
+
+impl EnumVariantPayloadTable {
+    /// Create a new empty payload table.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            inner: HashMap::new(),
+        }
+    }
+
+    /// Insert a variant's payload type, returning the previous value if any.
+    pub fn insert(
+        &mut self,
+        enum_id: EnumTypeId,
+        variant_idx: u32,
+        payload: Option<RecordTypeId>,
+    ) -> Option<Option<RecordTypeId>> {
+        self.inner.insert((enum_id, variant_idx), payload)
+    }
+
+    /// Look up a variant's payload type; returns None if not found, Some(None) if
+    /// the variant has no record payload, or Some(Some(record_id)) if it does.
+    #[must_use]
+    pub fn get(&self, enum_id: EnumTypeId, variant_idx: u32) -> Option<Option<RecordTypeId>> {
+        self.inner.get(&(enum_id, variant_idx)).copied()
+    }
+
+    /// Return the number of (enum_id, variant_idx) entries.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Check if the table is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    /// Iterate over all entries.
+    pub fn iter(&self) -> impl Iterator<Item = (&(EnumTypeId, u32), &Option<RecordTypeId>)> {
+        self.inner.iter()
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -696,6 +754,96 @@ mod tests {
         };
         table.insert(node_id1, meta1);
         assert_eq!(table.len(), 1);
+    }
+
+    // ── EnumVariantPayloadTable tests ─────────────────────────────
+
+    #[test]
+    fn enum_variant_payload_table_empty_by_default() {
+        let table = EnumVariantPayloadTable::new();
+        assert_eq!(table.len(), 0);
+        assert!(table.is_empty());
+    }
+
+    #[test]
+    fn enum_variant_payload_table_insert_and_get() {
+        let mut table = EnumVariantPayloadTable::new();
+        let enum_id = EnumTypeId(42);
+        let variant_idx = 1u32;
+        let payload = Some(RecordTypeId(100));
+
+        table.insert(enum_id, variant_idx, payload);
+        let retrieved = table.get(enum_id, variant_idx);
+        assert_eq!(retrieved, Some(payload));
+    }
+
+    #[test]
+    fn enum_variant_payload_table_unit_variant_yields_none() {
+        let mut table = EnumVariantPayloadTable::new();
+        let enum_id = EnumTypeId(1);
+        let unit_variant_idx = 0u32;
+
+        table.insert(enum_id, unit_variant_idx, None);
+        let retrieved = table.get(enum_id, unit_variant_idx);
+        assert_eq!(retrieved, Some(None));
+    }
+
+    #[test]
+    fn enum_variant_payload_table_get_returns_none_for_missing() {
+        let table = EnumVariantPayloadTable::new();
+        let enum_id = EnumTypeId(999);
+        let missing_variant = 999u32;
+        assert_eq!(table.get(enum_id, missing_variant), None);
+    }
+
+    #[test]
+    fn enum_variant_payload_table_insert_overwrites_previous() {
+        let mut table = EnumVariantPayloadTable::new();
+        let enum_id = EnumTypeId(1);
+        let variant_idx = 0u32;
+        let payload_1 = Some(RecordTypeId(10));
+        let payload_2 = Some(RecordTypeId(20));
+
+        table.insert(enum_id, variant_idx, payload_1);
+        let previous = table.insert(enum_id, variant_idx, payload_2);
+
+        assert_eq!(previous, Some(payload_1));
+        assert_eq!(table.get(enum_id, variant_idx), Some(payload_2));
+    }
+
+    #[test]
+    fn enum_variant_payload_table_len_tracks_inserts() {
+        let mut table = EnumVariantPayloadTable::new();
+        assert_eq!(table.len(), 0);
+
+        let enum_id = EnumTypeId(1);
+        for i in 0u32..5 {
+            let payload = if i % 2 == 0 {
+                Some(RecordTypeId(i + 100))
+            } else {
+                None
+            };
+            table.insert(enum_id, i, payload);
+            assert_eq!(table.len(), (i + 1) as usize);
+        }
+
+        assert!(!table.is_empty());
+    }
+
+    #[test]
+    fn enum_variant_payload_table_multiple_enums() {
+        let mut table = EnumVariantPayloadTable::new();
+        let enum_1 = EnumTypeId(1);
+        let enum_2 = EnumTypeId(2);
+
+        table.insert(enum_1, 0, Some(RecordTypeId(100)));
+        table.insert(enum_1, 1, None);
+        table.insert(enum_2, 0, Some(RecordTypeId(200)));
+
+        assert_eq!(table.len(), 3);
+        assert_eq!(table.get(enum_1, 0), Some(Some(RecordTypeId(100))));
+        assert_eq!(table.get(enum_1, 1), Some(None));
+        assert_eq!(table.get(enum_2, 0), Some(Some(RecordTypeId(200))));
     }
 }
 

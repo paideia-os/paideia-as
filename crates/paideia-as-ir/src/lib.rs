@@ -56,7 +56,7 @@ pub use effect_rewrite::{
 };
 pub use enum_layout::{
     EnumConsInfo, EnumConsSideTable, EnumDiscriminantSideTable, EnumLayout,
-    FinalisedEnumLayoutTable, EnumTypeId, MatchArmMeta, MatchArmMetaSideTable,
+    EnumVariantPayloadTable, FinalisedEnumLayoutTable, EnumTypeId, MatchArmMeta, MatchArmMetaSideTable,
     MatchDispatchMeta, MatchDispatchMetaSideTable, MatchScrutineeTable, PatternBinding,
     PassingConvention,
 };
