@@ -3761,6 +3761,22 @@ pub fn push_reg64(buf: &mut CodeBuffer, reg: Reg64) {
     }
 }
 
+/// Encode `push imm8`.
+///
+/// Instruction: 6A ib (2 bytes). The immediate is sign-extended by the CPU.
+pub fn push_imm8(buf: &mut CodeBuffer, imm: i8) {
+    buf.bytes.push(0x6A);
+    buf.bytes.push(imm as u8);
+}
+
+/// Encode `push imm32`.
+///
+/// Instruction: 68 id (5 bytes). The immediate is sign-extended by the CPU.
+pub fn push_imm32(buf: &mut CodeBuffer, imm: i32) {
+    buf.bytes.push(0x68);
+    buf.bytes.extend_from_slice(&imm.to_le_bytes());
+}
+
 /// Encode `pop reg64`.
 ///
 /// Instruction: 58+rd for registers 0-7; REX.B 41 58+rd for registers 8-15

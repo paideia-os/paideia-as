@@ -1466,17 +1466,30 @@ fn encode_movnti(
 }
 
 /// Phase R9 m2-001 (PA-R9-001): Encode push 64-bit register instruction.
-/// Expects exactly one register operand. Rejects Mode32. Emits via `push_reg64`.
+/// Extends to handle immediate operands (imm8 via sign-extension, imm32 via sign-extension).
+/// Expects exactly one operand. Rejects Mode32. Emits via `push_reg64`, `push_imm8`, or `push_imm32`.
 fn encode_push(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
     // Phase R9 m2-001: reject Mode32
     if inst.mode == InstrMode::Mode32 {
         return Err(EncodeError::Unsupported(
-            "E0020: push r64 not supported in 32-bit mode",
+            "E0020: push not supported in 32-bit mode",
         ));
     }
     match inst.operands.as_slice() {
         [Operand::Reg(src)] => {
             push_reg64(buf, reg64_from(*src)?);
+            Ok(EncodeOutput::new())
+        }
+        [Operand::Imm64(imm)] => {
+            if let Ok(i) = i8::try_from(*imm) {
+                push_imm8(buf, i);
+            } else if let Ok(i) = i32::try_from(*imm) {
+                push_imm32(buf, i);
+            } else {
+                return Err(EncodeError::OperandShape {
+                    mnemonic: Mnemonic::Push,
+                });
+            }
             Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::OperandShape {

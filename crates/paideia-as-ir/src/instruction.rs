@@ -1151,8 +1151,10 @@ impl Mnemonic {
             // Load Task Register: 4 bytes upper bound (REX.B 0F 00 /3 ModR/M)
             Mnemonic::Ltr => 4,
 
-            // Push/Pop: 2 bytes upper bound (REX.W 50+r or 41 50+r for r8–r15)
-            Mnemonic::Push | Mnemonic::Pop => 2,
+            // Push: 5 bytes upper bound (imm32 form: 68 id)
+            Mnemonic::Push => 5,
+            // Pop: 2 bytes upper bound (REX.W 58+r or 41 58+r for r8–r15)
+            Mnemonic::Pop => 2,
 
             // Pushfq/Popfq: 1 byte (0x9C or 0x9D)
             Mnemonic::Pushfq | Mnemonic::Popfq => 1,
