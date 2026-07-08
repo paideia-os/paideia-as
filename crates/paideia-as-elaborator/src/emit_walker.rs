@@ -508,7 +508,7 @@ impl EmitWalker {
     }
 
     /// Helper to push U1614 diagnostic with span (internal use).
-    fn push_typed_diag_u1614(
+    pub(crate) fn push_typed_diag_u1614(
         &mut self,
         span: paideia_as_diagnostics::Span,
         message: impl Into<String>,

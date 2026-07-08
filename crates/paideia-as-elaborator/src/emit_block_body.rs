@@ -800,9 +800,18 @@ impl EmitWalker {
                             }
                         }
                         // Fall through: emit U1614 if callee extraction fails
-                        self.diagnostics.push(format!(
-                            "U1614: unroutable call expression in statement position (internal compiler error)"
-                        ));
+                        let span = arena
+                            .get(child_id)
+                            .map(|n| n.span)
+                            .unwrap_or_else(|| paideia_as_diagnostics::Span::new(
+                                paideia_as_diagnostics::FileId::new(1).unwrap(),
+                                0,
+                                1,
+                            ));
+                        self.push_typed_diag_u1614(
+                            span,
+                            "unroutable call expression in statement position (internal compiler error)".to_string(),
+                        );
                     }
                     IrKind::FieldAccess => {
                         // Field access in statement position (e.g., `obj.field;`).
@@ -828,11 +837,11 @@ impl EmitWalker {
                         }
                     }
                     _ => {
-                        // Unroutable statement kind.
-                        self.diagnostics.push(format!(
-                            "U1614: unroutable statement kind in Action: {:?}",
-                            child_node.kind
-                        ));
+                        // Unroutable statement kind (Loop/While/Let/Return/etc.).
+                        self.push_typed_diag_u1614(
+                            child_node.span,
+                            format!("unroutable statement kind in Action: {:?}", child_node.kind),
+                        );
                     }
                 }
             }
