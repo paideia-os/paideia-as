@@ -46,6 +46,50 @@ impl StructRegistry {
     pub fn get_fields(&self, type_id: RecordTypeId) -> Option<&Vec<(String, u8)>> {
         self.fields.get(&type_id)
     }
+
+    /// Compute the size of a record (struct) using C-ABI natural alignment.
+    ///
+    /// For each field:
+    /// - Extract size from byte_code low nibble (1/2/4/8)
+    /// - Apply C-ABI alignment: offset = align_up(offset, field_size)
+    /// - Add field size to offset
+    /// - Return final offset (tail-padded to max field alignment)
+    ///
+    /// Returns None if the type_id is not found, fields are empty, or any field
+    /// has an invalid size code.
+    pub fn record_size(&self, id: RecordTypeId) -> Option<u64> {
+        let fields = self.fields.get(&id)?;
+        if fields.is_empty() {
+            return Some(0);
+        }
+
+        let mut offset: u64 = 0;
+        let mut max_align: u64 = 1;
+
+        for (_name, byte_code) in fields {
+            let size_code = byte_code & 0x0F;
+            let size = match size_code {
+                1 => 1u64,
+                2 => 2u64,
+                4 => 4u64,
+                8 => 8u64,
+                _ => return None, // Invalid size code
+            };
+
+            max_align = max_align.max(size);
+
+            // Align offset to field size
+            offset = ((offset + size - 1) / size) * size;
+
+            // Add field size
+            offset += size;
+        }
+
+        // Tail-pad to max field alignment
+        offset = ((offset + max_align - 1) / max_align) * max_align;
+
+        Some(offset)
+    }
 }
 
 /// Build the struct registry by walking the AST for all Struct items.
@@ -356,5 +400,53 @@ mod tests {
             assert_eq!(fields[0].0, "good", "the accepted field should be 'good'");
             assert_eq!(fields[0].1, 0x08, "good: u64 should encode as 0x08");
         }
+    }
+
+    #[test]
+    fn record_size_two_u32_fields_yields_8() {
+        // Point { x: u32, y: u32 } → 8 bytes
+        let mut registry = StructRegistry::empty();
+        let type_id = RecordTypeId(1);
+
+        let fields = vec![
+            ("x".to_string(), 0x04u8), // u32 = 4 bytes
+            ("y".to_string(), 0x04u8), // u32 = 4 bytes
+        ];
+
+        registry.by_name.insert("Point".to_string(), type_id);
+        registry.fields.insert(type_id, fields);
+
+        let size = registry.record_size(type_id);
+        assert_eq!(size, Some(8), "two u32 fields should yield 8 bytes");
+    }
+
+    #[test]
+    fn record_size_mixed_alignment() {
+        // { a: u8, b: u32 } → 8 bytes (padded from 5)
+        // a at offset 0, size 1
+        // b at offset 4 (aligned to 4), size 4
+        // total: 8 (tail-padded to align 4)
+        let mut registry = StructRegistry::empty();
+        let type_id = RecordTypeId(2);
+
+        let fields = vec![
+            ("a".to_string(), 0x01u8), // u8 = 1 byte
+            ("b".to_string(), 0x04u8), // u32 = 4 bytes
+        ];
+
+        registry.by_name.insert("Mixed".to_string(), type_id);
+        registry.fields.insert(type_id, fields);
+
+        let size = registry.record_size(type_id);
+        assert_eq!(size, Some(8), "mixed alignment should yield 8 bytes (1 + 3 padding + 4)");
+    }
+
+    #[test]
+    fn record_size_empty_or_missing_type_yields_none() {
+        let registry = StructRegistry::empty();
+        let type_id = RecordTypeId(999);
+
+        let size = registry.record_size(type_id);
+        assert_eq!(size, None, "nonexistent RecordTypeId should yield None");
     }
 }

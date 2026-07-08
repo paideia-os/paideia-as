@@ -4,7 +4,7 @@
 //! by examining payload field types and computing maximum variant payload size.
 
 use crate::enum_registry::EnumRegistry;
-use crate::struct_registry::decode_field_type;
+use crate::struct_registry::{decode_field_type, StructRegistry};
 use paideia_as_ast::{AstArena, NodeId};
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, DiagnosticSink, Severity, SourceMap};
 use paideia_as_ir::enum_layout::{EnumLayout, EnumTypeId};
@@ -38,7 +38,8 @@ fn extract_source_text(
 ///
 /// For each payload field:
 /// - Extract source text
-/// - Decode field type via decode_field_type → size code (low nibble: 1/2/4/8)
+/// - Try to decode field type via decode_field_type → size code (low nibble: 1/2/4/8)
+/// - If that fails, fall back to struct_registry lookup for struct-typed payloads
 /// - Apply C-ABI alignment: offset = align_up(offset, field_size)
 /// - Add field size to offset
 /// - Return final offset (tail-padded to max field alignment)
@@ -46,6 +47,7 @@ fn extract_source_text(
 /// Returns None if any field type is unresolvable (will trigger T0557).
 fn compute_variant_payload_size(
     payload_node_ids: &[NodeId],
+    struct_registry: &StructRegistry,
     ast: &AstArena,
     source_map: &SourceMap,
 ) -> Option<u64> {
@@ -54,11 +56,22 @@ fn compute_variant_payload_size(
 
     for node_id in payload_node_ids {
         let type_text = extract_source_text(ast, source_map, *node_id)?;
-        let size_byte_code = decode_field_type(&type_text)?;
 
-        // Extract the size code (low nibble)
-        let field_size = (size_byte_code & 0x0F) as u64;
-        max_align = max_align.max(field_size);
+        let (field_size, field_align) = match decode_field_type(&type_text) {
+            Some(byte_code) => {
+                // Primitive type: extract size from low nibble
+                let size = (byte_code & 0x0F) as u64;
+                (size, size.min(8))
+            }
+            None => {
+                // Fall back to struct registry for struct-typed payloads
+                let record_id = struct_registry.by_name.get(&type_text)?;
+                let size = struct_registry.record_size(*record_id)?;
+                (size, size.min(8))
+            }
+        };
+
+        max_align = max_align.max(field_align);
 
         // Align offset to field size
         offset = ((offset + field_size - 1) / field_size) * field_size;
@@ -84,6 +97,7 @@ fn compute_variant_payload_size(
 /// Returns a HashMap from EnumTypeId to EnumLayout.
 pub fn finalise_enum_layouts(
     registry: &EnumRegistry,
+    struct_registry: &StructRegistry,
     ast: &AstArena,
     source_map: &SourceMap,
     sink: &mut dyn DiagnosticSink,
@@ -94,7 +108,7 @@ pub fn finalise_enum_layouts(
         let mut max_payload_size: u64 = 0;
 
         for (variant_name, payload_node_ids) in variants {
-            match compute_variant_payload_size(payload_node_ids, ast, source_map) {
+            match compute_variant_payload_size(payload_node_ids, struct_registry, ast, source_map) {
                 Some(size) => {
                     max_payload_size = max_payload_size.max(size);
                 }
@@ -171,7 +185,8 @@ mod tests {
             ]);
 
         let mut sink = paideia_as_diagnostics::VecSink::new();
-        let layouts = finalise_enum_layouts(&setup.registry, &setup.ast, &setup.source_map, &mut sink);
+        let struct_registry = crate::struct_registry::StructRegistry::empty();
+        let layouts = finalise_enum_layouts(&setup.registry, &struct_registry, &setup.ast, &setup.source_map, &mut sink);
 
         // Pure tag enum (no payloads) → payload_size = 0
         assert_eq!(layouts.get(&type_id).map(|l| l.payload_size), Some(0));
@@ -194,7 +209,8 @@ mod tests {
             ]);
 
         let mut sink = paideia_as_diagnostics::VecSink::new();
-        let layouts = finalise_enum_layouts(&setup.registry, &setup.ast, &setup.source_map, &mut sink);
+        let struct_registry = crate::struct_registry::StructRegistry::empty();
+        let layouts = finalise_enum_layouts(&setup.registry, &struct_registry, &setup.ast, &setup.source_map, &mut sink);
 
         assert_eq!(layouts.get(&type_id).map(|l| l.payload_size), Some(0));
         assert_eq!(layouts.get(&type_id).map(|l| l.size), Some(8));
@@ -204,10 +220,11 @@ mod tests {
     fn compute_variant_payload_size_single_u64() {
         // Test: single u64 field → 8 bytes
         let setup = TestSetup::new();
+        let struct_registry = crate::struct_registry::StructRegistry::empty();
 
         // Empty payload list (can't easily inject NodeIds in unit test)
         // But compute_variant_payload_size with empty list should return 0
-        let size = compute_variant_payload_size(&[], &setup.ast, &setup.source_map);
+        let size = compute_variant_payload_size(&[], &struct_registry, &setup.ast, &setup.source_map);
         assert_eq!(size, Some(0));
     }
 
@@ -215,7 +232,8 @@ mod tests {
     fn compute_variant_payload_size_empty() {
         // Test: empty variant (unit) → 0 bytes
         let setup = TestSetup::new();
-        let size = compute_variant_payload_size(&[], &setup.ast, &setup.source_map);
+        let struct_registry = crate::struct_registry::StructRegistry::empty();
+        let size = compute_variant_payload_size(&[], &struct_registry, &setup.ast, &setup.source_map);
         assert_eq!(size, Some(0));
     }
 
@@ -236,10 +254,67 @@ mod tests {
         ]);
 
         let mut sink = paideia_as_diagnostics::VecSink::new();
-        let layouts = finalise_enum_layouts(&setup.registry, &setup.ast, &setup.source_map, &mut sink);
+        let struct_registry = crate::struct_registry::StructRegistry::empty();
+        let layouts = finalise_enum_layouts(&setup.registry, &struct_registry, &setup.ast, &setup.source_map, &mut sink);
 
         assert_eq!(layouts.len(), 2);
         assert!(layouts.contains_key(&type_id_1));
         assert!(layouts.contains_key(&type_id_2));
+    }
+
+    #[test]
+    fn compute_variant_payload_size_record_type_yields_correct_size() {
+        // Test: enum variant with struct-typed payload falls back to struct_registry
+        // Setup: Point struct with two u32 fields (8 bytes total)
+        let mut setup = TestSetup::new();
+        let mut struct_registry = crate::struct_registry::StructRegistry::empty();
+
+        use paideia_as_ir::record_layout::RecordTypeId;
+
+        // Build Point struct: { x: u32, y: u32 } → 8 bytes
+        let point_id = RecordTypeId(1);
+        let point_fields = vec![
+            ("x".to_string(), 0x04u8), // u32
+            ("y".to_string(), 0x04u8), // u32
+        ];
+
+        struct_registry.by_name.insert("Point".to_string(), point_id);
+        struct_registry.fields.insert(point_id, point_fields);
+
+        // Build minimal source map and AST for "Point" type node
+        use std::path::PathBuf;
+        use paideia_as_diagnostics::Span;
+        use paideia_as_ast::NodeKind;
+
+        let source = "enum E { V(Point) }";
+        let file_id = setup.source_map.add_file(PathBuf::from("test.pdx"), source.to_string());
+
+        // Allocate a node for the "Point" type (at byte offset 11, length 5)
+        let point_type_node = setup.ast.alloc(NodeKind::Ident, Span::new(file_id, 11, 5));
+
+        // Build enum with variant carrying Point payload
+        let enum_id = EnumTypeId(1);
+        setup.registry.variants.insert(
+            enum_id,
+            vec![("V".to_string(), vec![point_type_node])],
+        );
+
+        // Finalise layouts: should not fire T0557, should compute payload_size = 8
+        let mut sink = paideia_as_diagnostics::VecSink::new();
+        let layouts = finalise_enum_layouts(&setup.registry, &struct_registry, &setup.ast, &setup.source_map, &mut sink);
+
+        // Verify the layout was computed correctly
+        assert!(layouts.contains_key(&enum_id), "enum layout should be present");
+        let layout = layouts.get(&enum_id).expect("enum layout should exist");
+        assert_eq!(layout.payload_size, 8, "payload_size should be 8 (size of Point)");
+        assert_eq!(layout.size, 16, "total size should be 16 (8 discriminant + 8 payload)");
+
+        // Verify no T0557 diagnostics were emitted
+        let diags = sink.diagnostics();
+        let t0557_count = diags
+            .iter()
+            .filter(|d| d.code().number() == 557)
+            .count();
+        assert_eq!(t0557_count, 0, "should not emit T0557 for struct-typed payload");
     }
 }

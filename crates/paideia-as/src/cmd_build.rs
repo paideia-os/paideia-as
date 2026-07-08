@@ -713,7 +713,8 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
 
     // PA-r17-007 (#1050): Populate enum layouts from the enum registry.
     // This enables emit_walker to look up enum layouts during EnumCons and EnumDiscriminant lowering.
-    let enum_layouts = finalise_enum_layouts(&enum_registry, &arena, &source_map, &mut sink);
+    // Issue #1090: Also thread StructRegistry for struct-typed variant payloads fallback.
+    let enum_layouts = finalise_enum_layouts(&enum_registry, &registry, &arena, &source_map, &mut sink);
     for (type_id, layout) in enum_layouts {
         lowering.ir.enum_layout_table_mut().insert(type_id, layout);
     }
