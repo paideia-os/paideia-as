@@ -2295,3 +2295,257 @@ fn match_scrutinee_table_populated_for_lambda_param() {
         "Match should have scrutinee + 2 arms as children"
     );
 }
+
+#[test]
+fn bare_variant_arm_leaves_pattern_binding_none() {
+    // Fix #1096: Test that bare no-payload enum-variant arms leave pattern_binding = None,
+    // allowing #1052's auto-detect to fire on real code.
+    // Build enum Traffic { Red, Yellow, Green, Blue }
+    // Build lambda: fn(t: Traffic) -> match t { Red => 1, Yellow => 2, Green => 3, Blue => 4 }
+    // Assert that for each arm's IR body node, arm_meta.pattern_binding.is_none()
+    // AND arm_meta.variant_index == Some(<i>)
+    use paideia_as_ir::EnumTypeId;
+    use paideia_as_diagnostics::FileId;
+
+    let mut source_map = SourceMap::new();
+    let source_text = "Traffic Red Yellow Green Blue t";
+    let _file = source_map.add_file(
+        std::path::PathBuf::from("test.pdx"),
+        String::from(source_text),
+    );
+    let mut sink = VecSink::new();
+    let mut ast = AstArena::new();
+
+    let file_id = FileId::new(1).unwrap();
+    let make_span = |offset: u32, len: u32| {
+        paideia_as_diagnostics::Span::new(file_id, offset, len)
+    };
+
+    // Create enum: enum Traffic { Red, Yellow, Green, Blue }
+    let enum_name_id = ast.alloc(NodeKind::Ident, make_span(0, 7)); // "Traffic"
+    let red_variant_name_id = ast.alloc(NodeKind::Ident, make_span(8, 3)); // "Red"
+    let yellow_variant_name_id = ast.alloc(NodeKind::Ident, make_span(12, 6)); // "Yellow"
+    let green_variant_name_id = ast.alloc(NodeKind::Ident, make_span(19, 5)); // "Green"
+    let blue_variant_name_id = ast.alloc(NodeKind::Ident, make_span(25, 4)); // "Blue"
+
+    let red_variant = paideia_as_ast::EnumVariant::Unit {
+        name: red_variant_name_id,
+    };
+    let yellow_variant = paideia_as_ast::EnumVariant::Unit {
+        name: yellow_variant_name_id,
+    };
+    let green_variant = paideia_as_ast::EnumVariant::Unit {
+        name: green_variant_name_id,
+    };
+    let blue_variant = paideia_as_ast::EnumVariant::Unit {
+        name: blue_variant_name_id,
+    };
+
+    let _enum_item_id = ast.alloc_item(
+        NodeKind::Enum,
+        make_span(0, 1),
+        paideia_as_ast::ItemData::Enum {
+            name: enum_name_id,
+            generic_params: vec![],
+            variants: vec![red_variant, yellow_variant, green_variant, blue_variant],
+            attributes: vec![],
+            doc: None,
+        },
+    );
+
+    // Create lambda parameter pattern: t
+    let t_pattern_id = ast.alloc(NodeKind::PatIdent, make_span(30, 1)); // "t"
+
+    // Create lambda parameter type: Traffic
+    let traffic_type_id = ast.alloc(NodeKind::Ident, make_span(0, 7)); // "Traffic"
+
+    // Register pattern → type mapping
+    ast.pattern_type_hints_mut()
+        .insert(t_pattern_id, traffic_type_id);
+
+    // Create scrutinee reference: t
+    let scrutinee = ast.alloc(NodeKind::Ident, make_span(30, 1)); // "t"
+
+    // Create arm 1: Red => 1 (bare variant pattern)
+    let red_variant_id = ast.alloc(NodeKind::Ident, make_span(8, 3)); // "Red"
+    let red_arm_pattern = ast.alloc_pattern(
+        NodeKind::PatIdent,
+        make_span(8, 3),
+        paideia_as_ast::PatternData::Ident {
+            name: red_variant_id,
+            mutable: false,
+        },
+    );
+    let red_arm_body = ast.alloc(NodeKind::ExprLiteral, make_span(0, 1));
+    let red_arm = paideia_as_ast::MatchArm {
+        pattern: red_arm_pattern,
+        guard: None,
+        body: red_arm_body,
+    };
+
+    // Create arm 2: Yellow => 2 (bare variant pattern)
+    let yellow_variant_id = ast.alloc(NodeKind::Ident, make_span(12, 6)); // "Yellow"
+    let yellow_arm_pattern = ast.alloc_pattern(
+        NodeKind::PatIdent,
+        make_span(12, 6),
+        paideia_as_ast::PatternData::Ident {
+            name: yellow_variant_id,
+            mutable: false,
+        },
+    );
+    let yellow_arm_body = ast.alloc(NodeKind::ExprLiteral, make_span(0, 1));
+    let yellow_arm = paideia_as_ast::MatchArm {
+        pattern: yellow_arm_pattern,
+        guard: None,
+        body: yellow_arm_body,
+    };
+
+    // Create arm 3: Green => 3 (bare variant pattern)
+    let green_variant_id = ast.alloc(NodeKind::Ident, make_span(19, 5)); // "Green"
+    let green_arm_pattern = ast.alloc_pattern(
+        NodeKind::PatIdent,
+        make_span(19, 5),
+        paideia_as_ast::PatternData::Ident {
+            name: green_variant_id,
+            mutable: false,
+        },
+    );
+    let green_arm_body = ast.alloc(NodeKind::ExprLiteral, make_span(0, 1));
+    let green_arm = paideia_as_ast::MatchArm {
+        pattern: green_arm_pattern,
+        guard: None,
+        body: green_arm_body,
+    };
+
+    // Create arm 4: Blue => 4 (bare variant pattern)
+    let blue_variant_id = ast.alloc(NodeKind::Ident, make_span(25, 4)); // "Blue"
+    let blue_arm_pattern = ast.alloc_pattern(
+        NodeKind::PatIdent,
+        make_span(25, 4),
+        paideia_as_ast::PatternData::Ident {
+            name: blue_variant_id,
+            mutable: false,
+        },
+    );
+    let blue_arm_body = ast.alloc(NodeKind::ExprLiteral, make_span(0, 1));
+    let blue_arm = paideia_as_ast::MatchArm {
+        pattern: blue_arm_pattern,
+        guard: None,
+        body: blue_arm_body,
+    };
+
+    // Create match expression
+    let match_id = ast.alloc_expr(
+        NodeKind::ExprMatch,
+        make_span(0, 1),
+        paideia_as_ast::ExprData::Match {
+            scrutinee,
+            arms: vec![red_arm, yellow_arm, green_arm, blue_arm],
+            attrs: Default::default(),
+        },
+    );
+
+    // Create lambda body with the match expression
+    let lambda_id = ast.alloc_expr(
+        NodeKind::ExprLambda,
+        make_span(0, 1),
+        ExprData::Lambda {
+            generic_params: vec![],
+            params: vec![t_pattern_id],
+            body: match_id,
+            pipe_form: false,
+        },
+    );
+
+    // Build enum registry
+    let mut enum_registry = crate::EnumRegistry::empty();
+    let traffic_enum_type_id = EnumTypeId(1);
+    enum_registry
+        .by_name
+        .insert("Traffic".to_string(), traffic_enum_type_id);
+    enum_registry.variants.insert(
+        traffic_enum_type_id,
+        vec![
+            ("Red".to_string(), vec![]),
+            ("Yellow".to_string(), vec![]),
+            ("Green".to_string(), vec![]),
+            ("Blue".to_string(), vec![]),
+        ],
+    );
+
+    // Lower the AST
+    let result = lower_ast_to_ir(
+        &ast,
+        &source_map,
+        &mut sink,
+        &crate::StructRegistry::empty(),
+        &enum_registry,
+        &std::collections::HashMap::new(),
+    );
+
+    // Verify the Match IR node was created
+    let match_ir_id = result.ast_to_ir[&match_id];
+    assert_eq!(result.ir[match_ir_id].kind, IrKind::Match);
+
+    // Verify arm metadata entries
+    let match_children = result.ir.children(match_ir_id);
+    assert_eq!(
+        match_children.len(),
+        5,
+        "Match should have scrutinee + 4 arms as children"
+    );
+
+    // Get arm body IDs (skip scrutinee at index 0)
+    let red_arm_ir_id = match_children[1];
+    let yellow_arm_ir_id = match_children[2];
+    let green_arm_ir_id = match_children[3];
+    let blue_arm_ir_id = match_children[4];
+
+    // Verify Red arm metadata
+    let red_arm_meta = result.ir.match_arm_meta().get(red_arm_ir_id);
+    assert!(red_arm_meta.is_some(), "Red arm should have meta entry");
+    let red_meta = red_arm_meta.unwrap();
+    assert_eq!(red_meta.variant_index, Some(0), "Red should have variant_index = 0");
+    assert!(
+        red_meta.pattern_binding.is_none(),
+        "Red bare-variant arm should have pattern_binding = None"
+    );
+
+    // Verify Yellow arm metadata
+    let yellow_arm_meta = result.ir.match_arm_meta().get(yellow_arm_ir_id);
+    assert!(yellow_arm_meta.is_some(), "Yellow arm should have meta entry");
+    let yellow_meta = yellow_arm_meta.unwrap();
+    assert_eq!(
+        yellow_meta.variant_index,
+        Some(1),
+        "Yellow should have variant_index = 1"
+    );
+    assert!(
+        yellow_meta.pattern_binding.is_none(),
+        "Yellow bare-variant arm should have pattern_binding = None"
+    );
+
+    // Verify Green arm metadata
+    let green_arm_meta = result.ir.match_arm_meta().get(green_arm_ir_id);
+    assert!(green_arm_meta.is_some(), "Green arm should have meta entry");
+    let green_meta = green_arm_meta.unwrap();
+    assert_eq!(
+        green_meta.variant_index,
+        Some(2),
+        "Green should have variant_index = 2"
+    );
+    assert!(
+        green_meta.pattern_binding.is_none(),
+        "Green bare-variant arm should have pattern_binding = None"
+    );
+
+    // Verify Blue arm metadata
+    let blue_arm_meta = result.ir.match_arm_meta().get(blue_arm_ir_id);
+    assert!(blue_arm_meta.is_some(), "Blue arm should have meta entry");
+    let blue_meta = blue_arm_meta.unwrap();
+    assert_eq!(blue_meta.variant_index, Some(3), "Blue should have variant_index = 3");
+    assert!(
+        blue_meta.pattern_binding.is_none(),
+        "Blue bare-variant arm should have pattern_binding = None"
+    );
+}

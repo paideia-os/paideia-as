@@ -190,16 +190,24 @@ pub(super) fn populate_match_arm_meta(
             }
 
             // Build the nested pattern binding tree using lower_pattern_data
-            if let Some(pattern_binding) = lower_pattern_data(
-                arm.pattern,
-                ast,
-                source_map,
-                enum_registry,
-                struct_registry,
-                payload_map,
-                type_id,
-            ) {
-                arm_meta.pattern_binding = Some(pattern_binding);
+            // Skip for bare variant names (PatIdent matching a variant with no payload)
+            // to allow #1052's auto-detect to fire on real code
+            let should_lower_pattern = !(pattern_node.kind == NodeKind::PatIdent
+                && arm_meta.variant_index.is_some()
+                && arm_meta.payload_binder.is_none());
+
+            if should_lower_pattern {
+                if let Some(pattern_binding) = lower_pattern_data(
+                    arm.pattern,
+                    ast,
+                    source_map,
+                    enum_registry,
+                    struct_registry,
+                    payload_map,
+                    type_id,
+                ) {
+                    arm_meta.pattern_binding = Some(pattern_binding);
+                }
             }
 
             // Insert arm metadata
