@@ -12,8 +12,10 @@
 //! - Regression: pure fn with match doesn't emit T0532
 
 use paideia_as_ast::{AstArena, ExprData, NodeKind};
-use paideia_as_diagnostics::{FileId, Span, VecSink, SourceMap};
+use paideia_as_diagnostics::{FileId, Span};
 use paideia_as_elaborator::{lower_ast_to_ir, struct_registry::StructRegistry, EnumRegistry};
+
+use crate::common::create_test_source_map_and_sink;
 
 fn ast_span(start: u32) -> Span {
     Span::new(FileId::new(1).unwrap(), start, 1)
@@ -66,8 +68,7 @@ fn match_returning_literal_u32_writes_rax() {
     );
 
     // Lower to IR
-    let source_map = SourceMap::new();
-    let mut sink = VecSink::new();
+    let (source_map, mut sink) = create_test_source_map_and_sink();
     let registry = StructRegistry::empty();
 
     let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());
@@ -134,8 +135,7 @@ fn match_2_arms_dispatch_and_ret_ordering() {
         },
     );
 
-    let source_map = SourceMap::new();
-    let mut sink = VecSink::new();
+    let (source_map, mut sink) = create_test_source_map_and_sink();
     let registry = StructRegistry::empty();
 
     let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());
@@ -179,8 +179,7 @@ fn match_default_only_no_dispatch() {
         },
     );
 
-    let source_map = SourceMap::new();
-    let mut sink = VecSink::new();
+    let (source_map, mut sink) = create_test_source_map_and_sink();
     let registry = StructRegistry::empty();
 
     let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());
@@ -234,8 +233,7 @@ fn match_with_payload_binder() {
         },
     );
 
-    let source_map = SourceMap::new();
-    let mut sink = VecSink::new();
+    let (source_map, mut sink) = create_test_source_map_and_sink();
     let registry = StructRegistry::empty();
 
     let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());
@@ -312,8 +310,7 @@ fn nested_match_arm_body_is_match() {
         },
     );
 
-    let source_map = SourceMap::new();
-    let mut sink = VecSink::new();
+    let (source_map, mut sink) = create_test_source_map_and_sink();
     let registry = StructRegistry::empty();
 
     let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());
@@ -369,8 +366,7 @@ fn pure_fn_match_no_t0532_regression() {
         },
     );
 
-    let source_map = SourceMap::new();
-    let mut sink = VecSink::new();
+    let (source_map, mut sink) = create_test_source_map_and_sink();
     let registry = StructRegistry::empty();
 
     let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());

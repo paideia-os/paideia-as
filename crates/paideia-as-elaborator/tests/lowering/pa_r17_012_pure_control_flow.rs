@@ -11,8 +11,10 @@
 //! - Regression: no T0532 emission
 
 use paideia_as_ast::{AstArena, ExprData, LoopKind, NodeKind};
-use paideia_as_diagnostics::{FileId, Span, VecSink, SourceMap};
+use paideia_as_diagnostics::{FileId, Span};
 use paideia_as_elaborator::{lower_ast_to_ir, struct_registry::StructRegistry, EnumRegistry};
+
+use crate::common::create_test_source_map_and_sink;
 
 fn span(start: u32) -> Span {
     Span::new(FileId::new(1).unwrap(), start, 1)
@@ -48,8 +50,7 @@ fn test_pure_if_then_else_lowers_without_t0532() {
     );
 
     // Lower to IR
-    let source_map = SourceMap::new();
-    let mut sink = VecSink::new();
+    let (source_map, mut sink) = create_test_source_map_and_sink();
     let registry = StructRegistry::empty();
 
     let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());
@@ -96,8 +97,7 @@ fn test_pure_if_then_only_lowers_without_t0532() {
         },
     );
 
-    let source_map = SourceMap::new();
-    let mut sink = VecSink::new();
+    let (source_map, mut sink) = create_test_source_map_and_sink();
     let registry = StructRegistry::empty();
 
     let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());
@@ -152,8 +152,7 @@ fn test_pure_match_lowers_without_t0532() {
         },
     );
 
-    let source_map = SourceMap::new();
-    let mut sink = VecSink::new();
+    let (source_map, mut sink) = create_test_source_map_and_sink();
     let registry = StructRegistry::empty();
 
     let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());
@@ -196,8 +195,7 @@ fn test_pure_while_lowers_without_t0532() {
         },
     );
 
-    let source_map = SourceMap::new();
-    let mut sink = VecSink::new();
+    let (source_map, mut sink) = create_test_source_map_and_sink();
     let registry = StructRegistry::empty();
 
     let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());
@@ -239,8 +237,7 @@ fn test_pure_loop_lowers_without_t0532() {
         },
     );
 
-    let source_map = SourceMap::new();
-    let mut sink = VecSink::new();
+    let (source_map, mut sink) = create_test_source_map_and_sink();
     let registry = StructRegistry::empty();
 
     let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());
@@ -284,8 +281,7 @@ fn test_pure_for_lowers_without_t0532() {
         },
     );
 
-    let source_map = SourceMap::new();
-    let mut sink = VecSink::new();
+    let (source_map, mut sink) = create_test_source_map_and_sink();
     let registry = StructRegistry::empty();
 
     let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());
@@ -340,8 +336,7 @@ fn test_pure_nested_if_lowers_without_t0532() {
         },
     );
 
-    let source_map = SourceMap::new();
-    let mut sink = VecSink::new();
+    let (source_map, mut sink) = create_test_source_map_and_sink();
     let registry = StructRegistry::empty();
 
     let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());
@@ -389,8 +384,7 @@ fn test_pure_match_with_guard_lowers_without_t0532() {
         },
     );
 
-    let source_map = SourceMap::new();
-    let mut sink = VecSink::new();
+    let (source_map, mut sink) = create_test_source_map_and_sink();
     let registry = StructRegistry::empty();
 
     let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());
@@ -434,8 +428,7 @@ fn test_pure_if_ir_children_transferred() {
         },
     );
 
-    let source_map = SourceMap::new();
-    let mut sink = VecSink::new();
+    let (source_map, mut sink) = create_test_source_map_and_sink();
     let registry = StructRegistry::empty();
 
     let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());
@@ -494,8 +487,7 @@ fn test_pure_match_ir_children_transferred() {
         },
     );
 
-    let source_map = SourceMap::new();
-    let mut sink = VecSink::new();
+    let (source_map, mut sink) = create_test_source_map_and_sink();
     let registry = StructRegistry::empty();
 
     let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());
@@ -507,12 +499,17 @@ fn test_pure_match_ir_children_transferred() {
     let ir_match_id = ir_match_id.unwrap();
     let ir_children = result.ir.children(ir_match_id);
 
-    // Match with 2 arms should have 5 children:
-    // scrutinee + (pattern1 + body1) + (pattern2 + body2)
+    // Match with 2 arms should have 3 children: scrutinee + body1 + body2.
+    // Patterns are NOT IR children — since #1053 (nested pattern parser +
+    // AST->IR lowering), patterns are classified into the MatchArmMeta
+    // side-table (see `paideia_as_ir::MatchArmMeta` / `populate_match_arm_meta`
+    // in `crates/paideia-as-elaborator/src/lower/match_arm.rs`), keyed by
+    // the arm body's IR node id. `lower/children.rs`'s `ExprData::Match` arm
+    // builder only pushes the scrutinee and each arm's body.
     assert_eq!(
         ir_children.len(),
-        5,
-        "Match with 2 arms should have 5 children, got {}",
+        3,
+        "Match with 2 arms should have 3 children, got {}",
         ir_children.len()
     );
 }
@@ -543,8 +540,7 @@ fn test_pure_while_ir_children_transferred() {
         },
     );
 
-    let source_map = SourceMap::new();
-    let mut sink = VecSink::new();
+    let (source_map, mut sink) = create_test_source_map_and_sink();
     let registry = StructRegistry::empty();
 
     let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());
@@ -612,8 +608,7 @@ fn test_pure_complex_control_flow_no_t0532() {
         },
     );
 
-    let source_map = SourceMap::new();
-    let mut sink = VecSink::new();
+    let (source_map, mut sink) = create_test_source_map_and_sink();
     let registry = StructRegistry::empty();
 
     let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());

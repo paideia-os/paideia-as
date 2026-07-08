@@ -6,21 +6,10 @@
 use std::collections::HashMap;
 
 use paideia_as_ast::{AstArena, ExprData, NodeKind, StmtData};
-use paideia_as_diagnostics::{SourceMap, VecSink};
 use paideia_as_elaborator::lower::lower_ast_to_ir;
 use paideia_as_ir::IrKind;
 
-use crate::common::test_span;
-
-fn create_test_source_map_and_sink() -> (SourceMap, VecSink) {
-    let mut source_map = SourceMap::new();
-    let _file = source_map.add_file(
-        std::path::PathBuf::from("test.pdx"),
-        String::from("// test source"),
-    );
-    let sink = VecSink::new();
-    (source_map, sink)
-}
+use crate::common::{test_span, create_test_source_map_and_sink};
 
 /// Test that ExprData::Unsafe block body is lowered into IR children.
 #[test]
