@@ -703,8 +703,13 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
     // This enables populate_enum_cons_info to look up enum types and variants during EnumCons lowering.
     let enum_registry = build_enum_registry(&arena, &source_map, &mut sink);
 
+    // Issue #1054/#1053 (hoisted): Populate enum variant payload types from the enum and struct registries.
+    // This enables both type-directed code generation for variant payloads AND nested pattern lowering
+    // in populate_match_arm_meta. Must run before lower_ast_to_ir so the payload_map can be threaded through.
+    let payload_map = finalise_enum_variant_payloads(&enum_registry, &registry, &arena, &source_map);
+
     // If there are any errors so far, do not emit anything downstream.
-    let mut lowering = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &enum_registry);
+    let mut lowering = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &enum_registry, &payload_map);
 
     // PA-r17-007 (#1050): Populate enum layouts from the enum registry.
     // This enables emit_walker to look up enum layouts during EnumCons and EnumDiscriminant lowering.
@@ -713,9 +718,9 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
         lowering.ir.enum_layout_table_mut().insert(type_id, layout);
     }
 
-    // Issue #1054: Populate enum variant payload types from the enum and struct registries.
-    // This enables type-directed code generation for variant payloads.
-    let payload_map = finalise_enum_variant_payloads(&enum_registry, &registry, &arena, &source_map);
+    // Populate the enum_variant_payload_table from the computed payload_map.
+    // Single source of truth pattern: payload_map computed once above,
+    // used both for populate_match_arm_meta during lowering and here for the IR side-table.
     for ((enum_id, variant_idx), payload) in payload_map {
         lowering.ir.enum_variant_payload_table_mut()
             .insert(enum_id, variant_idx, payload);

@@ -104,6 +104,8 @@ pub struct LoweringResult {
 /// * `source_map` - The source map for extracting literal values and locations
 /// * `sink` - Diagnostic sink for emitting errors and warnings (e.g., T0550)
 /// * `registry` - The struct registry mapping struct names to RecordTypeIds (PA-r17-010a)
+/// * `enum_registry` - The enum registry mapping enum names to EnumTypeIds
+/// * `payload_map` - HashMap from (EnumTypeId, variant_idx) to Option<RecordTypeId> for nested patterns
 ///
 /// # Panics
 ///
@@ -120,6 +122,7 @@ pub fn lower_ast_to_ir(
     sink: &mut dyn DiagnosticSink,
     registry: &crate::StructRegistry,
     enum_registry: &crate::EnumRegistry,
+    payload_map: &std::collections::HashMap<(paideia_as_ir::enum_layout::EnumTypeId, u32), Option<paideia_as_ir::record_layout::RecordTypeId>>,
 ) -> LoweringResult {
     let mut ir = IrArena::with_capacity(ast.len());
     let mut ast_to_ir = HashMap::with_capacity(ast.len());
@@ -608,7 +611,7 @@ pub fn lower_ast_to_ir(
     // Phase 7 m9-009 (#1081/#1082): Populate MatchArmMeta for match arms and
     // match_scrutinee_table for match expressions. Walks AST ExprMatch nodes to
     // classify arm patterns and resolve scrutinee enum types.
-    populate_match_arm_meta(&ast, &mut ir, &ast_to_ir, enum_registry, source_map, sink);
+    populate_match_arm_meta(&ast, &mut ir, &ast_to_ir, enum_registry, registry, payload_map, source_map, sink);
 
     // Phase-5-m1-001: Literal values are populated by cmd_build.rs Phase-5-m1-001 walk
     // before emit_walker::walk() runs. No need to duplicate that work here.
@@ -1442,20 +1445,153 @@ fn populate_enum_cons_info(
     }
 }
 
+/// Recursive helper for building nested PatternBinding trees from match patterns.
+///
+/// Converts an AST pattern node into a nested PatternBinding structure that
+/// represents the full pattern hierarchy (e.g., `Ok(Point { x, y })`).
+///
+/// # Arguments
+/// - `pat_id`: The AST pattern node to lower
+/// - `ast`: The AST arena
+/// - `source_map`: Source map for extracting text
+/// - `enum_registry`: For resolving enum types and variant indices
+/// - `struct_registry`: For resolving struct types
+/// - `payload_map`: HashMap from (EnumTypeId, variant_idx) to Option<RecordTypeId>
+/// - `scrutinee_enum_id`: The enum type of the match scrutinee (for type checking)
+///
+/// # Returns
+/// Some(PatternBinding) on success, None if pattern cannot be lowered
+/// (e.g., nested EnumVariant with non-scrutinee enum type).
+fn lower_pattern_data(
+    pat_id: NodeId,
+    ast: &AstArena,
+    source_map: &SourceMap,
+    enum_registry: &crate::EnumRegistry,
+    struct_registry: &crate::StructRegistry,
+    payload_map: &std::collections::HashMap<(paideia_as_ir::enum_layout::EnumTypeId, u32), Option<paideia_as_ir::record_layout::RecordTypeId>>,
+    scrutinee_enum_id: paideia_as_ir::enum_layout::EnumTypeId,
+) -> Option<paideia_as_ir::enum_layout::PatternBinding> {
+    use paideia_as_ir::enum_layout::PatternBinding;
+
+    let pattern_node = ast.get(pat_id)?;
+
+    match pattern_node.kind {
+        NodeKind::PatWildcard => Some(PatternBinding::Wildcard),
+
+        NodeKind::PatIdent => {
+            // Extract the identifier text
+            let text = extract_source_text_for_record_cons(ast, source_map, pat_id)?;
+            if text == "_" {
+                Some(PatternBinding::Wildcard)
+            } else {
+                Some(PatternBinding::Simple(text))
+            }
+        }
+
+        NodeKind::PatEnumVariant => {
+            // Extract variant path and arguments
+            let (path_id, args) = match ast.pattern_data(pat_id) {
+                Some(paideia_as_ast::PatternData::EnumVariant { path, args }) => (*path, args.clone()),
+                _ => return None,
+            };
+
+            // Get variant name from path
+            let variant_text = extract_source_text_for_record_cons(ast, source_map, path_id)?;
+
+            // Resolve variant index in the scrutinee enum
+            let variants = enum_registry.get_variants(scrutinee_enum_id)?;
+            let (variant_idx, (_, _)) = variants
+                .iter()
+                .enumerate()
+                .find(|(_, (name, _))| name == &variant_text)?;
+            let variant_idx = variant_idx as u32;
+
+            // Get payload type from the payload_map if present
+            let payload_type = payload_map.get(&(scrutinee_enum_id, variant_idx)).copied().flatten();
+
+            // Scope: cross-enum nested patterns (e.g. Ok(Some(x)) where Some is a different enum) are not supported —
+            // the recursive variant-name lookup reuses the outer scrutinee's enum, so a mismatch silently yields payload=None.
+            // If there's one argument, try to lower it recursively
+            let payload_binding = if args.len() == 1 {
+                // For single payload, recursively lower the argument
+                lower_pattern_data(
+                    args[0],
+                    ast,
+                    source_map,
+                    enum_registry,
+                    struct_registry,
+                    payload_map,
+                    scrutinee_enum_id,
+                ).map(Box::new)
+            } else if args.is_empty() {
+                None
+            } else {
+                // Multiple arguments: not supported yet
+                None
+            };
+
+            Some(PatternBinding::EnumVariant {
+                variant_index: variant_idx,
+                payload_type,
+                payload: payload_binding,
+            })
+        }
+
+        NodeKind::PatStruct => {
+            // Extract struct path and fields
+            let (struct_path_id, fields) = match ast.pattern_data(pat_id) {
+                Some(paideia_as_ast::PatternData::Struct { path, fields }) => (*path, fields.clone()),
+                _ => return None,
+            };
+
+            // Get struct name and resolve to RecordTypeId
+            let struct_text = extract_source_text_for_record_cons(ast, source_map, struct_path_id)?;
+            let record_type_id = struct_registry.get_by_name(&struct_text)?;
+
+            // Lower each field pattern recursively
+            let mut field_bindings = Vec::new();
+            for field in fields {
+                let field_name = extract_source_text_for_record_cons(ast, source_map, field.name)?;
+                let field_pattern = lower_pattern_data(
+                    field.pattern,
+                    ast,
+                    source_map,
+                    enum_registry,
+                    struct_registry,
+                    payload_map,
+                    scrutinee_enum_id,
+                )?;
+                field_bindings.push((field_name, field_pattern));
+            }
+
+            Some(PatternBinding::Record {
+                type_id: record_type_id,
+                fields: field_bindings,
+            })
+        }
+
+        _ => None,
+    }
+}
+
 /// Phase 7 m9-009 (#1081/#1082): Populate MatchArmMeta side-table for match arms.
 ///
 /// Walks all AST ExprMatch nodes and their arms, classifying patterns:
 /// - Wildcard or PatIdent with text "_" → default arm
 /// - PatIdent with variant name text → bare-variant no-payload arm
 /// - PatEnumVariant { path, args } → variant with optional payload binder
+/// - PatStruct { path, fields } → record pattern with nested binding tree
 /// - Other patterns → emit T0556 diagnostic
 ///
 /// Requires enum_registry threaded, which provides variant names for lookup.
+/// Requires struct_registry and payload_map threaded for nested pattern matching.
 fn populate_match_arm_meta(
     ast: &AstArena,
     ir: &mut IrArena,
     ast_to_ir: &HashMap<NodeId, IrNodeId>,
-    registry: &crate::EnumRegistry,
+    enum_registry: &crate::EnumRegistry,
+    struct_registry: &crate::StructRegistry,
+    payload_map: &std::collections::HashMap<(paideia_as_ir::enum_layout::EnumTypeId, u32), Option<paideia_as_ir::record_layout::RecordTypeId>>,
     source_map: &SourceMap,
     sink: &mut dyn DiagnosticSink,
 ) {
@@ -1497,12 +1633,12 @@ fn populate_match_arm_meta(
             None => continue,
         };
 
-        let type_id = match registry.get_by_name(&enum_type_text) {
+        let type_id = match enum_registry.get_by_name(&enum_type_text) {
             Some(id) => id,
             None => continue,
         };
 
-        let variants = match registry.get_variants(type_id) {
+        let variants = match enum_registry.get_variants(type_id) {
             Some(v) => v,
             None => continue,
         };
@@ -1594,6 +1730,10 @@ fn populate_match_arm_meta(
                         }
                     }
                 }
+                NodeKind::PatStruct => {
+                    // Record pattern support: just note that we have a struct pattern
+                    // The actual nested pattern binding tree is handled via lower_pattern_data below
+                }
                 _ => {
                     // Emit T0556 diagnostic: unsupported match arm pattern kind
                     if let Ok(code) = DiagnosticCode::new(Category::T, Severity::Error, 556) {
@@ -1605,6 +1745,19 @@ fn populate_match_arm_meta(
                     }
                     continue;
                 }
+            }
+
+            // Build the nested pattern binding tree using lower_pattern_data
+            if let Some(pattern_binding) = lower_pattern_data(
+                arm.pattern,
+                ast,
+                source_map,
+                enum_registry,
+                struct_registry,
+                payload_map,
+                type_id,
+            ) {
+                arm_meta.pattern_binding = Some(pattern_binding);
             }
 
             // Insert arm metadata
@@ -1644,7 +1797,7 @@ mod tests {
         let (source_map, mut sink) = create_test_source_map_and_sink();
         let (source_map, mut sink) = create_test_source_map_and_sink();
         let ast = AstArena::new();
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty(), &std::collections::HashMap::new());
         assert_eq!(result.ir.len(), 0);
         assert!(result.ast_to_ir.is_empty());
     }
@@ -1655,7 +1808,7 @@ mod tests {
         let (source_map, mut sink) = create_test_source_map_and_sink();
         let mut ast = AstArena::new();
         let _id = ast.alloc(NodeKind::Placeholder, span());
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty(), &std::collections::HashMap::new());
         assert_eq!(result.ir.len(), 1);
         assert_eq!(result.ast_to_ir.len(), 1);
     }
@@ -1701,7 +1854,7 @@ mod tests {
         );
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty(), &std::collections::HashMap::new());
 
         // Verify the IR contains a Let, Literal nodes, and App.
         assert_eq!(result.ir.len(), 6);
@@ -1742,7 +1895,7 @@ mod tests {
         let id2 = ast.alloc(NodeKind::ExprLiteral, span());
         let id3 = ast.alloc(NodeKind::StmtLet, span());
 
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty(), &std::collections::HashMap::new());
 
         // Verify spans match.
         let ir1 = result.ast_to_ir[&id1];
@@ -1773,7 +1926,7 @@ mod tests {
         ast.alloc(NodeKind::ExprUnsafe, span());
 
         // This should not panic.
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty(), &std::collections::HashMap::new());
         assert_eq!(result.ir.len(), 10);
     }
 
@@ -1787,7 +1940,7 @@ mod tests {
             ast.alloc(NodeKind::Placeholder, span());
         }
 
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty(), &std::collections::HashMap::new());
         assert_eq!(result.ir.len(), ast.len());
     }
 
@@ -1801,7 +1954,7 @@ mod tests {
             ast.alloc(NodeKind::Ident, span());
         }
 
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty(), &std::collections::HashMap::new());
 
         for i in 0..ast.len() {
             let id = NodeId::new((i + 1) as u32).unwrap();
@@ -1818,7 +1971,7 @@ mod tests {
         ast.alloc(NodeKind::ExprLambda, span());
         ast.alloc(NodeKind::StmtLet, span());
 
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty(), &std::collections::HashMap::new());
 
         for i in 0..result.ir.len() {
             let ir_id = IrNodeId::new((i + 1) as u32).unwrap();
@@ -1843,7 +1996,7 @@ mod tests {
         let id2 = ast.alloc(NodeKind::ExprLambda, span());
         let id3 = ast.alloc(NodeKind::StmtLet, span());
 
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty(), &std::collections::HashMap::new());
 
         // NodeId 1 should map to IrNodeId 1.
         assert_eq!(result.ast_to_ir[&id1].get(), 1);
@@ -1865,7 +2018,7 @@ mod tests {
         ast.alloc(NodeKind::ExprCall, span()); // Should map to App
         ast.alloc(NodeKind::Module, span()); // Should map to Module
 
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty(), &std::collections::HashMap::new());
 
         let id1 = NodeId::new(1).unwrap();
         let id2 = NodeId::new(2).unwrap();
@@ -1900,7 +2053,7 @@ mod tests {
         );
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty(), &std::collections::HashMap::new());
 
         // Verify we have 3 IR nodes: OperandRegister, ExprLiteral, StmtInstruction.
         assert_eq!(result.ir.len(), 3);
@@ -1965,7 +2118,7 @@ mod tests {
         );
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty(), &std::collections::HashMap::new());
 
         // Verify the assignment lowered to Store instead of App.
         let assign_ir_id = result.ast_to_ir[&assign_expr_id];
@@ -2021,7 +2174,7 @@ mod tests {
         );
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty(), &std::collections::HashMap::new());
 
         // Verify the assignment lowered to App (regular operator desugaring)
         let assign_ir_id = result.ast_to_ir[&assign_expr_id];
@@ -2067,7 +2220,7 @@ mod tests {
         );
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty(), &std::collections::HashMap::new());
 
         // Verify the assignment lowered to Store
         let assign_ir_id = result.ast_to_ir[&assign_expr_id];
@@ -2137,7 +2290,7 @@ mod tests {
         );
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty(), &std::collections::HashMap::new());
 
         // Verify the assignment lowered to Store
         let assign_ir_id = result.ast_to_ir[&assign_expr_id];
@@ -2181,7 +2334,7 @@ mod tests {
         );
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty(), &std::collections::HashMap::new());
 
         // Verify we have 4 IR nodes: 3 Literals + 1 ArrayLit.
         assert_eq!(result.ir.len(), 4);
@@ -2223,7 +2376,7 @@ mod tests {
             ast.alloc_expr(NodeKind::ExprArrayLit, span(), ExprData::ArrayLit(vec![]));
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty(), &std::collections::HashMap::new());
 
         // Verify we have 1 IR node.
         assert_eq!(result.ir.len(), 1);
@@ -2260,7 +2413,7 @@ mod tests {
         );
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty(), &std::collections::HashMap::new());
 
         // Verify we have 3 IR nodes: elem, count, repeat.
         assert_eq!(result.ir.len(), 3);
@@ -2323,7 +2476,7 @@ mod tests {
         );
 
         // Lower the AST.
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty(), &std::collections::HashMap::new());
 
         // Verify the ArrayRepeat node maps to IrKind::ArrayLit.
         let ir_repeat_id = result.ast_to_ir[&repeat_id];
@@ -2386,7 +2539,7 @@ mod tests {
         // (In a real test, we'd need to properly populate the source map with the right content)
 
         // Lower the AST with the registry
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &registry, &crate::EnumRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &registry, &crate::EnumRegistry::empty(), &std::collections::HashMap::new());
 
         // Verify the record_layout_table was NOT populated because the type name lookup
         // will fail (the span content doesn't match "Pair" in the empty source map).
@@ -2422,7 +2575,7 @@ mod tests {
         let registry = StructRegistry::empty();
 
         // Lower the AST with the empty registry
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &registry, &crate::EnumRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &registry, &crate::EnumRegistry::empty(), &std::collections::HashMap::new());
 
         // The lowering should complete without panic
         assert_eq!(result.ir.len(), 4); // type_name, field_name, value, record_cons
@@ -2499,7 +2652,7 @@ mod tests {
         registry.fields.insert(vops_record_id, vec![("read".to_string(), 0x08)]); // u64
 
         // Lower the AST
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &registry, &crate::EnumRegistry::empty());
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &registry, &crate::EnumRegistry::empty(), &std::collections::HashMap::new());
 
         // Verify the FieldAccess IR node was created
         let field_access_ir_id = result.ast_to_ir[&field_access_id];
@@ -2623,7 +2776,7 @@ mod tests {
         );
 
         // Lower the AST
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &enum_registry);
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &enum_registry, &std::collections::HashMap::new());
 
         // Verify the Call IR node was created and converted to EnumCons
         let call_ir_id = result.ast_to_ir[&call_id];
@@ -2801,7 +2954,7 @@ mod tests {
         );
 
         // Lower the AST
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &enum_registry);
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &enum_registry, &std::collections::HashMap::new());
 
         // Verify the Match IR node was created
         let match_ir_id = result.ast_to_ir[&match_id];
@@ -2977,7 +3130,7 @@ mod tests {
         );
 
         // Lower the AST
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &enum_registry);
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &enum_registry, &std::collections::HashMap::new());
 
         // Verify the Match IR node was created
         let match_ir_id = result.ast_to_ir[&match_id];
@@ -3123,7 +3276,7 @@ mod tests {
         );
 
         // Lower the AST
-        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &enum_registry);
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &enum_registry, &std::collections::HashMap::new());
 
         // Verify the Match IR node was created
         let match_ir_id = result.ast_to_ir[&match_id];
@@ -3146,5 +3299,256 @@ mod tests {
             "Ok arm should have variant_index = 0 (resolved against Result enum)"
         );
         assert!(!ok_meta.is_default, "Ok arm should not be marked default");
+    }
+
+    #[test]
+    fn populate_match_arm_meta_nested_ok_of_point() {
+        // Test nested pattern: Ok(Point { x, y })
+        // Constructs:
+        //   struct Point { x: u64, y: u64 }
+        //   enum Result { Ok(Point), Err }
+        //   let r: Result = ...
+        //   match r {
+        //     Ok(Point { x, y }) => ...,
+        //     Err => ...,
+        //   }
+        use paideia_as_ir::EnumTypeId;
+        use paideia_as_ir::record_layout::RecordTypeId;
+        use paideia_as_diagnostics::FileId;
+
+        let mut source_map = SourceMap::new();
+        let source_text = "Point Ok x y Result Err r";
+        let _file = source_map.add_file(
+            std::path::PathBuf::from("test.pdx"),
+            String::from(source_text),
+        );
+        let mut sink = VecSink::new();
+        let mut ast = AstArena::new();
+
+        let file_id = FileId::new(1).unwrap();
+        let make_span = |offset: u32, len: u32| {
+            paideia_as_diagnostics::Span::new(file_id, offset, len)
+        };
+
+        // Create Point struct
+        let point_struct_name_id = ast.alloc(NodeKind::Ident, make_span(0, 5)); // "Point" at 0
+        let x_field_name_id = ast.alloc(NodeKind::Ident, make_span(9, 1)); // "x" at 9
+        let y_field_name_id = ast.alloc(NodeKind::Ident, make_span(11, 1)); // "y" at 11
+        let u64_type_id = ast.alloc(NodeKind::Placeholder, make_span(0, 1));
+
+        let _point_struct_id = ast.alloc_item(
+            NodeKind::Struct,
+            make_span(0, 1),
+            paideia_as_ast::ItemData::Struct {
+                name: point_struct_name_id,
+                generic_params: vec![],
+                fields: vec![
+                    (x_field_name_id, u64_type_id),
+                    (y_field_name_id, u64_type_id),
+                ],
+                attributes: vec![],
+                doc: None,
+            },
+        );
+
+        // Create Result enum: Result { Ok(Point), Err }
+        let enum_name_id = ast.alloc(NodeKind::Ident, make_span(13, 6)); // "Result" at 13
+        let ok_variant_name_id = ast.alloc(NodeKind::Ident, make_span(6, 2)); // "Ok" at 6
+        let err_variant_name_id = ast.alloc(NodeKind::Ident, make_span(20, 3)); // "Err" at 20
+        let point_type_id = ast.alloc(NodeKind::Ident, make_span(0, 5)); // "Point" at 0
+
+        let ok_variant = paideia_as_ast::EnumVariant::Tuple {
+            name: ok_variant_name_id,
+            payload: vec![point_type_id],
+        };
+        let err_variant = paideia_as_ast::EnumVariant::Unit {
+            name: err_variant_name_id,
+        };
+
+        let _enum_item_id = ast.alloc_item(
+            NodeKind::Enum,
+            make_span(0, 1),
+            paideia_as_ast::ItemData::Enum {
+                name: enum_name_id,
+                generic_params: vec![],
+                variants: vec![ok_variant, err_variant],
+                attributes: vec![],
+                doc: None,
+            },
+        );
+
+        // Create binding: let r: Result = ...
+        let r_binding_id = ast.alloc(NodeKind::Ident, make_span(24, 1)); // "r" at 24
+        let result_type_id = ast.alloc(NodeKind::Ident, make_span(13, 6)); // "Result" at 13
+        let dummy_value_id = ast.alloc(NodeKind::ExprLiteral, make_span(0, 1));
+        let _let_binding_id = ast.alloc_stmt(
+            NodeKind::StmtLet,
+            make_span(0, 1),
+            paideia_as_ast::StmtData::Let {
+                mutable: false,
+                name: r_binding_id,
+                ty: Some(result_type_id),
+                value: dummy_value_id,
+            },
+        );
+
+        // Create scrutinee: r
+        let scrutinee = ast.alloc(NodeKind::Ident, make_span(24, 1)); // "r" at 24
+
+        // Create nested pattern: Ok(Point { x, y })
+        let x_pat_field_name_id = ast.alloc(NodeKind::Ident, make_span(9, 1)); // "x" at 9
+        let y_pat_field_name_id = ast.alloc(NodeKind::Ident, make_span(11, 1)); // "y" at 11
+        let x_pat_binding_id = ast.alloc(NodeKind::Ident, make_span(9, 1)); // "x" at 9
+        let y_pat_binding_id = ast.alloc(NodeKind::Ident, make_span(11, 1)); // "y" at 11
+
+        let x_pat = ast.alloc_pattern(
+            NodeKind::PatIdent,
+            make_span(9, 1),
+            paideia_as_ast::PatternData::Ident {
+                name: x_pat_binding_id,
+                mutable: false,
+            },
+        );
+        let y_pat = ast.alloc_pattern(
+            NodeKind::PatIdent,
+            make_span(11, 1),
+            paideia_as_ast::PatternData::Ident {
+                name: y_pat_binding_id,
+                mutable: false,
+            },
+        );
+
+        let point_struct_pat = ast.alloc_pattern(
+            NodeKind::PatStruct,
+            make_span(0, 1),
+            paideia_as_ast::PatternData::Struct {
+                path: point_struct_name_id,
+                fields: vec![
+                    paideia_as_ast::PatField {
+                        name: x_pat_field_name_id,
+                        pattern: x_pat,
+                    },
+                    paideia_as_ast::PatField {
+                        name: y_pat_field_name_id,
+                        pattern: y_pat,
+                    },
+                ],
+            },
+        );
+
+        let ok_pattern_id = ast.alloc(NodeKind::Ident, make_span(6, 2)); // "Ok" at 6
+        let ok_arm_pattern = ast.alloc_pattern(
+            NodeKind::PatEnumVariant,
+            make_span(0, 1),
+            paideia_as_ast::PatternData::EnumVariant {
+                path: ok_pattern_id,
+                args: vec![point_struct_pat],
+            },
+        );
+        let ok_arm_body = ast.alloc(NodeKind::ExprLiteral, make_span(0, 1));
+        let ok_arm = paideia_as_ast::MatchArm {
+            pattern: ok_arm_pattern,
+            guard: None,
+            body: ok_arm_body,
+        };
+
+        // Create match expression
+        let match_id = ast.alloc_expr(
+            NodeKind::ExprMatch,
+            make_span(0, 1),
+            paideia_as_ast::ExprData::Match {
+                scrutinee,
+                arms: vec![ok_arm],
+                attrs: Default::default(),
+            },
+        );
+
+        // Build struct registry
+        let mut struct_registry = crate::StructRegistry::empty();
+        let point_record_type_id = RecordTypeId(1);
+        struct_registry.by_name.insert("Point".to_string(), point_record_type_id);
+        struct_registry.fields.insert(
+            point_record_type_id,
+            vec![("x".to_string(), 4), ("y".to_string(), 4)],
+        );
+
+        // Build enum registry
+        let mut enum_registry = crate::EnumRegistry::empty();
+        let result_enum_type_id = EnumTypeId(1);
+        enum_registry
+            .by_name
+            .insert("Result".to_string(), result_enum_type_id);
+        enum_registry.variants.insert(
+            result_enum_type_id,
+            vec![
+                ("Ok".to_string(), vec![point_type_id]),
+                ("Err".to_string(), vec![]),
+            ],
+        );
+
+        // Build payload map
+        let mut payload_map = std::collections::HashMap::new();
+        payload_map.insert((result_enum_type_id, 0), Some(point_record_type_id));
+
+        // Lower the AST
+        let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &struct_registry, &enum_registry, &payload_map);
+
+        // Verify the Match IR node was created
+        let match_ir_id = result.ast_to_ir[&match_id];
+        assert_eq!(result.ir[match_ir_id].kind, IrKind::Match);
+
+        // Verify arm metadata
+        let match_children = result.ir.children(match_ir_id);
+        assert!(match_children.len() >= 2, "Match should have scrutinee + 1 arm as children");
+
+        let ok_arm_ir_id = match_children[1];
+        let ok_arm_meta = result.ir.match_arm_meta().get(ok_arm_ir_id);
+        assert!(ok_arm_meta.is_some(), "Ok arm should have meta entry");
+        let ok_meta = ok_arm_meta.unwrap();
+        assert_eq!(
+            ok_meta.variant_index,
+            Some(0),
+            "Ok arm should have variant_index = 0"
+        );
+
+        // Verify pattern_binding is set with nested structure
+        assert!(
+            ok_meta.pattern_binding.is_some(),
+            "Ok arm should have pattern_binding set"
+        );
+        if let Some(pb) = &ok_meta.pattern_binding {
+            use paideia_as_ir::enum_layout::PatternBinding;
+            match pb {
+                PatternBinding::EnumVariant {
+                    variant_index,
+                    payload_type,
+                    payload,
+                } => {
+                    assert_eq!(*variant_index, 0, "variant_index should be 0 for Ok");
+                    assert_eq!(
+                        *payload_type,
+                        Some(point_record_type_id),
+                        "payload_type should be Point"
+                    );
+                    assert!(
+                        payload.is_some(),
+                        "payload should be Some (the Point record pattern)"
+                    );
+                    if let Some(payload_binding) = payload {
+                        match payload_binding.as_ref() {
+                            PatternBinding::Record { type_id, fields } => {
+                                assert_eq!(*type_id, point_record_type_id, "record type should be Point");
+                                assert_eq!(fields.len(), 2, "Point should have 2 fields");
+                                // Verify field bindings
+                                assert_eq!(fields[0].0, "x");
+                                assert_eq!(fields[1].0, "y");
+                            }
+                            _ => panic!("payload should be Record pattern"),
+                        }
+                    }
+                }
+                _ => panic!("pattern_binding should be EnumVariant for Ok(...)"),
+            }
+        }
     }
 }

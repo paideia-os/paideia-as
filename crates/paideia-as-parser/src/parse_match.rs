@@ -249,6 +249,66 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                                 args,
                             },
                         ))
+                    } else if self.at(TokenKind::LBrace) {
+                        // Record pattern: `Point { x: a, y: b }`
+                        self.bump(); // consume `{`
+
+                        let mut fields = vec![];
+                        while !self.at(TokenKind::RBrace) {
+                            let field_tok = self.expect(TokenKind::Ident)?;
+                            let field_name =
+                                self.arena_mut().alloc(NodeKind::Ident, field_tok.span);
+
+                            // Check for shorthand `{ x, y }` vs `{ x: pat, y: pat }`
+                            if self.at(TokenKind::Colon) {
+                                self.bump(); // consume `:`
+                                let field_pattern = self.parse_pattern_match()?;
+                                fields.push((field_name, field_pattern));
+                            } else if self.at(TokenKind::Comma) || self.at(TokenKind::RBrace) {
+                                // Shorthand: synthesize a PatIdent pattern with the same name
+                                let field_text = field_tok.span;
+                                let shorthand_ident = self.arena_mut().alloc(NodeKind::Ident, field_text);
+                                let field_pattern = self.arena_mut().alloc_pattern(
+                                    NodeKind::PatIdent,
+                                    field_text,
+                                    PatternData::Ident {
+                                        name: shorthand_ident,
+                                        mutable: false,
+                                    },
+                                );
+                                fields.push((field_name, field_pattern));
+                            } else {
+                                return self.error_expected_match_pattern();
+                            }
+
+                            if !self.at(TokenKind::RBrace) {
+                                self.expect(TokenKind::Comma)?;
+                            }
+                        }
+
+                        let rbrace_tok = self.expect(TokenKind::RBrace)?;
+
+                        let span_final = Span::new(
+                            span.file(),
+                            span.byte_start(),
+                            rbrace_tok.span.byte_start() + rbrace_tok.span.byte_len()
+                                - span.byte_start(),
+                        );
+
+                        Ok(self.arena_mut().alloc_pattern(
+                            NodeKind::PatStruct,
+                            span_final,
+                            PatternData::Struct {
+                                path: ident_id,
+                                fields: fields
+                                    .into_iter()
+                                    .map(|(name, pattern)| paideia_as_ast::PatField {
+                                        name,
+                                        pattern,
+                                    })
+                                    .collect(),
+                            },
+                        ))
                     } else {
                         // Plain ident pattern
                         Ok(self.arena_mut().alloc_pattern(
@@ -730,6 +790,201 @@ mod tests {
                     arena.pattern_data(arms[0].pattern)
                 {
                     assert_eq!(args.len(), 2, "expected 2 arguments in Pair(a, b)");
+                } else {
+                    panic!("expected EnumVariant pattern data");
+                }
+            } else {
+                panic!("expected ExprMatch");
+            }
+        }
+    }
+
+    #[test]
+    fn parse_pattern_match_record_pattern() {
+        // Test parsing: match r { Point { x: a, y: b } => ... }
+        let tokens = vec![
+            tok(TokenKind::KwMatch, 0, 5),   // match
+            tok(TokenKind::Ident, 6, 1),     // r
+            tok(TokenKind::LBrace, 8, 1),
+            tok(TokenKind::Ident, 10, 5),    // Point
+            tok(TokenKind::LBrace, 16, 1),   // {
+            tok(TokenKind::Ident, 18, 1),    // x
+            tok(TokenKind::Colon, 19, 1),    // :
+            tok(TokenKind::Ident, 21, 1),    // a
+            tok(TokenKind::Comma, 22, 1),
+            tok(TokenKind::Ident, 24, 1),    // y
+            tok(TokenKind::Colon, 25, 1),    // :
+            tok(TokenKind::Ident, 27, 1),    // b
+            tok(TokenKind::RBrace, 28, 1),   // }
+            tok(TokenKind::FatArrow, 30, 2), // =>
+            tok(TokenKind::IntLit, 33, 1),   // 0
+            tok(TokenKind::RBrace, 34, 1),
+            tok(TokenKind::Eof, 35, 0),
+        ];
+        let (arena, root, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected for record pattern");
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprMatch);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Match { arms, .. } = expr_data {
+                assert_eq!(arms.len(), 1);
+                if let Some(PatternData::Struct { path: _, fields }) =
+                    arena.pattern_data(arms[0].pattern)
+                {
+                    assert_eq!(fields.len(), 2, "expected 2 fields in Point pattern");
+                } else {
+                    panic!("expected Struct pattern data");
+                }
+            } else {
+                panic!("expected ExprMatch");
+            }
+        }
+    }
+
+    #[test]
+    fn parse_pattern_match_record_shorthand() {
+        // Test parsing: match p { Point { x, y } => ... } (shorthand)
+        let tokens = vec![
+            tok(TokenKind::KwMatch, 0, 5),   // match
+            tok(TokenKind::Ident, 6, 1),     // p
+            tok(TokenKind::LBrace, 8, 1),
+            tok(TokenKind::Ident, 10, 5),    // Point
+            tok(TokenKind::LBrace, 16, 1),   // {
+            tok(TokenKind::Ident, 18, 1),    // x
+            tok(TokenKind::Comma, 19, 1),
+            tok(TokenKind::Ident, 21, 1),    // y
+            tok(TokenKind::RBrace, 22, 1),   // }
+            tok(TokenKind::FatArrow, 24, 2), // =>
+            tok(TokenKind::IntLit, 27, 1),   // 0
+            tok(TokenKind::RBrace, 28, 1),
+            tok(TokenKind::Eof, 29, 0),
+        ];
+        let (arena, root, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected for shorthand record pattern");
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprMatch);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Match { arms, .. } = expr_data {
+                assert_eq!(arms.len(), 1);
+                if let Some(PatternData::Struct { path: _, fields }) =
+                    arena.pattern_data(arms[0].pattern)
+                {
+                    assert_eq!(fields.len(), 2, "expected 2 fields in shorthand pattern");
+                    // Check that both fields have PatIdent patterns
+                    for (i, field) in fields.iter().enumerate() {
+                        if let Some(field_pat_data) = arena.pattern_data(field.pattern) {
+                            match field_pat_data {
+                                PatternData::Ident { .. } => {}
+                                _ => panic!("field {} should have Ident pattern", i),
+                            }
+                        } else {
+                            panic!("field {} pattern not found", i);
+                        }
+                    }
+                } else {
+                    panic!("expected Struct pattern data");
+                }
+            } else {
+                panic!("expected ExprMatch");
+            }
+        }
+    }
+
+    #[test]
+    fn parse_pattern_match_nested_enum_of_record() {
+        // Test parsing: match r { Ok(Point { x, y }) => ... }
+        let tokens = vec![
+            tok(TokenKind::KwMatch, 0, 5),   // match
+            tok(TokenKind::Ident, 6, 1),     // r
+            tok(TokenKind::LBrace, 8, 1),
+            tok(TokenKind::Ident, 10, 2),    // Ok
+            tok(TokenKind::LParen, 12, 1),   // (
+            tok(TokenKind::Ident, 13, 5),    // Point
+            tok(TokenKind::LBrace, 19, 1),   // {
+            tok(TokenKind::Ident, 21, 1),    // x
+            tok(TokenKind::Comma, 22, 1),
+            tok(TokenKind::Ident, 24, 1),    // y
+            tok(TokenKind::RBrace, 25, 1),   // }
+            tok(TokenKind::RParen, 26, 1),   // )
+            tok(TokenKind::FatArrow, 28, 2), // =>
+            tok(TokenKind::IntLit, 31, 1),   // 0
+            tok(TokenKind::RBrace, 32, 1),
+            tok(TokenKind::Eof, 33, 0),
+        ];
+        let (arena, root, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected for nested enum-record pattern");
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprMatch);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Match { arms, .. } = expr_data {
+                assert_eq!(arms.len(), 1);
+                if let Some(PatternData::EnumVariant { path: _, args }) =
+                    arena.pattern_data(arms[0].pattern)
+                {
+                    assert_eq!(args.len(), 1, "expected 1 argument in Ok(...)");
+                    if let Some(inner_data) = arena.pattern_data(args[0]) {
+                        match inner_data {
+                            PatternData::Struct { fields, .. } => {
+                                assert_eq!(fields.len(), 2, "expected 2 fields in inner Point pattern");
+                            }
+                            _ => panic!("expected Struct pattern as argument to Ok"),
+                        }
+                    } else {
+                        panic!("inner pattern not found");
+                    }
+                } else {
+                    panic!("expected EnumVariant pattern data");
+                }
+            } else {
+                panic!("expected ExprMatch");
+            }
+        }
+    }
+
+    #[test]
+    fn parse_pattern_match_three_level_nesting() {
+        // Test parsing: match x { Ok(Some(a)) => ... }
+        let tokens = vec![
+            tok(TokenKind::KwMatch, 0, 5),   // match
+            tok(TokenKind::Ident, 6, 1),     // x
+            tok(TokenKind::LBrace, 8, 1),
+            tok(TokenKind::Ident, 10, 2),    // Ok
+            tok(TokenKind::LParen, 12, 1),   // (
+            tok(TokenKind::Ident, 13, 4),    // Some
+            tok(TokenKind::LParen, 17, 1),   // (
+            tok(TokenKind::Ident, 18, 1),    // a
+            tok(TokenKind::RParen, 19, 1),   // )
+            tok(TokenKind::RParen, 20, 1),   // )
+            tok(TokenKind::FatArrow, 22, 2), // =>
+            tok(TokenKind::IntLit, 25, 1),   // 0
+            tok(TokenKind::RBrace, 26, 1),
+            tok(TokenKind::Eof, 27, 0),
+        ];
+        let (arena, root, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected for three-level nested pattern");
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprMatch);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Match { arms, .. } = expr_data {
+                assert_eq!(arms.len(), 1);
+                if let Some(PatternData::EnumVariant { path: _, args: outer_args }) =
+                    arena.pattern_data(arms[0].pattern)
+                {
+                    assert_eq!(outer_args.len(), 1, "expected 1 argument in Ok(...)");
+                    if let Some(inner_data) = arena.pattern_data(outer_args[0]) {
+                        match inner_data {
+                            PatternData::EnumVariant { args: inner_args, .. } => {
+                                assert_eq!(inner_args.len(), 1, "expected 1 argument in Some(...)");
+                            }
+                            _ => panic!("expected EnumVariant pattern as argument to Ok"),
+                        }
+                    } else {
+                        panic!("middle pattern not found");
+                    }
                 } else {
                     panic!("expected EnumVariant pattern data");
                 }

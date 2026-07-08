@@ -85,8 +85,11 @@ pub fn run(input: &Path, dump_ir: bool) -> ExitCode {
     // Phase 7 m4-003 (#1048/#1049): Build enum registry before lowering.
     let enum_registry = build_enum_registry(&arena, &source_map, &mut sink);
 
+    // For cmd_check, we use an empty payload_map since we don't need the nested pattern lowering.
+    let payload_map = std::collections::HashMap::new();
+
     // Lower (structural, diagnostics emitted for @jump_table validation).
-    let lowering = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &enum_registry);
+    let lowering = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &enum_registry, &payload_map);
 
     if dump_ir {
         let dump = paideia_as_ir::pretty::dump(&lowering.ir);

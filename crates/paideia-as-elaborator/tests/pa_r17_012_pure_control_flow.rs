@@ -52,7 +52,7 @@ fn test_pure_if_then_else_lowers_without_t0532() {
     let mut sink = VecSink::new();
     let registry = StructRegistry::empty();
 
-    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty());
+    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());
 
     // Should lower without T0532 errors
     let t0532_diags: Vec<_> = sink
@@ -100,7 +100,7 @@ fn test_pure_if_then_only_lowers_without_t0532() {
     let mut sink = VecSink::new();
     let registry = StructRegistry::empty();
 
-    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty());
+    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());
 
     let t0532_diags: Vec<_> = sink
         .diagnostics()
@@ -156,7 +156,7 @@ fn test_pure_match_lowers_without_t0532() {
     let mut sink = VecSink::new();
     let registry = StructRegistry::empty();
 
-    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty());
+    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());
 
     let t0532_diags: Vec<_> = sink
         .diagnostics()
@@ -200,7 +200,7 @@ fn test_pure_while_lowers_without_t0532() {
     let mut sink = VecSink::new();
     let registry = StructRegistry::empty();
 
-    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty());
+    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());
 
     let t0532_diags: Vec<_> = sink
         .diagnostics()
@@ -243,7 +243,7 @@ fn test_pure_loop_lowers_without_t0532() {
     let mut sink = VecSink::new();
     let registry = StructRegistry::empty();
 
-    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty());
+    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());
 
     let t0532_diags: Vec<_> = sink
         .diagnostics()
@@ -288,7 +288,7 @@ fn test_pure_for_lowers_without_t0532() {
     let mut sink = VecSink::new();
     let registry = StructRegistry::empty();
 
-    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty());
+    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());
 
     let t0532_diags: Vec<_> = sink
         .diagnostics()
@@ -344,7 +344,7 @@ fn test_pure_nested_if_lowers_without_t0532() {
     let mut sink = VecSink::new();
     let registry = StructRegistry::empty();
 
-    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty());
+    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());
 
     let t0532_diags: Vec<_> = sink
         .diagnostics()
@@ -393,7 +393,7 @@ fn test_pure_match_with_guard_lowers_without_t0532() {
     let mut sink = VecSink::new();
     let registry = StructRegistry::empty();
 
-    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty());
+    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());
 
     let t0532_diags: Vec<_> = sink
         .diagnostics()
@@ -438,7 +438,7 @@ fn test_pure_if_ir_children_transferred() {
     let mut sink = VecSink::new();
     let registry = StructRegistry::empty();
 
-    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty());
+    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());
 
     // Find IR node corresponding to if_id
     let ir_if_id = result.ast_to_ir.get(&if_id).copied();
@@ -498,7 +498,7 @@ fn test_pure_match_ir_children_transferred() {
     let mut sink = VecSink::new();
     let registry = StructRegistry::empty();
 
-    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty());
+    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());
 
     // Find IR node corresponding to match_id
     let ir_match_id = result.ast_to_ir.get(&match_id).copied();
@@ -547,7 +547,7 @@ fn test_pure_while_ir_children_transferred() {
     let mut sink = VecSink::new();
     let registry = StructRegistry::empty();
 
-    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty());
+    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());
 
     // Find IR node corresponding to while_id
     let ir_while_id = result.ast_to_ir.get(&while_id).copied();
@@ -616,7 +616,7 @@ fn test_pure_complex_control_flow_no_t0532() {
     let mut sink = VecSink::new();
     let registry = StructRegistry::empty();
 
-    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty());
+    let result = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &EnumRegistry::empty(), &std::collections::HashMap::new());
 
     let t0532_diags: Vec<_> = sink
         .diagnostics()

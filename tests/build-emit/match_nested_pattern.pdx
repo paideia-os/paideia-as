@@ -1,0 +1,13 @@
+// Issue #1053 (#PA-r17-009a): Match expression with nested record patterns
+// Tests that match arms with nested patterns like Ok(Point { x, y }) parse and lower correctly
+// Verifies that record patterns work inside enum variant patterns
+
+module MatchNestedPattern = structure {
+  struct Point { x: u32, y: u32 }
+  enum Result { Ok(Point), Err }
+  pub let r : Result = Result::Ok(Point { x: 10u32, y: 20u32 })
+  pub let entry : () -> u32 !{} @{} = fn(_: ()) -> match r {
+    Ok(Point { x, y }) => x + y
+    Err => 0u32
+  }
+}
