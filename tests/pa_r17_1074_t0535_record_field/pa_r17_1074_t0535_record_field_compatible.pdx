@@ -1,0 +1,15 @@
+// PA-r17-1074 (#1074): T0535 test - record field fn-ptr with compatible signature
+//
+// Fixture: Struct with fn-ptr field typed as (u64) -> u64.
+// Record literal assigns a function with matching signature.
+// Expected: Compilation succeeds without T0535 diagnostic.
+
+module PaR17T0535RecordFieldCompatible = structure {
+  struct VTable {
+    read: (u64) -> u64
+  }
+
+  let impl_read : (u64) -> u64 = fn(x: u64) -> x + 1
+
+  pub let vt : VTable = VTable { read: &impl_read }
+}

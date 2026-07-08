@@ -1,0 +1,15 @@
+// PA-r17-1074 (#1074): T0535 test - record field fn-ptr with param type mismatch
+//
+// Fixture: Struct with fn-ptr field typed as (u64) -> u64.
+// Record literal assigns a function expecting u32 instead of u64.
+// Expected: T0535 diagnostic (parameter type mismatch) in pre-emit pass.
+
+module PaR17T0535RecordFieldParamMismatch = structure {
+  struct VTable {
+    read: (u64) -> u64
+  }
+
+  let takes_u32 : (u32) -> u64 = fn(x: u32) -> x as u64
+
+  pub let vt : VTable = VTable { read: &takes_u32 }
+}

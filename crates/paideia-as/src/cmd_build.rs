@@ -1305,7 +1305,8 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
         let arena_len = lowering.ir.len();
         // Collect all address-of entries first to avoid borrow issues.
         // Also collect let_id for T0535 checking.
-        let mut addr_of_entries = Vec::new();
+        // #1074: Extended to track record-field context: Option<(rc_ir_id, field_idx0)>
+        let mut addr_of_entries: Vec<(IrNodeId, IrNodeId, String, Option<(IrNodeId, usize)>)> = Vec::new();
 
         for i in 1..=arena_len as u32 {
             if let Some(let_id) = IrNodeId::new(i) {
@@ -1327,8 +1328,9 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                             file,
                                             &mut sink,
                                         ) {
-                                            // #988 v2: Push (let_id, rhs_id, var_name) for T0535 checking
-                                            addr_of_entries.push((let_id, *rhs_id, var_name));
+                                            // #988 v2: Push (let_id, rhs_id, var_name, None) for T0535 checking
+                                            // #1074: Tag as None (not from record field)
+                                            addr_of_entries.push((let_id, *rhs_id, var_name, None));
                                         }
                                     }
                                 }
@@ -1358,8 +1360,9 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                                         file,
                                                         &mut sink,
                                                     ) {
-                                                        // Push (let_id, borrow_id, var_name) for record field
-                                                        addr_of_entries.push((let_id, field_id, var_name));
+                                                        // Push (let_id, borrow_id, var_name, Some((rc_ir_id, field_idx0))) for record field
+                                                        // field_idx is 1-based (0 is type_name), so field_idx0 = field_idx - 1
+                                                        addr_of_entries.push((let_id, field_id, var_name, Some((*rhs_id, field_idx - 1))));
                                                     }
                                                 }
                                             }
@@ -1380,83 +1383,151 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
 
         // Now populate the AddrOfSideTable and perform T0535 checks
         // #988 v2: Keyed by rhs_id (Borrow node) not let_id
-        for (let_id, rhs_id, var_name) in addr_of_entries {
+        // #1074: Handle both top-level and record-field cases
+        for (let_id, rhs_id, var_name, record_context) in addr_of_entries {
             lowering.ir.addr_of_mut().insert(
                 rhs_id,
                 paideia_as_ir::AddrOfMeta::new(var_name.clone()),
             );
 
-            // PA-r17-003b (#1038): T0535 signature check
-            // Get the type annotation NodeId from the AST Let node
-            let ast_let_id = AstNodeId::new(let_id.get()).unwrap();
+            match record_context {
+                None => {
+                    // PA-r17-003b (#1038): T0535 signature check for top-level let bindings
+                    // Get the type annotation NodeId from the AST Let node
+                    let ast_let_id = AstNodeId::new(let_id.get()).unwrap();
 
-            // Let nodes can be either ItemData::Let (module-level) or StmtData::Let (statement-level)
-            let type_annotation_node_id = if let Some(item_data) = arena.item_data(ast_let_id) {
-                match item_data {
-                    ItemData::Let { ty: Some(ty_node), .. } => Some(*ty_node),
-                    _ => None,
-                }
-            } else if let Some(stmt_data) = arena.stmt_data(ast_let_id) {
-                match stmt_data {
-                    StmtData::Let { ty: Some(ty_node), .. } => Some(*ty_node),
-                    _ => None,
-                }
-            } else {
-                None
-            };
+                    // Let nodes can be either ItemData::Let (module-level) or StmtData::Let (statement-level)
+                    let type_annotation_node_id = if let Some(item_data) = arena.item_data(ast_let_id) {
+                        match item_data {
+                            ItemData::Let { ty: Some(ty_node), .. } => Some(*ty_node),
+                            _ => None,
+                        }
+                    } else if let Some(stmt_data) = arena.stmt_data(ast_let_id) {
+                        match stmt_data {
+                            StmtData::Let { ty: Some(ty_node), .. } => Some(*ty_node),
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    };
 
-            if let Some(lhs_type_node) = type_annotation_node_id {
-                // Lower the LHS type annotation to a TypeId
-                if let Ok(lhs_tid) = paideia_as_elaborator::lower_type::lower_type_ast(
-                    &arena,
-                    &source_map,
-                    lhs_type_node,
-                    &mut types,
-                    &mut effects,
-                    &mut caps,
-                    &registry,
-                ) {
-                    // Look up the lambda via symbol table
-                    if let Some(symbol) = lowering.ir.symbols().lookup_by_name(&var_name) {
-                        // Convert IR node ID to AST node ID (they're the same)
-                        let lambda_ast_id = AstNodeId::new(symbol.ir_node.get()).unwrap();
-
-                        // Derive the RHS signature from the lambda
-                        if let Some(rhs_tid) = paideia_as_elaborator::derive_fn_sig::derive_fn_sig_from_lambda(
+                    if let Some(lhs_type_node) = type_annotation_node_id {
+                        // Lower the LHS type annotation to a TypeId
+                        if let Ok(lhs_tid) = paideia_as_elaborator::lower_type::lower_type_ast(
                             &arena,
                             &source_map,
-                            lambda_ast_id,
+                            lhs_type_node,
                             &mut types,
                             &mut effects,
                             &mut caps,
                             &registry,
                         ) {
-                            // T0535 check only applies to fn-ptr LHS types.
-                            // For record literals like `VTable { read: &read_impl }`,
-                            // the enclosing Let's annotation is the record type, not a fn-ptr.
-                            // Skip the check for non-fn-ptr types; field-level checking is future work.
-                            if matches!(types.get(lhs_tid), paideia_as_types::Type::Fn { .. }) {
-                                // Check fn-ptr assignment compatibility
-                                let mut subst = Subst::new();
-                                let span = lowering.ir.get(rhs_id).map(|n| n.span).unwrap_or_else(|| {
-                                    paideia_as_diagnostics::Span::new(
-                                        paideia_as_diagnostics::FileId::new(1).unwrap(),
-                                        0,
-                                        0,
-                                    )
-                                });
-                                let diags = paideia_as_elaborator::check_fn_ptr_assignment(
+                            // Look up the lambda via symbol table
+                            if let Some(symbol) = lowering.ir.symbols().lookup_by_name(&var_name) {
+                                // Convert IR node ID to AST node ID (they're the same)
+                                let lambda_ast_id = AstNodeId::new(symbol.ir_node.get()).unwrap();
+
+                                // Derive the RHS signature from the lambda
+                                if let Some(rhs_tid) = paideia_as_elaborator::derive_fn_sig::derive_fn_sig_from_lambda(
+                                    &arena,
+                                    &source_map,
+                                    lambda_ast_id,
                                     &mut types,
-                                    &mut subst,
-                                    &effects,
-                                    &caps,
-                                    lhs_tid,
-                                    rhs_tid,
-                                    span,
-                                );
-                                // Push diagnostics to sink
-                                for diag in diags {
-                                    let _ = sink.emit(diag);
+                                    &mut effects,
+                                    &mut caps,
+                                    &registry,
+                                ) {
+                                    // T0535 check only applies to fn-ptr LHS types.
+                                    if matches!(types.get(lhs_tid), paideia_as_types::Type::Fn { .. }) {
+                                        // Check fn-ptr assignment compatibility
+                                        let mut subst = Subst::new();
+                                        let span = lowering.ir.get(rhs_id).map(|n| n.span).unwrap_or_else(|| {
+                                            paideia_as_diagnostics::Span::new(
+                                                paideia_as_diagnostics::FileId::new(1).unwrap(),
+                                                0,
+                                                0,
+                                            )
+                                        });
+                                        let diags = paideia_as_elaborator::check_fn_ptr_assignment(
+                                            &mut types,
+                                            &mut subst,
+                                            &effects,
+                                            &caps,
+                                            lhs_tid,
+                                            rhs_tid,
+                                            span,
+                                        );
+                                        // Push diagnostics to sink
+                                        for diag in diags {
+                                            let _ = sink.emit(diag);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Some((rc_ir_id, field_idx0)) => {
+                    // #1074: T0535 signature check for record-field fn-ptr assignments
+                    // Get the RecordTypeId from the IR's record_layout_table
+                    if let Some(record_type_id) = lowering.ir.record_layout_table().get(rc_ir_id) {
+                        // Get the field type node for this field index
+                        if let Some(field_type_nodes) = registry.field_type_nodes.get(&record_type_id) {
+                            if field_idx0 < field_type_nodes.len() {
+                                let field_ty_node = field_type_nodes[field_idx0];
+
+                                // Lower the field type
+                                if let Ok(field_ty_tid) = paideia_as_elaborator::lower_type::lower_type_ast(
+                                    &arena,
+                                    &source_map,
+                                    field_ty_node,
+                                    &mut types,
+                                    &mut effects,
+                                    &mut caps,
+                                    &registry,
+                                ) {
+                                    // Check if the field type is a function-pointer
+                                    if matches!(types.get(field_ty_tid), paideia_as_types::Type::Fn { .. }) {
+                                        // Look up the lambda via symbol table
+                                        if let Some(symbol) = lowering.ir.symbols().lookup_by_name(&var_name) {
+                                            // Convert IR node ID to AST node ID
+                                            let lambda_ast_id = AstNodeId::new(symbol.ir_node.get()).unwrap();
+
+                                            // Derive the RHS signature from the lambda
+                                            if let Some(rhs_tid) = paideia_as_elaborator::derive_fn_sig::derive_fn_sig_from_lambda(
+                                                &arena,
+                                                &source_map,
+                                                lambda_ast_id,
+                                                &mut types,
+                                                &mut effects,
+                                                &mut caps,
+                                                &registry,
+                                            ) {
+                                                // Check fn-ptr assignment compatibility
+                                                let mut subst = Subst::new();
+                                                let span = lowering.ir.get(rhs_id).map(|n| n.span).unwrap_or_else(|| {
+                                                    paideia_as_diagnostics::Span::new(
+                                                        paideia_as_diagnostics::FileId::new(1).unwrap(),
+                                                        0,
+                                                        0,
+                                                    )
+                                                });
+                                                let diags = paideia_as_elaborator::check_fn_ptr_assignment(
+                                                    &mut types,
+                                                    &mut subst,
+                                                    &effects,
+                                                    &caps,
+                                                    field_ty_tid,
+                                                    rhs_tid,
+                                                    span,
+                                                );
+                                                // Push diagnostics to sink
+                                                for diag in diags {
+                                                    let _ = sink.emit(diag);
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

@@ -5,7 +5,7 @@
 //! RecordLayoutTable was never populated in production. Consumes
 //! ItemData::Struct.fields (Vec<(NodeId, NodeId)>) landed in #1071.
 
-use paideia_as_ast::{AstArena, ItemData, NodeId, NodeKind};
+use paideia_as_ast::{AstArena, ItemData, NodeId, NodeKind, TypeData};
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, DiagnosticSink, Severity, SourceMap};
 use paideia_as_ir::record_layout::RecordTypeId;
 use std::collections::HashMap;
@@ -22,6 +22,9 @@ pub struct StructRegistry {
     pub by_name: HashMap<String, RecordTypeId>,
     /// Map from RecordTypeId to list of (field_name, byte_code) descriptors.
     pub fields: HashMap<RecordTypeId, Vec<(String, u8)>>,
+    /// Map from RecordTypeId to list of AST NodeIds for field types.
+    /// Used for T0535 fn-ptr field checking. Index aligns with fields vec.
+    pub field_type_nodes: HashMap<RecordTypeId, Vec<NodeId>>,
 }
 
 impl StructRegistry {
@@ -30,6 +33,7 @@ impl StructRegistry {
         Self {
             by_name: HashMap::new(),
             fields: HashMap::new(),
+            field_type_nodes: HashMap::new(),
         }
     }
 
@@ -82,6 +86,7 @@ pub fn build_struct_registry(
 
                         // Process each field in the struct
                         let mut field_descriptors: Vec<(String, u8)> = Vec::new();
+                        let mut field_type_node_ids: Vec<NodeId> = Vec::new();
                         for (field_name_id, field_type_id) in fields {
                             // Extract field name
                             let field_name = match extract_source_text(ast, source_map, *field_name_id) {
@@ -92,7 +97,19 @@ pub fn build_struct_registry(
                                 }
                             };
 
-                            // Extract field type text
+                            // Record the field type node ID for T0535 checking
+                            field_type_node_ids.push(*field_type_id);
+
+                            // Check if this is a function-pointer type
+                            if let Some(type_data) = ast.type_data(*field_type_id) {
+                                if matches!(type_data, TypeData::FnPtr { .. }) {
+                                    // Function-pointer fields are encoded as 8-byte pointers
+                                    field_descriptors.push((field_name, 0x08));
+                                    continue;
+                                }
+                            }
+
+                            // Extract field type text for non-FnPtr types
                             let type_text = match extract_source_text(ast, source_map, *field_type_id) {
                                 Some(text) => text,
                                 None => {
@@ -128,6 +145,7 @@ pub fn build_struct_registry(
                         // Store the struct in registry
                         registry.by_name.insert(struct_name, type_id);
                         registry.fields.insert(type_id, field_descriptors);
+                        registry.field_type_nodes.insert(type_id, field_type_node_ids);
                     }
                 }
             }

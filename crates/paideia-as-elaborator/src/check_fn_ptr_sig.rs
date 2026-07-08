@@ -789,4 +789,52 @@ mod tests {
         let diag_str = format!("{:?}", diags[0]);
         assert!(diag_str.contains("return type"));
     }
+
+    /// Test 13: t0535_record_field_param_mismatch_rejects (#1074)
+    /// Verifies that fn-ptr signature mismatches are detected for record-field
+    /// assignments, not just top-level let bindings. This test constructs a
+    /// scenario analogous to: `struct VTable { read: (u64) -> u64 }`
+    /// with a field assignment `read: &wrong_sig_fn`.
+    #[test]
+    fn t0535_record_field_param_mismatch_rejects() {
+        let mut types = TypeInterner::new();
+        let mut effects = EffectInterner::new();
+        let mut caps = CapSetInterner::new();
+        let mut subst = Subst::new();
+
+        let u64_ty = types.intern(Type::UInt(64));
+        let u32_ty = types.intern(Type::UInt(32));
+
+        // Field type annotation: (u64) -> u64
+        let field_fn_type = types.intern(Type::Fn {
+            params: vec![u64_ty],
+            ret: u64_ty,
+            effects: effects.empty(),
+            caps: caps.empty(),
+        });
+
+        // Assigned value signature (from lambda): (u32) -> u64 (parameter mismatch)
+        let source_fn_type = types.intern(Type::Fn {
+            params: vec![u32_ty],
+            ret: u64_ty,
+            effects: effects.empty(),
+            caps: caps.empty(),
+        });
+
+        let diags = check_fn_ptr_assignment(
+            &mut types,
+            &mut subst,
+            &effects,
+            &caps,
+            field_fn_type,
+            source_fn_type,
+            test_span(0),
+        );
+
+        // Should emit T0535 for parameter type mismatch in record field
+        assert_eq!(diags.len(), 1);
+        assert_eq!(diags[0].code().number(), T_FN_PTR_SIG_MISMATCH);
+        let diag_str = format!("{:?}", diags[0]);
+        assert!(diag_str.contains("parameter") || diag_str.contains("type mismatch"));
+    }
 }

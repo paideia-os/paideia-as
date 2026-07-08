@@ -1,0 +1,15 @@
+// PA-r17-1074 (#1074): T0535 test - record field fn-ptr with arity mismatch
+//
+// Fixture: Struct with fn-ptr field typed as (u64) -> u64.
+// Record literal assigns a function with different arity (no params).
+// Expected: T0535 diagnostic (arity mismatch) in pre-emit pass.
+
+module PaR17T0535RecordFieldArityMismatch = structure {
+  struct VTable {
+    read: (u64) -> u64
+  }
+
+  let no_args : () -> u64 = fn(_: ()) -> 42
+
+  pub let vt : VTable = VTable { read: &no_args }
+}
