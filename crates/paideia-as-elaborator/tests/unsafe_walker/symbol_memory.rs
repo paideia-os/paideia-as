@@ -11,10 +11,7 @@ use paideia_as_ir::{InstrMode, IrArena};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-/// Helper to create a test span.
-fn test_span() -> Span {
-    Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 0, 1)
-}
+use crate::common::test_span;
 
 /// Build an AST node for an identifier at specific source position.
 fn build_ident_at(ast: &mut AstArena, source_pos: u32, source_len: u32) -> NodeId {

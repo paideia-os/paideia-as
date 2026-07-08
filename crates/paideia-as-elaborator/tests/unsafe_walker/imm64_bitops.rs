@@ -21,9 +21,7 @@ use paideia_as_ir::{InstrMode, IrArena};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-fn test_span() -> Span {
-    Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 0, 1)
-}
+use crate::common::test_span;
 
 /// Helper: Parse and elaborate an unsafe instruction with a big immediate.
 /// The source text format is "MNEMONIC DST_REG, 0xFFFFFFFF00000000" for big immediates.

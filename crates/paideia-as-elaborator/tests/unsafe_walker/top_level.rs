@@ -10,13 +10,7 @@ use paideia_as_ir::{InstrMode, IrArena};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-// Phase 6 m1-005 tests: zero-arity mnemonics
-mod unsafe_walker;
-
-/// Helper to create a test span.
-fn test_span() -> Span {
-    Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 0, 1)
-}
+use crate::common::test_span;
 
 /// PA8 m3-003 (#827): drive `mov <reg>, 0` through the unsafe walker against
 /// real source text and return the resulting Instruction's mnemonic.

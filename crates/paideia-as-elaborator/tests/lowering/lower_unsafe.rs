@@ -6,13 +6,11 @@
 use std::collections::HashMap;
 
 use paideia_as_ast::{AstArena, ExprData, NodeKind, StmtData};
-use paideia_as_diagnostics::{SourceMap, Span, VecSink};
+use paideia_as_diagnostics::{SourceMap, VecSink};
 use paideia_as_elaborator::lower::lower_ast_to_ir;
 use paideia_as_ir::IrKind;
 
-fn test_span() -> Span {
-    Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 0, 1)
-}
+use crate::common::test_span;
 
 fn create_test_source_map_and_sink() -> (SourceMap, VecSink) {
     let mut source_map = SourceMap::new();
