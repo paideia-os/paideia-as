@@ -49,7 +49,7 @@ fn build_emit_pa8_single_fn_regression() {
     for symbol in obj.symbols() {
         if let Ok(name) = symbol.name() {
             if name == "single" {
-                let addr = symbol.address() as u32;
+                let _addr = symbol.address() as u32;
                 let size = symbol.size() as u32;
                 // Single identity function should be at least 4 bytes (mov rax, rdi; ret)
                 assert!(size > 0, "single function has st_size=0 (regression)");

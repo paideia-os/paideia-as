@@ -14,7 +14,6 @@ fn fixture_dir() -> PathBuf {
 
 /// Compile a PDX file to an ELF object file using paideia-as.
 fn compile_pdx_to_elf(pdx_file: &str, output_file: &str) -> Result<(), String> {
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let cargo_target_dir =
         std::env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| "target".to_string());
 

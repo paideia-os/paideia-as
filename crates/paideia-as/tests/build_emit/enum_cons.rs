@@ -52,7 +52,6 @@ fn enum_cons_parses_and_lowers() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let output_text = format!("{}\n{}", stdout, stderr);
 
     // PA-r17-007 (#1050): After #1050 is implemented, the build should now succeed.
     // Verify the ELF output contains correct layout data for Result::Ok(42u64).

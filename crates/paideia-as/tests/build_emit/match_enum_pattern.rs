@@ -44,7 +44,6 @@ fn match_enum_pattern_builds_successfully() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let output_text = format!("{}\n{}", stdout, stderr);
 
     assert!(
         output.status.success(),

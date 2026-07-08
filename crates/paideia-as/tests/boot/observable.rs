@@ -297,7 +297,7 @@ fn boot_observable_qemu_smoke() {
     }
 
     // Step 3: boot in QEMU with 5-second timeout
-    let qemu_out = Command::new("timeout")
+    let _qemu_out = Command::new("timeout")
         .arg("5")
         .arg("qemu-system-x86_64")
         .arg("-kernel")

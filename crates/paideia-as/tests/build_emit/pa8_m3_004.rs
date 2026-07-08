@@ -642,7 +642,7 @@ fn corpus_covers_at_least_15_pairs() {
     // count from this very source file (via `include_str!`) so deleting a
     // Tier-B test actually shrinks the number the guard sees, rather than
     // trusting a hand-maintained literal.
-    let tier_b = include_str!("build_emit_pa8_m3_004.rs")
+    let tier_b = include_str!("pa8_m3_004.rs")
         .matches("fn tier_b_")
         .count();
     let reg_reg_regression = 1;

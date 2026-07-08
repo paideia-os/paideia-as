@@ -41,7 +41,7 @@ fn field_access_cap_set_rights_deferred_pending_parser_support() {
     // This test would verify that cap_set_rights.pdx builds and emits correct bytes.
     // Currently ignored because the parser doesn't support the struct syntax yet.
     let input = build_emit_data("cap_set_rights.pdx");
-    let output = cargo_run(&[
+    let _output = cargo_run(&[
         "build",
         input.to_str().unwrap(),
         "--emit",

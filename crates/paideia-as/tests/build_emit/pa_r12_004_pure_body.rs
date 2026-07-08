@@ -24,26 +24,6 @@ fn extract_text_section(elf_bytes: &[u8]) -> Vec<u8> {
     }
 }
 
-/// Count test/jcc instructions in .text via iced-x86.
-fn count_control_flow_instructions(text_bytes: &[u8]) -> (usize, usize) {
-    let mut decoder = Decoder::new(64, text_bytes, 0);
-    let mut test_count = 0;
-    let mut jcc_count = 0;
-    for instr in decoder.iter() {
-        let mnem_str = format!("{:?}", instr.mnemonic());
-        if mnem_str.contains("Test") {
-            test_count += 1;
-        } else if mnem_str.contains("Je") || mnem_str.contains("Jne") || mnem_str.contains("Jl")
-            || mnem_str.contains("Jle") || mnem_str.contains("Jg") || mnem_str.contains("Jge")
-            || mnem_str.contains("Jb") || mnem_str.contains("Ja") || mnem_str.contains("Js")
-            || mnem_str.contains("Jo") || mnem_str.contains("Jp")
-        {
-            jcc_count += 1;
-        }
-    }
-    (test_count, jcc_count)
-}
-
 /// Test that pure functions now build without T0532 stub error.
 /// This verifies that PA-R17-012 fixed the rejection of pure fn bodies with control flow.
 #[test]

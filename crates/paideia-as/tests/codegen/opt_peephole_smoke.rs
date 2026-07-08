@@ -6,15 +6,7 @@
 //! 3. The byte-for-byte output differs when optimization is applied
 
 use object::{Object, ObjectSection};
-use std::path::PathBuf;
 use std::process::Command;
-
-fn build_emit_data(name: &str) -> PathBuf {
-    let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    p.push("tests");
-    p.push(name);
-    p
-}
 
 fn cargo_run(args: &[&str]) -> std::process::Output {
     let mut cmd = Command::new(env!("CARGO"));
