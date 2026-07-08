@@ -1,0 +1,7 @@
+// Issue #1092: Record literal field reordering
+// Tests that record literals with fields in non-declared order are canonicalized to declared order
+
+module PaR17RecordReorder = structure {
+  struct Point { x: u32, y: u32 }
+  pub let r : Point = Point { y: 20u32, x: 10u32 }
+}

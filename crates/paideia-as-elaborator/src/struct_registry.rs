@@ -47,6 +47,16 @@ impl StructRegistry {
         self.fields.get(&type_id)
     }
 
+    /// Get the zero-based index of a field by name within a record type.
+    ///
+    /// Returns Some(index) if the field is found, None otherwise (type not found or field not in type).
+    pub fn field_index_of(&self, type_id: RecordTypeId, name: &str) -> Option<usize> {
+        self.fields
+            .get(&type_id)?
+            .iter()
+            .position(|(fname, _)| fname == name)
+    }
+
     /// Compute the size of a record (struct) using C-ABI natural alignment.
     ///
     /// For each field:
@@ -448,5 +458,45 @@ mod tests {
 
         let size = registry.record_size(type_id);
         assert_eq!(size, None, "nonexistent RecordTypeId should yield None");
+    }
+
+    #[test]
+    fn field_index_of_returns_position() {
+        let mut registry = StructRegistry::empty();
+        let type_id = RecordTypeId(1);
+        let fields = vec![
+            ("x".to_string(), 0x04),
+            ("y".to_string(), 0x04),
+        ];
+
+        registry.by_name.insert("Point".to_string(), type_id);
+        registry.fields.insert(type_id, fields);
+
+        // Test finding existing fields in declared order
+        assert_eq!(
+            registry.field_index_of(type_id, "x"),
+            Some(0),
+            "field x should be at index 0"
+        );
+        assert_eq!(
+            registry.field_index_of(type_id, "y"),
+            Some(1),
+            "field y should be at index 1"
+        );
+
+        // Test finding non-existent field
+        assert_eq!(
+            registry.field_index_of(type_id, "z"),
+            None,
+            "field z should not be found"
+        );
+
+        // Test finding field in non-existent type
+        let missing_type = RecordTypeId(999);
+        assert_eq!(
+            registry.field_index_of(missing_type, "x"),
+            None,
+            "non-existent type should return None"
+        );
     }
 }

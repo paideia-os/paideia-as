@@ -431,12 +431,127 @@ pub fn lower_ast_to_ir(
                     expand_array_repeat(ast, *expr, *count)
                 }
                 ExprData::RecordCons { type_name, fields } => {
-                    // RecordCons: type_name + all field values as children
-                    let mut children = vec![*type_name];
-                    for (_field_name, field_value) in fields {
-                        children.push(*field_value);
+                    // RecordCons: canonicalize field order to declared order.
+                    // Extract type name and look up in registry.
+                    match extract_source_text_for_record_cons(ast, source_map, *type_name) {
+                        Some(type_name_text) => {
+                            if let Some(type_id) = registry.get_by_name(&type_name_text) {
+                        // Canonicalize path: registry lookup succeeded
+                        use std::collections::HashMap;
+
+                        // 1. Build HashMap<String, (NodeId, NodeId)> from literal fields,
+                        //    catching duplicates. We store both name_node and value_node
+                        //    so we can emit diagnostics with proper spans.
+                        let mut literal_map: HashMap<String, (NodeId, NodeId)> = HashMap::new();
+                        let mut duplicate_names: Vec<(String, NodeId)> = Vec::new();
+
+                        for (name_node, value_node) in fields.iter() {
+                            let field_name_text = match extract_source_text_for_record_cons(ast, source_map, *name_node) {
+                                Some(text) => text,
+                                None => continue, // Skip if we can't extract name
+                            };
+
+                            if literal_map.insert(field_name_text.clone(), (*name_node, *value_node)).is_some() {
+                                duplicate_names.push((field_name_text, *name_node));
+                            }
+                        }
+
+                        // Emit T0538 diagnostics for duplicate fields
+                        for (name, name_node) in duplicate_names {
+                            if let Some(node) = ast.get(name_node) {
+                                if let Ok(code) = DiagnosticCode::new(Category::T, Severity::Error, 538) {
+                                    let diag = Diagnostic::error(code)
+                                        .message(format!(
+                                            "Record literal contains field '{}' more than once",
+                                            name
+                                        ))
+                                        .with_span(node.span)
+                                        .finish();
+                                    let _ = sink.emit(diag);
+                                }
+                            }
+                        }
+
+                        // 2. Iterate declared fields in order, popping from literal_map
+                        let mut ordered_values: Vec<NodeId> = Vec::new();
+                        let mut missing_names: Vec<String> = Vec::new();
+                        let declared_fields_vec: Vec<(String, u8)> = registry.get_fields(type_id)
+                            .map(|f| f.clone())
+                            .unwrap_or_default();
+
+                        if !declared_fields_vec.is_empty() {
+                            // Only perform canonicalization if struct has declared fields
+                            for (decl_name, _byte_code) in declared_fields_vec.iter() {
+                                match literal_map.remove(decl_name) {
+                                    Some((_name_node, value_node)) => {
+                                        ordered_values.push(value_node);
+                                    }
+                                    None => {
+                                        missing_names.push(decl_name.clone());
+                                    }
+                                }
+                            }
+
+                            // Emit T0537 diagnostics for missing fields
+                            for name in missing_names {
+                                if let Ok(code) = DiagnosticCode::new(Category::T, Severity::Error, 537) {
+                                    let diag = Diagnostic::error(code)
+                                        .message(format!(
+                                            "Record literal omits declared field '{}'",
+                                            name
+                                        ))
+                                        .with_span(ast_node.span)
+                                        .finish();
+                                    let _ = sink.emit(diag);
+                                }
+                            }
+
+                            // 3. Residual entries in literal_map are unknown fields
+                            for (unknown_name, (name_node, _value_node)) in literal_map.into_iter() {
+                                if let Some(node) = ast.get(name_node) {
+                                    if let Ok(code) = DiagnosticCode::new(Category::T, Severity::Error, 539) {
+                                        let diag = Diagnostic::error(code)
+                                            .message(format!(
+                                                "Record literal contains field '{}' not declared in the record type",
+                                                unknown_name
+                                            ))
+                                            .with_span(node.span)
+                                            .finish();
+                                        let _ = sink.emit(diag);
+                                    }
+                                }
+                            }
+                        } else {
+                            // Struct has no declared fields (likely due to registration failure).
+                            // Use literal order as fallback and don't emit canonicalization diagnostics.
+                            for (_name_node, value_node) in literal_map.into_values() {
+                                ordered_values.push(value_node);
+                            }
+                        }
+
+                        // 4. Assemble IR children: [type_name_node, ordered_values...]
+                        let mut children = vec![*type_name];
+                        children.extend(ordered_values);
+                        children
+                            } else {
+                                // Registry lookup failed: emit in literal order (regression guard).
+                                // populate_record_layout_table will already handle the unknown type.
+                                let mut children = vec![*type_name];
+                                for (_field_name, field_value) in fields {
+                                    children.push(*field_value);
+                                }
+                                children
+                            }
+                        }
+                        None => {
+                            // Can't extract type name; emit in literal order (fallback).
+                            let mut children = vec![*type_name];
+                            for (_field_name, field_value) in fields {
+                                children.push(*field_value);
+                            }
+                            children
+                        }
                     }
-                    children
                 }
                 ExprData::FieldAccess { receiver, .. } => {
                     // FieldAccess: single child is the receiver expression.
@@ -3550,5 +3665,367 @@ mod tests {
                 _ => panic!("pattern_binding should be EnumVariant for Ok(...)"),
             }
         }
+    }
+
+    #[test]
+    fn lower_record_cons_reorders_to_declared_order() {
+        // Test that Point { y: 2, x: 1 } is reordered to [type_name, 1, 2]
+        // matching declared order (x, y) not literal order (y, x).
+        use paideia_as_diagnostics::FileId;
+        use paideia_as_ir::record_layout::RecordTypeId;
+
+        // Create a source_map with proper source text
+        // Source text: "Point x y 1 2"
+        // - "Point" at offset 0-5
+        // - "x" at offset 6-7
+        // - "y" at offset 8-9
+        // - "1" at offset 10-11
+        // - "2" at offset 12-13
+        let mut source_map = SourceMap::new();
+        let source_text = "Point x y 1 2";
+        let _file = source_map.add_file(
+            std::path::PathBuf::from("test.pdx"),
+            String::from(source_text),
+        );
+        let mut sink = VecSink::new();
+
+        let mut ast = AstArena::new();
+        let file_id = FileId::new(1).unwrap();
+        let make_span = |offset: u32, len: u32| {
+            paideia_as_diagnostics::Span::new(file_id, offset, len)
+        };
+
+        // Create Point type name node
+        let type_name_id = ast.alloc(NodeKind::Ident, make_span(0, 5)); // "Point"
+
+        // Create field name nodes
+        let x_field_name = ast.alloc(NodeKind::Ident, make_span(6, 1)); // "x"
+        let y_field_name = ast.alloc(NodeKind::Ident, make_span(8, 1)); // "y"
+
+        // Create literal value nodes (simple nodes)
+        let value_1 = ast.alloc(NodeKind::ExprLiteral, make_span(10, 1)); // "1"
+        let value_2 = ast.alloc(NodeKind::ExprLiteral, make_span(12, 1)); // "2"
+
+        // Create RecordCons with fields in literal order (y, x)
+        let record_cons = ast.alloc_expr(
+            NodeKind::ExprRecordCons,
+            make_span(0, 13),
+            ExprData::RecordCons {
+                type_name: type_name_id,
+                fields: vec![(y_field_name, value_2), (x_field_name, value_1)],
+            },
+        );
+
+        // Build struct registry with declared order (x, y)
+        let mut struct_registry = crate::StructRegistry::empty();
+        let point_record_type_id = RecordTypeId(1);
+        struct_registry.by_name.insert("Point".to_string(), point_record_type_id);
+        struct_registry.fields.insert(
+            point_record_type_id,
+            vec![("x".to_string(), 4), ("y".to_string(), 4)],
+        );
+
+        // Lower to IR
+        let result = lower_ast_to_ir(
+            &ast,
+            &source_map,
+            &mut sink,
+            &struct_registry,
+            &crate::EnumRegistry::empty(),
+            &std::collections::HashMap::new(),
+        );
+
+        // Get the RecordCons IR node and its children
+        let record_cons_ir_id = result.ast_to_ir[&record_cons];
+        let children = result.ir.children(record_cons_ir_id);
+
+        // Verify children order: [type_name, value_1, value_2]
+        // (x=1 should come before y=2, following declared order)
+        assert_eq!(children.len(), 3, "RecordCons should have 3 children (type_name + 2 fields)");
+        // Child 0 is type_name (unchanged)
+        // Child 1 should be value_1 (x field value)
+        // Child 2 should be value_2 (y field value)
+        let ir_value_1 = result.ast_to_ir[&value_1];
+        let ir_value_2 = result.ast_to_ir[&value_2];
+
+        assert_eq!(
+            children[1], ir_value_1,
+            "field x value should come first in canonicalized order"
+        );
+        assert_eq!(
+            children[2], ir_value_2,
+            "field y value should come second in canonicalized order"
+        );
+
+        // No diagnostics should be emitted (no duplicates, all fields present)
+        assert_eq!(sink.diagnostics().len(), 0, "should emit no diagnostics");
+    }
+
+    #[test]
+    fn lower_record_cons_missing_field_fires_t0537() {
+        // Test that Point { x: 1 } (missing y) fires T0537
+        use paideia_as_diagnostics::FileId;
+        use paideia_as_ir::record_layout::RecordTypeId;
+
+        // Create a source_map with proper source text
+        // Source text: "Point x 1"
+        // - "Point" at offset 0-5
+        // - "x" at offset 6-7
+        // - "1" at offset 8-9
+        let mut source_map = SourceMap::new();
+        let source_text = "Point x 1";
+        let _file = source_map.add_file(
+            std::path::PathBuf::from("test.pdx"),
+            String::from(source_text),
+        );
+        let mut sink = VecSink::new();
+
+        let mut ast = AstArena::new();
+        let file_id = FileId::new(1).unwrap();
+        let make_span = |offset: u32, len: u32| {
+            paideia_as_diagnostics::Span::new(file_id, offset, len)
+        };
+
+        let type_name_id = ast.alloc(NodeKind::Ident, make_span(0, 5)); // "Point"
+        let x_field_name = ast.alloc(NodeKind::Ident, make_span(6, 1)); // "x"
+        let value_1 = ast.alloc(NodeKind::ExprLiteral, make_span(8, 1)); // "1"
+
+        let _record_cons = ast.alloc_expr(
+            NodeKind::ExprRecordCons,
+            make_span(0, 9),
+            ExprData::RecordCons {
+                type_name: type_name_id,
+                fields: vec![(x_field_name, value_1)],
+            },
+        );
+
+        let mut struct_registry = crate::StructRegistry::empty();
+        let point_record_type_id = RecordTypeId(1);
+        struct_registry.by_name.insert("Point".to_string(), point_record_type_id);
+        struct_registry.fields.insert(
+            point_record_type_id,
+            vec![("x".to_string(), 4), ("y".to_string(), 4)],
+        );
+
+        let _result = lower_ast_to_ir(
+            &ast,
+            &source_map,
+            &mut sink,
+            &struct_registry,
+            &crate::EnumRegistry::empty(),
+            &std::collections::HashMap::new(),
+        );
+
+        // Should emit exactly 1 T0537 diagnostic for missing field y
+        assert_eq!(sink.diagnostics().len(), 1, "should emit 1 diagnostic for missing field");
+    }
+
+    #[test]
+    fn lower_record_cons_duplicate_field_fires_t0538() {
+        // Test that Point { x: 1, x: 2 } fires T0538
+        use paideia_as_diagnostics::FileId;
+        use paideia_as_ir::record_layout::RecordTypeId;
+
+        // Create a source_map with proper source text
+        // Source text: "Point x x 1 2"
+        // - "Point" at offset 0-5
+        // - "x" at offset 6-7 (first)
+        // - "x" at offset 8-9 (second)
+        // - "1" at offset 10-11
+        // - "2" at offset 12-13
+        let mut source_map = SourceMap::new();
+        let source_text = "Point x x 1 2";
+        let _file = source_map.add_file(
+            std::path::PathBuf::from("test.pdx"),
+            String::from(source_text),
+        );
+        let mut sink = VecSink::new();
+
+        let mut ast = AstArena::new();
+        let file_id = FileId::new(1).unwrap();
+        let make_span = |offset: u32, len: u32| {
+            paideia_as_diagnostics::Span::new(file_id, offset, len)
+        };
+
+        let type_name_id = ast.alloc(NodeKind::Ident, make_span(0, 5)); // "Point"
+        let x_field_name_1 = ast.alloc(NodeKind::Ident, make_span(6, 1)); // "x" (first)
+        let x_field_name_2 = ast.alloc(NodeKind::Ident, make_span(8, 1)); // "x" (second)
+        let value_1 = ast.alloc(NodeKind::ExprLiteral, make_span(10, 1)); // "1"
+        let value_2 = ast.alloc(NodeKind::ExprLiteral, make_span(12, 1)); // "2"
+
+        let _record_cons = ast.alloc_expr(
+            NodeKind::ExprRecordCons,
+            make_span(0, 13),
+            ExprData::RecordCons {
+                type_name: type_name_id,
+                fields: vec![(x_field_name_1, value_1), (x_field_name_2, value_2)],
+            },
+        );
+
+        let mut struct_registry = crate::StructRegistry::empty();
+        let point_record_type_id = RecordTypeId(1);
+        struct_registry.by_name.insert("Point".to_string(), point_record_type_id);
+        struct_registry.fields.insert(
+            point_record_type_id,
+            vec![("x".to_string(), 4), ("y".to_string(), 4)],
+        );
+
+        let _result = lower_ast_to_ir(
+            &ast,
+            &source_map,
+            &mut sink,
+            &struct_registry,
+            &crate::EnumRegistry::empty(),
+            &std::collections::HashMap::new(),
+        );
+
+        // Should emit T0538 for duplicate x, and T0537 for missing y
+        let diags = sink.diagnostics();
+        assert!(diags.len() >= 1, "should emit at least 1 diagnostic for duplicate field");
+    }
+
+    #[test]
+    fn lower_record_cons_unknown_field_fires_t0539() {
+        // Test that Point { x: 1, y: 2, z: 3 } fires T0539 for z
+        use paideia_as_diagnostics::FileId;
+        use paideia_as_ir::record_layout::RecordTypeId;
+
+        // Create a source_map with proper source text
+        // Source text: "Point x y z 1 2 3"
+        // - "Point" at offset 0-5
+        // - "x" at offset 6-7
+        // - "y" at offset 8-9
+        // - "z" at offset 10-11
+        // - "1" at offset 12-13
+        // - "2" at offset 14-15
+        // - "3" at offset 16-17
+        let mut source_map = SourceMap::new();
+        let source_text = "Point x y z 1 2 3";
+        let _file = source_map.add_file(
+            std::path::PathBuf::from("test.pdx"),
+            String::from(source_text),
+        );
+        let mut sink = VecSink::new();
+
+        let mut ast = AstArena::new();
+        let file_id = FileId::new(1).unwrap();
+        let make_span = |offset: u32, len: u32| {
+            paideia_as_diagnostics::Span::new(file_id, offset, len)
+        };
+
+        let type_name_id = ast.alloc(NodeKind::Ident, make_span(0, 5)); // "Point"
+        let x_field_name = ast.alloc(NodeKind::Ident, make_span(6, 1)); // "x"
+        let y_field_name = ast.alloc(NodeKind::Ident, make_span(8, 1)); // "y"
+        let z_field_name = ast.alloc(NodeKind::Ident, make_span(10, 1)); // "z"
+        let value_1 = ast.alloc(NodeKind::ExprLiteral, make_span(12, 1)); // "1"
+        let value_2 = ast.alloc(NodeKind::ExprLiteral, make_span(14, 1)); // "2"
+        let value_3 = ast.alloc(NodeKind::ExprLiteral, make_span(16, 1)); // "3"
+
+        let _record_cons = ast.alloc_expr(
+            NodeKind::ExprRecordCons,
+            make_span(0, 17),
+            ExprData::RecordCons {
+                type_name: type_name_id,
+                fields: vec![
+                    (x_field_name, value_1),
+                    (y_field_name, value_2),
+                    (z_field_name, value_3),
+                ],
+            },
+        );
+
+        let mut struct_registry = crate::StructRegistry::empty();
+        let point_record_type_id = RecordTypeId(1);
+        struct_registry.by_name.insert("Point".to_string(), point_record_type_id);
+        struct_registry.fields.insert(
+            point_record_type_id,
+            vec![("x".to_string(), 4), ("y".to_string(), 4)],
+        );
+
+        let _result = lower_ast_to_ir(
+            &ast,
+            &source_map,
+            &mut sink,
+            &struct_registry,
+            &crate::EnumRegistry::empty(),
+            &std::collections::HashMap::new(),
+        );
+
+        // Should emit T0539 for unknown field z
+        let diags = sink.diagnostics();
+        assert!(diags.len() >= 1, "should emit at least 1 diagnostic for unknown field");
+    }
+
+    #[test]
+    fn lower_record_cons_empty_registry_preserves_literal_order() {
+        // Test that when registry is empty, RecordCons children are in literal order
+        use paideia_as_diagnostics::FileId;
+
+        // Create a source_map with proper source text
+        // Source text: "Point y x 2 1"
+        // - "Point" at offset 0-5
+        // - "y" at offset 6-7
+        // - "x" at offset 8-9
+        // - "2" at offset 10-11
+        // - "1" at offset 12-13
+        let mut source_map = SourceMap::new();
+        let source_text = "Point y x 2 1";
+        let _file = source_map.add_file(
+            std::path::PathBuf::from("test.pdx"),
+            String::from(source_text),
+        );
+        let mut sink = VecSink::new();
+
+        let mut ast = AstArena::new();
+        let file_id = FileId::new(1).unwrap();
+        let make_span = |offset: u32, len: u32| {
+            paideia_as_diagnostics::Span::new(file_id, offset, len)
+        };
+
+        let type_name_id = ast.alloc(NodeKind::Ident, make_span(0, 5)); // "Point"
+        let y_field_name = ast.alloc(NodeKind::Ident, make_span(6, 1)); // "y"
+        let x_field_name = ast.alloc(NodeKind::Ident, make_span(8, 1)); // "x"
+        let value_2 = ast.alloc(NodeKind::ExprLiteral, make_span(10, 1)); // "2"
+        let value_1 = ast.alloc(NodeKind::ExprLiteral, make_span(12, 1)); // "1"
+
+        // Create RecordCons with fields in literal order (y, x)
+        let record_cons = ast.alloc_expr(
+            NodeKind::ExprRecordCons,
+            make_span(0, 13),
+            ExprData::RecordCons {
+                type_name: type_name_id,
+                fields: vec![(y_field_name, value_2), (x_field_name, value_1)],
+            },
+        );
+
+        // Use empty registry (no Point defined)
+        let empty_registry = crate::StructRegistry::empty();
+
+        let result = lower_ast_to_ir(
+            &ast,
+            &source_map,
+            &mut sink,
+            &empty_registry,
+            &crate::EnumRegistry::empty(),
+            &std::collections::HashMap::new(),
+        );
+
+        // Get the RecordCons IR node and its children
+        let record_cons_ir_id = result.ast_to_ir[&record_cons];
+        let children = result.ir.children(record_cons_ir_id);
+
+        // When registry is empty, should preserve literal order: [type_name, value_2, value_1]
+        assert_eq!(children.len(), 3, "RecordCons should have 3 children (type_name + 2 fields)");
+        let ir_value_1 = result.ast_to_ir[&value_1];
+        let ir_value_2 = result.ast_to_ir[&value_2];
+
+        assert_eq!(
+            children[1], ir_value_2,
+            "with empty registry, should preserve literal order (y field first)"
+        );
+        assert_eq!(
+            children[2], ir_value_1,
+            "with empty registry, should preserve literal order (x field second)"
+        );
     }
 }

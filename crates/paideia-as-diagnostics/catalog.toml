@@ -1071,6 +1071,33 @@ description = "Issue #981 (pa-r17-003): in v0.17, the & (address-of) operator is
 since = "0.17.0"
 deprecated = false
 
+[diagnostic.T0537]
+severity = "error"
+category = "type"
+title = "Record literal missing field"
+brief = "record literal omits declared field {name}"
+description = "Issue #1092 (pa-r17-015): a record literal is missing one or more fields that are declared in the record type. All declared fields must be present in the record literal. The missing field names appear in the diagnostic message."
+since = "0.17.0"
+deprecated = false
+
+[diagnostic.T0538]
+severity = "error"
+category = "type"
+title = "Record literal duplicate field"
+brief = "record literal contains field {name} more than once"
+description = "Issue #1092 (pa-r17-015): a record literal contains a field name multiple times. Each field may appear exactly once in a record literal. Remove the duplicate field name occurrences."
+since = "0.17.0"
+deprecated = false
+
+[diagnostic.T0539]
+severity = "error"
+category = "type"
+title = "Record literal unknown field"
+brief = "record literal contains field {name} not declared in the record"
+description = "Issue #1092 (pa-r17-015): a record literal contains a field name that is not declared in the target record type. Check the spelling of the field name and ensure it matches one of the declared fields."
+since = "0.17.0"
+deprecated = false
+
 [diagnostic.T0551]
 severity = "error"
 category = "type"

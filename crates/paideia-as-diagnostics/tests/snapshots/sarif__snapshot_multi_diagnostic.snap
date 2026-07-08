@@ -1349,6 +1349,48 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "Issue #1092 (pa-r17-015): a record literal is missing one or more fields that are declared in the record type. All declared fields must be present in the record literal. The missing field names appear in the diagnostic message."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0537",
+              "id": "T0537",
+              "name": "Record literal missing field",
+              "shortDescription": {
+                "text": "record literal omits declared field {name}"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Issue #1092 (pa-r17-015): a record literal contains a field name multiple times. Each field may appear exactly once in a record literal. Remove the duplicate field name occurrences."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0538",
+              "id": "T0538",
+              "name": "Record literal duplicate field",
+              "shortDescription": {
+                "text": "record literal contains field {name} more than once"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Issue #1092 (pa-r17-015): a record literal contains a field name that is not declared in the target record type. Check the spelling of the field name and ensure it matches one of the declared fields."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0539",
+              "id": "T0539",
+              "name": "Record literal unknown field",
+              "shortDescription": {
+                "text": "record literal contains field {name} not declared in the record"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "Issue #1056 (pa-r16-007-followup): stdlib trait methods like PerCpuOps::percpu_inc require their arguments to be integer literals known at compile time. This allows the code generator to directly encode absolute displacements and immediate values into the instruction encoding. Pass an integer literal (e.g., 0x1000, 8192) instead of a variable or expression."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0551",
