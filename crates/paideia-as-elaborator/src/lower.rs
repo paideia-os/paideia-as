@@ -86,6 +86,7 @@ mod enum_cons;
 mod field_access;
 mod kind_map;
 mod match_arm;
+mod match_auto_dispatch;
 mod match_dispatch;
 mod pattern_data;
 mod record_cons;
@@ -102,6 +103,7 @@ use enum_cons::populate_enum_cons_info;
 use field_access::populate_field_access_info;
 use kind_map::map_node_kind;
 use match_arm::populate_match_arm_meta;
+use match_auto_dispatch::populate_auto_jump_table_meta;
 use match_dispatch::populate_match_dispatch_meta;
 use record_layout::populate_record_layout_table;
 use store_lvalue::is_lvalue_infix_assignment;
@@ -237,6 +239,10 @@ pub fn lower_ast_to_ir(
         source_map,
         sink,
     );
+
+    // Issue #1052: Auto-detect dense enum-variant matches and inject MatchDispatchMeta.
+    // Must run AFTER populate_match_arm_meta (needs variant_index) and BEFORE emit walker.
+    populate_auto_jump_table_meta(&mut ir);
 
     // Phase-5-m1-001: Literal values are populated by cmd_build.rs Phase-5-m1-001 walk
     // before emit_walker::walk() runs. No need to duplicate that work here.
