@@ -244,6 +244,10 @@ pub fn lower_ast_to_ir(
     // Must run AFTER populate_match_arm_meta (needs variant_index) and BEFORE emit walker.
     populate_auto_jump_table_meta(&mut ir);
 
+    // PA19-r19-006: Populate let_meta with ABI and other metadata from AST Let nodes.
+    // This enables the elaborator to look up calling conventions for lambda bindings.
+    populate_let_meta(ast, &mut ir, &ast_to_ir);
+
     // Phase-5-m1-001: Literal values are populated by cmd_build.rs Phase-5-m1-001 walk
     // before emit_walker::walk() runs. No need to duplicate that work here.
 
@@ -302,4 +306,65 @@ fn refine_ir_kind(node: &paideia_as_ast::NodeData, ast: &AstArena, ast_id: NodeI
     }
 
     ir_kind
+}
+
+/// PA19-r19-006: Populate let_meta with ABI and other metadata from AST Let nodes.
+///
+/// This pass scans the AST for Let nodes with ABI annotations and populates the
+/// corresponding let_meta entries in the IR arena. This enables the elaborator's
+/// emit_walker to look up calling conventions for lambda bindings during type lowering.
+fn populate_let_meta(
+    ast: &paideia_as_ast::AstArena,
+    ir: &mut paideia_as_ir::IrArena,
+    ast_to_ir: &std::collections::HashMap<paideia_as_ast::NodeId, paideia_as_ir::IrNodeId>,
+) {
+    use paideia_as_ast::{NodeId, ItemData};
+    use paideia_as_ir::let_meta::{LetInfo, CallingConvention};
+
+    for i in 0..ast.len() {
+        if let Some(ast_id) = NodeId::new((i + 1) as u32) {
+            if let Some(node) = ast.get(ast_id) {
+                if node.kind == paideia_as_ast::NodeKind::Let {
+                    if let Some(ItemData::Let { abi, value: value_id, .. }) = ast.item_data(ast_id) {
+                        // Convert AST CallingConvention to IR CallingConvention
+                        let ir_abi = abi.map(|cc| {
+                            use paideia_as_ast::CallingConvention as AstCC;
+                            match cc {
+                                AstCC::Ms => CallingConvention::Ms,
+                                AstCC::Sysv => CallingConvention::Sysv,
+                            }
+                        });
+
+                        // If there's an ABI annotation, look up the RHS (value) in AST
+                        if let Some(ir_abi_val) = ir_abi {
+                            if let Some(value_node) = ast.get(*value_id) {
+                                // If the RHS is a Lambda, record the ABI for the Lambda's IR node
+                                if value_node.kind == paideia_as_ast::NodeKind::ExprLambda {
+                                    if let Some(_lambda_ir_id) = ast_to_ir.get(value_id) {
+                                        // Look up the Let's IR node to potentially update its metadata
+                                        if let Some(let_ir_id) = ast_to_ir.get(&ast_id) {
+                                            // Create or update LetInfo with ABI on the Let node
+                                            let mut let_info = ir.let_meta_mut()
+                                                .get(*let_ir_id)
+                                                .cloned()
+                                                .unwrap_or_else(|| LetInfo {
+                                                    mutable: false,
+                                                    ty: None,
+                                                    align: None,
+                                                    ring: None,
+                                                    link_section: None,
+                                                    abi: None,
+                                                });
+                                            let_info.abi = Some(ir_abi_val);
+                                            ir.let_meta_mut().insert(*let_ir_id, let_info);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

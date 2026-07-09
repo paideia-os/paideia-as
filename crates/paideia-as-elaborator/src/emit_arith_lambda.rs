@@ -15,9 +15,10 @@ use paideia_as_ir::{IrNodeId, SmallVec, abi};
 use crate::emit_walker::EmitWalker;
 
 impl EmitWalker {
-    /// Emit add-immediate lambda: `lea rax, [rdi + imm]; ret`.
-    /// For small immediates (disp8, -128..127), this is 4 bytes (48 8d 47 NN).
+    /// Emit add-immediate lambda: `lea rax, [src + imm]; ret`.
+    /// For small immediates (disp8, -128..127), this is 4 bytes (48 8d 47 NN for SysV, 48 8d 41 NN for MS).
     /// Larger immediates require disp32 (7 bytes).
+    /// PA19-r19-006: Use ABI-aware register lookup to support MS x64 calling convention.
     pub(crate) fn emit_add_imm_lambda(&mut self, lambda_node_id: IrNodeId, imm: i64) {
         let main_id = IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
         self.record_lambda_entry(lambda_node_id, main_id);
@@ -30,11 +31,16 @@ impl EmitWalker {
             return;
         };
 
-        // Lea rax, [rdi + disp8]: 48 8d 47 NN (4 bytes)
+        // PA19-r19-006: Resolve the calling convention and get the first argument register.
+        let cc = self.state.lambda_abi(lambda_node_id.get());
+        let src = EmitWalker::param_index_to_reg_for_abi(cc, 0)
+            .unwrap_or(abi::RDI); // Fallback to RDI if resolution fails
+
+        // Lea rax, [src + disp8]: 48 8d 47 NN (SysV) or 48 8d 41 NN (MS)
         let mut lea_operands: SmallVec<[Operand; 3]> = SmallVec::new();
         lea_operands.push(Operand::Reg(abi::RAX)); // rax
         lea_operands.push(Operand::MemSib {
-            base: abi::RDI, // rdi
+            base: src, // rdi (SysV) or rcx (MS)
             index: None,
             scale: paideia_as_ir::instruction::Scale::X1,
             disp,

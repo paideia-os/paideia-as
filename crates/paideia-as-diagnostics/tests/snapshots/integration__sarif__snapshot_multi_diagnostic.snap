@@ -2007,13 +2007,13 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 19 PA19-r19-001 (MVP gate): The @abi(\"ms\") calling convention annotation is accepted at parse time to enable tooling and documentation. However, actual code generation for MS x64 ABI prologues, epilogues, and register discipline is deferred to issue #1011. The binding declaration is accepted, but attempting to emit it fails with this deferred-implementation gate. SysV-annotated (@abi(\"sysv\")) and unannotated functions emit normally using the paideia default calling convention."
+                "text": "Phase 19 PA19-r19-006 (narrowed gate): The @abi(\"ms\") calling convention annotation is accepted at parse time and emits successfully for MVP-supported shapes (identity `fn(x) -> x`, add-imm `fn(x) -> x + literal`, literal-return `fn() -> N`, with 0–4 integer arguments). Unsupported shapes — 5+ arguments, non-identity/non-add-imm/non-literal bodies (multiplication, function calls, complex expressions), aggregate returns, or float arguments — fire this gate. SysV-annotated (@abi(\"sysv\")) and unannotated functions emit normally using the paideia default calling convention."
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1620",
               "id": "U1620",
-              "name": "@abi(\"ms\") function bodies not yet emittable",
+              "name": "@abi(\"ms\") unsupported lambda shape (arity or body shape)",
               "shortDescription": {
-                "text": "Microsoft x64 calling-convention prologue/epilogue codegen deferred to #1011"
+                "text": "MS x64 lambda body shape or arity not yet emittable"
               }
             },
             {

@@ -14,33 +14,70 @@
 //! - `emit_mov_reg_to_reg`            — reg→reg mov helper
 
 use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand, RegId};
+use paideia_as_ir::let_meta::CallingConvention;
 use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, SymbolKind, abi};
 
 use crate::emit_block_body::TailContext;
 use crate::emit_walker::EmitWalker;
 
 impl EmitWalker {
+    /// Get the register for parameter index under the specified calling convention.
+    ///
+    /// For MS x64 ABI: 0→RCX, 1→RDX, 2→R8, 3→R9 (max 4 args in registers).
+    /// For SysV ABI:   0→RDI, 1→RSI, 2→RDX, 3→RCX, 4→R8, 5→R9 (max 6 args).
+    /// Both: 5+ map to stack (not yet supported).
+    pub(crate) fn param_index_to_reg_for_abi(cc: CallingConvention, idx: usize) -> Option<RegId> {
+        match cc {
+            CallingConvention::Ms => {
+                // MS x64: [RCX, RDX, R8, R9]
+                match idx {
+                    0 => Some(abi::RCX),
+                    1 => Some(abi::RDX),
+                    2 => Some(abi::R8),
+                    3 => Some(abi::R9),
+                    _ => None,
+                }
+            }
+            CallingConvention::Sysv => {
+                // SysV x64: [RDI, RSI, RDX, RCX, R8, R9]
+                match idx {
+                    0 => Some(abi::RDI),
+                    1 => Some(abi::RSI),
+                    2 => Some(abi::RDX),
+                    3 => Some(abi::RCX),
+                    4 => Some(abi::R8),
+                    5 => Some(abi::R9),
+                    _ => None,
+                }
+            }
+        }
+    }
+
     /// Register nested lambda parameters in local_bindings.
     ///
     /// For curried lambdas like `fn (a) (b) (c) -> body`, the IR flattens to:
     /// Lambda { params: [a, b, c], body: ... }
     ///
     /// This function walks the chain to register parameters:
-    /// - Outer lambda param (index 0) → RDI
-    /// - Nested lambda param (index 1) → RSI
-    /// - Deeper lambda param (index 2) → RDX
+    /// - Outer lambda param (index 0) → RDI (SysV) or RCX (MS)
+    /// - Nested lambda param (index 1) → RSI (SysV) or RDX (MS)
+    /// - Deeper lambda param (index 2) → RDX (SysV) or R8 (MS)
     /// etc.
     ///
     /// PA8-m1-001b: This enables resolve_var_operands to rewrite parameter Vars later.
     /// PA-r17-004: Handle flattened multi-parameter lambdas correctly by registering
     /// all parameters from lambda_params() if populated, otherwise fall back to the
     /// original nesting-based approach.
+    /// PA19-r19-006: Use ABI-aware register lookup to support MS x64 calling convention.
     pub(crate) fn register_nested_lambda_params(
         &mut self,
         lambda_node_id: IrNodeId,
         arena: &IrArena,
         param_index: usize,
     ) {
+        // PA19-r19-006: Resolve the calling convention for this lambda (default SysV).
+        let cc = self.state.lambda_abi(lambda_node_id.get());
+
         // PA-r17-004: If lambda_params() is populated (flattened case), register all of them.
         // Otherwise, fall back to the original nesting-based registration.
         if let Some(param_nodes) = arena.lambda_params().get(lambda_node_id) {
@@ -48,7 +85,7 @@ impl EmitWalker {
                 // Flattened case: register all parameters
                 for (offset, &param_node_id) in param_nodes.iter().enumerate() {
                     let current_param_index = param_index + offset;
-                    if let Some(param_reg) = Self::param_index_to_reg(current_param_index) {
+                    if let Some(param_reg) = Self::param_index_to_reg_for_abi(cc, current_param_index) {
                         let param_name = if let Some(real_name) = arena.binding_names().get(param_node_id) {
                             real_name.to_string()
                         } else {
@@ -58,11 +95,12 @@ impl EmitWalker {
                         self.state.local_bindings.insert(param_name.clone(), param_reg);
                         if cfg!(debug_assertions) {
                             eprintln!(
-                                "[visit_lambda PA8-m1-001c] Lambda {} param_index={} name={} → register {}",
+                                "[visit_lambda PA8-m1-001c] Lambda {} param_index={} name={} → register {} (ABI={:?})",
                                 lambda_node_id.get(),
                                 current_param_index,
                                 param_name,
-                                param_reg.0
+                                param_reg.0,
+                                cc
                             );
                         }
                     }
@@ -72,16 +110,17 @@ impl EmitWalker {
         }
 
         // Original nesting-based registration (fallback for backward compat)
-        if let Some(param_reg) = Self::param_index_to_reg(param_index) {
+        if let Some(param_reg) = Self::param_index_to_reg_for_abi(cc, param_index) {
             let param_name = format!("_param_{}", param_index);
             self.state.local_bindings.insert(param_name.clone(), param_reg);
             if cfg!(debug_assertions) {
                 eprintln!(
-                    "[visit_lambda PA8-m1-001c] Lambda {} param_index={} name={} → register {}",
+                    "[visit_lambda PA8-m1-001c] Lambda {} param_index={} name={} → register {} (ABI={:?})",
                     lambda_node_id.get(),
                     param_index,
                     param_name,
-                    param_reg.0
+                    param_reg.0,
+                    cc
                 );
             }
         }
@@ -100,6 +139,9 @@ impl EmitWalker {
 
     /// Get the System V calling-convention register for parameter index.
     ///
+    /// DEPRECATED: Use `param_index_to_reg_for_abi` instead for ABI-aware lookup.
+    /// This wrapper is retained for backward compatibility with existing callers.
+    ///
     /// Map parameter index to register per x86-64 calling convention:
     /// 0 → RDI (abi::RDI)
     /// 1 → RSI (abi::RSI)
@@ -108,16 +150,9 @@ impl EmitWalker {
     /// 4 → R8  (abi::R8)
     /// 5 → R9  (abi::R9)
     /// 6+ → stack (not supported in phase-8 m1)
+    #[allow(dead_code)]
     pub(crate) fn param_index_to_reg(param_index: usize) -> Option<RegId> {
-        match param_index {
-            0 => Some(abi::RDI), // RDI
-            1 => Some(abi::RSI), // RSI
-            2 => Some(abi::RDX), // RDX
-            3 => Some(abi::RCX), // RCX
-            4 => Some(abi::R8), // R8
-            5 => Some(abi::R9), // R9
-            _ => None,           // Stack spill (not supported yet)
-        }
+        Self::param_index_to_reg_for_abi(CallingConvention::Sysv, param_index)
     }
 
     /// Emit instructions for Lambda body lowering (m1-003).
@@ -154,6 +189,46 @@ impl EmitWalker {
         if let Some(&body_id) = children.first() {
             if let Some(body_node) = arena.get(body_id) {
                 match body_node.kind {
+                    // PA19-r19-006: Literal-return function `fn() -> 42` or `fn() -> N`.
+                    // Emit: mov rax, imm64; ret
+                    // Applies to both ABIs (closes the SysV silent-empty hole).
+                    IrKind::Literal => {
+                        if cfg!(debug_assertions) {
+                            eprintln!("[emit_literal_lambda] Lambda {}", lambda_node_id.get());
+                        }
+                        if let Some(value) = arena.literal_values().get(body_id) {
+                            let main_id =
+                                IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
+                            self.record_lambda_entry(lambda_node_id, main_id);
+
+                            // Emit: mov rax, imm64
+                            let mut mov_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                            mov_operands.push(Operand::Reg(abi::RAX));
+                            mov_operands.push(Operand::Imm64(value));
+
+                            let mov_inst = Instruction {
+                                mnemonic: Mnemonic::Mov,
+                                operands: mov_operands,
+                                encoding_hint: None,
+                                byte_offset_in_text: None,
+                                mode: self.current_mode(),
+                            };
+
+                            self.emit_inst(main_id, mov_inst);
+
+                            // Emit: ret
+                            let ret_id = IrNodeId::new(lambda_node_id.get() * 2 + 1).expect("ret virtual id");
+                            let ret_inst = Instruction {
+                                mnemonic: Mnemonic::Ret,
+                                operands: SmallVec::new(),
+                                encoding_hint: None,
+                                byte_offset_in_text: None,
+                                mode: self.current_mode(),
+                            };
+
+                            self.emit_inst(ret_id, ret_inst);
+                        }
+                    }
                     // Case 1: Identity function `fn (x) -> x`
                     IrKind::Var => {
                         if cfg!(debug_assertions) {

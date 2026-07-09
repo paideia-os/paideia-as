@@ -617,6 +617,34 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                 }
             }
 
+            // PA19-r19-006: Pre-populate lambda_abi in emit_walker state before walk.
+            // This ensures that when Lambda nodes are visited during walk (which may occur
+            // before their Let binding is processed, if the Lambda has a lower node ID),
+            // the ABI is already available for lookup.
+            for i in 0..arena.len() {
+                if let Some(ast_id) = paideia_as_ast::NodeId::new((i + 1) as u32) {
+                    if let Some(node) = arena.get(ast_id) {
+                        if node.kind == paideia_as_ast::NodeKind::Let {
+                            if let Some(paideia_as_ast::ItemData::Let {
+                                abi: Some(cc),
+                                value: value_id,
+                                ..
+                            }) = arena.item_data(ast_id)
+                            {
+                                // Convert AST CallingConvention to IR CallingConvention
+                                let ir_cc = match cc {
+                                    paideia_as_ast::CallingConvention::Ms => paideia_as_ir::CallingConvention::Ms,
+                                    paideia_as_ast::CallingConvention::Sysv => paideia_as_ir::CallingConvention::Sysv,
+                                };
+                                // The value (RHS of Let, usually a Lambda) has the same numeric ID in IR
+                                let ir_lambda_id = value_id.get();
+                                emit_walker.state_mut().insert_lambda_abi(ir_lambda_id, ir_cc);
+                            }
+                        }
+                    }
+                }
+            }
+
             emit_walker.walk(&mut lowering.ir);
 
             // Phase 15 m2-002: Verify mode_stack is properly cleaned up after walk.
@@ -921,9 +949,11 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
         }
     }
 
-    // Phase 19 PA19-r19-001: U1620 deferred gate pass.
+    // Phase 19 PA19-r19-001: U1620 narrowed gate pass (PA19-r19-006).
     // Check all Let bindings with @abi("ms") directive that ARE lambda-shaped.
-    // Emit U1620 error to defer MS codegen support pending #1011.
+    // Emit U1620 only for unsupported MS x64 shapes:
+    // - 5+ formal parameters (MS x64 only supports 4 register args)
+    // - Body shape not in {Path, Literal, Infix(+, ...)}
     {
         for i in 0..arena.len() {
             if let Some(ast_id) = paideia_as_ast::NodeId::new((i + 1) as u32) {
@@ -938,17 +968,95 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                             // Check if the value is a lambda (ExprLambda)
                             if let Some(value_node) = arena.get(*value_id) {
                                 if value_node.kind == paideia_as_ast::NodeKind::ExprLambda {
-                                    // Emit U1620: @abi("ms") body not yet emittable pending #1011
-                                    let code = paideia_as_diagnostics::DiagnosticCode::new(
-                                        paideia_as_diagnostics::Category::U,
-                                        paideia_as_diagnostics::Severity::Error,
-                                        1620,
-                                    ).expect("valid U1620 code");
-                                    let diag = paideia_as_diagnostics::Diagnostic::error(code)
-                                        .message("@abi(\"ms\") function bodies not yet emittable pending #1011")
-                                        .with_span(value_node.span)
-                                        .finish();
-                                    let _ = sink.emit(diag);
+                                    let mut should_emit_u1620 = false;
+                                    let mut error_message = String::new();
+
+                                    // Access Lambda expression data
+                                    if let Some(expr_data) = arena.expr_data(*value_id) {
+                                        if let paideia_as_ast::ExprData::Lambda { params, body, .. } = expr_data {
+                                            // Check formal parameter count (MS x64 only supports 4 register args)
+                                            if params.len() > 4 {
+                                                should_emit_u1620 = true;
+                                                error_message = format!(
+                                                    "MS x64 calling convention does not support {} parameters (max 4 in registers); \
+                                                     overflow to stack not yet emittable",
+                                                    params.len()
+                                                );
+                                            } else {
+                                                // Check the lambda body shape
+                                                // Supported shapes for MVP:
+                                                // - Path (identity: fn (x) -> x)
+                                                // - Literal (literal return: fn () -> 42)
+                                                // - Infix (binary op: fn (x) -> x + 1, x * 2, etc.)
+                                                // All other shapes fire U1620.
+                                                if let Some(body_node) = arena.get(*body) {
+                                                    match body_node.kind {
+                                                        paideia_as_ast::NodeKind::ExprPath => {
+                                                            // Identity: fn (x) -> x ✓
+                                                        }
+                                                        paideia_as_ast::NodeKind::ExprLiteral => {
+                                                            // Literal: fn () -> 42 ✓
+                                                        }
+                                                        paideia_as_ast::NodeKind::ExprInfix => {
+                                                            // MS x64 narrowing: only addition with (ident, literal) operands supported.
+                                                            // Pattern: fn (x) -> x + 1
+                                                            // Reject all other patterns: x * x, x + y, 1 + x, etc.
+                                                            if let Some(infix_data) = arena.expr_data(*body) {
+                                                                if let paideia_as_ast::ExprData::Infix { op, lhs, rhs } = infix_data {
+                                                                    // Check operator is addition
+                                                                    let op_name = if let Some(op_node) = arena.get(*op) {
+                                                                        let op_span = op_node.span;
+                                                                        let start = op_span.byte_start() as usize;
+                                                                        let len = op_span.byte_len() as usize;
+                                                                        if start + len <= source_map.content(file).len() {
+                                                                            source_map.content(file)[start..start + len].to_string()
+                                                                        } else {
+                                                                            String::new()
+                                                                        }
+                                                                    } else {
+                                                                        String::new()
+                                                                    };
+
+                                                                    // Check LHS is a Path (ident reference)
+                                                                    let lhs_ok = arena.get(*lhs).map(|n| n.kind == paideia_as_ast::NodeKind::ExprPath).unwrap_or(false);
+                                                                    // Check RHS is a Literal (integer literal)
+                                                                    let rhs_ok = arena.get(*rhs).map(|n| n.kind == paideia_as_ast::NodeKind::ExprLiteral).unwrap_or(false);
+
+                                                                    // Only allow: + with (Path, Literal)
+                                                                    if op_name != "+" || !lhs_ok || !rhs_ok {
+                                                                        should_emit_u1620 = true;
+                                                                        error_message = format!(
+                                                                            "MS x64 body shape not yet emittable (only `x + literal` supported, got `{} {} {}`)",
+                                                                            if lhs_ok { "ident" } else { "non-ident" },
+                                                                            if op_name == "+" { "+" } else { &op_name },
+                                                                            if rhs_ok { "literal" } else { "non-literal" }
+                                                                        );
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                        _ => {
+                                                            should_emit_u1620 = true;
+                                                            error_message = "MS x64 body shape not yet emittable (only identity/binary/literal returns supported)".to_string();
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if should_emit_u1620 {
+                                        let code = paideia_as_diagnostics::DiagnosticCode::new(
+                                            paideia_as_diagnostics::Category::U,
+                                            paideia_as_diagnostics::Severity::Error,
+                                            1620,
+                                        ).expect("valid U1620 code");
+                                        let diag = paideia_as_diagnostics::Diagnostic::error(code)
+                                            .message(error_message)
+                                            .with_span(value_node.span)
+                                            .finish();
+                                        let _ = sink.emit(diag);
+                                    }
                                 }
                             }
                         }

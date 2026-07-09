@@ -11,6 +11,7 @@
 use std::collections::{HashMap, HashSet};
 
 use paideia_as_ir::instruction::{CpuFeature, InstrMode, InstructionSideTable, RegId};
+use paideia_as_ir::let_meta::CallingConvention;
 use paideia_as_ir::record_layout::{FieldLayout, RecordLayout, RecordTypeId};
 use paideia_as_ir::{EnumLayout, EnumTypeId, IrNodeId};
 
@@ -59,6 +60,11 @@ pub struct EmitPassState {
     /// IrNodeIds of Lambdas that actually emitted bytecode.
     /// Used to filter out symbols for non-emitting lambdas.
     pub(crate) emitted_lambdas: HashSet<u32>,
+
+    /// Lambda IR node id -> calling convention (ABI).
+    /// Populated by emit_walker when processing Let bindings with @abi directives.
+    /// Used by lambda emitters to determine which register pool to use for parameters.
+    pub(crate) lambda_abis: HashMap<u32, CallingConvention>,
 
     /// IrNodeIds of IrKind::Unsafe nodes encountered during the walk.
     /// m3 UnsafeWalker drains this via take_pending_unsafe() and lowers
@@ -225,6 +231,19 @@ impl EmitPassState {
     #[must_use]
     pub fn unsafe_body_lambda(&self, body_id: u32) -> Option<u32> {
         self.unsafe_body_to_lambda.get(&body_id).copied()
+    }
+
+    // ── Lambda ABI tracking (PA19-r19-006) ────────────────────────────────
+
+    /// Record the calling convention (ABI) for a lambda.
+    pub fn insert_lambda_abi(&mut self, lambda_id: u32, cc: CallingConvention) {
+        self.lambda_abis.insert(lambda_id, cc);
+    }
+
+    /// Look up the calling convention for a lambda. Returns Sysv if not found.
+    #[must_use]
+    pub fn lambda_abi(&self, lambda_id: u32) -> CallingConvention {
+        self.lambda_abis.get(&lambda_id).copied().unwrap_or(CallingConvention::Sysv)
     }
 
     // ── Match emission tracking (PA-r17-013) ─────────────────────────────

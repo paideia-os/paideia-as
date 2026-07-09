@@ -11,7 +11,7 @@ use paideia_as_ir::instruction::{Cond, IntWidth, Mnemonic, Operand};
 #[cfg(test)]
 use paideia_as_ir::record_layout::{FieldLayout, RecordLayout, RecordTypeId};
 #[cfg(test)]
-use paideia_as_ir::{EnumLayout, EnumTypeId, SmallVec, abi};
+use paideia_as_ir::{EnumLayout, EnumTypeId, abi};
 use paideia_as_ir::{DataSideTable, IrArena, IrKind, IrNodeId, Symbol, SymbolKind};
 
 pub use crate::cast_shape::{CastPlan, CastShape, cast_plan};
@@ -308,6 +308,14 @@ impl EmitWalker {
                                     sym.visibility = paideia_as_ir::Visibility::Global;
                                 }
                                 arena.symbols_mut().insert(sym);
+
+                                // PA19-r19-006: Record the ABI for Lambda bindings in the emit state.
+                                // This enables lambda emitters to select the correct register pool.
+                                if rhs_kind == IrKind::Lambda {
+                                    if let Some(cc) = abi {
+                                        self.state.insert_lambda_abi(rhs_id.get(), cc);
+                                    }
+                                }
 
                                 // Handle Literal RHS: emit instructions for m1-002.
                                 if rhs_kind == IrKind::Literal && has_literal_value {
