@@ -126,7 +126,10 @@ pub enum Cmd {
         #[arg(long)]
         stdin: bool,
         /// Check mode: exit with status 1 if formatting would change the file.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "diff")]
         check: bool,
+        /// Diff mode: display unified diff to stdout; exit 1 if formatting would change.
+        #[arg(long, conflicts_with = "check")]
+        diff: bool,
     },
 }

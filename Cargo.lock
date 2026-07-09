@@ -1937,6 +1937,7 @@ dependencies = [
  "paideia-as-types",
  "paideia-fmt",
  "serde_json",
+ "similar",
  "smallvec",
  "tempfile",
  "thiserror 2.0.18",

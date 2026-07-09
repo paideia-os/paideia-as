@@ -61,6 +61,7 @@ fn main() -> ExitCode {
             input,
             stdin,
             check,
-        } => cmd_fmt::run(input.as_deref(), check, stdin),
+            diff,
+        } => cmd_fmt::run(input.as_deref(), check, diff, stdin),
     }
 }

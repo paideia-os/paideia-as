@@ -74,6 +74,7 @@ smallvec = "1"
 
 # CLI
 clap = { version = "4", features = ["derive"] }
+similar = "2"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

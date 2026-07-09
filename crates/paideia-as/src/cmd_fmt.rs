@@ -4,6 +4,7 @@
 //! - Reading from a file (default) or stdin (--stdin).
 //! - Writing in-place to the file (default) or stdout (--stdin).
 //! - Checking mode (--check): exits 1 if formatted differs from input.
+//! - Diff mode (--diff): displays unified diff to stdout; exits 1 if formatted differs from input.
 
 use std::fs;
 use std::io::{Read, Write};
@@ -11,9 +12,10 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use paideia_fmt::{FormatOptions, format};
+use similar::TextDiff;
 
-/// Run `paideia-as fmt [--stdin] [--check] [FILE]`.
-pub fn run(file: Option<&Path>, check: bool, stdin: bool) -> ExitCode {
+/// Run `paideia-as fmt [--stdin] [--check] [--diff] [FILE]`.
+pub fn run(file: Option<&Path>, check: bool, diff: bool, stdin: bool) -> ExitCode {
     let source = match read_source(file, stdin) {
         Ok(s) => s,
         Err(e) => {
@@ -23,6 +25,24 @@ pub fn run(file: Option<&Path>, check: bool, stdin: bool) -> ExitCode {
     };
 
     let formatted = format(&source, &FormatOptions::default());
+
+    if diff {
+        let label = if stdin {
+            "<stdin>".to_string()
+        } else {
+            file.map(|p| p.display().to_string())
+                .unwrap_or_else(|| "<stdin>".to_string())
+        };
+
+        if let Some(diff_output) = emit_diff(&source, &formatted, &label, stdin) {
+            print!("{}", diff_output);
+        }
+
+        if formatted != source {
+            return ExitCode::from(1);
+        }
+        return ExitCode::SUCCESS;
+    }
 
     if check {
         if formatted != source {
@@ -65,6 +85,34 @@ fn write_output(formatted: &str, file: Option<&Path>, stdin: bool) -> Result<(),
     Ok(())
 }
 
+fn emit_diff(source: &str, formatted: &str, label: &str, stdin: bool) -> Option<String> {
+    if source == formatted {
+        return None;
+    }
+
+    let label_clean = label.trim_start_matches('/');
+    let header_old = if stdin {
+        "<stdin>".to_string()
+    } else {
+        format!("a/{}", label_clean)
+    };
+
+    let header_new = if stdin {
+        "<stdin> (formatted)".to_string()
+    } else {
+        format!("b/{}", label_clean)
+    };
+
+    let diff = TextDiff::from_lines(source, formatted);
+    let unified = diff
+        .unified_diff()
+        .context_radius(3)
+        .header(&header_old, &header_new)
+        .to_string();
+
+    Some(unified)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,11 +143,60 @@ mod tests {
         tmp.flush().unwrap();
 
         let path = tmp.path();
-        let exit = run(Some(path), false, false);
+        let exit = run(Some(path), false, false, false);
         assert_eq!(exit, ExitCode::SUCCESS);
 
         let written = fs::read_to_string(path).unwrap();
         let expected = format(input, &FormatOptions::default());
         assert_eq!(written, expected);
+    }
+
+    #[test]
+    fn diff_produces_nonempty_output_on_unformatted_file() {
+        let input = "let x = 1  \nlet y = 2  ";
+        let formatted = format(input, &FormatOptions::default());
+        let diff_output = emit_diff(input, &formatted, "test.pdx", false);
+        assert!(diff_output.is_some());
+        let output = diff_output.unwrap();
+        assert!(!output.is_empty());
+        assert!(output.contains("@@"));
+    }
+
+    #[test]
+    fn diff_returns_exit_1_on_change() {
+        let mut tmp = NamedTempFile::new().unwrap();
+        let input = "let x = 1  \nlet y = 2  ";
+        tmp.write_all(input.as_bytes()).unwrap();
+        tmp.flush().unwrap();
+
+        let path = tmp.path();
+        let exit = run(Some(path), false, true, false);
+        assert_eq!(exit, ExitCode::from(1));
+    }
+
+    #[test]
+    fn diff_returns_exit_0_on_no_change() {
+        let mut tmp = NamedTempFile::new().unwrap();
+        let input = "let x = 1\nlet y = 2\n";
+        tmp.write_all(input.as_bytes()).unwrap();
+        tmp.flush().unwrap();
+
+        let path = tmp.path();
+        let exit = run(Some(path), false, true, false);
+        assert_eq!(exit, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn diff_does_not_modify_file() {
+        let mut tmp = NamedTempFile::new().unwrap();
+        let input = "let x = 1  \nlet y = 2  ";
+        tmp.write_all(input.as_bytes()).unwrap();
+        tmp.flush().unwrap();
+
+        let path = tmp.path();
+        let _ = run(Some(path), false, true, false);
+
+        let written = fs::read_to_string(path).unwrap();
+        assert_eq!(written, input);
     }
 }
