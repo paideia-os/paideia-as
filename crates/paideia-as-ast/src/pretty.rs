@@ -675,6 +675,9 @@ fn print_expr_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
         ExprData::ByteStringLiteral(b) => {
             format!("ByteStringLiteral({:?})", b)
         }
+        ExprData::InlineBytes(b) => {
+            format!("InlineBytes({:?})", b)
+        }
         ExprData::Borrow { expr, mutable } => {
             format!("Borrow {{ expr: {}, mutable: {} }}", expr, mutable)
         }

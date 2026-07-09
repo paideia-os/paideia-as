@@ -1196,3 +1196,12 @@ brief = "expected field name, colon, type, or closing brace"
 description = "Issue #1071 (pa-r17-010b): A struct field declaration is syntactically incomplete. Ensure all fields follow the pattern `name: type`, separated by commas, with proper opening and closing braces. Trailing commas are allowed. Example: `struct S { x: u64, y: u32 }`."
 since = "0.17.0"
 deprecated = false
+
+[diagnostic.P0278]
+severity = "error"
+category = "parser"
+title = "Malformed GUID literal"
+brief = "@guid literal malformed (wrong length, invalid dashes, non-hex characters)"
+description = "Issue #1012: A @guid compile-time directive has an invalid GUID string. GUID syntax is XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX (36 characters with dashes at positions 8, 13, 18, 23; all other characters must be hexadecimal). Verify the string is 36 characters, dashes are in the correct positions, and all hex characters are valid (0-9, a-f, A-F)."
+since = "0.18.0"
+deprecated = false

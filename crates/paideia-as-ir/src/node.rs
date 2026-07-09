@@ -223,6 +223,10 @@ pub enum IrKind {
     /// cmd_build walks children, packs bytes per element width (u64/u32/u8),
     /// and emits a DataEntry (.rodata for immutable, .data for mutable, .bss for uninit).
     ArrayLit,
+    /// Inline bytes: `@guid("...")` or `@include_bytes("...")`.
+    /// Issue #1012: compile-time literal producing inline bytes in .rodata.
+    /// Side-table entry in literal_bytes records the raw byte vector.
+    InlineBytes,
 }
 
 /// Per-node IR storage.

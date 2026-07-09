@@ -106,6 +106,7 @@ pub fn encode_enum_cons(arena: &IrArena, enum_cons_id: IrNodeId) -> Option<Vec<u
 /// - `ArrayLit`: recurse on children.
 /// - `RecordCons`: recurse on field values (skip type-name).
 /// - `EnumCons`: encode discriminant + payload, padded to enum size (PA-r17-007 #1050).
+/// - `InlineBytes`: return raw bytes directly (Issue #1012).
 ///
 /// Returns `None` for kinds that are not directly encodable (Var, App, ...).
 #[must_use]
@@ -116,6 +117,7 @@ pub fn encode_ir_value(arena: &IrArena, node_id: IrNodeId) -> Option<Vec<u8>> {
         IrKind::ArrayLit => encode_array_lit(arena, node_id),
         IrKind::RecordCons => encode_record_cons(arena, node_id),
         IrKind::EnumCons => encode_enum_cons(arena, node_id),
+        IrKind::InlineBytes => arena.literal_bytes().get(node_id).cloned(),
         _ => None,
     }
 }
@@ -123,7 +125,7 @@ pub fn encode_ir_value(arena: &IrArena, node_id: IrNodeId) -> Option<Vec<u8>> {
 /// Populate a `DataSideTable` from the module-level `Let` bindings in `arena`.
 ///
 /// Iterates over every node, filters for `IrKind::Let` with a supported RHS
-/// shape (Literal / ArrayLit / RecordCons / Placeholder / StringLiteral) and
+/// shape (Literal / ArrayLit / RecordCons / Placeholder / StringLiteral / InlineBytes) and
 /// inserts a matching [`DataEntry`] under a synthetic `data_<node_id>` symbol.
 ///
 /// Section routing:
@@ -131,6 +133,7 @@ pub fn encode_ir_value(arena: &IrArena, node_id: IrNodeId) -> Option<Vec<u8>> {
 /// - initialised + immutable → `.rodata`
 /// - Placeholder (uninit) → `.bss` (regardless of mutability)
 /// - StringLiteral → `.rodata` with a relocation to the interned `__str_...` symbol
+/// - InlineBytes (Issue #1012) → `.rodata` with direct byte payload
 pub fn populate_data_table(arena: &IrArena, data_table: &mut DataSideTable) {
     for i in 1..=arena.len() as u32 {
         let Some(node_id) = IrNodeId::new(i) else { continue };
@@ -208,6 +211,14 @@ pub fn populate_data_table(arena: &IrArena, data_table: &mut DataSideTable) {
                         8,
                         vec![reloc],
                     );
+                    data_table.insert(node_id, entry);
+                }
+            }
+            IrKind::InlineBytes => {
+                // Issue #1012: @guid and @include_bytes produce InlineBytes in .rodata.
+                // Emit the bytes directly without relocation.
+                if let Some(bytes) = arena.literal_bytes().get(rhs_id) {
+                    let entry = DataEntry::new_rodata(bytes.clone(), symbol_name, 8);
                     data_table.insert(node_id, entry);
                 }
             }

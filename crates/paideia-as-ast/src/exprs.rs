@@ -433,6 +433,13 @@ pub enum ExprData {
     /// contain the decoded content after escape processing (e.g., `\n` → byte 0x0A).
     ByteStringLiteral(Vec<u8>),
 
+    /// Inline bytes literal: `@guid("...")` or `@include_bytes("...")`.
+    ///
+    /// Compile-time literal producing inline bytes. Produced by @guid,
+    /// @include_bytes, and similar @ prefixed compile-time directives.
+    /// Elaborates to `IrKind::InlineBytes` with raw bytes in .rodata/.data slot.
+    InlineBytes(Vec<u8>),
+
     /// `&expr` or `&mut expr`.
     ///
     /// Borrow expression: creates a reference to the given expression.

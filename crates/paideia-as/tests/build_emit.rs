@@ -20,6 +20,7 @@ mod build_emit {
     pub mod field_read_multi_field;
     pub mod field_read_u32;
     pub mod field_write_u32;
+    pub mod guid_inline_bytes;
     pub mod imm64_top_bit;
     pub mod label_patches;
     pub mod match_enum_pattern;

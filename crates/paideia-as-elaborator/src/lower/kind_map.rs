@@ -24,6 +24,10 @@ pub(super) fn map_node_kind(kind: NodeKind) -> IrKind {
         // with byte payloads stored in the literal_bytes side-table.
         NodeKind::ExprString | NodeKind::ExprByteString => IrKind::StringLiteral,
 
+        // Inline bytes literals (Issue #1012): @guid("...") and @include_bytes("...") lower
+        // to IrKind::InlineBytes with byte payloads stored in the literal_bytes side-table.
+        NodeKind::ExprInlineBytes => IrKind::InlineBytes,
+
         // Operators (all desugared to applications)
         NodeKind::ExprInfix | NodeKind::ExprPrefix | NodeKind::ExprPostfix => IrKind::App,
 

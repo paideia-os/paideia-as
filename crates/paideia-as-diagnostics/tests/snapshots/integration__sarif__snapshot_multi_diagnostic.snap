@@ -887,6 +887,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "Issue #1012: A @guid compile-time directive has an invalid GUID string. GUID syntax is XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX (36 characters with dashes at positions 8, 13, 18, 23; all other characters must be hexadecimal). Verify the string is 36 characters, dashes are in the correct positions, and all hex characters are valid (0-9, a-f, A-F)."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0278",
+              "id": "P0278",
+              "name": "Malformed GUID literal",
+              "shortDescription": {
+                "text": "@guid literal malformed (wrong length, invalid dashes, non-hex characters)"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "Signature ascription requires the structure to define a named type/val/module that is absent."
               },
               "helpUri": "https://paideia-os.org/diagnostics/M0301",

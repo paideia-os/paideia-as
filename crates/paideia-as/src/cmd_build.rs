@@ -423,10 +423,12 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
     // PA10-002: Extract string and byte string literals from AST nodes
     // and populate the IR's literal_bytes table. This enables the emitter
     // to intern byte sequences and emit .rodata symbols with relocations.
+    // Issue #1012: Also extract InlineBytes literals (@guid, @include_bytes).
     {
         let _content_ref = source_map.content(file);
 
-        // Walk AST to find all ExprString and ExprByteString nodes and extract their payloads
+        // Walk AST to find all ExprString, ExprByteString, and ExprInlineBytes nodes
+        // and extract their payloads
         for i in 0..arena.len() {
             if let Some(ast_id) = paideia_as_ast::NodeId::new((i + 1) as u32) {
                 if let Some(node) = arena.get(ast_id) {
@@ -451,6 +453,18 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                     .ir
                                     .literal_bytes_mut()
                                     .insert(ir_bytestring_id, bytes.clone());
+                            }
+                        }
+                        paideia_as_ast::NodeKind::ExprInlineBytes => {
+                            if let Some(paideia_as_ast::ExprData::InlineBytes(bytes)) =
+                                arena.expr_data(ast_id)
+                            {
+                                let ir_inline_bytes_id = paideia_as_ir::IrNodeId::new(ast_id.get())
+                                    .expect("valid ir node id from ast inline bytes literal");
+                                lowering
+                                    .ir
+                                    .literal_bytes_mut()
+                                    .insert(ir_inline_bytes_id, bytes.clone());
                             }
                         }
                         _ => {}
@@ -1075,11 +1089,13 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                         // PA-R12-001: Also look for StringLiteral.
                         // PA-r17-010c (#1072): Also look for RecordCons.
                         // PA-r17-007 (#1050): Also look for EnumCons.
+                        // Issue #1012: Also look for InlineBytes (@guid, @include_bytes).
                         let mut array_lit_id = None;
                         let mut literal_id = None;
                         let mut string_literal_id = None;
                         let mut record_cons_id = None;
                         let mut enum_cons_id = None;
+                        let mut inline_bytes_id = None;
 
                         for &child_id in children.iter() {
                             if let Some(child_node) = lowering.ir.get(child_id) {
@@ -1093,19 +1109,23 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                     record_cons_id = Some(child_id);
                                 } else if child_node.kind == paideia_as_ir::IrKind::EnumCons {
                                     enum_cons_id = Some(child_id);
+                                } else if child_node.kind == paideia_as_ir::IrKind::InlineBytes {
+                                    inline_bytes_id = Some(child_id);
                                 }
                             }
                         }
 
-                        // Try ArrayLit first, then Literal, then StringLiteral, then RecordCons, then EnumCons, then first child
+                        // Try ArrayLit first, then Literal, then StringLiteral, then RecordCons, then EnumCons, then InlineBytes, then first child
                         // PA-R12-001: StringLiteral enables `let X : [u8; N] = "string"` patterns
                         // PA-r17-010c (#1072): RecordCons enables `let x : T = T { ... }` patterns
                         // PA-r17-007 (#1050): EnumCons enables `let x : Enum = Enum::Variant(payload)` patterns
+                        // Issue #1012: InlineBytes enables `let x : [u8; N] = @guid(...) / @include_bytes(...)` patterns
                         let rhs_id = array_lit_id
                             .or(literal_id)
                             .or(string_literal_id)
                             .or(record_cons_id)
                             .or(enum_cons_id)
+                            .or(inline_bytes_id)
                             .or_else(|| children.first().copied());
 
                         if let Some(rhs_id) = rhs_id {
@@ -1410,6 +1430,30 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                             .finish();
                                             let _ = sink.emit(diag);
                                         }
+                                    }
+                                } else if rhs_node.kind == paideia_as_ir::IrKind::InlineBytes {
+                                    // Issue #1012: InlineBytes (@guid, @include_bytes) emit.
+                                    // The bytes are already in the literal_bytes side-table, keyed by the
+                                    // InlineBytes node ID. Look them up and emit directly to .rodata/.data
+                                    // with 1-byte alignment (the bytes are the payload as-is).
+                                    if let Some(bytes) = lowering.ir.literal_bytes().get(rhs_id) {
+                                        let is_mutable = lowering.ir.let_meta().get(node_id)
+                                            .map(|info| info.mutable).unwrap_or(false);
+                                        let explicit_align = lowering.ir.let_meta().get(node_id).and_then(|i| i.align);
+                                        let entry = if is_mutable {
+                                            paideia_as_ir::DataEntry::new_data(
+                                                bytes.clone(),
+                                                symbol_name,
+                                                explicit_align.unwrap_or(1),
+                                            )
+                                        } else {
+                                            paideia_as_ir::DataEntry::new_rodata(
+                                                bytes.clone(),
+                                                symbol_name,
+                                                explicit_align.unwrap_or(1),
+                                            )
+                                        };
+                                        data_entries.push((node_id, entry));
                                     }
                                 }
                             }

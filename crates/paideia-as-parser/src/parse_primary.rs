@@ -260,6 +260,9 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                         ))
                     }
 
+                    // Compile-time directives: @guid, @include_bytes, etc.
+                    TokenKind::At => self.parse_inline_directive(),
+
                     // Anything else is an error
                     // (Block expressions are handled in parse_expr_bp Step 0)
                     _ => self.error_expected_expression(),
@@ -586,6 +589,164 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             .alloc_expr(NodeKind::ExprResume, span, ExprData::Resume { value }))
     }
 
+    /// Parse a compile-time inline directive: `@guid("...")`, `@include_bytes("...")`, etc.
+    ///
+    /// Algorithm:
+    /// 1. Expect `@` token.
+    /// 2. Peek next token; must be Ident (the directive name).
+    /// 3. Dispatch based on the directive name (guid, include_bytes, etc.).
+    /// 4. Each directive parser returns an ExprInlineBytes on success.
+    fn parse_inline_directive(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
+        let at_tok = self.expect(TokenKind::At)?;
+        let at_span = at_tok.span;
+
+        // Next token must be an identifier (directive name)
+        let next_tok = if let Some(tok) = self.peek() {
+            if tok.kind == TokenKind::Ident {
+                tok
+            } else {
+                let diag = Diagnostic::error(p_code(100))
+                    .message("expected directive name after @".to_string())
+                    .with_span(tok.span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                return Err(ParseError);
+            }
+        } else {
+            let diag = Diagnostic::error(p_code(100))
+                .message("expected directive name after @".to_string())
+                .with_span(at_span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        };
+
+        // Extract the directive name from source
+        let source = self.source();
+        let start = next_tok.span.byte_start() as usize;
+        let end = (next_tok.span.byte_start() + next_tok.span.byte_len()) as usize;
+        let directive_name = if start <= source.len() && end <= source.len() {
+            &source[start..end]
+        } else {
+            ""
+        };
+
+        // Dispatch based on directive name
+        match directive_name {
+            "guid" => {
+                self.bump(); // consume directive name
+                self.parse_guid_literal(at_span)
+            }
+            _ => {
+                let diag = Diagnostic::error(p_code(100))
+                    .message(format!("unknown directive @{}", directive_name))
+                    .with_span(next_tok.span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                Err(ParseError)
+            }
+        }
+    }
+
+    /// Parse a GUID literal: `@guid("XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX")`.
+    ///
+    /// Algorithm:
+    /// 1. Expect `(`.
+    /// 2. Expect a string literal (the GUID string).
+    /// 3. Extract the string content.
+    /// 4. Parse the GUID string into 16 bytes using parse_guid helper.
+    /// 5. On error, emit P0278 diagnostic.
+    /// 6. On success, allocate ExprInlineBytes node.
+    fn parse_guid_literal(&mut self, at_span: Span) -> Result<paideia_as_ast::NodeId, ParseError> {
+        // Expect `(`
+        if !self.at(TokenKind::LParen) {
+            let span = if let Some(tok) = self.peek() {
+                tok.span
+            } else {
+                Span::new(self.file(), 0, 0)
+            };
+            let diag = Diagnostic::error(p_code(278))
+                .message("expected `(` after @guid".to_string())
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+        let lparen_span = self.expect(TokenKind::LParen)?.span;
+
+        // Expect a string literal
+        if !self.at(TokenKind::StringLit) {
+            let span = if let Some(tok) = self.peek() {
+                tok.span
+            } else {
+                Span::new(self.file(), 0, 0)
+            };
+            let diag = Diagnostic::error(p_code(278))
+                .message("expected string literal in @guid(...)".to_string())
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        let str_tok = self.expect(TokenKind::StringLit)?;
+        let source = self.source();
+        let start = str_tok.span.byte_start() as usize;
+        let end = (str_tok.span.byte_start() + str_tok.span.byte_len()) as usize;
+        let token_text = if start <= source.len() && end <= source.len() {
+            &source[start..end]
+        } else {
+            ""
+        };
+
+        // Extract the string content (handle raw string prefixes if any)
+        let is_raw = token_text.starts_with('r');
+        let guid_string = match extract_string_content(token_text, 0, is_raw, false) {
+            Ok(content) => content,
+            Err(_) => {
+                let diag = Diagnostic::error(p_code(278))
+                    .message("invalid string literal in @guid".to_string())
+                    .with_span(str_tok.span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                return Err(ParseError);
+            }
+        };
+
+        // Parse the GUID string into 16 bytes
+        let guid_bytes = match parse_guid(&guid_string) {
+            Ok(bytes) => bytes.to_vec(),
+            Err(e) => {
+                let diag = Diagnostic::error(p_code(278))
+                    .message(format!("malformed GUID literal: {}", e.message()))
+                    .with_span(str_tok.span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                return Err(ParseError);
+            }
+        };
+
+        // Expect `)`
+        if !self.at(TokenKind::RParen) {
+            return self.error_mismatched_delimiter(lparen_span);
+        }
+        let rparen_tok = self.expect(TokenKind::RParen)?;
+        let rparen_span = rparen_tok.span;
+
+        // Compute span from `@` through closing `)`
+        let span = Span::new(
+            at_span.file(),
+            at_span.byte_start(),
+            rparen_span.byte_start() + rparen_span.byte_len() - at_span.byte_start(),
+        );
+
+        Ok(self.arena_mut().alloc_expr(
+            NodeKind::ExprInlineBytes,
+            span,
+            ExprData::InlineBytes(guid_bytes),
+        ))
+    }
+
     /// Emit a P0100 ("expected expression") diagnostic and return `Err(ParseError)`.
     fn error_expected_expression(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
         let span = if let Some(tok) = self.peek() {
@@ -631,6 +792,87 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 /// the `DiagnosticCode`.
 fn p_code(n: u16) -> DiagnosticCode {
     DiagnosticCode::new(Category::P, Severity::Error, n).expect("valid P code")
+}
+
+/// Error type for GUID parsing.
+#[derive(Debug, Clone, Copy)]
+enum GuidError {
+    /// GUID string is not exactly 36 characters.
+    WrongLength,
+    /// Dashes are in wrong positions (must be at 8, 13, 18, 23).
+    MalformedDashes,
+    /// Non-hexadecimal character encountered outside dash positions.
+    NonHex,
+}
+
+impl GuidError {
+    fn message(self) -> &'static str {
+        match self {
+            GuidError::WrongLength => "GUID must be exactly 36 characters (format: XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX)",
+            GuidError::MalformedDashes => "dashes must be at positions 8, 13, 18, 23",
+            GuidError::NonHex => "all characters except dashes must be hexadecimal (0-9, a-f, A-F)",
+        }
+    }
+}
+
+/// Parse a GUID string in the format "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"
+/// into 16 bytes in UEFI mixed-endian byte order.
+///
+/// UEFI mixed-endian format:
+/// - Data1 (0-3): u32 little-endian
+/// - Data2 (4-5): u16 little-endian
+/// - Data3 (6-7): u16 little-endian
+/// - Data4 (8-15): 8 bytes in big-endian (raw order)
+///
+/// Example: "12345678-1234-1234-1234-123456789abc" produces
+/// [0x78, 0x56, 0x34, 0x12, 0x34, 0x12, 0x34, 0x12, 0x12, 0x34, 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc]
+fn parse_guid(text: &str) -> Result<[u8; 16], GuidError> {
+    // Length must be exactly 36
+    if text.len() != 36 {
+        return Err(GuidError::WrongLength);
+    }
+
+    // Verify dashes are at positions 8, 13, 18, 23
+    for (i, c) in text.chars().enumerate() {
+        let expect_dash = matches!(i, 8 | 13 | 18 | 23);
+        if expect_dash && c != '-' {
+            return Err(GuidError::MalformedDashes);
+        }
+        if !expect_dash && !c.is_ascii_hexdigit() {
+            return Err(GuidError::NonHex);
+        }
+    }
+
+    // Parse subfields
+    let data1 = u32::from_str_radix(&text[0..8], 16).map_err(|_| GuidError::NonHex)?;
+    let data2 = u16::from_str_radix(&text[9..13], 16).map_err(|_| GuidError::NonHex)?;
+    let data3 = u16::from_str_radix(&text[14..18], 16).map_err(|_| GuidError::NonHex)?;
+
+    // UEFI mixed-endian layout
+    let mut out = [0u8; 16];
+
+    // Data1 as little-endian u32
+    out[0..4].copy_from_slice(&data1.to_le_bytes());
+
+    // Data2 as little-endian u16
+    out[4..6].copy_from_slice(&data2.to_le_bytes());
+
+    // Data3 as little-endian u16
+    out[6..8].copy_from_slice(&data3.to_le_bytes());
+
+    // Data4: first part "xxxx" at positions 19-23 (2 bytes)
+    for i in 0..2 {
+        out[8 + i] = u8::from_str_radix(&text[19 + i * 2..19 + i * 2 + 2], 16)
+            .map_err(|_| GuidError::NonHex)?;
+    }
+
+    // Data4: second part "xxxxxxxxxxxx" at positions 24-36 (6 bytes)
+    for i in 0..6 {
+        out[10 + i] = u8::from_str_radix(&text[24 + i * 2..24 + i * 2 + 2], 16)
+            .map_err(|_| GuidError::NonHex)?;
+    }
+
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -1256,5 +1498,100 @@ mod tests {
         } else {
             panic!("expected Uninit variant");
         }
+    }
+
+    #[test]
+    fn parse_guid_valid_lowercase() {
+        let guid = "12345678-1234-1234-1234-123456789abc";
+        let result = parse_guid(guid);
+        assert!(result.is_ok());
+        let bytes = result.unwrap();
+        assert_eq!(
+            bytes,
+            [0x78, 0x56, 0x34, 0x12, 0x34, 0x12, 0x34, 0x12, 0x12, 0x34, 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc]
+        );
+    }
+
+    #[test]
+    fn parse_guid_uppercase() {
+        let guid = "ABCDEF01-2345-6789-ABCD-EF0123456789";
+        let result = parse_guid(guid);
+        assert!(result.is_ok());
+        let bytes = result.unwrap();
+        assert_eq!(
+            bytes,
+            [0x01, 0xef, 0xcd, 0xab, 0x45, 0x23, 0x89, 0x67, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89]
+        );
+    }
+
+    #[test]
+    fn parse_guid_mixed_case() {
+        let guid = "AaBbCcDd-EeFf-0011-2233-445566778899";
+        let result = parse_guid(guid);
+        assert!(result.is_ok());
+        let bytes = result.unwrap();
+        // Data1: AaBbCcDd → dd, cc, bb, aa (little-endian)
+        // Data2: EeFf → ff, ee (little-endian)
+        // Data3: 0011 → 11, 00 (little-endian)
+        // Data4: 2233, 445566778899 → 22, 33, 44, 55, 66, 77, 88, 99
+        assert_eq!(
+            bytes,
+            [0xdd, 0xcc, 0xbb, 0xaa, 0xff, 0xee, 0x11, 0x00, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99]
+        );
+    }
+
+    #[test]
+    fn parse_guid_all_zeros() {
+        let guid = "00000000-0000-0000-0000-000000000000";
+        let result = parse_guid(guid);
+        assert!(result.is_ok());
+        let bytes = result.unwrap();
+        assert_eq!(bytes, [0u8; 16]);
+    }
+
+    #[test]
+    fn parse_guid_all_fs() {
+        let guid = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+        let result = parse_guid(guid);
+        assert!(result.is_ok());
+        let bytes = result.unwrap();
+        assert_eq!(bytes, [0xffu8; 16]);
+    }
+
+    #[test]
+    fn parse_guid_dashes_in_wrong_places() {
+        // GUID with dash at position 7 instead of 8
+        // A dash at a position where hex is expected is treated as NonHex, not MalformedDashes
+        let guid = "1234567-12345-1234-1234-123456789abc";
+        let result = parse_guid(guid);
+        assert!(matches!(result, Err(GuidError::NonHex)));
+    }
+
+    #[test]
+    fn parse_guid_wrong_length() {
+        let guid = "12345678-1234-1234-1234-123456789abc-extra";
+        let result = parse_guid(guid);
+        assert!(matches!(result, Err(GuidError::WrongLength)));
+    }
+
+    #[test]
+    fn parse_guid_too_short() {
+        let guid = "12345678-1234-1234-1234-123456789ab";
+        let result = parse_guid(guid);
+        assert!(matches!(result, Err(GuidError::WrongLength)));
+    }
+
+    #[test]
+    fn parse_guid_non_hex() {
+        let guid = "gggggggg-1234-1234-1234-123456789abc";
+        let result = parse_guid(guid);
+        assert!(matches!(result, Err(GuidError::NonHex)));
+    }
+
+    #[test]
+    fn parse_guid_empty() {
+        let guid = "";
+        let result = parse_guid(guid);
+        assert!(matches!(result, Err(GuidError::WrongLength)));
     }
 }
