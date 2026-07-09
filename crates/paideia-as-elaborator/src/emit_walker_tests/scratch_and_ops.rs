@@ -1063,13 +1063,13 @@ fn enum_cons_disc_only_variant_0() {
     let mut stats = paideia_as_encoder::EncodeStats::new();
     paideia_as_encoder::encode_instruction(&disc_inst, &mut buf, &mut stats)
         .expect("encode failed");
-    assert_eq!(buf.as_slice(), &[0x48, 0xB8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+    assert_eq!(buf.as_slice(), &[0x48, 0xC7, 0xC0, 0x00, 0x00, 0x00, 0x00]);
 }
 
 #[test]
 fn enum_cons_disc_only_variant_1() {
     // Discriminant-only, variant 1
-    // mov rax, 1 → 48 B8 01 00 00 00 00 00 00 00 (10 bytes)
+    // mov rax, 1 → 48 C7 C0 01 00 00 00 (7 bytes, C7 form for i32-range)
     let (disc_inst, payload_inst) = build_and_walk_enum_cons(0, 1, false, 0);
     assert_eq!(disc_inst.mnemonic, Mnemonic::Mov);
     assert!(payload_inst.is_none());
@@ -1078,14 +1078,14 @@ fn enum_cons_disc_only_variant_1() {
     let mut stats = paideia_as_encoder::EncodeStats::new();
     paideia_as_encoder::encode_instruction(&disc_inst, &mut buf, &mut stats)
         .expect("encode failed");
-    assert_eq!(buf.as_slice(), &[0x48, 0xB8, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+    assert_eq!(buf.as_slice(), &[0x48, 0xC7, 0xC0, 0x01, 0x00, 0x00, 0x00]);
 }
 
 #[test]
 fn enum_cons_u64_payload_variant_0_lit_42() {
     // 8-byte payload, variant 0, literal value 42, register form
-    // mov rax, 0 → 48 B8 00 00 00 00 00 00 00 00 (10 bytes)
-    // mov rdx, 42 → 48 BA 2A 00 00 00 00 00 00 00 (10 bytes)
+    // mov rax, 0 → 48 C7 C0 00 00 00 00 (7 bytes, C7 form for i32-range)
+    // mov rdx, 42 → 48 C7 C2 2A 00 00 00 (7 bytes, C7 form for i32-range)
     let (disc_inst, payload_inst) = build_and_walk_enum_cons(8, 0, true, 42);
     assert_eq!(disc_inst.mnemonic, Mnemonic::Mov);
     assert!(payload_inst.is_some());
@@ -1094,20 +1094,20 @@ fn enum_cons_u64_payload_variant_0_lit_42() {
     let mut stats = paideia_as_encoder::EncodeStats::new();
     paideia_as_encoder::encode_instruction(&disc_inst, &mut buf, &mut stats)
         .expect("encode failed");
-    assert_eq!(buf.as_slice(), &[0x48, 0xB8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+    assert_eq!(buf.as_slice(), &[0x48, 0xC7, 0xC0, 0x00, 0x00, 0x00, 0x00]);
 
     let payload = payload_inst.unwrap();
     let mut payload_buf = paideia_as_encoder::CodeBuffer::new();
     paideia_as_encoder::encode_instruction(&payload, &mut payload_buf, &mut stats)
         .expect("encode failed");
-    assert_eq!(payload_buf.as_slice(), &[0x48, 0xBA, 0x2A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+    assert_eq!(payload_buf.as_slice(), &[0x48, 0xC7, 0xC2, 0x2A, 0x00, 0x00, 0x00]);
 }
 
 #[test]
 fn enum_cons_u64_payload_variant_1_lit_neg1() {
     // 8-byte payload, variant 1, literal value -1 (0xFFFFFFFFFFFFFFFF), register form
-    // mov rax, 1 → 48 B8 01 00 00 00 00 00 00 00 (10 bytes)
-    // mov rdx, -1 → 48 BA FF FF FF FF FF FF FF FF (10 bytes, -1 as i64)
+    // mov rax, 1 → 48 C7 C0 01 00 00 00 (7 bytes, C7 form for i32-range)
+    // mov rdx, -1 → 48 C7 C2 FF FF FF FF (7 bytes, C7 form; sign-extends to 0xFFFFFFFFFFFFFFFF)
     let (disc_inst, payload_inst) = build_and_walk_enum_cons(8, 1, true, -1);
     assert_eq!(disc_inst.mnemonic, Mnemonic::Mov);
     assert!(payload_inst.is_some());
@@ -1116,14 +1116,14 @@ fn enum_cons_u64_payload_variant_1_lit_neg1() {
     let mut stats = paideia_as_encoder::EncodeStats::new();
     paideia_as_encoder::encode_instruction(&disc_inst, &mut buf, &mut stats)
         .expect("encode failed");
-    assert_eq!(buf.as_slice(), &[0x48, 0xB8, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+    assert_eq!(buf.as_slice(), &[0x48, 0xC7, 0xC0, 0x01, 0x00, 0x00, 0x00]);
 
     let payload = payload_inst.unwrap();
     let mut payload_buf = paideia_as_encoder::CodeBuffer::new();
     paideia_as_encoder::encode_instruction(&payload, &mut payload_buf, &mut stats)
         .expect("encode failed");
-    // -1 as i64: 0xFF FF FF FF FF FF FF FF
-    assert_eq!(payload_buf.as_slice(), &[0x48, 0xBA, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
+    // -1 as i32 sign-extends to 0xFFFFFFFFFFFFFFFF in r64: 48 C7 C2 FF FF FF FF
+    assert_eq!(payload_buf.as_slice(), &[0x48, 0xC7, 0xC2, 0xFF, 0xFF, 0xFF, 0xFF]);
 }
 
 #[test]
@@ -1137,8 +1137,8 @@ fn enum_cons_payload_size_0_writes_no_rdx() {
     let mut stats = paideia_as_encoder::EncodeStats::new();
     paideia_as_encoder::encode_instruction(&disc_inst, &mut buf, &mut stats)
         .expect("encode failed");
-    // Only one instruction (mov rax, 0) = 10 bytes
-    assert_eq!(buf.as_slice().len(), 10);
+    // Only one instruction (mov rax, 0) = 7 bytes (C7 form for i32-range)
+    assert_eq!(buf.as_slice().len(), 7);
 }
 
 #[test]
@@ -1197,27 +1197,27 @@ fn enum_cons_payload_size_24_stack() {
 #[test]
 fn enum_cons_variant_index_2() {
     // Variant index 2
-    // mov rax, 2 → 48 B8 02 00 00 00 00 00 00 00 (10 bytes)
+    // mov rax, 2 → 48 C7 C0 02 00 00 00 (7 bytes, C7 form for i32-range)
     let (disc_inst, _) = build_and_walk_enum_cons(0, 2, false, 0);
 
     let mut buf = paideia_as_encoder::CodeBuffer::new();
     let mut stats = paideia_as_encoder::EncodeStats::new();
     paideia_as_encoder::encode_instruction(&disc_inst, &mut buf, &mut stats)
         .expect("encode failed");
-    assert_eq!(buf.as_slice(), &[0x48, 0xB8, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+    assert_eq!(buf.as_slice(), &[0x48, 0xC7, 0xC0, 0x02, 0x00, 0x00, 0x00]);
 }
 
 #[test]
 fn enum_cons_variant_index_255() {
     // Variant index 255
-    // mov rax, 255 → 48 B8 FF 00 00 00 00 00 00 00 (10 bytes)
+    // mov rax, 255 → 48 C7 C0 FF 00 00 00 (7 bytes, C7 form for i32-range)
     let (disc_inst, _) = build_and_walk_enum_cons(0, 255, false, 0);
 
     let mut buf = paideia_as_encoder::CodeBuffer::new();
     let mut stats = paideia_as_encoder::EncodeStats::new();
     paideia_as_encoder::encode_instruction(&disc_inst, &mut buf, &mut stats)
         .expect("encode failed");
-    assert_eq!(buf.as_slice(), &[0x48, 0xB8, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+    assert_eq!(buf.as_slice(), &[0x48, 0xC7, 0xC0, 0xFF, 0x00, 0x00, 0x00]);
 }
 
 #[test]
@@ -1264,7 +1264,7 @@ fn enum_cons_variant_index_0_with_var_payload() {
         .expect("encode disc failed");
     assert_eq!(
         disc_buf.as_slice(),
-        &[0x48, 0xB8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+        &[0x48, 0xC7, 0xC0, 0x00, 0x00, 0x00, 0x00]
     );
 
     let mut payload_buf = paideia_as_encoder::CodeBuffer::new();

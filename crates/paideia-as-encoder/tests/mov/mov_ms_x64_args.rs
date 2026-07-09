@@ -49,11 +49,11 @@ fn ms_arg_movabs_rcx_i64() {
 
 #[test]
 fn ms_arg_movabs_rdx_small() {
-    // mov rdx, 0x1000
+    // mov rdx, 0x1000 (fits i32 range)
     // rdx=2, imm64=0x1000
     // REX: W=1, R=0, X=0, B=0 → 0x48
-    // B8+2 opcode for rdx, 10 bytes with zero-padding
-    // Expected: 48 BA 00 10 00 00 00 00 00 00
+    // C7 /0 opcode for imm32 (sign-extended to r64): 7 bytes
+    // Expected: 48 C7 C2 00 10 00 00 (C7 form, 3 bytes shorter)
     let mut buf = CodeBuffer::new();
     let inst = Instruction {
         mnemonic: Mnemonic::Mov,
@@ -70,17 +70,17 @@ fn ms_arg_movabs_rdx_small() {
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
         .expect("encoding failed for mov rdx, 0x1000");
 
-    assert_eq!(buf.as_slice(), &[0x48, 0xBA, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
-        "mov rdx, 0x1000");
+    assert_eq!(buf.as_slice(), &[0x48, 0xC7, 0xC2, 0x00, 0x10, 0x00, 0x00],
+        "mov rdx, 0x1000 (C7 form)");
 }
 
 #[test]
 fn ms_arg_movabs_r8_small() {
-    // mov r8, 0x1234
+    // mov r8, 0x1234 (fits i32 range)
     // r8=8, imm64=0x1234
     // REX: W=1, R=0, X=0, B=1 (r8 >> 3) → 0x49
-    // B8+0 opcode for r8 (uses high bit), 10 bytes with zero-padding
-    // Expected: 49 B8 34 12 00 00 00 00 00 00
+    // C7 /0 opcode for imm32 (sign-extended to r64): 7 bytes
+    // Expected: 49 C7 C0 34 12 00 00 (C7 form, 3 bytes shorter)
     let mut buf = CodeBuffer::new();
     let inst = Instruction {
         mnemonic: Mnemonic::Mov,
@@ -97,7 +97,7 @@ fn ms_arg_movabs_r8_small() {
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
         .expect("encoding failed for mov r8, 0x1234");
 
-    assert_eq!(buf.as_slice(), &[0x49, 0xB8, 0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+    assert_eq!(buf.as_slice(), &[0x49, 0xC7, 0xC0, 0x34, 0x12, 0x00, 0x00],
         "mov r8, 0x1234");
 }
 
@@ -500,6 +500,104 @@ fn ms_arg_store_rsp56_r9() {
     assert_eq!(buf.as_slice(), &[0x4C, 0x89, 0x4C, 0x24, 0x38], "mov [rsp+56], r9");
 }
 
+// ===== Boundary tests: i32 range mutations (coverage for range-check correctness) =====
+
+#[test]
+fn i32_boundary_max_exactly() {
+    // mov rax, 0x7FFFFFFF (i32::MAX exactly)
+    // Must emit C7 form: 48 C7 C0 FF FF FF 7F (7 bytes)
+    let mut buf = CodeBuffer::new();
+    let inst = Instruction {
+        mnemonic: Mnemonic::Mov,
+        operands: smallvec![
+            Operand::Reg(RegId(0)),  // rax
+            Operand::Imm64(0x7FFFFFFF),
+        ],
+        byte_offset_in_text: None,
+        mode: InstrMode::default(),
+        encoding_hint: None,
+    };
+
+    let mut stats = paideia_as_encoder::EncodeStats::new();
+    paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
+        .expect("encoding failed for mov rax, 0x7FFFFFFF");
+
+    assert_eq!(buf.as_slice(), &[0x48, 0xC7, 0xC0, 0xFF, 0xFF, 0xFF, 0x7F],
+        "mov rax, 0x7FFFFFFF (i32::MAX, C7 form)");
+}
+
+#[test]
+fn i32_boundary_max_plus_one() {
+    // mov rax, 0x80000000 (i32::MAX + 1)
+    // Must emit B8 form: 48 B8 00 00 00 80 00 00 00 00 (10 bytes)
+    let mut buf = CodeBuffer::new();
+    let inst = Instruction {
+        mnemonic: Mnemonic::Mov,
+        operands: smallvec![
+            Operand::Reg(RegId(0)),  // rax
+            Operand::Imm64(0x80000000),
+        ],
+        byte_offset_in_text: None,
+        mode: InstrMode::default(),
+        encoding_hint: None,
+    };
+
+    let mut stats = paideia_as_encoder::EncodeStats::new();
+    paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
+        .expect("encoding failed for mov rax, 0x80000000");
+
+    assert_eq!(buf.as_slice(), &[0x48, 0xB8, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00],
+        "mov rax, 0x80000000 (i32::MAX + 1, B8 form)");
+}
+
+#[test]
+fn i32_boundary_min_exactly() {
+    // mov rax, 0xFFFFFFFF80000000 (i32::MIN as i64 exactly = -2147483648)
+    // Must emit C7 form: 48 C7 C0 00 00 00 80 (7 bytes)
+    let mut buf = CodeBuffer::new();
+    let inst = Instruction {
+        mnemonic: Mnemonic::Mov,
+        operands: smallvec![
+            Operand::Reg(RegId(0)),  // rax
+            Operand::Imm64(i32::MIN as i64),
+        ],
+        byte_offset_in_text: None,
+        mode: InstrMode::default(),
+        encoding_hint: None,
+    };
+
+    let mut stats = paideia_as_encoder::EncodeStats::new();
+    paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
+        .expect("encoding failed for mov rax, i32::MIN");
+
+    assert_eq!(buf.as_slice(), &[0x48, 0xC7, 0xC0, 0x00, 0x00, 0x00, 0x80],
+        "mov rax, i32::MIN (C7 form)");
+}
+
+#[test]
+fn i32_boundary_min_minus_one() {
+    // mov rax, 0xFFFFFFFF7FFFFFFF (i32::MIN - 1 as i64 = -2147483649)
+    // Must emit B8 form: 48 B8 FF FF FF 7F FF FF FF FF (10 bytes)
+    let mut buf = CodeBuffer::new();
+    let inst = Instruction {
+        mnemonic: Mnemonic::Mov,
+        operands: smallvec![
+            Operand::Reg(RegId(0)),  // rax
+            Operand::Imm64((i32::MIN as i64) - 1),
+        ],
+        byte_offset_in_text: None,
+        mode: InstrMode::default(),
+        encoding_hint: None,
+    };
+
+    let mut stats = paideia_as_encoder::EncodeStats::new();
+    paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
+        .expect("encoding failed for mov rax, (i32::MIN - 1)");
+
+    assert_eq!(buf.as_slice(), &[0x48, 0xB8, 0xFF, 0xFF, 0xFF, 0x7F, 0xFF, 0xFF, 0xFF, 0xFF],
+        "mov rax, (i32::MIN - 1) (B8 form)");
+}
+
 // ===== Auxiliary: sequence consistency test =====
 
 #[test]
@@ -558,15 +656,15 @@ fn ms_arg_movabs_all_four_regs_sequence() {
     paideia_as_encoder::encode_instruction(&inst4, &mut buf, &mut stats)
         .expect("encoding failed for inst4");
 
-    // Expected: concatenation of all 4 fixtures (10 bytes each = 40 bytes total)
+    // Expected: concatenation of all 4 fixtures (mixed sizes due to imm32 optimization)
     let expected = [
-        // mov rcx, 0x0123456789abcdef
+        // mov rcx, 0x0123456789abcdef (10 bytes, B9 form)
         0x48, 0xB9, 0xEF, 0xCD, 0xAB, 0x89, 0x67, 0x45, 0x23, 0x01,
-        // mov rdx, 0x1000
-        0x48, 0xBA, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        // mov r8, 0x1234
-        0x49, 0xB8, 0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        // mov r9, 0x0123456789abcdef
+        // mov rdx, 0x1000 (7 bytes, C7 form)
+        0x48, 0xC7, 0xC2, 0x00, 0x10, 0x00, 0x00,
+        // mov r8, 0x1234 (7 bytes, C7 form)
+        0x49, 0xC7, 0xC0, 0x34, 0x12, 0x00, 0x00,
+        // mov r9, 0x0123456789abcdef (10 bytes, B9 form)
         0x49, 0xB9, 0xEF, 0xCD, 0xAB, 0x89, 0x67, 0x45, 0x23, 0x01,
     ];
 
@@ -580,10 +678,10 @@ fn ms_arg_all_four_regs_iced_roundtrip_matrix() {
     // with mnemonic=Mov and 2 operands.
 
     let fixtures = vec![
-        // P1: movabs
+        // P1: movabs (or C7 imm32 form for i32-range values)
         ("mov rcx, imm64", vec![0x48u8, 0xB9, 0xEF, 0xCD, 0xAB, 0x89, 0x67, 0x45, 0x23, 0x01]),
-        ("mov rdx, imm64", vec![0x48, 0xBA, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
-        ("mov r8, imm64", vec![0x49, 0xB8, 0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
+        ("mov rdx, imm32", vec![0x48, 0xC7, 0xC2, 0x00, 0x10, 0x00, 0x00]),
+        ("mov r8, imm32", vec![0x49, 0xC7, 0xC0, 0x34, 0x12, 0x00, 0x00]),
         ("mov r9, imm64", vec![0x49, 0xB9, 0xEF, 0xCD, 0xAB, 0x89, 0x67, 0x45, 0x23, 0x01]),
         // P2: register-to-register
         ("mov rcx, rdi", vec![0x48, 0x89, 0xF9]),

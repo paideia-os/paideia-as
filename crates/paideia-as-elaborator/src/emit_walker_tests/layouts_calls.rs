@@ -1364,12 +1364,12 @@ fn emit_walker_pa7_002_zero_arg_function_call() {
         .expect("ret instruction should be emitted");
     assert_eq!(ret_inst.mnemonic, Mnemonic::Ret);
 
-    // Verify offset: PA19-r19-006 update: lambda_a now emits mov rax, 42; ret (~11 bytes)
-    // because we close the latent hole for literal-bodied lambdas.
-    // lambda_a (literal): ~11 bytes (mov with imm64 + ret)
+    // Verify offset: PA19-r19-006 update: lambda_a now emits mov rax, 42; ret.
+    // With issue #1101 optimization (C7 imm32 form for i32-range values):
+    // lambda_a (literal): 7 bytes for mov (C7 form) + 1 byte for ret = 8 bytes
     // lambda_b (call): 5 bytes for call + 1 byte for ret = 6 bytes
-    // Total: ~17 bytes
-    assert_eq!(walker.state().estimated_offset, 17);
+    // Total: 14 bytes
+    assert_eq!(walker.state().estimated_offset, 14);
 }
 
 #[test]

@@ -1915,8 +1915,17 @@ fn encode_mov(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
             Ok(EncodeOutput::new())
         }
         [Operand::Reg(dest), Operand::Imm64(imm)] => {
-            // mov r64, imm64 → REX.W B8+rd <imm64>
-            mov_reg64_imm64(buf, reg64_from(*dest)?, *imm as u64);
+            // Emit 7-byte C7 imm32 form when value fits sign-extended i32.
+            // The C7 /0 instruction (REX.W C7 C0+rd imm32) sign-extends imm32 into r64,
+            // which is architecturally identical to B8+imm64 for in-range values.
+            // This saves 3 bytes per mov on common hot paths (e.g. per-arg call marshalling,
+            // small syscall args, enum discriminants). Value -1_i64 correctly encodes
+            // as 48 C7 C0 FF FF FF FF (sign-extends to 0xFFFFFFFFFFFFFFFF).
+            if *imm >= i32::MIN as i64 && *imm <= i32::MAX as i64 {
+                mov_reg64_imm32(buf, reg64_from(*dest)?, *imm as i32);
+            } else {
+                mov_reg64_imm64(buf, reg64_from(*dest)?, *imm as u64);
+            }
             Ok(EncodeOutput::new())
         }
         [

@@ -213,12 +213,14 @@ pub(crate) fn emit_mem_base_disp(buf: &mut CodeBuffer, reg_field: u8, base_id: u
 /// Encode `mov reg64, imm32` (sign-extended to 64-bit).
 ///
 /// Instruction: REX.W C7 /0 id
-/// Bytes: `48 C7 (0xC0 | (reg & 7)) imm32_le`
+/// Bytes: `48+REX.B C7 (0xC0 | (reg & 7)) imm32_le`
 ///
 /// Example: `mov rax, 1` → `48 c7 c0 01 00 00 00`
+/// Example: `mov r8, 1` → `49 c7 c0 01 00 00 00` (REX.B set)
 pub fn mov_reg64_imm32(buf: &mut CodeBuffer, dst: Reg64, imm: i32) {
     let reg_id = dst as u8;
-    buf.bytes.push(rex_w());
+    let rex_byte = rex(true, false, false, (reg_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
     buf.bytes.push(0xC7);
     buf.bytes.push(0xC0 | (reg_id & 7));
     buf.bytes.extend(imm.to_le_bytes());

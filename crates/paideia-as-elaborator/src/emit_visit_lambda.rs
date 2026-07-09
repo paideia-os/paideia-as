@@ -903,18 +903,11 @@ impl EmitWalker {
             mode: self.current_mode(),
         };
 
-        // NOTE(step5): This site keeps the hardcoded 7/10 heuristic because the
-        // encoder emits the 10-byte movabs form for Mnemonic::Mov [Reg, Imm64]
-        // regardless of whether the value fits imm32-sign-extended. Tests pin
-        // the smaller encoding for i32-range values. Same rationale as
-        // emit_let_literal — retire when the encoder gains the smaller form.
-        let size = if value >= i32::MIN as i64 && value <= i32::MAX as i64 {
-            7
-        } else {
-            10
-        };
-        self.state.instructions.insert(inst_id, inst);
-        self.state.estimated_offset += size;
+        // Use emit_inst which automatically calls paideia_as_encoder::estimated_bytes
+        // to get the correct encoded size. The encoder now emits 7-byte C7 imm32 form
+        // for i32-range values instead of 10-byte B8 movabs, so the size is automatically
+        // computed correctly.
+        self.emit_inst(inst_id, inst);
     }
 
     /// Emit MOV from one register to another.

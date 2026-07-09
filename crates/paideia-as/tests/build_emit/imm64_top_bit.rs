@@ -82,27 +82,29 @@ fn build_and_extract_text(fixture_name: &str) -> Vec<u8> {
 
 #[test]
 fn imm64_top_bit_fd() {
-    // mov rax, 0xFFFFFFFFFFFFFFFD
-    // Expected: 48 b8 fd ff ff ff ff ff ff ff
+    // mov rax, 0xFFFFFFFFFFFFFFFD (= -3 as i64, fits i32 range)
+    // With issue #1101 optimization: C7 form instead of B8
+    // Expected: 48 c7 c0 fd ff ff ff (7 bytes, sign-extends -3 to full r64)
     let text_bytes = build_and_extract_text("imm64_top_bit_fd");
-    let expected = vec![0x48, 0xb8, 0xfd, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
+    let expected = vec![0x48, 0xc7, 0xc0, 0xfd, 0xff, 0xff, 0xff];
     assert_eq!(
-        &text_bytes[..10], &expected[..],
+        &text_bytes[..7], &expected[..],
         "imm64_top_bit_fd: expected {:02X?}, got {:02X?}",
-        expected, &text_bytes[..10]
+        expected, &text_bytes[..7]
     );
 }
 
 #[test]
 fn imm64_top_bit_fc() {
-    // mov rax, 0xFFFFFFFFFFFFFFFC
-    // Expected: 48 b8 fc ff ff ff ff ff ff ff
+    // mov rax, 0xFFFFFFFFFFFFFFFC (= -4 as i64, fits i32 range)
+    // With issue #1101 optimization: C7 form instead of B8
+    // Expected: 48 c7 c0 fc ff ff ff (7 bytes, sign-extends -4 to full r64)
     let text_bytes = build_and_extract_text("imm64_top_bit_fc");
-    let expected = vec![0x48, 0xb8, 0xfc, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
+    let expected = vec![0x48, 0xc7, 0xc0, 0xfc, 0xff, 0xff, 0xff];
     assert_eq!(
-        &text_bytes[..10], &expected[..],
+        &text_bytes[..7], &expected[..],
         "imm64_top_bit_fc: expected {:02X?}, got {:02X?}",
-        expected, &text_bytes[..10]
+        expected, &text_bytes[..7]
     );
 }
 
@@ -121,14 +123,15 @@ fn imm64_deadbeef() {
 
 #[test]
 fn imm64_all_ones() {
-    // mov rax, 0xFFFFFFFFFFFFFFFF
-    // Expected: 48 b8 ff ff ff ff ff ff ff ff
+    // mov rax, 0xFFFFFFFFFFFFFFFF (= -1 as i64, fits i32 range)
+    // With issue #1101 optimization: C7 form instead of B8
+    // Expected: 48 c7 c0 ff ff ff ff (7 bytes, sign-extends -1 to full r64)
     let text_bytes = build_and_extract_text("imm64_all_ones");
-    let expected = vec![0x48, 0xb8, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
+    let expected = vec![0x48, 0xc7, 0xc0, 0xff, 0xff, 0xff, 0xff];
     assert_eq!(
-        &text_bytes[..10], &expected[..],
+        &text_bytes[..7], &expected[..],
         "imm64_all_ones: expected {:02X?}, got {:02X?}",
-        expected, &text_bytes[..10]
+        expected, &text_bytes[..7]
     );
 }
 

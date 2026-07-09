@@ -63,44 +63,42 @@ impl EmitWalker {
         // Source: immediate value.
         operands.push(Operand::Imm64(value));
 
-        // Choose mnemonic + size. A sub-64-bit width emits MovSized; otherwise
+        // Choose mnemonic. A sub-64-bit width emits MovSized; otherwise
         // (None or W64) we preserve the established generic 64-bit Mov path.
-        //
-        // NOTE(step5): This site keeps the hardcoded size literal because the
-        // encoder currently emits the 10-byte movabs (48 B8 imm64) form for
-        // Mnemonic::Mov [Reg, Imm64] regardless of whether the value fits
-        // in imm32-sign-extended (48 C7 C0 imm32 = 7 bytes). Numerous tests
-        // pin the smaller encoding. Once the encoder gains a smaller-form
-        // path for i32-range immediates, this size literal can be retired
-        // in favour of emit_inst.
-        let (mnemonic, inst_size) = match width {
+        match width {
             Some(w @ (IntWidth::W8 | IntWidth::W16 | IntWidth::W32)) => {
-                (Mnemonic::MovSized { width: w }, w.estimated_size())
+                // Single-encoding widths: use established w.estimated_size() path.
+                let inst = Instruction {
+                    mnemonic: Mnemonic::MovSized { width: w },
+                    operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                };
+
+                // PA8-m1-002: Lambda entry recording is now handled by record_lambda_entry() in visit_lambda.
+                // This legacy path is no longer needed.
+
+                // Emit the instruction.
+                let inst_size = w.estimated_size();
+                self.state.instructions.insert(let_node_id, inst);
+                self.state.estimated_offset += inst_size;
             }
             _ => {
-                let size = if value >= i32::MIN as i64 && value <= i32::MAX as i64 {
-                    7
-                } else {
-                    10
+                // W64 or None: use generic Mov. The encoder now emits 7-byte C7 imm32 form
+                // for i32-range values instead of 10-byte B8 movabs. Use emit_inst which
+                // automatically calls paideia_as_encoder::estimated_bytes to get the correct size.
+                let inst = Instruction {
+                    mnemonic: Mnemonic::Mov,
+                    operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
                 };
-                (Mnemonic::Mov, size)
+
+                self.emit_inst(let_node_id, inst);
             }
-        };
-
-        let inst = Instruction {
-            mnemonic,
-            operands,
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: self.current_mode(),
-        };
-
-        // PA8-m1-002: Lambda entry recording is now handled by record_lambda_entry() in visit_lambda.
-        // This legacy path is no longer needed.
-
-        // Emit the instruction.
-        self.state.instructions.insert(let_node_id, inst);
-        self.state.estimated_offset += inst_size;
+        }
     }
 
     /// Phase 6 m3-003: Emit instruction for Let with FieldAccess RHS.

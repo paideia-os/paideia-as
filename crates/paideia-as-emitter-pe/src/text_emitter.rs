@@ -317,13 +317,20 @@ mod tests {
         let call_offset = output.iter().position(|&b| b == 0xE8).unwrap();
 
         // MOVs should appear before CALL
-        // movabs reg64, imm64 is 0x48 0xB8+reg — look for 0x48 0xB8-0xBF patterns
+        // movabs reg64, imm64 is 0x48 0xB8+reg (10 bytes)
+        // mov reg64, imm32 is 0x48 0xC7 0xC0+reg imm32 (7 bytes)
+        // Check for either encoding
         let has_mov_before_call = output[..call_offset]
             .windows(2)
-            .any(|w| w[0] == 0x48 && w[1] >= 0xB8 && w[1] <= 0xBF);
+            .any(|w| {
+                // B8 form: 0x48 0xB8-0xBF
+                (w[0] == 0x48 && w[1] >= 0xB8 && w[1] <= 0xBF) ||
+                // C7 form: 0x48 0xC7 (followed by ModR/M byte with reg bits in 0xC0-0xC7)
+                (w[0] == 0x48 && w[1] == 0xC7)
+            });
         assert!(
             has_mov_before_call,
-            "should have at least one MOV before CALL"
+            "should have at least one MOV before CALL (either 0x48 0xB8-0xBF or 0x48 0xC7 forms)"
         );
 
         // No bytes should exist after RET
