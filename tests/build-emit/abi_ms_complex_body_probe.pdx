@@ -1,0 +1,3 @@
+module AbiMsComplexBodyProbe = structure {
+  pub let my_complex : (u64) -> u64 = fn(x : u64) -> x * x @abi("ms")
+}

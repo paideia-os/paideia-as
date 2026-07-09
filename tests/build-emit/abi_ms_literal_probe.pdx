@@ -1,0 +1,3 @@
+module AbiMsLiteralProbe = structure {
+  pub let my_lit : () -> u64 = fn() -> 42 @abi("ms")
+}

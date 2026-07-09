@@ -1,0 +1,3 @@
+module AbiSysvProbe = structure {
+  pub let my_init : (u64) -> u64 = fn(x : u64) -> x + 1 @abi("sysv")
+}

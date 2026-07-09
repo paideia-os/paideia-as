@@ -1,0 +1,3 @@
+module AbiMsIdentityProbe = structure {
+  pub let my_id : (u64) -> u64 = fn(x : u64) -> x @abi("ms")
+}
