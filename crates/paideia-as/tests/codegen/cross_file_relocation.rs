@@ -35,6 +35,8 @@ fn compile_pdx_to_elf(pdx_file: &str, output_file: &str) -> Result<(), String> {
     let output = Command::new(&paideia_as)
         .arg("build")
         .arg(&fixture_path)
+        .arg("--emit")
+        .arg("elf64")
         .arg("-o")
         .arg(&output_path)
         .output()

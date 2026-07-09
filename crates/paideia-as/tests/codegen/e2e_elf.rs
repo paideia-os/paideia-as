@@ -81,8 +81,8 @@ fn build_unknown_emit_format_exits_2() {
 
 #[test]
 fn build_placeholder_emit_still_works() {
-    // Regression: --emit placeholder is the default and should still
-    // produce a placeholder file when explicitly requested.
+    // Regression: --emit placeholder is an explicit selection and should
+    // produce a placeholder file when requested.
     let input = data("hello.pdx");
     let tmp = std::env::temp_dir().join("paideia_as_e2e_placeholder.placeholder");
     let _ = std::fs::remove_file(&tmp);

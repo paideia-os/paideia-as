@@ -192,6 +192,8 @@ fn build_with_sarif_flag_writes_to_specified_path() {
     let out = cargo_run(&[
         "build",
         input.to_str().unwrap(),
+        "--emit",
+        "placeholder",
         "--sarif",
         sarif_path.to_str().unwrap(),
     ]);
@@ -222,7 +224,7 @@ fn build_with_sarif_flag_writes_to_specified_path() {
 #[test]
 fn build_without_sarif_flag_writes_no_sidecar() {
     let input = data("example.pdx");
-    let out = cargo_run(&["build", input.to_str().unwrap()]);
+    let out = cargo_run(&["build", input.to_str().unwrap(), "--emit", "placeholder"]);
 
     assert!(
         out.status.success(),
@@ -303,6 +305,8 @@ fn build_sarif_captures_walker_diagnostics_not_just_lex() {
     let out = cargo_run(&[
         "build",
         fixture_path.to_str().unwrap(),
+        "--emit",
+        "placeholder",
         "--sarif",
         sarif_path.to_str().unwrap(),
     ]);
@@ -378,7 +382,7 @@ fn build_sarif_on_encoder_failure_still_writes_sidecar() {
 #[test]
 fn build_clean_example_writes_placeholder() {
     let input = data("example.pdx");
-    let out = cargo_run(&["build", input.to_str().unwrap()]);
+    let out = cargo_run(&["build", input.to_str().unwrap(), "--emit", "placeholder"]);
 
     assert!(
         out.status.success(),
@@ -400,7 +404,7 @@ fn build_clean_example_writes_placeholder() {
 
     // Run again: deterministic output.
     let _ = std::fs::remove_file(&placeholder);
-    let _ = cargo_run(&["build", input.to_str().unwrap()]);
+    let _ = cargo_run(&["build", input.to_str().unwrap(), "--emit", "placeholder"]);
     let second = std::fs::read_to_string(&placeholder).unwrap();
     assert_eq!(first, second);
 
@@ -410,7 +414,7 @@ fn build_clean_example_writes_placeholder() {
 #[test]
 fn build_lex_error_skips_placeholder_and_exits_one() {
     let input = data("lex_error.pdx");
-    let out = cargo_run(&["build", input.to_str().unwrap()]);
+    let out = cargo_run(&["build", input.to_str().unwrap(), "--emit", "placeholder"]);
 
     assert_eq!(out.status.code(), Some(1));
 
@@ -435,7 +439,7 @@ fn build_linear_double_use_compiles_but_doesnt_fire_walker() {
     // Structured linearity payload arrives in m3/m5 when the IR gains
     // per-binding class info at lowering time.
     let input = data("linear_double_use.pdx");
-    let out = cargo_run(&["build", input.to_str().unwrap()]);
+    let out = cargo_run(&["build", input.to_str().unwrap(), "--emit", "placeholder"]);
 
     assert!(
         out.status.success(),

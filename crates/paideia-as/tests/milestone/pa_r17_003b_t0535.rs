@@ -37,7 +37,7 @@ fn t0535_param_type_mismatch_detected() {
         panic!("Fixture not found: {:?}", input);
     }
 
-    let out = cargo_run(&["build", input.to_str().unwrap()]);
+    let out = cargo_run(&["build", input.to_str().unwrap(), "--emit", "placeholder"]);
 
     // The build should complete (we continue on errors per task spec)
     // Check that stderr contains T0535 diagnostic
@@ -63,7 +63,7 @@ fn t0535_arity_mismatch_detected() {
         panic!("Fixture not found: {:?}", input);
     }
 
-    let out = cargo_run(&["build", input.to_str().unwrap()]);
+    let out = cargo_run(&["build", input.to_str().unwrap(), "--emit", "placeholder"]);
 
     let stderr = String::from_utf8_lossy(&out.stderr);
 
@@ -87,7 +87,7 @@ fn t0535_compatible_signature_accepts() {
         panic!("Fixture not found: {:?}", input);
     }
 
-    let out = cargo_run(&["build", input.to_str().unwrap()]);
+    let out = cargo_run(&["build", input.to_str().unwrap(), "--emit", "placeholder"]);
 
     let stderr = String::from_utf8_lossy(&out.stderr);
 

@@ -1,11 +1,14 @@
 //! `paideia-as build` — phase-1 placeholder backend.
 //!
-//! Closes deliverable 4 ("smoke-test elaboration"): the pipeline runs
-//! lex → parse → lower → placeholder. The real ELF/PAX/PE emitters
-//! arrive at deliverable 8. For now we write a tiny
-//! `<input>.placeholder` artifact containing a BLAKE3 hash of the
-//! lowered IR's pretty-printed form so the smoke test can verify the
-//! pipeline produced something deterministic.
+//! Issue #1110 (F15): Output selection is now required — callers must specify
+//! either `--target <triplet>` or `--emit <format>` (including `--emit placeholder`
+//! for the old default behavior). The clap ArgGroup enforces this at parse time,
+//! so the `(None, None)` case is unreachable.
+//!
+//! The pipeline runs lex → parse → lower → <emit>, where <emit> is determined
+//! by the selected format (placeholder, elf64, pax, or pe-coff). The real ELF/PAX/PE
+//! emitters arrive at deliverable 8; Phase-1 placeholder remains fully available
+//! under `--emit placeholder` for backward compatibility.
 //!
 //! # Internal structure
 //!
@@ -77,7 +80,7 @@ pub enum BuildError {
 /// Output format selector for `paideia-as build --emit`.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum EmitFormat {
-    /// Phase-1 default: write a `<stem>.placeholder` hash next to input.
+    /// Front-end smoke artifact: write a `<stem>.placeholder` hash next to input.
     Placeholder,
     /// Real ELF64 object via paideia-as-emitter-elf.
     Elf64,
@@ -123,7 +126,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                 return ExitCode::from(2);
             }
         },
-        (None, None) => EmitFormat::Placeholder,
+        (None, None) => unreachable!("clap ArgGroup(required=true) should enforce output_mode"),
         (Some(_), Some(_)) => unreachable!("clap conflicts_with should prevent both"),
     };
     let bytes = match fs::read(input) {

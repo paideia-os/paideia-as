@@ -60,7 +60,7 @@ mov rax, [rdi + rcx * 8]      ; 48 8b 04 cf
 
 — byte-for-byte the addressing form a hand-written NASM loop would use. The asm-reference equivalent is in [`asm-reference/algorithms/sum_array.asm`](asm-reference/algorithms/sum_array.asm).
 
-The four `--emit` values are `placeholder` (pipeline smoke), `elf64` (kernel-image target), `pax` (PaideiaOS-native), and `pe-coff` (UEFI / Microsoft x64). With no flag, `paideia-as build` writes a `<stem>.placeholder` smoke artifact next to the input.
+The four `--emit` values are `placeholder` (pipeline smoke), `elf64` (kernel-image target), `pax` (PaideiaOS-native), and `pe-coff` (UEFI / Microsoft x64). Output selection is required — invoke with either `--emit <format>` or `--target <triplet>`. For smoke-test compatibility, use `--emit placeholder` to produce a `<stem>.placeholder` artifact next to the input (this was the default before issue #1110).
 
 ## The two-instruction leaf function
 

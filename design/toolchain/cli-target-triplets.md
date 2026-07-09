@@ -61,11 +61,22 @@ paideia-as build foo.pdx --target uefi-x86_64 --emit elf64 -o foo.o
 
 The conflict is enforced by clap at parse time via `conflicts_with = "emit"` and `conflicts_with = "target"`.
 
-### Backward Compatibility
+### Output Selection Requirement (Issue #1110)
 
-- Omitting both `--target` and `--emit` produces `.placeholder` (Phase-1 default).
-- The `--emit` flag remains fully functional.
-- Existing scripts and builds are unaffected.
+**As of Phase 6 m4-003 (issue #1110)**, output selection is mandatory:
+
+- Omitting both `--target` and `--emit` is now a **usage error** (exit code 2).
+- Clap's `ArgGroup(required=true)` enforces this at parse time.
+- For backward compatibility with scripts that relied on the `.placeholder` default, use `--emit placeholder`:
+  ```bash
+  # Old (now an error):
+  paideia-as build script.pdx
+
+  # New (smoke-path compatible):
+  paideia-as build script.pdx --emit placeholder
+  ```
+- The `--emit` flag remains fully functional; all four formats (`placeholder`, `elf64`, `pax`, `pe-coff`) are available.
+- Existing scripts using explicit `--emit` or `--target` are unaffected.
 
 ## Extension Policy
 
@@ -169,9 +180,10 @@ MVP coverage includes:
    - Conflict error when both flags provided.
    - Invalid value error for unrecognized triplets.
 
-4. **Backward compatibility** (2 tests):
-   - No `--target`, no `--emit` → `.placeholder` (unchanged).
-   - Conflicting flags error with clap message.
+4. **Output selection requirement** (3 tests, issue #1110):
+   - No `--target`, no `--emit` → usage error (exit 2) with clap "required" phrasing.
+   - `--emit placeholder` explicitly still works, produces `.placeholder` (backward compat).
+   - **Empirically verified:** Usage error epilog lists all 8 valid selections in stderr (uefi-x86_64, elf-kernel-x86_64, elf-user-x86_64, pax-x86_64, elf64, pe-coff, pax, placeholder).
 
 All tests pass; 6 adversarial mutation probes confirm implementation correctness.
 

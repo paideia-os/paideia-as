@@ -28,7 +28,9 @@
 
 ### Breaking changes
 
-- **Issue #1107** — `paideia-as build --emit` flag is now optional (was implicitly `--emit placeholder`). Omitting `--emit` and `--target` defaults to `.placeholder` output (backward compat unchanged for existing scripts). The change enables the `--target` shortcut to work without unwanted emit flags. No change to behavior when `--emit` is explicitly provided.
+- **Issue #1110** — Output selection is now mandatory (PA-R6-M4-003). Omitting both `--target` and `--emit` on `paideia-as build` is now a usage error (exit code 2) instead of silently defaulting to `--emit placeholder`. The clap `ArgGroup(required=true)` enforces this at parse time. **Migration:** Restore old smoke-test behavior explicitly with `--emit placeholder`. All four output formats (`placeholder`, `elf64`, `pax`, `pe-coff`) remain fully available; this change requires callers to choose one explicitly. Existing scripts using `--emit` or `--target` are unaffected.
+
+- **Issue #1107** — `paideia-as build --target <triplet>` (PA-R6-M4-002) adds user-friendly target triplets as alternatives to `--emit` formats. See Issue #1110 above for interaction with output selection requirements. `--target` and `--emit` conflict at parse time; callers must use one or the other (not both).
 
 - **Issue #1108** — `paideia-as check` no longer auto-writes SARIF sidecar at `<input>.sarif.json`. Use `--sarif <PATH>` flag explicitly on both `check` and `build` commands to emit diagnostics in SARIF 2.1.0 format to a specified file path. Removes implicit output coupling and aligns with symmetric flag treatment across subcommands.
 

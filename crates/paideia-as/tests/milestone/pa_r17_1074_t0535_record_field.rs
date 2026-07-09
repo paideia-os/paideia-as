@@ -37,7 +37,7 @@ fn t0535_record_field_arity_mismatch_detected() {
         panic!("Fixture not found: {:?}", input);
     }
 
-    let out = cargo_run(&["build", input.to_str().unwrap()]);
+    let out = cargo_run(&["build", input.to_str().unwrap(), "--emit", "placeholder"]);
 
     let stderr = String::from_utf8_lossy(&out.stderr);
 
@@ -61,7 +61,7 @@ fn t0535_record_field_param_type_mismatch_detected() {
         panic!("Fixture not found: {:?}", input);
     }
 
-    let out = cargo_run(&["build", input.to_str().unwrap()]);
+    let out = cargo_run(&["build", input.to_str().unwrap(), "--emit", "placeholder"]);
 
     let stderr = String::from_utf8_lossy(&out.stderr);
 
@@ -85,7 +85,7 @@ fn t0535_record_field_compatible_signature_accepts() {
         panic!("Fixture not found: {:?}", input);
     }
 
-    let out = cargo_run(&["build", input.to_str().unwrap()]);
+    let out = cargo_run(&["build", input.to_str().unwrap(), "--emit", "placeholder"]);
 
     let stderr = String::from_utf8_lossy(&out.stderr);
 

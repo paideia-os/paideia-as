@@ -20,7 +20,7 @@ use super::fixture::ScratchDir;
 /// Emit format passed via `--emit <fmt>`.
 #[derive(Clone, Copy, Debug)]
 pub enum EmitFmt {
-    /// No `--emit` flag (build defaults to `.placeholder`).
+    /// No `--emit` flag (must be paired with `--target`, or build fails with usage error).
     None,
     Elf64,
     Pax,

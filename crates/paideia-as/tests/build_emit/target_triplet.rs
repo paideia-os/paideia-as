@@ -4,7 +4,7 @@
 //! output formats, and that `--target` and `--emit` conflict as expected.
 
 use crate::common::fixture::{crate_tests, ScratchDir};
-use crate::common::harness::{BuildOpts, EmitFmt, TargetTriplet, run_build_with};
+use crate::common::harness::{BuildOpts, EmitFmt, TargetTriplet, run_build_with, run_cli};
 
 /// Test 1: `--target uefi-x86_64` produces a valid PE32+ EFI application.
 ///
@@ -212,12 +212,13 @@ fn target_invalid_value_errors() {
     );
 }
 
-/// Test 8: Omitting both `--target` and `--emit` defaults to placeholder format.
+/// Test 8: Omitting both `--target` and `--emit` is a usage error.
 ///
-/// Backward compatibility: invoking without either flag should produce a
-/// `<stem>.placeholder` file, not fail.
+/// Issue #1110: output selection is required. Invoking without either flag
+/// should fail with a clap usage error (exit code 2) and NOT produce a
+/// `<stem>.placeholder` file.
 #[test]
-fn no_target_no_emit_defaults_to_placeholder() {
+fn no_target_no_emit_is_usage_error() {
     let scratch = ScratchDir::new("target_no_flags");
     let out_path = scratch.artifact("hello.placeholder");
 
@@ -228,10 +229,148 @@ fn no_target_no_emit_defaults_to_placeholder() {
         .output(&out_path);
     let out = run_build_with(opts);
 
+    // Must fail with clap usage-error exit code 2
+    assert_eq!(
+        out.exit_code(),
+        Some(2),
+        "expected clap usage-error exit code 2; got: {:?}\nstderr: {}",
+        out.exit_code(),
+        out.stderr
+    );
+
+    // Must contain clap's "required" phrasing
+    assert!(
+        out.stderr_contains("required"),
+        "stderr should contain clap's 'required' phrasing: {}",
+        out.stderr
+    );
+
+    // Must NOT write a .placeholder file
+    let bytes_result = std::fs::read(&out_path);
+    assert!(
+        bytes_result.is_err(),
+        ".placeholder file should NOT exist when missing required output selection"
+    );
+}
+
+/// Test 9: Explicit `--emit placeholder` still works (backward-compat smoke path).
+///
+/// Issue #1110: while the default is retired, `--emit placeholder` must continue
+/// to work, producing a `<stem>.placeholder` file as before.
+#[test]
+fn emit_placeholder_still_writes_placeholder_artifact() {
+    let scratch = ScratchDir::new("emit_placeholder");
+    let out_path = scratch.artifact("hello.placeholder");
+
+    let opts = BuildOpts::new(crate_tests("data/hello.pdx"))
+        .emit(EmitFmt::Raw("placeholder"))
+        .output(&out_path);
+    let out = run_build_with(opts);
+
     // Must succeed
     out.assert_ok();
 
-    // The artifact should exist
+    // The artifact should exist and be non-empty
     let bytes = out.artifact_bytes();
     assert!(!bytes.is_empty(), ".placeholder file should exist and have content");
+
+    // Verify it has the expected format signature
+    let content = String::from_utf8_lossy(&bytes);
+    assert!(
+        content.starts_with("paideia-as placeholder v0"),
+        "placeholder file should have expected header"
+    );
+}
+
+/// Test 10: Usage error epilog lists all eight output selections.
+///
+/// Issue #1110: when the user omits both `--target` and `--emit`, the resulting
+/// usage error (exit code 2) should include an epilog listing all 8 valid output
+/// selections in stderr. This test specifically verifies the epilog is present
+/// and complete when the build command is invoked without output selection.
+#[test]
+fn usage_error_epilog_lists_all_eight_selections() {
+    // Invoke without `--emit` or `--target` — should trigger missing-required error.
+    let out = run_cli(&["build", "crates/paideia-as/tests/data/hello.pdx"]);
+
+    // Must fail with clap usage-error exit code 2
+    assert_eq!(
+        out.exit_code(),
+        Some(2),
+        "expected clap usage-error exit code 2; got: {:?}\nstderr: {}",
+        out.exit_code(),
+        out.stderr
+    );
+
+    let stderr = &out.stderr;
+
+    // The epilog header text uniquely identifies the epilog (not present without the wrapper).
+    assert!(
+        stderr.contains("Output selection is required. Choose one of:"),
+        "usage error stderr should contain the header line: {}",
+        stderr
+    );
+
+    // Epilog must contain all 8 selections
+    let required_keywords = [
+        "uefi-x86_64",
+        "elf-kernel-x86_64",
+        "elf-user-x86_64",
+        "pax-x86_64",
+        "elf64",
+        "pe-coff",
+        "pax",
+        "placeholder",
+    ];
+
+    for keyword in &required_keywords {
+        assert!(
+            stderr.contains(keyword),
+            "usage error stderr should contain '{}', but got: {}",
+            keyword,
+            stderr
+        );
+    }
+}
+
+/// Test 11: Help text epilog lists all eight output selections.
+///
+/// Verify that `--help` still shows the complete epilog in stdout (separate
+/// from the usage-error test). This is a backward-compat smoke test.
+#[test]
+fn help_text_epilog_lists_all_eight_selections() {
+    let out = run_cli(&["build", "--help"]);
+
+    // Must succeed (help doesn't fail)
+    assert_eq!(out.exit_code(), Some(0), "help should exit 0");
+
+    let stdout = &out.stdout;
+
+    // The epilog header text uniquely identifies the epilog (not present without after_help)
+    assert!(
+        stdout.contains("Output selection is required. Choose one of:"),
+        "help text epilog should contain the header line: {}",
+        stdout
+    );
+
+    // Epilog must contain all 8 selections
+    let required_keywords = [
+        "uefi-x86_64",
+        "elf-kernel-x86_64",
+        "elf-user-x86_64",
+        "pax-x86_64",
+        "elf64",
+        "pe-coff",
+        "pax",
+        "placeholder",
+    ];
+
+    for keyword in &required_keywords {
+        assert!(
+            stdout.contains(keyword),
+            "help text epilog should contain '{}', but got: {}",
+            keyword,
+            stdout
+        );
+    }
 }

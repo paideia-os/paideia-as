@@ -20,12 +20,33 @@ mod resolve_var_operands;
 
 use std::process::ExitCode;
 
-use clap::Parser;
+use clap::{Parser, error::ErrorKind};
 
-use crate::cli::{Cli, Cmd};
+use crate::cli::{Cli, Cmd, OUTPUT_SELECTION_GUIDANCE};
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(err) => {
+            let kind = err.kind();
+            // Detect if it's a missing-required error on the `build` subcommand.
+            // The error text will include "paideia-as build" if it's the build command.
+            let is_build_missing = kind == ErrorKind::MissingRequiredArgument
+                && err.to_string().contains("paideia-as build");
+
+            // Print the standard clap error to stderr (for usage errors, clap prints to stderr).
+            let _ = err.print();
+
+            // If it's a missing output selection on the `build` command, append guidance.
+            if is_build_missing {
+                eprintln!();
+                eprintln!("{}", OUTPUT_SELECTION_GUIDANCE);
+            }
+
+            std::process::exit(err.exit_code());
+        }
+    };
+
     match cli.command {
         Cmd::Build {
             input,

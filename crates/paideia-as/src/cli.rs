@@ -6,6 +6,10 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+/// Guidance text for the 8 output selections. Used both in `--help` epilog and
+/// error messages when output selection is required but missing.
+pub const OUTPUT_SELECTION_GUIDANCE: &str = "Output selection is required. Choose one of:\n  --target uefi-x86_64          UEFI firmware / bootloader (PE32+)\n  --target elf-kernel-x86_64    Kernel-mode ELF64 object\n  --target elf-user-x86_64      User-mode ELF64 object\n  --target pax-x86_64           PaideiaOS native (PAX)\n  --emit   elf64                Raw ELF64 emitter\n  --emit   pe-coff              Raw PE/COFF emitter\n  --emit   pax                  Raw PAX emitter\n  --emit   placeholder          Front-end smoke artifact";
+
 /// Output format for test results.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, clap::ValueEnum)]
 pub enum OutputFormat {
@@ -46,9 +50,14 @@ pub struct Cli {
 /// Subcommand selection.
 #[derive(Subcommand)]
 pub enum Cmd {
-    /// Compile `.pdx` files. Phase-1 form: writes a `<stem>.placeholder`
-    /// next to the input; the real ELF/PAX/PE emitters arrive at
-    /// deliverable 8.
+    /// Compile `.pdx` files into an output artifact. Requires one of `--target`
+    /// (triplet shortcut) or `--emit` (raw format selector) to specify output
+    /// selection. Real ELF/PAX/PE emitters arrive at deliverable 8; Phase-1
+    /// also supports `--emit placeholder` for smoke-test determinism.
+    #[command(
+        group = clap::ArgGroup::new("output_mode").required(true).args(["emit", "target"]),
+        after_help = OUTPUT_SELECTION_GUIDANCE
+    )]
     Build {
         /// Path to the input `.pdx` file.
         input: PathBuf,
@@ -56,9 +65,8 @@ pub enum Cmd {
         /// to `<stem>.o` next to the input.
         #[arg(short = 'o', long = "output")]
         output: Option<PathBuf>,
-        /// Output format. Phase-1 supports `placeholder` (default) and
-        /// `elf64` (writes a parseable ELF64 object via
-        /// paideia-as-emitter-elf).
+        /// Output format. Supported values: `placeholder` (front-end smoke artifact),
+        /// `elf64` (raw ELF64 emitter), `pax` (raw PAX emitter), `pe-coff` (raw PE/COFF emitter).
         #[arg(long = "emit", conflicts_with = "target")]
         emit: Option<String>,
         /// Target triplet shortcut for output format.
