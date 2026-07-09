@@ -10,5 +10,8 @@ path = "src/lib.rs"
 [build-dependencies]
 paideia-as-emitter-pe = { path = "../paideia-as-emitter-pe", optional = true }
 
+[dev-dependencies]
+regex = { workspace = true }
+
 [features]
 regen-uefi-template = ["paideia-as-emitter-pe"]

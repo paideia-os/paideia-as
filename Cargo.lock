@@ -2257,6 +2257,7 @@ name = "paideia-stdlib"
 version = "0.16.0"
 dependencies = [
  "paideia-as-emitter-pe",
+ "regex",
 ]
 
 [[package]]

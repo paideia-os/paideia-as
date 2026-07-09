@@ -25,15 +25,6 @@ fn uefi_fixture_compiles_and_emits_valid_efi() {
 }
 
 #[test]
-fn uefi_fixture_patches_entry_rva() {
-    // Verify field offsets are correct from the header constants
-    // OFF_OPT_ADDRESS_OF_ENTRY should be 0x68 (104 decimal)
-    // This verifies the offset constants are properly defined
-    const OFF_OPT_ADDRESS_OF_ENTRY: u64 = 0x68;
-    assert_eq!(OFF_OPT_ADDRESS_OF_ENTRY, 0x68);
-}
-
-#[test]
 fn uefi_fixture_link_section_places_template_at_file_offset_0() {
     // Verify the @link_section directive is in place
     // In actual usage, a linker script would place .uefi_hdr at file offset 0

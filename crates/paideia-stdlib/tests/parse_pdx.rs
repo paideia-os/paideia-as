@@ -2,6 +2,8 @@
 
 use std::path::PathBuf;
 use std::process::Command;
+use regex::Regex;
+use std::collections::HashMap;
 
 fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -1876,47 +1878,105 @@ fn uefi_header_template_defaults_reproducible() {
     assert_eq!(file_align, 0x200, "FileAlignment should be 0x200");
 }
 
+fn parse_off_constants(src: &str) -> HashMap<String, u64> {
+    let mut constants = HashMap::new();
+    let re = Regex::new(r"(?m)^\s*pub let\s+(OFF_\w+)\s*:\s*u64\s*=\s*0x([0-9A-Fa-f_]+)\b")
+        .expect("regex should compile");
+
+    for cap in re.captures_iter(src) {
+        if let (Some(name_match), Some(value_match)) = (cap.get(1), cap.get(2)) {
+            let name = name_match.as_str().to_string();
+            let hex_str = value_match.as_str().replace('_', "");
+            if let Ok(value) = u64::from_str_radix(&hex_str, 16) {
+                constants.insert(name, value);
+            }
+        }
+    }
+    constants
+}
+
 #[test]
-fn uefi_header_field_offsets_match_spec() {
+fn uefi_pdx_constants_match_template_bytes() {
+    let pdx_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/uefi.pdx");
     let template_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("pdx/uefi_header_template.bin");
+
+    // Read sources of truth
+    let pdx_src = std::fs::read_to_string(&pdx_path)
+        .expect("Failed to read uefi.pdx");
     let bytes = std::fs::read(&template_path)
         .expect("Failed to read uefi_header_template.bin");
 
-    // Test each offset constant from uefi.pdx
-    // OFF_COFF_TIMESTAMP = 0x48
-    let timestamp = u32::from_le_bytes([bytes[0x48], bytes[0x49], bytes[0x4A], bytes[0x4B]]);
-    assert_eq!(timestamp, 0, "OFF_COFF_TIMESTAMP offset incorrect");
+    // Verify template is exactly 512 bytes
+    assert_eq!(
+        bytes.len(),
+        512,
+        "template blob is {} bytes, expected 512",
+        bytes.len()
+    );
 
-    // OFF_COFF_NUM_SECTIONS = 0x46
-    let num_sections = u16::from_le_bytes([bytes[0x46], bytes[0x47]]);
-    assert_eq!(num_sections, 0, "OFF_COFF_NUM_SECTIONS offset incorrect");
+    // Extract all OFF_* constants from uefi.pdx
+    let extracted = parse_off_constants(&pdx_src);
 
-    // OFF_OPT_ADDRESS_OF_ENTRY = 0x68
-    let entry_rva = u32::from_le_bytes([bytes[0x68], bytes[0x69], bytes[0x6A], bytes[0x6B]]);
-    assert_eq!(entry_rva, 0, "OFF_OPT_ADDRESS_OF_ENTRY offset incorrect");
+    // Expected table: (name, width in bytes, expected_value)
+    let expected_table: Vec<(&str, usize, u64)> = vec![
+        ("OFF_COFF_NUM_SECTIONS", 2, 0),
+        ("OFF_COFF_TIMESTAMP", 4, 0),
+        ("OFF_OPT_SIZE_OF_CODE", 4, 0),
+        ("OFF_OPT_ADDRESS_OF_ENTRY", 4, 0),
+        ("OFF_OPT_SIZE_OF_IMAGE", 4, 0),
+        ("OFF_OPT_SIZE_OF_HEADERS", 4, 0),
+        ("OFF_OPT_CHECKSUM", 4, 0),
+        ("OFF_OPT_SUBSYSTEM", 2, 10),
+        ("OFF_SECTION_TABLE_START", 0, 0), // 0 width means in-bounds only, no value check
+    ];
 
-    // OFF_OPT_SIZE_OF_CODE = 0x5C
-    let size_of_code = u32::from_le_bytes([bytes[0x5C], bytes[0x5D], bytes[0x5E], bytes[0x5F]]);
-    assert_eq!(size_of_code, 0, "OFF_OPT_SIZE_OF_CODE offset incorrect");
+    // Forward consistency: each expected constant must exist and pass checks
+    for (name, width, expected_value) in &expected_table {
+        let offset = extracted.get(*name)
+            .unwrap_or_else(|| panic!("uefi.pdx missing constant {}", name));
 
-    // OFF_OPT_SIZE_OF_IMAGE = 0x90
-    let size_of_image = u32::from_le_bytes([bytes[0x90], bytes[0x91], bytes[0x92], bytes[0x93]]);
-    assert_eq!(size_of_image, 0, "OFF_OPT_SIZE_OF_IMAGE offset incorrect");
+        // Check bounds
+        let end = offset + *width as u64;
+        assert!(
+            end <= 512,
+            "{} at 0x{:x} + {} exceeds 512-byte template",
+            name, offset, width
+        );
 
-    // OFF_OPT_SIZE_OF_HEADERS = 0x94
-    let size_of_headers = u32::from_le_bytes([bytes[0x94], bytes[0x95], bytes[0x96], bytes[0x97]]);
-    assert_eq!(size_of_headers, 0, "OFF_OPT_SIZE_OF_HEADERS offset incorrect");
+        // Check value (skip if width is 0, which means in-bounds only)
+        if *width > 0 {
+            let actual = match width {
+                2 => u16::from_le_bytes([
+                    bytes[*offset as usize],
+                    bytes[(*offset + 1) as usize],
+                ]) as u64,
+                4 => u32::from_le_bytes([
+                    bytes[*offset as usize],
+                    bytes[(*offset + 1) as usize],
+                    bytes[(*offset + 2) as usize],
+                    bytes[(*offset + 3) as usize],
+                ]) as u64,
+                _ => panic!("unsupported width {}", width),
+            };
 
-    // OFF_OPT_CHECKSUM = 0x98
-    let checksum = u32::from_le_bytes([bytes[0x98], bytes[0x99], bytes[0x9A], bytes[0x9B]]);
-    assert_eq!(checksum, 0, "OFF_OPT_CHECKSUM offset incorrect");
+            assert_eq!(
+                actual, *expected_value,
+                "{} at 0x{:x} reads {} in template, expected {}",
+                name, offset, actual, expected_value
+            );
+        }
+    }
 
-    // OFF_OPT_SUBSYSTEM = 0x9C
-    let subsystem = u16::from_le_bytes([bytes[0x9C], bytes[0x9D]]);
-    assert_eq!(subsystem, 10, "OFF_OPT_SUBSYSTEM offset incorrect");
-
-    // OFF_SECTION_TABLE_START = 0x148
-    // Beyond the minimal header (should be zeros in template)
-    assert!(0x148 < bytes.len(), "OFF_SECTION_TABLE_START is within the 512-byte template");
+    // Reverse consistency: every OFF_* in the extracted map must be in the expected table
+    for (name, _) in &extracted {
+        let is_expected = expected_table.iter().any(|(expected_name, _, _)| {
+            *expected_name == name
+        });
+        assert!(
+            is_expected,
+            "uefi.pdx defines {} but it is not in the expected test table",
+            name
+        );
+    }
 }
