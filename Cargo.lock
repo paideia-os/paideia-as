@@ -2009,6 +2009,7 @@ dependencies = [
  "paideia-as-ast",
  "paideia-as-diagnostics",
  "paideia-as-effects",
+ "paideia-as-emitter-pe",
  "paideia-as-encoder",
  "paideia-as-ir",
  "paideia-as-lexer",

@@ -243,10 +243,12 @@ fn match_labels_registered_correctly() {
     let default_label = format!("match_default_{}", match_id);
     let end_label = format!("match_end_{}", match_id);
 
-    // Labels should be registered in walker.state.labels
+    // arm_0_label and default_label use register_label (walker-time estimated_offset)
     assert!(walker.state().labels.contains_key(&arm_0_label));
     assert!(walker.state().labels.contains_key(&default_label));
-    assert!(walker.state().labels.contains_key(&end_label));
+    // #1120: end_label uses label_to_instr (post-sort resolution via NOP anchor)
+    assert!(walker.state().label_to_instr.contains_key(&end_label),
+        "#1120: end_label must be registered via label_to_instr for post-sort resolution");
 }
 
 #[test]

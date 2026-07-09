@@ -21,6 +21,7 @@ blake3 = { workspace = true }
 
 [dev-dependencies]
 paideia-as-encoder = { path = "../paideia-as-encoder" }
+paideia-as-emitter-pe = { path = "../paideia-as-emitter-pe" }
 paideia-as-lexer = { path = "../paideia-as-lexer" }
 paideia-as-parser = { path = "../paideia-as-parser" }
 smallvec = { workspace = true }

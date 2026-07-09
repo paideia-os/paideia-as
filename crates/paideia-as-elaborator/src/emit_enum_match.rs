@@ -602,8 +602,21 @@ impl EmitWalker {
             });
         }
 
-        // Register end label
-        self.state.register_label(end_label);
+        // #1120: register end_label via label_to_instr (offset resolved post-sort)
+        // instead of register_label (which captures walker-time estimated_offset).
+        // Anchor the label to a 1-byte NOP whose IrNodeId is high enough to sort
+        // after every arm-end jmp (M*1000 + 5..M*1000 + arm_count*10+5).
+        let nop_id = IrNodeId::new(match_node_id.get() * 1000 + 999)
+            .expect("match end anchor NOP virtual id");
+        let nop_inst = Instruction {
+            mnemonic: Mnemonic::Nop,
+            operands: SmallVec::new(),
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: self.current_mode(),
+        };
+        self.emit_inst(nop_id, nop_inst);
+        self.state.insert_label(end_label, nop_id);
     }
 
     /// Phase 7 m1-004 (PA7-007): Emit match-expression lowering for enum variant dispatch.
@@ -907,12 +920,36 @@ impl EmitWalker {
 
         // Register default label if no explicit default arm was present
         // (when all arms are non-default enum variants, the last arm's jne jumps here)
+        // #1120: use label_to_instr via NOP anchor for post-sort resolution
         if !default_arm_registered {
-            self.state.register_label(default_label);
+            let default_nop_id = IrNodeId::new(match_node_id.get() * 100 + 997)
+                .expect("match default anchor NOP virtual id");
+            let default_nop_inst = Instruction {
+                mnemonic: Mnemonic::Nop,
+                operands: SmallVec::new(),
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+            };
+            self.emit_inst(default_nop_id, default_nop_inst);
+            self.state.insert_label(default_label, default_nop_id);
         }
 
-        // Register end label
-        self.state.register_label(end_label);
+        // #1120: register end_label via label_to_instr (offset resolved post-sort)
+        // instead of register_label (which captures walker-time estimated_offset).
+        // Anchor the label to a 1-byte NOP whose IrNodeId is high enough to sort
+        // after every arm-end jmp (M*100 + idx*10 + 3).
+        let end_nop_id = IrNodeId::new(match_node_id.get() * 100 + 999)
+            .expect("match end anchor NOP virtual id");
+        let end_nop_inst = Instruction {
+            mnemonic: Mnemonic::Nop,
+            operands: SmallVec::new(),
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: self.current_mode(),
+        };
+        self.emit_inst(end_nop_id, end_nop_inst);
+        self.state.insert_label(end_label, end_nop_id);
     }
 }
 
@@ -1091,6 +1128,139 @@ mod tests {
             matches!(instr.mnemonic, Mnemonic::Jcc(Cond::Ne))
         });
         assert!(has_cmp_jne, "Sparse match should use cmp/jne cascade");
+    }
+
+    /// #1120: Verify end_label is registered via label_to_instr (jump-table path)
+    #[test]
+    fn end_label_resolves_via_label_to_instr_jump_table() {
+        let mut arena = IrArena::new();
+
+        let scrutinee_id = arena.alloc(IrKind::Var, span());
+        let arm_body_id = arena.alloc(IrKind::Literal, span());
+        let arm_id = arena.alloc_with_children(IrKind::Action, span(), [arm_body_id]);
+        let match_id = arena.alloc_with_children(IrKind::Match, span(), [scrutinee_id, arm_id]);
+
+        arena.match_scrutinee_table_mut().insert(match_id, EnumTypeId(0));
+        arena.match_dispatch_meta_mut().insert(
+            match_id,
+            MatchDispatchMeta {
+                jump_table: true,
+                min_arm: 0,
+                range: 4,
+                covered_arms: 4,
+                density_ok: true,
+            },
+        );
+        arena.match_jump_table_arm_values_mut().insert(match_id, vec![(0, 0)]);
+
+        let mut arm_meta = paideia_as_ir::MatchArmMeta::default();
+        arm_meta.is_default = false;
+        arm_meta.variant_index = Some(0);
+        arena.match_arm_meta_mut().insert(arm_id, arm_meta);
+        arena.literal_values_mut().insert(arm_body_id, 0x1234i64);
+
+        let mut walker = EmitWalker::new();
+        walker.state.insert_enum_layout(EnumTypeId(0), paideia_as_ir::EnumLayout::new(0));
+
+        walker.visit_match_jump_table(match_id, &arena, &MatchDispatchMeta {
+            jump_table: true,
+            min_arm: 0,
+            range: 4,
+            covered_arms: 4,
+            density_ok: true,
+        });
+
+        let end_label = format!("match_end_{}", match_id.get());
+        // #1120: end_label must be in label_to_instr, not labels
+        assert!(walker.state().label_to_instr.contains_key(&end_label),
+            "#1120: jump-table end_label must use label_to_instr");
+        assert!(!walker.state().labels.contains_key(&end_label),
+            "#1120: jump-table end_label should not be in labels (walker-time offsets)");
+
+        // #1120: Verify the NOP anchor's byte offset is correct via real encoding
+        let mut table = walker.state().instructions().clone();
+        let mut buf = Vec::new();
+        let result = paideia_as_emitter_pe::emit_text_from_instructions(&mut table, &mut buf)
+            .expect("encode should succeed");
+
+        let &nop_id = walker.state().label_to_instr().get(&end_label)
+            .expect("#1120: end_label must resolve via label_to_instr");
+        let &nop_offset = result.offset_map.get(&nop_id)
+            .expect("#1120: NOP anchor must have an offset_map entry");
+
+        assert_eq!(
+            nop_offset as usize,
+            buf.len() - 1,
+            "#1120: end_label NOP anchor must be the LAST byte in .text \
+             (sort-order proof — this is what the walker-order bug broke). \
+             Actual: nop at offset {}, buf.len()={}",
+            nop_offset,
+            buf.len()
+        );
+    }
+
+    /// #1120: Verify end_label is registered via label_to_instr (cmp/jne cascade path)
+    #[test]
+    fn end_label_resolves_via_label_to_instr_cmp_jne() {
+        let mut arena = IrArena::new();
+
+        let scrutinee_id = arena.alloc(IrKind::Var, span());
+        let arm_body_id = arena.alloc(IrKind::Literal, span());
+        let arm_id = arena.alloc_with_children(IrKind::Action, span(), [arm_body_id]);
+        let match_id = arena.alloc_with_children(IrKind::Match, span(), [scrutinee_id, arm_id]);
+
+        arena.match_scrutinee_table_mut().insert(match_id, EnumTypeId(0));
+        // density_ok = false forces cmp/jne cascade
+        arena.match_dispatch_meta_mut().insert(
+            match_id,
+            MatchDispatchMeta {
+                jump_table: true,
+                min_arm: 0,
+                range: 100,
+                covered_arms: 1,
+                density_ok: false, // Force cmp/jne cascade
+            },
+        );
+        arena.match_jump_table_arm_values_mut().insert(match_id, vec![(0, 0)]);
+
+        let mut arm_meta = paideia_as_ir::MatchArmMeta::default();
+        arm_meta.is_default = false;
+        arm_meta.variant_index = Some(0);
+        arena.match_arm_meta_mut().insert(arm_id, arm_meta);
+        arena.literal_values_mut().insert(arm_body_id, 0x5678i64);
+
+        let mut walker = EmitWalker::new();
+        walker.state.insert_enum_layout(EnumTypeId(0), paideia_as_ir::EnumLayout::new(0));
+
+        walker.visit_match(match_id, &arena, None, TailContext::Discard);
+
+        let end_label = format!("match_end_{}", match_id.get());
+        // #1120: end_label must be in label_to_instr, not labels
+        assert!(walker.state().label_to_instr.contains_key(&end_label),
+            "#1120: cmp/jne end_label must use label_to_instr");
+        assert!(!walker.state().labels.contains_key(&end_label),
+            "#1120: cmp/jne end_label should not be in labels (walker-time offsets)");
+
+        // #1120: Verify the NOP anchor's byte offset is correct via real encoding
+        let mut table = walker.state().instructions().clone();
+        let mut buf = Vec::new();
+        let result = paideia_as_emitter_pe::emit_text_from_instructions(&mut table, &mut buf)
+            .expect("encode should succeed");
+
+        let &nop_id = walker.state().label_to_instr().get(&end_label)
+            .expect("#1120: end_label must resolve via label_to_instr");
+        let &nop_offset = result.offset_map.get(&nop_id)
+            .expect("#1120: NOP anchor must have an offset_map entry");
+
+        assert_eq!(
+            nop_offset as usize,
+            buf.len() - 1,
+            "#1120: end_label NOP anchor must be the LAST byte in .text \
+             (sort-order proof — this is what the walker-order bug broke). \
+             Actual: nop at offset {}, buf.len()={}",
+            nop_offset,
+            buf.len()
+        );
     }
 }
 
