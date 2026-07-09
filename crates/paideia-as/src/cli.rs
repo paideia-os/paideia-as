@@ -128,15 +128,15 @@ pub enum Cmd {
     },
     /// Format source code.
     Fmt {
-        /// Path to the input `.pdx` file. Omit to read from stdin.
-        input: Option<PathBuf>,
+        /// Paths to input `.pdx` files. Omit to read from stdin.
+        inputs: Vec<PathBuf>,
         /// Read from stdin instead of a file.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "inputs")]
         stdin: bool,
-        /// Check mode: exit with status 1 if formatting would change the file.
+        /// Check mode: exit with status 1 if formatting would change any file.
         #[arg(long, conflicts_with = "diff")]
         check: bool,
-        /// Diff mode: display unified diff to stdout; exit 1 if formatting would change.
+        /// Diff mode: display unified diff to stdout; exit 1 if formatting would change any file.
         #[arg(long, conflicts_with = "check")]
         diff: bool,
     },

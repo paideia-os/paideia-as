@@ -79,10 +79,10 @@ fn main() -> ExitCode {
             format,
         } => cmd_test::run(paths, filter, list, format),
         Cmd::Fmt {
-            input,
+            inputs,
             stdin,
             check,
             diff,
-        } => cmd_fmt::run(input.as_deref(), check, diff, stdin),
+        } => cmd_fmt::run(&inputs, check, diff, stdin),
     }
 }
