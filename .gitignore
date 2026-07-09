@@ -1,6 +1,10 @@
 # Build artifacts
 /target/
 **/*.rs.bk
+examples/*.o
+examples/*.efi
+examples/*.pax
+examples/*.placeholder
 
 # Diagnostic sidecars emitted by `paideia-as check`
 **/*.pdx.sarif.json
