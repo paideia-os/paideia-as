@@ -52,10 +52,13 @@ pub enum Cmd {
         dump_ir: bool,
     },
     /// Run linearity / effect / opt-pass linters.
+    #[command(hide = true)]
     Lint { inputs: Vec<String> },
     /// Emit a specific format.
+    #[command(hide = true)]
     Emit { format: String, inputs: Vec<String> },
     /// Print the unsafe-block audit catalog.
+    #[command(hide = true)]
     Audit { inputs: Vec<String> },
     /// Generate reference documentation from inline annotations.
     Doc { inputs: Vec<String> },

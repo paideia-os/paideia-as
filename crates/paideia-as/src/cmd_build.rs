@@ -772,7 +772,9 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
         if let Some(ir_root_id) = IrNodeId::new(1) {
             let _changes = dispatch::dispatch(&mut lowering.ir, ir_root_id, &requested_passes, &mut opt_sink);
             // Log optimization results
-            eprintln!("[opt] {} changes applied from optimization passes", _changes);
+            if cfg!(debug_assertions) {
+                eprintln!("[opt] {} changes applied from optimization passes", _changes);
+            }
         }
     }
 

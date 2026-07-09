@@ -181,16 +181,6 @@ pub fn lower_ast_to_ir(
     for i in 0..ast.len() {
         let ast_id = NodeId::new((i + 1) as u32).expect("non-zero node id");
         let ir_id = ast_to_ir[&ast_id];
-        let ast_node = &ast[ast_id];
-
-        // Debug: print the structure for Lambda nodes
-        if ast_node.kind == paideia_as_ast::NodeKind::ExprLambda {
-            eprintln!(
-                "[lower_ast_to_ir] Lambda AST node {} -> IR {}",
-                ast_id.get(),
-                ir_id.get()
-            );
-        }
 
         let ast_children = collect_ast_children(
             ast,

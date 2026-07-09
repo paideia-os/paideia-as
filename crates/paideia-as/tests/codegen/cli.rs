@@ -436,3 +436,60 @@ fn pax_introspect_dumps_header() {
 
     let _ = std::fs::remove_file(&pax_path);
 }
+
+#[test]
+fn stub_lint_exits_with_code_2() {
+    let input = data("example.pdx");
+    let out = cargo_run(&["lint", input.to_str().unwrap()]);
+
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "expected exit 2 for stub lint command, got {:?}",
+        out.status
+    );
+
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("not yet implemented"),
+        "expected 'not yet implemented' in stderr; got: {stderr}"
+    );
+}
+
+#[test]
+fn stub_emit_exits_with_code_2() {
+    let input = data("example.pdx");
+    let out = cargo_run(&["emit", "elf64", input.to_str().unwrap()]);
+
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "expected exit 2 for stub emit command, got {:?}",
+        out.status
+    );
+
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("not yet implemented"),
+        "expected 'not yet implemented' in stderr; got: {stderr}"
+    );
+}
+
+#[test]
+fn stub_audit_exits_with_code_2() {
+    let input = data("example.pdx");
+    let out = cargo_run(&["audit", input.to_str().unwrap()]);
+
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "expected exit 2 for stub audit command, got {:?}",
+        out.status
+    );
+
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("not yet implemented"),
+        "expected 'not yet implemented' in stderr; got: {stderr}"
+    );
+}

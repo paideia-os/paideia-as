@@ -35,16 +35,16 @@ fn main() -> ExitCode {
         } => cmd_build::run(&input, output.as_deref(), &emit, optimize, encoder_warn),
         Cmd::Check { input, dump_ir } => cmd_check::run(&input, dump_ir),
         Cmd::Lint { .. } => {
-            eprintln!("paideia-as lint: stub (phase 1)");
-            ExitCode::SUCCESS
+            eprintln!("paideia-as lint: not yet implemented");
+            ExitCode::from(2)
         }
         Cmd::Emit { .. } => {
-            eprintln!("paideia-as emit: stub (phase 1)");
-            ExitCode::SUCCESS
+            eprintln!("paideia-as emit: not yet implemented");
+            ExitCode::from(2)
         }
         Cmd::Audit { .. } => {
-            eprintln!("paideia-as audit: stub (phase 1)");
-            ExitCode::SUCCESS
+            eprintln!("paideia-as audit: not yet implemented");
+            ExitCode::from(2)
         }
         Cmd::Doc { inputs } => cmd_doc::run(inputs),
         Cmd::DumpAst { input } => cmd_dump_ast::run(&input),

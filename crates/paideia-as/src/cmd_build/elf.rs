@@ -129,7 +129,7 @@ pub(super) fn build_elf_object(
     // calls expand under encoding). Don't assert equality — just emit a
     // debug log on divergence so regressions are visible without aborting.
     let estimated = emit_walker.state().estimated_offset() as usize;
-    if estimated != text_bytes.len() {
+    if cfg!(debug_assertions) && estimated != text_bytes.len() {
         eprintln!(
             "[m1-003] estimated_offset {estimated} != encoded text_bytes {} \
              (expected for advisory tracker — encoder owns the truth via \
@@ -273,11 +273,13 @@ pub(super) fn build_elf_object(
                             });
                         } else {
                             // Lambda didn't emit (unsupported shape); use placeholder
-                            eprintln!(
-                                "[PA8-m1-002] info: function symbol `{}` (ir_node {}) did not emit bytecode",
-                                symbol.name,
-                                symbol.ir_node.get()
-                            );
+                            if cfg!(debug_assertions) {
+                                eprintln!(
+                                    "[PA8-m1-002] info: function symbol `{}` (ir_node {}) did not emit bytecode",
+                                    symbol.name,
+                                    symbol.ir_node.get()
+                                );
+                            }
                             (0u32, 0u64)
                         }
                     }
