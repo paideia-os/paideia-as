@@ -1,0 +1,7 @@
+// Phase 17 m6-c: Variable assignment (Pattern 5) - deferred placeholder
+// This fixture is a placeholder for future module-level assignment tests.
+// Currently, local binding assignments are tested via unit tests in emit_walker_tests/var_assign.rs
+
+module VarAssignModuleScopeU64 = structure {
+  pub let identity : (u64) -> u64 = fn (x: u64) -> x
+}
