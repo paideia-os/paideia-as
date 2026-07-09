@@ -774,6 +774,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                             align,
                             ring,
                             link_section,
+                            abi,
                             ..
                         }) = arena.item_data(ast_id)
                         {
@@ -790,11 +791,16 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                     // Also record the public flag for visibility control
                                     visibility_map.insert(value_id.get(), *public);
 
-                                    // Phase 19 PA19-r19-010: Seed let_meta with mutability, alignment, ring, and link_section
+                                    // Phase 19 PA19-r19-010: Seed let_meta with mutability, alignment, ring, link_section, and abi
+                                    // Phase 19 PA19-r19-001: Convert AST CallingConvention to IR CallingConvention
+                                    let ir_abi = abi.map(|cc| match cc {
+                                        paideia_as_ast::CallingConvention::Ms => paideia_as_ir::CallingConvention::Ms,
+                                        paideia_as_ast::CallingConvention::Sysv => paideia_as_ir::CallingConvention::Sysv,
+                                    });
                                     if let Some(ir_id) = paideia_as_ir::IrNodeId::new(ast_id.get()) {
                                         lowering.ir.let_meta_mut().insert(
                                             ir_id,
-                                            paideia_as_ir::LetInfo::with_link_section(*mutable, None, *align, *ring, link_section.clone()),
+                                            paideia_as_ir::LetInfo::with_abi(*mutable, None, *align, *ring, link_section.clone(), ir_abi),
                                         );
                                     }
                                 }
@@ -866,6 +872,80 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                     ).expect("valid P0284 code");
                                     let diag = paideia_as_diagnostics::Diagnostic::error(code)
                                         .message("lambda-shaped bindings cannot use @link_section (deferred to pa-r19-010b)")
+                                        .with_span(value_node.span)
+                                        .finish();
+                                    let _ = sink.emit(diag);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Phase 19 PA19-r19-001: P0286 validation pass.
+    // Check all Let bindings with @abi directive. If the value is NOT lambda-shaped,
+    // emit P0286 error and reject.
+    {
+        for i in 0..arena.len() {
+            if let Some(ast_id) = paideia_as_ast::NodeId::new((i + 1) as u32) {
+                if let Some(node) = arena.get(ast_id) {
+                    if node.kind == paideia_as_ast::NodeKind::Let {
+                        if let Some(paideia_as_ast::ItemData::Let {
+                            abi: Some(_),
+                            value: value_id,
+                            ..
+                        }) = arena.item_data(ast_id)
+                        {
+                            // Check if the value is a lambda (ExprLambda)
+                            if let Some(value_node) = arena.get(*value_id) {
+                                if value_node.kind != paideia_as_ast::NodeKind::ExprLambda {
+                                    // Emit P0286: @abi is only valid on lambda-shaped bindings
+                                    let code = paideia_as_diagnostics::DiagnosticCode::new(
+                                        paideia_as_diagnostics::Category::P,
+                                        paideia_as_diagnostics::Severity::Error,
+                                        286,
+                                    ).expect("valid P0286 code");
+                                    let diag = paideia_as_diagnostics::Diagnostic::error(code)
+                                        .message("@abi is only valid on function-shaped bindings")
+                                        .with_span(value_node.span)
+                                        .finish();
+                                    let _ = sink.emit(diag);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Phase 19 PA19-r19-001: U1620 deferred gate pass.
+    // Check all Let bindings with @abi("ms") directive that ARE lambda-shaped.
+    // Emit U1620 error to defer MS codegen support pending #1011.
+    {
+        for i in 0..arena.len() {
+            if let Some(ast_id) = paideia_as_ast::NodeId::new((i + 1) as u32) {
+                if let Some(node) = arena.get(ast_id) {
+                    if node.kind == paideia_as_ast::NodeKind::Let {
+                        if let Some(paideia_as_ast::ItemData::Let {
+                            abi: Some(paideia_as_ast::CallingConvention::Ms),
+                            value: value_id,
+                            ..
+                        }) = arena.item_data(ast_id)
+                        {
+                            // Check if the value is a lambda (ExprLambda)
+                            if let Some(value_node) = arena.get(*value_id) {
+                                if value_node.kind == paideia_as_ast::NodeKind::ExprLambda {
+                                    // Emit U1620: @abi("ms") body not yet emittable pending #1011
+                                    let code = paideia_as_diagnostics::DiagnosticCode::new(
+                                        paideia_as_diagnostics::Category::U,
+                                        paideia_as_diagnostics::Severity::Error,
+                                        1620,
+                                    ).expect("valid U1620 code");
+                                    let diag = paideia_as_diagnostics::Diagnostic::error(code)
+                                        .message("@abi(\"ms\") function bodies not yet emittable pending #1011")
                                         .with_span(value_node.span)
                                         .finish();
                                     let _ = sink.emit(diag);

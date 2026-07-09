@@ -27,7 +27,7 @@ pub use exprs::{
     ExprData, GenericParam, HandlerArm, LoopKind, MatchArm, MatchAttrs, PrefixOp, SegPrefix,
     SharingConstraint,
 };
-pub use items::{AttrValue, ImplDecl, ItemAttribute, ItemData, TraitMethod};
+pub use items::{AttrValue, CallingConvention, ImplDecl, ItemAttribute, ItemData, TraitMethod};
 pub use macros::{MacroDeclData, MacroFragment, MacroFragmentKind, MacroRule};
 pub use modules::{
     Def, Functor, IncludeDecl, ModuleDecl, SigDecl, Signature, Structure, TypeAbstraction,

@@ -4,6 +4,8 @@
 
 ### Key changes
 
+- **Issue #1006** — `@abi("ms" | "sysv")` calling-convention annotation on let bindings with function-shaped values (lambdas only). Phase 19 MVP: parse acceptance + semantic validation gates. `@abi("ms")` emits U1620 (deferred to #1011 for MS x64 prologue/epilogue codegen); `@abi("sysv")` and unannotated lambdas build normally. Non-lambda bindings with `@abi` emit P0286 error. Parser diagnostics: P0285 for invalid/malformed arguments (unknown string, non-string, missing parens, case violation).
+
 - **Issue #1014** — `@include_str("...")` and `@include_bytes_as_str("...")` compile-time text embed primitives. `@include_str` performs UTF-8 validation (P0281 diagnostic on error); `@include_bytes_as_str` accepts any bytes without validation. Both lower to `IrKind::StringLiteral` with interned rodata symbols (`__str_<hash>`), giving users truncate/pad control via existing `[u8; N]` type annotation machinery.
 
 ### Breaking changes

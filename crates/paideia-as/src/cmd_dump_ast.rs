@@ -95,6 +95,7 @@ fn stub_parse(file: FileId, tokens: &[paideia_as_lexer::Token]) -> AstArena {
                     align: None,
                     ring: None,
                     link_section: None,
+                    abi: None,
                     doc: None,
                 },
             );

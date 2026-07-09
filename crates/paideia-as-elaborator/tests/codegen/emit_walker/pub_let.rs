@@ -41,6 +41,7 @@ fn pub_let_flag_flows_to_ir_arena() {
             align: None,
             ring: None,
             link_section: None,
+            abi: None,
             doc: None,
         },
     );

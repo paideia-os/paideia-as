@@ -985,6 +985,34 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "Phase 19 PA19-r19-001: The @abi directive must specify a valid calling convention string. Valid options are \"ms\" (Microsoft x64 ABI for UEFI) and \"sysv\" (System V AMD64 ABI). The string must be lowercase, enclosed in double quotes, and passed as the sole argument to @abi. Examples: `@abi(\"ms\")` or `@abi(\"sysv\")`. Invalid strings, non-string arguments, missing parentheses, or empty strings all trigger this error."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0285",
+              "id": "P0285",
+              "name": "Invalid @abi(...) value",
+              "shortDescription": {
+                "text": "@abi requires \"ms\" or \"sysv\" (case-sensitive lowercase)"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase 19 PA19-r19-001: The @abi calling-convention directive is intended for function-shaped bindings (lambdas). You have applied @abi to a let binding with a non-function value (literal, array, etc.). Remove the @abi directive or rewrite the binding as a lambda. Example: `let f = fn(...) -> ... @abi(\"ms\")` is valid, but `let x : u64 = 42 @abi(\"ms\")` is invalid."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0286",
+              "id": "P0286",
+              "name": "@abi directive only valid on function-shaped bindings",
+              "shortDescription": {
+                "text": "@abi applied to non-lambda let binding"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "Signature ascription requires the structure to define a named type/val/module that is absent."
               },
               "helpUri": "https://paideia-os.org/diagnostics/M0301",
@@ -1972,6 +2000,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "Unsupported statement in unsafe block",
               "shortDescription": {
                 "text": "unsafe { block: { ... } } currently emits only asm mnemonics and labels; other statement kinds are silently dropped in codegen"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase 19 PA19-r19-001 (MVP gate): The @abi(\"ms\") calling convention annotation is accepted at parse time to enable tooling and documentation. However, actual code generation for MS x64 ABI prologues, epilogues, and register discipline is deferred to issue #1011. The binding declaration is accepted, but attempting to emit it fails with this deferred-implementation gate. SysV-annotated (@abi(\"sysv\")) and unannotated functions emit normally using the paideia default calling convention."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1620",
+              "id": "U1620",
+              "name": "@abi(\"ms\") function bodies not yet emittable",
+              "shortDescription": {
+                "text": "Microsoft x64 calling-convention prologue/epilogue codegen deferred to #1011"
               }
             },
             {

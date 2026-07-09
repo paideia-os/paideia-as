@@ -66,7 +66,7 @@ pub use instruction::{
     RegId, Scale, SegPrefix, SegReg,
 };
 pub use lambda_param::LambdaParamTable;
-pub use let_meta::{LetInfo, LetMetaTable};
+pub use let_meta::{CallingConvention, LetInfo, LetMetaTable};
 pub use literal_bytes::LiteralBytesTable;
 pub use literal_value::LiteralValueTable;
 pub use load_store::{

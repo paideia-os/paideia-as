@@ -1,19 +1,29 @@
-//! Let-declaration parsing plus `@align` / `@ring` / `@link_section` symbol attributes.
+//! Let-declaration parsing plus `@align` / `@ring` / `@link_section` / `@abi` symbol attributes.
 //! Split out of `parse_item.rs` (2026-07-08).
 
 use std::collections::HashSet;
 
-use paideia_as_ast::{ItemData, NodeId, NodeKind};
+use paideia_as_ast::{CallingConvention, ItemData, NodeId, NodeKind};
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
 use paideia_as_lexer::TokenKind;
 
 use crate::parser::{ParseError, Parser};
 
+/// Structured container for trailing symbol attributes on Let bindings.
+/// Refactored in PA19-r19-001 to eliminate growing tuple.
+pub(super) struct LetSymbolAttrs {
+    pub align: Option<u32>,
+    pub ring: Option<(u32, u32)>,
+    pub link_section: Option<String>,
+    pub abi: Option<CallingConvention>,
+}
+
 impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
-    pub(super) fn parse_optional_symbol_attributes(&mut self) -> Result<(Option<u32>, Option<(u32, u32)>, Option<String>), ParseError> {
+    pub(super) fn parse_optional_symbol_attributes(&mut self) -> Result<LetSymbolAttrs, ParseError> {
         let mut align: Option<u32> = None;
         let mut ring: Option<(u32, u32)> = None;
         let mut link_section: Option<String> = None;
+        let mut abi: Option<CallingConvention> = None;
         let mut seen_attrs = HashSet::new();
 
         // Loop to accept attributes in any order
@@ -65,12 +75,15 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 "link_section" => {
                     link_section = Some(self.parse_link_section_attr()?);
                 }
+                "abi" => {
+                    abi = Some(self.parse_abi_attr()?);
+                }
                 _ => {
                     // P0250: unknown symbol attribute
                     let code = DiagnosticCode::new(Category::P, Severity::Error, 250)
                         .expect("valid P0250 code");
                     let diag = Diagnostic::error(code)
-                        .message(format!("unknown symbol attribute '@{}' (only 'align', 'ring', and 'link_section' supported)", attr_name))
+                        .message(format!("unknown symbol attribute '@{}' (only 'align', 'ring', 'link_section', and 'abi' supported)", attr_name))
                         .with_span(attr_name_tok.span)
                         .finish();
                     self.emit_diagnostic(diag);
@@ -79,7 +92,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             }
         }
 
-        Ok((align, ring, link_section))
+        Ok(LetSymbolAttrs { align, ring, link_section, abi })
     }
 
     /// Parse `@align(N)` where N is a power-of-two integer literal.
@@ -422,7 +435,110 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         Ok(name)
     }
 
-    /// Parse a top-level let declaration with optional visibility: `[pub] let [mut] <Ident> <GenericParams>? (: Type)? = Expr @align(N)? @ring(...)? @link_section("name")?`
+    /// Parse `@abi("ms"|"sysv")` where the argument is a calling convention string.
+    /// Validates: only "ms" or "sysv" (lowercase, case-sensitive).
+    /// Emits P0285 for invalid strings, non-strings, empty strings, or missing parens.
+    pub(super) fn parse_abi_attr(&mut self) -> Result<CallingConvention, ParseError> {
+        // Expect `(`
+        if !self.eat(TokenKind::LParen) {
+            let span = self
+                .peek()
+                .map(|t| t.span)
+                .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 285)
+                .expect("valid P0285 code");
+            let diag = Diagnostic::error(code)
+                .message("malformed @abi(...) syntax: expected '(' after 'abi'")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        // Check for string literal; emit P0285 if it's not a string
+        if !self.at(TokenKind::StringLit) {
+            let span = self
+                .peek()
+                .map(|t| t.span)
+                .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 285)
+                .expect("valid P0285 code");
+            let diag = Diagnostic::error(code)
+                .message("@abi value must be a string literal, expected \"ms\" or \"sysv\"")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            // Skip the invalid token
+            self.bump();
+            return Err(ParseError);
+        }
+
+        let str_tok = self.expect(TokenKind::StringLit)?;
+        let str_span = str_tok.span;
+        let str_text = self.source_text_for_span(str_span);
+
+        // Extract string content (without quotes)
+        let value = if str_text.starts_with('"') && str_text.ends_with('"') && str_text.len() >= 2 {
+            str_text[1..str_text.len() - 1].to_string()
+        } else {
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 285)
+                .expect("valid P0285 code");
+            let diag = Diagnostic::error(code)
+                .message("@abi value must be a valid string literal")
+                .with_span(str_span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        };
+
+        // Validate: non-empty
+        if value.is_empty() {
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 285)
+                .expect("valid P0285 code");
+            let diag = Diagnostic::error(code)
+                .message("@abi value must be non-empty; expected \"ms\" or \"sysv\"")
+                .with_span(str_span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        // Validate: only "ms" or "sysv" (lowercase, case-sensitive)
+        let cc = match value.as_str() {
+            "ms" => CallingConvention::Ms,
+            "sysv" => CallingConvention::Sysv,
+            _ => {
+                let code = DiagnosticCode::new(Category::P, Severity::Error, 285)
+                    .expect("valid P0285 code");
+                let diag = Diagnostic::error(code)
+                    .message(format!("invalid @abi value \"{}\"; expected \"ms\" or \"sysv\"", value))
+                    .with_span(str_span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                return Err(ParseError);
+            }
+        };
+
+        // Expect `)`
+        if !self.eat(TokenKind::RParen) {
+            let span = self
+                .peek()
+                .map(|t| t.span)
+                .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 285)
+                .expect("valid P0285 code");
+            let diag = Diagnostic::error(code)
+                .message("malformed @abi(...) syntax: expected ')' after value")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        Ok(cc)
+    }
+
+    /// Parse a top-level let declaration with optional visibility: `[pub] let [mut] <Ident> <GenericParams>? (: Type)? = Expr @align(N)? @ring(...)? @link_section("name")? @abi("ms"|"sysv")?`
     pub(super) fn parse_let_decl_with_visibility(&mut self, public: bool) -> Result<NodeId, ParseError> {
         let let_tok = self.expect(TokenKind::KwLet)?;
         let span_start = let_tok.span;
@@ -497,8 +613,8 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         // Parse value expression
         let value = self.parse_expr()?;
 
-        // Parse optional symbol attributes (@align, @ring, or @link_section)
-        let (align, ring, link_section) = self.parse_optional_symbol_attributes()?;
+        // Parse optional symbol attributes (@align, @ring, @link_section, or @abi)
+        let LetSymbolAttrs { align, ring, link_section, abi } = self.parse_optional_symbol_attributes()?;
 
         // Consume optional `;`
         self.eat(TokenKind::Semicolon);
@@ -528,6 +644,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 align,
                 ring,
                 link_section,
+                abi,
                 doc: None,
             },
         );
@@ -808,6 +925,130 @@ mod tests {
             if let Some(paideia_as_ast::ItemData::Let { align, link_section, .. }) = arena.item_data(root) {
                 assert_eq!(*align, Some(64));
                 assert_eq!(*link_section, Some(".foo".to_string()));
+            } else {
+                panic!("expected ItemData::Let");
+            }
+        } else {
+            panic!("expected NodeKind::Let");
+        }
+    }
+
+    #[test]
+    fn abi_ms_parses() {
+        let source = r#"let f : (u64) -> u64 = fn(x: u64) -> x @abi("ms")"#;
+        let (arena, result, diags) = parse_let_in_module(source);
+
+        assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
+        assert!(result.is_ok());
+
+        let root = result.unwrap();
+        let node = arena.get(root).unwrap();
+        if let paideia_as_ast::NodeKind::Let = node.kind {
+            if let Some(paideia_as_ast::ItemData::Let { abi, .. }) = arena.item_data(root) {
+                assert_eq!(*abi, Some(paideia_as_ast::CallingConvention::Ms));
+            } else {
+                panic!("expected ItemData::Let");
+            }
+        } else {
+            panic!("expected NodeKind::Let");
+        }
+    }
+
+    #[test]
+    fn abi_sysv_parses() {
+        let source = r#"let f : (u64) -> u64 = fn(x: u64) -> x @abi("sysv")"#;
+        let (arena, result, diags) = parse_let_in_module(source);
+
+        assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
+        assert!(result.is_ok());
+
+        let root = result.unwrap();
+        let node = arena.get(root).unwrap();
+        if let paideia_as_ast::NodeKind::Let = node.kind {
+            if let Some(paideia_as_ast::ItemData::Let { abi, .. }) = arena.item_data(root) {
+                assert_eq!(*abi, Some(paideia_as_ast::CallingConvention::Sysv));
+            } else {
+                panic!("expected ItemData::Let");
+            }
+        } else {
+            panic!("expected NodeKind::Let");
+        }
+    }
+
+    #[test]
+    fn abi_unknown_string_p0285() {
+        let source = r#"let f : (u64) -> u64 = fn(x: u64) -> x @abi("unknown")"#;
+        let (_arena, result, diags) = parse_let_in_module(source);
+
+        assert!(result.is_err(), "expected parse error");
+        assert_has_p_code(&diags, 285);
+        assert_p_code_message_contains(&diags, 285, "invalid");
+    }
+
+    #[test]
+    fn abi_uppercase_ms_p0285() {
+        let source = r#"let f : (u64) -> u64 = fn(x: u64) -> x @abi("MS")"#;
+        let (_arena, result, diags) = parse_let_in_module(source);
+
+        assert!(result.is_err(), "expected parse error");
+        assert_has_p_code(&diags, 285);
+        assert_p_code_message_contains(&diags, 285, "invalid");
+    }
+
+    #[test]
+    fn abi_empty_string_p0285() {
+        let source = r#"let f : (u64) -> u64 = fn(x: u64) -> x @abi("")"#;
+        let (_arena, result, diags) = parse_let_in_module(source);
+
+        assert!(result.is_err(), "expected parse error");
+        assert_has_p_code(&diags, 285);
+        assert_p_code_message_contains(&diags, 285, "non-empty");
+    }
+
+    #[test]
+    fn abi_non_string_arg_p0285() {
+        let source = r#"let f : (u64) -> u64 = fn(x: u64) -> x @abi(42)"#;
+        let (_arena, result, diags) = parse_let_in_module(source);
+
+        assert!(result.is_err(), "expected parse error");
+        assert_has_p_code(&diags, 285);
+    }
+
+    #[test]
+    fn abi_missing_parens_p0285() {
+        let source = r#"let f : (u64) -> u64 = fn(x: u64) -> x @abi"ms""#;
+        let (_arena, result, diags) = parse_let_in_module(source);
+
+        assert!(result.is_err(), "expected parse error");
+        assert_has_p_code(&diags, 285);
+        assert_p_code_message_contains(&diags, 285, "expected '('");
+    }
+
+    #[test]
+    fn abi_duplicate_p0250() {
+        let source = r#"let f : (u64) -> u64 = fn(x: u64) -> x @abi("ms") @abi("sysv")"#;
+        let (_arena, result, diags) = parse_let_in_module(source);
+
+        assert!(result.is_err(), "expected parse error");
+        assert_has_p_code(&diags, 250);
+        assert_p_code_message_contains(&diags, 250, "duplicate");
+    }
+
+    #[test]
+    fn abi_with_align_and_link_section_all_accepted() {
+        let source = r#"let f : (u64) -> u64 = fn(x: u64) -> x @align(64) @link_section(".text_custom") @abi("ms")"#;
+        let (arena, result, diags) = parse_let_in_module(source);
+
+        assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
+        assert!(result.is_ok());
+
+        let root = result.unwrap();
+        let node = arena.get(root).unwrap();
+        if let paideia_as_ast::NodeKind::Let = node.kind {
+            if let Some(paideia_as_ast::ItemData::Let { align, link_section, abi, .. }) = arena.item_data(root) {
+                assert_eq!(*align, Some(64));
+                assert_eq!(*link_section, Some(".text_custom".to_string()));
+                assert_eq!(*abi, Some(paideia_as_ast::CallingConvention::Ms));
             } else {
                 panic!("expected ItemData::Let");
             }

@@ -757,6 +757,7 @@ mod tests {
                 align: None,
                 ring: None,
                 link_section: None,
+                abi: None,
                 doc: None,
             },
         );

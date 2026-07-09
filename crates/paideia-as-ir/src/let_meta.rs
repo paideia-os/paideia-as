@@ -12,6 +12,18 @@ use std::collections::HashMap;
 use crate::monomorphisation::TypeId;
 use crate::node::IrNodeId;
 
+/// Calling convention for function bindings (IR-level copy of AST enum).
+///
+/// Specifies the ABI (Application Binary Interface) calling convention
+/// for function-shaped bindings. `None` on LetInfo means "paideia default" (unannotated).
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum CallingConvention {
+    /// Microsoft x64 calling convention (used for UEFI ABI compatibility).
+    Ms,
+    /// System V AMD64 ABI calling convention (used for Unix/Linux targets).
+    Sysv,
+}
+
 /// Metadata for a Let IR node.
 ///
 /// Records whether the let binding is mutable (let mut x : T = ...) and,
@@ -32,6 +44,9 @@ use crate::node::IrNodeId;
 /// Phase 19 PA19-r19-010: `link_section` carries the link_section directive `@link_section("name")`
 /// for custom-section-annotated bindings.
 ///
+/// Phase 19 PA19-r19-001: `abi` carries the calling convention directive `@abi("ms"|"sysv")`
+/// for function-shaped bindings. `None` means paideia default (unannotated), not explicitly `Sysv`.
+///
 /// NOTE: Copy trait removed in v0.19 due to Option<String> field in link_section.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LetInfo {
@@ -48,6 +63,10 @@ pub struct LetInfo {
     /// Optional link_section directive `@link_section("name")` (PA19-r19-010).
     /// When `Some(name)`, emits data into a custom-named ELF section.
     pub link_section: Option<String>,
+    /// Optional ABI calling convention directive `@abi("ms"|"sysv")` (PA19-r19-001).
+    /// When `Some(cc)`, specifies the calling convention for function-shaped bindings.
+    /// `None` means paideia default (unannotated), not explicitly `Sysv`.
+    pub abi: Option<CallingConvention>,
 }
 
 impl LetInfo {
@@ -60,6 +79,7 @@ impl LetInfo {
             align: None,
             ring: None,
             link_section: None,
+            abi: None,
         }
     }
 
@@ -72,6 +92,7 @@ impl LetInfo {
             align: None,
             ring: None,
             link_section: None,
+            abi: None,
         }
     }
 
@@ -81,7 +102,7 @@ impl LetInfo {
     /// is known, enabling width-threaded integer-literal emission.
     #[must_use]
     pub fn with_type(mutable: bool, ty: Option<TypeId>) -> Self {
-        Self { mutable, ty, align: None, ring: None, link_section: None }
+        Self { mutable, ty, align: None, ring: None, link_section: None, abi: None }
     }
 
     /// Construct a LetInfo with explicit mutability, type, and alignment.
@@ -90,7 +111,7 @@ impl LetInfo {
     /// and optional alignment directive are known.
     #[must_use]
     pub fn with_align(mutable: bool, ty: Option<TypeId>, align: Option<u32>) -> Self {
-        Self { mutable, ty, align, ring: None, link_section: None }
+        Self { mutable, ty, align, ring: None, link_section: None, abi: None }
     }
 
     /// Construct a LetInfo with explicit mutability, type, alignment, and ring.
@@ -99,7 +120,7 @@ impl LetInfo {
     /// optional alignment directive, and optional ring buffer directive are known.
     #[must_use]
     pub fn with_ring(mutable: bool, ty: Option<TypeId>, align: Option<u32>, ring: Option<(u32, u32)>) -> Self {
-        Self { mutable, ty, align, ring, link_section: None }
+        Self { mutable, ty, align, ring, link_section: None, abi: None }
     }
 
     /// Construct a LetInfo with explicit mutability, type, alignment, ring, and link_section.
@@ -109,7 +130,17 @@ impl LetInfo {
     /// directive are known.
     #[must_use]
     pub fn with_link_section(mutable: bool, ty: Option<TypeId>, align: Option<u32>, ring: Option<(u32, u32)>, link_section: Option<String>) -> Self {
-        Self { mutable, ty, align, ring, link_section }
+        Self { mutable, ty, align, ring, link_section, abi: None }
+    }
+
+    /// Construct a LetInfo with explicit mutability, type, alignment, ring, link_section, and abi.
+    ///
+    /// Phase 19 PA19-r19-001: the lowerer calls this when the binding's declared type,
+    /// optional alignment directive, optional ring buffer directive, optional link_section
+    /// directive, and optional calling convention directive are known.
+    #[must_use]
+    pub fn with_abi(mutable: bool, ty: Option<TypeId>, align: Option<u32>, ring: Option<(u32, u32)>, link_section: Option<String>, abi: Option<CallingConvention>) -> Self {
+        Self { mutable, ty, align, ring, link_section, abi }
     }
 }
 
@@ -271,6 +302,7 @@ mod tests {
         assert_eq!(info.align, Some(64));
         assert_eq!(info.ring, Some(ring_info));
         assert_eq!(info.link_section, link_sec);
+        assert_eq!(info.abi, None);
 
         let no_link_section = LetInfo::with_link_section(false, None, None, None, None);
         assert!(!no_link_section.mutable);
@@ -278,6 +310,34 @@ mod tests {
         assert_eq!(no_link_section.align, None);
         assert_eq!(no_link_section.ring, None);
         assert_eq!(no_link_section.link_section, None);
+        assert_eq!(no_link_section.abi, None);
+    }
+
+    #[test]
+    fn let_info_with_abi_records_all_fields() {
+        let ty = TypeId(7);
+        let ring_info = (256u32, 128u32);
+        let link_sec = Some(".uefi_hdr".to_string());
+        let abi_cc = Some(CallingConvention::Ms);
+        let info = LetInfo::with_abi(true, Some(ty), Some(64), Some(ring_info), link_sec.clone(), abi_cc.clone());
+        assert!(info.mutable);
+        assert_eq!(info.ty, Some(ty));
+        assert_eq!(info.align, Some(64));
+        assert_eq!(info.ring, Some(ring_info));
+        assert_eq!(info.link_section, link_sec);
+        assert_eq!(info.abi, abi_cc);
+
+        let no_abi = LetInfo::with_abi(false, None, None, None, None, None);
+        assert!(!no_abi.mutable);
+        assert_eq!(no_abi.ty, None);
+        assert_eq!(no_abi.align, None);
+        assert_eq!(no_abi.ring, None);
+        assert_eq!(no_abi.link_section, None);
+        assert_eq!(no_abi.abi, None);
+
+        let sysv_abi = Some(CallingConvention::Sysv);
+        let sysv_info = LetInfo::with_abi(true, Some(ty), None, None, None, sysv_abi.clone());
+        assert_eq!(sysv_info.abi, sysv_abi);
     }
 
     #[test]

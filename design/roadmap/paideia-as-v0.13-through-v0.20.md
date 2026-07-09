@@ -176,7 +176,7 @@ Eight releases. v0.13 through v0.20. Codenames chosen to make the strategic them
 - **Goal:** UEFI protocols and MS x64 calling convention as first-class boundary primitives. Real-hardware boot path is expressible in `.pdx`.
 - **Deliverables:**
   - **Language surface:**
-    - `@abi("ms_x64")` function attribute. Alternative annotation forms: `@abi("sysv")` (default), `@abi("paideia_native")` (the current calling-convention.md scheme).
+    - `@abi("ms")` and `@abi("sysv")` function attributes. Unannotated functions use the paideia default calling convention (semantically distinct from explicit `@abi("sysv")` for #1017 interop thunks).
     - MS x64 register allocation: RCX/RDX/R8/R9 as first four integer args (vs. RDI/RSI/RDX/RCX in SysV). XMM0-XMM3 for first four floats. Shadow space (32 bytes) allocated by caller.
     - Elaborator + emitter generate the correct prologue/epilogue per ABI attribute.
     - `guid` scalar type: 16-byte, little-endian first field, matches Windows/UEFI wire format. Literal syntax `guid"12345678-1234-1234-1234-123456789ABC"`.
@@ -193,7 +193,7 @@ Eight releases. v0.13 through v0.20. Codenames chosen to make the strategic them
   - A UEFI application "hello world" written entirely in `.pdx`, PE32+ output, boots under OVMF (QEMU firmware).
   - GetMemoryMap + ExitBootServices + typed handoff struct construction all in `.pdx`.
   - GOP framebuffer init via `LocateProtocol` — no `unsafe` blocks.
-  - MS x64 ABI callee-saved register discipline verified via a round-trip test that calls into and returns from a `@abi("ms_x64")` function.
+  - MS x64 ABI callee-saved register discipline verified via a round-trip test that calls into and returns from a `@abi("ms")` function.
 - **Prereqs:** v0.14 (function pointers for protocol vops), v0.15 (mmio for framebuffer), v0.16 (packed records for GPT / boot config tables).
 - **Approximate issue count:** 26-32. (PE emitter extension is heavy.)
 
@@ -411,9 +411,9 @@ The most consequential extensions in this roadmap are not new instructions but n
 
 ### 5.3 MS x64 calling convention annotation (v0.17)
 
-- `@abi("ms_x64")` on function declarations.
+- `@abi("ms")` on function declarations.
 - Elaborator and emitter select register bank + shadow-space + callee-saved discipline per attribute.
-- Round-trip test: a Rust-hosted `@abi("ms_x64")` function called via MSVC-emitted caller returns correctly.
+- Round-trip test: a Rust-hosted `@abi("ms")` function called via MSVC-emitted caller returns correctly.
 
 ### 5.4 Better module system (v0.15 / v0.17)
 

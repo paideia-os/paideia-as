@@ -6,6 +6,18 @@
 
 use crate::{NodeId, exprs::GenericParam};
 
+/// Calling convention for function bindings.
+///
+/// Specifies the ABI (Application Binary Interface) calling convention
+/// for function-shaped bindings. `None` on LetInfo means "paideia default" (unannotated).
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum CallingConvention {
+    /// Microsoft x64 calling convention (used for UEFI ABI compatibility).
+    Ms,
+    /// System V AMD64 ABI calling convention (used for Unix/Linux targets).
+    Sysv,
+}
+
 /// Value types for inner attributes.
 ///
 /// Supports integer literals, string literals, and identifiers
@@ -181,7 +193,7 @@ pub enum ItemData {
         doc: Option<NodeId>,
     },
 
-    /// Let binding: `let [mut] Name <T> (: Type)? = Expr @align(N)? @ring(slots=M, slot_size=K)? @link_section("name")?`
+    /// Let binding: `let [mut] Name <T> (: Type)? = Expr @align(N)? @ring(slots=M, slot_size=K)? @link_section("name")? @abi("ms"|"sysv")?`
     Let {
         /// Whether this binding is public (`pub let`).
         public: bool,
@@ -205,6 +217,10 @@ pub enum ItemData {
         /// Optional link_section directive `@link_section("name")` (PA19-r19-010).
         /// When `Some(name)`, emits data into a custom-named ELF section.
         link_section: Option<String>,
+        /// Optional ABI calling convention directive `@abi("ms"|"sysv")` (PA19-r19-001).
+        /// When `Some(cc)`, specifies the calling convention for function-shaped bindings.
+        /// `None` means paideia default (unannotated), not explicitly `Sysv`.
+        abi: Option<CallingConvention>,
         /// Optional documentation comment.
         doc: Option<NodeId>,
     },
@@ -325,6 +341,7 @@ mod tests {
             align: None,
             ring: None,
             link_section: None,
+            abi: None,
             doc: None,
         };
         match item {
@@ -338,6 +355,7 @@ mod tests {
                 align: a,
                 ring: r,
                 link_section: ls,
+                abi,
                 doc: d,
             } => {
                 assert!(!mut_flag);
@@ -348,6 +366,7 @@ mod tests {
                 assert_eq!(a, None);
                 assert_eq!(r, None);
                 assert_eq!(ls, None);
+                assert_eq!(abi, None);
                 assert!(d.is_none());
             }
             _ => panic!("expected Let variant"),
