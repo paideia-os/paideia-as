@@ -368,12 +368,21 @@ impl EmitWalker {
                             self.visit_field_access(node_id, arena);
                         }
                         IrKind::Store => {
-                            // Phase 17 m6-c: Dispatch to appropriate store handler based on LHS pattern.
-                            // Patterns:
-                            // - FieldAccess LHS: field assignment (pa-r17-006)
-                            // - Var LHS: variable assignment Pattern 5 (issue #1094)
-                            // - Other LHS: array-index or deref assignment (Phase 7 m5-001)
-                            self.dispatch_store(node_id, arena);
+                            // Check if this is a field assignment (*p).f = value (first child is FieldAccess)
+                            // or a regular deref/array store.
+                            let children = arena.children(node_id);
+                            let is_field_assign = children.first()
+                                .and_then(|&c| arena.get(c))
+                                .map(|n| n.kind == IrKind::FieldAccess)
+                                .unwrap_or(false);
+
+                            if is_field_assign {
+                                // pa-r17-006 (#984): emit field assignment lowering for (*p).f = value
+                                self.visit_field_assign(node_id, arena);
+                            } else {
+                                // Phase 7 m5-001: emit array-index assignment lowering for a[i] = expr.
+                                self.visit_store(node_id, arena);
+                            }
                         }
                         IrKind::RecordCons => {
                             // Phase 6 m3-004: emit record constructor lowering for cap-mint shape.
@@ -494,11 +503,6 @@ impl EmitWalker {
                     IrKind::Action => {
                         // Statement-position expression: delegate to emit_action_stmt.
                         self.emit_action_stmt(child, arena, typer);
-                    }
-                    IrKind::Store => {
-                        // Phase 17 m6-c: Assignment in unsafe block (field, var, array, or pointer).
-                        // Dispatch to the appropriate handler via dispatch_store.
-                        self.dispatch_store(child, arena);
                     }
                     _ => {
                         // Unroutable statement kind (Let, Loop, While, Return, etc.).

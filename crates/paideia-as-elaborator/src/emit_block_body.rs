@@ -376,11 +376,25 @@ impl EmitWalker {
                         return;
                     }
                     IrKind::Store => {
-                        // Phase 17 m6-b/m6-c: Assignment dispatch (field, var, array, or pointer).
+                        // Phase 17 m6-b: Field assignment in block body (e.g., `r.a = 42u32;`).
+                        // Check if this is a field assignment (first child is FieldAccess)
+                        // or a regular deref/array store.
                         if cfg!(debug_assertions) {
                             eprintln!("[emit_block_body] Store at index {}", i);
                         }
-                        self.dispatch_store(child_id, arena);
+                        let store_children = arena.children(child_id);
+                        let is_field_assign = store_children.first()
+                            .and_then(|&c| arena.get(c))
+                            .map(|n| n.kind == IrKind::FieldAccess)
+                            .unwrap_or(false);
+
+                        if is_field_assign {
+                            // Field assignment: dispatch to visit_field_assign
+                            self.visit_field_assign(child_id, arena);
+                        } else {
+                            // Array or pointer store: dispatch to visit_store
+                            self.visit_store(child_id, arena);
+                        }
                     }
                     _ => {
                         // Unexpected statement kind.
@@ -822,14 +836,6 @@ impl EmitWalker {
                             eprintln!("[emit_action_stmt] Literal in statement position — skipped");
                         }
                     }
-                    IrKind::Store => {
-                        // Phase 17 m6-c: Store (assignment) in statement position.
-                        // Dispatch to appropriate handler based on LHS pattern.
-                        if cfg!(debug_assertions) {
-                            eprintln!("[emit_action_stmt] Store in statement position");
-                        }
-                        self.dispatch_store(child_id, arena);
-                    }
                     _ => {
                         // Unroutable statement kind (Loop/While/Let/Return/etc.).
                         self.push_typed_diag_u1614(
@@ -838,35 +844,6 @@ impl EmitWalker {
                         );
                     }
                 }
-            }
-        }
-    }
-
-    /// Phase 17 m6-c: Dispatch Store nodes to appropriate handler.
-    ///
-    /// Analyzes the first child of a Store node to determine its pattern:
-    /// - FieldAccess: variable/record field assignment → visit_field_assign
-    /// - Var: simple variable assignment (Pattern 5) → visit_var_assign
-    /// - Other: array index or pointer dereference → visit_store
-    pub(crate) fn dispatch_store(&mut self, store_id: IrNodeId, arena: &IrArena) {
-        let store_children = arena.children(store_id);
-        let first_child_kind = store_children
-            .first()
-            .and_then(|&c| arena.get(c))
-            .map(|n| n.kind);
-
-        match first_child_kind {
-            Some(IrKind::FieldAccess) => {
-                // Field assignment: e.g., `obj.field = value`
-                self.visit_field_assign(store_id, arena);
-            }
-            Some(IrKind::Var) => {
-                // Variable assignment (Pattern 5): e.g., `x = value`
-                self.visit_var_assign(store_id, arena);
-            }
-            _ => {
-                // Array index or pointer dereference: e.g., `a[i] = value` or `*p = value`
-                self.visit_store(store_id, arena);
             }
         }
     }

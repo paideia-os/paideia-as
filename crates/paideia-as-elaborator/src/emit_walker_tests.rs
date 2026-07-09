@@ -21,6 +21,3 @@ mod scratch_and_ops;
 
 #[path = "emit_walker_tests/match_nested.rs"]
 mod match_nested;
-
-#[path = "emit_walker_tests/var_assign.rs"]
-mod var_assign;
