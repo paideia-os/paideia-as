@@ -874,6 +874,28 @@ impl EmitWalker {
         }
     }
 
+    /// Emit MOV of a literal value into a register at an explicit IrNodeId.
+    ///
+    /// #1128: use this when the caller needs the emitted MOV to sort at a specific
+    /// position (e.g., match-arm bodies whose IDs must sort between dispatch and
+    /// end anchor). `emit_mov_literal_to_reg` overwrites the caller's ID with a
+    /// 1_000_000+lambda_id*100+reg synthetic value that is load-bearing for
+    /// call-argument marshalling but wrong for match-arm returns.
+    pub(crate) fn emit_mov_literal_to_reg_with_id(&mut self, inst_id: IrNodeId, dest_reg: RegId, value: i64) {
+        let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        operands.push(Operand::Reg(dest_reg));
+        operands.push(Operand::Imm64(value));
+
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands,
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: self.current_mode(),
+        };
+        self.emit_inst(inst_id, inst);
+    }
+
     /// Emit MOV of a literal value into a register.
     pub(crate) fn emit_mov_literal_to_reg(&mut self, lambda_node_id: IrNodeId, dest_reg: RegId, value: i64) {
         // PA8-m3-001 (width not available — generic Mov retained): the operand
