@@ -246,6 +246,14 @@ impl EmitPassState {
         self.lambda_abis.get(&lambda_id).copied().unwrap_or(CallingConvention::Sysv)
     }
 
+    /// Look up the calling convention for a lambda, returning Option to distinguish
+    /// unannotated (None) from explicitly annotated (Some). Used for bridge-save
+    /// decisions where paideia (unannotated) differs from explicitly SysV.
+    #[must_use]
+    pub fn lambda_abi_option(&self, lambda_id: u32) -> Option<CallingConvention> {
+        self.lambda_abis.get(&lambda_id).copied()
+    }
+
     // ── Match emission tracking (PA-r17-013) ─────────────────────────────
 
     /// Mark a Match node as emitted in trailing position.

@@ -5,7 +5,7 @@
 //! System-V calling-convention marshalling sequence: per-arg moves into
 //! `[RDI, RSI, RDX, RCX, R8, R9]` followed by `call target; ret`.
 
-use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand};
+use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand, RegId};
 use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi};
 use paideia_as_ir::let_meta::CallingConvention;
 use paideia_as_diagnostics::{DiagnosticCode, Category, Severity};
@@ -28,10 +28,70 @@ fn t0521_code() -> DiagnosticCode {
 }
 
 impl EmitWalker {
+    /// Emit caller-side bridge prelude for paideia→MS/SysV ABI crossing.
+    /// Pushes the registers in `save_regs` (in order) before shadow-space adjustment.
+    /// Uses ID slot range 800_000 + L*100 + k for k = 0..N.
+    fn emit_bridge_prelude(&mut self, lambda_node_id: IrNodeId, save_regs: &[RegId]) {
+        if save_regs.is_empty() {
+            return;
+        }
+        for (k, &reg) in save_regs.iter().enumerate() {
+            let prelude_id = 800_000u32
+                .saturating_add(lambda_node_id.get().saturating_mul(100))
+                .saturating_add(k as u32);
+
+            let mut push_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            push_ops.push(Operand::Reg(reg));
+
+            let push_inst = Instruction {
+                mnemonic: Mnemonic::Push,
+                operands: push_ops,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+            };
+
+            let prelude_ir_id = IrNodeId::new(prelude_id)
+                .unwrap_or_else(|| IrNodeId::new(1).unwrap());
+            self.emit_inst(prelude_ir_id, push_inst);
+        }
+    }
+
+    /// Emit caller-side bridge postlude for paideia→MS/SysV ABI crossing.
+    /// Pops the registers in `save_regs` in REVERSE order (LIFO) after shadow-space restoration.
+    /// Uses ID slot range 1_120_000 + L*100 + k for k = 0..N.
+    fn emit_bridge_postlude(&mut self, lambda_node_id: IrNodeId, save_regs: &[RegId]) {
+        if save_regs.is_empty() {
+            return;
+        }
+        for (k, &reg) in save_regs.iter().enumerate().rev() {
+            let postlude_id = 1_120_000u32
+                .saturating_add(lambda_node_id.get().saturating_mul(100))
+                .saturating_add(save_regs.len() as u32 - 1 - k as u32);
+
+            let mut pop_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            pop_ops.push(Operand::Reg(reg));
+
+            let pop_inst = Instruction {
+                mnemonic: Mnemonic::Pop,
+                operands: pop_ops,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+            };
+
+            let postlude_ir_id = IrNodeId::new(postlude_id)
+                .unwrap_or_else(|| IrNodeId::new(1).unwrap());
+            self.emit_inst(postlude_ir_id, pop_inst);
+        }
+    }
+
     /// Phase 7 m1-003: Emit call arguments and CALL instruction (no RET).
     ///
     /// Emits argument marshalling (MOV to RDI, RSI, ... or RCX, RDX, ... depending on ABI)
     /// and CALL instruction. For MS x64 ABI, emits prelude (sub rsp) and postlude (add rsp).
+    /// For paideia→MS/SysV crossing, emits caller-side bridge prelude (push R15, R14) before
+    /// shadow-space adjustment and postlude (pop R14, R15) after shadow restoration.
     /// Does NOT emit RET. Call `emit_ret_after_call` separately for statement-position calls.
     ///
     /// Records lambda entry as a side effect.
@@ -42,11 +102,17 @@ impl EmitWalker {
         target_name: String,
         arg_ids: &[IrNodeId],
         arena: &IrArena,
+        caller_abi: Option<CallingConvention>,
     ) {
-        // Resolve callee's ABI; default to SysV for unannotated callees
-        let callee_abi = arena.symbols().lookup_by_name(&target_name)
-            .and_then(|s| s.abi)
-            .unwrap_or(CallingConvention::Sysv);
+        // Resolve callee's ABI:
+        // - callee_abi_option: None if unannotated (paideia default), Some if explicitly annotated
+        // - callee_abi: resolved to CallingConvention::Sysv if unannotated (for register selection)
+        let callee_abi_option = arena.symbols().lookup_by_name(&target_name)
+            .and_then(|s| s.abi);
+        let callee_abi = callee_abi_option.unwrap_or(CallingConvention::Sysv);
+
+        // Determine bridge save register set (caller crossing into different ABI)
+        let bridge_saves = abi::bridge_save_set(caller_abi, callee_abi_option);
 
         // Select argument register pool based on ABI
         let arg_regs: &[_] = match callee_abi {
@@ -62,8 +128,14 @@ impl EmitWalker {
             .unwrap_or_else(|| IrNodeId::new(1).unwrap());
 
         // Determine first instruction ID for record_lambda_entry.
-        // If args exist, use the first MOV's ID; otherwise use the CALL ID.
-        let first_instr_id = if arg_ids.is_empty() {
+        // If bridge saves exist, the first push is the first instruction.
+        // Otherwise if args exist, use the first MOV's ID; otherwise use the CALL ID.
+        let first_instr_id = if !bridge_saves.is_empty() {
+            // First bridge push: 800_000 + L*100 + 0
+            IrNodeId::new(800_000u32
+                .saturating_add(lambda_node_id.get().saturating_mul(100)))
+                .unwrap_or_else(|| IrNodeId::new(1).unwrap())
+        } else if arg_ids.is_empty() {
             main_id  // No args: CALL is the first instruction
         } else {
             // First arg MOV: 1_000_000 + L*100 + first_arg_reg
@@ -75,7 +147,11 @@ impl EmitWalker {
         };
         self.record_lambda_entry(lambda_node_id, first_instr_id);
 
-        // MS x64 prelude ID: 900_000 + (lambda_node_id * 100) - sorts BEFORE SysV MOVs at 1_000_000
+        // Emit caller-side bridge prelude (push R15, R14) if crossing paideia→MS/SysV
+        // Prelude ID slot 800_000 < 900_000 (MS shadow bump), so sorts first ✓
+        self.emit_bridge_prelude(lambda_node_id, bridge_saves);
+
+        // MS x64 prelude ID: 900_000 + (lambda_node_id * 100) - sorts BEFORE arg MOVs at 1_000_000
         let ms_prelude_id = 900_000u32
             .saturating_add(lambda_node_id.get().saturating_mul(100));
 
@@ -306,6 +382,11 @@ impl EmitWalker {
                 .unwrap_or_else(|| IrNodeId::new(1).unwrap());
             self.emit_inst(postlude_ir_id, postlude_inst);
         }
+
+        // Emit caller-side bridge postlude (pop R14, R15) if crossing paideia→MS/SysV
+        // Postlude ID slot 1_120_000 > 1_100_000 (MS shadow restore), > 1_050_000 (CALL)
+        // so it sorts after all those, before RET at 1_150_000 ✓
+        self.emit_bridge_postlude(lambda_node_id, bridge_saves);
     }
 
     /// Emit RET instruction after a call (or standalone for statement-position calls).
@@ -346,11 +427,13 @@ impl EmitWalker {
         arg_ids: &[IrNodeId],
         arena: &IrArena,
     ) {
-        // Determine callee ABI for later use in RET emission
+        // Determine caller and callee ABIs
+        // Use lambda_abi_option to distinguish unannotated (None) from explicitly annotated (Some)
+        let caller_abi = self.state.lambda_abi_option(lambda_node_id.get());
         let callee_abi = arena.symbols().lookup_by_name(&target_name)
             .and_then(|s| s.abi)
             .unwrap_or(CallingConvention::Sysv);
-        self.emit_call_args_and_call(lambda_node_id, target_name, arg_ids, arena);
+        self.emit_call_args_and_call(lambda_node_id, target_name, arg_ids, arena, caller_abi);
         self.emit_ret_after_call(lambda_node_id, callee_abi);
     }
 
@@ -365,11 +448,13 @@ impl EmitWalker {
         arg_ids: &[IrNodeId],
         arena: &IrArena,
     ) {
-        // Determine callee ABI before the move
+        // Determine caller and callee ABIs
+        // Use lambda_abi_option to distinguish unannotated (None) from explicitly annotated (Some)
+        let caller_abi = self.state.lambda_abi_option(lambda_node_id.get());
         let callee_abi = arena.symbols().lookup_by_name(&target_name)
             .and_then(|s| s.abi)
             .unwrap_or(CallingConvention::Sysv);
-        self.emit_call_args_and_call(lambda_node_id, target_name, arg_ids, arena);
+        self.emit_call_args_and_call(lambda_node_id, target_name, arg_ids, arena, caller_abi);
         // For statement-position calls, emit RET as well (unlike expression-position calls)
         self.emit_ret_after_call(lambda_node_id, callee_abi);
     }

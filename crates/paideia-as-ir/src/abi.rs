@@ -118,6 +118,37 @@ pub const SCRATCH: [RegId; 4] = [RAX, RCX, RDX, R8];
 /// introduced in #987.
 pub const PATTERN_SCRATCH: [RegId; 5] = [RCX, RDX, R8, R10, R11];
 
+/// Registers saved by the caller-side bridge when crossing paideia ↔ MS/SysV
+/// ABI boundaries. Per calling-convention.md §11.5: R15 (env) + R14 (effect).
+/// MS ABI already preserves R12-R15 so paideia doesn't need to double-save
+/// against MS callee clobber; the save is against a hypothetical bug and
+/// against future paideia semantic-tag additions.
+///
+/// LIFO ordering: push R15 first, then R14; pop R14 first, then R15.
+pub const PAIDEIA_BRIDGE_SAVE: [RegId; 2] = [R15, R14];
+
+/// Determine which registers the caller must save/restore when crossing
+/// an ABI boundary. Returns:
+/// - `&PAIDEIA_BRIDGE_SAVE` if caller is paideia (None) and callee is MS or explicit SysV
+/// - `&[]` (empty slice) for all other cross-ABI or intra-ABI cases
+///
+/// The caller is responsible for saving/restoring these registers via
+/// inline push/pop bookends around the call sequence.
+#[must_use]
+pub fn bridge_save_set(
+    caller_abi: Option<CallingConvention>,
+    callee_abi: Option<CallingConvention>,
+) -> &'static [RegId] {
+    match (caller_abi, callee_abi) {
+        // Paideia (None) calling MS: save R15, R14
+        (None, Some(CallingConvention::Ms)) => &PAIDEIA_BRIDGE_SAVE,
+        // Paideia (None) calling explicit SysV: save R15, R14
+        (None, Some(CallingConvention::Sysv)) => &PAIDEIA_BRIDGE_SAVE,
+        // All other cases: no bridge save
+        _ => &[],
+    }
+}
+
 /// Classification of a function argument for ABI mapping purposes.
 ///
 /// An argument's class determines which register or stack slot it occupies
