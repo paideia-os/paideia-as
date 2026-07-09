@@ -400,15 +400,11 @@ impl EmitWalker {
     /// Then emits arm bodies and default arm (no cmp/jne cascade).
     /// Arm labels are registered at the start of each arm body.
     /// End label registered at the end.
-    ///
-    /// Issue #1097: Uses unified ID scheme 1_120_000 + L*100 + K to sort dispatch
-    /// BEFORE lambda RET at 1_150_000 + L*100, preventing dead code.
     fn visit_match_jump_table(
         &mut self,
         match_node_id: IrNodeId,
         arena: &IrArena,
         dispatch_meta: &paideia_as_ir::MatchDispatchMeta,
-        lambda_node_id: IrNodeId,
     ) {
         let children = arena.children(match_node_id);
         if children.is_empty() {
@@ -455,12 +451,10 @@ impl EmitWalker {
             };
 
         // Emit discriminant load for stack form
-        // Issue #1097: Use 1_120_000 + L*100 + 0 so discriminant load sorts
-        // before dispatch sequence (1-4) and arm bodies (10+).
+        // PA-r15-009c: Use match_id * 1000 + N numbering so discriminant load (0)
+        // sorts before dispatch sequence (1-4) and arm end jumps (100+).
         if layout_size > 16 {
-            let disc_load_id = IrNodeId::new(1_120_000u32
-                .saturating_add(lambda_node_id.get().saturating_mul(100))
-                .saturating_add(0))
+            let disc_load_id = IrNodeId::new(match_node_id.get() * 1000 + 0)
                 .expect("disc load id");
             let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
             operands.push(Operand::Reg(abi::RAX)); // RAX
@@ -489,10 +483,7 @@ impl EmitWalker {
 
         // 1. sub rax, min_arm
         if dispatch_meta.min_arm != 0 {
-            let sub_id = IrNodeId::new(1_120_000u32
-                .saturating_add(lambda_node_id.get().saturating_mul(100))
-                .saturating_add(1))
-                .expect("sub id");
+            let sub_id = IrNodeId::new(match_node_id.get() * 1000 + 1).expect("sub id");
             let mut sub_operands: SmallVec<[Operand; 3]> = SmallVec::new();
             sub_operands.push(Operand::Reg(abi::RAX));
             sub_operands.push(Operand::Imm64(dispatch_meta.min_arm));
@@ -507,10 +498,7 @@ impl EmitWalker {
         }
 
         // 2. cmp rax, range
-        let cmp_id = IrNodeId::new(1_120_000u32
-            .saturating_add(lambda_node_id.get().saturating_mul(100))
-            .saturating_add(2))
-            .expect("cmp id");
+        let cmp_id = IrNodeId::new(match_node_id.get() * 1000 + 2).expect("cmp id");
         let mut cmp_operands: SmallVec<[Operand; 3]> = SmallVec::new();
         cmp_operands.push(Operand::Reg(abi::RAX));
         cmp_operands.push(Operand::Imm64(dispatch_meta.range as i64 - 1));
@@ -524,10 +512,7 @@ impl EmitWalker {
         });
 
         // 3. ja _default_<match_id>
-        let ja_id = IrNodeId::new(1_120_000u32
-            .saturating_add(lambda_node_id.get().saturating_mul(100))
-            .saturating_add(3))
-            .expect("ja id");
+        let ja_id = IrNodeId::new(match_node_id.get() * 1000 + 3).expect("ja id");
         let mut ja_operands: SmallVec<[Operand; 3]> = SmallVec::new();
         ja_operands.push(Operand::LabelRef {
             name: default_label.clone(),
@@ -543,10 +528,7 @@ impl EmitWalker {
         });
 
         // 4. jmp [_jt_<match_id> + rax*8]
-        let jmp_id = IrNodeId::new(1_120_000u32
-            .saturating_add(lambda_node_id.get().saturating_mul(100))
-            .saturating_add(4))
-            .expect("jmp id");
+        let jmp_id = IrNodeId::new(match_node_id.get() * 1000 + 4).expect("jmp id");
         let mut jmp_operands: SmallVec<[Operand; 3]> = SmallVec::new();
         jmp_operands.push(Operand::MemSymIndexed {
             name: jt_name,
@@ -562,9 +544,6 @@ impl EmitWalker {
             byte_offset_in_text: None,
             mode: self.current_mode(),
         });
-
-        // Track whether we saw a default arm to properly register the default_label
-        let mut default_arm_registered = false;
 
         // Now emit arm bodies and default arm
         for (idx, &arm_id) in arm_ids.iter().enumerate() {
@@ -584,48 +563,9 @@ impl EmitWalker {
             // If default arm, skip to default label
             if arm_meta.is_default {
                 self.state.register_label(default_label.clone());
-                default_arm_registered = true;
                 if let Some(arm_node) = arena.get(arm_id) {
                     match arm_node.kind {
                         IrKind::Action => self.emit_block_body_arm(arm_id, arena, None),
-                        IrKind::Literal => {
-                            // Literal arm body: move value to RAX
-                            if let Some(value) = arena.literal_values().get(arm_id) {
-                                self.emit_mov_literal_to_reg(
-                                    IrNodeId::new(1_130_000u32
-                                        .saturating_add(lambda_node_id.get().saturating_mul(100))
-                                        .saturating_add(idx as u32 * 10)
-                                        .saturating_add(0))
-                                        .expect("literal arm mov id"),
-                                    abi::RAX,
-                                    value,
-                                );
-                            }
-                        }
-                        IrKind::Var => {
-                            // Var arm body: move variable value to RAX
-                            if let Some(var_name) = arena.binding_names().get(arm_id) {
-                                if let Some(var_reg) = self.state.local_bindings.get(var_name) {
-                                    if var_reg != abi::RAX {
-                                        let mov_id = IrNodeId::new(1_130_000u32
-                                            .saturating_add(lambda_node_id.get().saturating_mul(100))
-                                            .saturating_add(idx as u32 * 10)
-                                            .saturating_add(1))
-                                            .expect("var arm mov id");
-                                        let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
-                                        operands.push(Operand::Reg(abi::RAX));
-                                        operands.push(Operand::Reg(var_reg));
-                                        self.emit_inst(mov_id, Instruction {
-                                            mnemonic: Mnemonic::Mov,
-                                            operands,
-                                            encoding_hint: None,
-                                            byte_offset_in_text: None,
-                                            mode: self.current_mode(),
-                                        });
-                                    }
-                                }
-                            }
-                        }
                         _ => {}
                     }
                 }
@@ -635,59 +575,17 @@ impl EmitWalker {
             // Register arm label (jump table entries will jump here)
             self.state.register_label(arm_label);
 
-            // Emit arm body based on its IR kind
+            // Emit arm body
             if let Some(arm_node) = arena.get(arm_id) {
                 match arm_node.kind {
-                    IrKind::Action => {
-                        self.emit_block_body_arm(arm_id, arena, None)
-                    }
-                    IrKind::Literal => {
-                        // Literal arm body: move value to RAX
-                        if let Some(value) = arena.literal_values().get(arm_id) {
-                            self.emit_mov_literal_to_reg(
-                                IrNodeId::new(1_130_000u32
-                                    .saturating_add(lambda_node_id.get().saturating_mul(100))
-                                    .saturating_add(idx as u32 * 10)
-                                    .saturating_add(0))
-                                    .expect("literal arm mov id"),
-                                abi::RAX,
-                                value,
-                            );
-                        }
-                    }
-                    IrKind::Var => {
-                        // Var arm body: move variable value to RAX
-                        if let Some(var_name) = arena.binding_names().get(arm_id) {
-                            if let Some(var_reg) = self.state.local_bindings.get(var_name) {
-                                if var_reg != abi::RAX {
-                                    let mov_id = IrNodeId::new(1_130_000u32
-                                        .saturating_add(lambda_node_id.get().saturating_mul(100))
-                                        .saturating_add(idx as u32 * 10)
-                                        .saturating_add(1))
-                                        .expect("var arm mov id");
-                                    let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
-                                    operands.push(Operand::Reg(abi::RAX));
-                                    operands.push(Operand::Reg(var_reg));
-                                    self.emit_inst(mov_id, Instruction {
-                                        mnemonic: Mnemonic::Mov,
-                                        operands,
-                                        encoding_hint: None,
-                                        byte_offset_in_text: None,
-                                        mode: self.current_mode(),
-                                    });
-                                }
-                            }
-                        }
-                    }
+                    IrKind::Action => self.emit_block_body_arm(arm_id, arena, None),
                     _ => {}
                 }
             }
 
             // Emit jmp end
-            // Issue #1097: Use 1_140_000 + L*100 + idx to sort after arm bodies
-            let jmp_end_id = IrNodeId::new(1_140_000u32
-                .saturating_add(lambda_node_id.get().saturating_mul(100))
-                .saturating_add(idx as u32))
+            // PA-r15-009c: Use 100 + idx*10 + 5 to sort after dispatch sequence (0-4)
+            let jmp_end_id = IrNodeId::new(match_node_id.get() * 1000 + 100 + idx as u32 * 10 + 5)
                 .expect("jmp end id");
             let mut jmp_end_operands: SmallVec<[Operand; 3]> = SmallVec::new();
             jmp_end_operands.push(Operand::LabelRef {
@@ -702,11 +600,6 @@ impl EmitWalker {
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
             });
-        }
-
-        // Register default label if no explicit default arm was present
-        if !default_arm_registered {
-            self.state.register_label(default_label);
         }
 
         // Register end label
@@ -741,7 +634,6 @@ impl EmitWalker {
         arena: &IrArena,
         typer: Option<&paideia_as_types::TypeInterner>,
         _tail: TailContext,
-        lambda_node_id: IrNodeId,
     ) {
         // Mark this match as emitted in tail position
         self.state.mark_match_emitted(match_node_id.get());
@@ -757,7 +649,7 @@ impl EmitWalker {
         // PA-r15-009b (#1032): Check for jump-table dispatch
         if let Some(dispatch_meta) = arena.match_dispatch_meta().get(match_node_id) {
             if dispatch_meta.jump_table && dispatch_meta.density_ok {
-                return self.visit_match_jump_table(match_node_id, arena, dispatch_meta, lambda_node_id);
+                return self.visit_match_jump_table(match_node_id, arena, dispatch_meta);
             }
         }
 
@@ -1084,14 +976,13 @@ mod tests {
         );
 
         // Call visit_match_jump_table
-        // Issue #1097: Pass lambda_node_id for unified ID scheme (use sentinel IrNodeId::new(1) for tests)
         walker.visit_match_jump_table(match_id, &arena, &MatchDispatchMeta {
             jump_table: true,
             min_arm: 0,
             range: 4,
             covered_arms: 4,
             density_ok: true,
-        }, IrNodeId::new(1).unwrap());
+        });
 
         // Verify the instruction sequence
         // PA-r15-009c: Sort instruction IDs to avoid HashMap order randomization
@@ -1180,8 +1071,7 @@ mod tests {
 
         // Call visit_match (not visit_match_jump_table, since density_ok = false)
         // PA-r17-013 (#991): pass TailContext::Discard since this is a top-level test
-        // Issue #1097: Pass sentinel lambda_node_id for non-lambda context
-        walker.visit_match(match_id, &arena, None, TailContext::Discard, IrNodeId::new(1).unwrap());
+        walker.visit_match(match_id, &arena, None, TailContext::Discard);
 
         let instructions: Vec<&Instruction> = walker.state.instructions.iter()
             .map(|(_, instr)| instr)

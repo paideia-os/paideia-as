@@ -642,7 +642,6 @@ impl EmitWalker {
         arena: &IrArena,
         typer: Option<&paideia_as_types::TypeInterner>,
         tail: TailContext,
-        lambda_node_id: IrNodeId,
     ) {
         if let Some(node) = arena.get(tail_id) {
             match node.kind {
@@ -737,8 +736,7 @@ impl EmitWalker {
                 }
                 IrKind::Match => {
                     // Recurse via visit_match with tail context
-                    // Issue #1097: Pass lambda_node_id for unified ID scheme
-                    self.visit_match(tail_id, arena, typer, tail, lambda_node_id);
+                    self.visit_match(tail_id, arena, typer, tail);
                     self.state.mark_match_emitted(tail_id.get());
                 }
                 IrKind::Branch => {

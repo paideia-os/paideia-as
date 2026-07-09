@@ -17,6 +17,5 @@ mod codegen {
         pub mod mode_propagation;
         pub mod pub_let;
     }
-    pub mod match_byte_order;
     pub mod string_lit_emit;
 }
