@@ -1,0 +1,46 @@
+// PA-R19-011: UEFI header emission helpers.
+//
+// Provides constants and declarations for PE32+ UEFI binary headers,
+// enabling paideia-as programs (e.g., paideia-os UEFI loader) to reference
+// and patch UEFI headers via @include_bytes, @link_section, and @align.
+//
+// Layer 1: PE/COFF subsystem and magic constants
+pub let UEFI_SUBSYSTEM_APPLICATION    : u16 = 10
+pub let UEFI_SUBSYSTEM_BOOT_DRIVER    : u16 = 11
+pub let UEFI_SUBSYSTEM_RUNTIME_DRIVER : u16 = 12
+pub let PE32PLUS_MAGIC                : u16 = 0x020B
+pub let COFF_MACHINE_AMD64            : u16 = 0x8664
+
+// PE section characteristic flags
+pub let CHAR_TEXT   : u32 = 0x6000_0020
+pub let CHAR_RDATA  : u32 = 0x4000_0040
+pub let CHAR_DATA   : u32 = 0xC000_0040
+pub let CHAR_BSS    : u32 = 0xC000_0080
+
+// UEFI default image base address (typical 64-bit PE32+ allocation)
+pub let UEFI_DEFAULT_IMAGE_BASE : u64 = 0x140000000
+
+// Layer 3: Field-offset constants for in-place patchers.
+// All offsets are from the start of the complete PE header (DOS + NT + COFF + Opt).
+pub let OFF_COFF_TIMESTAMP        : u64 = 0x48
+pub let OFF_COFF_NUM_SECTIONS     : u64 = 0x46
+pub let OFF_OPT_ADDRESS_OF_ENTRY  : u64 = 0x68
+pub let OFF_OPT_SIZE_OF_CODE      : u64 = 0x5C
+pub let OFF_OPT_SIZE_OF_IMAGE     : u64 = 0x90
+pub let OFF_OPT_SIZE_OF_HEADERS   : u64 = 0x94
+pub let OFF_OPT_CHECKSUM          : u64 = 0x98
+pub let OFF_OPT_SUBSYSTEM         : u64 = 0x9C
+pub let OFF_SECTION_TABLE_START   : u64 = 0x148
+
+// Layer 2: Template pub let (uses @include_bytes + @link_section + @align).
+pub let UEFI_HEADER_TEMPLATE : [u8; 512] =
+    @include_bytes("uefi_header_template.bin") @link_section(".uefi_hdr") @align(4096)
+
+// Layer 4: Declaration-only UefiHeaderOps trait matching mmio.pdx / bytes.pdx style.
+// Effect: !{RawMem} for patchers (access to caller-owned buffers).
+// Capability: @{paideia.raw_mem}
+trait UefiHeaderOps {
+  fn set_entry(buf: u64, rva: u32)         -> () !{RawMem} @{paideia.raw_mem};
+  fn set_size_of_image(buf: u64, sz: u32)  -> () !{RawMem} @{paideia.raw_mem};
+  fn set_subsystem(buf: u64, ss: u16)      -> () !{RawMem} @{paideia.raw_mem};
+}

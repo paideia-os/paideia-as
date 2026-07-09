@@ -2,6 +2,10 @@
 
 ## v0.19.0 — UEFI-ABI (unreleased)
 
+### Key changes
+
+- **Issue #1016** — UEFI header emission helpers (PA-R19-011). Declare PE32+ header constants and field-offset patching interface via new `crates/paideia-stdlib/pdx/uefi.pdx`. Four-layer design: (1) PE/COFF subsystem and magic constants (UEFI_SUBSYSTEM_APPLICATION, PE32PLUS_MAGIC, COFF_MACHINE_AMD64, section characteristics), (2) 512-byte pre-baked UEFI_HEADER_TEMPLATE blob with @include_bytes + @link_section + @align, (3) field offsets for in-place patching (OFF_COFF_TIMESTAMP, OFF_OPT_SUBSYSTEM, etc.), (4) UefiHeaderOps trait declaration (set_entry, set_size_of_image, set_subsystem). New `uefi_header_template.bin` binary generated via feature-gated `regen-uefi-template` build.rs (uses paideia-as-emitter-pe to construct header). Unit tests: 4 in `crates/paideia-stdlib/tests/parse_pdx.rs` (parse cleanly, valid PE32+ magic, defaults reproducible, offsets match spec). Integration fixture: `tests/uefi-stdlib-fixture/` with 3 tests (compiles, patches entry RVA, link section placement). No changes to Rust PE emitter (`paideia-as-emitter-pe/`).
+
 ### Critical bug fixes
 
 - **Issue #1099** — SysV function calls with 1+ args emit dead-code MOVs after RET. Root cause: arg MOV IDs (1_000_000+) sorted after CALL/RET IDs (L*2, L*2+1), producing broken byte order. **Fix:** Unified CALL/RET ID scheme across SysV and MS to 1_050_000+L*100 (CALL) and 1_150_000+L*100 (RET), ensuring MOVs sort before CALL and RET sorts last. Fixed 3 indirect-call sites in `emit_lambda.rs`. Updated `record_lambda_entry` to use first-MOV ID when args exist. New unit test in `text_emitter.rs` + integration test in `codegen/call_byte_order.rs`. Regression probe: `tools/verify-byte-order.sh`.

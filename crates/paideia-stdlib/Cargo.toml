@@ -6,3 +6,9 @@ publish = false
 
 [lib]
 path = "src/lib.rs"
+
+[build-dependencies]
+paideia-as-emitter-pe = { path = "../paideia-as-emitter-pe", optional = true }
+
+[features]
+regen-uefi-template = ["paideia-as-emitter-pe"]

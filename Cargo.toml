@@ -47,6 +47,7 @@ members = [
     "tests/pq-corpus",
     "tests/stdlib-smoke",
     "tests/uefi-smoke",
+    "tests/uefi-stdlib-fixture",
     "tests/cross-build",
     "tests/self-hosting",
     "tools/ddc",

@@ -2255,6 +2255,9 @@ dependencies = [
 [[package]]
 name = "paideia-stdlib"
 version = "0.16.0"
+dependencies = [
+ "paideia-as-emitter-pe",
+]
 
 [[package]]
 name = "paideia-stdlib-smoke"
@@ -3465,6 +3468,13 @@ name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
+
+[[package]]
+name = "uefi-stdlib-fixture"
+version = "0.16.0"
+dependencies = [
+ "paideia-stdlib",
+]
 
 [[package]]
 name = "unarray"

@@ -1,0 +1,14 @@
+[package]
+name = "uefi-stdlib-fixture"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+paideia-stdlib = { path = "../../crates/paideia-stdlib" }
+
+[dev-dependencies]
+
+[[test]]
+name = "uefi_stdlib_integration"
+path = "tests/uefi_stdlib_integration.rs"
