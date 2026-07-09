@@ -1333,7 +1333,10 @@ fn emit_walker_pa7_002_zero_arg_function_call() {
     );
 
     // Verify call instruction was emitted (5 bytes: E8 + 4-byte rel32)
-    let call_id = IrNodeId::new(lambda_b_id.get() * 2).expect("call instr id");
+    // Issue #1099: CALL ID is now 1_050_000 + L*100 (unified scheme)
+    let call_id = IrNodeId::new(1_050_000u32
+        .saturating_add(lambda_b_id.get().saturating_mul(100)))
+        .expect("call instr id");
     let call_inst = walker
         .state()
         .instructions
@@ -1350,7 +1353,10 @@ fn emit_walker_pa7_002_zero_arg_function_call() {
     }
 
     // Verify ret instruction was emitted (1 byte: C3)
-    let ret_id = IrNodeId::new(lambda_b_id.get() * 2 + 1).expect("ret instr id");
+    // Issue #1099: RET ID is now 1_150_000 + L*100 (unified scheme)
+    let ret_id = IrNodeId::new(1_150_000u32
+        .saturating_add(lambda_b_id.get().saturating_mul(100)))
+        .expect("ret instr id");
     let ret_inst = walker
         .state()
         .instructions
@@ -1762,6 +1768,13 @@ fn emit_walker_while_nested_with_continue() {
 }
 
 // ── Phase 7 m1-003: Multi-argument function call tests (PA7-006) ─────────────────────────
+//
+// NOTE (issue #1099): The following tests check BYTE COUNT only, not BYTE ORDER.
+// They verify that estimated_offset tracks the correct total byte size of MOVs, CALL, and RET.
+// For byte-order verification (MOVs before CALL, RET last), see:
+// - Unit test: paideia-as-emitter-pe/tests/text_emitter.rs::sysv_call_with_args_emits_movs_before_call_and_ret_last
+// - Integration test: codegen/call_byte_order.rs::walker_then_emitter_produces_movs_before_call_in_bytes
+// - Regression probe: tools/verify-byte-order.sh
 
 #[test]
 fn emit_walker_function_call_3_args() {

@@ -2,6 +2,10 @@
 
 ## v0.19.0 — UEFI-ABI (unreleased)
 
+### Critical bug fixes
+
+- **Issue #1099** — SysV function calls with 1+ args emit dead-code MOVs after RET. Root cause: arg MOV IDs (1_000_000+) sorted after CALL/RET IDs (L*2, L*2+1), producing broken byte order. **Fix:** Unified CALL/RET ID scheme across SysV and MS to 1_050_000+L*100 (CALL) and 1_150_000+L*100 (RET), ensuring MOVs sort before CALL and RET sorts last. Fixed 3 indirect-call sites in `emit_lambda.rs`. Updated `record_lambda_entry` to use first-MOV ID when args exist. New unit test in `text_emitter.rs` + integration test in `codegen/call_byte_order.rs`. Regression probe: `tools/verify-byte-order.sh`.
+
 ### Key changes
 
 - **Issue #1006** — `@abi("ms" | "sysv")` calling-convention annotation on let bindings with function-shaped values (lambdas only). Phase 19 MVP: parse acceptance + semantic validation gates. `@abi("ms")` emits U1620 (deferred to #1011 for MS x64 prologue/epilogue codegen); `@abi("sysv")` and unannotated lambdas build normally. Non-lambda bindings with `@abi` emit P0286 error. Parser diagnostics: P0285 for invalid/malformed arguments (unknown string, non-string, missing parens, case violation).

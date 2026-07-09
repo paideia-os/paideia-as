@@ -222,11 +222,11 @@ impl EmitWalker {
     /// - (3) `call r11`
     /// - (4) `ret`
     ///
-    /// Instruction ordering via monotonically increasing virtual IDs:
-    /// - `base * 16 + 0`: save (mov r11, callee)
-    /// - `base * 16 + 1..N`: arg moves
-    /// - `base * 16 + N`: call r11
-    /// - `base * 16 + N+1`: ret
+    /// Instruction ordering via unified ID scheme (issue #1099):
+    /// - `1_040_000 + L*100`: save (mov r11, callee)
+    /// - `1_060_000 + L*100 + seq`: arg moves (disjoint from direct-call MOVs at 1_000_000)
+    /// - `1_070_000 + L*100`: call r11
+    /// - `1_170_000 + L*100`: ret
     pub(crate) fn emit_indirect_call_via_reg(
         &mut self,
         lambda_node_id: IrNodeId,
@@ -234,11 +234,12 @@ impl EmitWalker {
         arg_ids: &[IrNodeId],
         arena: &IrArena,
     ) {
-        let base = lambda_node_id.get();
+        let l = lambda_node_id.get();
         let r11 = abi::R11;
         let arg_regs = [abi::RDI, abi::RSI, abi::RDX, abi::RCX, abi::R8, abi::R9];
 
-        let save_id = IrNodeId::new(base * 16).expect("save instr virtual id");
+        let save_id = IrNodeId::new(1_040_000u32.saturating_add(l.saturating_mul(100)))
+            .unwrap_or_else(|| IrNodeId::new(1).unwrap());
         let mut save_ops: SmallVec<[Operand; 3]> = SmallVec::new();
         save_ops.push(Operand::Reg(r11));
         save_ops.push(Operand::Reg(callee_reg));
@@ -253,7 +254,7 @@ impl EmitWalker {
             },
         );
 
-        let mut seq_id = 1u32;
+        let mut seq_id = 0u32;
         for (i, &arg_id) in arg_ids.iter().enumerate() {
             let dst = arg_regs[i];
             let arg_node = match arena.get(arg_id) {
@@ -268,7 +269,10 @@ impl EmitWalker {
                 }
                 IrKind::Var => {
                     if let Some(name) = arena.binding_names().get(arg_id) {
-                        let iid = IrNodeId::new(base * 16 + seq_id).expect("arg instr virtual id");
+                        let iid = IrNodeId::new(1_060_000u32
+                            .saturating_add(l.saturating_mul(100))
+                            .saturating_add(seq_id))
+                            .expect("arg instr virtual id");
                         seq_id += 1;
                         let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
                         ops.push(Operand::Reg(dst));
@@ -289,8 +293,8 @@ impl EmitWalker {
             }
         }
 
-        let call_id = IrNodeId::new(base * 16 + seq_id).expect("call instr virtual id");
-        seq_id += 1;
+        let call_id = IrNodeId::new(1_070_000u32.saturating_add(l.saturating_mul(100)))
+            .unwrap_or_else(|| IrNodeId::new(1).unwrap());
         let mut call_ops: SmallVec<[Operand; 3]> = SmallVec::new();
         call_ops.push(Operand::Reg(r11));
         self.emit_inst(
@@ -304,7 +308,8 @@ impl EmitWalker {
             },
         );
 
-        let ret_id = IrNodeId::new(base * 16 + seq_id).expect("ret instr virtual id");
+        let ret_id = IrNodeId::new(1_170_000u32.saturating_add(l.saturating_mul(100)))
+            .unwrap_or_else(|| IrNodeId::new(1).unwrap());
         self.emit_inst(
             ret_id,
             Instruction {
@@ -328,6 +333,11 @@ impl EmitWalker {
     ///   1. Argument loads (mov rdi, arg0; mov rsi, arg1; ...)
     ///   2. Single `call [rip + sym + addend]`
     ///   3. `ret`
+    ///
+    /// Issue #1099: Uses unified ID scheme to ensure arg MOVs sort before CALL and RET is last:
+    /// - `1_060_000 + L*100 + seq`: arg moves
+    /// - `1_070_000 + L*100`: call [rip + sym]
+    /// - `1_170_000 + L*100`: ret
     pub(crate) fn emit_indirect_call_via_mem_rip_sym(
         &mut self,
         lambda_node_id: IrNodeId,
@@ -336,10 +346,10 @@ impl EmitWalker {
         arg_ids: &[IrNodeId],
         arena: &IrArena,
     ) {
-        let base = lambda_node_id.get();
+        let l = lambda_node_id.get();
         let arg_regs = [abi::RDI, abi::RSI, abi::RDX, abi::RCX, abi::R8, abi::R9];
 
-        let mut seq_id = 1u32;
+        let mut seq_id = 0u32;
         for (i, &arg_id) in arg_ids.iter().enumerate() {
             let dst = arg_regs[i];
             let arg_node = match arena.get(arg_id) {
@@ -354,7 +364,10 @@ impl EmitWalker {
                 }
                 IrKind::Var => {
                     if let Some(name) = arena.binding_names().get(arg_id) {
-                        let iid = IrNodeId::new(base * 16 + seq_id).expect("arg instr virtual id");
+                        let iid = IrNodeId::new(1_060_000u32
+                            .saturating_add(l.saturating_mul(100))
+                            .saturating_add(seq_id))
+                            .expect("arg instr virtual id");
                         seq_id += 1;
                         let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
                         ops.push(Operand::Reg(dst));
@@ -375,8 +388,8 @@ impl EmitWalker {
             }
         }
 
-        let call_id = IrNodeId::new(base * 16 + seq_id).expect("call instr virtual id");
-        seq_id += 1;
+        let call_id = IrNodeId::new(1_070_000u32.saturating_add(l.saturating_mul(100)))
+            .unwrap_or_else(|| IrNodeId::new(1).unwrap());
         let mut call_ops: SmallVec<[Operand; 3]> = SmallVec::new();
         call_ops.push(Operand::MemRipRelSym {
             name: callee_name,
@@ -393,7 +406,8 @@ impl EmitWalker {
             },
         );
 
-        let ret_id = IrNodeId::new(base * 16 + seq_id).expect("ret instr virtual id");
+        let ret_id = IrNodeId::new(1_170_000u32.saturating_add(l.saturating_mul(100)))
+            .unwrap_or_else(|| IrNodeId::new(1).unwrap());
         self.emit_inst(
             ret_id,
             Instruction {
@@ -415,11 +429,12 @@ impl EmitWalker {
     /// - (3) `call r11`
     /// - (4) `ret`
     ///
-    /// Instruction ordering via monotonically increasing virtual IDs:
-    /// - `base * 16 + 0`: load fnptr (mov r11, [base + disp])
-    /// - `base * 16 + 1..N`: arg moves
-    /// - `base * 16 + N`: call r11
-    /// - `base * 16 + N+1`: ret
+    /// Issue #1099: Uses unified ID scheme to ensure fnptr load precedes arg MOVs,
+    /// arg MOVs precede CALL, and RET is last:
+    /// - `1_040_000 + L*100`: load fnptr (mov r11, [base + disp])
+    /// - `1_060_000 + L*100 + seq`: arg moves
+    /// - `1_070_000 + L*100`: call r11
+    /// - `1_170_000 + L*100`: ret
     pub(crate) fn emit_indirect_call_via_mem_base_disp(
         &mut self,
         lambda_node_id: IrNodeId,
@@ -428,12 +443,13 @@ impl EmitWalker {
         arg_ids: &[IrNodeId],
         arena: &IrArena,
     ) {
-        let base = lambda_node_id.get();
+        let l = lambda_node_id.get();
         let r11 = abi::R11;
         let arg_regs = [abi::RDI, abi::RSI, abi::RDX, abi::RCX, abi::R8, abi::R9];
 
         // Step 1: Load fnptr from [base_reg + field_offset] into R11
-        let load_id = IrNodeId::new(base * 16).expect("load instr virtual id");
+        let load_id = IrNodeId::new(1_040_000u32.saturating_add(l.saturating_mul(100)))
+            .unwrap_or_else(|| IrNodeId::new(1).unwrap());
         let mut load_ops: SmallVec<[Operand; 3]> = SmallVec::new();
         load_ops.push(Operand::Reg(r11));
         load_ops.push(Operand::MemSib {
@@ -454,7 +470,7 @@ impl EmitWalker {
         );
 
         // Step 2: Marshal arguments into arg_regs
-        let mut seq_id = 1u32;
+        let mut seq_id = 0u32;
         for (i, &arg_id) in arg_ids.iter().enumerate() {
             let dst = arg_regs[i];
             let arg_node = match arena.get(arg_id) {
@@ -469,7 +485,10 @@ impl EmitWalker {
                 }
                 IrKind::Var => {
                     if let Some(name) = arena.binding_names().get(arg_id) {
-                        let iid = IrNodeId::new(base * 16 + seq_id).expect("arg instr virtual id");
+                        let iid = IrNodeId::new(1_060_000u32
+                            .saturating_add(l.saturating_mul(100))
+                            .saturating_add(seq_id))
+                            .expect("arg instr virtual id");
                         seq_id += 1;
                         let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
                         ops.push(Operand::Reg(dst));
@@ -491,8 +510,8 @@ impl EmitWalker {
         }
 
         // Step 3: Call R11
-        let call_id = IrNodeId::new(base * 16 + seq_id).expect("call instr virtual id");
-        seq_id += 1;
+        let call_id = IrNodeId::new(1_070_000u32.saturating_add(l.saturating_mul(100)))
+            .unwrap_or_else(|| IrNodeId::new(1).unwrap());
         let mut call_ops: SmallVec<[Operand; 3]> = SmallVec::new();
         call_ops.push(Operand::Reg(r11));
         self.emit_inst(
@@ -507,7 +526,8 @@ impl EmitWalker {
         );
 
         // Step 4: Return
-        let ret_id = IrNodeId::new(base * 16 + seq_id).expect("ret instr virtual id");
+        let ret_id = IrNodeId::new(1_170_000u32.saturating_add(l.saturating_mul(100)))
+            .unwrap_or_else(|| IrNodeId::new(1).unwrap());
         self.emit_inst(
             ret_id,
             Instruction {

@@ -55,16 +55,25 @@ impl EmitWalker {
         };
 
         // Allocate CALL instruction ID:
-        // - SysV: lambda_node_id * 2 (backward compatible)
-        // - MS: 1_050_000 + (lambda_node_id * 100) (sorts after MOVs, before postlude)
-        let main_id = if callee_abi == CallingConvention::Ms {
-            IrNodeId::new(1_050_000u32
-                .saturating_add(lambda_node_id.get().saturating_mul(100)))
-                .unwrap_or_else(|| IrNodeId::new(1).unwrap())
+        // Both SysV and MS use unified ID scheme: 1_050_000 + (lambda_node_id * 100)
+        // This ensures arg MOVs (1_000_000+) sort before CALL, and RET sorts last.
+        let main_id = IrNodeId::new(1_050_000u32
+            .saturating_add(lambda_node_id.get().saturating_mul(100)))
+            .unwrap_or_else(|| IrNodeId::new(1).unwrap());
+
+        // Determine first instruction ID for record_lambda_entry.
+        // If args exist, use the first MOV's ID; otherwise use the CALL ID.
+        let first_instr_id = if arg_ids.is_empty() {
+            main_id  // No args: CALL is the first instruction
         } else {
-            IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id")
+            // First arg MOV: 1_000_000 + L*100 + first_arg_reg
+            let first_arg_reg = arg_regs[0].0 as u32;
+            IrNodeId::new(1_000_000u32
+                .saturating_add(lambda_node_id.get().saturating_mul(100))
+                .saturating_add(first_arg_reg))
+                .unwrap_or_else(|| IrNodeId::new(1).unwrap())
         };
-        self.record_lambda_entry(lambda_node_id, main_id);
+        self.record_lambda_entry(lambda_node_id, first_instr_id);
 
         // MS x64 prelude ID: 900_000 + (lambda_node_id * 100) - sorts BEFORE SysV MOVs at 1_000_000
         let ms_prelude_id = 900_000u32
@@ -304,16 +313,12 @@ impl EmitWalker {
     /// Issue #1088: For statement-position calls (call expressions whose result is discarded),
     /// emit only the RET, not the full function-call sequence.
     ///
-    /// For MS x64 ABI, uses ID in 1_150_000+ range to sort after postlude.
-    /// For SysV, uses ID = lambda_node_id * 2 + 1 for backward compatibility.
-    fn emit_ret_after_call(&mut self, lambda_node_id: IrNodeId, callee_abi: CallingConvention) {
-        let ret_id = if callee_abi == CallingConvention::Ms {
-            IrNodeId::new(1_150_000u32
-                .saturating_add(lambda_node_id.get().saturating_mul(100)))
-                .unwrap_or_else(|| IrNodeId::new(1).unwrap())
-        } else {
-            IrNodeId::new(lambda_node_id.get() * 2 + 1).expect("ret instr id")
-        };
+    /// Issue #1099: Uses unified ID scheme for both SysV and MS: 1_150_000 + (lambda_node_id * 100).
+    /// This ensures RET sorts last (after CALL at 1_050_000+).
+    fn emit_ret_after_call(&mut self, lambda_node_id: IrNodeId, _callee_abi: CallingConvention) {
+        let ret_id = IrNodeId::new(1_150_000u32
+            .saturating_add(lambda_node_id.get().saturating_mul(100)))
+            .unwrap_or_else(|| IrNodeId::new(1).unwrap());
         let ret_inst = Instruction {
             mnemonic: Mnemonic::Ret,
             operands: SmallVec::new(),

@@ -238,4 +238,98 @@ mod tests {
         // Verify offset map contains both instructions
         assert_eq!(emit_result.offset_map.len(), 2);
     }
+
+    #[test]
+    fn sysv_call_with_args_emits_movs_before_call_and_ret_last() {
+        // Issue #1099: Verify that arg MOVs sort before CALL and RET is the last byte.
+        // This test simulates a 2-arg SysV call: mov rdi, imm; mov rsi, imm; call target; ret
+        let mut table = InstructionSideTable::new();
+
+        // First arg MOV: rdi = 0x1234 (uses ID 1_000_000 + 100*1 + 5 where reg 5 is RSI)
+        // Actually, RDI is reg 5, RSI is reg 4 in the abi module
+        // Let's use the correct reg IDs: we want mov rdi, mov rsi, call, ret
+        let l = 1u32; // Lambda node ID
+
+        // MOV rdi, 0x1234 at ID 1_000_000 + 100*1 + 5 (RDI reg)
+        let mov_rdi_id = IrNodeId::new(1_000_000 + l * 100 + 5).unwrap(); // RDI = reg 5
+        let mov_rdi = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: vec![Operand::Reg(RegId(5)), Operand::Imm64(0x1234)].into(),
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        table.insert(mov_rdi_id, mov_rdi);
+
+        // MOV rsi, 0x5678 at ID 1_000_000 + 100*1 + 4 (RSI reg)
+        let mov_rsi_id = IrNodeId::new(1_000_000 + l * 100 + 4).unwrap(); // RSI = reg 4
+        let mov_rsi = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: vec![Operand::Reg(RegId(4)), Operand::Imm64(0x5678)].into(),
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        table.insert(mov_rsi_id, mov_rsi);
+
+        // CALL at ID 1_050_000 + 100*1
+        let call_id = IrNodeId::new(1_050_000 + l * 100).unwrap();
+        let call_inst = Instruction {
+            mnemonic: Mnemonic::Call,
+            operands: vec![Operand::SymbolRef {
+                name: "target".to_string(),
+                addend: 0,
+            }]
+            .into(),
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        table.insert(call_id, call_inst);
+
+        // RET at ID 1_150_000 + 100*1
+        let ret_id = IrNodeId::new(1_150_000 + l * 100).unwrap();
+        let ret_inst = Instruction {
+            mnemonic: Mnemonic::Ret,
+            operands: SmallVec::new(),
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+        };
+        table.insert(ret_id, ret_inst);
+
+        // Emit and verify byte order
+        let mut output = Vec::new();
+        let result = emit_text_from_instructions(&mut table, &mut output);
+        assert!(result.is_ok(), "emission should succeed");
+
+        let _emit_result = result.unwrap();
+        assert!(output.len() > 0, "output should not be empty");
+
+        // RET is 0xC3 — should be the last byte
+        assert_eq!(output[output.len() - 1], 0xC3, "last byte should be RET (0xC3)");
+
+        // CALL is 0xE8 (relative call) — should appear once and after MOVs
+        let call_byte_count = output.iter().filter(|&&b| b == 0xE8).count();
+        assert_eq!(call_byte_count, 1, "should have exactly one CALL (0xE8)");
+
+        // Find the offset of CALL relative to the start
+        let call_offset = output.iter().position(|&b| b == 0xE8).unwrap();
+
+        // MOVs should appear before CALL
+        // movabs reg64, imm64 is 0x48 0xB8+reg — look for 0x48 0xB8-0xBF patterns
+        let has_mov_before_call = output[..call_offset]
+            .windows(2)
+            .any(|w| w[0] == 0x48 && w[1] >= 0xB8 && w[1] <= 0xBF);
+        assert!(
+            has_mov_before_call,
+            "should have at least one MOV before CALL"
+        );
+
+        // No bytes should exist after RET
+        assert_eq!(
+            output[output.len() - 1], 0xC3,
+            "RET must be the final byte"
+        );
+    }
 }

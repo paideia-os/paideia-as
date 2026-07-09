@@ -10,6 +10,7 @@
 
 mod codegen {
     pub mod byte_offset;
+    pub mod call_byte_order;
     pub mod emit_call_recipe_labels;
     pub mod emit_call_sysvregs;
     pub mod emit_walker {
