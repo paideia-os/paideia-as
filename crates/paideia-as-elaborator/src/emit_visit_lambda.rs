@@ -920,6 +920,33 @@ impl EmitWalker {
         self.state.estimated_offset += size;
     }
 
+    /// Emit MOV immediate → register with a caller-provided instruction ID.
+    /// Same encoding + byte-count logic as `emit_mov_literal_to_reg`, but the caller
+    /// controls the IrNodeId slot — needed by visit_match_jump_table (#1097/#1119)
+    /// where arm-body movs must sort into a specific band (1_130_000 + L*100 + ...)
+    /// rather than the imm-arg default (1_000_000 + L*100 + reg).
+    pub(crate) fn emit_mov_literal_to_reg_with_id(&mut self, inst_id: IrNodeId, dest_reg: RegId, value: i64) {
+        let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        operands.push(Operand::Reg(dest_reg));
+        operands.push(Operand::Imm64(value));
+
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands,
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: self.current_mode(),
+        };
+
+        let size = if value >= i32::MIN as i64 && value <= i32::MAX as i64 {
+            7
+        } else {
+            10
+        };
+        self.state.instructions.insert(inst_id, inst);
+        self.state.estimated_offset += size;
+    }
+
     /// Emit MOV from one register to another.
     #[allow(dead_code)]
     pub(crate) fn emit_mov_reg_to_reg(&mut self, lambda_node_id: IrNodeId, src_reg: RegId, dest_reg: RegId) {

@@ -591,7 +591,7 @@ impl EmitWalker {
                         IrKind::Literal => {
                             // Literal arm body: move value to RAX
                             if let Some(value) = arena.literal_values().get(arm_id) {
-                                self.emit_mov_literal_to_reg(
+                                self.emit_mov_literal_to_reg_with_id(
                                     IrNodeId::new(1_130_000u32
                                         .saturating_add(lambda_node_id.get().saturating_mul(100))
                                         .saturating_add(idx as u32 * 10)
@@ -644,7 +644,7 @@ impl EmitWalker {
                     IrKind::Literal => {
                         // Literal arm body: move value to RAX
                         if let Some(value) = arena.literal_values().get(arm_id) {
-                            self.emit_mov_literal_to_reg(
+                            self.emit_mov_literal_to_reg_with_id(
                                 IrNodeId::new(1_130_000u32
                                     .saturating_add(lambda_node_id.get().saturating_mul(100))
                                     .saturating_add(idx as u32 * 10)
