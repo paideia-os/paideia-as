@@ -110,8 +110,8 @@ impl EmitFormat {
     }
 }
 
-/// Run `paideia-as build <input> [--emit <format>] [-o <output>] [-O <level>] [--encoder-warn]`.
-pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encoder_warn: bool) -> ExitCode {
+/// Run `paideia-as build <input> [--emit <format>] [-o <output>] [-O <level>] [--encoder-warn] [--sarif <PATH>]`.
+pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encoder_warn: bool, sarif: Option<&Path>) -> ExitCode {
     let format = match EmitFormat::parse(emit) {
         Ok(f) => f,
         Err(msg) => {
@@ -138,7 +138,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
         Ok(s) => s,
         Err(diag) => {
             let _ = sink.emit(*diag);
-            return finish_placeholder(&source_map, catalog, sink, None, input, output);
+            return finish_placeholder(&source_map, catalog, sink, None, input, output, sarif);
         }
     };
 
@@ -1925,7 +1925,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
             } else {
                 Some(placeholder_for(&lowering.ir))
             };
-            finish_placeholder(&source_map, catalog, sink, to_write, input, output)
+            finish_placeholder(&source_map, catalog, sink, to_write, input, output, sarif)
         }
         EmitFormat::Elf64 => {
             let result = if preview {
@@ -1943,8 +1943,8 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                 .map(Some)
             };
             match result {
-                Ok(bytes) => finish_elf(&source_map, catalog, sink, bytes, input, output),
-                Err(build_err) => finish_build_error(&source_map, catalog, sink, build_err, input),
+                Ok(bytes) => finish_elf(&source_map, catalog, sink, bytes, input, output, sarif),
+                Err(build_err) => finish_build_error(&source_map, catalog, sink, build_err, input, sarif),
             }
         }
         EmitFormat::Pax => {
@@ -1953,7 +1953,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
             } else {
                 Some(build_pax_object())
             };
-            finish_pax(&source_map, catalog, sink, bytes, input, output)
+            finish_pax(&source_map, catalog, sink, bytes, input, output, sarif)
         }
         EmitFormat::PeCoff => {
             let result = if preview {
@@ -1962,8 +1962,8 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                 build_pe_object(&mut lowering.ir, &source_map, file, encoder_warn).map(Some)
             };
             match result {
-                Ok(bytes) => finish_pe(&source_map, catalog, sink, bytes, input, output),
-                Err(build_err) => finish_build_error(&source_map, catalog, sink, build_err, input),
+                Ok(bytes) => finish_pe(&source_map, catalog, sink, bytes, input, output, sarif),
+                Err(build_err) => finish_build_error(&source_map, catalog, sink, build_err, input, sarif),
             }
         }
     }

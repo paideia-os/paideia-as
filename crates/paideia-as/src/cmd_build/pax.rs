@@ -11,6 +11,8 @@ use paideia_as_emitter_pax::{
     Architecture, PAX_HEADER_SIZE, PaxHeader, SectionTable, compute_content_hash,
 };
 
+use crate::cmd_common;
+
 /// Build the phase-2-m4 PAX object body. Constructs a minimal PAX with
 /// empty section table and a canonical BLAKE3 content hash.
 pub(super) fn build_pax_object() -> Vec<u8> {
@@ -38,6 +40,7 @@ pub(super) fn finish_pax(
     bytes: Option<Vec<u8>>,
     input: &Path,
     output: Option<&Path>,
+    sarif: Option<&Path>,
 ) -> ExitCode {
     let diagnostics = sink.into_diagnostics();
     let stderr = std::io::stderr();
@@ -46,6 +49,12 @@ pub(super) fn finish_pax(
     for d in &diagnostics {
         let _ = human.emit(d.clone());
     }
+
+    // Write SARIF if requested.
+    if let Some(path) = sarif {
+        let _ = cmd_common::write_sarif(source_map, catalog, &diagnostics, path);
+    }
+
     let has_error = diagnostics.iter().any(|d| d.severity() == Severity::Error);
     if has_error {
         return ExitCode::from(1);

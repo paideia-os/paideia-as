@@ -10,6 +10,7 @@
 mod cli;
 mod cmd_build;
 mod cmd_check;
+mod cmd_common;
 mod cmd_doc;
 mod cmd_dump_ast;
 mod cmd_fmt;
@@ -32,8 +33,9 @@ fn main() -> ExitCode {
             emit,
             optimize,
             encoder_warn,
-        } => cmd_build::run(&input, output.as_deref(), &emit, optimize, encoder_warn),
-        Cmd::Check { input, dump_ir } => cmd_check::run(&input, dump_ir),
+            sarif,
+        } => cmd_build::run(&input, output.as_deref(), &emit, optimize, encoder_warn, sarif.as_deref()),
+        Cmd::Check { input, dump_ir, sarif } => cmd_check::run(&input, dump_ir, sarif.as_deref()),
         Cmd::Lint { .. } => {
             eprintln!("paideia-as lint: not yet implemented");
             ExitCode::from(2)

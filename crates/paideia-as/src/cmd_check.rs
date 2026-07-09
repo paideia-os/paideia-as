@@ -7,12 +7,12 @@
 //! 3. Tokenizes via the lexer; diagnostics drain into a collector sink.
 //! 4. Parses to AST via `Parser::parse_source_file`.
 //! 5. Lowers AST → IR via the elaborator's structural lowering.
-//! 6. Writes a SARIF sidecar at `<input>.sarif.json`.
-//! 7. Renders all diagnostics to stderr via `HumanRenderer`.
-//! 8. Exits 0 on no errors, 1 on any error-severity diagnostic.
+//! 6. Renders all diagnostics to stderr via `HumanRenderer`.
+//! 7. Exits 0 on no errors, 1 on any error-severity diagnostic.
 //!
 //! The `--dump-ir` flag also pretty-prints the lowered IR arena to
-//! stdout.
+//! stdout. The `--sarif` flag writes SARIF 2.1.0 diagnostic output
+//! to the specified file.
 
 use std::fs;
 use std::io::Write as _;
@@ -21,14 +21,16 @@ use std::process::ExitCode;
 
 use paideia_as_ast::AstArena;
 use paideia_as_diagnostics::{
-    Catalog, DiagnosticSink, HumanRenderer, HumanSink, SarifEmitter, Severity, SourceMap, VecSink,
+    Catalog, DiagnosticSink, HumanRenderer, HumanSink, Severity, SourceMap, VecSink,
 };
 use paideia_as_elaborator::{lower_ast_to_ir, build_struct_registry, build_enum_registry};
 use paideia_as_lexer::{Lexer, SourceText};
 use paideia_as_parser::Parser;
 
-/// Run `paideia-as check <input>`.
-pub fn run(input: &Path, dump_ir: bool) -> ExitCode {
+use crate::cmd_common;
+
+/// Run `paideia-as check <input> [--sarif <PATH>]`.
+pub fn run(input: &Path, dump_ir: bool, sarif: Option<&Path>) -> ExitCode {
     let bytes = match fs::read(input) {
         Ok(b) => b,
         Err(e) => {
@@ -50,7 +52,7 @@ pub fn run(input: &Path, dump_ir: bool) -> ExitCode {
         Ok(s) => s,
         Err(diag) => {
             let _ = sink.emit(*diag);
-            return finish(&source_map, catalog, sink, input, false, false);
+            return finish(&source_map, catalog, sink, sarif);
         }
     };
 
@@ -98,17 +100,15 @@ pub fn run(input: &Path, dump_ir: bool) -> ExitCode {
         let _ = out.write_all(dump.as_bytes());
     }
 
-    finish(&source_map, catalog, sink, input, true, true)
+    finish(&source_map, catalog, sink, sarif)
 }
 
-/// Render human diagnostics to stderr, write SARIF sidecar, return exit code.
+/// Render human diagnostics to stderr, write SARIF if requested, return exit code.
 fn finish(
     source_map: &SourceMap,
     catalog: &Catalog,
     sink: VecSink,
-    input: &Path,
-    write_sarif: bool,
-    _phase_complete: bool,
+    sarif: Option<&Path>,
 ) -> ExitCode {
     let diagnostics = sink.into_diagnostics();
 
@@ -120,15 +120,9 @@ fn finish(
         let _ = human.emit(d.clone());
     }
 
-    // Write SARIF sidecar.
-    if write_sarif {
-        let sarif_path = sarif_path_for(input);
-        if let Ok(file) = fs::File::create(&sarif_path) {
-            let emitter = SarifEmitter::new(source_map, catalog);
-            let json = emitter.emit_string(&diagnostics);
-            let mut writer = std::io::BufWriter::new(file);
-            let _ = writer.write_all(json.as_bytes());
-        }
+    // Write SARIF if requested.
+    if let Some(path) = sarif {
+        let _ = cmd_common::write_sarif(source_map, catalog, &diagnostics, path);
     }
 
     let has_error = diagnostics.iter().any(|d| d.severity() == Severity::Error);
@@ -137,37 +131,5 @@ fn finish(
         ExitCode::from(1)
     } else {
         ExitCode::SUCCESS
-    }
-}
-
-/// Compute `<input>.sarif.json` next to the input file.
-fn sarif_path_for(input: &Path) -> std::path::PathBuf {
-    let mut p = input.to_path_buf();
-    let mut name = p
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "input".to_string());
-    name.push_str(".sarif.json");
-    p.set_file_name(name);
-    p
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn sarif_path_adds_suffix() {
-        let p = Path::new("example.pdx");
-        assert_eq!(sarif_path_for(p), Path::new("example.pdx.sarif.json"));
-    }
-
-    #[test]
-    fn sarif_path_with_directory() {
-        let p = Path::new("/tmp/foo/example.pdx");
-        assert_eq!(
-            sarif_path_for(p),
-            Path::new("/tmp/foo/example.pdx.sarif.json")
-        );
     }
 }

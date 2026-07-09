@@ -8,6 +8,8 @@ use std::process::ExitCode;
 
 use paideia_as_diagnostics::{Catalog, DiagnosticSink, HumanRenderer, HumanSink, Severity, SourceMap, VecSink};
 
+use crate::cmd_common;
+
 pub(super) fn finish_placeholder(
     source_map: &SourceMap,
     catalog: &Catalog,
@@ -15,6 +17,7 @@ pub(super) fn finish_placeholder(
     placeholder: Option<String>,
     input: &Path,
     output: Option<&Path>,
+    sarif: Option<&Path>,
 ) -> ExitCode {
     let diagnostics = sink.into_diagnostics();
 
@@ -24,6 +27,11 @@ pub(super) fn finish_placeholder(
     let mut human = HumanSink::new(stderr.lock(), renderer);
     for d in &diagnostics {
         let _ = human.emit(d.clone());
+    }
+
+    // Write SARIF if requested.
+    if let Some(path) = sarif {
+        let _ = cmd_common::write_sarif(source_map, catalog, &diagnostics, path);
     }
 
     let has_error = diagnostics.iter().any(|d| d.severity() == Severity::Error);

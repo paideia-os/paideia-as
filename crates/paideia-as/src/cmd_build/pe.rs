@@ -16,6 +16,7 @@ use paideia_as_encoder::EncodeStats;
 use paideia_as_ir::{IrNodeId, SectionKind};
 
 use crate::det;
+use crate::cmd_common;
 
 use super::BuildError;
 use super::elf::find_failing_instruction;
@@ -196,6 +197,7 @@ pub(super) fn finish_pe(
     bytes: Option<Vec<u8>>,
     input: &Path,
     output: Option<&Path>,
+    sarif: Option<&Path>,
 ) -> ExitCode {
     let diagnostics = sink.into_diagnostics();
     let stderr = std::io::stderr();
@@ -204,6 +206,12 @@ pub(super) fn finish_pe(
     for d in &diagnostics {
         let _ = human.emit(d.clone());
     }
+
+    // Write SARIF if requested.
+    if let Some(path) = sarif {
+        let _ = cmd_common::write_sarif(source_map, catalog, &diagnostics, path);
+    }
+
     let has_error = diagnostics.iter().any(|d| d.severity() == Severity::Error);
     if has_error {
         return ExitCode::from(1);

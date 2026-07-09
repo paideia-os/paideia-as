@@ -40,16 +40,21 @@ pub enum Cmd {
         /// Default (Phase-6+): encoder failures abort the build with exit 2.
         #[arg(long)]
         encoder_warn: bool,
+        /// Write SARIF 2.1.0 diagnostic output to the specified file.
+        #[arg(long = "sarif", value_name = "PATH")]
+        sarif: Option<PathBuf>,
     },
     /// Type-check without emitting object files. Phase-1: lex + parse +
-    /// lower; the type checker is a stub. Writes a SARIF sidecar
-    /// alongside the input.
+    /// lower; the type checker is a stub.
     Check {
         /// Path to the input `.pdx` file.
         input: PathBuf,
         /// Print the IR pretty-printed dump to stdout after lowering.
         #[arg(long)]
         dump_ir: bool,
+        /// Write SARIF 2.1.0 diagnostic output to the specified file.
+        #[arg(long = "sarif", value_name = "PATH")]
+        sarif: Option<PathBuf>,
     },
     /// Run linearity / effect / opt-pass linters.
     #[command(hide = true)]
