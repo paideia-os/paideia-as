@@ -24,3 +24,6 @@ mod match_nested;
 
 #[path = "emit_walker_tests/var_assign.rs"]
 mod var_assign;
+
+#[path = "emit_walker_tests/match_jump_table_byte_order.rs"]
+mod match_jump_table_byte_order;

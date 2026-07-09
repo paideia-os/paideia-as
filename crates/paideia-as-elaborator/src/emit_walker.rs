@@ -406,7 +406,8 @@ impl EmitWalker {
                             // Otherwise emit with Discard tail context (result goes to RAX only).
                             if !self.state.was_match_emitted(node_id.get()) {
                                 use crate::emit_block_body::TailContext;
-                                self.visit_match(node_id, arena, typer, TailContext::Discard);
+                                // Issue #1097: Pass sentinel lambda_node_id for non-lambda context
+                                self.visit_match(node_id, arena, typer, TailContext::Discard, IrNodeId::new(1).unwrap());
                             }
                         }
                         _ => {}

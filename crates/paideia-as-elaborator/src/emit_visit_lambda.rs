@@ -851,11 +851,14 @@ impl EmitWalker {
                         }
 
                         // Emit the match in tail position with proper context
-                        self.visit_match(body_id, arena, typer, tail);
+                        // Issue #1097: Pass lambda_node_id for unified ID scheme
+                        self.visit_match(body_id, arena, typer, tail, lambda_node_id);
                         self.state.mark_match_emitted(body_id.get());
 
                         // Emit ret at a high ID so it sorts after all match instructions
-                        let ret_id = IrNodeId::new(lambda_node_id.get() * 2 + 1)
+                        // Issue #1097: Use unified RET scheme 1_150_000 + L*100
+                        let ret_id = IrNodeId::new(1_150_000u32
+                            .saturating_add(lambda_node_id.get().saturating_mul(100)))
                             .expect("ret virtual id for match-lambda");
                         let ret_inst = Instruction {
                             mnemonic: Mnemonic::Ret,
