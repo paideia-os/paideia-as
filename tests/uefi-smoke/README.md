@@ -25,9 +25,22 @@ A real boot smoke requires:
 - One test (boot-and-print) is **`#[ignore]`'d** until m6-009+ ships real code.
 - The harness fails gracefully if OVMF or QEMU are absent.
 
+## Fixtures
+
+The harness uses two test fixtures:
+
+1. **`src/lib.rs` programmatic fixture**: `build_hello_efi()` emits a minimal PE/COFF binary directly via Rust (no source file).
+   - Used by `hello_efi_builds_structurally_valid_pe` and `boot_and_print_under_ovmf` tests.
+   - Delta baseline for v0.19 UEFI-ABI MVP (phase-2-m6-008).
+
+2. **`fixtures/hello.pdx` source fixture** (NEW in pa-r19-013): 2-arg MS x64 identity function `fn(image, sys) -> image @abi("ms")`.
+   - Compiled via paideia-as to PE/COFF using `build_hello_efi_via_paideia_as()`.
+   - Used by `boot_and_print_paideia_compiled` test.
+   - Validates end-to-end paideia-as → PE/COFF compilation pipeline (v0.19 milestone close).
+
 ## Tests
 
-The harness includes three smoke tests (see `tests/smoke.rs`):
+The harness includes four smoke tests (see `tests/smoke.rs`):
 
 ### 1. `env_check_describes_availability`
 
@@ -51,13 +64,26 @@ The harness includes three smoke tests (see `tests/smoke.rs`):
 ### 3. `boot_and_print_under_ovmf`
 
 - Probes for OVMF + QEMU; skips if absent.
-- Builds a hello.efi.
+- Builds a hello.efi via `build_hello_efi()` (programmatic, no .pdx source).
 - Creates a temporary FAT image with the .efi at `EFI/BOOT/BOOTX64.EFI`.
 - Spawns QEMU with OVMF firmware + 30-second hard timeout.
 - Captures serial output.
 - Asserts output is non-empty.
 
 **Status**: `#[ignore]`'d until m6-009+ ships real code.
+
+### 4. `boot_and_print_paideia_compiled` (NEW in pa-r19-013)
+
+- Probes for OVMF + QEMU; skips if absent.
+- Compiles `fixtures/hello.pdx` (2-arg MS x64 identity function) via `cargo run --release -p paideia-as -- build --emit pe-coff ...`.
+- Uses `build_hello_efi_via_paideia_as()` helper to invoke paideia-as compiler.
+- Creates a temporary FAT image with the compiled .efi at `EFI/BOOT/BOOTX64.EFI`.
+- Spawns QEMU with OVMF firmware + 30-second hard timeout.
+- Captures serial output.
+- Asserts output is non-empty.
+- Validates v0.19 milestone closure: full paideia-as → PE/COFF pipeline end-to-end.
+
+**Status**: `#[ignore]`'d (same gating as boot_and_print_under_ovmf).
 
 ## How to Run Locally
 

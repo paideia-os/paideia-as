@@ -57,4 +57,5 @@ mod build_emit {
     pub mod smoke;
     pub mod unsafe_call_stmt_diagnostic;
     pub mod unsafe_stmt_kinds_diagnostic;
+    pub mod uefi_stub;
 }

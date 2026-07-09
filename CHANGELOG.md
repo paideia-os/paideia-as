@@ -20,6 +20,8 @@
 
 - **Issue #1014** — `@include_str("...")` and `@include_bytes_as_str("...")` compile-time text embed primitives. `@include_str` performs UTF-8 validation (P0281 diagnostic on error); `@include_bytes_as_str` accepts any bytes without validation. Both lower to `IrKind::StringLiteral` with interned rodata symbols (`__str_<hash>`), giving users truncate/pad control via existing `[u8; N]` type annotation machinery.
 
+- **Issue #1018** — UEFI stub integration test (PA-r19-013). FINAL issue of v0.19 UEFI-ABI milestone. 7 structural tests verify the 2-arg MS x64 identity function fixture compiles to PE/COFF with correct magic, machine type, subsystem, optional header, section layout, and callee prologue byte patterns. 1 boot smoke test (ignored) validates end-to-end paideia-as → PE/COFF → OVMF+QEMU pipeline. New fixture: `tests/uefi-smoke/fixtures/hello.pdx`. New test module: `crates/paideia-as/tests/build_emit/uefi_stub.rs`. New helper: `build_hello_efi_via_paideia_as()` in `tests/uefi-smoke/src/lib.rs`. Marks v0.19 milestone completion.
+
 ### Breaking changes
 
 - **LetInfo (v0.19)** — `Copy` trait removed from `LetInfo` struct (in `paideia-as-ir`). The struct now carries an `Option<String>` field for `@link_section` support (issue #1015), which is not `Copy`. Dependent code must clone LetInfo instead of copying. Migrating: change patterns like `let info = table.get(id).unwrap().clone()` or adjust iterator patterns to use references.

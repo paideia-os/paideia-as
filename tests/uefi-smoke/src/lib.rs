@@ -206,6 +206,55 @@ pub fn build_hello_efi(out_path: &Path) {
     std::fs::write(out_path, &pe_bytes).expect("Failed to write .efi file");
 }
 
+/// Build hello.efi via paideia-as compiler (using the hello.pdx fixture).
+///
+/// This invokes `cargo run --release -p paideia-as -- build --emit pe-coff <pdx> -o <out>`.
+/// The fixture is at `tests/uefi-smoke/fixtures/hello.pdx` and contains a 2-arg MS x64 identity function.
+///
+/// # Arguments
+///
+/// * `pdx_path` - Path to the .pdx source fixture
+/// * `out_path` - Path where the compiled .efi file will be written
+///
+/// # Returns
+///
+/// `Ok(())` on success; `Err` on build failure or I/O error.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The build command exits with non-zero status
+/// - File I/O fails
+pub fn build_hello_efi_via_paideia_as(pdx_path: &Path, out_path: &Path) -> std::io::Result<()> {
+    use std::process::Command;
+
+    let out = Command::new("cargo")
+        .arg("run")
+        .arg("--release")
+        .arg("-p")
+        .arg("paideia-as")
+        .arg("--")
+        .arg("build")
+        .arg(pdx_path)
+        .arg("--emit")
+        .arg("pe-coff")
+        .arg("-o")
+        .arg(out_path)
+        .output()?;
+
+    if !out.status.success() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!(
+                "paideia-as build failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            ),
+        ));
+    }
+
+    Ok(())
+}
+
 /// Spawn QEMU and capture serial output from a UEFI boot.
 ///
 /// This function creates a temporary FAT image, places the .efi at the
