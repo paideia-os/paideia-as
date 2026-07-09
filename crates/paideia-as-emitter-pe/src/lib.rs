@@ -38,7 +38,7 @@ pub use section::{
     CHARACTERISTICS_BSS, CHARACTERISTICS_DATA, CHARACTERISTICS_RDATA, CHARACTERISTICS_TEXT,
     IMAGE_SCN_CNT_CODE, IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_CNT_UNINITIALIZED_DATA,
     IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE, SECTION_HEADER_SIZE,
-    SECTION_NAME_LEN, Section, SectionHeader, SectionTable, align_up,
+    SECTION_NAME_LEN, NamedSectionError, Section, SectionHeader, SectionTable, align_up,
 };
 
 pub use text_emitter::{EmitResult, TextEmitterError, emit_text_from_instructions};

@@ -10,10 +10,10 @@ use paideia_as_diagnostics::{Catalog, DiagnosticSink, HumanRenderer, HumanSink, 
 use paideia_as_emitter_pe::emit_text_from_instructions;
 use paideia_as_emitter_pe::{
     COFF_FILE_HEADER_SIZE, CoffFileHeader, DOS_HEADER_SIZE, DosHeader, NT_SIGNATURE,
-    OPTIONAL_HEADER_PE32PLUS_SIZE, OptionalHeaderPe32Plus, SectionTable as PeSectionTable,
+    OPTIONAL_HEADER_PE32PLUS_SIZE, OptionalHeaderPe32Plus, NamedSectionError, SectionTable as PeSectionTable,
 };
 use paideia_as_encoder::EncodeStats;
-use paideia_as_ir::IrNodeId;
+use paideia_as_ir::{IrNodeId, SectionKind};
 
 use crate::det;
 
@@ -88,6 +88,36 @@ pub(super) fn build_pe_object(
     }
 
     sections.add_text(text_bytes);
+
+    // Iterate through data entries and add them to appropriate sections.
+    // Phase 19 R19-M1 (pa-r19-013-followup): iterate arena.data() and emit data sections.
+    for (_node_id, entry) in arena.data().iter() {
+        if !entry.relocations.is_empty() {
+            #[cfg(debug_assertions)]
+            eprintln!("[pe-emit] skipping DataEntry with cross-section relocations (deferred #1105)");
+            continue;
+        }
+        if let Some(name) = &entry.section_name_override {
+            let writable = matches!(entry.section, SectionKind::Data | SectionKind::Bss);
+            match sections.add_bytes_to_named_section(name, &entry.bytes, entry.align, writable) {
+                Ok(_) => {},
+                Err(NamedSectionError::NameTooLong { name: ref section_name, len }) => {
+                    // Emit P0289 through the sink (if sink is available)
+                    // For now we skip this entry; a diagnostic would be emitted at elaboration time
+                    #[cfg(debug_assertions)]
+                    eprintln!("[pe-emit] section name '{}' is {} bytes; PE section names must be at most 8", section_name, len);
+                    continue;
+                }
+            }
+        } else {
+            match entry.section {
+                SectionKind::Rodata => { sections.add_rodata_bytes(&entry.bytes, entry.align); }
+                SectionKind::Data   => { sections.add_data_bytes(&entry.bytes, entry.align); }
+                SectionKind::Bss    => { sections.add_bss_space(entry.size_hint, entry.align); }
+                SectionKind::Text   => { /* deferred */ }
+            }
+        }
+    }
 
     // Store offset_map for DWARF emit-stage (Phase-4-m2-002).
     // This enables DWARF .debug_line reconstruction with post-rewrite offsets.

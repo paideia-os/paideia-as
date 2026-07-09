@@ -7,7 +7,9 @@
 //! The fixture embeds a file containing 8 bytes: "PDX!" + 0xDEADBEEF
 //! Full expected bytes: [0x50, 0x44, 0x58, 0x21, 0xDE, 0xAD, 0xBE, 0xEF]
 
-use object::{Object, ObjectSymbol};
+use object::{Object, ObjectSection, ObjectSymbol};
+use std::fs;
+use std::path::PathBuf;
 use tempfile;
 
 use crate::common::elf::rodata_bytes;
@@ -114,4 +116,89 @@ module IncludeBytesProbe = structure {
     );
 
     // temp_dir automatically cleaned up when dropped
+}
+
+/// Issue #1103 (pa-r19-013-followup): Test that @include_bytes(...) emits to .rdata in PE/COFF.
+///
+/// This test:
+/// 1. Builds the include_bytes_probe.pdx fixture to PE/COFF
+/// 2. Parses the PE with the object crate
+/// 3. Verifies .rdata section exists
+/// 4. Asserts the exact 8-byte payload is present in .rdata
+#[test]
+fn include_bytes_emits_exact_file_bytes_pe() {
+    use std::process::Command;
+
+    let fixture_path = build_emit("include_bytes_probe.pdx");
+    let out_file = PathBuf::from("/tmp/include_bytes_emits_exact_file_bytes_pe.efi");
+    let _ = fs::remove_file(&out_file);
+
+    let out = Command::new("cargo")
+        .arg("run")
+        .arg("--release")
+        .arg("--quiet")
+        .arg("-p")
+        .arg("paideia-as")
+        .arg("--")
+        .arg("build")
+        .arg(fixture_path.to_str().unwrap())
+        .arg("--emit")
+        .arg("pe-coff")
+        .arg("-o")
+        .arg(out_file.to_str().unwrap())
+        .output()
+        .expect("failed to run cargo");
+
+    // Build must succeed
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "PE build must succeed; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // PE file must exist
+    assert!(out_file.exists(), "PE output file must exist");
+
+    let bytes = fs::read(&out_file).expect("read PE output");
+
+    // Verify PE magic: MZ at offset 0, PE\0\0 at offset 64
+    assert!(bytes.len() >= 68, "PE file must be at least 68 bytes");
+    assert_eq!(&bytes[0..2], &[0x4D, 0x5A], "MZ magic missing");
+    assert_eq!(&bytes[64..68], &[0x50, 0x45, 0x00, 0x00], "PE signature missing");
+
+    // Parse with object crate
+    let file = object::File::parse(&*bytes).expect("object should parse the PE");
+
+    // Find .rdata section
+    let mut rdata_section = None;
+    for section in file.sections() {
+        if let Ok(name) = section.name() {
+            if name == ".rdata" {
+                rdata_section = Some(section);
+                break;
+            }
+        }
+    }
+
+    let rdata = rdata_section.expect(".rdata section must exist in PE");
+    let rdata_data = rdata.data().expect("failed to read .rdata data");
+
+    // Expected payload bytes: "PDX!" + 0xDEADBEEF
+    let expected_bytes: Vec<u8> = vec![0x50, 0x44, 0x58, 0x21, 0xDE, 0xAD, 0xBE, 0xEF];
+
+    // The exact bytes should appear somewhere in .rdata
+    let found = rdata_data
+        .windows(expected_bytes.len())
+        .any(|w| w == expected_bytes.as_slice());
+
+    if !found {
+        eprintln!(
+            ".rdata content (hex): {}\n\
+             Expected to find: {:02X?}",
+            rdata_data.iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(" "),
+            expected_bytes
+        );
+        panic!(".rdata does not contain expected payload bytes");
+    }
 }

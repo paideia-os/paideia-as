@@ -1287,6 +1287,33 @@ description = "Phase 19 PA19-r19-001: The @abi calling-convention directive is i
 since = "0.19.0"
 deprecated = false
 
+[diagnostic.P0287]
+severity = "error"
+category = "parser"
+title = "Invalid @link_section for lambda binding"
+brief = "@link_section applied to lambda/function binding"
+description = "Phase 19 PA19-r19-010 (MVP deferred to pa-r19-010b): The @link_section attribute is currently supported only on let bindings with data (literal, array) values. Lambda-shaped bindings (let x = fn(...)) are not yet supported. This is deferred to a future phase. Rewrite the binding without @link_section or defer the attribute."
+since = "0.19.0"
+deprecated = false
+
+[diagnostic.P0288]
+severity = "error"
+category = "parser"
+title = "@link_section requires immutable let binding"
+brief = "@link_section applied to mutable let binding"
+description = "Phase 19 PA19-r19-010: The @link_section attribute is not valid on mutable let bindings (let mut). Custom section placement is only supported for immutable data. If you need mutable data in a custom section, this is deferred to a future phase."
+since = "0.19.0"
+deprecated = false
+
+[diagnostic.P0289]
+severity = "error"
+category = "parser"
+title = "Section name exceeds PE/COFF 8-byte limit"
+brief = "@link_section name is too long for PE/COFF"
+description = "Phase 19 PA19-r19-013 (pe-data-section-wiring): PE/COFF section names are limited to 8 bytes. The @link_section name you provided is longer than 8 bytes and cannot be emitted. Valid UEFI section names are `.text` (5 bytes), `.rdata` (6 bytes), `.data` (5 bytes), `.bss` (4 bytes), and custom names like `.uefi_hdr` (8 bytes), `.pdata` (6 bytes), `.xdata` (6 bytes), `.reloc` (6 bytes). Choose a shorter name or use a standard section."
+since = "0.19.0"
+deprecated = false
+
 [diagnostic.U1620]
 severity = "error"
 category = "unsafe"

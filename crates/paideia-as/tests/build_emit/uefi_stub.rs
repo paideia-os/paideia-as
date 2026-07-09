@@ -366,3 +366,154 @@ fn uefi_stub_text_contains_ms_identity_shape() {
         panic!("Failed to parse PE file with object crate");
     }
 }
+
+/// Issue #1103 (pa-r19-013-followup): Test that UEFI stub with @include_bytes emits data correctly.
+///
+/// This test:
+/// 1. Builds uefi_stub_with_data.pdx (UEFI function + @include_bytes data)
+/// 2. Verifies both .text and .rdata sections exist
+/// 3. Asserts .text is non-empty and entry point is within it
+/// 4. Asserts .rdata contains the expected 8-byte probe sequence
+#[test]
+fn uefi_stub_with_include_bytes_has_rdata_and_text() {
+    use object::ObjectSection;
+
+    let fixture_path = {
+        let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        p.push("../../tests/build-emit/uefi_stub_with_data.pdx");
+        p
+    };
+
+    let out_file = PathBuf::from("/tmp/uefi_stub_with_include_bytes_has_rdata_and_text.efi");
+    let _ = fs::remove_file(&out_file);
+
+    let out = cargo_run(&[
+        "build",
+        fixture_path.to_str().unwrap(),
+        "--emit",
+        "pe-coff",
+        "-o",
+        out_file.to_str().unwrap(),
+    ]);
+
+    assert_eq!(out.status.code(), Some(0), "build must succeed");
+    let bytes = fs::read(&out_file).expect("read PE output");
+
+    // Parse with object crate
+    if let Ok(file) = object::File::parse(&bytes[..]) {
+        // Check .text section exists and is non-empty
+        let mut text_section = None;
+        for section in file.sections() {
+            if section.name().unwrap_or("") == ".text" {
+                text_section = Some(section);
+                break;
+            }
+        }
+        assert!(text_section.is_some(), ".text section must exist");
+        let text = text_section.unwrap();
+        assert!(text.size() > 0, ".text section must be non-empty");
+
+        // Check .rdata section exists and has size >= 8 (for payload)
+        let mut rdata_section = None;
+        for section in file.sections() {
+            if section.name().unwrap_or("") == ".rdata" {
+                rdata_section = Some(section);
+                break;
+            }
+        }
+        assert!(rdata_section.is_some(), ".rdata section must exist");
+        let rdata = rdata_section.unwrap();
+        assert!(
+            rdata.size() >= 8,
+            ".rdata section must be at least 8 bytes (got {})",
+            rdata.size()
+        );
+
+        // Verify the expected 8-byte probe sequence is in .rdata
+        let rdata_data = rdata.data().expect("failed to read .rdata data");
+        let expected_bytes: Vec<u8> = vec![0x50, 0x44, 0x58, 0x21, 0xDE, 0xAD, 0xBE, 0xEF];
+
+        let found = rdata_data
+            .windows(expected_bytes.len())
+            .any(|w| w == expected_bytes.as_slice());
+
+        assert!(
+            found,
+            ".rdata must contain expected payload bytes {:02X?}; got: {}",
+            expected_bytes,
+            rdata_data
+                .iter()
+                .take(32)
+                .map(|b| format!("{:02X}", b))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+    } else {
+        panic!("Failed to parse PE file with object crate");
+    }
+}
+
+/// Issue #1103 (pa-r19-013-followup): Test that @link_section custom sections appear in PE.
+///
+/// This test:
+/// 1. Builds uefi_stub_link_section.pdx (UEFI function + @link_section(".ehdr") data)
+/// 2. Verifies .ehdr section exists in the PE
+/// 3. Asserts .ehdr contains the expected 4-byte value (0xEFBEADDE)
+#[test]
+fn uefi_stub_link_section_appears_in_pe() {
+    use object::ObjectSection;
+
+    let fixture_path = {
+        let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        p.push("../../tests/build-emit/uefi_stub_link_section.pdx");
+        p
+    };
+
+    let out_file = PathBuf::from("/tmp/uefi_stub_link_section_appears_in_pe.efi");
+    let _ = fs::remove_file(&out_file);
+
+    let out = cargo_run(&[
+        "build",
+        fixture_path.to_str().unwrap(),
+        "--emit",
+        "pe-coff",
+        "-o",
+        out_file.to_str().unwrap(),
+    ]);
+
+    assert_eq!(out.status.code(), Some(0), "build must succeed");
+    let bytes = fs::read(&out_file).expect("read PE output");
+
+    // Parse with object crate
+    if let Ok(file) = object::File::parse(&bytes[..]) {
+        // Find .ehdr section
+        let mut hdr_section = None;
+        for section in file.sections() {
+            let section_name = section.name().unwrap_or("");
+            if section_name == ".ehdr" {
+                hdr_section = Some(section);
+                break;
+            }
+        }
+
+        assert!(
+            hdr_section.is_some(),
+            ".ehdr section must exist; available sections: {:?}",
+            file.sections()
+                .map(|s| s.name().unwrap_or("?").to_string())
+                .collect::<Vec<_>>()
+        );
+
+        let hdr = hdr_section.unwrap();
+        let hdr_data = hdr.data().expect("failed to read .ehdr data");
+
+        // Expected: [0xEF, 0xBE, 0xAD, 0xDE]
+        let expected_bytes: Vec<u8> = vec![0xEF, 0xBE, 0xAD, 0xDE];
+        assert_eq!(
+            hdr_data, expected_bytes.as_slice(),
+            ".ehdr section content must match expected bytes"
+        );
+    } else {
+        panic!("Failed to parse PE file with object crate");
+    }
+}

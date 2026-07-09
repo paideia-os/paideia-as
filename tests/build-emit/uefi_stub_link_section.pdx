@@ -1,0 +1,4 @@
+module UefiStubLinkSection = structure {
+  pub let hdr : [u8; 4] = @include_bytes("data/hdr.bin") @link_section(".ehdr")
+  pub let efi_main : (u64, u64) -> u64 = fn(image : u64, sys : u64) -> image @abi("ms")
+}

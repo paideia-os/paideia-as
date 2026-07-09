@@ -8,6 +8,35 @@
 //! - Section Table: A collection of sections with finalization logic to compute RVAs and file pointers.
 
 use static_assertions::const_assert_eq;
+use std::fmt;
+
+// ============================================================================
+// Error types
+// ============================================================================
+
+/// Error type for named section operations.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NamedSectionError {
+    /// Section name exceeds 8 bytes (PE/COFF limitation).
+    NameTooLong {
+        /// The section name that is too long.
+        name: String,
+        /// The actual length of the name in bytes.
+        len: usize,
+    },
+}
+
+impl fmt::Display for NamedSectionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NamedSectionError::NameTooLong { name, len } => {
+                write!(f, "section name '{}' is {} bytes; PE section names must be at most 8", name, len)
+            }
+        }
+    }
+}
+
+impl std::error::Error for NamedSectionError {}
 
 // ============================================================================
 // Constants
@@ -260,6 +289,171 @@ impl SectionTable {
         Self {
             sections: Vec::new(),
         }
+    }
+
+    /// Private helper: find or create a section with the given name and characteristics.
+    /// Returns the index in `sections`.
+    fn find_or_create(&mut self, name: &[u8; 8], characteristics: u32) -> usize {
+        // Check if section already exists
+        for (idx, section) in self.sections.iter().enumerate() {
+            if section.header.name == *name {
+                return idx;
+            }
+        }
+        // Create new section
+        self.sections.push(Section::new_named(name, characteristics, Vec::new(), 0));
+        self.sections.len() - 1
+    }
+
+    /// Add bytes to the .rdata section with alignment padding.
+    /// Returns the padded offset within the section where the bytes were placed.
+    pub fn add_rodata_bytes(&mut self, bytes: &[u8], align: u32) -> u64 {
+        let idx = self.find_or_create(b".rdata\0\0", CHARACTERISTICS_RDATA);
+        let section = &mut self.sections[idx];
+
+        // Calculate padding needed to align the current content size
+        let current_size = section.content.len() as u64;
+        let padding = if align > 1 {
+            let misaligned = current_size % align as u64;
+            if misaligned == 0 { 0 } else { align as u64 - misaligned }
+        } else {
+            0
+        };
+
+        // Pad content
+        section.content.extend_from_slice(&vec![0u8; padding as usize]);
+
+        // Record the offset where we're about to place the data
+        let offset = section.content.len() as u64;
+
+        // Append the bytes
+        section.content.extend_from_slice(bytes);
+
+        // Update virtual_size
+        section.header.virtual_size = section.content.len() as u32;
+
+        offset
+    }
+
+    /// Add bytes to the .data section with alignment padding.
+    /// Returns the padded offset within the section where the bytes were placed.
+    pub fn add_data_bytes(&mut self, bytes: &[u8], align: u32) -> u64 {
+        let idx = self.find_or_create(b".data\0\0\0", CHARACTERISTICS_DATA);
+        let section = &mut self.sections[idx];
+
+        // Calculate padding needed to align the current content size
+        let current_size = section.content.len() as u64;
+        let padding = if align > 1 {
+            let misaligned = current_size % align as u64;
+            if misaligned == 0 { 0 } else { align as u64 - misaligned }
+        } else {
+            0
+        };
+
+        // Pad content
+        section.content.extend_from_slice(&vec![0u8; padding as usize]);
+
+        // Record the offset where we're about to place the data
+        let offset = section.content.len() as u64;
+
+        // Append the bytes
+        section.content.extend_from_slice(bytes);
+
+        // Update virtual_size
+        section.header.virtual_size = section.content.len() as u32;
+
+        offset
+    }
+
+    /// Add BSS space (uninitialized data) with alignment.
+    /// Returns the padded offset where the space was allocated.
+    /// Note: BSS has no raw data; only virtual_size is updated.
+    pub fn add_bss_space(&mut self, size: u64, align: u32) -> u64 {
+        let idx = self.find_or_create(b".bss\0\0\0\0", CHARACTERISTICS_BSS);
+        let section = &mut self.sections[idx];
+
+        // Get current virtual_size
+        let current_size = section.header.virtual_size as u64;
+        let padding = if align > 1 {
+            let misaligned = current_size % align as u64;
+            if misaligned == 0 { 0 } else { align as u64 - misaligned }
+        } else {
+            0
+        };
+
+        // Record the offset
+        let offset = current_size + padding;
+
+        // Advance virtual_size (no content appended for BSS)
+        section.header.virtual_size = (current_size + padding + size) as u32;
+
+        offset
+    }
+
+    /// Add bytes to a custom-named section with alignment.
+    /// Validates that `name.len() <= 8` and returns appropriate error if violated.
+    /// Returns the padded offset within the section where the bytes were placed.
+    pub fn add_bytes_to_named_section(
+        &mut self,
+        name: &str,
+        bytes: &[u8],
+        align: u32,
+        writable: bool,
+    ) -> Result<u64, NamedSectionError> {
+        if name.len() > 8 {
+            return Err(NamedSectionError::NameTooLong {
+                name: name.to_string(),
+                len: name.len(),
+            });
+        }
+
+        // Compute characteristics
+        let characteristics = IMAGE_SCN_CNT_INITIALIZED_DATA
+            | IMAGE_SCN_MEM_READ
+            | (if writable { IMAGE_SCN_MEM_WRITE } else { 0 });
+
+        // Convert name to [u8; 8]
+        let mut name_bytes = [0u8; 8];
+        let name_slice = name.as_bytes();
+        name_bytes[..name_slice.len()].copy_from_slice(name_slice);
+
+        let idx = self.find_or_create(&name_bytes, characteristics);
+        let section = &mut self.sections[idx];
+
+        // Calculate padding
+        let current_size = section.content.len() as u64;
+        let padding = if align > 1 {
+            let misaligned = current_size % align as u64;
+            if misaligned == 0 { 0 } else { align as u64 - misaligned }
+        } else {
+            0
+        };
+
+        // Pad content
+        section.content.extend_from_slice(&vec![0u8; padding as usize]);
+
+        // Record offset
+        let offset = section.content.len() as u64;
+
+        // Append bytes
+        section.content.extend_from_slice(bytes);
+
+        // Update virtual_size
+        section.header.virtual_size = section.content.len() as u32;
+
+        Ok(offset)
+    }
+
+    /// Find a section by name (for testing purposes).
+    pub fn find_section_by_name(&self, name: &str) -> Option<usize> {
+        let name_bytes = {
+            let mut arr = [0u8; 8];
+            let name_slice = name.as_bytes();
+            let copy_len = core::cmp::min(name_slice.len(), 8);
+            arr[..copy_len].copy_from_slice(&name_slice[..copy_len]);
+            arr
+        };
+        self.sections.iter().position(|s| s.header.name == name_bytes)
     }
 
     /// Add a .text section (code).
@@ -544,5 +738,93 @@ mod tests {
         // Check characteristics at offset 36-39 (little-endian CHARACTERISTICS_TEXT)
         let chars = u32::from_le_bytes([bytes[36], bytes[37], bytes[38], bytes[39]]);
         assert_eq!(chars, CHARACTERISTICS_TEXT);
+    }
+
+    #[test]
+    fn add_rodata_bytes_append_twice_grows_one_section() {
+        let mut table = SectionTable::new();
+        let data1 = vec![0x11, 0x22];
+        let data2 = vec![0x33, 0x44];
+
+        table.add_rodata_bytes(&data1, 1);
+        table.add_rodata_bytes(&data2, 1);
+
+        // Should have exactly one .rdata section
+        let rdata_idx = table.find_section_by_name(".rdata").expect("no .rdata section");
+        assert_eq!(table.sections.len(), 1);
+        assert_eq!(table.sections[rdata_idx].content.len(), 4);
+        assert_eq!(table.sections[rdata_idx].content, vec![0x11, 0x22, 0x33, 0x44]);
+    }
+
+    #[test]
+    fn alignment_padding_correct() {
+        let mut table = SectionTable::new();
+        let data1 = vec![0x01];
+        let data2 = vec![0x02];
+
+        // First append with align=1: offset=0
+        let off1 = table.add_rodata_bytes(&data1, 1);
+        assert_eq!(off1, 0);
+
+        // Second append with align=8: should pad to 8-byte boundary
+        let off2 = table.add_rodata_bytes(&data2, 8);
+        assert_eq!(off2, 8);
+
+        let rdata_idx = table.find_section_by_name(".rdata").expect("no .rdata section");
+        let content = &table.sections[rdata_idx].content;
+        assert_eq!(content.len(), 9); // 1 + 7 padding + 1
+        assert_eq!(content[0], 0x01);
+        assert_eq!(content[8], 0x02);
+        for i in 1..8 {
+            assert_eq!(content[i], 0);
+        }
+    }
+
+    #[test]
+    fn bss_space_is_size_only() {
+        let mut table = SectionTable::new();
+
+        // Add 1024 bytes of BSS space with align=8
+        let off = table.add_bss_space(1024, 8);
+        assert_eq!(off, 0);
+
+        let bss_idx = table.find_section_by_name(".bss").expect("no .bss section");
+        let section = &table.sections[bss_idx];
+        assert_eq!(section.header.virtual_size, 1024);
+        assert_eq!(section.content.len(), 0); // No raw data for BSS
+    }
+
+    #[test]
+    fn named_section_appears_exactly_once() {
+        let mut table = SectionTable::new();
+        let data1 = vec![0xAA, 0xBB];
+        let data2 = vec![0xCC, 0xDD];
+
+        // Add to same custom section twice
+        table.add_bytes_to_named_section(".custom", &data1, 1, false)
+            .expect("first add failed");
+        table.add_bytes_to_named_section(".custom", &data2, 1, false)
+            .expect("second add failed");
+
+        // Should have exactly one .custom section with both data appended
+        let custom_idx = table.find_section_by_name(".custom").expect("no .custom section");
+        assert_eq!(table.sections.len(), 1);
+        assert_eq!(table.sections[custom_idx].content, vec![0xAA, 0xBB, 0xCC, 0xDD]);
+    }
+
+    #[test]
+    fn name_longer_than_8_rejected() {
+        let mut table = SectionTable::new();
+        let data = vec![0x42];
+        let long_name = "this_is_too_long";
+
+        let result = table.add_bytes_to_named_section(long_name, &data, 1, false);
+        assert!(result.is_err());
+        if let Err(NamedSectionError::NameTooLong { name, len }) = result {
+            assert_eq!(name, long_name);
+            assert_eq!(len, 16);
+        } else {
+            panic!("expected NameTooLong error");
+        }
     }
 }
