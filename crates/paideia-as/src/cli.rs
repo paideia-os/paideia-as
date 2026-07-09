@@ -6,6 +6,17 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+/// Output format for test results.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, clap::ValueEnum)]
+pub enum OutputFormat {
+    /// Human-readable summary (default).
+    Human,
+    /// JSON newline-delimited events.
+    Json,
+    /// TAP 13 format.
+    Tap,
+}
+
 /// Target triplet for `--target` shortcut.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, clap::ValueEnum)]
 pub enum Target {
@@ -103,6 +114,9 @@ pub enum Cmd {
         /// List discovered tests without running them.
         #[arg(long)]
         list: bool,
+        /// Output format for test results.
+        #[arg(long, value_enum, default_value = "human")]
+        format: OutputFormat,
     },
     /// Format source code.
     Fmt {

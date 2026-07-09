@@ -106,6 +106,7 @@ insta = "1"
 proptest = "1"
 iced-x86 = "1"
 tempfile = "3"
+assert_cmd = "2"
 
 # Text processing
 regex = "1"

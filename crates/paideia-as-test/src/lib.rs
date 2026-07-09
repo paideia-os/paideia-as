@@ -1,10 +1,10 @@
 //! paideia-as test runner: discovers #[test] functions + runs them.
 //!
 //! Phase-4-m12-001 minimum: parses .pdx files, walks AST for items with
-//! a #[test] attribute, prints per-test pass/fail. Actual test
+//! a #[test] attribute, collects per-test pass/fail. Actual test
 //! execution (calling each #[test] function) gates on the elaborator's
 //! lower path + a runtime evaluator (m13 self-hosting territory). Today
-//! the runner discovers + reports; execution is a TODO.
+//! the runner discovers tests; execution gates on m13 self-hosting.
 
 use regex::Regex;
 use std::path::PathBuf;
@@ -117,18 +117,6 @@ impl TestRunner {
     /// "discovered but not executed" and report all as passed
     /// (parse-only smoke).
     pub fn run(&self, entries: &[TestEntry]) -> TestSummary {
-        if self.list_only {
-            for e in entries {
-                println!("{}: {}", e.source_path, e.name);
-            }
-            return TestSummary {
-                discovered: entries.len(),
-                passed: 0,
-                failed: 0,
-                filtered: 0,
-            };
-        }
-
         // Phase-4-m12-001: treat all discovered tests as passed (parse-only smoke).
         TestSummary {
             discovered: entries.len(),

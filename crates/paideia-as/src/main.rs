@@ -55,7 +55,8 @@ fn main() -> ExitCode {
             paths,
             filter,
             list,
-        } => cmd_test::run(paths, filter, list),
+            format,
+        } => cmd_test::run(paths, filter, list, format),
         Cmd::Fmt {
             input,
             stdin,
