@@ -2,9 +2,9 @@ module EncoderStrictUnsupported = structure {
   let _start : () -> () !{} @{} = fn(_: ()) -> unsafe {
     effects: {},
     capabilities: {},
-    justification: "encoder strict test - use simple function that works",
+    justification: "encoder strict test - trigger encoder failure",
     block: {
-      mov rax, rbx
+      jmp does_not_exist_label
     }
   }
 }

@@ -6,7 +6,7 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use paideia_as_diagnostics::{Catalog, DiagnosticSink, HumanRenderer, HumanSink, Severity, SourceMap, VecSink};
+use paideia_as_diagnostics::{Catalog, DiagnosticSink, HumanRenderer, HumanSink, Severity, SourceMap, Span, VecSink};
 use paideia_as_emitter_pe::emit_text_from_instructions;
 use paideia_as_emitter_pe::{
     COFF_FILE_HEADER_SIZE, CoffFileHeader, DOS_HEADER_SIZE, DosHeader, NT_SIGNATURE,
@@ -19,16 +19,17 @@ use crate::det;
 use crate::cmd_common;
 
 use super::BuildError;
-use super::elf::find_failing_instruction;
 
 /// Build the phase-4-m2-001 PE/COFF object body. Constructs a PE/COFF with
 /// .text section populated from InstructionSideTable.
 /// Phase-6-m1-004: Propagates encoder failures as BuildError::Encoder.
+/// Phase 8 m1-004: Routes errors through DiagnosticSink as typed diagnostics.
 pub(super) fn build_pe_object(
     arena: &mut paideia_as_ir::IrArena,
     _source_map: &SourceMap,
     file: paideia_as_diagnostics::FileId,
     encoder_warn: bool,
+    sink: &mut dyn DiagnosticSink,
 ) -> Result<Vec<u8>, BuildError> {
     // 1. DosHeader::new() (e_lfanew = 64).
     let dos = DosHeader::new();
@@ -49,17 +50,18 @@ pub(super) fn build_pe_object(
     // Phase-4 honesty: emit all instructions from the table into .text
     // Phase-4-m2-002: emit_text_from_instructions now returns EmitResult with offset_map
     // Phase-6-m1-004: Propagate encoder failures as BuildError::Encoder.
+    // Phase 8 m1-004: Route through DiagnosticSink as B1705/B1706.
+    use super::diagnostics::{encoder_error, encoder_warn as encoder_warn_diag, find_failing_instruction};
+
     let emit_result = match emit_text_from_instructions(arena.instructions_mut(), &mut text_bytes) {
         Ok(result) => result,
         Err(e) => {
             if let Some(failed_node_id) = find_failing_instruction(arena.instructions()) {
-                let span = paideia_as_diagnostics::Span::new(file, 0, 1);
+                let msg = format!("encoder failed on IR node {}: {}", failed_node_id.get(), e);
+                let span = Some(Span::new(file, 0, 1));
                 if encoder_warn {
-                    eprintln!(
-                        "warning: encoder failed on node {}: {}, continuing with --encoder-warn",
-                        failed_node_id.get(),
-                        e
-                    );
+                    let diag = encoder_warn_diag(failed_node_id, &msg, span);
+                    let _ = sink.emit(diag);
                     paideia_as_emitter_pe::EmitResult {
                         encode_stats: EncodeStats::new(),
                         offset_map: std::collections::HashMap::new(),
@@ -67,18 +69,21 @@ pub(super) fn build_pe_object(
                         label_fixups: Vec::new(),
                     }
                 } else {
-                    return Err(BuildError::Encoder {
-                        node: failed_node_id,
-                        source_span: span,
-                        encoder_message: e.to_string(),
-                    });
+                    let diag = encoder_error(failed_node_id, &msg, span);
+                    let _ = sink.emit(diag);
+                    return Err(BuildError::Failed);
                 }
             } else {
-                return Err(BuildError::Encoder {
-                    node: IrNodeId::new(1).unwrap(),
-                    source_span: paideia_as_diagnostics::Span::new(file, 0, 1),
-                    encoder_message: e.to_string(),
-                });
+                let msg = format!("encoder failed: {}", e);
+                let span = Some(Span::new(file, 0, 1));
+                if encoder_warn {
+                    let diag = encoder_warn_diag(IrNodeId::new(1).unwrap(), &msg, span);
+                    let _ = sink.emit(diag);
+                } else {
+                    let diag = encoder_error(IrNodeId::new(1).unwrap(), &msg, span);
+                    let _ = sink.emit(diag);
+                }
+                return Err(BuildError::Failed);
             }
         }
     };
@@ -102,11 +107,11 @@ pub(super) fn build_pe_object(
             let writable = matches!(entry.section, SectionKind::Data | SectionKind::Bss);
             match sections.add_bytes_to_named_section(name, &entry.bytes, entry.align, writable) {
                 Ok(_) => {},
-                Err(NamedSectionError::NameTooLong { name: ref section_name, len }) => {
+                Err(NamedSectionError::NameTooLong { name: ref _section_name, len: _len }) => {
                     // Emit P0289 through the sink (if sink is available)
                     // For now we skip this entry; a diagnostic would be emitted at elaboration time
                     #[cfg(debug_assertions)]
-                    eprintln!("[pe-emit] section name '{}' is {} bytes; PE section names must be at most 8", section_name, len);
+                    eprintln!("[pe-emit] section name '{}' is {} bytes; PE section names must be at most 8", _section_name, _len);
                     continue;
                 }
             }

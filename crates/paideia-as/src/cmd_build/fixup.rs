@@ -1,8 +1,11 @@
 //! Label-fixup patching for the encoded `.text` section.
 //! Split out of `cmd_build.rs` (2026-07-08).
+//!
+//! Phase 8 m1-004: Routes unresolved-label errors through DiagnosticSink as U1610.
 
+use paideia_as_diagnostics::DiagnosticSink;
 use paideia_as_encoder::LabelFixup;
-use paideia_as_ir::IrNodeId;
+use paideia_as_ir::{IrArena, InstructionSideTable};
 
 use super::BuildError;
 
@@ -13,24 +16,36 @@ use super::BuildError;
 /// displacement as: label_offset - (fixup_byte_offset + 4), then
 /// writes the i32 LE value into the buffer at the fixup location.
 ///
+/// Phase 8 m1-004: Routes unresolved-label errors through DiagnosticSink as U1610.
+///
 /// # Arguments
 ///
 /// * `buffer` - Mutable reference to the .text section bytes
 /// * `label_fixups` - List of fixup sites collected during encoding
 /// * `labels` - Map of label names to their byte offsets in .text
 /// * `strict_mode` - Whether to abort on unresolved labels
+/// * `sink` - Diagnostic sink for emitting U1610 errors
+/// * `arena` - IR arena for span lookups
+/// * `instructions` - Instruction side-table for reverse lookup
+/// * `file` - Source file ID for span generation
 ///
 /// # Returns
 ///
 /// `Ok(())` if all fixups applied successfully, or
-/// `Err(BuildError::Encoder)` if a label is unresolved in strict mode.
+/// `Err(BuildError::Failed)` if a label is unresolved in strict mode.
 pub(super) fn patch_label_fixups(
     buffer: &mut [u8],
     label_fixups: &[LabelFixup],
     labels: &std::collections::HashMap<String, u32>,
     strict_mode: bool,
+    sink: &mut dyn DiagnosticSink,
+    arena: &IrArena,
+    instructions: &InstructionSideTable,
     file: paideia_as_diagnostics::FileId,
 ) -> Result<(), BuildError> {
+    use super::diagnostics::{unresolved_label, node_for_fixup, span_of};
+    use paideia_as_diagnostics::Span;
+
     for fixup in label_fixups {
         match labels.get(&fixup.label_name) {
             Some(&label_offset) => {
@@ -48,15 +63,17 @@ pub(super) fn patch_label_fixups(
                 }
             }
             None => {
-                // Unresolved label: emit U1610
-                eprintln!("error: unresolved label '{}' (U1610)", fixup.label_name);
+                // Unresolved label: emit U1610 with real span if possible
+                // Phase 8 m1-004: Attempt to resolve the instruction node via node_for_fixup,
+                // then extract span from arena. Fall back to placeholder span if lookup fails.
+                let span = node_for_fixup(instructions, fixup)
+                    .and_then(|node_id| span_of(arena, node_id))
+                    .or_else(|| Some(Span::new(file, 0, 1)));
+
+                let diag = unresolved_label(&fixup.label_name, span);
+                let _ = sink.emit(diag);
                 if strict_mode {
-                    let span = paideia_as_diagnostics::Span::new(file, 0, 1);
-                    return Err(BuildError::Encoder {
-                        node: IrNodeId::new(1).unwrap(),
-                        source_span: span,
-                        encoder_message: format!("unresolved label '{}'", fixup.label_name),
-                    });
+                    return Err(BuildError::Failed);
                 }
             }
         }

@@ -56,6 +56,7 @@ mod build_emit {
     pub mod rep_stosq;
     pub mod smoke;
     pub mod target_triplet;
+    pub mod typed_encoder_diagnostics;
     pub mod unsafe_call_stmt_diagnostic;
     pub mod unsafe_stmt_kinds_diagnostic;
     pub mod uefi_stub;

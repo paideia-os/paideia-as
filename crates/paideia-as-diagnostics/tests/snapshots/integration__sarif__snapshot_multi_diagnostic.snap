@@ -2130,6 +2130,34 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
             },
             {
               "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase 8 m1-004: during binary emission (ELF or PE), the encoder encountered an error while processing an IR node. This typically indicates an encoder bug or an unsupported IR shape. The error message details the specific failure. Report this issue with the code that triggered it."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/B1705",
+              "id": "B1705",
+              "name": "Encoder failure on IR node",
+              "shortDescription": {
+                "text": "encoder failed on IR node during binary emission"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "fullDescription": {
+                "text": "Phase 8 m1-004: during binary emission (ELF or PE), the encoder encountered a non-fatal warning condition. The emission continues, but this diagnostic should be reviewed. Use --sarif to capture details for analysis."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/B1706",
+              "id": "B1706",
+              "name": "Encoder warning downgraded to diagnostic",
+              "shortDescription": {
+                "text": "encoder encountered a non-fatal issue; check SARIF output for details"
+              }
+            },
+            {
+              "defaultConfiguration": {
                 "level": "warning"
               },
               "fullDescription": {

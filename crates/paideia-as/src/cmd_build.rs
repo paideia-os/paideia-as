@@ -65,22 +65,13 @@ use placeholder::finish_placeholder;
 use root_attrs::{extract_root_module_bits, extract_root_module_features};
 
 /// Error type for build operations.
+/// Phase 8 m1-004: Collapsed to a marker enum — all diagnostics are emitted
+/// through DiagnosticSink at the error site (encoder, emitter, fixup).
+/// finish_build_error only needs to know that a build failed to return exit code 2.
 #[derive(Debug, Clone)]
 pub enum BuildError {
-    /// Instruction encoder failed (e.g., unsupported operand shape).
-    Encoder {
-        /// IR node ID where the encoder failed.
-        node: paideia_as_ir::IrNodeId,
-        /// Source span for error reporting.
-        source_span: paideia_as_diagnostics::Span,
-        /// Encoder error message.
-        encoder_message: String,
-    },
-    /// ELF emitter validation failed (Phase 7 m1-002).
-    Emitter {
-        /// Diagnostic message from emitter.
-        message: String,
-    },
+    /// Build failed (diagnostics already emitted through sink).
+    Failed,
 }
 
 /// Output format selector for `paideia-as build --emit`.
@@ -1975,7 +1966,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
             let result = if preview {
                 Ok(None)
             } else {
-                build_pe_object(&mut lowering.ir, &source_map, file, encoder_warn).map(Some)
+                build_pe_object(&mut lowering.ir, &source_map, file, encoder_warn, &mut sink).map(Some)
             };
             match result {
                 Ok(bytes) => finish_pe(&source_map, catalog, sink, bytes, input, output, sarif),

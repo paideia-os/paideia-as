@@ -7,7 +7,7 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use paideia_as_diagnostics::{Catalog, DiagnosticSink, HumanRenderer, HumanSink, Severity, SourceMap, VecSink};
+use paideia_as_diagnostics::{Catalog, DiagnosticSink, HumanRenderer, HumanSink, Severity, SourceMap, Span, VecSink};
 use paideia_as_emitter_elf::{Arch, ElfWriter, EmitterError, Kind, PVH_DEFAULT_ENTRY_ADDR, SymKind, SymbolEntry};
 use paideia_as_emitter_pe::emit_text_from_instructions;
 use paideia_as_encoder::EncodeStats;
@@ -36,7 +36,7 @@ pub(super) fn build_elf_object(
     _source_map: &SourceMap,
     file: paideia_as_diagnostics::FileId,
     encoder_warn: bool,
-    _sink: &mut dyn DiagnosticSink,
+    sink: &mut dyn DiagnosticSink,
 ) -> Result<Vec<u8>, BuildError> {
     let mut writer = ElfWriter::new(Arch::X86_64, Kind::Relocatable);
 
@@ -59,15 +59,17 @@ pub(super) fn build_elf_object(
             Ok(result) => result,
             Err(e) => {
                 // Phase-6-m1-004: Find the instruction that failed and extract IR node info.
+                // Phase 8 m1-004: Emit typed diagnostic B1705/B1706 and return BuildError::Failed.
+                use super::diagnostics::{encoder_error, encoder_warn as encoder_warn_diag, span_of, find_failing_instruction};
+
                 if let Some(failed_node_id) = find_failing_instruction(instruction_table) {
-                    let span = paideia_as_diagnostics::Span::new(file, 0, 1);
+                    let msg = format!("encoder failed on IR node {}: {}", failed_node_id.get(), e);
+                    let span = span_of(arena, failed_node_id).or_else(|| Some(Span::new(file, 0, 1)));
+
                     if encoder_warn {
                         // Phase-5 behaviour: warn and drop instruction
-                        eprintln!(
-                            "warning: encoder failed on node {}: {}, continuing with --encoder-warn",
-                            failed_node_id.get(),
-                            e
-                        );
+                        let diag = encoder_warn_diag(failed_node_id, &msg, span);
+                        let _ = sink.emit(diag);
                         paideia_as_emitter_pe::EmitResult {
                             encode_stats: EncodeStats::new(),
                             offset_map: std::collections::HashMap::new(),
@@ -76,18 +78,21 @@ pub(super) fn build_elf_object(
                         }
                     } else {
                         // Phase-6 default: propagate error
-                        return Err(BuildError::Encoder {
-                            node: failed_node_id,
-                            source_span: span,
-                            encoder_message: e.to_string(),
-                        });
+                        let diag = encoder_error(failed_node_id, &msg, span);
+                        let _ = sink.emit(diag);
+                        return Err(BuildError::Failed);
                     }
                 } else {
-                    return Err(BuildError::Encoder {
-                        node: IrNodeId::new(1).unwrap(),
-                        source_span: paideia_as_diagnostics::Span::new(file, 0, 1),
-                        encoder_message: e.to_string(),
-                    });
+                    let msg = format!("encoder failed: {}", e);
+                    let span = Some(Span::new(file, 0, 1));
+                    if encoder_warn {
+                        let diag = encoder_warn_diag(IrNodeId::new(1).unwrap(), &msg, span);
+                        let _ = sink.emit(diag);
+                    } else {
+                        let diag = encoder_error(IrNodeId::new(1).unwrap(), &msg, span);
+                        let _ = sink.emit(diag);
+                    }
+                    return Err(BuildError::Failed);
                 }
             }
         }
@@ -118,6 +123,9 @@ pub(super) fn build_elf_object(
         &emit_result.label_fixups,
         &resolved_labels,
         strict_mode,
+        sink,
+        arena,
+        instruction_table,
         file,
     )?;
 
@@ -263,24 +271,15 @@ pub(super) fn build_elf_object(
                         // If it's NOT in emitted_lambdas, it didn't emit anything (unsupported shape),
                         // so we use (0, 0) as a placeholder.
                         if _emitted_lambdas.contains(&symbol.ir_node.get()) {
-                            return Err(BuildError::Emitter {
-                                message: format!(
-                                    "PA8-m1-002: function symbol `{}` (ir_node {}) has no \
-                                     recorded offset in function_offsets — \
-                                     this lambda emitted but offset was not recorded",
-                                    symbol.name,
-                                    symbol.ir_node.get()
-                                ),
-                            });
+                            use super::diagnostics::function_symbol_no_offset;
+                            let diag = function_symbol_no_offset(&symbol.name, symbol.ir_node.get());
+                            let _ = sink.emit(diag);
+                            return Err(BuildError::Failed);
                         } else {
-                            // Lambda didn't emit (unsupported shape); use placeholder
-                            if cfg!(debug_assertions) {
-                                eprintln!(
-                                    "[PA8-m1-002] info: function symbol `{}` (ir_node {}) did not emit bytecode",
-                                    symbol.name,
-                                    symbol.ir_node.get()
-                                );
-                            }
+                            // Lambda didn't emit (unsupported shape); route through sink as B1704 warning
+                            use super::diagnostics::function_symbol_no_offset;
+                            let diag = function_symbol_no_offset(&symbol.name, symbol.ir_node.get());
+                            let _ = sink.emit(diag);
                             (0u32, 0u64)
                         }
                     }
@@ -380,18 +379,17 @@ pub(super) fn build_elf_object(
     let _ = writer.add_pvh_note_section(PVH_DEFAULT_ENTRY_ADDR);
 
     // Phase 7 m1-002: Finalize and validate symbol layout invariants.
+    // Phase 8 m1-004: Emit typed diagnostic B1703 and return BuildError::Failed.
     writer.finalize().map_err(|err| match err {
-        EmitterError::SymbolLayoutInvalid { message } => BuildError::Emitter { message },
+        EmitterError::SymbolLayoutInvalid { message } => {
+            use super::diagnostics::symbol_layout_invalid;
+            let diag = symbol_layout_invalid(&message);
+            let _ = sink.emit(diag);
+            BuildError::Failed
+        }
     })
 }
 
-/// Phase-6-m1-004: Find the first instruction in the table (since we encode sequentially,
-/// the failure likely occurs on the first one when we process deterministically).
-pub(super) fn find_failing_instruction(instruction_table: &InstructionSideTable) -> Option<IrNodeId> {
-    let mut entries: Vec<_> = instruction_table.entries().iter().collect();
-    entries.sort_by_key(|&(&node_id, _)| node_id);
-    entries.first().map(|&(&node_id, _)| node_id)
-}
 
 pub(super) fn finish_elf(
     source_map: &SourceMap,
