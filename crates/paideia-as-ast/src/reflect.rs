@@ -85,6 +85,8 @@ pub enum TermHead {
     ByteString,
     /// Inline bytes literal: `@guid("...")` or `@include_bytes("...")`.
     InlineBytes,
+    /// Inline string literal: `@include_str("...")` or `@include_bytes_as_str("...")`.
+    InlineStr,
     /// `record { field1: T1, ... }` (record type).
     TypeRecord,
     /// `(T1, T2, ...) -> T !{...} @{...}` (function-pointer type).
@@ -169,6 +171,7 @@ impl<'a> Term<'a> {
                 NodeKind::ExprString => TermHead::String,
                 NodeKind::ExprByteString => TermHead::ByteString,
                 NodeKind::ExprInlineBytes => TermHead::InlineBytes,
+                NodeKind::ExprInlineStr => TermHead::InlineStr,
                 NodeKind::TypePtr => TermHead::TypePtr,
                 NodeKind::TypeRecord => TermHead::TypeRecord,
                 NodeKind::TypeFnPtr => TermHead::TypeFnPtr,
@@ -424,6 +427,9 @@ impl<'a> Term<'a> {
                 }
                 ExprData::InlineBytes(_) => {
                     // No children for inline bytes literals
+                }
+                ExprData::InlineStr(_) => {
+                    // No children for inline string literals
                 }
                 ExprData::Borrow { expr, .. } => {
                     result.push(Term::new(self.arena, *expr));

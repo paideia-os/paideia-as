@@ -1,12 +1,21 @@
-# Compile-Time Embed Primitives (`@guid`, `@include_bytes`)
+# Compile-Time Embed Primitives (`@guid`, `@include_bytes`, `@include_str`, `@include_bytes_as_str`)
 
 **Status**: v0.19 (UEFI-ABI Milestone)
 
-**Issue**: #1012 (InlineBytes), #1013 (include_bytes)
+**Issues**: #1012 (InlineBytes primitive), #1013 (`@include_bytes`), #1014 (`@include_str` + `@include_bytes_as_str`)
 
 ## Overview
 
-Paideia supports compile-time file embedding via the `@include_bytes` directive and GUID literal encoding via `@guid`. Both produce `ExprInlineBytes` AST nodes that carry raw byte payloads embedded directly into the emitted object file.
+Paideia supports four compile-time embed directives that read data at parse time and emit it directly into `.rodata` (or `.data` for mutable bindings):
+
+| Directive | Payload | Type | Validation |
+|---|---|---|---|
+| `@guid("...")` | 16 bytes, UEFI mixed-endian | `[u8; 16]` | GUID string format |
+| `@include_bytes("path")` | File bytes, verbatim | `[u8; N]` | none |
+| `@include_str("path")` | File bytes, verbatim | `str` | UTF-8 well-formedness |
+| `@include_bytes_as_str("path")` | File bytes, verbatim | `str` | none |
+
+The byte-typed directives (`@guid`, `@include_bytes`) share the `ExprData::InlineBytes(Vec<u8>)` AST variant and route through `IrKind::InlineBytes`. The str-typed directives (`@include_str`, `@include_bytes_as_str`) share the `ExprData::InlineStr(Vec<u8>)` AST variant and route through `IrKind::StringLiteral`, reusing the same rodata inlining + interning path as regular string literals.
 
 ## Syntax
 
@@ -32,61 +41,82 @@ let payload : [u8; 8] = @include_bytes("data/file.bin")
 
 - Reads a file relative to the source `.pdx` file's directory.
 - Embeds the exact file contents as a byte array.
-- Allows relative paths using `..` traversal. **Rationale:** compile-time embeds are inside the same trust boundary as source imports — the parser is already free to read the source file, so reading a sibling data file is not a privilege escalation.
-- Rejects absolute paths (must use relative paths only).
-- Rejects empty paths.
-- Rejects files > 16 MiB to prevent accidental large-file embeds.
-- Emits P0279 for path errors (not found, permission denied, not a file, empty path, absolute path).
-- Emits P0280 for oversized files (> 16 MiB).
+- Allows `..` traversal (see path-resolution section below).
+- Rejects absolute paths, empty paths, non-regular targets.
+- Rejects files > 16 MiB.
+- Emits P0279 (path/IO) or P0280 (oversize).
 
-## Type Annotation Guard (T0558)
-
-Both `@guid` and `@include_bytes` must match their declared `[u8; N]` type annotation:
+### `@include_str`
 
 ```pdx
-let payload : [u8; 8] = @include_bytes("file.bin")  // OK: file is 8 bytes
-let payload : [u8; 7] = @include_bytes("file.bin")  // Error T0558: declared 7, got 8
+let banner : str = @include_str("data/banner.txt")
 ```
 
-If the declared length `N` and actual byte count differ, the elaborator emits **T0558** and skips the data entry. This prevents silent data truncation or padding mismatches.
+- Reads a file the same way `@include_bytes` does, then **validates UTF-8** before allocating the AST node.
+- On invalid UTF-8, emits **P0281** with the byte offset of the first invalid sequence (from `Utf8Error::valid_up_to()`).
+- Empty file is valid UTF-8 (`str::from_utf8(&[]) == Ok("")`); accepted with no diagnostic.
+- BOM handling: **UTF-8 BOM (`EF BB BF`) is included verbatim**. Not stripped, not rejected. Rationale: matches Rust's `include_str!` and Zig's `@embedFile`; kernel/UEFI blobs may require exact-byte fidelity; UTF-8 BOM is itself valid UTF-8 so `from_utf8` passes.
+- Shares P0279 (path/IO) and P0280 (oversize) with `@include_bytes`.
 
-### Rationale
+### `@include_bytes_as_str`
 
-- `@guid` always produces exactly 16 bytes; the annotation must be `[u8; 16]`.
-- `@include_bytes` must match the actual file size; if the file changes, the type annotation must be updated to match.
-- T0558 catches bugs where file updates invalidate hardcoded array lengths.
+```pdx
+let raw_utf8 : str = @include_bytes_as_str("data/precomputed.utf8")
+```
+
+- Reads a file the same way `@include_bytes` does, produces a `str`-typed payload, but **skips UTF-8 validation**.
+- Intended for cases where the file is guaranteed valid UTF-8 by construction (build-script output, tooling artifact) and the validation cost is worth skipping.
+- Shares P0279/P0280 with the other directives.
+- Does NOT emit P0281 even on non-UTF-8 content — the caller asserts validity.
+- **Unsafe-context gating for this directive is a deferred follow-up** (paideia-as does not yet have unsafe-context enforcement machinery workspace-wide). Until that lands, callers assume responsibility informally.
 
 ## Path Resolution
 
-Path resolution follows these rules:
+Applies to `@include_bytes`, `@include_str`, and `@include_bytes_as_str`:
 
-1. Extract the `source_dir` from the input `.pdx` file's parent directory (set by `cmd_build.rs` and `cmd_check.rs`).
+1. Extract `source_dir` from the input `.pdx` file's parent directory (set by `cmd_build.rs` and `cmd_check.rs` via `Parser::with_source_dir(...)`).
 2. Resolve the relative path against `source_dir`.
-3. Fall back to CWD if `source_dir` is not set (for tests or CLI-only invocations).
+3. Fall back to CWD if `source_dir` is not set (test-only path).
 4. Check metadata: existence, is-regular-file, readable.
-5. Check size: reject > 16 MiB without reading.
+5. Check size against the 16 MiB cap BEFORE reading (reject-before-allocate discipline).
+
+`..` traversal is **allowed** without an escape check. Rationale: compile-time embeds are inside the same trust boundary as source imports — the parser is already free to read the source file, so reading a sibling data file is not a privilege escalation. Absolute paths remain rejected as a syntactic (not semantic) safeguard: keeps builds hermetic and reproducible.
+
+## Type Annotation Guard (T0558)
+
+For **byte-typed** directives (`@guid`, `@include_bytes`), the declared `[u8; N]` type annotation must match the actual payload length:
+
+```pdx
+let payload : [u8; 8] = @include_bytes("file.bin")  // OK when file is 8 bytes
+let payload : [u8; 7] = @include_bytes("file.bin")  // Error T0558: declared 7, got 8
+```
+
+If `N != bytes.len()`, the elaborator emits **T0558** and skips the data entry, preventing silent truncation or padding.
+
+T0558 does **not** apply to str-typed directives. `@include_str` and `@include_bytes_as_str` produce `str`-typed values; if a user writes `let X : [u8; N] = @include_str(...)`, the existing `IrKind::StringLiteral` → `[u8; N]` inlining path applies its own truncate/pad semantics (a deliberate feature for embedding text into fixed-size buffers).
 
 ## Lowering and Emission
 
-Both inline bytes expressions lower to `IrKind::InlineBytes` nodes carrying the byte payload in the `literal_bytes` side-table.
+**Byte path** (`@guid`, `@include_bytes`):
+- AST: `ExprData::InlineBytes(Vec<u8>)`
+- IR: `IrKind::InlineBytes` with the payload in the `literal_bytes` side-table
+- Emit: `cmd_build.rs` InlineBytes dispatch branch, T0558 guard, then `DataEntry` into `.rodata` (or `.data` for mutable bindings), 1-byte alignment
 
-At emit time (`cmd_build.rs`):
-1. Locate the Let binding's `[u8; N]` type annotation.
-2. Call `declared_array_len_from_type()` to extract `N`.
-3. If `N != bytes.len()`, emit T0558 and skip (preventing silent data mismatch).
-4. Otherwise, emit a `DataEntry::new_rodata()` or `DataEntry::new_data()` with:
-   - Symbol name derived from the binding name.
-   - Byte payload as-is (1-byte alignment, 8-byte if relocs present).
-
-## Future Work
-
-- **#1014**: `@include_str` for UTF-8 text embedding.
-- **pa-r19-008**: `--include-dir` search list (multiple resolution paths).
-- Security audit: evaluate `..` traversal risk vs. use cases.
+**Str path** (`@include_str`, `@include_bytes_as_str`):
+- AST: `ExprData::InlineStr(Vec<u8>)` — stored as bytes, not `String`, so `@include_bytes_as_str` cannot violate Rust's `String` UTF-8 invariant
+- IR: `IrKind::StringLiteral` with the payload in `literal_bytes` (reuses the regular-string-literal side-table)
+- Emit: reuses the existing `IrKind::StringLiteral` emit path in `cmd_build.rs` — `let X : [u8; N] = ...` inlines into rodata; other bindings intern under `__str_<hash>`
 
 ## Diagnostic Codes
 
-- **P0278**: Malformed GUID literal (format, length, invalid dashes, non-hex).
-- **P0279**: `@include_bytes` path error (not found, permission denied, not a file, empty path, absolute path).
-- **P0280**: `@include_bytes` file too large (> 16 MiB).
-- **T0558**: InlineBytes size mismatch (declared `[u8; N]` != actual bytes).
+- **P0278**: Malformed `@guid` literal (format, length, invalid dashes, non-hex).
+- **P0279**: `@include_bytes` / `@include_str` / `@include_bytes_as_str` path or IO error (not found, permission denied, not a regular file, empty path, absolute path, missing paren, missing string literal).
+- **P0280**: File exceeds the 16 MiB compile-time cap.
+- **P0281**: `@include_str` — file is not valid UTF-8. Message includes the byte offset of the first invalid sequence.
+- **T0558**: InlineBytes size mismatch (declared `[u8; N]` != actual bytes). Byte-typed directives only.
+
+## Future Work
+
+- **pa-r19-008-followup**: `--include-dir` search list (multiple resolution paths).
+- **pa-r19-009-followup**: unsafe-context gating for `@include_bytes_as_str` once workspace-wide unsafe enforcement lands.
+- Security audit: evaluate `..` traversal risk vs. use cases.

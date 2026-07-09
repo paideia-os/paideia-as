@@ -1,0 +1,3 @@
+module IncludeStrProbe = structure {
+  pub let payload : [u8; 8] = @include_str("data/include_str_probe.txt")
+}

@@ -1,5 +1,6 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
+assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -922,6 +923,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "@include_bytes file too large",
               "shortDescription": {
                 "text": "@include_bytes file exceeds 16 MiB limit"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Issue #1014: The @include_str directive requires the referenced file to be valid UTF-8. The file contains an invalid UTF-8 byte sequence at the indicated byte offset. Use @include_bytes_as_str instead if you need to embed binary data without UTF-8 validation."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0281",
+              "id": "P0281",
+              "name": "@include_str file is not valid UTF-8",
+              "shortDescription": {
+                "text": "@include_str: file is not valid UTF-8"
               }
             },
             {

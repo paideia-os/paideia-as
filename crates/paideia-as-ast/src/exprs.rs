@@ -440,6 +440,13 @@ pub enum ExprData {
     /// Elaborates to `IrKind::InlineBytes` with raw bytes in .rodata/.data slot.
     InlineBytes(Vec<u8>),
 
+    /// Inline string literal: `@include_str("...")` or `@include_bytes_as_str("...")`.
+    ///
+    /// Compile-time literal producing text as raw bytes (always stored as `Vec<u8>`,
+    /// never as `String`, to avoid UB in the `@include_bytes_as_str` case).
+    /// Elaborates to `IrKind::StringLiteral` with rodata interning via `__str_<hash>`.
+    InlineStr(Vec<u8>),
+
     /// `&expr` or `&mut expr`.
     ///
     /// Borrow expression: creates a reference to the given expression.

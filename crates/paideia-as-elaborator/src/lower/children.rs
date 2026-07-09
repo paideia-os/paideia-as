@@ -158,6 +158,11 @@ fn expr_children(
             // No structural children; byte payload is stored in literal_bytes side-table.
             Vec::new()
         }
+        ExprData::InlineStr(_) => {
+            // InlineStr (Issue #1014): @include_str and @include_bytes_as_str produce inline strings.
+            // No structural children; byte payload is stored in literal_bytes side-table.
+            Vec::new()
+        }
         ExprData::Block { stmts, tail } => {
             // Block: all statements + optional tail expression
             let mut children = stmts.iter().copied().collect::<Vec<_>>();

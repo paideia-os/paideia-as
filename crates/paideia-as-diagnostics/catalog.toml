@@ -1224,6 +1224,15 @@ description = "Issue #1013: The file referenced by @include_bytes is larger than
 since = "0.19.0"
 deprecated = false
 
+[diagnostic.P0281]
+severity = "error"
+category = "parser"
+title = "@include_str file is not valid UTF-8"
+brief = "@include_str: file is not valid UTF-8"
+description = "Issue #1014: The @include_str directive requires the referenced file to be valid UTF-8. The file contains an invalid UTF-8 byte sequence at the indicated byte offset. Use @include_bytes_as_str instead if you need to embed binary data without UTF-8 validation."
+since = "0.19.0"
+deprecated = false
+
 [diagnostic.T0558]
 severity = "error"
 category = "type"

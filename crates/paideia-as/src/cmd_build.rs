@@ -468,6 +468,18 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                     .insert(ir_inline_bytes_id, bytes.clone());
                             }
                         }
+                        paideia_as_ast::NodeKind::ExprInlineStr => {
+                            if let Some(paideia_as_ast::ExprData::InlineStr(bytes)) =
+                                arena.expr_data(ast_id)
+                            {
+                                let ir_inline_str_id = paideia_as_ir::IrNodeId::new(ast_id.get())
+                                    .expect("valid ir node id from ast inline str literal");
+                                lowering
+                                    .ir
+                                    .literal_bytes_mut()
+                                    .insert(ir_inline_str_id, bytes.clone());
+                            }
+                        }
                         _ => {}
                     }
                 }

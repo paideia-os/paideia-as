@@ -125,6 +125,8 @@ pub enum NodeKind {
     ExprByteString,
     /// Inline bytes literal: `@guid("...")` or `@include_bytes("...")`.
     ExprInlineBytes,
+    /// Inline string literal: `@include_str("...")` or `@include_bytes_as_str("...")`.
+    ExprInlineStr,
     /// `&expr` or `&mut expr` (borrow expression).
     ExprBorrow,
     /// `*expr` (dereference expression).

@@ -644,6 +644,14 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 self.bump(); // consume directive name
                 self.parse_include_bytes_literal(at_span)
             }
+            "include_str" => {
+                self.bump(); // consume directive name
+                self.parse_include_str_literal(at_span, true)
+            }
+            "include_bytes_as_str" => {
+                self.bump(); // consume directive name
+                self.parse_include_str_literal(at_span, false)
+            }
             _ => {
                 let diag = Diagnostic::error(p_code(100))
                     .message(format!("unknown directive @{}", directive_name))
@@ -844,6 +852,113 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             NodeKind::ExprInlineBytes,
             span,
             ExprData::InlineBytes(bytes),
+        ))
+    }
+
+    /// Parse an include_str or include_bytes_as_str literal.
+    ///
+    /// Algorithm:
+    /// 1. Expect `(`.
+    /// 2. Expect a string literal (the file path).
+    /// 3. Extract the string content.
+    /// 4. Resolve the path against source_dir (fall back to CWD if None).
+    /// 5. Read the file.
+    /// 6. If `checked=true`: validate UTF-8 and emit P0281 on error.
+    /// 7. If `checked=false`: accept invalid UTF-8 silently.
+    /// 8. On success, allocate ExprInlineStr node.
+    fn parse_include_str_literal(&mut self, at_span: Span, checked: bool) -> Result<paideia_as_ast::NodeId, ParseError> {
+        // Expect `(`
+        if !self.at(TokenKind::LParen) {
+            let span = if let Some(tok) = self.peek() {
+                tok.span
+            } else {
+                Span::new(self.file(), 0, 0)
+            };
+            let diag = Diagnostic::error(p_code(279))
+                .message(format!("expected `(` after @{}", if checked { "include_str" } else { "include_bytes_as_str" }))
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+        let lparen_span = self.expect(TokenKind::LParen)?.span;
+
+        // Expect a string literal
+        if !self.at(TokenKind::StringLit) {
+            let span = if let Some(tok) = self.peek() {
+                tok.span
+            } else {
+                Span::new(self.file(), 0, 0)
+            };
+            let diag = Diagnostic::error(p_code(279))
+                .message(format!("expected string literal in @{}(...)", if checked { "include_str" } else { "include_bytes_as_str" }))
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        let str_tok = self.expect(TokenKind::StringLit)?;
+        let source = self.source();
+        let start = str_tok.span.byte_start() as usize;
+        let end = (str_tok.span.byte_start() + str_tok.span.byte_len()) as usize;
+        let token_text = if start <= source.len() && end <= source.len() {
+            &source[start..end]
+        } else {
+            ""
+        };
+
+        // Extract the string content (handle raw string prefixes if any)
+        let is_raw = token_text.starts_with('r');
+        let raw_path = match extract_string_content(token_text, 0, is_raw, false) {
+            Ok(content) => content,
+            Err(_) => {
+                let diag = Diagnostic::error(p_code(279))
+                    .message(format!("invalid string literal in @{}", if checked { "include_str" } else { "include_bytes_as_str" }))
+                    .with_span(str_tok.span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                return Err(ParseError);
+            }
+        };
+
+        // Resolve and read the embed file
+        let bytes = match self.resolve_and_read_embed(&raw_path, str_tok.span) {
+            Ok(b) => b,
+            Err(_) => return Err(ParseError),
+        };
+
+        // If checked, validate UTF-8
+        if checked {
+            if let Err(e) = std::str::from_utf8(&bytes) {
+                let msg = format!("file is not valid UTF-8: invalid byte sequence at byte {}", e.valid_up_to());
+                let diag = Diagnostic::error(p_code(281))
+                    .message(msg)
+                    .with_span(str_tok.span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                return Err(ParseError);
+            }
+        }
+
+        // Expect `)`
+        if !self.at(TokenKind::RParen) {
+            return self.error_mismatched_delimiter(lparen_span);
+        }
+        let rparen_tok = self.expect(TokenKind::RParen)?;
+        let rparen_span = rparen_tok.span;
+
+        // Compute span from `@` through closing `)`
+        let span = Span::new(
+            at_span.file(),
+            at_span.byte_start(),
+            rparen_span.byte_start() + rparen_span.byte_len() - at_span.byte_start(),
+        );
+
+        Ok(self.arena_mut().alloc_expr(
+            NodeKind::ExprInlineStr,
+            span,
+            ExprData::InlineStr(bytes),
         ))
     }
 
@@ -2180,5 +2295,463 @@ mod tests {
         assert!(diags.len() > 0, "expected at least one diagnostic");
         let diag = &diags[0];
         assert_eq!(diag.code().number(), 280, "expected P0280 for oversized file");
+    }
+
+    // === @include_str directive tests ===
+
+    #[test]
+    fn include_str_happy_path() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let data_file = temp_dir.path().join("data.txt");
+        std::fs::write(&data_file, b"hello").unwrap();
+
+        let source = r#"@include_str("data.txt")"#;
+        let tokens = vec![
+            tok(TokenKind::At, 0, 1),
+            tok(TokenKind::Ident, 1, 11),
+            tok(TokenKind::LParen, 12, 1),
+            tok(TokenKind::StringLit, 13, 10),
+            tok(TokenKind::RParen, 23, 1),
+            tok(TokenKind::Eof, 24, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(
+            &tokens,
+            source,
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        )
+        .with_source_dir(Some(temp_dir.path().to_path_buf()));
+
+        let result = parser.parse_primary();
+        assert!(
+            result.is_ok(),
+            "expected parse to succeed, got diagnostics: {:?}",
+            sink.diagnostics()
+        );
+        let expr_id = result.unwrap();
+
+        let node = arena.get(expr_id).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprInlineStr);
+
+        if let Some(ExprData::InlineStr(bytes)) = arena.expr_data(expr_id) {
+            assert_eq!(bytes, b"hello");
+        } else {
+            panic!("expected InlineStr variant");
+        }
+
+        assert_eq!(sink.diagnostics().len(), 0);
+    }
+
+    #[test]
+    fn include_str_multibyte_utf8_ok() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let data_file = temp_dir.path().join("utf8.txt");
+        // "héllo" = [0x68, 0xc3, 0xa9, 0x6c, 0x6c, 0x6f]
+        std::fs::write(&data_file, b"h\xc3\xa9llo").unwrap();
+
+        let source = r#"@include_str("utf8.txt")"#;
+        let tokens = vec![
+            tok(TokenKind::At, 0, 1),
+            tok(TokenKind::Ident, 1, 11),
+            tok(TokenKind::LParen, 12, 1),
+            tok(TokenKind::StringLit, 13, 10),
+            tok(TokenKind::RParen, 23, 1),
+            tok(TokenKind::Eof, 24, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(
+            &tokens,
+            source,
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        )
+        .with_source_dir(Some(temp_dir.path().to_path_buf()));
+
+        let result = parser.parse_primary();
+        assert!(result.is_ok(), "expected parse to succeed for valid UTF-8");
+        let expr_id = result.unwrap();
+
+        if let Some(ExprData::InlineStr(bytes)) = arena.expr_data(expr_id) {
+            assert_eq!(bytes, b"h\xc3\xa9llo");
+        } else {
+            panic!("expected InlineStr variant");
+        }
+
+        assert_eq!(sink.diagnostics().len(), 0);
+    }
+
+    #[test]
+    fn include_str_rejects_invalid_utf8() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let data_file = temp_dir.path().join("invalid.txt");
+        // [0x48, 0xFF, 0x69] - 0xFF is invalid in UTF-8
+        std::fs::write(&data_file, &[0x48u8, 0xFF, 0x69]).unwrap();
+
+        let source = r#"@include_str("invalid.txt")"#;
+        let tokens = vec![
+            tok(TokenKind::At, 0, 1),
+            tok(TokenKind::Ident, 1, 11),
+            tok(TokenKind::LParen, 12, 1),
+            tok(TokenKind::StringLit, 13, 13),
+            tok(TokenKind::RParen, 26, 1),
+            tok(TokenKind::Eof, 27, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(
+            &tokens,
+            source,
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        )
+        .with_source_dir(Some(temp_dir.path().to_path_buf()));
+
+        let result = parser.parse_primary();
+        assert!(result.is_err(), "expected parse to fail for invalid UTF-8");
+
+        let diags = sink.diagnostics();
+        assert!(diags.len() > 0, "expected at least one diagnostic");
+        let diag = &diags[0];
+        assert_eq!(diag.code().number(), 281, "expected P0281 for invalid UTF-8");
+        assert!(
+            diag.message().contains("byte 1"),
+            "expected byte-offset 1 in message, got: {}",
+            diag.message()
+        );
+    }
+
+    #[test]
+    fn include_str_rejects_lone_continuation_byte() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let data_file = temp_dir.path().join("lone.txt");
+        // [0x80] - lone continuation byte
+        std::fs::write(&data_file, &[0x80u8]).unwrap();
+
+        let source = r#"@include_str("lone.txt")"#;
+        let tokens = vec![
+            tok(TokenKind::At, 0, 1),
+            tok(TokenKind::Ident, 1, 11),
+            tok(TokenKind::LParen, 12, 1),
+            tok(TokenKind::StringLit, 13, 10),
+            tok(TokenKind::RParen, 23, 1),
+            tok(TokenKind::Eof, 24, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(
+            &tokens,
+            source,
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        )
+        .with_source_dir(Some(temp_dir.path().to_path_buf()));
+
+        let result = parser.parse_primary();
+        assert!(result.is_err(), "expected parse to fail for lone continuation byte");
+
+        let diags = sink.diagnostics();
+        assert!(diags.len() > 0, "expected at least one diagnostic");
+        let diag = &diags[0];
+        assert_eq!(diag.code().number(), 281, "expected P0281 for lone continuation byte");
+        assert!(
+            diag.message().contains("byte 0"),
+            "expected byte-offset 0 in message, got: {}",
+            diag.message()
+        );
+    }
+
+    #[test]
+    fn include_str_accepts_empty_file() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let empty_file = temp_dir.path().join("empty.txt");
+        std::fs::write(&empty_file, b"").unwrap();
+
+        let source = r#"@include_str("empty.txt")"#;
+        let tokens = vec![
+            tok(TokenKind::At, 0, 1),
+            tok(TokenKind::Ident, 1, 11),
+            tok(TokenKind::LParen, 12, 1),
+            tok(TokenKind::StringLit, 13, 11),
+            tok(TokenKind::RParen, 24, 1),
+            tok(TokenKind::Eof, 25, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(
+            &tokens,
+            source,
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        )
+        .with_source_dir(Some(temp_dir.path().to_path_buf()));
+
+        let result = parser.parse_primary();
+        assert!(result.is_ok(), "expected parse to succeed for empty file");
+        let expr_id = result.unwrap();
+
+        let node = arena.get(expr_id).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprInlineStr);
+
+        if let Some(ExprData::InlineStr(bytes)) = arena.expr_data(expr_id) {
+            assert_eq!(bytes.len(), 0, "expected empty byte vector");
+        } else {
+            panic!("expected InlineStr variant");
+        }
+
+        assert_eq!(sink.diagnostics().len(), 0);
+    }
+
+    #[test]
+    fn include_str_rejects_missing_file() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let source = r#"@include_str("missing.txt")"#;
+        let tokens = vec![
+            tok(TokenKind::At, 0, 1),
+            tok(TokenKind::Ident, 1, 11),
+            tok(TokenKind::LParen, 12, 1),
+            tok(TokenKind::StringLit, 13, 12),
+            tok(TokenKind::RParen, 25, 1),
+            tok(TokenKind::Eof, 26, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(
+            &tokens,
+            source,
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        )
+        .with_source_dir(Some(temp_dir.path().to_path_buf()));
+
+        let result = parser.parse_primary();
+        assert!(result.is_err(), "expected parse to fail for missing file");
+
+        let diags = sink.diagnostics();
+        assert!(diags.len() > 0, "expected at least one diagnostic");
+        let diag = &diags[0];
+        assert_eq!(diag.code().number(), 279, "expected P0279 for missing file");
+    }
+
+    #[test]
+    fn include_str_rejects_absolute_path() {
+        let source = r#"@include_str("/etc/passwd")"#;
+        let tokens = vec![
+            tok(TokenKind::At, 0, 1),
+            tok(TokenKind::Ident, 1, 11),
+            tok(TokenKind::LParen, 12, 1),
+            tok(TokenKind::StringLit, 13, 13),
+            tok(TokenKind::RParen, 26, 1),
+            tok(TokenKind::Eof, 27, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(
+            &tokens,
+            source,
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        );
+
+        let result = parser.parse_primary();
+        assert!(result.is_err(), "expected parse to fail for absolute path");
+
+        let diags = sink.diagnostics();
+        assert!(diags.len() > 0, "expected at least one diagnostic");
+        let diag = &diags[0];
+        assert_eq!(diag.code().number(), 279, "expected P0279 for absolute path");
+    }
+
+    #[test]
+    fn include_str_bom_included_verbatim() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let data_file = temp_dir.path().join("bom.txt");
+        // UTF-8 BOM + "hi" = [0xEF, 0xBB, 0xBF, 0x68, 0x69]
+        std::fs::write(&data_file, &[0xEF, 0xBB, 0xBF, 0x68, 0x69]).unwrap();
+
+        let source = r#"@include_str("bom.txt")"#;
+        let tokens = vec![
+            tok(TokenKind::At, 0, 1),
+            tok(TokenKind::Ident, 1, 11),
+            tok(TokenKind::LParen, 12, 1),
+            tok(TokenKind::StringLit, 13, 9),
+            tok(TokenKind::RParen, 22, 1),
+            tok(TokenKind::Eof, 23, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(
+            &tokens,
+            source,
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        )
+        .with_source_dir(Some(temp_dir.path().to_path_buf()));
+
+        let result = parser.parse_primary();
+        assert!(result.is_ok(), "expected parse to succeed for BOM file");
+        let expr_id = result.unwrap();
+
+        if let Some(ExprData::InlineStr(bytes)) = arena.expr_data(expr_id) {
+            assert_eq!(bytes, &[0xEF, 0xBB, 0xBF, 0x68, 0x69], "expected BOM included verbatim");
+        } else {
+            panic!("expected InlineStr variant");
+        }
+
+        assert_eq!(sink.diagnostics().len(), 0);
+    }
+
+    // === @include_bytes_as_str directive tests ===
+
+    #[test]
+    fn include_bytes_as_str_happy_path() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let data_file = temp_dir.path().join("data.bin");
+        std::fs::write(&data_file, b"hello").unwrap();
+
+        let source = r#"@include_bytes_as_str("data.bin")"#;
+        let tokens = vec![
+            tok(TokenKind::At, 0, 1),
+            tok(TokenKind::Ident, 1, 20),
+            tok(TokenKind::LParen, 21, 1),
+            tok(TokenKind::StringLit, 22, 10),
+            tok(TokenKind::RParen, 32, 1),
+            tok(TokenKind::Eof, 33, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(
+            &tokens,
+            source,
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        )
+        .with_source_dir(Some(temp_dir.path().to_path_buf()));
+
+        let result = parser.parse_primary();
+        assert!(
+            result.is_ok(),
+            "expected parse to succeed, got diagnostics: {:?}",
+            sink.diagnostics()
+        );
+        let expr_id = result.unwrap();
+
+        let node = arena.get(expr_id).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprInlineStr);
+
+        if let Some(ExprData::InlineStr(bytes)) = arena.expr_data(expr_id) {
+            assert_eq!(bytes, b"hello");
+        } else {
+            panic!("expected InlineStr variant");
+        }
+
+        assert_eq!(sink.diagnostics().len(), 0);
+    }
+
+    #[test]
+    fn include_bytes_as_str_accepts_invalid_utf8() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let data_file = temp_dir.path().join("invalid.bin");
+        // [0x48, 0xFF, 0x69] - 0xFF is invalid in UTF-8, but should be accepted by _as_str
+        std::fs::write(&data_file, &[0x48u8, 0xFF, 0x69]).unwrap();
+
+        let source = r#"@include_bytes_as_str("invalid.bin")"#;
+        let tokens = vec![
+            tok(TokenKind::At, 0, 1),
+            tok(TokenKind::Ident, 1, 20),
+            tok(TokenKind::LParen, 21, 1),
+            tok(TokenKind::StringLit, 22, 13),
+            tok(TokenKind::RParen, 35, 1),
+            tok(TokenKind::Eof, 36, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(
+            &tokens,
+            source,
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        )
+        .with_source_dir(Some(temp_dir.path().to_path_buf()));
+
+        let result = parser.parse_primary();
+        assert!(
+            result.is_ok(),
+            "expected parse to succeed for invalid UTF-8 (unchecked), got diagnostics: {:?}",
+            sink.diagnostics()
+        );
+        let expr_id = result.unwrap();
+
+        if let Some(ExprData::InlineStr(bytes)) = arena.expr_data(expr_id) {
+            assert_eq!(bytes, &[0x48u8, 0xFF, 0x69], "expected exact invalid bytes preserved");
+        } else {
+            panic!("expected InlineStr variant");
+        }
+
+        assert_eq!(sink.diagnostics().len(), 0, "expected zero diagnostics for unchecked _as_str");
+    }
+
+    #[test]
+    fn include_bytes_as_str_rejects_missing_file() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let source = r#"@include_bytes_as_str("missing.bin")"#;
+        let tokens = vec![
+            tok(TokenKind::At, 0, 1),
+            tok(TokenKind::Ident, 1, 20),
+            tok(TokenKind::LParen, 21, 1),
+            tok(TokenKind::StringLit, 22, 12),
+            tok(TokenKind::RParen, 34, 1),
+            tok(TokenKind::Eof, 35, 0),
+        ];
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut parser = Parser::new(
+            &tokens,
+            source,
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        )
+        .with_source_dir(Some(temp_dir.path().to_path_buf()));
+
+        let result = parser.parse_primary();
+        assert!(result.is_err(), "expected parse to fail for missing file");
+
+        let diags = sink.diagnostics();
+        assert!(diags.len() > 0, "expected at least one diagnostic");
+        let diag = &diags[0];
+        assert_eq!(diag.code().number(), 279, "expected P0279 for missing file");
     }
 }
