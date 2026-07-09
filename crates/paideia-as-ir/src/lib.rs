@@ -41,6 +41,7 @@ pub mod symbol;
 pub mod walker;
 pub mod walker_ctx;
 
+pub use abi::{ArgClass, ArgSlot, ReturnSlot, MS_ARG_REGS, MS_SHADOW_SPACE_BYTES, map_args, map_return};
 pub use addr_of::{AddrOfMeta, AddrOfSideTable};
 pub use anf::{AnfRewrite, is_atomic, normalise_operands};
 pub use arena::IrArena;

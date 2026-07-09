@@ -69,9 +69,26 @@ let g = fn() {} @abi("sysv") @align(16)
 let x = 42 @abi("ms") @align(8)  // ERROR P0286
 ```
 
+## Argument classification and mapping
+
+**Issue:** [#1007](https://github.com/PaideiaOS/PaideiaOS/issues/1007) — Pure MS x64 argument classification layer  
+**Phase:** PA19-r19-002 (v0.19 UEFI-ABI)  
+**Status:** MVP — Classification types and mapping functions shipped; consumed by #1008/#1011
+
+The pure mapping layer in `crates/paideia-as-ir/src/abi.rs` provides argument classification (`ArgClass` enum) and slot assignment functions (`map_args`, `map_return`). Callers (elaborator, #1008/#1011) classify function parameters into `&[ArgClass]` and hand them to the mapping functions to get register/stack slot assignments. This decouples argument layout from codegen, keeping `paideia-as-ir` free of `paideia-as-types` and `paideia-as-elaborator` dependencies.
+
+Currently supports:
+- `ArgClass::Integer` — integer/pointer arguments (64-bit or narrower).
+- SysV mapping: args 0..6 → RDI/RSI/RDX/RCX/R8/R9; args 6+ → stack at offset (i-6)*8.
+- MS x64 mapping: args 0..4 → RCX/RDX/R8/R9; args 4+ → stack at offset (i-4)*8 + 32 (shadow space).
+- Return mapping: `ArgClass::Integer` → RAX (both SysV and MS).
+
+Future phases will add: Float class, unified-bank slot advancement, aggregate classification, MS hidden-pointer return values, SysV RDX:RAX 128-bit pairs.
+
 ## Roadmap
 
-- **v0.19 (PA19-r19-001, this PR)** — Annotation parsing, AST + IR representation, P0285/P0286/U1620 gates.
+- **v0.19 (PA19-r19-001)** — Annotation parsing, AST + IR representation, P0285/P0286/U1620 gates.
+- **v0.19 (PA19-r19-002, #1007)** — Pure argument classification layer; shipped.
 - **v0.19 (PA19-r19-011, #1011)** — MS x64 prologue/epilogue emitter. Remove U1620 gate. Implement callee-saved discipline, parameter-passing rules, rsp alignment.
 - **v0.19 (PA19-r19-017, #1017)** — SysV↔MS bridge thunks for interop. Thunk generation for calls crossing ABI boundaries (e.g., Rust-hosted tests calling into `@abi("ms")` UEFI code).
 
@@ -92,5 +109,6 @@ Why `None` on LetInfo means "paideia default", not `Some(Sysv)`? The distinction
 - AST: `crates/paideia-as-ast/src/items.rs` — CallingConvention enum, ItemData::Let.abi field.
 - Parser: `crates/paideia-as-parser/src/parse_item/let_item.rs` — parse_abi_attr, LetSymbolAttrs struct.
 - IR: `crates/paideia-as-ir/src/let_meta.rs` — CallingConvention enum, LetInfo.abi field, with_abi constructor.
+- IR ABI mapping (issue #1007): `crates/paideia-as-ir/src/abi.rs` — ArgClass enum, ArgSlot enum, ReturnSlot enum, MS_ARG_REGS constant, MS_SHADOW_SPACE_BYTES constant, map_args function, map_return function.
 - Build: `crates/paideia-as/src/cmd_build.rs` — P0286/U1620 validation passes.
 - Diagnostics: `crates/paideia-as-diagnostics/catalog.toml` — P0285, P0286, U1620 entries.

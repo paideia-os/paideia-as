@@ -6,6 +6,8 @@
 
 - **Issue #1006** — `@abi("ms" | "sysv")` calling-convention annotation on let bindings with function-shaped values (lambdas only). Phase 19 MVP: parse acceptance + semantic validation gates. `@abi("ms")` emits U1620 (deferred to #1011 for MS x64 prologue/epilogue codegen); `@abi("sysv")` and unannotated lambdas build normally. Non-lambda bindings with `@abi` emit P0286 error. Parser diagnostics: P0285 for invalid/malformed arguments (unknown string, non-string, missing parens, case violation).
 
+- **Issue #1007** — Pure argument classification and slot-mapping layer for MS x64 calling convention. Extends `crates/paideia-as-ir/src/abi.rs` with `ArgClass`, `ArgSlot`, `ReturnSlot` types, `MS_ARG_REGS`/`MS_SHADOW_SPACE_BYTES` constants, and `map_args`/`map_return` functions. Supports both SysV and MS x64 calling conventions. No emit-side changes; used by elaborator (#1008, #1011) to classify and map function arguments.
+
 - **Issue #1014** — `@include_str("...")` and `@include_bytes_as_str("...")` compile-time text embed primitives. `@include_str` performs UTF-8 validation (P0281 diagnostic on error); `@include_bytes_as_str` accepts any bytes without validation. Both lower to `IrKind::StringLiteral` with interned rodata symbols (`__str_<hash>`), giving users truncate/pad control via existing `[u8; N]` type annotation machinery.
 
 ### Breaking changes
