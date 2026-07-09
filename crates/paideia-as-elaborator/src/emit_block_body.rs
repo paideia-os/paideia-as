@@ -399,6 +399,15 @@ impl EmitWalker {
                         }
                         self.dispatch_store(child_id, arena);
                     }
+                    IrKind::Match => {
+                        // #1129: route Match through visit_match. Statement-position
+                        // matches discard their result; a trailing (tail) match should
+                        // leave its result in RAX for the enclosing lambda's ret.
+                        if cfg!(debug_assertions) {
+                            eprintln!("[emit_block_body] Match at index {}", i);
+                        }
+                        self.visit_match(child_id, arena, typer, TailContext::Discard);
+                    }
                     _ => {
                         // Unexpected statement kind.
                         if cfg!(debug_assertions) {
@@ -621,6 +630,14 @@ impl EmitWalker {
                             eprintln!("[emit_block_body_arm] Store at index {}", i);
                         }
                         self.dispatch_store(child_id, arena);
+                    }
+                    IrKind::Match => {
+                        // #1129: mirror emit_block_body's Match dispatch so nested matches
+                        // (match arm containing another match) don't ghost-drop.
+                        if cfg!(debug_assertions) {
+                            eprintln!("[emit_block_body_arm] Match at index {}", i);
+                        }
+                        self.visit_match(child_id, arena, typer, TailContext::Discard);
                     }
                     _ => {
                         // Unexpected statement kind.
