@@ -1,0 +1,12 @@
+// Issue #1100 Gap 2: byte-order witness test for function-pointer indirect call
+// Tests that indirect calls via RIP-relative function pointer (FF 15) emit with proper byte-order:
+//   - First byte is MOV prefix (0x48 for REX.W)
+//   - MOV byte pattern (48 C7 or 48 BF forms) appears in entry[0..ff15_pos]
+//   - FF 15 (indirect CALL via RIP-relative) does NOT appear at position 0
+//   - Last byte is RET (0xC3)
+
+module PaR19Gap2FnptrIndirectArgs = structure {
+    pub let target : (u64) -> u64 !{} @{} = fn(x: u64) -> x
+    pub let f      : (u64) -> u64 !{} @{} = &target
+    pub let entry  : () -> u64 !{} @{} = fn(_: ()) -> (f)(42u64)
+}

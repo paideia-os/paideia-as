@@ -1,0 +1,16 @@
+// Issue #1100 Gap 1: byte-order witness test for call with literal args
+// Tests that when a function calls helper with literal arguments, the caller
+// function emits with proper byte-order:
+//   - First byte is MOV (0x48 prefix for REX.W)
+//   - CALL opcode (0xE8) appears after at least 7 bytes of MOV
+//   - Last byte is RET (0xC3)
+// Note: Originally intended to test unsafe block wrapping, but U1614 currently
+// prevents unsafe blocks from emitting non-asm statements.
+
+module PaR19Gap1UnsafeCallArgs = structure {
+    pub let helper : (u64, u64) -> u64 !{} @{} =
+        fn(x: u64, y: u64) -> x
+
+    pub let caller : (u64) -> u64 !{} @{} =
+        fn(_z: u64) -> helper(3u64, 4u64)
+}

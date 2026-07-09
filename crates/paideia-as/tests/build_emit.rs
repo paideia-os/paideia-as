@@ -50,6 +50,7 @@ mod build_emit {
     pub mod pa_r13_008_mut_literal_data;
     pub mod pa_r17_004_identity_multi_param;
     pub mod pa_r17_005_flat_multi_param;
+    pub mod pa_r19_1100_byte_order;
     pub mod phase6_cr_moves;
     pub mod record_reorder;
     pub mod rep_movsb;
