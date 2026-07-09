@@ -4,6 +4,7 @@
 //! for efficient lookup. Special handling for `_start` entry-point.
 
 use crate::IrNodeId;
+use crate::let_meta::CallingConvention;
 use std::collections::HashMap;
 
 /// Visibility level of a symbol.
@@ -39,6 +40,8 @@ pub struct Symbol {
     pub ir_node: IrNodeId,
     /// Visibility level: Local or Global.
     pub visibility: Visibility,
+    /// Calling convention annotation (if present).
+    pub abi: Option<CallingConvention>,
 }
 
 impl Symbol {
@@ -61,6 +64,7 @@ impl Symbol {
             kind,
             ir_node,
             visibility,
+            abi: None,
         }
     }
 
@@ -77,6 +81,29 @@ impl Symbol {
             kind,
             ir_node,
             visibility,
+            abi: None,
+        }
+    }
+
+    /// Construct a new symbol with explicit calling convention annotation.
+    #[must_use]
+    pub fn new_with_abi(
+        name: String,
+        kind: SymbolKind,
+        ir_node: IrNodeId,
+        abi: Option<CallingConvention>,
+    ) -> Self {
+        let visibility = if name == "_start" || name == "long_mode_entry" {
+            Visibility::Global
+        } else {
+            Visibility::Local
+        };
+        Self {
+            name,
+            kind,
+            ir_node,
+            visibility,
+            abi,
         }
     }
 }

@@ -292,20 +292,21 @@ impl EmitWalker {
                                 // Check if this let is explicitly marked as public.
                                 // PA904: propagate pub flag to symbol visibility.
                                 // Belt-and-suspenders: auto-global rule (_start, long_mode_entry) still applies.
-                                let visibility = if arena.is_public_let(node_id) {
-                                    paideia_as_ir::Visibility::Global
-                                } else {
-                                    // Use the auto-global rule from Symbol::new
-                                    Symbol::new(binding_name.clone(), kind, symbol_ir_node)
-                                        .visibility
-                                };
+                                // Read calling convention annotation from let_meta (issue #1006)
+                                let abi = arena.let_meta()
+                                    .get(node_id)
+                                    .and_then(|meta| meta.abi);
 
-                                let sym = Symbol::new_with_visibility(
+                                let mut sym = Symbol::new_with_abi(
                                     binding_name,
                                     kind,
                                     symbol_ir_node,
-                                    visibility,
+                                    abi,
                                 );
+                                // Override visibility if marked public
+                                if arena.is_public_let(node_id) {
+                                    sym.visibility = paideia_as_ir::Visibility::Global;
+                                }
                                 arena.symbols_mut().insert(sym);
 
                                 // Handle Literal RHS: emit instructions for m1-002.

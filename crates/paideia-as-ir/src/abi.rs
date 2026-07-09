@@ -94,6 +94,16 @@ pub const MS_ARG_REGS: [RegId; 4] = [RCX, RDX, R8, R9];
 /// frame and must be accounted for in stack offset calculations.
 pub const MS_SHADOW_SPACE_BYTES: u32 = 32;
 
+/// MS x64 caller-side shadow-space frame bump (in bytes).
+///
+/// The caller must decrement RSP by this amount before emitting arguments
+/// and a CALL to an MS x64 ABI function. This includes the 32-byte shadow
+/// space plus 8 bytes for the return address: (32 + 8) = 40.
+///
+/// MVP assumption: no caller-side prologue push before the shadow prelude.
+/// When caller-side prologue push support is added, revisit this constant.
+pub const MS_CALL_STACK_BUMP: u32 = 40;
+
 /// Return-value register.
 pub const RET: RegId = RAX;
 

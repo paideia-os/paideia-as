@@ -2394,3 +2394,539 @@ fn emit_pending_unsafe_bodies_skips_label_sibling() {
         diags.len()
     );
 }
+// MS x64 shadow-space caller-side frame emission tests (issue #1008)
+// Add these to the end of crates/paideia-as-elaborator/src/emit_walker_tests/layouts_calls.rs
+
+#[test]
+fn emit_walker_ms_zero_arg_call_emits_shadow_prelude_postlude() {
+    // MS callee, 0 args. Verify sub rsp, 40 and add rsp, 40 with correct operands.
+    use paideia_as_ir::let_meta::{LetInfo, CallingConvention};
+
+    let mut arena = IrArena::new();
+
+    // Create target lambda with MS calling convention
+    let target_lambda_id = IrNodeId::new(100).expect("valid lambda id");
+    let mut target_info = LetInfo::immutable();
+    target_info.abi = Some(CallingConvention::Ms);
+    arena.let_meta_mut().insert(target_lambda_id, target_info);
+
+    let target_symbol = Symbol::new_with_abi(
+        "target_ms".to_string(),
+        SymbolKind::Function,
+        target_lambda_id,
+        Some(CallingConvention::Ms),
+    );
+    arena.symbols_mut().insert(target_symbol);
+
+    // Create caller lambda
+    let _caller_lambda_id = IrNodeId::new(200).expect("valid caller id");
+    let callee_var_id = arena.alloc(IrKind::Var, span());
+    arena.binding_names_mut().insert(callee_var_id, "target_ms".to_string());
+
+    let app_id = arena.alloc_with_children(IrKind::App, span(), [callee_var_id]);
+    let action_id = arena.alloc_with_children(IrKind::Action, span(), [app_id]);
+    let unsafe_id = arena.alloc_with_children(IrKind::Unsafe, span(), [action_id]);
+
+    // Emit the call
+    let mut walker = EmitWalker::new();
+    let pending = vec![unsafe_id.get()];
+    walker.emit_pending_unsafe_bodies(pending, &arena, None);
+
+    // Verify prelude (sub rsp, 40) is present
+    let insts = &walker.state().instructions;
+    let sub_found = insts.entries().iter().any(|(_, inst)| {
+        inst.mnemonic == paideia_as_ir::instruction::Mnemonic::Sub &&
+        inst.operands.len() == 2 &&
+        matches!(&inst.operands[0], paideia_as_ir::instruction::Operand::Reg(r) if *r == paideia_as_ir::abi::RSP) &&
+        matches!(&inst.operands[1], paideia_as_ir::instruction::Operand::Imm64(40))
+    });
+    assert!(sub_found, "Expected 'sub rsp, 40' prelude for MS call");
+
+    // Verify postlude (add rsp, 40) is present
+    let add_found = insts.entries().iter().any(|(_, inst)| {
+        inst.mnemonic == paideia_as_ir::instruction::Mnemonic::Add &&
+        inst.operands.len() == 2 &&
+        matches!(&inst.operands[0], paideia_as_ir::instruction::Operand::Reg(r) if *r == paideia_as_ir::abi::RSP) &&
+        matches!(&inst.operands[1], paideia_as_ir::instruction::Operand::Imm64(40))
+    });
+    assert!(add_found, "Expected 'add rsp, 40' postlude for MS call");
+}
+
+#[test]
+fn emit_walker_ms_one_arg_call_uses_rcx_not_rdi() {
+    // MS callee, 1 lit arg. Verify mov rcx, imm (NOT mov rdi, imm).
+    use paideia_as_ir::let_meta::{LetInfo, CallingConvention};
+
+    let mut arena = IrArena::new();
+
+    // Create target lambda with MS calling convention
+    let target_lambda_id = IrNodeId::new(100).expect("valid lambda id");
+    let mut target_info = LetInfo::immutable();
+    target_info.abi = Some(CallingConvention::Ms);
+    arena.let_meta_mut().insert(target_lambda_id, target_info);
+
+    let target_symbol = Symbol::new_with_abi(
+        "target_ms".to_string(),
+        SymbolKind::Function,
+        target_lambda_id,
+        Some(CallingConvention::Ms),
+    );
+    arena.symbols_mut().insert(target_symbol);
+
+    // Create literal argument
+    let arg_lit_id = arena.alloc(IrKind::Literal, span());
+    arena.literal_values_mut().insert(arg_lit_id, 42i64);
+
+    // Create caller lambda with argument
+    let callee_var_id = arena.alloc(IrKind::Var, span());
+    arena.binding_names_mut().insert(callee_var_id, "target_ms".to_string());
+
+    let app_id = arena.alloc_with_children(IrKind::App, span(), [callee_var_id, arg_lit_id]);
+    let action_id = arena.alloc_with_children(IrKind::Action, span(), [app_id]);
+    let unsafe_id = arena.alloc_with_children(IrKind::Unsafe, span(), [action_id]);
+
+    // Emit the call
+    let mut walker = EmitWalker::new();
+    let pending = vec![unsafe_id.get()];
+    walker.emit_pending_unsafe_bodies(pending, &arena, None);
+
+    // Verify mov rcx, 42
+    let insts = &walker.state().instructions;
+    let rcx_found = insts.entries().iter().any(|(_, inst)| {
+        inst.mnemonic == paideia_as_ir::instruction::Mnemonic::Mov &&
+        inst.operands.len() == 2 &&
+        matches!(&inst.operands[0], paideia_as_ir::instruction::Operand::Reg(r) if *r == paideia_as_ir::abi::RCX) &&
+        matches!(&inst.operands[1], paideia_as_ir::instruction::Operand::Imm64(42))
+    });
+    assert!(rcx_found, "Expected 'mov rcx, 42' for MS arg 0");
+
+    // Verify RDI is NOT used for MS args
+    let rdi_used = insts.entries().iter().any(|(_, inst)| {
+        inst.mnemonic == paideia_as_ir::instruction::Mnemonic::Mov &&
+        inst.operands.len() == 2 &&
+        matches!(&inst.operands[0], paideia_as_ir::instruction::Operand::Reg(r) if *r == paideia_as_ir::abi::RDI)
+    });
+    assert!(!rdi_used, "MS call should NOT use RDI (SysV register)");
+}
+
+#[test]
+fn emit_walker_ms_four_arg_call_uses_full_ms_reg_pool() {
+    // MS callee, 4 lit args. Verify [RCX, RDX, R8, R9] all populated.
+    use paideia_as_ir::let_meta::{LetInfo, CallingConvention};
+
+    let mut arena = IrArena::new();
+
+    // Create target lambda with MS calling convention
+    let target_lambda_id = IrNodeId::new(100).expect("valid lambda id");
+    let mut target_info = LetInfo::immutable();
+    target_info.abi = Some(CallingConvention::Ms);
+    arena.let_meta_mut().insert(target_lambda_id, target_info);
+
+    let target_symbol = Symbol::new_with_abi(
+        "target_ms".to_string(),
+        SymbolKind::Function,
+        target_lambda_id,
+        Some(CallingConvention::Ms),
+    );
+    arena.symbols_mut().insert(target_symbol);
+
+    // Create 4 literal arguments
+    let arg1_id = arena.alloc(IrKind::Literal, span());
+    arena.literal_values_mut().insert(arg1_id, 10i64);
+    let arg2_id = arena.alloc(IrKind::Literal, span());
+    arena.literal_values_mut().insert(arg2_id, 20i64);
+    let arg3_id = arena.alloc(IrKind::Literal, span());
+    arena.literal_values_mut().insert(arg3_id, 30i64);
+    let arg4_id = arena.alloc(IrKind::Literal, span());
+    arena.literal_values_mut().insert(arg4_id, 40i64);
+
+    let callee_var_id = arena.alloc(IrKind::Var, span());
+    arena.binding_names_mut().insert(callee_var_id, "target_ms".to_string());
+
+    let app_id = arena.alloc_with_children(
+        IrKind::App,
+        span(),
+        [callee_var_id, arg1_id, arg2_id, arg3_id, arg4_id],
+    );
+    let action_id = arena.alloc_with_children(IrKind::Action, span(), [app_id]);
+    let unsafe_id = arena.alloc_with_children(IrKind::Unsafe, span(), [action_id]);
+
+    let mut walker = EmitWalker::new();
+    let pending = vec![unsafe_id.get()];
+    walker.emit_pending_unsafe_bodies(pending, &arena, None);
+
+    let insts = &walker.state().instructions;
+
+    // Verify all 4 MS arg registers are populated
+    for (idx, expected_reg, expected_val) in [
+        (0, paideia_as_ir::abi::RCX, 10i64),
+        (1, paideia_as_ir::abi::RDX, 20i64),
+        (2, paideia_as_ir::abi::R8, 30i64),
+        (3, paideia_as_ir::abi::R9, 40i64),
+    ] {
+        let found = insts.entries().iter().any(|(_, inst)| {
+            inst.mnemonic == paideia_as_ir::instruction::Mnemonic::Mov &&
+            inst.operands.len() == 2 &&
+            matches!(&inst.operands[0], paideia_as_ir::instruction::Operand::Reg(r) if *r == expected_reg) &&
+            matches!(&inst.operands[1], paideia_as_ir::instruction::Operand::Imm64(v) if *v == expected_val)
+        });
+        assert!(found, "Expected 'mov {}, {}' for MS arg {}", expected_reg.0, expected_val, idx);
+    }
+}
+
+#[test]
+fn emit_walker_ms_five_arg_call_emits_t0521() {
+    // MS callee, 5 args. Verify T0521 emitted; no CALL emitted.
+    use paideia_as_ir::let_meta::{LetInfo, CallingConvention};
+
+    let mut arena = IrArena::new();
+
+    // Create target lambda with MS calling convention
+    let target_lambda_id = IrNodeId::new(100).expect("valid lambda id");
+    let mut target_info = LetInfo::immutable();
+    target_info.abi = Some(CallingConvention::Ms);
+    arena.let_meta_mut().insert(target_lambda_id, target_info);
+
+    let target_symbol = Symbol::new_with_abi(
+        "target_ms".to_string(),
+        SymbolKind::Function,
+        target_lambda_id,
+        Some(CallingConvention::Ms),
+    );
+    arena.symbols_mut().insert(target_symbol);
+
+    // Create 5 literal arguments
+    let args: Vec<_> = (1..=5)
+        .map(|i| {
+            let id = arena.alloc(IrKind::Literal, span());
+            arena.literal_values_mut().insert(id, (i * 10) as i64);
+            id
+        })
+        .collect();
+
+    let callee_var_id = arena.alloc(IrKind::Var, span());
+    arena.binding_names_mut().insert(callee_var_id, "target_ms".to_string());
+
+    let mut app_children = vec![callee_var_id];
+    app_children.extend(args);
+    let app_id = arena.alloc_with_children(IrKind::App, span(), app_children.into_iter());
+    let action_id = arena.alloc_with_children(IrKind::Action, span(), [app_id]);
+    let unsafe_id = arena.alloc_with_children(IrKind::Unsafe, span(), [action_id]);
+
+    let mut walker = EmitWalker::new();
+    let pending = vec![unsafe_id.get()];
+    walker.emit_pending_unsafe_bodies(pending, &arena, None);
+
+    // Verify T0521 is in diagnostics
+    let t0521_found = walker.structured_diagnostics.iter().any(|d| d.code().number() == 521);
+    assert!(t0521_found, "Expected T0521 diagnostic for 5-arg MS call");
+}
+
+#[test]
+fn emit_walker_sysv_call_still_uses_rdi_rsi_pool() {
+    // SysV callee (explicitly annotated), 1 arg. Verify mov rdi, imm (no prelude/postlude).
+    use paideia_as_ir::let_meta::{LetInfo, CallingConvention};
+
+    let mut arena = IrArena::new();
+
+    // Create target lambda with SysV calling convention (explicit)
+    let target_lambda_id = IrNodeId::new(100).expect("valid lambda id");
+    let mut target_info = LetInfo::immutable();
+    target_info.abi = Some(CallingConvention::Sysv);
+    arena.let_meta_mut().insert(target_lambda_id, target_info);
+
+    let target_symbol = Symbol::new_with_abi(
+        "target_sysv".to_string(),
+        SymbolKind::Function,
+        target_lambda_id,
+        Some(CallingConvention::Sysv),
+    );
+    arena.symbols_mut().insert(target_symbol);
+
+    // Create 1 literal argument
+    let arg_id = arena.alloc(IrKind::Literal, span());
+    arena.literal_values_mut().insert(arg_id, 99i64);
+
+    let callee_var_id = arena.alloc(IrKind::Var, span());
+    arena.binding_names_mut().insert(callee_var_id, "target_sysv".to_string());
+
+    let app_id = arena.alloc_with_children(IrKind::App, span(), [callee_var_id, arg_id]);
+    let action_id = arena.alloc_with_children(IrKind::Action, span(), [app_id]);
+    let unsafe_id = arena.alloc_with_children(IrKind::Unsafe, span(), [action_id]);
+
+    let mut walker = EmitWalker::new();
+    let pending = vec![unsafe_id.get()];
+    walker.emit_pending_unsafe_bodies(pending, &arena, None);
+
+    let insts = &walker.state().instructions;
+
+    // Verify mov rdi, 99
+    let rdi_found = insts.entries().iter().any(|(_, inst)| {
+        inst.mnemonic == paideia_as_ir::instruction::Mnemonic::Mov &&
+        matches!(&inst.operands[0], paideia_as_ir::instruction::Operand::Reg(r) if *r == paideia_as_ir::abi::RDI) &&
+        matches!(&inst.operands[1], paideia_as_ir::instruction::Operand::Imm64(99))
+    });
+    assert!(rdi_found, "Expected 'mov rdi, 99' for SysV call");
+
+    // Verify NO prelude
+    let sub_found = insts.entries().iter().any(|(_, inst)| {
+        inst.mnemonic == paideia_as_ir::instruction::Mnemonic::Sub &&
+        matches!(&inst.operands[0], paideia_as_ir::instruction::Operand::Reg(r) if *r == paideia_as_ir::abi::RSP)
+    });
+    assert!(!sub_found, "SysV call should NOT emit 'sub rsp' prelude");
+}
+
+#[test]
+fn emit_walker_absent_abi_call_matches_sysv() {
+    // Unannotated callee (abi == None). Verify identical to SysV case (regression fence).
+    let mut arena = IrArena::new();
+
+    // Create target lambda WITHOUT ABI annotation
+    let target_lambda_id = IrNodeId::new(100).expect("valid lambda id");
+    let target_symbol = Symbol::new(
+        "target_default".to_string(),
+        SymbolKind::Function,
+        target_lambda_id,
+    );
+    arena.symbols_mut().insert(target_symbol);
+
+    // Create 1 literal argument
+    let arg_id = arena.alloc(IrKind::Literal, span());
+    arena.literal_values_mut().insert(arg_id, 77i64);
+
+    let callee_var_id = arena.alloc(IrKind::Var, span());
+    arena.binding_names_mut().insert(callee_var_id, "target_default".to_string());
+
+    let app_id = arena.alloc_with_children(IrKind::App, span(), [callee_var_id, arg_id]);
+    let action_id = arena.alloc_with_children(IrKind::Action, span(), [app_id]);
+    let unsafe_id = arena.alloc_with_children(IrKind::Unsafe, span(), [action_id]);
+
+    let mut walker = EmitWalker::new();
+    let pending = vec![unsafe_id.get()];
+    walker.emit_pending_unsafe_bodies(pending, &arena, None);
+
+    let insts = &walker.state().instructions;
+
+    // Verify mov rdi, 77 (SysV default)
+    let rdi_found = insts.entries().iter().any(|(_, inst)| {
+        inst.mnemonic == paideia_as_ir::instruction::Mnemonic::Mov &&
+        matches!(&inst.operands[0], paideia_as_ir::instruction::Operand::Reg(r) if *r == paideia_as_ir::abi::RDI) &&
+        matches!(&inst.operands[1], paideia_as_ir::instruction::Operand::Imm64(77))
+    });
+    assert!(rdi_found, "Unannotated call should default to SysV (mov rdi)");
+
+    // Verify NO prelude
+    let sub_found = insts.entries().iter().any(|(_, inst)| {
+        inst.mnemonic == paideia_as_ir::instruction::Mnemonic::Sub &&
+        matches!(&inst.operands[0], paideia_as_ir::instruction::Operand::Reg(r) if *r == paideia_as_ir::abi::RSP)
+    });
+    assert!(!sub_found, "Unannotated call should NOT emit prelude");
+}
+
+#[test]
+fn emit_walker_ms_shadow_bump_is_forty_bytes() {
+    // Pin Imm64(40) on prelude/postlude (regression fence for MS_CALL_STACK_BUMP).
+    use paideia_as_ir::let_meta::{LetInfo, CallingConvention};
+
+    let mut arena = IrArena::new();
+
+    let target_lambda_id = IrNodeId::new(100).expect("valid lambda id");
+    let mut target_info = LetInfo::immutable();
+    target_info.abi = Some(CallingConvention::Ms);
+    arena.let_meta_mut().insert(target_lambda_id, target_info);
+
+    let target_symbol = Symbol::new_with_abi(
+        "target_ms".to_string(),
+        SymbolKind::Function,
+        target_lambda_id,
+        Some(CallingConvention::Ms),
+    );
+    arena.symbols_mut().insert(target_symbol);
+
+    let callee_var_id = arena.alloc(IrKind::Var, span());
+    arena.binding_names_mut().insert(callee_var_id, "target_ms".to_string());
+
+    let app_id = arena.alloc_with_children(IrKind::App, span(), [callee_var_id]);
+    let action_id = arena.alloc_with_children(IrKind::Action, span(), [app_id]);
+    let unsafe_id = arena.alloc_with_children(IrKind::Unsafe, span(), [action_id]);
+
+    let mut walker = EmitWalker::new();
+    let pending = vec![unsafe_id.get()];
+    walker.emit_pending_unsafe_bodies(pending, &arena, None);
+
+    let insts = &walker.state().instructions;
+
+    // Count how many Sub/Add rsp, 40 we see
+    let mut bumps_found = 0;
+    for (_, inst) in insts.entries().iter() {
+        if (inst.mnemonic == paideia_as_ir::instruction::Mnemonic::Sub ||
+            inst.mnemonic == paideia_as_ir::instruction::Mnemonic::Add) &&
+           matches!(&inst.operands[0], paideia_as_ir::instruction::Operand::Reg(r) if *r == paideia_as_ir::abi::RSP) &&
+           matches!(&inst.operands[1], paideia_as_ir::instruction::Operand::Imm64(40))
+        {
+            bumps_found += 1;
+        }
+    }
+    assert_eq!(bumps_found, 2, "Expected exactly 2 'sub/add rsp, 40' for MS call (prelude + postlude)");
+}
+
+#[test]
+fn emit_walker_ms_prelude_precedes_arg_moves_in_id_order() {
+    // Assert sorted-by-IrNodeId iteration produces prelude, mov_arg*, call, postlude, ret.
+    use paideia_as_ir::let_meta::{LetInfo, CallingConvention};
+
+    let mut arena = IrArena::new();
+
+    let target_lambda_id = IrNodeId::new(100).expect("valid lambda id");
+    let mut target_info = LetInfo::immutable();
+    target_info.abi = Some(CallingConvention::Ms);
+    arena.let_meta_mut().insert(target_lambda_id, target_info);
+
+    let target_symbol = Symbol::new_with_abi(
+        "target_ms".to_string(),
+        SymbolKind::Function,
+        target_lambda_id,
+        Some(CallingConvention::Ms),
+    );
+    arena.symbols_mut().insert(target_symbol);
+
+    // 1 arg
+    let arg_id = arena.alloc(IrKind::Literal, span());
+    arena.literal_values_mut().insert(arg_id, 55i64);
+
+    let callee_var_id = arena.alloc(IrKind::Var, span());
+    arena.binding_names_mut().insert(callee_var_id, "target_ms".to_string());
+
+    let app_id = arena.alloc_with_children(IrKind::App, span(), [callee_var_id, arg_id]);
+    let action_id = arena.alloc_with_children(IrKind::Action, span(), [app_id]);
+    let unsafe_id = arena.alloc_with_children(IrKind::Unsafe, span(), [action_id]);
+
+    let mut walker = EmitWalker::new();
+    let pending = vec![unsafe_id.get()];
+    walker.emit_pending_unsafe_bodies(pending, &arena, None);
+
+    let insts = &walker.state().instructions;
+    let mut inst_list: Vec<_> = insts.entries().iter().collect();
+    inst_list.sort_by_key(|&(id, _)| id);  // Sort by IrNodeId
+
+    // Verify order: sub, mov, call, add
+    let mut prelude_idx = None;
+    let mut mov_idx = None;
+    let mut call_idx = None;
+    let mut postlude_idx = None;
+
+    for (i, (_, inst)) in inst_list.iter().enumerate() {
+        if inst.mnemonic == paideia_as_ir::instruction::Mnemonic::Sub &&
+           matches!(&inst.operands[0], paideia_as_ir::instruction::Operand::Reg(r) if *r == paideia_as_ir::abi::RSP)
+        {
+            prelude_idx = Some(i);
+        } else if inst.mnemonic == paideia_as_ir::instruction::Mnemonic::Mov &&
+                  matches!(&inst.operands[0], paideia_as_ir::instruction::Operand::Reg(r) if *r == paideia_as_ir::abi::RCX)
+        {
+            mov_idx = Some(i);
+        } else if inst.mnemonic == paideia_as_ir::instruction::Mnemonic::Call {
+            call_idx = Some(i);
+        } else if inst.mnemonic == paideia_as_ir::instruction::Mnemonic::Add &&
+                  matches!(&inst.operands[0], paideia_as_ir::instruction::Operand::Reg(r) if *r == paideia_as_ir::abi::RSP)
+        {
+            postlude_idx = Some(i);
+        }
+    }
+
+    if let (Some(p), Some(m), Some(c), Some(a)) = (prelude_idx, mov_idx, call_idx, postlude_idx) {
+        assert!(p < m, "Prelude should come before MOV args");
+        assert!(m < c, "MOV args should come before CALL");
+        assert!(c < a, "CALL should come before postlude");
+    } else {
+        panic!("Missing expected instructions for MS call sequence");
+    }
+}
+
+#[test]
+fn emit_walker_ms_postlude_is_between_call_and_ret() {
+    // Verify postlude is between CALL and RET.
+    use paideia_as_ir::let_meta::{LetInfo, CallingConvention};
+
+    let mut arena = IrArena::new();
+
+    let target_lambda_id = IrNodeId::new(100).expect("valid lambda id");
+    let mut target_info = LetInfo::immutable();
+    target_info.abi = Some(CallingConvention::Ms);
+    arena.let_meta_mut().insert(target_lambda_id, target_info);
+
+    let target_symbol = Symbol::new_with_abi(
+        "target_ms".to_string(),
+        SymbolKind::Function,
+        target_lambda_id,
+        Some(CallingConvention::Ms),
+    );
+    arena.symbols_mut().insert(target_symbol);
+
+    let callee_var_id = arena.alloc(IrKind::Var, span());
+    arena.binding_names_mut().insert(callee_var_id, "target_ms".to_string());
+
+    let app_id = arena.alloc_with_children(IrKind::App, span(), [callee_var_id]);
+    let action_id = arena.alloc_with_children(IrKind::Action, span(), [app_id]);
+    let unsafe_id = arena.alloc_with_children(IrKind::Unsafe, span(), [action_id]);
+
+    let mut walker = EmitWalker::new();
+    let pending = vec![unsafe_id.get()];
+    walker.emit_pending_unsafe_bodies(pending, &arena, None);
+
+    let insts = &walker.state().instructions;
+    let mut inst_list: Vec<_> = insts.entries().iter().collect();
+    inst_list.sort_by_key(|&(id, _)| id);
+
+    let mut call_idx = None;
+    let mut postlude_idx = None;
+
+    for (i, (_, inst)) in inst_list.iter().enumerate() {
+        if inst.mnemonic == paideia_as_ir::instruction::Mnemonic::Call {
+            call_idx = Some(i);
+        } else if inst.mnemonic == paideia_as_ir::instruction::Mnemonic::Add &&
+                  matches!(&inst.operands[0], paideia_as_ir::instruction::Operand::Reg(r) if *r == paideia_as_ir::abi::RSP)
+        {
+            postlude_idx = Some(i);
+        }
+    }
+
+    if let (Some(c), Some(p)) = (call_idx, postlude_idx) {
+        assert!(c < p, "CALL should come before postlude (add rsp)");
+        
+    } else {
+        panic!("Missing CALL or postlude (add rsp) instruction");
+    }
+}
+
+#[test]
+fn symbol_carries_abi_from_let_meta() {
+    // Synthesize Let with LetInfo.abi = Some(Ms), walk, assert Symbol.abi == Some(Ms).
+    use paideia_as_ir::let_meta::{LetInfo, CallingConvention};
+
+    let mut arena = IrArena::new();
+
+    // Create Lambda with MS calling convention
+    let lambda_id = arena.alloc(IrKind::Lambda, span());
+
+    // Create a Let binding with the Lambda as its RHS
+    let let_id = arena.alloc_with_children(IrKind::Let, span(), [lambda_id]);
+
+    // Register the let binding name
+    arena.binding_names_mut().insert(let_id, "ms_func".to_string());
+
+    // Annotate the Let with MS calling convention
+    let mut let_info = LetInfo::immutable();
+    let_info.abi = Some(CallingConvention::Ms);
+    arena.let_meta_mut().insert(let_id, let_info);
+
+    // Walk the arena
+    let mut walker = EmitWalker::new();
+    walker.walk(&mut arena);
+
+    // Verify the symbol table contains "ms_func" with abi == Some(Ms)
+    if let Some(sym) = arena.symbols().lookup_by_name("ms_func") {
+        assert_eq!(sym.abi, Some(CallingConvention::Ms), "Symbol should carry MS ABI from let_meta");
+    } else {
+        panic!("Symbol 'ms_func' not found in symbol table after walk");
+    }
+}

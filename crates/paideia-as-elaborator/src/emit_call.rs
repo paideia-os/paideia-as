@@ -7,6 +7,8 @@
 
 use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand};
 use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi};
+use paideia_as_ir::let_meta::CallingConvention;
+use paideia_as_diagnostics::{DiagnosticCode, Category, Severity};
 use std::collections::HashSet;
 
 use crate::emit_walker::EmitWalker;
@@ -19,13 +21,21 @@ fn resolve_stdlib_trait_method(target: &str) -> Option<(String, String)> {
     Some((t.to_string(), m.to_string()))
 }
 
+/// Helper to construct T0521 diagnostic code.
+fn t0521_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::T, Severity::Error, 521)
+        .expect("T0521 is within valid T range")
+}
+
 impl EmitWalker {
     /// Phase 7 m1-003: Emit call arguments and CALL instruction (no RET).
     ///
-    /// Emits argument marshalling (MOV to RDI, RSI, ...) and CALL instruction.
+    /// Emits argument marshalling (MOV to RDI, RSI, ... or RCX, RDX, ... depending on ABI)
+    /// and CALL instruction. For MS x64 ABI, emits prelude (sub rsp) and postlude (add rsp).
     /// Does NOT emit RET. Call `emit_ret_after_call` separately for statement-position calls.
     ///
     /// Records lambda entry as a side effect.
+    /// Uses per-call-site sequential IDs to ensure deterministic instruction ordering.
     fn emit_call_args_and_call(
         &mut self,
         lambda_node_id: IrNodeId,
@@ -33,9 +43,51 @@ impl EmitWalker {
         arg_ids: &[IrNodeId],
         arena: &IrArena,
     ) {
-        // Record lambda entry and compute main_id for first instruction (node_id * 2).
-        let main_id = IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
+        // Resolve callee's ABI; default to SysV for unannotated callees
+        let callee_abi = arena.symbols().lookup_by_name(&target_name)
+            .and_then(|s| s.abi)
+            .unwrap_or(CallingConvention::Sysv);
+
+        // Select argument register pool based on ABI
+        let arg_regs: &[_] = match callee_abi {
+            CallingConvention::Ms => &abi::MS_ARG_REGS,
+            CallingConvention::Sysv => &abi::ARG_REGS,
+        };
+
+        // Allocate CALL instruction ID:
+        // - SysV: lambda_node_id * 2 (backward compatible)
+        // - MS: 1_050_000 + (lambda_node_id * 100) (sorts after MOVs, before postlude)
+        let main_id = if callee_abi == CallingConvention::Ms {
+            IrNodeId::new(1_050_000u32
+                .saturating_add(lambda_node_id.get().saturating_mul(100)))
+                .unwrap_or_else(|| IrNodeId::new(1).unwrap())
+        } else {
+            IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id")
+        };
         self.record_lambda_entry(lambda_node_id, main_id);
+
+        // MS x64 prelude ID: 900_000 + (lambda_node_id * 100) - sorts BEFORE SysV MOVs at 1_000_000
+        let ms_prelude_id = 900_000u32
+            .saturating_add(lambda_node_id.get().saturating_mul(100));
+
+        // Emit MS x64 prelude: sub rsp, MS_CALL_STACK_BUMP
+        if callee_abi == CallingConvention::Ms {
+            let mut prelude_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            prelude_ops.push(Operand::Reg(abi::RSP));
+            prelude_ops.push(Operand::Imm64(abi::MS_CALL_STACK_BUMP as i64));
+
+            let prelude_inst = Instruction {
+                mnemonic: Mnemonic::Sub,
+                operands: prelude_ops,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+            };
+
+            let prelude_ir_id = IrNodeId::new(ms_prelude_id)
+                .unwrap_or_else(|| IrNodeId::new(1).unwrap());
+            self.emit_inst(prelude_ir_id, prelude_inst);
+        }
 
         // PA-r16-007-registry-runtime-args (#1062): stdlib trait method lowering with
         // arg-convention awareness. Literal recipes skip arg-marshalling entirely;
@@ -106,17 +158,18 @@ impl EmitWalker {
             }
         }
 
-        // ABI calling convention: arguments go to RDI, RSI, RDX, RCX, R8, R9
-        let arg_regs = [abi::RDI, abi::RSI, abi::RDX, abi::RCX, abi::R8, abi::R9];
-
         // Emit MOV instructions for each argument
         for (arg_idx, &arg_id) in arg_ids.iter().enumerate() {
-            if arg_idx >= 6 {
-                // Phase 7 only supports up to 6 arguments
-                self.diagnostics.push(format!(
-                    "T0521: argument type mismatch at call site: arg index {} out of bounds (max 6)",
-                    arg_idx
-                ));
+            if arg_idx >= arg_regs.len() {
+                // Emit distinct T0521 message for MS branch
+                let error_msg = if callee_abi == CallingConvention::Ms {
+                    format!("MS x64 ABI: max 4 arguments supported (arg {} out of bounds)", arg_idx)
+                } else {
+                    format!("SysV ABI: max 6 arguments supported (arg {} out of bounds)", arg_idx)
+                };
+                // Push both for backward compatibility
+                self.diagnostics.push(format!("T0521: {}", error_msg));
+                self.push_typed_diag(t0521_code(), error_msg);
                 break;
             }
 
@@ -124,10 +177,10 @@ impl EmitWalker {
             let arg_node = match arena.get(arg_id) {
                 Some(node) => node,
                 None => {
-                    self.diagnostics.push(format!(
-                        "T0521: argument type mismatch at call site: arg {} not found in IR",
-                        arg_idx
-                    ));
+                    self.push_typed_diag(
+                        t0521_code(),
+                        format!("arg {} not found in IR", arg_idx),
+                    );
                     continue;
                 }
             };
@@ -137,12 +190,13 @@ impl EmitWalker {
                 IrKind::Literal => {
                     // Load literal into the register
                     if let Some(value) = arena.literal_values().get(arg_id) {
+                        // Use the old emit_mov_literal_to_reg helper for consistent ID scheme and byte calculation
                         self.emit_mov_literal_to_reg(lambda_node_id, dest_reg, value);
                     } else {
-                        self.diagnostics.push(format!(
-                            "T0521: argument type mismatch at call site: literal arg {} has no value",
-                            arg_idx
-                        ));
+                        self.push_typed_diag(
+                            t0521_code(),
+                            format!("literal arg {} has no value", arg_idx),
+                        );
                     }
                 }
                 IrKind::Var => {
@@ -150,21 +204,22 @@ impl EmitWalker {
                     // For now, support copying from RDI (first parameter)
                     if arg_idx == 0 && dest_reg != abi::RDI {
                         // Need to copy from RDI to another reg
+                        // Use the old emit_mov_reg_to_reg helper for consistent ID scheme and byte calculation
                         self.emit_mov_reg_to_reg(lambda_node_id, abi::RDI, dest_reg);
                     } else if arg_idx != 0 {
                         // Non-first-arg Var references require local binding lookup
-                        self.diagnostics.push(format!(
-                            "T0521: argument type mismatch at call site: Var arg {} (non-first-arg) not yet supported",
-                            arg_idx
-                        ));
+                        self.push_typed_diag(
+                            t0521_code(),
+                            format!("Var arg {} (non-first-arg) not yet supported", arg_idx),
+                        );
                     }
                 }
                 _ => {
                     // Other argument shapes not yet supported
-                    self.diagnostics.push(format!(
-                        "T0521: argument type mismatch at call site: arg {} kind {:?} not supported",
-                        arg_idx, arg_node.kind
-                    ));
+                    self.push_typed_diag(
+                        t0521_code(),
+                        format!("arg {} kind not supported", arg_idx),
+                    );
                 }
             }
         }
@@ -219,14 +274,46 @@ impl EmitWalker {
         };
 
         self.emit_inst(main_id, call_inst);
+
+        // Emit MS x64 postlude: add rsp, MS_CALL_STACK_BUMP
+        // Postlude ID: 1_100_000 + (lambda_node_id * 100) - sorts AFTER MOVs and CALL
+        if callee_abi == CallingConvention::Ms {
+            let ms_postlude_id = 1_100_000u32
+                .saturating_add(lambda_node_id.get().saturating_mul(100));
+
+            let mut postlude_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            postlude_ops.push(Operand::Reg(abi::RSP));
+            postlude_ops.push(Operand::Imm64(abi::MS_CALL_STACK_BUMP as i64));
+
+            let postlude_inst = Instruction {
+                mnemonic: Mnemonic::Add,
+                operands: postlude_ops,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+            };
+
+            let postlude_ir_id = IrNodeId::new(ms_postlude_id)
+                .unwrap_or_else(|| IrNodeId::new(1).unwrap());
+            self.emit_inst(postlude_ir_id, postlude_inst);
+        }
     }
 
     /// Emit RET instruction after a call (or standalone for statement-position calls).
     ///
     /// Issue #1088: For statement-position calls (call expressions whose result is discarded),
     /// emit only the RET, not the full function-call sequence.
-    fn emit_ret_after_call(&mut self, lambda_node_id: IrNodeId) {
-        let ret_id = IrNodeId::new(lambda_node_id.get() * 2 + 1).expect("ret instr id");
+    ///
+    /// For MS x64 ABI, uses ID in 1_150_000+ range to sort after postlude.
+    /// For SysV, uses ID = lambda_node_id * 2 + 1 for backward compatibility.
+    fn emit_ret_after_call(&mut self, lambda_node_id: IrNodeId, callee_abi: CallingConvention) {
+        let ret_id = if callee_abi == CallingConvention::Ms {
+            IrNodeId::new(1_150_000u32
+                .saturating_add(lambda_node_id.get().saturating_mul(100)))
+                .unwrap_or_else(|| IrNodeId::new(1).unwrap())
+        } else {
+            IrNodeId::new(lambda_node_id.get() * 2 + 1).expect("ret instr id")
+        };
         let ret_inst = Instruction {
             mnemonic: Mnemonic::Ret,
             operands: SmallVec::new(),
@@ -254,8 +341,12 @@ impl EmitWalker {
         arg_ids: &[IrNodeId],
         arena: &IrArena,
     ) {
+        // Determine callee ABI for later use in RET emission
+        let callee_abi = arena.symbols().lookup_by_name(&target_name)
+            .and_then(|s| s.abi)
+            .unwrap_or(CallingConvention::Sysv);
         self.emit_call_args_and_call(lambda_node_id, target_name, arg_ids, arena);
-        self.emit_ret_after_call(lambda_node_id);
+        self.emit_ret_after_call(lambda_node_id, callee_abi);
     }
 
     /// Phase 7 m4-003: Emit call statement (expression-statement form).
@@ -269,6 +360,12 @@ impl EmitWalker {
         arg_ids: &[IrNodeId],
         arena: &IrArena,
     ) {
+        // Determine callee ABI before the move
+        let callee_abi = arena.symbols().lookup_by_name(&target_name)
+            .and_then(|s| s.abi)
+            .unwrap_or(CallingConvention::Sysv);
         self.emit_call_args_and_call(lambda_node_id, target_name, arg_ids, arena);
+        // For statement-position calls, emit RET as well (unlike expression-position calls)
+        self.emit_ret_after_call(lambda_node_id, callee_abi);
     }
 }
