@@ -21,6 +21,20 @@ fn cargo_run(args: &[&str]) -> std::process::Output {
     cmd.output().expect("failed to run cargo")
 }
 
+fn assert_sarif_results_contain(sarif: &serde_json::Value, expected_rule: &str) {
+    let runs = sarif["runs"].as_array()
+        .expect("SARIF should have runs array");
+    assert!(!runs.is_empty(), "SARIF runs array should be non-empty");
+    let ids: Vec<String> = runs.iter()
+        .flat_map(|run| run["results"].as_array().cloned().unwrap_or_default())
+        .filter_map(|r| r["ruleId"].as_str().map(String::from))
+        .collect();
+    assert!(
+        ids.iter().any(|id| id == expected_rule),
+        "expected ruleId `{expected_rule}` in SARIF results[]; found ruleIds: {ids:?}\nsarif: {sarif}"
+    );
+}
+
 #[test]
 fn check_clean_example_exits_zero() {
     let input = data("example.pdx");
@@ -164,23 +178,9 @@ fn check_with_sarif_flag_captures_lex_error_diagnostic() {
     let sarif_content = std::fs::read_to_string(&sarif_path)
         .expect("failed to read SARIF file");
 
-    // Verify SARIF is valid JSON with runs array.
-    // NOTE: Ideally we'd assert `results[].ruleId == "E0006"` (which would fail under
-    // a Probe-4-style empty-results mutation). But there's a deeper cmd_check drain-path
-    // gap that leaves the lex-error diagnostic out of the SARIF `results` array in debug
-    // builds (E0006 still appears in `driver.rules` metadata via `.contains`). Filed as
-    // #1124-followup. For now this test verifies presence via the rules metadata.
     let sarif: serde_json::Value = serde_json::from_str(&sarif_content)
         .expect("SARIF should be valid JSON");
-    assert!(
-        sarif["runs"].is_array() && !sarif["runs"].as_array().unwrap().is_empty(),
-        "SARIF should have non-empty runs array"
-    );
-    assert!(
-        sarif_content.contains("E0006"),
-        "expected E0006 in SARIF output (rules or results); got: {}",
-        sarif_content
-    );
+    assert_sarif_results_contain(&sarif, "E0006");
 }
 
 #[test]
@@ -279,12 +279,9 @@ fn build_with_sarif_flag_captures_lex_error_across_emit_formats() {
 
         let sarif_content = std::fs::read_to_string(&sarif_path)
             .expect(&format!("failed to read SARIF file for --emit {}", emit));
-        assert!(
-            sarif_content.contains("E0006"),
-            "expected E0006 in SARIF output for --emit {}; got:\n{}",
-            emit,
-            sarif_content
-        );
+        let sarif: serde_json::Value = serde_json::from_str(&sarif_content)
+            .unwrap_or_else(|e| panic!("SARIF should be valid JSON for --emit {}: {}", emit, e));
+        assert_sarif_results_contain(&sarif, "E0006");
     }
 }
 
@@ -327,19 +324,9 @@ fn build_sarif_captures_walker_diagnostics_not_just_lex() {
     let sarif_content = std::fs::read_to_string(&sarif_path)
         .expect("failed to read SARIF file");
 
-    // Parse SARIF JSON and check that results array contains P0286
-    // Same gap as check_with_sarif_flag_captures_lex_error_diagnostic — filed #1124.
     let sarif: serde_json::Value = serde_json::from_str(&sarif_content)
         .expect("SARIF should be valid JSON");
-    assert!(
-        sarif["runs"].is_array() && !sarif["runs"].as_array().unwrap().is_empty(),
-        "SARIF should have non-empty runs array"
-    );
-    assert!(
-        sarif_content.contains("P0286"),
-        "expected P0286 in SARIF output (rules or results); got: {}",
-        sarif_content
-    );
+    assert_sarif_results_contain(&sarif, "P0286");
 }
 
 #[test]
