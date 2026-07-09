@@ -64,28 +64,40 @@ fn pa10_006k_ljmp_two_operand_emits() {
     // Parse ELF via object crate
     let file = object::File::parse(&*bytes).expect("object should parse the ELF");
 
-    // Verify _start symbol exists
-    let mut found_start = false;
-    for symbol in file.symbols() {
-        if symbol.name().unwrap_or("") == "_start" {
-            found_start = true;
-            assert!(symbol.size() > 0, "_start should have non-zero size");
-            break;
-        }
-    }
-    assert!(found_start, "_start symbol should exist");
+    // Locate _start symbol and its section-relative address.
+    // .text[0] is NOT _start: the fixture declares `target` (mov+ret, 7 bytes)
+    // before `_start`, so we must resolve _start's offset within .text before
+    // inspecting the ljmp opcode.
+    let start_sym = file
+        .symbols()
+        .find(|s| s.name().unwrap_or("") == "_start")
+        .expect("_start symbol should exist");
+    assert!(start_sym.size() > 0, "_start should have non-zero size");
+    let start_addr = start_sym.address();
 
-    // Verify .text section exists with content
-    let mut found_text = false;
-    for section in file.sections() {
-        if section.name().unwrap_or("") == ".text" {
-            found_text = true;
-            let data = section.data().expect(".text data should exist");
-            assert!(!data.is_empty(), ".text section should not be empty");
-            // The ljmp instruction should start with EA (ljmp opcode)
-            assert_eq!(data[0], 0xEA, "first byte should be EA (ljmp opcode)");
-            break;
-        }
-    }
-    assert!(found_text, ".text section should exist");
+    let text = file
+        .sections()
+        .find(|s| s.name().unwrap_or("") == ".text")
+        .expect(".text section should exist");
+    let data = text.data().expect(".text data should exist");
+    assert!(!data.is_empty(), ".text section should not be empty");
+    let text_addr = text.address();
+    let start_offset = (start_addr - text_addr) as usize;
+
+    // Verify _start begins with the 7-byte ljmp EA form: EA imm32(=0 pre-reloc) sel16(=0x0008).
+    // The imm32 is the offset field patched later by R_X86_64_32 targeting `target`.
+    let expected = [0xEA, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00];
+    assert!(
+        start_offset + expected.len() <= data.len(),
+        "_start (offset {start_offset}) + ljmp bytes ({}) exceed .text length {}",
+        expected.len(),
+        data.len()
+    );
+    assert_eq!(
+        &data[start_offset..start_offset + expected.len()],
+        &expected,
+        "_start bytes at .text[{}..{}] should be EA 00 00 00 00 08 00 (ljmp $0x8,target)",
+        start_offset,
+        start_offset + expected.len()
+    );
 }
