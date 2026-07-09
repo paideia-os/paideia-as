@@ -272,22 +272,22 @@ fn or_r11_imm64_collision_guard_returns_none() {
 
 #[test]
 fn or_r11_imm64_collision_emits_diagnostic() {
-    // Elaborate or r11, 0xFFFFFFFF00000000 and verify diagnostic U1610 is emitted
+    // Elaborate or r11, 0xFFFFFFFF00000000 and verify diagnostic U1615 is emitted
     let (instructions, diags) = elaborate_bitop_with_imm64("or", "r11");
 
     // Collision should prevent expansion, resulting in:
     // - No instructions, AND
-    // - Diagnostic error U1610 (unsafe-block discipline, r11 collision)
+    // - Diagnostic error U1615 (unsafe-block discipline, r11 collision)
     assert!(
         instructions.is_empty(),
         "Expected no instructions due to r11 collision, got {} instructions",
         instructions.len()
     );
 
-    let has_u1610 = diags.iter().any(|d| d.code().number() == 1610);
+    let has_u1615 = diags.iter().any(|d| d.code().number() == 1615);
     assert!(
-        has_u1610,
-        "Expected U1610 diagnostic for r11 collision, got diags: {:?}",
+        has_u1615,
+        "Expected U1615 diagnostic for r11 collision, got diags: {:?}",
         diags
     );
 }

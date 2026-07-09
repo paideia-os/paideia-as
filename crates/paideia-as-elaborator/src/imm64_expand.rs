@@ -12,9 +12,9 @@ use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, DiagnosticSin
 use paideia_as_ir::{IrArena, IrNodeId, SmallVec, abi};
 use paideia_as_ir::instruction::{Instruction, InstrMode, Mnemonic, Operand, RegId};
 
-/// Diagnostic code for r11 collision in imm64 bitwise expansion (U1610).
-/// Category U is for unsafe-block discipline (range 1600–1699).
-const U_R11_COLLISION: u16 = 1610;
+/// Diagnostic code for r11 collision in imm64 bitwise expansion (U1615).
+/// Category U is for unsafe-block discipline (range 1600–1699; U1615 chosen — U1610 is claimed by unknown-label references).
+const U_R11_COLLISION: u16 = 1615;
 
 /// Helper: create a U-category error code for unsafe-block discipline.
 fn u_code(n: u16) -> DiagnosticCode {
@@ -41,7 +41,7 @@ pub fn needs_expansion(imm: i64) -> bool {
 /// ```
 ///
 /// Returns the IrNodeId of the movabs head (labels alias to it).
-/// Returns None if dst is r11 (caller should emit diagnostic U1610).
+/// Returns None if dst is r11 (caller should emit diagnostic U1615).
 ///
 /// # Panics
 ///
