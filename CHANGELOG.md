@@ -8,6 +8,8 @@
 
 ### Key changes
 
+- **Issue #1009** — MS x64 arg-marshalling encoder audit. 18 byte-exact test fixtures lock in behavior across all four ModR/M patterns for MS x64 calling convention registers (RCX, RDX, R8, R9): P1 movabs r_ms, imm64 (10-byte), P2 mov r_ms, r_sysv (REX.B/R correct), P3 mov r_ms, [rsp+N] (RSP SIB escape), P4 mov [rsp+N], r_ms. Auxiliary tests verify sequence consistency and iced-x86 roundtrip compliance. Encoder already correct (no source changes); test-only PR. New module: `crates/paideia-as-encoder/tests/mov/mov_ms_x64_args.rs`.
+
 - **Issue #1006** — `@abi("ms" | "sysv")` calling-convention annotation on let bindings with function-shaped values (lambdas only). Phase 19 MVP: parse acceptance + semantic validation gates. `@abi("ms")` emits U1620 (deferred to #1011 for MS x64 prologue/epilogue codegen); `@abi("sysv")` and unannotated lambdas build normally. Non-lambda bindings with `@abi` emit P0286 error. Parser diagnostics: P0285 for invalid/malformed arguments (unknown string, non-string, missing parens, case violation).
 
 - **Issue #1007** — Pure argument classification and slot-mapping layer for MS x64 calling convention. Extends `crates/paideia-as-ir/src/abi.rs` with `ArgClass`, `ArgSlot`, `ReturnSlot` types, `MS_ARG_REGS`/`MS_SHADOW_SPACE_BYTES` constants, and `map_args`/`map_return` functions. Supports both SysV and MS x64 calling conventions. No emit-side changes; used by elaborator (#1008, #1011) to classify and map function arguments.

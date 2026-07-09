@@ -8,6 +8,7 @@ mod mov_dr_dispatch;
 mod mov_mem_abs_disp32;
 mod mov_mem_narrow;
 mod mov_mem_narrow_store;
+mod mov_ms_x64_args;
 mod mov_narrow;
 mod mov_r32_load;
 mod movnti_store;
