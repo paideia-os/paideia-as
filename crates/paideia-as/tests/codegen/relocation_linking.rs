@@ -161,6 +161,7 @@ fn elf_writer_handles_relocation_infrastructure() {
         kind: SymKind::Data,
         is_global: false,
         section: None,
+        section_name: None,
     });
 
     // Add a relocation

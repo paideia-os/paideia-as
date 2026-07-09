@@ -93,6 +93,9 @@ pub struct DataEntry {
     /// Relocations within this data entry (PA10-002: string intern symbols).
     /// Empty vec if no relocations are needed.
     pub relocations: Vec<RelocSpec>,
+    /// Optional custom section name override (PA19-r19-010: @link_section).
+    /// When Some, emits data into a custom-named ELF section instead of the default.
+    pub section_name_override: Option<String>,
 }
 
 impl DataEntry {
@@ -112,6 +115,7 @@ impl DataEntry {
             align,
             size_hint,
             relocations: Vec::new(),
+            section_name_override: None,
         }
     }
 
@@ -137,6 +141,7 @@ impl DataEntry {
             align,
             size_hint,
             relocations,
+            section_name_override: None,
         }
     }
 
@@ -151,6 +156,7 @@ impl DataEntry {
             align,
             size_hint,
             relocations: Vec::new(),
+            section_name_override: None,
         }
     }
 
@@ -176,6 +182,7 @@ impl DataEntry {
             align,
             size_hint,
             relocations,
+            section_name_override: None,
         }
     }
 
@@ -194,7 +201,19 @@ impl DataEntry {
             align,
             size_hint,
             relocations: Vec::new(),
+            section_name_override: None,
         }
+    }
+
+    /// Add a custom section name override (fluent builder style).
+    ///
+    /// When set, emits data into this custom-named ELF section instead of
+    /// the default section (rodata/data/bss) determined by mutability.
+    /// Phase 19 PA19-r19-010: `@link_section("name")` attribute support.
+    #[must_use]
+    pub fn with_section_override(mut self, name: String) -> Self {
+        self.section_name_override = Some(name);
+        self
     }
 }
 

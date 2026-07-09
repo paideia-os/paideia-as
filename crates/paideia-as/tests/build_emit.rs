@@ -25,6 +25,7 @@ mod build_emit {
     pub mod include_bytes_probe;
     pub mod include_str_probe;
     pub mod label_patches;
+    pub mod link_section_probe;
     pub mod match_enum_pattern;
     pub mod pa10_006i_imm;
     pub mod pa10_006k_ljmp;

@@ -1,0 +1,3 @@
+module LinkSectionProbe = structure {
+  pub let payload : [u8; 8] = @include_bytes("data/include_bytes_probe.bin") @link_section(".uefi_hdr")
+}

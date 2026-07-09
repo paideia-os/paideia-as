@@ -58,6 +58,9 @@ pub struct ElfWriter {
     /// All symbol names added, in order, for duplicate detection (phase 7 m1-002).
     /// Note: symbols HashMap deduplicates by name, but this list preserves all additions.
     symbol_names_added: Vec<String>,
+    /// Custom sections created at runtime via @link_section (PA19-r19-010).
+    /// Maps section name to (section_id, writable).
+    custom_sections: HashMap<String, (SectionId, bool)>,
 }
 
 impl ElfWriter {
@@ -113,6 +116,7 @@ impl ElfWriter {
             data_section_id,
             bss_section_id,
             symbol_names_added: Vec::new(),
+            custom_sections: HashMap::new(),
         }
     }
 
@@ -220,6 +224,62 @@ impl ElfWriter {
         offset
     }
 
+    /// Get the section ID for a custom-named section.
+    ///
+    /// Returns the section ID if the custom section has been created via add_bytes_to_named_section.
+    /// Phase 19 PA19-r19-010: Used for relocations to custom sections.
+    pub fn get_custom_section_id(&self, name: &str) -> Option<SectionId> {
+        self.custom_sections.get(name).map(|(section_id, _)| *section_id)
+    }
+
+    /// Append bytes to a custom-named ELF section. Creates the section if it doesn't exist.
+    /// Returns (section_id, offset).
+    /// Phase 19 PA19-r19-010: Used for @link_section("name") directive.
+    pub fn add_bytes_to_named_section(&mut self, name: &str, bytes: &[u8], align: u32, writable: bool) -> (SectionId, u64) {
+        // Check if section already exists
+        if let Some(&(section_id, _)) = self.custom_sections.get(name) {
+            // Section exists; append to it
+            let offset = self.obj.append_section_data(section_id, bytes, align as u64);
+            let new_size = offset + bytes.len() as u64;
+            self.section_sizes
+                .entry(section_id)
+                .and_modify(|sz| *sz = (*sz).max(new_size))
+                .or_insert(new_size);
+            return (section_id, offset);
+        }
+
+        // Section doesn't exist; create it
+        let section_kind = if writable {
+            SectionKind::Data
+        } else {
+            SectionKind::ReadOnlyData
+        };
+        let segment_name = if writable {
+            self.obj.segment_name(StandardSegment::Data).to_vec()
+        } else {
+            self.obj.segment_name(StandardSegment::Data).to_vec()
+        };
+
+        let section_id = self.obj.add_section(
+            segment_name,
+            name.as_bytes().to_vec(),
+            section_kind,
+        );
+
+        // Store in custom_sections map
+        self.custom_sections.insert(name.to_string(), (section_id, writable));
+
+        // Append bytes
+        let offset = self.obj.append_section_data(section_id, bytes, align as u64);
+        let new_size = offset + bytes.len() as u64;
+        self.section_sizes
+            .entry(section_id)
+            .and_modify(|sz| *sz = (*sz).max(new_size))
+            .or_insert(new_size);
+
+        (section_id, offset)
+    }
+
     /// Add a symbol to the symbol table.
     ///
     /// Accepts a [`SymbolEntry`] and registers it with the ELF object.
@@ -233,10 +293,19 @@ impl ElfWriter {
         let sym_name = entry.name.clone();
 
         // Determine the section for the symbol.
+        // Phase 19 PA19-r19-010: if entry.section_name is set, use the custom section ID.
         // Phase 6 m5-003: if entry.section is set, use the corresponding section ID.
         // Phase 7 m1-001: if entry has an offset but no explicit section, and it's a function,
         // place it in the .text section.
-        let symbol_section = if let Some(section_kind) = entry.section {
+        let symbol_section = if let Some(ref section_name) = entry.section_name {
+            // Look up custom section ID
+            if let Some(&(custom_section_id, _)) = self.custom_sections.get(section_name) {
+                SymbolSection::Section(custom_section_id)
+            } else {
+                // Custom section not found, shouldn't happen
+                SymbolSection::Undefined
+            }
+        } else if let Some(section_kind) = entry.section {
             match section_kind {
                 paideia_as_ir::SectionKind::Rodata => {
                     SymbolSection::Section(self.obj.section_id(StandardSection::ReadOnlyData))
@@ -532,15 +601,31 @@ impl ElfWriter {
             let st_size = entry.size;
 
             // Determine which section this symbol belongs to and look up its ID.
-            let section_id = if let Some(section_kind) = entry.section {
-                match section_kind {
+            // Phase 19 PA19-r19-010: Check custom sections via section_name first.
+            let (section_id, section_display_name) = if let Some(ref section_name) = entry.section_name {
+                // Look up custom section
+                if let Some(&(sid, _)) = self.custom_sections.get(section_name) {
+                    (sid, section_name.as_str())
+                } else {
+                    // Custom section not found, skip this check
+                    continue;
+                }
+            } else if let Some(section_kind) = entry.section {
+                let sid = match section_kind {
                     paideia_as_ir::SectionKind::Rodata => self.rodata_section_id,
                     paideia_as_ir::SectionKind::Data => self.data_section_id,
                     paideia_as_ir::SectionKind::Bss => self.bss_section_id,
                     paideia_as_ir::SectionKind::Text => self.text_section_id,
-                }
+                };
+                let name = self
+                    .sections
+                    .iter()
+                    .find(|(_, sid_iter)| *sid_iter == sid)
+                    .map(|(name, _)| name.as_str())
+                    .unwrap_or("unknown");
+                (sid, name)
             } else if entry.kind == SymKind::Func {
-                self.text_section_id
+                (self.text_section_id, ".text")
             } else {
                 // Unknown section, skip this check (shouldn't happen in practice).
                 continue;
@@ -550,17 +635,10 @@ impl ElfWriter {
             if let Some(&section_size) = self.section_sizes.get(&section_id) {
                 let end = st_value.saturating_add(st_size);
                 if end > section_size {
-                    // Get section name for error message.
-                    let section_name = self
-                        .sections
-                        .iter()
-                        .find(|(_, sid)| *sid == section_id)
-                        .map(|(name, _)| name.as_str())
-                        .unwrap_or("unknown");
                     return Err(crate::EmitterError::SymbolLayoutInvalid {
                         message: format!(
                             "symbol `{}` range [{}, {}) exceeds {} section size {}",
-                            sym_name, st_value, end, section_name, section_size
+                            sym_name, st_value, end, section_display_name, section_size
                         ),
                     });
                 }

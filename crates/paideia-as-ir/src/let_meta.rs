@@ -28,7 +28,12 @@ use crate::node::IrNodeId;
 ///
 /// Phase 14 PA14-r14-008: `ring` carries the ring buffer directive `@ring(slots=M, slot_size=K)`
 /// for ring-buffer-annotated bindings.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+///
+/// Phase 19 PA19-r19-010: `link_section` carries the link_section directive `@link_section("name")`
+/// for custom-section-annotated bindings.
+///
+/// NOTE: Copy trait removed in v0.19 due to Option<String> field in link_section.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LetInfo {
     /// true if this is `let mut x : T = ...`, false for `let x : T = ...`.
     pub mutable: bool,
@@ -40,6 +45,9 @@ pub struct LetInfo {
     /// Optional ring buffer directive `@ring(slots=M, slot_size=K)` (PA14-r14-008).
     /// When `Some((M, K))`, allocates ring structures with M slots of K bytes each.
     pub ring: Option<(u32, u32)>,
+    /// Optional link_section directive `@link_section("name")` (PA19-r19-010).
+    /// When `Some(name)`, emits data into a custom-named ELF section.
+    pub link_section: Option<String>,
 }
 
 impl LetInfo {
@@ -51,6 +59,7 @@ impl LetInfo {
             ty: None,
             align: None,
             ring: None,
+            link_section: None,
         }
     }
 
@@ -62,6 +71,7 @@ impl LetInfo {
             ty: None,
             align: None,
             ring: None,
+            link_section: None,
         }
     }
 
@@ -71,7 +81,7 @@ impl LetInfo {
     /// is known, enabling width-threaded integer-literal emission.
     #[must_use]
     pub fn with_type(mutable: bool, ty: Option<TypeId>) -> Self {
-        Self { mutable, ty, align: None, ring: None }
+        Self { mutable, ty, align: None, ring: None, link_section: None }
     }
 
     /// Construct a LetInfo with explicit mutability, type, and alignment.
@@ -80,7 +90,7 @@ impl LetInfo {
     /// and optional alignment directive are known.
     #[must_use]
     pub fn with_align(mutable: bool, ty: Option<TypeId>, align: Option<u32>) -> Self {
-        Self { mutable, ty, align, ring: None }
+        Self { mutable, ty, align, ring: None, link_section: None }
     }
 
     /// Construct a LetInfo with explicit mutability, type, alignment, and ring.
@@ -89,7 +99,17 @@ impl LetInfo {
     /// optional alignment directive, and optional ring buffer directive are known.
     #[must_use]
     pub fn with_ring(mutable: bool, ty: Option<TypeId>, align: Option<u32>, ring: Option<(u32, u32)>) -> Self {
-        Self { mutable, ty, align, ring }
+        Self { mutable, ty, align, ring, link_section: None }
+    }
+
+    /// Construct a LetInfo with explicit mutability, type, alignment, ring, and link_section.
+    ///
+    /// Phase 19 PA19-r19-010: the lowerer calls this when the binding's declared type,
+    /// optional alignment directive, optional ring buffer directive, and optional link_section
+    /// directive are known.
+    #[must_use]
+    pub fn with_link_section(mutable: bool, ty: Option<TypeId>, align: Option<u32>, ring: Option<(u32, u32)>, link_section: Option<String>) -> Self {
+        Self { mutable, ty, align, ring, link_section }
     }
 }
 
@@ -193,12 +213,14 @@ mod tests {
         assert_eq!(info.ty, Some(ty));
         assert_eq!(info.align, None);
         assert_eq!(info.ring, None);
+        assert_eq!(info.link_section, None);
 
         let untyped = LetInfo::with_type(false, None);
         assert!(!untyped.mutable);
         assert_eq!(untyped.ty, None);
         assert_eq!(untyped.align, None);
         assert_eq!(untyped.ring, None);
+        assert_eq!(untyped.link_section, None);
     }
 
     #[test]
@@ -209,12 +231,14 @@ mod tests {
         assert_eq!(info.ty, Some(ty));
         assert_eq!(info.align, Some(4096));
         assert_eq!(info.ring, None);
+        assert_eq!(info.link_section, None);
 
         let unaligned = LetInfo::with_align(false, None, None);
         assert!(!unaligned.mutable);
         assert_eq!(unaligned.ty, None);
         assert_eq!(unaligned.align, None);
         assert_eq!(unaligned.ring, None);
+        assert_eq!(unaligned.link_section, None);
     }
 
     #[test]
@@ -226,12 +250,34 @@ mod tests {
         assert_eq!(info.ty, Some(ty));
         assert_eq!(info.align, Some(64));
         assert_eq!(info.ring, Some(ring_info));
+        assert_eq!(info.link_section, None);
 
         let no_ring = LetInfo::with_ring(false, None, None, None);
         assert!(!no_ring.mutable);
         assert_eq!(no_ring.ty, None);
         assert_eq!(no_ring.align, None);
         assert_eq!(no_ring.ring, None);
+        assert_eq!(no_ring.link_section, None);
+    }
+
+    #[test]
+    fn let_info_with_link_section_records_all_fields() {
+        let ty = TypeId(7);
+        let ring_info = (256u32, 128u32);
+        let link_sec = Some(".uefi_hdr".to_string());
+        let info = LetInfo::with_link_section(true, Some(ty), Some(64), Some(ring_info), link_sec.clone());
+        assert!(info.mutable);
+        assert_eq!(info.ty, Some(ty));
+        assert_eq!(info.align, Some(64));
+        assert_eq!(info.ring, Some(ring_info));
+        assert_eq!(info.link_section, link_sec);
+
+        let no_link_section = LetInfo::with_link_section(false, None, None, None, None);
+        assert!(!no_link_section.mutable);
+        assert_eq!(no_link_section.ty, None);
+        assert_eq!(no_link_section.align, None);
+        assert_eq!(no_link_section.ring, None);
+        assert_eq!(no_link_section.link_section, None);
     }
 
     #[test]

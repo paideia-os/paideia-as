@@ -6,6 +6,10 @@
 
 - **Issue #1014** — `@include_str("...")` and `@include_bytes_as_str("...")` compile-time text embed primitives. `@include_str` performs UTF-8 validation (P0281 diagnostic on error); `@include_bytes_as_str` accepts any bytes without validation. Both lower to `IrKind::StringLiteral` with interned rodata symbols (`__str_<hash>`), giving users truncate/pad control via existing `[u8; N]` type annotation machinery.
 
+### Breaking changes
+
+- **LetInfo (v0.19)** — `Copy` trait removed from `LetInfo` struct (in `paideia-as-ir`). The struct now carries an `Option<String>` field for `@link_section` support (issue #1015), which is not `Copy`. Dependent code must clone LetInfo instead of copying. Migrating: change patterns like `let info = table.get(id).unwrap().clone()` or adjust iterator patterns to use references.
+
 ## v0.17.0 — CONTROL-FLOW: pure functions with if/match/while/loop
 
 **In development:** Milestone PA-R17-012 (#990).

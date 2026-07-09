@@ -773,6 +773,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                             value: value_id,
                             align,
                             ring,
+                            link_section,
                             ..
                         }) = arena.item_data(ast_id)
                         {
@@ -789,11 +790,11 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                     // Also record the public flag for visibility control
                                     visibility_map.insert(value_id.get(), *public);
 
-                                    // Phase 14 PA14-r14-008: Seed let_meta with mutability, alignment, and ring
+                                    // Phase 19 PA19-r19-010: Seed let_meta with mutability, alignment, ring, and link_section
                                     if let Some(ir_id) = paideia_as_ir::IrNodeId::new(ast_id.get()) {
                                         lowering.ir.let_meta_mut().insert(
                                             ir_id,
-                                            paideia_as_ir::LetInfo::with_ring(*mutable, None, *align, *ring),
+                                            paideia_as_ir::LetInfo::with_link_section(*mutable, None, *align, *ring, link_section.clone()),
                                         );
                                     }
                                 }
@@ -835,6 +836,43 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                 } else {
                     // Symbol has no real name mapping, keep the original
                     lowering.ir.symbols_mut().insert(sym);
+                }
+            }
+        }
+    }
+
+    // Phase 19 PA19-r19-010: P0284 validation pass.
+    // Check all Let bindings with @link_section directive. If the value is lambda-shaped,
+    // emit P0284 error and reject (deferred to pa-r19-010b).
+    {
+        for i in 0..arena.len() {
+            if let Some(ast_id) = paideia_as_ast::NodeId::new((i + 1) as u32) {
+                if let Some(node) = arena.get(ast_id) {
+                    if node.kind == paideia_as_ast::NodeKind::Let {
+                        if let Some(paideia_as_ast::ItemData::Let {
+                            link_section: Some(_),
+                            value: value_id,
+                            ..
+                        }) = arena.item_data(ast_id)
+                        {
+                            // Check if the value is a lambda (ExprLambda)
+                            if let Some(value_node) = arena.get(*value_id) {
+                                if value_node.kind == paideia_as_ast::NodeKind::ExprLambda {
+                                    // Emit P0284: lambda bindings cannot use @link_section
+                                    let code = paideia_as_diagnostics::DiagnosticCode::new(
+                                        paideia_as_diagnostics::Category::P,
+                                        paideia_as_diagnostics::Severity::Error,
+                                        284,
+                                    ).expect("valid P0284 code");
+                                    let diag = paideia_as_diagnostics::Diagnostic::error(code)
+                                        .message("lambda-shaped bindings cannot use @link_section (deferred to pa-r19-010b)")
+                                        .with_span(value_node.span)
+                                        .finish();
+                                    let _ = sink.emit(diag);
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1155,21 +1193,31 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                     // Phase 5: Let with Literal → Rodata (or Data if mutable)
                                     if let Some(value) = lowering.ir.literal_values().get(rhs_id) {
                                         let bytes = paideia_as_elaborator::data_encoder::pack_u64_le(value);
-                                        let explicit_align = lowering.ir.let_meta().get(node_id).and_then(|i| i.align);
-                                        let is_mutable = lowering.ir.let_meta().get(node_id)
+                                        let let_info = lowering.ir.let_meta().get(node_id);
+                                        let explicit_align = let_info.and_then(|i| i.align);
+                                        let is_mutable = let_info
                                             .map(|info| info.mutable).unwrap_or(false);
+                                        let link_section = let_info.and_then(|i| i.link_section.clone());
                                         let entry = if is_mutable {
-                                            paideia_as_ir::DataEntry::new_data(
+                                            let mut e = paideia_as_ir::DataEntry::new_data(
                                                 bytes,
                                                 symbol_name,
                                                 explicit_align.unwrap_or(8),
-                                            )
+                                            );
+                                            if let Some(name) = link_section {
+                                                e = e.with_section_override(name);
+                                            }
+                                            e
                                         } else {
-                                            paideia_as_ir::DataEntry::new_rodata(
+                                            let mut e = paideia_as_ir::DataEntry::new_rodata(
                                                 bytes,
                                                 symbol_name,
                                                 explicit_align.unwrap_or(8),
-                                            )
+                                            );
+                                            if let Some(name) = link_section {
+                                                e = e.with_section_override(name);
+                                            }
+                                            e
                                         };
                                         data_entries.push((node_id, entry));
                                     }
@@ -1209,21 +1257,31 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                     }
 
                                     if element_count > 0 {
-                                        let explicit_align = lowering.ir.let_meta().get(node_id).and_then(|i| i.align);
-                                        let is_mutable = lowering.ir.let_meta().get(node_id)
+                                        let let_info = lowering.ir.let_meta().get(node_id);
+                                        let explicit_align = let_info.and_then(|i| i.align);
+                                        let is_mutable = let_info
                                             .map(|info| info.mutable).unwrap_or(false);
+                                        let link_section = let_info.and_then(|i| i.link_section.clone());
                                         let entry = if is_mutable {
-                                            paideia_as_ir::DataEntry::new_data(
+                                            let mut e = paideia_as_ir::DataEntry::new_data(
                                                 packed_bytes,
                                                 symbol_name,
                                                 explicit_align.unwrap_or(8),
-                                            )
+                                            );
+                                            if let Some(name) = link_section {
+                                                e = e.with_section_override(name);
+                                            }
+                                            e
                                         } else {
-                                            paideia_as_ir::DataEntry::new_rodata(
+                                            let mut e = paideia_as_ir::DataEntry::new_rodata(
                                                 packed_bytes,
                                                 symbol_name,
                                                 explicit_align.unwrap_or(8),
-                                            )
+                                            );
+                                            if let Some(name) = link_section {
+                                                e = e.with_section_override(name);
+                                            }
+                                            e
                                         };
                                         data_entries.push((node_id, entry));
                                     }
@@ -1237,9 +1295,14 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                         &source_map,
                                         file,
                                     );
-                                    let explicit_align = lowering.ir.let_meta().get(node_id).and_then(|i| i.align);
-                                    let entry =
+                                    let let_info = lowering.ir.let_meta().get(node_id);
+                                    let explicit_align = let_info.and_then(|i| i.align);
+                                    let link_section = let_info.and_then(|i| i.link_section.clone());
+                                    let mut entry =
                                         paideia_as_ir::DataEntry::new_bss(symbol_name, explicit_align.unwrap_or(8), size);
+                                    if let Some(name) = link_section {
+                                        entry = entry.with_section_override(name);
+                                    }
                                     data_entries.push((node_id, entry));
                                 } else if rhs_node.kind == paideia_as_ir::IrKind::StringLiteral {
                                     // PA-R12-001 (issue #910): Let with StringLiteral RHS →
@@ -1269,11 +1332,21 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                             None => bytes.clone(),
                                         };
 
-                                        let explicit_align = lowering.ir.let_meta().get(node_id).and_then(|i| i.align);
+                                        let let_info = lowering.ir.let_meta().get(node_id);
+                                        let explicit_align = let_info.and_then(|i| i.align);
+                                        let link_section = let_info.and_then(|i| i.link_section.clone());
                                         let entry = if is_mutable {
-                                            paideia_as_ir::DataEntry::new_data(final_bytes, symbol_name, explicit_align.unwrap_or(1))
+                                            let mut e = paideia_as_ir::DataEntry::new_data(final_bytes, symbol_name, explicit_align.unwrap_or(1));
+                                            if let Some(name) = link_section {
+                                                e = e.with_section_override(name);
+                                            }
+                                            e
                                         } else {
-                                            paideia_as_ir::DataEntry::new_rodata(final_bytes, symbol_name, explicit_align.unwrap_or(1))
+                                            let mut e = paideia_as_ir::DataEntry::new_rodata(final_bytes, symbol_name, explicit_align.unwrap_or(1));
+                                            if let Some(name) = link_section {
+                                                e = e.with_section_override(name);
+                                            }
+                                            e
                                         };
                                         data_entries.push((node_id, entry));
                                     }
@@ -1289,23 +1362,33 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                             paideia_as_ir::RelocWidth::W64,
                                             meta.addend,
                                         );
-                                        let is_mutable = lowering.ir.let_meta().get(node_id)
+                                        let let_info = lowering.ir.let_meta().get(node_id);
+                                        let is_mutable = let_info
                                             .map(|info| info.mutable).unwrap_or(false);
-                                        let explicit_align = lowering.ir.let_meta().get(node_id).and_then(|i| i.align);
+                                        let explicit_align = let_info.and_then(|i| i.align);
+                                        let link_section = let_info.and_then(|i| i.link_section.clone());
                                         let entry = if is_mutable {
-                                            paideia_as_ir::DataEntry::new_data_with_relocs(
+                                            let mut e = paideia_as_ir::DataEntry::new_data_with_relocs(
                                                 bytes,
                                                 symbol_name,
                                                 explicit_align.unwrap_or(8),
                                                 vec![reloc],
-                                            )
+                                            );
+                                            if let Some(name) = link_section {
+                                                e = e.with_section_override(name);
+                                            }
+                                            e
                                         } else {
-                                            paideia_as_ir::DataEntry::new_rodata_with_relocs(
+                                            let mut e = paideia_as_ir::DataEntry::new_rodata_with_relocs(
                                                 bytes,
                                                 symbol_name,
                                                 explicit_align.unwrap_or(8),
                                                 vec![reloc],
-                                            )
+                                            );
+                                            if let Some(name) = link_section {
+                                                e = e.with_section_override(name);
+                                            }
+                                            e
                                         };
                                         data_entries.push((node_id, entry));
                                     }
@@ -1367,10 +1450,12 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                             }
                                         }
 
-                                        let explicit_align = lowering.ir.let_meta().get(node_id).and_then(|i| i.align);
-                                        let is_mutable = lowering.ir.let_meta().get(node_id)
+                                        let let_info = lowering.ir.let_meta().get(node_id);
+                                        let explicit_align = let_info.and_then(|i| i.align);
+                                        let is_mutable = let_info
                                             .map(|info| info.mutable).unwrap_or(false);
-                                        let entry = if is_mutable {
+                                        let link_section = let_info.and_then(|i| i.link_section.clone());
+                                        let mut entry = if is_mutable {
                                             if relocs.is_empty() {
                                                 paideia_as_ir::DataEntry::new_data(
                                                     bytes, symbol_name, explicit_align.unwrap_or(8),
@@ -1391,6 +1476,9 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                                 )
                                             }
                                         };
+                                        if let Some(name) = link_section {
+                                            entry = entry.with_section_override(name);
+                                        }
                                         data_entries.push((node_id, entry));
                                     }
                                 } else if rhs_node.kind == paideia_as_ir::IrKind::EnumCons {
@@ -1399,10 +1487,12 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                     // (including nested records), then wraps the result in DataEntry.
                                     match paideia_as_elaborator::data_encoder::encode_enum_cons(&lowering.ir, rhs_id) {
                                         Some(bytes) => {
-                                            let explicit_align = lowering.ir.let_meta().get(node_id).and_then(|i| i.align);
-                                            let is_mutable = lowering.ir.let_meta().get(node_id)
+                                            let let_info = lowering.ir.let_meta().get(node_id);
+                                            let explicit_align = let_info.and_then(|i| i.align);
+                                            let is_mutable = let_info
                                                 .map(|info| info.mutable).unwrap_or(false);
-                                            let entry = if is_mutable {
+                                            let link_section = let_info.and_then(|i| i.link_section.clone());
+                                            let mut entry = if is_mutable {
                                                 paideia_as_ir::DataEntry::new_data(
                                                     bytes,
                                                     symbol_name,
@@ -1415,6 +1505,9 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                                     explicit_align.unwrap_or(8),
                                                 )
                                             };
+                                            if let Some(name) = link_section {
+                                                entry = entry.with_section_override(name);
+                                            }
                                             data_entries.push((node_id, entry));
                                         }
                                         None => {
@@ -1476,10 +1569,12 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                             }
                                         }
 
-                                        let is_mutable = lowering.ir.let_meta().get(node_id)
+                                        let let_info = lowering.ir.let_meta().get(node_id);
+                                        let is_mutable = let_info
                                             .map(|info| info.mutable).unwrap_or(false);
-                                        let explicit_align = lowering.ir.let_meta().get(node_id).and_then(|i| i.align);
-                                        let entry = if is_mutable {
+                                        let explicit_align = let_info.and_then(|i| i.align);
+                                        let link_section = let_info.and_then(|i| i.link_section.clone());
+                                        let mut entry = if is_mutable {
                                             paideia_as_ir::DataEntry::new_data(
                                                 bytes.clone(),
                                                 symbol_name,
@@ -1492,6 +1587,9 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                                 explicit_align.unwrap_or(1),
                                             )
                                         };
+                                        if let Some(name) = link_section {
+                                            entry = entry.with_section_override(name);
+                                        }
                                         data_entries.push((node_id, entry));
                                     }
                                 }

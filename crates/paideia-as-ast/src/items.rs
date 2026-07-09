@@ -181,7 +181,7 @@ pub enum ItemData {
         doc: Option<NodeId>,
     },
 
-    /// Let binding: `let [mut] Name <T> (: Type)? = Expr @align(N)? @ring(slots=M, slot_size=K)?`
+    /// Let binding: `let [mut] Name <T> (: Type)? = Expr @align(N)? @ring(slots=M, slot_size=K)? @link_section("name")?`
     Let {
         /// Whether this binding is public (`pub let`).
         public: bool,
@@ -202,6 +202,9 @@ pub enum ItemData {
         /// Optional ring buffer directive `@ring(slots=M, slot_size=K)` for ring buffers (PA14-r14-008).
         /// When `Some((M, K))`, allocates ring structures with M slots of K bytes each.
         ring: Option<(u32, u32)>,
+        /// Optional link_section directive `@link_section("name")` (PA19-r19-010).
+        /// When `Some(name)`, emits data into a custom-named ELF section.
+        link_section: Option<String>,
         /// Optional documentation comment.
         doc: Option<NodeId>,
     },
@@ -321,6 +324,7 @@ mod tests {
             value,
             align: None,
             ring: None,
+            link_section: None,
             doc: None,
         };
         match item {
@@ -333,6 +337,7 @@ mod tests {
                 value: v,
                 align: a,
                 ring: r,
+                link_section: ls,
                 doc: d,
             } => {
                 assert!(!mut_flag);
@@ -342,6 +347,7 @@ mod tests {
                 assert_eq!(v, value);
                 assert_eq!(a, None);
                 assert_eq!(r, None);
+                assert_eq!(ls, None);
                 assert!(d.is_none());
             }
             _ => panic!("expected Let variant"),

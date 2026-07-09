@@ -143,17 +143,32 @@ pub(super) fn build_elf_object(
     let data_table = arena.data();
     let mut data_offsets: std::collections::HashMap<IrNodeId, u64> = std::collections::HashMap::new();
     for (node_id, entry) in data_table.iter() {
-        let data_offset = match entry.section {
-            paideia_as_ir::SectionKind::Rodata => writer.add_rodata_bytes(&entry.bytes, entry.align),
-            paideia_as_ir::SectionKind::Data => writer.add_data_bytes(&entry.bytes, entry.align),
-            paideia_as_ir::SectionKind::Bss => {
-                // Phase 6 m5-002: allocate uninitialized space in .bss section
-                writer.add_bss_space(entry.size_hint, entry.align)
-            }
-            paideia_as_ir::SectionKind::Text => {
-                // Phase 15 m2-002: code section entries (deferred implementation)
-                unimplemented!("SectionKind::Text code emission not yet implemented")
-            }
+        // Phase 19 PA19-r19-010: Check for custom section override first
+        let (data_offset, section_kind, section_name_opt) = if let Some(ref section_name) = entry.section_name_override {
+            // Emit to custom-named section
+            let writable = matches!(entry.section, paideia_as_ir::SectionKind::Data | paideia_as_ir::SectionKind::Bss);
+            let (_, offset) = writer.add_bytes_to_named_section(
+                section_name,
+                &entry.bytes,
+                entry.align,
+                writable,
+            );
+            (offset, None, Some(section_name.clone()))
+        } else {
+            // Standard section routing
+            let data_offset = match entry.section {
+                paideia_as_ir::SectionKind::Rodata => writer.add_rodata_bytes(&entry.bytes, entry.align),
+                paideia_as_ir::SectionKind::Data => writer.add_data_bytes(&entry.bytes, entry.align),
+                paideia_as_ir::SectionKind::Bss => {
+                    // Phase 6 m5-002: allocate uninitialized space in .bss section
+                    writer.add_bss_space(entry.size_hint, entry.align)
+                }
+                paideia_as_ir::SectionKind::Text => {
+                    // Phase 15 m2-002: code section entries (deferred implementation)
+                    unimplemented!("SectionKind::Text code emission not yet implemented")
+                }
+            };
+            (data_offset, Some(entry.section), None)
         };
         data_offsets.insert(*node_id, data_offset);
         // Phase-5-m4-003: Create a symbol for the data entry so relocations can reference it
@@ -170,7 +185,8 @@ pub(super) fn build_elf_object(
             size,
             kind: SymKind::Data,
             is_global: true, // PA10-007: Data symbols must be global for cross-module linkage
-            section: Some(entry.section),
+            section: section_kind,
+            section_name: section_name_opt,
         });
     }
 
@@ -274,6 +290,7 @@ pub(super) fn build_elf_object(
                     offset: Some(offset as u64),
                     size,
                     section: None,
+                    section_name: None,
                 };
                 let _ = writer.add_symbol(sym_entry);
                 emitted_any_symbol = true;
@@ -304,17 +321,25 @@ pub(super) fn build_elf_object(
     // Iterate entry.relocations and call writer.add_relocation for each.
     // This was missing in PA10-002, leaving string-literal pointers unpatched.
     // (MOVED AFTER function symbol emission to fix PA-R17-003 bug 2)
+    // Phase 19 PA19-r19-010: Route relocations to custom sections when applicable.
     for (node_id, entry) in data_table.iter() {
         if !entry.relocations.is_empty() {
             let data_offset = data_offsets
                 .get(node_id)
                 .copied()
                 .expect("data_offset must exist for every entry");
-            let target_section = match entry.section {
-                paideia_as_ir::SectionKind::Rodata => writer.rodata_section_id(),
-                paideia_as_ir::SectionKind::Data => writer.data_section_id(),
-                paideia_as_ir::SectionKind::Bss => writer.bss_section_id(),
-                paideia_as_ir::SectionKind::Text => writer.text_section_id(),
+            // Determine target section: check for custom section override first
+            let target_section = if let Some(ref section_name) = entry.section_name_override {
+                // Get custom section ID via the method we'll add
+                writer.get_custom_section_id(section_name)
+                    .expect("custom section must have been created")
+            } else {
+                match entry.section {
+                    paideia_as_ir::SectionKind::Rodata => writer.rodata_section_id(),
+                    paideia_as_ir::SectionKind::Data => writer.data_section_id(),
+                    paideia_as_ir::SectionKind::Bss => writer.bss_section_id(),
+                    paideia_as_ir::SectionKind::Text => writer.text_section_id(),
+                }
             };
             for spec in &entry.relocations {
                 let reloc_offset = data_offset + spec.offset;

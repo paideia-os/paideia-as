@@ -1,5 +1,7 @@
-//! Let-declaration parsing plus `@align` / `@ring` symbol attributes.
+//! Let-declaration parsing plus `@align` / `@ring` / `@link_section` symbol attributes.
 //! Split out of `parse_item.rs` (2026-07-08).
+
+use std::collections::HashSet;
 
 use paideia_as_ast::{ItemData, NodeId, NodeKind};
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
@@ -8,38 +10,76 @@ use paideia_as_lexer::TokenKind;
 use crate::parser::{ParseError, Parser};
 
 impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
-    pub(super) fn parse_optional_symbol_attributes(&mut self) -> Result<(Option<u32>, Option<(u32, u32)>), ParseError> {
-        if !self.at(TokenKind::At) {
-            return Ok((None, None));
+    pub(super) fn parse_optional_symbol_attributes(&mut self) -> Result<(Option<u32>, Option<(u32, u32)>, Option<String>), ParseError> {
+        let mut align: Option<u32> = None;
+        let mut ring: Option<(u32, u32)> = None;
+        let mut link_section: Option<String> = None;
+        let mut seen_attrs = HashSet::new();
+
+        // Loop to accept attributes in any order
+        loop {
+            if !self.at(TokenKind::At) {
+                break;
+            }
+
+            self.bump(); // consume `@`
+
+            // Expect an identifier for the attribute name
+            let attr_name_tok = self.expect(TokenKind::Ident)?;
+            let attr_name = self.source_text_for_span(attr_name_tok.span);
+
+            // Check for duplicate
+            if seen_attrs.contains(attr_name) {
+                match attr_name {
+                    "link_section" => {
+                        let code = DiagnosticCode::new(Category::P, Severity::Error, 283)
+                            .expect("valid P0283 code");
+                        let diag = Diagnostic::error(code)
+                            .message("duplicate @link_section directive")
+                            .with_span(attr_name_tok.span)
+                            .finish();
+                        self.emit_diagnostic(diag);
+                        return Err(ParseError);
+                    }
+                    _ => {
+                        let code = DiagnosticCode::new(Category::P, Severity::Error, 250)
+                            .expect("valid P0250 code");
+                        let diag = Diagnostic::error(code)
+                            .message(format!("duplicate @{} attribute", attr_name))
+                            .with_span(attr_name_tok.span)
+                            .finish();
+                        self.emit_diagnostic(diag);
+                        return Err(ParseError);
+                    }
+                }
+            }
+            seen_attrs.insert(attr_name.to_string());
+
+            match attr_name {
+                "align" => {
+                    align = Some(self.parse_align_attr()?);
+                }
+                "ring" => {
+                    ring = Some(self.parse_ring_attr(attr_name_tok.span)?);
+                }
+                "link_section" => {
+                    link_section = Some(self.parse_link_section_attr()?);
+                }
+                _ => {
+                    // P0250: unknown symbol attribute
+                    let code = DiagnosticCode::new(Category::P, Severity::Error, 250)
+                        .expect("valid P0250 code");
+                    let diag = Diagnostic::error(code)
+                        .message(format!("unknown symbol attribute '@{}' (only 'align', 'ring', and 'link_section' supported)", attr_name))
+                        .with_span(attr_name_tok.span)
+                        .finish();
+                    self.emit_diagnostic(diag);
+                    return Err(ParseError);
+                }
+            }
         }
 
-        self.bump(); // consume `@`
-
-        // Expect an identifier for the attribute name
-        let attr_name_tok = self.expect(TokenKind::Ident)?;
-        let attr_name = self.source_text_for_span(attr_name_tok.span);
-
-        match attr_name {
-            "align" => {
-                let align = self.parse_align_attr()?;
-                Ok((Some(align), None))
-            }
-            "ring" => {
-                let ring = self.parse_ring_attr(attr_name_tok.span)?;
-                Ok((None, Some(ring)))
-            }
-            _ => {
-                // P0250: unknown symbol attribute
-                let code = DiagnosticCode::new(Category::P, Severity::Error, 250)
-                    .expect("valid P0250 code");
-                let diag = Diagnostic::error(code)
-                    .message(format!("unknown symbol attribute '@{}' (only 'align' and 'ring' supported)", attr_name))
-                    .with_span(attr_name_tok.span)
-                    .finish();
-                self.emit_diagnostic(diag);
-                Err(ParseError)
-            }
-        }
+        Ok((align, ring, link_section))
     }
 
     /// Parse `@align(N)` where N is a power-of-two integer literal.
@@ -287,7 +327,102 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         Ok((slots_val, slot_size_val))
     }
 
-    /// Parse a top-level let declaration with optional visibility: `[pub] let [mut] <Ident> <GenericParams>? (: Type)? = Expr @align(N)? @ring(...)?`
+    /// Parse `@link_section("name")` where name is a string literal.
+    /// Validates: name matches [A-Za-z0-9._\-], length 1..=32, non-empty.
+    pub(super) fn parse_link_section_attr(&mut self) -> Result<String, ParseError> {
+        // Expect `(`
+        if !self.eat(TokenKind::LParen) {
+            let span = self
+                .peek()
+                .map(|t| t.span)
+                .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 282)
+                .expect("valid P0282 code");
+            let diag = Diagnostic::error(code)
+                .message("malformed @link_section(\"name\") syntax: expected '(' after 'link_section'")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        // Expect a string literal
+        let str_tok = self.expect(TokenKind::StringLit)?;
+        let str_span = str_tok.span;
+        let str_text = self.source_text_for_span(str_span);
+
+        // Extract string content (without quotes)
+        let name = if str_text.starts_with('"') && str_text.ends_with('"') && str_text.len() >= 2 {
+            str_text[1..str_text.len() - 1].to_string()
+        } else {
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 282)
+                .expect("valid P0282 code");
+            let diag = Diagnostic::error(code)
+                .message("@link_section name must be a valid string literal")
+                .with_span(str_span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        };
+
+        // Validate: non-empty
+        if name.is_empty() {
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 282)
+                .expect("valid P0282 code");
+            let diag = Diagnostic::error(code)
+                .message("@link_section name must be non-empty")
+                .with_span(str_span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        // Validate: length <= 32
+        if name.len() > 32 {
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 282)
+                .expect("valid P0282 code");
+            let diag = Diagnostic::error(code)
+                .message(format!("@link_section name must be <= 32 characters, got {}", name.len()))
+                .with_span(str_span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        // Validate: only [A-Za-z0-9._\-]
+        for c in name.chars() {
+            if !c.is_ascii_alphanumeric() && c != '.' && c != '_' && c != '-' {
+                let code = DiagnosticCode::new(Category::P, Severity::Error, 282)
+                    .expect("valid P0282 code");
+                let diag = Diagnostic::error(code)
+                    .message(format!("@link_section name must contain only alphanumeric, '.', '_', and '-', got invalid char '{}'", c))
+                    .with_span(str_span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                return Err(ParseError);
+            }
+        }
+
+        // Expect `)`
+        if !self.eat(TokenKind::RParen) {
+            let span = self
+                .peek()
+                .map(|t| t.span)
+                .unwrap_or_else(|| Span::new(self.file(), 0, 0));
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 282)
+                .expect("valid P0282 code");
+            let diag = Diagnostic::error(code)
+                .message("malformed @link_section(\"name\") syntax: expected ')' after name")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        Ok(name)
+    }
+
+    /// Parse a top-level let declaration with optional visibility: `[pub] let [mut] <Ident> <GenericParams>? (: Type)? = Expr @align(N)? @ring(...)? @link_section("name")?`
     pub(super) fn parse_let_decl_with_visibility(&mut self, public: bool) -> Result<NodeId, ParseError> {
         let let_tok = self.expect(TokenKind::KwLet)?;
         let span_start = let_tok.span;
@@ -362,8 +497,8 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         // Parse value expression
         let value = self.parse_expr()?;
 
-        // Parse optional symbol attributes (@align or @ring)
-        let (align, ring) = self.parse_optional_symbol_attributes()?;
+        // Parse optional symbol attributes (@align, @ring, or @link_section)
+        let (align, ring, link_section) = self.parse_optional_symbol_attributes()?;
 
         // Consume optional `;`
         self.eat(TokenKind::Semicolon);
@@ -392,6 +527,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 value,
                 align,
                 ring,
+                link_section,
                 doc: None,
             },
         );
@@ -404,3 +540,280 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     }
 
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use paideia_as_diagnostics::{DiagnosticSink, SourceMap, VecSink};
+    use paideia_as_lexer::{Lexer, SourceText};
+    use std::path::PathBuf;
+
+    /// Helper: parse source code and return (arena, parse result, diagnostics)
+    fn parse_and_check(
+        source: &str,
+    ) -> (
+        paideia_as_ast::AstArena,
+        Result<paideia_as_ast::NodeId, ParseError>,
+        Vec<paideia_as_diagnostics::Diagnostic>,
+    ) {
+        let mut source_map = SourceMap::new();
+        let file = source_map.add_file(PathBuf::from("test.pdx"), source.to_string());
+        let source_text = SourceText::from_bytes(file, source.as_bytes()).expect("valid utf-8");
+        let mut arena = paideia_as_ast::AstArena::new();
+        let mut sink = VecSink::new();
+        let mut lex = Lexer::new(file, &source_text);
+        let mut collector = VecSink::new();
+        let tokens = lex.collect_tokens(&mut collector);
+        // Forward lexer diagnostics into the main sink.
+        for d in collector.into_diagnostics() {
+            let _ = sink.emit(d);
+        }
+        let result = {
+            let mut p = Parser::new(&tokens, source_text.content(), file, &mut arena, &mut sink);
+            p.parse_source_file()
+        };
+        (arena, result, sink.into_diagnostics())
+    }
+
+    /// Assert that at least one diagnostic with the given P<number> code is present.
+    fn assert_has_p_code(diags: &[paideia_as_diagnostics::Diagnostic], number: u16) {
+        let matches: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().category().letter() == 'P' && d.code().number() == number)
+            .collect();
+        assert!(
+            !matches.is_empty(),
+            "expected at least one P{:04} diagnostic, got: {:?}",
+            number,
+            diags
+                .iter()
+                .map(|d| format!("{}{:04}", d.code().category().letter(), d.code().number()))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// Assert that a diagnostic with the given P<number> code contains a substring.
+    fn assert_p_code_message_contains(
+        diags: &[paideia_as_diagnostics::Diagnostic],
+        number: u16,
+        substring: &str,
+    ) {
+        let matches: Vec<_> = diags
+            .iter()
+            .filter(|d| d.code().category().letter() == 'P' && d.code().number() == number)
+            .collect();
+        assert!(
+            !matches.is_empty(),
+            "expected at least one P{:04} diagnostic",
+            number
+        );
+        let found = matches.iter().any(|d| d.message().contains(substring));
+        assert!(
+            found,
+            "P{:04} diagnostic should contain '{}', got messages: {:?}",
+            number,
+            substring,
+            matches.iter().map(|d| d.message()).collect::<Vec<_>>()
+        );
+    }
+
+    /// Helper: parse a let declaration wrapped in a minimal module structure and extract the Let node.
+    /// Takes just the let declaration (e.g., "let payload : [u8; 8] = uninit @link_section(\"name\")")
+    /// and returns (arena, extracted_let_result, diagnostics).
+    fn parse_let_in_module(
+        source: &str,
+    ) -> (
+        paideia_as_ast::AstArena,
+        Result<paideia_as_ast::NodeId, ParseError>,
+        Vec<paideia_as_diagnostics::Diagnostic>,
+    ) {
+        let wrapped = format!(r#"module Test = structure {{ {} }}"#, source);
+        let (arena, result, diags) = parse_and_check(&wrapped);
+
+        let extracted_result = match result {
+            Ok(root_id) => {
+                // parse_source_file returns an implicit root Structure containing top-level items
+                if let Some(root_node) = arena.get(root_id) {
+                    if let paideia_as_ast::NodeKind::Structure = root_node.kind {
+                        // Get items from root structure (should contain the Module)
+                        if let Some(paideia_as_ast::ItemData::Structure { items: root_items, .. }) = arena.item_data(root_id) {
+                            // First item should be the Module
+                            if let Some(&module_id) = root_items.first() {
+                                if let Some(module_node) = arena.get(module_id) {
+                                    if let paideia_as_ast::NodeKind::Module = module_node.kind {
+                                        // Navigate Module -> body -> Structure -> items -> Let
+                                        if let Some(paideia_as_ast::ItemData::Module { body, .. }) = arena.item_data(module_id) {
+                                            let struct_id = *body;
+                                            if let Some(struct_node) = arena.get(struct_id) {
+                                                if let paideia_as_ast::NodeKind::Structure = struct_node.kind {
+                                                    if let Some(paideia_as_ast::ItemData::Structure { items: struct_items, .. }) = arena.item_data(struct_id) {
+                                                        if let Some(&let_id) = struct_items.first() {
+                                                            Ok(let_id)
+                                                        } else {
+                                                            Err(ParseError)
+                                                        }
+                                                    } else {
+                                                        Err(ParseError)
+                                                    }
+                                                } else {
+                                                    Err(ParseError)
+                                                }
+                                            } else {
+                                                Err(ParseError)
+                                            }
+                                        } else {
+                                            Err(ParseError)
+                                        }
+                                    } else {
+                                        Err(ParseError)
+                                    }
+                                } else {
+                                    Err(ParseError)
+                                }
+                            } else {
+                                Err(ParseError)
+                            }
+                        } else {
+                            Err(ParseError)
+                        }
+                    } else {
+                        Err(ParseError)
+                    }
+                } else {
+                    Err(ParseError)
+                }
+            }
+            Err(e) => Err(e),
+        };
+
+        (arena, extracted_result, diags)
+    }
+
+    #[test]
+    fn link_section_happy_path_dot_uefi_hdr() {
+        let source = r#"let payload : [u8; 8] = uninit @link_section(".uefi_hdr")"#;
+        let (arena, result, diags) = parse_let_in_module(source);
+
+        assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
+        assert!(result.is_ok());
+
+        let root = result.unwrap();
+        let node = arena.get(root).unwrap();
+        if let paideia_as_ast::NodeKind::Let = node.kind {
+            if let Some(paideia_as_ast::ItemData::Let { link_section, .. }) = arena.item_data(root) {
+                assert_eq!(*link_section, Some(".uefi_hdr".to_string()));
+            } else {
+                panic!("expected ItemData::Let");
+            }
+        } else {
+            panic!("expected NodeKind::Let");
+        }
+    }
+
+    #[test]
+    fn link_section_no_leading_dot_accepted() {
+        let source = r#"let payload : [u8; 8] = uninit @link_section("uefi_hdr")"#;
+        let (arena, result, diags) = parse_let_in_module(source);
+
+        assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
+        assert!(result.is_ok());
+
+        let root = result.unwrap();
+        let node = arena.get(root).unwrap();
+        if let paideia_as_ast::NodeKind::Let = node.kind {
+            if let Some(paideia_as_ast::ItemData::Let { link_section, .. }) = arena.item_data(root) {
+                assert_eq!(*link_section, Some("uefi_hdr".to_string()));
+            } else {
+                panic!("expected ItemData::Let");
+            }
+        } else {
+            panic!("expected NodeKind::Let");
+        }
+    }
+
+    #[test]
+    fn link_section_empty_string_p0282() {
+        let source = r#"let payload : [u8; 8] = uninit @link_section("")"#;
+        let (_arena, result, diags) = parse_let_in_module(source);
+
+        assert!(result.is_err(), "expected parse error");
+        assert_has_p_code(&diags, 282);
+        assert_p_code_message_contains(&diags, 282, "non-empty");
+    }
+
+    #[test]
+    fn link_section_invalid_char_p0282() {
+        let source = r#"let payload : [u8; 8] = uninit @link_section(".foo/bar")"#;
+        let (_arena, result, diags) = parse_let_in_module(source);
+
+        assert!(result.is_err(), "expected parse error");
+        assert_has_p_code(&diags, 282);
+        assert_p_code_message_contains(&diags, 282, "invalid");
+    }
+
+    #[test]
+    fn link_section_too_long_p0282() {
+        // 33-char name
+        let source = r#"let payload : [u8; 8] = uninit @link_section("a_very_long_section_name_is_too_long_here")"#;
+        let (_arena, result, diags) = parse_let_in_module(source);
+
+        assert!(result.is_err(), "expected parse error");
+        assert_has_p_code(&diags, 282);
+        assert_p_code_message_contains(&diags, 282, "32");
+    }
+
+    #[test]
+    fn link_section_duplicate_p0283() {
+        let source = r#"let payload : [u8; 8] = uninit @link_section(".foo") @link_section(".bar")"#;
+        let (_arena, result, diags) = parse_let_in_module(source);
+
+        assert!(result.is_err(), "expected parse error");
+        assert_has_p_code(&diags, 283);
+        assert_p_code_message_contains(&diags, 283, "duplicate");
+    }
+
+    #[test]
+    fn link_section_with_align_both_accepted() {
+        let source = r#"let payload : [u8; 8] = uninit @align(64) @link_section(".foo")"#;
+        let (arena, result, diags) = parse_let_in_module(source);
+
+        assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
+        assert!(result.is_ok());
+
+        let root = result.unwrap();
+        let node = arena.get(root).unwrap();
+        if let paideia_as_ast::NodeKind::Let = node.kind {
+            if let Some(paideia_as_ast::ItemData::Let { align, link_section, .. }) = arena.item_data(root) {
+                assert_eq!(*align, Some(64));
+                assert_eq!(*link_section, Some(".foo".to_string()));
+            } else {
+                panic!("expected ItemData::Let");
+            }
+        } else {
+            panic!("expected NodeKind::Let");
+        }
+    }
+
+    #[test]
+    fn link_section_before_align_also_accepted() {
+        let source = r#"let payload : [u8; 8] = uninit @link_section(".foo") @align(64)"#;
+        let (arena, result, diags) = parse_let_in_module(source);
+
+        assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
+        assert!(result.is_ok());
+
+        let root = result.unwrap();
+        let node = arena.get(root).unwrap();
+        if let paideia_as_ast::NodeKind::Let = node.kind {
+            if let Some(paideia_as_ast::ItemData::Let { align, link_section, .. }) = arena.item_data(root) {
+                assert_eq!(*align, Some(64));
+                assert_eq!(*link_section, Some(".foo".to_string()));
+            } else {
+                panic!("expected ItemData::Let");
+            }
+        } else {
+            panic!("expected NodeKind::Let");
+        }
+    }
+}
+

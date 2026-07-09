@@ -1241,3 +1241,30 @@ brief = "declared [u8; N] size does not match actual bytes from @guid or @includ
 description = "Issue #1013 (T0558 retroactive guard): A Let binding has a declared [u8; N] array type annotation, but the actual bytes from the @guid or @include_bytes directive differ in length. Either fix the type annotation to match the actual size, or fix the directive to produce the correct number of bytes. This guard prevents silent data truncation or padding mismatches."
 since = "0.19.0"
 deprecated = false
+
+[diagnostic.P0282]
+severity = "error"
+category = "parser"
+title = "Invalid @link_section name"
+brief = "@link_section name must match [A-Za-z0-9._-], length 1..32"
+description = "Phase 19 PA19-r19-010: The @link_section directive's name must be a valid identifier containing only letters, digits, dots, underscores, and hyphens. The name must be 1–32 characters long and non-empty. Example: `let payload : [u8; 8] = ... @link_section(\".uefi_hdr\")`."
+since = "0.19.0"
+deprecated = false
+
+[diagnostic.P0283]
+severity = "error"
+category = "parser"
+title = "Duplicate @link_section directive"
+brief = "@link_section appears more than once on the same binding"
+description = "Phase 19 PA19-r19-010: A let binding has multiple @link_section directives, which is not allowed. Remove all but one @link_section directive. Example: `let x = ... @link_section(\".foo\") @link_section(\".bar\")` is invalid."
+since = "0.19.0"
+deprecated = false
+
+[diagnostic.P0284]
+severity = "error"
+category = "parser"
+title = "Lambda bindings cannot use @link_section"
+brief = "@link_section not yet supported on lambda-shaped let bindings"
+description = "Phase 19 PA19-r19-010 (MVP deferred to pa-r19-010b): The @link_section attribute is currently supported only on let bindings with data (literal, array) values. Lambda-shaped bindings (let x = fn(...)) are not yet supported. This is deferred to a future phase. Rewrite the binding without @link_section or defer the attribute."
+since = "0.19.0"
+deprecated = false

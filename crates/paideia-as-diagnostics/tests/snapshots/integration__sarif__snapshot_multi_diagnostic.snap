@@ -1,6 +1,5 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
-assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -937,6 +936,48 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "@include_str file is not valid UTF-8",
               "shortDescription": {
                 "text": "@include_str: file is not valid UTF-8"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase 19 PA19-r19-010: The @link_section directive's name must be a valid identifier containing only letters, digits, dots, underscores, and hyphens. The name must be 1–32 characters long and non-empty. Example: `let payload : [u8; 8] = ... @link_section(\".uefi_hdr\")`."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0282",
+              "id": "P0282",
+              "name": "Invalid @link_section name",
+              "shortDescription": {
+                "text": "@link_section name must match [A-Za-z0-9._-], length 1..32"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase 19 PA19-r19-010: A let binding has multiple @link_section directives, which is not allowed. Remove all but one @link_section directive. Example: `let x = ... @link_section(\".foo\") @link_section(\".bar\")` is invalid."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0283",
+              "id": "P0283",
+              "name": "Duplicate @link_section directive",
+              "shortDescription": {
+                "text": "@link_section appears more than once on the same binding"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Phase 19 PA19-r19-010 (MVP deferred to pa-r19-010b): The @link_section attribute is currently supported only on let bindings with data (literal, array) values. Lambda-shaped bindings (let x = fn(...)) are not yet supported. This is deferred to a future phase. Rewrite the binding without @link_section or defer the attribute."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0284",
+              "id": "P0284",
+              "name": "Lambda bindings cannot use @link_section",
+              "shortDescription": {
+                "text": "@link_section not yet supported on lambda-shaped let bindings"
               }
             },
             {

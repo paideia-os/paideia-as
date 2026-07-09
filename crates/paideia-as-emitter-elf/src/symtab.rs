@@ -55,6 +55,9 @@ pub struct SymbolEntry {
     pub size: u64,
     /// Which section this symbol belongs to. Phase 6 m5-003: used for .bss symbols.
     pub section: Option<SectionKind>,
+    /// Custom section name override (PA19-r19-010: @link_section).
+    /// When Some, the symbol belongs to this custom-named ELF section instead of section.
+    pub section_name: Option<String>,
 }
 
 impl SymbolEntry {
@@ -71,6 +74,7 @@ impl SymbolEntry {
             offset: Some(offset),
             size,
             section: None,
+            section_name: None,
         }
     }
 
@@ -87,6 +91,7 @@ impl SymbolEntry {
             offset: Some(offset),
             size,
             section: None,
+            section_name: None,
         }
     }
 
@@ -108,6 +113,7 @@ impl SymbolEntry {
             offset: Some(offset),
             size,
             section: Some(section),
+            section_name: None,
         }
     }
 
@@ -124,6 +130,7 @@ impl SymbolEntry {
             offset: None,
             size: 0,
             section: None,
+            section_name: None,
         }
     }
 }

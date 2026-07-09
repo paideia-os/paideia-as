@@ -1,0 +1,4 @@
+module LinkSectionSharedProbe = structure {
+  pub let payload1 : [u8; 8] = @include_bytes("data/include_bytes_probe.bin") @link_section(".shared_hdr")
+  pub let payload2 : [u8; 4] = 0x11223344 @link_section(".shared_hdr")
+}

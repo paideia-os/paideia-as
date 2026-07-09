@@ -25,6 +25,7 @@ fn bss_symbol_has_correct_section_index() {
         offset: Some(0),
         size: 16,
         section: Some(SectionKind::Bss),
+        section_name: None,
     };
 
     writer.add_symbol(entry).expect("should add .bss symbol");
@@ -152,6 +153,7 @@ fn bss_symbols_show_in_readelf_s() {
         offset: Some(offset1),
         size: 32,
         section: Some(SectionKind::Bss),
+        section_name: None,
     };
 
     let sym2 = SymbolEntry {
@@ -161,6 +163,7 @@ fn bss_symbols_show_in_readelf_s() {
         offset: Some(offset2),
         size: 64,
         section: Some(SectionKind::Bss),
+        section_name: None,
     };
 
     writer.add_symbol(sym1).expect("should add sym1");
@@ -230,6 +233,7 @@ fn data_table_bss_emission_with_symbols() {
         align: 16,
         size_hint: 256,
         relocations: vec![],
+        section_name_override: None,
     };
     data_table.insert(IrNodeId::new(1).unwrap(), bss_entry);
 
@@ -246,6 +250,7 @@ fn data_table_bss_emission_with_symbols() {
             kind: SymKind::Data,
             is_global: false,
             section: Some(entry.section),
+            section_name: None,
         };
 
         writer.add_symbol(sym).expect("should add symbol");

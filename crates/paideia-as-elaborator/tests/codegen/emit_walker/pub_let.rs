@@ -40,6 +40,7 @@ fn pub_let_flag_flows_to_ir_arena() {
             value: value_id,
             align: None,
             ring: None,
+            link_section: None,
             doc: None,
         },
     );
