@@ -6,6 +6,23 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+/// Target triplet for `--target` shortcut.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, clap::ValueEnum)]
+pub enum Target {
+    /// UEFI x86-64 (PE32+/COFF output format)
+    #[value(name = "uefi-x86_64")]
+    UefiX86_64,
+    /// ELF64 kernel object x86-64
+    #[value(name = "elf-kernel-x86_64")]
+    ElfKernelX86_64,
+    /// ELF64 user object x86-64
+    #[value(name = "elf-user-x86_64")]
+    ElfUserX86_64,
+    /// PAX (PaideiaOS Architectural Executable) x86-64
+    #[value(name = "pax-x86_64")]
+    PaxX86_64,
+}
+
 /// Top-level CLI shape for `paideia-as`.
 #[derive(Parser)]
 #[command(name = "paideia-as", version, about = "PaideiaOS custom assembler")]
@@ -31,8 +48,11 @@ pub enum Cmd {
         /// Output format. Phase-1 supports `placeholder` (default) and
         /// `elf64` (writes a parseable ELF64 object via
         /// paideia-as-emitter-elf).
-        #[arg(long = "emit", default_value = "placeholder")]
-        emit: String,
+        #[arg(long = "emit", conflicts_with = "target")]
+        emit: Option<String>,
+        /// Target triplet shortcut for output format.
+        #[arg(long = "target", value_enum, conflicts_with = "emit")]
+        target: Option<Target>,
         /// Optimization level (0=off, 1+=enabled). Level 1 runs peephole, instruction scheduling, etc.
         #[arg(short = 'O', long = "optimize", default_value = "0")]
         optimize: u32,

@@ -19,6 +19,7 @@ use std::fs;
 use std::path::Path;
 use std::process::ExitCode;
 
+use crate::cli::Target;
 use crate::resolve_var_operands;
 use paideia_as_ast::{AstArena, ItemData, NodeId as AstNodeId, StmtData};
 use paideia_as_diagnostics::{
@@ -110,14 +111,29 @@ impl EmitFormat {
     }
 }
 
+/// Resolve a target triplet to an emit format.
+fn resolve_target(target: Target) -> EmitFormat {
+    match target {
+        Target::UefiX86_64 => EmitFormat::PeCoff,
+        Target::ElfKernelX86_64 => EmitFormat::Elf64,
+        Target::ElfUserX86_64 => EmitFormat::Elf64,
+        Target::PaxX86_64 => EmitFormat::Pax,
+    }
+}
+
 /// Run `paideia-as build <input> [--emit <format>] [-o <output>] [-O <level>] [--encoder-warn] [--sarif <PATH>]`.
-pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encoder_warn: bool, sarif: Option<&Path>) -> ExitCode {
-    let format = match EmitFormat::parse(emit) {
-        Ok(f) => f,
-        Err(msg) => {
-            eprintln!("paideia-as: {msg}");
-            return ExitCode::from(2);
-        }
+pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Option<Target>, optimize: u32, encoder_warn: bool, sarif: Option<&Path>) -> ExitCode {
+    let format = match (target, emit) {
+        (Some(t), None) => resolve_target(t),
+        (None, Some(s)) => match EmitFormat::parse(s) {
+            Ok(f) => f,
+            Err(msg) => {
+                eprintln!("paideia-as: {msg}");
+                return ExitCode::from(2);
+            }
+        },
+        (None, None) => EmitFormat::Placeholder,
+        (Some(_), Some(_)) => unreachable!("clap conflicts_with should prevent both"),
     };
     let bytes = match fs::read(input) {
         Ok(b) => b,

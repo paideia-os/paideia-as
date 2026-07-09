@@ -41,10 +41,37 @@ impl EmitFmt {
     }
 }
 
+/// Target triplet passed via `--target <triplet>`.
+#[derive(Clone, Copy, Debug)]
+pub enum TargetTriplet {
+    /// No `--target` flag.
+    None,
+    UefiX86_64,
+    ElfKernelX86_64,
+    ElfUserX86_64,
+    PaxX86_64,
+    /// Free-form; passed verbatim after `--target`.
+    Raw(&'static str),
+}
+
+impl TargetTriplet {
+    fn args(self) -> Option<[&'static str; 2]> {
+        match self {
+            TargetTriplet::None => None,
+            TargetTriplet::UefiX86_64 => Some(["--target", "uefi-x86_64"]),
+            TargetTriplet::ElfKernelX86_64 => Some(["--target", "elf-kernel-x86_64"]),
+            TargetTriplet::ElfUserX86_64 => Some(["--target", "elf-user-x86_64"]),
+            TargetTriplet::PaxX86_64 => Some(["--target", "pax-x86_64"]),
+            TargetTriplet::Raw(s) => Some(["--target", s]),
+        }
+    }
+}
+
 /// Options for [`run_build_with`]; construct via `BuildOpts::new(fixture)`.
 pub struct BuildOpts {
     pub input: PathBuf,
     pub emit: EmitFmt,
+    pub target: TargetTriplet,
     pub extra_args: Vec<String>,
     /// If `Some`, `-o <path>` is appended; artifact recorded in the outcome.
     pub output: Option<PathBuf>,
@@ -56,6 +83,7 @@ impl BuildOpts {
         Self {
             input: input.as_ref().to_path_buf(),
             emit: EmitFmt::Elf64,
+            target: TargetTriplet::None,
             extra_args: Vec::new(),
             output: None,
             scratch_tag: "build",
@@ -64,6 +92,11 @@ impl BuildOpts {
 
     pub fn emit(mut self, fmt: EmitFmt) -> Self {
         self.emit = fmt;
+        self
+    }
+
+    pub fn target(mut self, triplet: TargetTriplet) -> Self {
+        self.target = triplet;
         self
     }
 
@@ -186,6 +219,7 @@ pub fn run_check<P: AsRef<Path>>(fixture: P) -> BuildOutcome {
     let opts = BuildOpts {
         input: fixture.as_ref().to_path_buf(),
         emit: EmitFmt::None,
+        target: TargetTriplet::None,
         extra_args: Vec::new(),
         output: None,
         scratch_tag: "check",
@@ -218,6 +252,9 @@ fn spawn_verb(opts: &BuildOpts, verb: &str) -> Output {
     let mut argv: Vec<String> = Vec::new();
     argv.push(verb.to_string());
     argv.push(opts.input.to_string_lossy().into_owned());
+    if let Some(target) = opts.target.args() {
+        argv.extend(target.into_iter().map(str::to_string));
+    }
     if let Some(emit) = opts.emit.args() {
         argv.extend(emit.into_iter().map(str::to_string));
     }
