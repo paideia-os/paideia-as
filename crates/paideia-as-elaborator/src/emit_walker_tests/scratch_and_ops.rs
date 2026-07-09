@@ -1396,3 +1396,54 @@ fn visit_field_assign_r13_base_disp0_forces_disp8() {}
 #[test]
 #[ignore = "visit_field_assign hardcodes src=RDX; SIL/REX trap coverage in encode.rs pa_r17_006_field_assign_sil_u8_requires_rex"]
 fn visit_field_assign_sil_u8_requires_rex() {}
+
+// #1115: Verify emit_block_body_arm dispatches Store children to visit_field_assign
+// (mirrors emit_block_body). Before the fix, a match-arm containing `r.f = x`
+// silently dropped the store because the arm's match had no IrKind::Store case.
+
+#[test]
+fn emit_block_body_arm_dispatches_field_assign_store() {
+    let mut arena = IrArena::new();
+
+    // Store's 3-child shape: [FieldAccess, index_unused, value]
+    let ptr_var_id = arena.alloc(IrKind::Var, span());
+    let deref_id = arena.alloc_with_children(IrKind::Deref, span(), [ptr_var_id]);
+    let field_access_id =
+        arena.alloc_with_children(IrKind::FieldAccess, span(), [deref_id]);
+    let index_id = arena.alloc(IrKind::Var, span());
+    let value_id = arena.alloc(IrKind::Var, span());
+    let store_id = arena.alloc_with_children(
+        IrKind::Store,
+        span(),
+        [field_access_id, index_id, value_id],
+    );
+
+    // Wrap Store in an Action, as emit_block_body_arm expects.
+    let block_id = arena.alloc_with_children(IrKind::Action, span(), [store_id]);
+
+    arena.field_access_info_mut().insert(
+        field_access_id,
+        paideia_as_ir::record_layout::FieldAccessInfo {
+            type_id: RecordTypeId(1),
+            field_index: 0,
+        },
+    );
+    let field_layout = FieldLayout { offset: 0, size: 4, signed: false };
+    let layout = RecordLayout::new(4, 4, vec![field_layout]);
+
+    let mut walker = EmitWalker::new();
+    walker
+        .state_mut()
+        .record_layouts
+        .insert(RecordTypeId(1), layout);
+    walker.emit_block_body_arm(block_id, &arena, None);
+
+    // Fix asserts: the Store node's instruction is emitted by dispatch_store→visit_field_assign.
+    let inst = walker
+        .state()
+        .instructions
+        .get(store_id)
+        .cloned()
+        .expect("#1115: emit_block_body_arm must dispatch Store to visit_field_assign");
+    assert_eq!(inst.mnemonic, Mnemonic::MovSized { width: IntWidth::W32 });
+}
