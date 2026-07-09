@@ -1,17 +1,25 @@
 //! pax-introspect: dump a PAX file's header + section table.
-//!
-//! Usage: pax-introspect <path>
 
+use clap::Parser;
 use paideia_as_emitter_pax::{PAX_HEADER_SIZE, PaxHeader, SectionTable};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
+#[derive(Parser)]
+#[command(
+    name = "pax-introspect",
+    about = "Dump a PAX file's header + section table",
+    version
+)]
+struct Cli {
+    /// Path to a PAX file
+    #[arg(value_name = "FILE")]
+    path: PathBuf,
+}
+
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() != 2 {
-        eprintln!("usage: pax-introspect <path>");
-        return ExitCode::from(2);
-    }
-    let bytes = match std::fs::read(&args[1]) {
+    let cli = Cli::parse();
+    let bytes = match std::fs::read(&cli.path) {
         Ok(b) => b,
         Err(e) => {
             eprintln!("cannot read: {e}");
@@ -32,7 +40,6 @@ fn main() -> ExitCode {
     println!("  section_table  @ {}", header.section_table_offset);
     println!("  section_count  = {}", header.section_count);
     println!("  blake3_hash    = {}", hex(&header.blake3_content_hash));
-    // Table dump
     let table_bytes = &bytes[PAX_HEADER_SIZE..];
     if let Some(table) = SectionTable::from_bytes(table_bytes, header.section_count) {
         println!("SectionTable (count = {}):", table.len());
