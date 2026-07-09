@@ -161,7 +161,8 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
             file,
             &mut arena,
             &mut parser_sink,
-        );
+        )
+        .with_source_dir(input.parent().map(|p| p.to_path_buf()));
         root_id = p.parse_source_file().ok();
         for d in parser_sink.into_diagnostics() {
             let _ = sink.emit(d);
@@ -1436,7 +1437,33 @@ pub fn run(input: &Path, output: Option<&Path>, emit: &str, optimize: u32, encod
                                     // The bytes are already in the literal_bytes side-table, keyed by the
                                     // InlineBytes node ID. Look them up and emit directly to .rodata/.data
                                     // with 1-byte alignment (the bytes are the payload as-is).
+                                    // T0558: Also check size agreement between declared [u8; N] and actual bytes.
                                     if let Some(bytes) = lowering.ir.literal_bytes().get(rhs_id) {
+                                        // T0558 retroactive size guard: if declared_array_len is Some,
+                                        // it must equal bytes.len(). If not, emit T0558 and skip.
+                                        let declared_len = declared_array_len_from_type(
+                                            node_id, &arena, &source_map, file,
+                                        );
+                                        if let Some(n) = declared_len {
+                                            if (n as usize) != bytes.len() {
+                                                let span = lowering.ir.get(node_id)
+                                                    .map(|n| n.span)
+                                                    .unwrap_or_else(|| paideia_as_diagnostics::Span::new(file, 0, 0));
+                                                let diag = Diagnostic::error(
+                                                    DiagnosticCode::new(Category::T, Severity::Error, 558)
+                                                        .expect("valid T code"),
+                                                )
+                                                .message(format!(
+                                                    "size mismatch: declared [u8; {}] but got {} bytes",
+                                                    n, bytes.len()
+                                                ))
+                                                .with_span(span)
+                                                .finish();
+                                                let _ = sink.emit(diag);
+                                                continue;  // Skip this entry
+                                            }
+                                        }
+
                                         let is_mutable = lowering.ir.let_meta().get(node_id)
                                             .map(|info| info.mutable).unwrap_or(false);
                                         let explicit_align = lowering.ir.let_meta().get(node_id).and_then(|i| i.align);

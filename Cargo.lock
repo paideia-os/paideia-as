@@ -2062,6 +2062,7 @@ dependencies = [
  "paideia-as-diagnostics",
  "paideia-as-ir",
  "paideia-as-lexer",
+ "tempfile",
 ]
 
 [[package]]

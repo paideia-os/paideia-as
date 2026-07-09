@@ -22,6 +22,7 @@ mod build_emit {
     pub mod field_write_u32;
     pub mod guid_inline_bytes;
     pub mod imm64_top_bit;
+    pub mod include_bytes_probe;
     pub mod label_patches;
     pub mod match_enum_pattern;
     pub mod pa10_006i_imm;

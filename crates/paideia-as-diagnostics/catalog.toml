@@ -1205,3 +1205,30 @@ brief = "@guid literal malformed (wrong length, invalid dashes, non-hex characte
 description = "Issue #1012: A @guid compile-time directive has an invalid GUID string. GUID syntax is XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX (36 characters with dashes at positions 8, 13, 18, 23; all other characters must be hexadecimal). Verify the string is 36 characters, dashes are in the correct positions, and all hex characters are valid (0-9, a-f, A-F)."
 since = "0.18.0"
 deprecated = false
+
+[diagnostic.P0279]
+severity = "error"
+category = "parser"
+title = "@include_bytes path error"
+brief = "@include_bytes path is invalid, not found, or inaccessible"
+description = "Issue #1013: The @include_bytes compile-time directive encountered an error resolving or reading the file. Common causes: empty path, absolute path (only relative paths allowed), file not found, permission denied, or path is not a regular file. Verify the path is relative, the file exists, and the file is readable."
+since = "0.19.0"
+deprecated = false
+
+[diagnostic.P0280]
+severity = "error"
+category = "parser"
+title = "@include_bytes file too large"
+brief = "@include_bytes file exceeds 16 MiB limit"
+description = "Issue #1013: The file referenced by @include_bytes is larger than the 16 MiB size limit for compile-time embeds. This limit is enforced to prevent accidentally embedding very large files during compilation. Split the data into smaller files or use a different approach (e.g., external file references) for larger payloads."
+since = "0.19.0"
+deprecated = false
+
+[diagnostic.T0558]
+severity = "error"
+category = "type"
+title = "InlineBytes size mismatch"
+brief = "declared [u8; N] size does not match actual bytes from @guid or @include_bytes"
+description = "Issue #1013 (T0558 retroactive guard): A Let binding has a declared [u8; N] array type annotation, but the actual bytes from the @guid or @include_bytes directive differ in length. Either fix the type annotation to match the actual size, or fix the directive to produce the correct number of bytes. This guard prevents silent data truncation or padding mismatches."
+since = "0.19.0"
+deprecated = false

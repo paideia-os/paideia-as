@@ -72,7 +72,8 @@ pub fn run(input: &Path, dump_ir: bool) -> ExitCode {
             file,
             &mut arena,
             &mut parser_sink,
-        );
+        )
+        .with_source_dir(input.parent().map(|p| p.to_path_buf()));
         let _ = p.parse_source_file();
         for d in parser_sink.into_diagnostics() {
             let _ = sink.emit(d);

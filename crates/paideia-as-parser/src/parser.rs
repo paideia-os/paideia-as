@@ -6,6 +6,8 @@
 //! mismatch and returns `Err(())`; the parser body matches on that to
 //! call [`Parser::recover_to_one_of`] and continue.
 
+use std::path::{Path, PathBuf};
+
 use paideia_as_ast::AstArena;
 use paideia_as_diagnostics::{
     Category, Diagnostic, DiagnosticCode, DiagnosticSink, FileId, Severity,
@@ -36,6 +38,12 @@ pub struct Parser<'tok, 'ast, 'snk> {
     /// Used to disambiguate `~(` as antiquote vs. affine-drop.
     /// Package-private to quote module; use `in_quote()` method publicly.
     pub(crate) in_quote_depth: u32,
+    /// Optional source directory for resolving @include_bytes paths.
+    /// Used by parse_include_bytes_literal to resolve relative paths.
+    source_dir: Option<PathBuf>,
+    /// (Test only) Override for MAX_EMBED_BYTES limit. When set, uses this value
+    /// instead of 16 MiB for @include_bytes file size checks.
+    pub(crate) test_max_embed_bytes: Option<u64>,
 }
 
 impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
@@ -58,6 +66,8 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             sink,
             file,
             in_quote_depth: 0,
+            source_dir: None,
+            test_max_embed_bytes: None,
         }
     }
 
@@ -82,6 +92,26 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     #[must_use]
     pub fn source(&self) -> &str {
         self.source
+    }
+
+    /// Set the source directory for resolving @include_bytes paths.
+    /// This is a chainable setter used by cmd_build and cmd_check.
+    pub fn with_source_dir(mut self, dir: Option<PathBuf>) -> Self {
+        self.source_dir = dir;
+        self
+    }
+
+    /// Get the source directory (if set).
+    #[must_use]
+    pub fn source_dir(&self) -> Option<&Path> {
+        self.source_dir.as_deref()
+    }
+
+    /// (Test only) Set the maximum file size for @include_bytes (for testing oversized-file rejection).
+    #[cfg(test)]
+    pub fn with_test_max_embed_bytes(mut self, max_bytes: Option<u64>) -> Self {
+        self.test_max_embed_bytes = max_bytes;
+        self
     }
 
     /// Check if we are currently inside a `quote { ... }` block.

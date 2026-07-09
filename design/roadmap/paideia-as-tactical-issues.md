@@ -2163,8 +2163,8 @@ symbol.
 - Elaborator: reads the file at compile time (relative to the source file's
   directory or to a `--include-dir` search list); enforces size ≤ N; emits
   as `.rodata` (or `.data` if `mut`) with the file's exact bytes.
-- Path resolution: relative to including file; error P0271 if not found.
-- Diagnostic **P0272** for size mismatch.
+- Path resolution: relative to including file; error P0279 if not found (see issue #1013).
+- Diagnostic **P0280** for size mismatch (file too large > 16 MiB). T0558 guards type mismatch.
 - 10 unit tests including read-my-own-source-file recursion detection.
 
 **Touching files.** Parser, elaborator, tests, docs.
@@ -2692,8 +2692,8 @@ Records ≤ 32 bytes may be probed as an AVX2 metadata block in
   `pub let X : [u8; N] = ...` at module scope.
 - **Path resolution:** relative to the including source file, or from a
   search list configurable via `paideia-as build --include-dir DIR`.
-- **Size validation:** N must match the file's byte count; parser diagnoses
-  **P0272** on mismatch.
+- **Size validation:** N must match the file's byte count; elaborator diagnoses
+  **T0558** on mismatch (and P0280 if file > 16 MiB).
 - **Section routing:** `.rodata` (default) or `.data` (if `mut`);
   overridable via `@link_section("...")`.
 - **Retires:** paideia-os's `.incbin`-in-a-`.S`-file workaround for
