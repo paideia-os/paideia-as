@@ -25,7 +25,7 @@ fn cargo_run(args: &[&str]) -> std::process::Output {
 #[test]
 fn link_section_data_emits_into_named_section() {
     // Test that a let binding with @link_section emits into a custom section
-    // Build the fixture which has: pub let payload @link_section(".uefi_hdr")
+    // Build the fixture which has: pub let payload @link_section(".uefihdr")
     let out = run_build(build_emit("link_section_probe.pdx"));
     out.assert_ok();
 
@@ -36,25 +36,25 @@ fn link_section_data_emits_into_named_section() {
 
     // Verify the custom section exists
     assert!(
-        elf::has_section(&bytes, ".uefi_hdr"),
-        ".uefi_hdr section must exist in ELF"
+        elf::has_section(&bytes, ".uefihdr"),
+        ".uefihdr section must exist in ELF"
     );
 
     // Get section size - should be 8 bytes (size of @include_bytes payload)
-    let section_size = elf::section_size(&bytes, ".uefi_hdr")
-        .expect(".uefi_hdr section size should be readable");
-    assert_eq!(section_size, 8, "expected .uefi_hdr section to be 8 bytes");
+    let section_size = elf::section_size(&bytes, ".uefihdr")
+        .expect(".uefihdr section size should be readable");
+    assert_eq!(section_size, 8, "expected .uefihdr section to be 8 bytes");
 
     // Verify the payload symbol exists and points to the custom section
     let (sym_section_idx, _) = elf::symbol_section_and_addr(&bytes, "payload")
         .expect("payload symbol should exist");
 
-    let custom_section_idx = elf::section_index_by_name(&bytes, ".uefi_hdr")
-        .expect(".uefi_hdr section index should be readable");
+    let custom_section_idx = elf::section_index_by_name(&bytes, ".uefihdr")
+        .expect(".uefihdr section index should be readable");
 
     assert_eq!(
         sym_section_idx, custom_section_idx,
-        "payload symbol must reside in .uefi_hdr section, not .rodata"
+        "payload symbol must reside in .uefihdr section, not .rodata"
     );
 }
 
@@ -69,9 +69,9 @@ fn link_section_data_bytes_are_correct() {
     // Verify ELF64 magic
     elf::assert_elf64_magic(&bytes);
 
-    // Extract the .uefi_hdr section bytes
-    let section_bytes = elf::named_section_bytes(&bytes, ".uefi_hdr");
-    assert!(!section_bytes.is_empty(), ".uefi_hdr section must contain data");
+    // Extract the .uefihdr section bytes
+    let section_bytes = elf::named_section_bytes(&bytes, ".uefihdr");
+    assert!(!section_bytes.is_empty(), ".uefihdr section must contain data");
     assert_eq!(section_bytes.len(), 8, "section must have exactly 8 bytes");
 
     // Expected bytes: the exact file contents from data/include_bytes_probe.bin
@@ -86,7 +86,7 @@ fn link_section_data_bytes_are_correct() {
 
 #[test]
 fn link_section_default_section_absent_for_this_symbol() {
-    // Test that payload symbol does NOT appear in .rodata (it's in .uefi_hdr instead)
+    // Test that payload symbol does NOT appear in .rodata (it's in .uefihdr instead)
     let out = run_build(build_emit("link_section_probe.pdx"));
     out.assert_ok();
 

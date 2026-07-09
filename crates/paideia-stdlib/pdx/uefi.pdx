@@ -34,7 +34,7 @@ pub let OFF_SECTION_TABLE_START   : u64 = 0x148
 
 // Layer 2: Template pub let (uses @include_bytes + @link_section + @align).
 pub let UEFI_HEADER_TEMPLATE : [u8; 512] =
-    @include_bytes("uefi_header_template.bin") @link_section(".uefi_hdr") @align(4096)
+    @include_bytes("uefi_header_template.bin") @link_section(".uefihdr") @align(4096)
 
 // Layer 4: Declaration-only UefiHeaderOps trait matching mmio.pdx / bytes.pdx style.
 // Effect: !{RawMem} for patchers (access to caller-owned buffers).
