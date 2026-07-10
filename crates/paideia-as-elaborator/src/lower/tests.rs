@@ -462,8 +462,8 @@ fn lower_indexed_lvalue_with_plus_operator_produces_app() {
 }
 
 #[test]
-fn lower_regular_assign_produces_app() {
-    // Verify that regular assignment (not to an index) still lowers to App.
+fn lower_bare_ident_assign_produces_store() {
+    // #1116: Verify that Pattern 5 (bare Ident LHS with =) now lowers to Store, not App.
     let (source_map, mut sink) = create_test_source_map_and_sink();
     // Build: x = 5
     let mut ast = AstArena::new();
@@ -474,10 +474,8 @@ fn lower_regular_assign_produces_app() {
     // Allocate literal: 5
     let lit_5_id = ast.alloc(NodeKind::ExprLiteral, span());
 
-    // Allocate the operator node (=) - a real "=" span, so this test
-    // exercises Pattern-5 (bare Ident LHS) rejection via
-    // `is_lvalue_infix_assignment`, not a vacuous pass caused by a
-    // non-"=" placeholder span.
+    // Allocate the operator node (=) - a real "=" span.
+    // This test verifies that Pattern 5 (bare Ident LHS) now produces Store.
     let assign_op_id = ast.alloc(NodeKind::Placeholder, eq_operator_span_1());
 
     // Allocate ExprInfix: x = 5 (not an indexed assignment)
@@ -494,12 +492,12 @@ fn lower_regular_assign_produces_app() {
     // Lower the AST.
     let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty(), &std::collections::HashMap::new());
 
-    // Verify the assignment lowered to App (regular operator desugaring)
+    // Verify the assignment lowered to Store (Pattern 5: bare Ident assignment)
     let assign_ir_id = result.ast_to_ir[&assign_expr_id];
     assert_eq!(
         result.ir[assign_ir_id].kind,
-        IrKind::App,
-        "Regular assignment should lower to App"
+        IrKind::Store,
+        "Pattern 5 (bare Ident LHS with =) should lower to Store"
     );
 }
 

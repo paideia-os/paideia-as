@@ -34,21 +34,32 @@ pub enum TailContext {
 }
 
 impl EmitWalker {
-    /// #1115: Three-way Store dispatch shared by `emit_block_body` and
-    /// `emit_block_body_arm`. Chooses field-assign vs. array/pointer store
+    /// #1115 / #1116: Three-way Store dispatch shared by `emit_block_body` and
+    /// `emit_block_body_arm`. Chooses field-assign vs. var-assign vs. array/pointer store
     /// by inspecting the Store node's first child.
-    fn dispatch_store(&mut self, store_id: IrNodeId, arena: &IrArena) {
+    ///
+    /// Dispatch order:
+    /// 1. FieldAccess → visit_field_assign (module-level record field write via rip-sym)
+    /// 2. Var → visit_var_assign (module-level let mut write via rip-sym)
+    /// 3. Default → visit_store (array/pointer store via MemSib)
+    pub(crate) fn dispatch_store(&mut self, store_id: IrNodeId, arena: &IrArena) {
         let store_children = arena.children(store_id);
-        let is_field_assign = store_children
+        let first_child_kind = store_children
             .first()
             .and_then(|&c| arena.get(c))
-            .map(|n| n.kind == IrKind::FieldAccess)
-            .unwrap_or(false);
+            .map(|n| n.kind);
 
-        if is_field_assign {
-            self.visit_field_assign(store_id, arena);
-        } else {
-            self.visit_store(store_id, arena);
+        match first_child_kind {
+            Some(IrKind::FieldAccess) => {
+                self.visit_field_assign(store_id, arena);
+            }
+            Some(IrKind::Var) => {
+                self.visit_var_assign(store_id, arena);
+            }
+            _ => {
+                // Default: array index or pointer deref
+                self.visit_store(store_id, arena);
+            }
         }
     }
 

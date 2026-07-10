@@ -866,6 +866,39 @@ impl EmitWalker {
                         };
                         self.emit_inst(ret_id, ret_inst);
                     }
+                    // #1116: Store-bodied lambda `fn (v: u64) -> counter = v`
+                    // Pattern 5: module-level let mut assignment via lambda body
+                    IrKind::Store => {
+                        if cfg!(debug_assertions) {
+                            eprintln!(
+                                "[visit_lambda Store] Lambda {} body=Store",
+                                lambda_node_id.get()
+                            );
+                        }
+
+                        // Record the lambda's starting offset.
+                        let main_id = lambda_node_id;
+                        self.record_lambda_entry(lambda_node_id, main_id);
+
+                        // Dispatch the store based on its first child (see dispatch_store for routing logic).
+                        // For Pattern 5 (Var LHS), this routes to visit_var_assign.
+                        self.dispatch_store(body_id, arena);
+
+                        // Mark the store as emitted so walk_inner's top-level Store gate skips it.
+                        self.state.mark_store_emitted(body_id.get());
+
+                        // Emit ret at a high ID so it sorts after the store instruction.
+                        let ret_id = IrNodeId::new(lambda_node_id.get() * 2 + 1)
+                            .expect("ret virtual id for store-lambda");
+                        let ret_inst = Instruction {
+                            mnemonic: Mnemonic::Ret,
+                            operands: SmallVec::new(),
+                            encoding_hint: None,
+                            byte_offset_in_text: None,
+                            mode: self.current_mode(),
+                        };
+                        self.emit_inst(ret_id, ret_inst);
+                    }
                     _ => {
                         // Other lambda shapes deferred to m1-004+
                     }

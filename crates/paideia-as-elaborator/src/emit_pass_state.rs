@@ -147,6 +147,11 @@ pub struct EmitPassState {
     /// for module-level Let nodes that already have a DataEntry, preventing spurious
     /// .text emission before function bodies.
     pub(crate) handled_data_let_ids: HashSet<u32>,
+
+    /// #1116: Store IR nodes already handled by visit_lambda's Store arm.
+    /// Populated by walk_inner pre-pass when a Lambda has a Store body.
+    /// Signals walk_inner's top-level Store gate to skip double-emission.
+    pub(crate) emitted_store_ids: HashSet<u32>,
 }
 
 impl EmitPassState {
@@ -325,6 +330,17 @@ impl EmitPassState {
     #[must_use]
     pub(crate) fn was_data_let_handled(&self, id: u32) -> bool {
         self.handled_data_let_ids.contains(&id)
+    }
+
+    /// Mark a Store node as emitted by visit_lambda's Store arm.
+    pub(crate) fn mark_store_emitted(&mut self, id: u32) {
+        self.emitted_store_ids.insert(id);
+    }
+
+    /// Check if a Store node was already emitted by visit_lambda's Store arm.
+    #[must_use]
+    pub(crate) fn was_store_emitted(&self, id: u32) -> bool {
+        self.emitted_store_ids.contains(&id)
     }
 
     // ── Whole-map accessors for cross-crate consumers ────────────────────

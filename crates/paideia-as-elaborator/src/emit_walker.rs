@@ -246,6 +246,8 @@ impl EmitWalker {
         // fire T0518/T0516 false positives on nodes they don't own.
         // #1131: Also marks Let nodes handled by populate_data_table so
         // visit_let_literal skips emitting spurious Mov instructions.
+        // #1116: Also marks Lambda→Store bodies as emitted so top-level Store dispatch
+        // skips double-emission when visit_lambda's Store arm handles them.
         for i in 1..=arena.len() as u32 {
             if let Some(node_id) = IrNodeId::new(i) {
                 if let Some(node) = arena.get(node_id) {
@@ -305,6 +307,18 @@ impl EmitWalker {
                                                                 }
                                                             }
                                                         }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        // #1116: Lambda → Store with Var LHS (Pattern 5)
+                                        // Owned by visit_lambda's Store arm, mark as emitted
+                                        IrKind::Store => {
+                                            let store_children = arena.children(body_id);
+                                            if let Some(&first_child) = store_children.first() {
+                                                if let Some(first_node) = arena.get(first_child) {
+                                                    if first_node.kind == IrKind::Var {
+                                                        self.state.mark_store_emitted(body_id.get());
                                                     }
                                                 }
                                             }
@@ -455,20 +469,32 @@ impl EmitWalker {
                             }
                         }
                         IrKind::Store => {
-                            // Check if this is a field assignment (*p).f = value (first child is FieldAccess)
-                            // or a regular deref/array store.
-                            let children = arena.children(node_id);
-                            let is_field_assign = children.first()
-                                .and_then(|&c| arena.get(c))
-                                .map(|n| n.kind == IrKind::FieldAccess)
-                                .unwrap_or(false);
+                            // #1116: Skip if this Store was already handled by visit_lambda's Store arm.
+                            // This prevents double-emission for Lambda → Store patterns.
+                            if self.state.was_store_emitted(node_id.get()) {
+                                continue;
+                            }
 
-                            if is_field_assign {
-                                // pa-r17-006 (#984): emit field assignment lowering for (*p).f = value
-                                self.visit_field_assign(node_id, arena);
-                            } else {
-                                // Phase 7 m5-001: emit array-index assignment lowering for a[i] = expr.
-                                self.visit_store(node_id, arena);
+                            // Check if this is a field assignment (*p).f = value (first child is FieldAccess),
+                            // var assignment counter = v (first child is Var), or a regular deref/array store.
+                            let children = arena.children(node_id);
+                            let first_child_kind = children.first()
+                                .and_then(|&c| arena.get(c))
+                                .map(|n| n.kind);
+
+                            match first_child_kind {
+                                Some(IrKind::FieldAccess) => {
+                                    // pa-r17-006 (#984): emit field assignment lowering for (*p).f = value
+                                    self.visit_field_assign(node_id, arena);
+                                }
+                                Some(IrKind::Var) => {
+                                    // #1116: emit var assignment lowering for counter = v
+                                    self.visit_var_assign(node_id, arena);
+                                }
+                                _ => {
+                                    // Phase 7 m5-001: emit array-index assignment lowering for a[i] = expr.
+                                    self.visit_store(node_id, arena);
+                                }
                             }
                         }
                         IrKind::RecordCons => {

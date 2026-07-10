@@ -30,6 +30,7 @@ mod build_emit {
     pub mod link_section_probe;
     pub mod match_enum_pattern;
     pub mod module_let_no_text_emission;
+    pub mod module_let_mut_assign_via_lambda;
     pub mod pa10_006i_imm;
     pub mod pa10_006k_ljmp;
     pub mod pa10_006l_inout;

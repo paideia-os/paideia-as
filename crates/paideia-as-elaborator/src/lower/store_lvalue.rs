@@ -17,7 +17,7 @@
 use paideia_as_ast::{AstArena, ExprData, NodeId, NodeKind};
 
 /// Given an `ExprInfix` node whose operator token is `=` (single byte),
-/// return `true` iff the LHS is one of the four l-value shapes that lower
+/// return `true` iff the LHS is one of the five l-value shapes that lower
 /// to `IrKind::Store`.
 pub(super) fn is_lvalue_infix_assignment(ast: &AstArena, lhs: NodeId) -> bool {
     if let Some(ExprData::Call { args, .. }) = ast.expr_data(lhs) {
@@ -39,12 +39,24 @@ pub(super) fn is_lvalue_infix_assignment(ast: &AstArena, lhs: NodeId) -> bool {
             return n.kind == NodeKind::ExprPath || n.kind == NodeKind::Ident;
         }
     }
+    // Pattern 5: counter = v (bare Ident or single-segment ExprPath)
+    // #1132 classifier guard ensures operator token is literally "="
+    if let Some(n) = ast.get(lhs) {
+        if n.kind == NodeKind::Ident {
+            return true;
+        }
+        if n.kind == NodeKind::ExprPath {
+            if let Some(ExprData::Path { segments }) = ast.expr_data(lhs) {
+                return segments.len() == 1;
+            }
+        }
+    }
     false
 }
 
 /// Compute the child list for a Store node produced from an Infix `=` node.
 ///
-/// Returns `Some(children)` if `lhs` matches one of the four l-value
+/// Returns `Some(children)` if `lhs` matches one of the five l-value
 /// patterns; children are laid out as `[addr_or_field_access, index_or_unused, value]`
 /// per the emit-pass contract:
 ///
@@ -52,6 +64,7 @@ pub(super) fn is_lvalue_infix_assignment(ast: &AstArena, lhs: NodeId) -> bool {
 /// - Pattern 2 `*p = value` → `[pointer, op, value]` (op is the `=` node — reused as the "unused" slot)
 /// - Patterns 3 & 4 field access → `[FieldAccess_ast, op, value]` (the FieldAccess AST id
 ///   is later remapped to its IR id by the caller's child-transfer loop)
+/// - Pattern 5 `counter = v` → `[Var(lhs), op, Var(rhs)]` (bare Ident or single-segment path)
 ///
 /// Returns `None` if `lhs` does not match a supported l-value shape (caller
 /// should fall back to the plain Infix `[op, lhs, rhs]` layout).
@@ -80,6 +93,21 @@ pub(super) fn store_children(
     // in the children transfer loop below.
     if let Some(ExprData::FieldAccess { .. }) = ast.expr_data(lhs) {
         return Some(vec![lhs, op, rhs]);
+    }
+    // Try Pattern 5: counter = v (bare Ident or single-segment ExprPath)
+    // For var store, children are [Var(lhs), op, Var(rhs)]
+    // Both LHS and RHS become Var nodes in the IR.
+    if let Some(n) = ast.get(lhs) {
+        if n.kind == NodeKind::Ident || n.kind == NodeKind::ExprPath {
+            if n.kind == NodeKind::Ident {
+                return Some(vec![lhs, op, rhs]);
+            }
+            if let Some(ExprData::Path { segments }) = ast.expr_data(lhs) {
+                if segments.len() == 1 {
+                    return Some(vec![lhs, op, rhs]);
+                }
+            }
+        }
     }
     None
 }
@@ -248,13 +276,13 @@ mod tests {
     }
 
     #[test]
-    fn is_lvalue_ident_not_assignment() {
-        // Plain Ident should NOT be considered an l-value (Pattern 5 is not yet implemented)
+    fn is_lvalue_ident_is_assignment() {
+        // Plain Ident IS an l-value (Pattern 5: counter = v)
         let mut ast = AstArena::new();
 
         let ident_id = ast.alloc(NodeKind::Ident, dummy_span());
 
-        assert!(!is_lvalue_infix_assignment(&ast, ident_id));
+        assert!(is_lvalue_infix_assignment(&ast, ident_id));
     }
 
     #[test]

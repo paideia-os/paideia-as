@@ -112,6 +112,126 @@ impl EmitWalker {
         self.emit_inst(store_id, inst);
     }
 
+    /// Pattern 5 (#1116): Emit variable assignment for module-level `let mut` via lambda body.
+    ///
+    /// Handles: `counter = v` where counter is a module-level symbol and v is a register parameter.
+    ///
+    /// Children layout (from Edit 1b): `[Var(lhs_name), op, Var(rhs_name)]`
+    /// - child[0]: Var node for LHS (module symbol name)
+    /// - child[1]: op (=) node — unused
+    /// - child[2]: Var node for RHS (source register parameter)
+    ///
+    /// Resolution:
+    /// - LHS: lookup via `arena.symbols().lookup_by_name` → must be a module symbol, not in `local_bindings`
+    /// - RHS: lookup in `local_bindings` → must resolve to a register (function parameter)
+    ///
+    /// Fallback behavior:
+    /// - If LHS is shadowed by local binding: emit T0518 diagnostic (do NOT silently shadow module symbol)
+    /// - If RHS is not in local_bindings: emit T0518 (non-register sources not yet supported)
+    /// - If RHS is literal: fall back to generic Store or emit T0518
+    ///
+    /// Emission (MVP):
+    /// - Hardcoded u64 (8-byte) width: `mov [rip+counter], rdi` (source in RDI per SysV ABI)
+    /// - Uses `emit_mem_write_via_rip_sym(store_id, src_reg, "counter", 0, 8, false)`
+    /// - T0529 for non-u64 widths (mirrors `emit_mem_write_via_rip_sym` gap)
+    pub(crate) fn visit_var_assign(&mut self, store_id: IrNodeId, arena: &IrArena) {
+        let children = arena.children(store_id);
+        if children.len() != 3 {
+            self.diagnostics.push(format!(
+                "Store node {} has {} children; expected 3",
+                store_id.get(),
+                children.len()
+            ));
+            return;
+        }
+
+        let lhs_id = children[0];
+        let _op_id = children[1];
+        let rhs_id = children[2];
+
+        // Verify both children are Var nodes
+        let lhs_node = arena.get(lhs_id);
+        let rhs_node = arena.get(rhs_id);
+
+        if lhs_node.map(|n| n.kind) != Some(IrKind::Var) {
+            self.diagnostics.push(format!(
+                "Store (var_assign) LHS must be Var; got {:?}",
+                lhs_node.map(|n| n.kind)
+            ));
+            return;
+        }
+
+        if rhs_node.map(|n| n.kind) != Some(IrKind::Var) {
+            self.diagnostics.push(format!(
+                "Store (var_assign) RHS must be Var; got {:?}",
+                rhs_node.map(|n| n.kind)
+            ));
+            return;
+        }
+
+        // Resolve LHS name
+        let lhs_name = match arena.binding_names().get(lhs_id) {
+            Some(name) => name.to_string(),
+            None => {
+                self.diagnostics.push(format!(
+                    "Store (var_assign) LHS Var {} has no binding name",
+                    lhs_id.get()
+                ));
+                return;
+            }
+        };
+
+        // Check if LHS is shadowed by a local binding (error case)
+        if self.state.local_bindings.contains(&lhs_name) {
+            self.diagnostics.push(format!(
+                "T0518: variable {} is shadowed by a local binding; cannot assign to module symbol",
+                lhs_name
+            ));
+            return;
+        }
+
+        // Verify LHS is a module symbol (not a function parameter)
+        if arena.symbols().lookup_by_name(&lhs_name).is_none() {
+            self.diagnostics.push(format!(
+                "T0518: variable {} is not a module symbol; var_assign requires module-level let mut",
+                lhs_name
+            ));
+            return;
+        }
+
+        // Resolve RHS name and register
+        let rhs_name = match arena.binding_names().get(rhs_id) {
+            Some(name) => name.to_string(),
+            None => {
+                self.diagnostics.push(format!(
+                    "Store (var_assign) RHS Var {} has no binding name",
+                    rhs_id.get()
+                ));
+                return;
+            }
+        };
+
+        let src_reg = match self.state.local_bindings.get(&rhs_name) {
+            Some(reg) => reg,
+            None => {
+                self.diagnostics.push(format!(
+                    "T0518: var_assign RHS {} not found in local bindings; non-register sources not yet supported",
+                    rhs_name
+                ));
+                return;
+            }
+        };
+
+        // MVP: hardcoded u64 width (8 bytes)
+        // T0529 for non-u64 widths
+        let size = 8;
+        let signed = false;
+        let addend = 0;
+
+        // Emit store via rip-relative symbol reference
+        self.emit_mem_write_via_rip_sym(store_id, src_reg, lhs_name, addend, size, signed);
+    }
+
     pub(crate) fn visit_record_cons(&mut self, record_cons_id: IrNodeId, arena: &IrArena) {
         // Look up the RecordTypeId for this RecordCons node.
         let type_id = match arena.record_layout_table().get(record_cons_id) {

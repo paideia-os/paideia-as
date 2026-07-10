@@ -1,0 +1,4 @@
+module ModuleLetMutAssignViaLambda = structure {
+  let mut counter : u64 = 0
+  pub let set_counter : (u64) -> u64 = fn (v: u64) -> counter = v
+}
