@@ -383,6 +383,27 @@ impl EmitWalker {
                                 }
                             }
                         }
+                        IrKind::Store => {
+                            // #1146: Store → FieldAccess(Deref(...)) — owned by visit_field_assign.
+                            // Mark FieldAccess handled BEFORE the flat dispatch reaches its
+                            // (children-first, therefore lower) id, else visit_field_access_with_reg
+                            // emits a dead widening load under the FieldAccess node id.
+                            let children = arena.children(node_id);
+                            if let Some(&fa_id) = children.first() {
+                                if let Some(fa_node) = arena.get(fa_id) {
+                                    if fa_node.kind == IrKind::FieldAccess {
+                                        let fa_children = arena.children(fa_id);
+                                        if let Some(&recv_id) = fa_children.first() {
+                                            if let Some(recv_node) = arena.get(recv_id) {
+                                                if recv_node.kind == IrKind::Deref {
+                                                    self.state.mark_field_access_handled(fa_id.get());
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         _ => {}
                     }
                 }

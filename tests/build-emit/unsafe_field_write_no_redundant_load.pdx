@@ -1,0 +1,15 @@
+// #1146: Field write via pointer dereference emits only one mov,
+// not a dead widening load. Pre-pass marks FieldAccess handled when Store's
+// first child is FieldAccess(Deref(...)) so visit_field_access_with_reg
+// doesn't independently emit a load.
+//
+// Tests Store→FieldAccess IR pattern where FieldAccess is the LHS of assignment.
+// Fixture adjusted: uses module-level field write (pt.x = 42) which lowers to
+// Store→FieldAccess pattern (just not with Deref, as the PDX language doesn't
+// yet support (*p).field assignment syntax in high-level lambdas).
+
+module UnsafeFieldWriteNoRedundantLoad = structure {
+  struct Point { x: u32, y: u32 }
+  pub let pt : Point = Point { x: 0, y: 0 }
+  pub let bump_x : () -> () !{} @{} = fn(_: ()) -> { pt.x = 42 }
+}

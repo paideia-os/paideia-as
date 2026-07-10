@@ -990,6 +990,77 @@ fn visit_field_assign_i32_signed_same_as_u32() {
 // and future readers can find the deferred-work markers alongside the passing
 // width-dispatch tests.
 
+#[test]
+fn visit_field_assign_no_redundant_load() {
+    // #1146: Store→FieldAccess(Deref) pre-pass arm ensures only ONE
+    // instruction (the store) is emitted, not a dead widening load.
+    let mut arena = IrArena::new();
+
+    // Store's 3-child shape: [FieldAccess, index_or_unused, value]
+    let ptr_var_id = arena.alloc(IrKind::Var, span());
+    let deref_id = arena.alloc_with_children(IrKind::Deref, span(), [ptr_var_id]);
+    let field_access_id =
+        arena.alloc_with_children(IrKind::FieldAccess, span(), [deref_id]);
+    let index_id = arena.alloc(IrKind::Var, span());
+    let value_id = arena.alloc(IrKind::Var, span());
+    let store_id = arena.alloc_with_children(
+        IrKind::Store,
+        span(),
+        [field_access_id, index_id, value_id],
+    );
+
+    arena.field_access_info_mut().insert(
+        field_access_id,
+        paideia_as_ir::record_layout::FieldAccessInfo {
+            type_id: RecordTypeId(1),
+            field_index: 0,
+        },
+    );
+
+    let field_layout = FieldLayout {
+        offset: 0,
+        size: 4,
+        signed: false,
+    };
+    let layout = RecordLayout::new(4, 4, vec![field_layout]);
+
+    let mut walker = EmitWalker::new();
+    walker
+        .state_mut()
+        .record_layouts
+        .insert(RecordTypeId(1), layout);
+    walker.walk(&mut arena);
+
+    // Assert exactly 1 instruction emitted (the store, no dead load)
+    assert_eq!(
+        walker.state().instructions.iter().count(),
+        1,
+        "Should emit exactly 1 instruction (the store), not a redundant load"
+    );
+
+    // Assert the instruction is MovSized{W32} with [MemSib, Reg] operands
+    let store_instr = walker
+        .state()
+        .instructions
+        .get(store_id)
+        .expect("Store node should have emitted an instruction");
+    assert_eq!(
+        store_instr.mnemonic,
+        Mnemonic::MovSized {
+            width: IntWidth::W32
+        }
+    );
+    assert_eq!(store_instr.operands.len(), 2);
+    assert!(matches!(store_instr.operands[0], Operand::MemSib { .. }));
+    assert!(matches!(store_instr.operands[1], Operand::Reg { .. }));
+
+    // Assert the FieldAccess node is marked as handled (no instruction emitted for it)
+    assert!(
+        walker.state().instructions.get(field_access_id).is_none(),
+        "FieldAccess node should be marked handled (no instruction emitted)"
+    );
+}
+
 // ── Enum cons tests (PA-r17-007) ────
 
 /// Helper: build a real EnumCons IR node, register layout, walk the arena,
