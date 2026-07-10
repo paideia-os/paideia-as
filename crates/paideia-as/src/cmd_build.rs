@@ -684,6 +684,22 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                 let _ = walker_sink.emit(diag);
             }
 
+            // Issue #1082: drain the legacy Vec<String> channel through U1616.
+            // Post-#1086 migration this holds only non-T-coded internal errors
+            // (invariant violations, missing side-tables, unpopulated layouts).
+            // Any fire == silent-broken-.o class bug; emit as error.
+            for msg in emit_walker.take_legacy_diagnostics() {
+                let code = paideia_as_diagnostics::DiagnosticCode::new(
+                    paideia_as_diagnostics::Category::U,
+                    paideia_as_diagnostics::Severity::Error,
+                    1616,
+                ).expect("valid U1616 code");
+                let diag = paideia_as_diagnostics::Diagnostic::error(code)
+                    .message(msg)
+                    .finish();
+                let _ = walker_sink.emit(diag);
+            }
+
             // Phase-5-m3-005: Run UnsafeWalker to elaborate pending unsafe blocks.
             // Take pending unsafe blocks from EmitWalker state and process them.
             let pending = emit_walker.state_mut().take_pending_unsafe();

@@ -1615,6 +1615,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "Phase 8 emit_enum_match: enum constructor payload lowering currently supports only Literal and Var child nodes (constants or variable bindings). Other shapes such as RecordCons (record literal payloads in enum constructors) are not yet supported. Restructure to use a simpler payload expression, or defer this pattern to a later phase."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0559",
+              "id": "T0559",
+              "name": "Unsupported EnumCons payload shape",
+              "shortDescription": {
+                "text": "EnumCons payload child is neither Literal nor Var"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "A binding declared as Linear or Ordered in the substructural lattice must be used exactly once. This binding was never used. A Linear binding represents a unique resource that must be consumed; Ordered adds ordering constraints. Check that the binding is referenced exactly once in its scope."
               },
               "helpUri": "https://paideia-os.org/diagnostics/S0900",
@@ -2070,6 +2084,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "R11 scratch-register collision in imm64 bitwise expansion",
               "shortDescription": {
                 "text": "destination register r11 collision in movabs r11, imm64 expansion for bitwise operations"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "cmd_build drained a message from emit_walker.diagnostics() — the legacy\nVec<String> channel used by internal invariants and shape gaps that predate\nthe typed diagnostic pipe (T0516, T0518, T0521, etc.). The raw message follows.\n\nThis diagnostic indicates a compiler-internal error: invariant violations,\nmissing side-tables, or unpopulated layouts in the elaborator. Any fire\nrepresents a silent-broken-.o class bug that would previously have shipped\nwithout a build error.\n\nPost-#1086 migration, this channel holds only non-T-coded internal errors;\nall user-facing shape gaps have migrated to the typed pipe. If you see this\ndiagnostic, the elaborator has detected a structural invariant violation and\ncannot proceed safely.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1616",
+              "id": "U1616",
+              "name": "Emitter internal error (legacy channel)",
+              "shortDescription": {
+                "text": "cmd_build drained a message from emit_walker.diagnostics()"
               }
             },
             {

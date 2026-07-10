@@ -963,6 +963,29 @@ different destination register or hoist the bitwise operation outside the site.
 since = "0.19.0"
 deprecated = false
 
+[diagnostic.U1616]
+severity = "error"
+category = "unsafe"
+title = "Emitter internal error (legacy channel)"
+brief = "cmd_build drained a message from emit_walker.diagnostics()"
+description = """
+cmd_build drained a message from emit_walker.diagnostics() — the legacy
+Vec<String> channel used by internal invariants and shape gaps that predate
+the typed diagnostic pipe (T0516, T0518, T0521, etc.). The raw message follows.
+
+This diagnostic indicates a compiler-internal error: invariant violations,
+missing side-tables, or unpopulated layouts in the elaborator. Any fire
+represents a silent-broken-.o class bug that would previously have shipped
+without a build error.
+
+Post-#1086 migration, this channel holds only non-T-coded internal errors;
+all user-facing shape gaps have migrated to the typed pipe. If you see this
+diagnostic, the elaborator has detected a structural invariant violation and
+cannot proceed safely.
+"""
+since = "0.17.0"
+deprecated = false
+
 [diagnostic.T0521]
 severity = "error"
 category = "type"
@@ -1281,6 +1304,15 @@ title = "InlineBytes size mismatch"
 brief = "declared [u8; N] size does not match actual bytes from @guid or @include_bytes"
 description = "Issue #1013 (T0558 retroactive guard): A Let binding has a declared [u8; N] array type annotation, but the actual bytes from the @guid or @include_bytes directive differ in length. Either fix the type annotation to match the actual size, or fix the directive to produce the correct number of bytes. This guard prevents silent data truncation or padding mismatches."
 since = "0.19.0"
+deprecated = false
+
+[diagnostic.T0559]
+severity = "error"
+category = "type"
+title = "Unsupported EnumCons payload shape"
+brief = "EnumCons payload child is neither Literal nor Var"
+description = "Phase 8 emit_enum_match: enum constructor payload lowering currently supports only Literal and Var child nodes (constants or variable bindings). Other shapes such as RecordCons (record literal payloads in enum constructors) are not yet supported. Restructure to use a simpler payload expression, or defer this pattern to a later phase."
+since = "0.17.0"
 deprecated = false
 
 [diagnostic.P0282]

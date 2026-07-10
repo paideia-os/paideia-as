@@ -98,6 +98,18 @@ impl EmitWalker {
         std::mem::take(&mut self.structured_diagnostics)
     }
 
+    /// Drain and return the legacy free-form diagnostics accumulated during the walk.
+    ///
+    /// Called once by `cmd_build::run` after typed diagnostics are drained
+    /// (issue #1082). Each message is wrapped in a U1616 Diagnostic before emission.
+    /// Post-#1086 migration, this channel holds only non-T-coded internal errors
+    /// (invariant violations, missing side-tables, unpopulated layouts).
+    /// Any fire indicates a silent-broken-.o class bug.
+    #[must_use]
+    pub fn take_legacy_diagnostics(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.diagnostics)
+    }
+
     /// Phase 15 m2-002a: Set the root module's instruction mode.
     /// This initializes the mode_stack for instruction emission.
     /// Must be called before walk() or walk_with_typer().

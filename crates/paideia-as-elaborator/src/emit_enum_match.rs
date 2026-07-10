@@ -9,9 +9,16 @@
 
 use paideia_as_ir::instruction::{Cond, Instruction, Mnemonic, Operand, RegId};
 use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi, PassingConvention};
+use paideia_as_diagnostics::{DiagnosticCode, Category, Severity};
 
 use crate::emit_block_body::TailContext;
 use crate::emit_walker::EmitWalker;
+
+/// Helper to construct T0559 diagnostic code.
+fn t0559_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::T, Severity::Error, 559)
+        .expect("T0559 is within valid T range")
+}
 
 impl EmitWalker {
     /// PA-r17-007: Emit enum variant constructor lowering.
@@ -22,6 +29,19 @@ impl EmitWalker {
     ///
     /// EnumCons node children: [payload_expr (optional)]
     pub(crate) fn visit_enum_cons(&mut self, enum_cons_id: IrNodeId, arena: &IrArena) {
+        // #1145: If this EnumCons has a RecordCons payload that's been marked as
+        // handled (by the pre-pass for data-let EnumCons), skip code generation.
+        // The data_encoder has already serialized the enum to binary data.
+        let children = arena.children(enum_cons_id);
+        if let Some(&payload_id) = children.first() {
+            if let Some(_payload_node) = arena.get(payload_id) {
+                if self.state.was_record_cons_handled(payload_id.get()) {
+                    // This is a data-encoder-owned enum value; skip emission.
+                    return;
+                }
+            }
+        }
+
         let info = match arena.enum_cons_info().get(enum_cons_id) {
             Some(i) => i,
             None => {
@@ -99,11 +119,14 @@ impl EmitWalker {
                                     Operand::Reg(abi::RDI)
                                 }
                                 _ => {
-                                    self.diagnostics.push(format!(
-                                        "EnumCons {} payload child {:?} not supported (only Literal/Var)",
-                                        enum_cons_id.get(),
-                                        child.map(|n| n.kind)
-                                    ));
+                                    self.push_typed_diag(
+                                        t0559_code(),
+                                        format!(
+                                            "EnumCons {} payload child {:?} not supported (only Literal/Var)",
+                                            enum_cons_id.get(),
+                                            child.map(|n| n.kind)
+                                        ),
+                                    );
                                     return;
                                 }
                             }
