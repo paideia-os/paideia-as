@@ -59,19 +59,37 @@ fn bump_emits_mov_rip_sym_and_ret() {
         bump_offset, actual
     );
 
-    // Expected: mov [rip+counter], rdi (7 bytes) + mov rax, rdi (3 bytes) + ret (1 byte)
-    // Total: 11 bytes (but could be slightly different due to encoding)
-    assert!(
-        actual.len() >= 8,
-        "bump must be at least 8 bytes (mov [rip+counter], rdi; ret minimum)"
+    // Adversarial-verify of #1094: tightened from a weak `>= 8` lower bound to an
+    // exact byte count. `v`'s ABI register (RDI) already matches the return-value
+    // register, so the tail expression `v` is a no-op and the encoder correctly
+    // omits any `mov rax, rdi` — the true expected shape is exactly
+    // `mov [rip+counter], rdi` (7 bytes) + `ret` (1 byte) = 8 bytes, confirmed via
+    // a direct `paideia-as build --emit elf64` + objdump run against this fixture.
+    // A loose `>= 8` bound would not have caught a double-emitted Store (e.g. two
+    // copies of the 7-byte mov), which is exactly the class of regression this
+    // fixture exists to guard against (see dispatch_store's now-removed dead
+    // mark_store_emitted() call).
+    assert_eq!(
+        actual.len(),
+        8,
+        "bump must be exactly 8 bytes (mov [rip+counter], rdi; ret) — got {} bytes: {:02X?}; \
+         a longer length suggests the Store was emitted more than once",
+        actual.len(),
+        actual
     );
 
     // Check mnemonic prefix for first instruction: 48 89 3d (mov [rip+disp32], rdi)
-    if actual.len() >= 3 {
-        assert_eq!(actual[0], 0x48, "First byte must be REX.W");
-        assert_eq!(actual[1], 0x89, "Second byte must be mov opcode");
-        assert_eq!(actual[2], 0x3d, "Third byte must be ModR/M for [rip+disp32]");
-    }
+    assert_eq!(actual[0], 0x48, "First byte must be REX.W");
+    assert_eq!(actual[1], 0x89, "Second byte must be mov opcode");
+    assert_eq!(actual[2], 0x3d, "Third byte must be ModR/M for [rip+disp32]");
+
+    // And the function must end in ret (0xc3) at exactly offset 7 — not folded
+    // into, or displaced by, a sibling function's bytes (see #1140).
+    assert_eq!(
+        actual[7], 0xc3,
+        "bump's 8th byte must be ret (0xc3); got {:02X}",
+        actual[7]
+    );
 }
 
 /// Test that counter symbol exists in .data section with correct properties.

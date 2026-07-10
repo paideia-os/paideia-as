@@ -767,11 +767,31 @@ impl EmitWalker {
                         let main_id = lambda_node_id;
                         self.record_lambda_entry(lambda_node_id, main_id);
 
-                        // #1094: DO NOT clear local_bindings before emit_block_body!
-                        // The block body's nested statements (e.g., assignments inside the block)
-                        // need access to the lambda parameters that were just registered.
-                        // Clearing would cause visit_var_assign to fail when looking up the RHS parameter.
-                        // Note: emit_block_body_arm (used for match arms) DOES push/pop scope.
+                        // Adversarial-verify of #1094 (aee6935): the original fix deleted the
+                        // `local_bindings.clear()` that used to run here outright, on the theory
+                        // that clearing wiped out the very params emit_block_body needs (true —
+                        // reinstating a bare `.clear()` here regresses stmt_assign_module_let_mut_plain
+                        // straight back to T0540). But deleting it entirely means local_bindings
+                        // accumulates across *every* lambda visited by the whole-arena walk for the
+                        // rest of the compile: two sibling Action-bodied functions that happen to
+                        // share a parameter name (e.g. both named `v`) then share one flat entry,
+                        // and whichever is processed last silently wins for any lookup that runs
+                        // after both have been visited (e.g. an earlier function's own unsafe-block
+                        // reference to its own `v`, resolved later by UnsafeWalker/resolve_var_operands
+                        // against a single post-walk snapshot — see #1139 for the byte-level repro).
+                        //
+                        // Clear *and* immediately re-register this lambda's own parameters, which
+                        // restores the pre-#1094 clearing behaviour (scoped to Action bodies only,
+                        // exactly as before) while still leaving this lambda's own params in place
+                        // for emit_block_body. This was tightened once already: an earlier attempt
+                        // moved the clear to the top of visit_lambda unconditionally, which broke
+                        // pa8_m1_001c_lambda_params_extract_real_names (a pre-existing test that
+                        // intentionally relies on local_bindings accumulating real parameter names
+                        // across sibling *non*-Action-bodied Lambda nodes visited by the same
+                        // whole-arena walk) — so the reset must stay scoped to this Action arm, not
+                        // apply to every lambda shape.
+                        self.state.local_bindings.clear();
+                        self.register_nested_lambda_params(lambda_node_id, arena, 0);
 
                         // Emit the block body.
                         self.emit_block_body(body_id, arena, typer);

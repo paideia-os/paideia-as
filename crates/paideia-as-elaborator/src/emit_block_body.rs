@@ -62,11 +62,15 @@ impl EmitWalker {
             }
         }
 
-        // #1094: Mark this Store as emitted so emit_walker doesn't process it again.
-        // Nested Stores (inside Action blocks) are handled here; top-level Stores
-        // in emit_walker still handle their own marking via their specific visit_* methods.
-        // This prevents double-processing when a Store appears inside an Action block body.
-        self.state.mark_store_emitted(store_id.get());
+        // Adversarial-verify of #1094 (aee6935): the mark_store_emitted() call that used
+        // to live here was dead code. Every current caller of dispatch_store passes a
+        // Store node whose direct parent is an `IrKind::Action` (block, match-arm body,
+        // or StmtExpr wrapper) — already skipped by walk_inner's structural
+        // `is_child_of_action` scan in emit_walker.rs — or is the #1116 Lambda→Store
+        // direct-body pattern, which already explicitly marks itself right after calling
+        // dispatch_store (emit_visit_lambda.rs). Confirmed dead by removing this call and
+        // running the full workspace suite: 4584/0/212, identical to the baseline with the
+        // call present — zero regressions.
     }
 
     /// Phase 7 m1-001: Emit multi-statement block body.
