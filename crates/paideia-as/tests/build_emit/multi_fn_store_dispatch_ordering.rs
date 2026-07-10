@@ -92,9 +92,9 @@ fn multi_fn_store_dispatch_ordering_text_and_symbols() {
             relocations.push((offset, relocation));
         }
     }
+    relocations.sort_by_key(|(off, _)| *off);
 
     assert_eq!(relocations.len(), 2, "Should have exactly 2 relocations");
-
-    // Reloc offsets are still emitted from the estimator, not the post-emission_order
-    // encoded byte position. Tracked in #1143.
+    let offsets: Vec<u64> = relocations.iter().map(|(o, _)| *o).collect();
+    assert_eq!(offsets, vec![3, 11], "#1143: reloc r_offsets must be instruction-local, within .text bounds");
 }

@@ -602,7 +602,8 @@ fn encode_mov_sized(
             // Calculate bytes before disp32: prefix (if W16) + REX (if needed) + opcode (1) + ModRM (1)
             let prefix_len = if matches!(width, IntWidth::W16) { 1 } else { 0 };
             let rex_len = if (dst_id >> 3) != 0 || matches!(width, IntWidth::W64) { 1 } else { 0 };
-            let byte_offset = buf.len() as u32 + prefix_len + rex_len + 2;
+            // #1143: instruction-local offset; text_emitter adds offset_before.
+            let byte_offset = prefix_len + rex_len + 2;
             mov_reg_mem_rip_rel_sized(buf, width, dst_id, 0);
             let mut output = EncodeOutput::new();
             output.add_reloc(RelocSite {
@@ -616,6 +617,8 @@ fn encode_mov_sized(
         // PA-R17-006b (#1046): narrow-width store to RIP-relative memory with symbol [rip + sym], src
         [Operand::MemRipRelSym { name, addend }, Operand::Reg(src)] => {
             let src_id = src.0;
+            // #1143: capture start so disp_offset stays instruction-local.
+            let start = buf.bytes.len() as u32;
             // Emit width-appropriate mov [rip+disp32], src instruction
             // Prefix (if W16) + REX (if W64 or REX.R) + opcode (1) + ModRM (1) + disp32 (4)
             if matches!(width, IntWidth::W16) {
@@ -631,7 +634,7 @@ fn encode_mov_sized(
             // ModR/M: mod=00, reg=src[2:0], r/m=101 (RIP-relative)
             buf.bytes.push(0x05 | ((src_id & 7) << 3));
             // 4-byte disp32 placeholder; relocation will patch it
-            let disp_offset = buf.bytes.len() as u32;
+            let disp_offset = buf.bytes.len() as u32 - start;
             buf.bytes.extend([0, 0, 0, 0]);
             // Emit PC32 relocation site
             let mut output = EncodeOutput::new();
