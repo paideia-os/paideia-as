@@ -1,49 +1,28 @@
-//! Test for #1094 negative case: local let mut assignment (documented gap).
+//! Test for #1138: local let mut assignment via register rewrite.
 //!
 //! Tests: `fn () -> { let mut x : u64 = 0; x = 1; x }`
 //!
-//! This should emit T0540 because x is a local (stack) binding, not module-level.
-//! visit_var_assign explicitly rejects local-shadowed LHS per #1135.
+//! #1138 fixes the gap: emit_block_body's Let arm allocates a scratch register for x
+//! and records x → scratch_reg in local_bindings. visit_var_assign now checks
+//! local_bindings before the module-symbol gate, so `x = 1` emits `mov scratch_reg, 1`.
 
 use crate::common::fixture::build_emit;
 use crate::common::harness::run_build;
 
-/// Strip ANSI SGR escape sequences for robust diagnostic matching.
-fn strip_ansi(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut chars = s.chars();
-    while let Some(c) = chars.next() {
-        if c == '\u{1b}' {
-            for c2 in chars.by_ref() {
-                if c2 == 'm' {
-                    break;
-                }
-            }
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
-
-/// Assert that exactly one diagnostic appears in stderr.
-fn assert_single_diagnostic(stderr: &str) {
-    let plain = strip_ansi(stderr);
-    assert_eq!(
-        plain.matches("error[").count(),
-        1,
-        "expected exactly one diagnostic (T0540), got:\n{}",
-        stderr
-    );
-}
-
-/// Test that local let mut assignment emits T0540 diagnostic.
+/// Test that local let mut assignment compiles successfully.
 ///
-/// Local let mut bindings are not yet supported for assignment; this is a documented gap.
+/// #1138 implements register-rewrite lowering: the assignment x = 1 is rewritten to
+/// use the scratch register allocated to x in the Let arm, emitting `mov RAX, 1`.
 #[test]
-fn local_let_mut_assignment_emits_t0540() {
+fn local_let_mut_assignment_compiles() {
     let input = build_emit("stmt_assign_local_let_mut.pdx");
     let out = run_build(input);
-    out.assert_diag("T0540");
-    assert_single_diagnostic(&out.stderr);
+    // Filter out debug output (lines starting with '[') and check for actual errors
+    let errors: Vec<&str> = out.stderr.lines()
+        .filter(|line| !line.starts_with('[') && line.contains("error["))
+        .collect();
+    assert!(errors.is_empty(), "expected no error diagnostics, got:\n{:?}", errors);
+    // Artifact should exist and have non-zero size (contains the Mov instructions)
+    let bytes = out.artifact_bytes();
+    assert!(!bytes.is_empty(), "expected non-empty artifact (ELF object file)");
 }

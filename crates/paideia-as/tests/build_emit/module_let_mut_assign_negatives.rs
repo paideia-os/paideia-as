@@ -78,14 +78,24 @@ fn module_let_mut_assign_field_rhs_emits_t0540() {
     assert_single_diagnostic(&out.stderr);
 }
 
-/// Test that shadowed LHS (parameter shadows module let-mut) emits T0540 diagnostic.
+/// Test that shadowed LHS (parameter shadows module let-mut) compiles to a no-op self-move.
 ///
-/// Issue #1135 case 2: LHS is shadowed by a local binding (parameter with same name).
+/// #1138 implements register-rewrite lowering for local-shadowed LHS: when a parameter
+/// named `counter` shadows a module `counter` let-mut, the assignment `counter = counter`
+/// emits `mov RDI, RDI` (a no-op self-move at the parameter register, RDI = arg 0).
+///
+/// This is a successful compilation scenario: parameter mutability enforcement is a
+/// separate concern (not in scope for #1138).
 #[test]
-fn module_let_mut_assign_shadowed_lhs_emits_t0540() {
+fn module_let_mut_assign_shadowed_lhs_compiles() {
     let input = build_emit("module_let_mut_assign_shadowed_lhs.pdx");
     let out = run_build(input);
-    out.assert_diag("T0540");
-    // Same rationale as the literal-RHS case above.
-    assert_single_diagnostic(&out.stderr);
+    // Filter out debug output (lines starting with '[') and check for actual errors
+    let errors: Vec<&str> = out.stderr.lines()
+        .filter(|line| !line.starts_with('[') && line.contains("error["))
+        .collect();
+    assert!(errors.is_empty(), "expected no error diagnostics, got:\n{:?}", errors);
+    // Artifact should exist and have non-zero size (contains the no-op Mov instruction)
+    let bytes = out.artifact_bytes();
+    assert!(!bytes.is_empty(), "expected non-empty artifact (ELF object file)");
 }

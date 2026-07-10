@@ -196,6 +196,52 @@ impl EmitWalker {
             }
         };
 
+        // #1138: LHS is a function-local let-mut → rewrite the target register.
+        if let Some(dest_reg) = self.state.local_bindings.get(&lhs_name) {
+            let rhs_kind = rhs_node.map(|n| n.kind);
+            let src_operand = match rhs_kind {
+                Some(IrKind::Literal) => {
+                    let imm = arena.literal_values().get(rhs_id).unwrap_or(0);
+                    Operand::Imm64(imm)
+                }
+                Some(IrKind::Var) => {
+                    let name = match arena.binding_names().get(rhs_id) {
+                        Some(n) => n.to_string(),
+                        None => {
+                            self.push_typed_diag(t0540_code(),
+                                format!("local var_assign RHS Var {} has no binding name", rhs_id.get()));
+                            return;
+                        }
+                    };
+                    match self.state.local_bindings.get(&name) {
+                        Some(src_reg) => Operand::Reg(src_reg),
+                        None => {
+                            self.push_typed_diag(t0540_code(),
+                                format!("local var_assign RHS {} not found in local bindings", name));
+                            return;
+                        }
+                    }
+                }
+                _ => {
+                    self.push_typed_diag(t0540_code(),
+                        format!("local var_assign RHS must be Literal or Var; got {:?}", rhs_kind));
+                    return;
+                }
+            };
+            let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+            operands.push(Operand::Reg(dest_reg));
+            operands.push(src_operand);
+            self.emit_inst(store_id, Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+                emission_order: 0,
+            });
+            return;
+        }
+
         // Check if LHS is shadowed by a local binding (error case)
         if self.state.local_bindings.contains(&lhs_name) {
             self.push_typed_diag(
