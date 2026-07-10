@@ -75,12 +75,14 @@ pub fn emit_text_from_instructions(
     let mut label_fixups = Vec::new();
 
     // Iterate over all instructions in the side-table, tracking byte offsets.
-    // We collect and sort node IDs to ensure deterministic order
-    // across invocations (HashMap iteration is not ordered).
-    let mut node_ids: Vec<_> = table.entries().keys().copied().collect();
-    node_ids.sort();
+    // We collect and sort by (emission_order, node_id) to ensure deterministic order
+    // across invocations (HashMap iteration is not ordered) and to break virtual-IrNodeId
+    // collisions (#1140: sibling functions with identical synthetic IDs).
+    let mut entries: Vec<(u32, IrNodeId)> =
+        table.entries().iter().map(|(k, v)| (v.emission_order, *k)).collect();
+    entries.sort();
 
-    for node_id in node_ids {
+    for (_, node_id) in entries {
         let offset_before = buf.bytes.len() as u32;
 
         // Phase-7-m1-003: Record byte_offset_in_text before encoding.
@@ -153,6 +155,7 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+                    emission_order: 0,
         };
         let node_id = IrNodeId::new(1).unwrap();
         table.insert(node_id, inst);
@@ -179,6 +182,7 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+                    emission_order: 0,
         };
         let node_id_1 = IrNodeId::new(1).unwrap();
         table.insert(node_id_1, inst1);
@@ -190,6 +194,7 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+                    emission_order: 0,
         };
         let node_id_2 = IrNodeId::new(2).unwrap();
         table.insert(node_id_2, inst2);
@@ -219,6 +224,7 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+                    emission_order: 0,
         };
         table.insert(IrNodeId::new(1).unwrap(), inst1);
 
@@ -228,6 +234,7 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+                    emission_order: 0,
         };
         table.insert(IrNodeId::new(2).unwrap(), inst2);
 
@@ -258,6 +265,7 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+                    emission_order: 0,
         };
         table.insert(mov_rdi_id, mov_rdi);
 
@@ -269,6 +277,7 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+                    emission_order: 0,
         };
         table.insert(mov_rsi_id, mov_rsi);
 
@@ -284,6 +293,7 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+                    emission_order: 0,
         };
         table.insert(call_id, call_inst);
 
@@ -295,6 +305,7 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+                    emission_order: 0,
         };
         table.insert(ret_id, ret_inst);
 

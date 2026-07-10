@@ -31,7 +31,8 @@ fn lock_and_q_mem_rax_rcx_baseline() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -57,7 +58,8 @@ fn lock_and_q_mem_r15_disp8_r10() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -86,7 +88,8 @@ fn lock_and_q_mem_rsp_rax_sib() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -116,7 +119,8 @@ fn lock_or_q_mem_rax_rcx_baseline() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -142,7 +146,8 @@ fn lock_or_q_mem_r15_disp8_r10() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -171,7 +176,8 @@ fn lock_or_q_mem_rsp_rax_sib() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -201,7 +207,8 @@ fn lock_xor_q_mem_rax_rcx_baseline() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -227,7 +234,8 @@ fn lock_xor_q_mem_r15_disp8_r10() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -256,7 +264,8 @@ fn lock_xor_q_mem_rsp_rax_sib() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -285,7 +294,8 @@ fn lock_and_iced_roundtrip() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -311,7 +321,8 @@ fn lock_or_iced_roundtrip() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -337,7 +348,8 @@ fn lock_xor_iced_roundtrip() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)

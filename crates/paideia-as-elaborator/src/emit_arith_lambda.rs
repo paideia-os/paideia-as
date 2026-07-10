@@ -52,6 +52,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
 
         // Use node_id * 2 for main instruction, * 2 + 1 for ret
@@ -66,6 +67,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
         self.emit_inst(ret_id, ret_inst);
     }
@@ -99,6 +101,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
 
         self.emit_inst(main_id, mov1_inst);
@@ -115,6 +118,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
 
         let mov2_id = IrNodeId::new(lambda_node_id.get() * 4 + 1).expect("mov2 instr virtual id");
@@ -131,6 +135,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
 
         let shl_id = IrNodeId::new(lambda_node_id.get() * 4 + 2).expect("shl instr virtual id");
@@ -144,6 +149,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
         self.emit_inst(ret_id, ret_inst);
     }
@@ -182,6 +188,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
 
         self.emit_inst(main_id, mov_inst);
@@ -197,6 +204,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
 
         let shl_id = IrNodeId::new(lambda_node_id.get() * 3 + 1).expect("shl instr virtual id");
@@ -210,6 +218,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
         self.emit_inst(ret_id, ret_inst);
     }
@@ -235,6 +244,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
 
         self.emit_inst(main_id, mov1_inst);
@@ -250,6 +260,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
 
         let mov2_id = IrNodeId::new(lambda_node_id.get() * 4 + 1).expect("mov2 instr virtual id");
@@ -266,6 +277,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
 
         let shl_id = IrNodeId::new(lambda_node_id.get() * 4 + 2).expect("shl instr virtual id");
@@ -279,6 +291,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
         self.emit_inst(ret_id, ret_inst);
     }

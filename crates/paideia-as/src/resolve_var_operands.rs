@@ -121,7 +121,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
-        };
+            emission_order: 0,
+};
         instructions.insert(node_id, inst);
 
         // Resolve variables.
@@ -152,7 +153,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
-        };
+            emission_order: 0,
+};
         instructions.insert(node_id, inst);
 
         // Resolve variables.

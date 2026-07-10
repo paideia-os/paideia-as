@@ -22,7 +22,8 @@ fn or_eax_0x03_imm8_mode32_encodes_correctly() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -41,7 +42,8 @@ fn or_eax_0x100_imm32_mode32_encodes_correctly() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -60,7 +62,8 @@ fn or_r8d_0x20_imm8_mode32_encodes_with_rex_b() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -80,7 +83,8 @@ fn or_eax_0x7fffffff_imm32_mode32_encodes_correctly() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -101,7 +105,8 @@ fn or_rax_0x03_mode64_regression_guard_still_emits_rex_w() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64, // explicitly Mode64
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -122,7 +127,8 @@ fn or_eax_0x03_mode32_iced_x86_round_trip() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");

@@ -28,7 +28,8 @@ fn unsafe_block_lowers_body_to_children() {
         StmtData::Instruction {
             mnemonic: mnemonic_id,
             operands: vec![],
-        },
+            emission_order: 0,
+},
     );
 
     // Create justification
@@ -90,7 +91,8 @@ fn unsafe_block_with_three_stmts_lowers_all() {
         StmtData::Instruction {
             mnemonic: cli_mnem,
             operands: vec![],
-        },
+            emission_order: 0,
+},
     );
 
     let hlt_stmt = ast.alloc_stmt(
@@ -99,7 +101,8 @@ fn unsafe_block_with_three_stmts_lowers_all() {
         StmtData::Instruction {
             mnemonic: hlt_mnem,
             operands: vec![],
-        },
+            emission_order: 0,
+},
     );
 
     let nop_stmt = ast.alloc_stmt(
@@ -108,7 +111,8 @@ fn unsafe_block_with_three_stmts_lowers_all() {
         StmtData::Instruction {
             mnemonic: nop_mnem,
             operands: vec![],
-        },
+            emission_order: 0,
+},
     );
 
     // Create unsafe expression with three instructions
@@ -180,7 +184,8 @@ fn unsafe_block_with_mixed_stmts_lowers_all() {
         StmtData::Instruction {
             mnemonic: cli_mnem,
             operands: vec![],
-        },
+            emission_order: 0,
+},
     );
 
     let nop_mnem = ast.intern_mnemonic("nop");
@@ -190,7 +195,8 @@ fn unsafe_block_with_mixed_stmts_lowers_all() {
         StmtData::Instruction {
             mnemonic: nop_mnem,
             operands: vec![],
-        },
+            emission_order: 0,
+},
     );
 
     // Create unsafe expression

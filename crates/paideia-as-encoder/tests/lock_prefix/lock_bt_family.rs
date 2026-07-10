@@ -31,7 +31,8 @@ fn lock_bts_q_mem_rax_imm8_zero_byte_exact() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -56,7 +57,8 @@ fn lock_bts_q_mem_r15_disp8_imm8_byte_exact() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -86,7 +88,8 @@ fn lock_btr_q_mem_rax_imm8_byte_exact() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -111,7 +114,8 @@ fn lock_btr_q_mem_rsp_disp32_imm8_byte_exact() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -141,7 +145,8 @@ fn lock_btc_q_mem_rax_imm8_byte_exact() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -167,7 +172,8 @@ fn lock_btc_q_mem_r13_disp0_imm8_byte_exact() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -197,7 +203,8 @@ fn lock_bts_q_mem_rax_rcx_byte_exact() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -222,7 +229,8 @@ fn lock_bts_q_mem_r8_r15_byte_exact() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -248,7 +256,8 @@ fn lock_btr_q_mem_rax_rcx_byte_exact() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -273,7 +282,8 @@ fn lock_btr_q_mem_rdi_disp8_r10_byte_exact() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -303,7 +313,8 @@ fn lock_btc_q_mem_rax_rcx_byte_exact() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -328,7 +339,8 @@ fn lock_btc_q_mem_rsp_rax_byte_exact() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -353,7 +365,8 @@ fn lock_bts_q_round_trips_through_iced_x86() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -379,7 +392,8 @@ fn lock_btr_q_round_trips_through_iced_x86() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -405,7 +419,8 @@ fn lock_btc_q_round_trips_through_iced_x86() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)

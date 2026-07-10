@@ -22,7 +22,8 @@ fn imul_rax_rbx_reg_reg_encodes_correctly() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -48,7 +49,8 @@ fn imul_rax_rbx_5_imm8_encodes_correctly() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -71,7 +73,8 @@ fn imul_rax_rbx_0x1000_imm32_encodes_correctly() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -94,7 +97,8 @@ fn imul_sign_ext_trap_rejects_out_of_range() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     let result = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats);
@@ -125,7 +129,8 @@ fn imul_mem_mem_rejects_with_correct_error() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     let result = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats);
@@ -151,7 +156,8 @@ fn imul_rax_rbx_round_trips_through_iced_x86() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -176,7 +182,8 @@ fn imul_rax_rbx_5_round_trips_through_iced_x86() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");

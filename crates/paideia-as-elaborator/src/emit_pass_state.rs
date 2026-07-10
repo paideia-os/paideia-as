@@ -31,7 +31,7 @@ pub enum LoopContext {
 /// Accumulates instructions keyed by IrNodeId and tracks byte offsets
 /// for function-level metadata used by downstream m5-m6 phases.
 /// Phase 6 m3-001: Also tracks finalised record layouts.
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub struct EmitPassState {
     /// The emitted instructions, keyed by IrNodeId, per the existing
     /// Phase-3 m2-001 InstructionSideTable convention.
@@ -152,6 +152,43 @@ pub struct EmitPassState {
     /// Populated by walk_inner pre-pass when a Lambda has a Store body.
     /// Signals walk_inner's top-level Store gate to skip double-emission.
     pub(crate) emitted_store_ids: HashSet<u32>,
+
+    /// #1140: Monotonic emission order counter for instructions.
+    /// Initialized to 1 (0 is reserved sentinel for test-only instructions).
+    /// Incremented before each instruction insertion to break virtual-IrNodeId collisions.
+    pub(crate) next_emission_order: u32,
+}
+
+impl Default for EmitPassState {
+    fn default() -> Self {
+        Self {
+            instructions: Default::default(),
+            current_function: Default::default(),
+            estimated_offset: Default::default(),
+            function_offsets: Default::default(),
+            lambda_first_instr: Default::default(),
+            emitted_lambdas: Default::default(),
+            lambda_abis: Default::default(),
+            pending_unsafe_blocks: Default::default(),
+            record_layouts: Default::default(),
+            enum_layouts: Default::default(),
+            scratch_assignment: Default::default(),
+            labels: Default::default(),
+            label_to_instr: Default::default(),
+            unsafe_lambda_to_pending_idx: Default::default(),
+            unsafe_body_to_lambda: Default::default(),
+            local_bindings: Default::default(),
+            mode_stack: Default::default(),
+            enabled_features: Default::default(),
+            emitted_match_ids: Default::default(),
+            max_emitted_node_id: Default::default(),
+            handled_record_cons_ids: Default::default(),
+            handled_field_access_ids: Default::default(),
+            handled_data_let_ids: Default::default(),
+            emitted_store_ids: Default::default(),
+            next_emission_order: 1,
+        }
+    }
 }
 
 impl EmitPassState {

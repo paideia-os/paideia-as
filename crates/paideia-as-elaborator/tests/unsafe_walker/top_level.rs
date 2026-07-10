@@ -61,7 +61,8 @@ fn mov_reg_imm_mnemonic(reg_name: &str) -> Mnemonic {
         StmtData::Instruction {
             mnemonic: mnemonic_id,
             operands: vec![reg_operand, imm_operand],
-        },
+            emission_order: 0,
+},
     );
 
     let _unsafe_expr = ast.alloc_expr(
@@ -170,7 +171,8 @@ fn test_lgdt_memory_operand() {
         StmtData::Instruction {
             mnemonic: mnemonic_id,
             operands: vec![mem_ref],
-        },
+            emission_order: 0,
+},
     );
 
     // Create the unsafe block expression
@@ -232,7 +234,8 @@ fn test_unknown_mnemonic_foozle() {
         StmtData::Instruction {
             mnemonic: mnemonic_id,
             operands: vec![operand],
-        },
+            emission_order: 0,
+},
     );
 
     // Create the unsafe block expression
@@ -313,7 +316,8 @@ fn test_malformed_operand_incomplete_memory() {
         StmtData::Instruction {
             mnemonic: mnemonic_id,
             operands: vec![malformed_mem_ref],
-        },
+            emission_order: 0,
+},
     );
 
     // Create the unsafe block expression
@@ -422,7 +426,8 @@ fn parse_instruction_with_imm(
         StmtData::Instruction {
             mnemonic: mnemonic_id,
             operands: vec![reg_operand, imm_operand],
-        },
+            emission_order: 0,
+},
     );
 
     let _unsafe_expr = ast.alloc_expr(
@@ -602,7 +607,8 @@ fn parse_ljmp_instruction(
         StmtData::Instruction {
             mnemonic: mnemonic_id,
             operands: vec![sel_operand, offset_ident],
-        },
+            emission_order: 0,
+},
     );
 
     let _unsafe_expr = ast.alloc_expr(
@@ -757,7 +763,8 @@ fn test_lgdt_rip_relative_symbol() {
         StmtData::Instruction {
             mnemonic: mnemonic_id,
             operands: vec![memref_operand],
-        },
+            emission_order: 0,
+},
     );
 
     let _unsafe_expr = ast.alloc_expr(
@@ -886,7 +893,8 @@ fn parse_branch_instruction_with_label(
         StmtData::Instruction {
             mnemonic: mnemonic_id,
             operands: vec![label_ident],
-        },
+            emission_order: 0,
+},
     );
 
     let _unsafe_expr = ast.alloc_expr(
@@ -975,7 +983,8 @@ fn test_local_label_backward_jump() {
         StmtData::Instruction {
             mnemonic: mnemonic_id,
             operands: vec![label_ident],
-        },
+            emission_order: 0,
+},
     );
 
     let _unsafe_expr = ast.alloc_expr(
@@ -1061,7 +1070,8 @@ fn test_local_label_forward_jump() {
         StmtData::Instruction {
             mnemonic: mnemonic_id,
             operands: vec![label_ident],
-        },
+            emission_order: 0,
+},
     );
 
     let _unsafe_expr = ast.alloc_expr(
@@ -1145,7 +1155,8 @@ fn test_undefined_label_as_symbol_ref() {
         StmtData::Instruction {
             mnemonic: mnemonic_id,
             operands: vec![label_ident],
-        },
+            emission_order: 0,
+},
     );
 
     let _unsafe_expr = ast.alloc_expr(

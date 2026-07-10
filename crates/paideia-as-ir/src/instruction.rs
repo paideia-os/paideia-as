@@ -1268,6 +1268,10 @@ pub struct Instruction {
     pub byte_offset_in_text: Option<u32>,
     /// Instruction mode (Mode64 or Mode32).
     pub mode: InstrMode,
+    /// Monotonic emission order assigned during emit walk.
+    /// Used as primary sort key in text section emission to break virtual-IrNodeId collisions.
+    /// 0 is reserved sentinel for test-only instructions; production code always assigns > 0.
+    pub emission_order: u32,
 }
 
 crate::impl_named_side_table!(
@@ -1391,6 +1395,7 @@ mod tests {
             }),
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+            emission_order: 0,
         };
 
         assert_eq!(inst.operands.len(), 3);
@@ -1420,6 +1425,7 @@ mod tests {
             }),
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+            emission_order: 0,
         };
 
         table.insert(inst_id, inst.clone());
@@ -1445,6 +1451,7 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+            emission_order: 0,
         };
 
         table.insert(inst_id, inst.clone());

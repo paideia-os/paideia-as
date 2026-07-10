@@ -74,12 +74,17 @@ impl EmitWalker {
                     encoding_hint: None,
                     byte_offset_in_text: None,
                     mode: self.current_mode(),
+                    emission_order: 0,
                 };
 
                 // PA8-m1-002: Lambda entry recording is now handled by record_lambda_entry() in visit_lambda.
                 // This legacy path is no longer needed.
 
                 // Emit the instruction.
+                // #1140: Set emission_order before direct insert to match emit_inst behavior.
+                let mut inst = inst;
+                inst.emission_order = self.state.next_emission_order;
+                self.state.next_emission_order += 1;
                 let inst_size = w.estimated_size();
                 self.state.instructions.insert(let_node_id, inst);
                 self.state.estimated_offset += inst_size;
@@ -94,6 +99,7 @@ impl EmitWalker {
                     encoding_hint: None,
                     byte_offset_in_text: None,
                     mode: self.current_mode(),
+                    emission_order: 0,
                 };
 
                 self.emit_inst(let_node_id, inst);

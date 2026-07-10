@@ -30,7 +30,8 @@ fn lea_eax_pml4() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -59,7 +60,8 @@ fn lea_r8d_pml4() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -90,7 +92,8 @@ fn lea_reloc_metadata_abs32() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -133,7 +136,8 @@ fn iced_x86_32bit_lea_decoder_round_trip() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");

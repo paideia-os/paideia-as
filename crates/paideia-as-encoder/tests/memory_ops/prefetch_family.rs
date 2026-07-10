@@ -33,7 +33,8 @@ fn prefetchnta_base_only() {
         encoding_hint: None,
         byte_offset_in_text: None,
         mode: paideia_as_ir::InstrMode::Mode64,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     encode_instruction(&inst, &mut buf, &mut stats).expect("encode failed");
@@ -59,7 +60,8 @@ fn prefetcht0_base_only() {
         encoding_hint: None,
         byte_offset_in_text: None,
         mode: paideia_as_ir::InstrMode::Mode64,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     encode_instruction(&inst, &mut buf, &mut stats).expect("encode failed");
@@ -85,7 +87,8 @@ fn prefetcht1_base_only() {
         encoding_hint: None,
         byte_offset_in_text: None,
         mode: paideia_as_ir::InstrMode::Mode64,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     encode_instruction(&inst, &mut buf, &mut stats).expect("encode failed");
@@ -111,7 +114,8 @@ fn prefetcht2_base_only() {
         encoding_hint: None,
         byte_offset_in_text: None,
         mode: paideia_as_ir::InstrMode::Mode64,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     encode_instruction(&inst, &mut buf, &mut stats).expect("encode failed");
@@ -137,7 +141,8 @@ fn prefetchnta_base_plus_disp8() {
         encoding_hint: None,
         byte_offset_in_text: None,
         mode: paideia_as_ir::InstrMode::Mode64,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     encode_instruction(&inst, &mut buf, &mut stats).expect("encode failed");
@@ -163,7 +168,8 @@ fn prefetcht0_base_plus_disp32() {
         encoding_hint: None,
         byte_offset_in_text: None,
         mode: paideia_as_ir::InstrMode::Mode64,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     encode_instruction(&inst, &mut buf, &mut stats).expect("encode failed");
@@ -193,7 +199,8 @@ fn prefetchnta_rex_b_extended_base() {
         encoding_hint: None,
         byte_offset_in_text: None,
         mode: paideia_as_ir::InstrMode::Mode64,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     encode_instruction(&inst, &mut buf, &mut stats).expect("encode failed");
@@ -220,7 +227,8 @@ fn prefetcht1_rex_b_extended_base_with_disp() {
         encoding_hint: None,
         byte_offset_in_text: None,
         mode: paideia_as_ir::InstrMode::Mode64,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     encode_instruction(&inst, &mut buf, &mut stats).expect("encode failed");
@@ -248,7 +256,8 @@ fn prefetcht2_rex_b_extended_base_r15() {
         encoding_hint: None,
         byte_offset_in_text: None,
         mode: paideia_as_ir::InstrMode::Mode64,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     encode_instruction(&inst, &mut buf, &mut stats).expect("encode failed");
@@ -282,7 +291,8 @@ fn all_four_prefetch_levels_encode_different() {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: paideia_as_ir::InstrMode::Mode64,
-        };
+            emission_order: 0,
+};
 
         let mut stats = EncodeStats::new();
     encode_instruction(&inst, &mut buf, &mut stats).expect("encode failed");
@@ -313,7 +323,8 @@ fn prefetchnta_base_rdi_round_trips_through_iced_x86() {
         encoding_hint: None,
         byte_offset_in_text: None,
         mode: paideia_as_ir::InstrMode::Mode64,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     encode_instruction(&inst, &mut buf, &mut stats).expect("encode failed");
@@ -344,7 +355,8 @@ fn prefetcht0_base_plus_disp_round_trips_through_iced_x86() {
         encoding_hint: None,
         byte_offset_in_text: None,
         mode: paideia_as_ir::InstrMode::Mode64,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     encode_instruction(&inst, &mut buf, &mut stats).expect("encode failed");

@@ -52,7 +52,8 @@ fn pause_mnemonic_encodes_to_f3_90() {
         encoding_hint: None,
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
-    };
+        emission_order: 0,
+};
 
     assert_eq!(pause_inst.mnemonic, Mnemonic::Pause);
     assert!(pause_inst.operands.is_empty());

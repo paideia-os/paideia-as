@@ -23,7 +23,8 @@ fn mov_dr0_rax_round_trips_through_iced_x86() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -48,7 +49,8 @@ fn mov_dr1_rdi_round_trips_through_iced_x86() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -72,7 +74,8 @@ fn mov_dr7_rcx_round_trips_through_iced_x86() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -96,7 +99,8 @@ fn mov_rax_dr0_round_trips_through_iced_x86() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -120,7 +124,8 @@ fn mov_rdi_dr1_round_trips_through_iced_x86() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -144,7 +149,8 @@ fn mov_rcx_dr7_round_trips_through_iced_x86() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -168,7 +174,8 @@ fn mov_r8_dr0_round_trips_through_iced_x86() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -192,7 +199,8 @@ fn mov_dr3_r10_round_trips_through_iced_x86() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");

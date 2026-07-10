@@ -26,7 +26,8 @@ fn or_eax_signbit_0x80000001() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -52,7 +53,8 @@ fn or_eax_signbit_0xFFFFFFFF() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -76,7 +78,8 @@ fn or_ecx_signbit_boundary() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -100,7 +103,8 @@ fn or_edx_signed_max_no_signbit() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -128,7 +132,8 @@ fn iced_x86_or_r32_imm32_signbit_round_trip() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -156,7 +161,8 @@ fn iced_x86_or_r32_imm32_max_round_trip() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");

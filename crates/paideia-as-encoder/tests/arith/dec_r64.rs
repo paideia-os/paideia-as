@@ -23,7 +23,8 @@ fn encode_reg1(mnemonic: Mnemonic, reg_id: u8) -> Vec<u8> {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
         .expect("encode_instruction failed");
@@ -166,7 +167,8 @@ fn dec_with_zero_operands_errors() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     let result = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats);
     assert!(result.is_err(), "dec with zero operands must fail");
@@ -181,7 +183,8 @@ fn inc_with_zero_operands_errors() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     let result = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats);
     assert!(result.is_err(), "inc with zero operands must fail");

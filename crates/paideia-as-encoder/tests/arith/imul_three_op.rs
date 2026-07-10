@@ -36,7 +36,8 @@ fn imul3(dst: u8, src: u8, imm: i64) -> Instruction {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    }
+        emission_order: 0,
+}
 }
 
 /// Encode `inst` and return the emitted byte slice as an owned Vec.

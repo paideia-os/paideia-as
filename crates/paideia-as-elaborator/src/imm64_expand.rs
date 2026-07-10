@@ -72,7 +72,8 @@ pub fn expand_bitop_imm64(
         encoding_hint: None,
         byte_offset_in_text: None,
         mode,
-    };
+                emission_order: 0,
+        };
     arena.instructions_mut().insert(mov_id, mov_inst);
 
     // Allocate node for <op> dst, r11
@@ -88,7 +89,8 @@ pub fn expand_bitop_imm64(
         encoding_hint: None,
         byte_offset_in_text: None,
         mode,
-    };
+                emission_order: 0,
+        };
     arena.instructions_mut().insert(op_id, op_inst);
 
     // Return the head (movabs) for label aliasing

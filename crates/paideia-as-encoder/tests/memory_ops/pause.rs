@@ -21,7 +21,8 @@ fn pause_byte_exact_encoding() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
@@ -45,7 +46,8 @@ fn pause_iced_round_trip() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
@@ -68,7 +70,8 @@ fn pause_rejects_operand() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();

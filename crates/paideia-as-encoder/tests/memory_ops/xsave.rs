@@ -24,7 +24,8 @@ fn xsaveopt_rdi_emits_0f_ae_37() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
     assert_eq!(buf.as_slice(), &[0x0F, 0xAE, 0x37]);
@@ -41,7 +42,8 @@ fn xsaveopt_rsp_emits_0f_ae_34_24() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
     // SIB escape: ModRM=34, SIB=24
@@ -59,7 +61,8 @@ fn xsaveopt_r15_plus_0x100_emits_41_0f_ae_b7_00_01_00_00() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
     // REX.B=41, ModRM=B7 (mod=10 disp32), disp32=0x100
@@ -79,7 +82,8 @@ fn xsaveopt_round_trips_through_iced_x86() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
 
@@ -102,7 +106,8 @@ fn xrstor_rdi_emits_0f_ae_2f() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
     assert_eq!(buf.as_slice(), &[0x0F, 0xAE, 0x2F]);
@@ -119,7 +124,8 @@ fn xrstor_rsp_emits_0f_ae_2c_24() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
     // SIB escape: ModRM=2C, SIB=24
@@ -137,7 +143,8 @@ fn xrstor_r15_plus_0x100_emits_41_0f_ae_af_00_01_00_00() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
     // REX.B=41, ModRM=AF (mod=10 disp32), disp32=0x100
@@ -157,7 +164,8 @@ fn xrstor_round_trips_through_iced_x86() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
 
@@ -178,7 +186,8 @@ fn xsaveopt_with_zero_operands_errors() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     let result = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats);
     assert!(result.is_err(), "xsaveopt with zero operands must fail");
@@ -193,7 +202,8 @@ fn xrstor_with_zero_operands_errors() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     let result = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats);
     assert!(result.is_err(), "xrstor with zero operands must fail");

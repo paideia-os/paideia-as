@@ -23,7 +23,8 @@ fn or_rax_0x20_imm8_encodes_correctly() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -42,7 +43,8 @@ fn or_r15_0x7f_imm8_encodes_with_rex_b() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -61,7 +63,8 @@ fn or_rax_0x100_imm32_encodes_correctly() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -80,7 +83,8 @@ fn or_r8_0x100_imm32_encodes_with_rex_b() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -99,7 +103,8 @@ fn or_rax_0x7fffffff_imm32_max_signed_encodes() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -131,7 +136,8 @@ fn triple_or_pipeline_integration() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     paideia_as_encoder::encode_instruction(&inst1, &mut buf, &mut stats)
         .expect("encoding failed for inst1");
 
@@ -142,7 +148,8 @@ fn triple_or_pipeline_integration() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     paideia_as_encoder::encode_instruction(&inst2, &mut buf, &mut stats)
         .expect("encoding failed for inst2");
 
@@ -153,7 +160,8 @@ fn triple_or_pipeline_integration() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     paideia_as_encoder::encode_instruction(&inst3, &mut buf, &mut stats)
         .expect("encoding failed for inst3");
 
@@ -178,7 +186,8 @@ fn or_rax_0x20_round_trips_through_iced_x86() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -200,7 +209,8 @@ fn or_rax_0x100_round_trips_through_iced_x86() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");

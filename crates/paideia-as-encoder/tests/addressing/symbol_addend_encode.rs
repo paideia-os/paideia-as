@@ -30,7 +30,8 @@ fn mov_mem_symbol_plus_4_imm32_zero() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -65,7 +66,8 @@ fn mov_mem_symbol_plus_16_imm32() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -101,7 +103,8 @@ fn symbol_addend_reloc_metadata() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -132,7 +135,8 @@ fn symbol_addend_large_value() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -159,7 +163,8 @@ fn symbol_minus_offset_encoding() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -190,7 +195,8 @@ fn lea_rip_rel_addend_underflow_errors() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     let result = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats);
@@ -224,7 +230,8 @@ fn lea_rip_rel_addend_overflow_errors() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     let result = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats);
@@ -252,7 +259,8 @@ fn lea_rip_rel_symbol_ref_small_addend_ok() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)

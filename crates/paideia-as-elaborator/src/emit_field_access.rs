@@ -186,7 +186,8 @@ impl EmitWalker {
                                     encoding_hint: None,
                                     byte_offset_in_text: None,
                                     mode: self.current_mode(),
-                                };
+                                            emission_order: 0,
+        };
 
                                 self.emit_inst(mov_id, mov_inst);
 
@@ -226,6 +227,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
 
         self.emit_inst(store_id, inst);
@@ -418,6 +420,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
 
         self.emit_inst(field_access_id, inst);
@@ -448,6 +451,7 @@ impl EmitWalker {
             encoding_hint: Some(EncodingHint { opcode: 0x0F, operand_size: src_width }),
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
 
         self.emit_inst(field_access_id, inst);
@@ -481,6 +485,7 @@ impl EmitWalker {
             encoding_hint: Some(EncodingHint { opcode, operand_size: src_width }),
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
 
         self.emit_inst(field_access_id, inst);
@@ -516,7 +521,8 @@ impl EmitWalker {
                     encoding_hint: None,
                     byte_offset_in_text: None,
                     mode: self.current_mode(),
-                };
+                            emission_order: 0,
+        };
 
                 self.emit_inst(node_id, inst);
             }
@@ -532,7 +538,8 @@ impl EmitWalker {
                     encoding_hint: None,
                     byte_offset_in_text: None,
                     mode: self.current_mode(),
-                };
+                            emission_order: 0,
+        };
 
                 self.emit_inst(node_id, inst);
             }
@@ -548,7 +555,8 @@ impl EmitWalker {
                     encoding_hint: None,
                     byte_offset_in_text: None,
                     mode: self.current_mode(),
-                };
+                            emission_order: 0,
+        };
 
                 self.emit_inst(node_id, inst);
             }
@@ -601,7 +609,8 @@ impl EmitWalker {
                     encoding_hint: None,
                     byte_offset_in_text: None,
                     mode: self.current_mode(),
-                };
+                            emission_order: 0,
+        };
 
                 self.emit_inst(node_id, inst);
             }
@@ -617,7 +626,8 @@ impl EmitWalker {
                     encoding_hint: None,
                     byte_offset_in_text: None,
                     mode: self.current_mode(),
-                };
+                            emission_order: 0,
+        };
 
                 self.emit_inst(node_id, inst);
             }

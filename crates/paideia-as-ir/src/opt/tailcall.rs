@@ -222,7 +222,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         // Call the new signature; verify it accepts the table.
@@ -252,7 +253,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         // Add Ret instruction after Call.
@@ -264,7 +266,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         let dummy_root = IrNodeId::new(3).unwrap();
@@ -303,7 +306,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         // Add Ret instruction after Call.
@@ -315,7 +319,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         let dummy_root = IrNodeId::new(3).unwrap();
@@ -356,7 +361,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         // Add a non-Ret instruction after Call (e.g., Mov).
@@ -373,7 +379,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         let dummy_root = IrNodeId::new(3).unwrap();

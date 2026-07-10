@@ -76,6 +76,7 @@ impl EmitWalker {
                     encoding_hint: None,
                     byte_offset_in_text: None,
                     mode: self.current_mode(),
+                emission_order: 0,
                 });
 
                 // Emit 2 only if payload_size > 0
@@ -126,6 +127,7 @@ impl EmitWalker {
                         encoding_hint: None,
                         byte_offset_in_text: None,
                         mode: self.current_mode(),
+                    emission_order: 0,
                     });
                 }
             }
@@ -149,6 +151,7 @@ impl EmitWalker {
                     encoding_hint: None,
                     byte_offset_in_text: None,
                     mode: self.current_mode(),
+                emission_order: 0,
                 });
 
                 if layout_payload_size > 0 {
@@ -175,6 +178,7 @@ impl EmitWalker {
                         encoding_hint: None,
                         byte_offset_in_text: None,
                         mode: self.current_mode(),
+                    emission_order: 0,
                     });
                 }
             }
@@ -232,6 +236,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+        emission_order: 0,
         });
     }
 
@@ -471,6 +476,7 @@ impl EmitWalker {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
+            emission_order: 0,
             });
         }
 
@@ -494,6 +500,7 @@ impl EmitWalker {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
+            emission_order: 0,
             });
         }
 
@@ -509,6 +516,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+        emission_order: 0,
         });
 
         // 3. ja _default_<match_id>
@@ -525,6 +533,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+        emission_order: 0,
         });
 
         // 4. jmp [_jt_<match_id> + rax*8]
@@ -543,6 +552,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+        emission_order: 0,
         });
 
         // Now emit arm bodies and default arm
@@ -599,6 +609,7 @@ impl EmitWalker {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
+            emission_order: 0,
             });
         }
 
@@ -614,7 +625,8 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
-        };
+            emission_order: 0,
+};
         self.emit_inst(nop_id, nop_inst);
         self.state.insert_label(end_label, nop_id);
     }
@@ -721,6 +733,7 @@ impl EmitWalker {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
+            emission_order: 0,
             });
         }
 
@@ -773,6 +786,7 @@ impl EmitWalker {
                     encoding_hint: None,
                     byte_offset_in_text: None,
                     mode: self.current_mode(),
+                emission_order: 0,
                 });
 
                 // Emit jne to next arm or default
@@ -796,6 +810,7 @@ impl EmitWalker {
                     encoding_hint: None,
                     byte_offset_in_text: None,
                     mode: self.current_mode(),
+                emission_order: 0,
                 });
             }
 
@@ -837,6 +852,7 @@ impl EmitWalker {
                         encoding_hint: None,
                         byte_offset_in_text: None,
                         mode: self.current_mode(),
+                    emission_order: 0,
                     });
 
                     // Set up local binding for the payload binder variable
@@ -881,6 +897,7 @@ impl EmitWalker {
                                         encoding_hint: None,
                                         byte_offset_in_text: None,
                                         mode: self.current_mode(),
+                                    emission_order: 0,
                                     });
                                 }
                             }
@@ -916,6 +933,7 @@ impl EmitWalker {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
+            emission_order: 0,
             });
         }
 
@@ -931,7 +949,8 @@ impl EmitWalker {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
-            };
+                emission_order: 0,
+};
             self.emit_inst(default_nop_id, default_nop_inst);
             self.state.insert_label(default_label, default_nop_id);
         }
@@ -948,7 +967,8 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
-        };
+            emission_order: 0,
+};
         self.emit_inst(end_nop_id, end_nop_inst);
         self.state.insert_label(end_label, end_nop_id);
     }

@@ -24,7 +24,8 @@ fn wbinvd_emits_0f_09() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
     assert_eq!(buf.as_slice(), &[0x0F, 0x09]);
@@ -41,7 +42,8 @@ fn wbinvd_round_trips_through_iced_x86() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
 
@@ -60,7 +62,8 @@ fn wbinvd_with_operands_errors() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     let result = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats);
     assert!(result.is_err(), "wbinvd with operands must fail");
@@ -77,7 +80,8 @@ fn invd_emits_0f_08() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
     assert_eq!(buf.as_slice(), &[0x0F, 0x08]);
@@ -94,7 +98,8 @@ fn invd_round_trips_through_iced_x86() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
 
@@ -113,7 +118,8 @@ fn invd_with_operands_errors() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     let result = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats);
     assert!(result.is_err(), "invd with operands must fail");
@@ -132,7 +138,8 @@ fn clflush_rdi_emits_0f_ae_3f() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
     assert_eq!(buf.as_slice(), &[0x0F, 0xAE, 0x3F]);
@@ -149,7 +156,8 @@ fn clflush_r12_plus_8_emits_41_0f_ae_7c_24_08() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
     // REX.B (0x41) + 0F AE + SIB (7C 24) + disp8 (08)
@@ -167,7 +175,8 @@ fn clflush_rsi_emits_0f_ae_3e() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
     assert_eq!(buf.as_slice(), &[0x0F, 0xAE, 0x3E]);
@@ -184,7 +193,8 @@ fn clflush_rax_emits_0f_ae_38() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
     assert_eq!(buf.as_slice(), &[0x0F, 0xAE, 0x38]);
@@ -203,7 +213,8 @@ fn clflush_round_trips_through_iced_x86() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
 
@@ -226,7 +237,8 @@ fn clflushopt_rdi_emits_66_0f_ae_3f() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
     assert_eq!(buf.as_slice(), &[0x66, 0x0F, 0xAE, 0x3F]);
@@ -243,7 +255,8 @@ fn clflushopt_r12_plus_8_emits_66_41_0f_ae_7c_24_08() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
     // 0x66 + REX.B (0x41) + 0F AE + SIB (7C 24) + disp8 (08)
@@ -261,7 +274,8 @@ fn clflushopt_rsi_emits_66_0f_ae_3e() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
     assert_eq!(buf.as_slice(), &[0x66, 0x0F, 0xAE, 0x3E]);
@@ -278,7 +292,8 @@ fn clflushopt_rax_emits_66_0f_ae_38() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
     assert_eq!(buf.as_slice(), &[0x66, 0x0F, 0xAE, 0x38]);
@@ -297,7 +312,8 @@ fn clflushopt_round_trips_through_iced_x86() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
 
@@ -318,7 +334,8 @@ fn clflush_with_zero_operands_errors() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     let result = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats);
     assert!(result.is_err(), "clflush with zero operands must fail");
@@ -333,7 +350,8 @@ fn clflushopt_with_zero_operands_errors() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     let result = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats);
     assert!(result.is_err(), "clflushopt with zero operands must fail");

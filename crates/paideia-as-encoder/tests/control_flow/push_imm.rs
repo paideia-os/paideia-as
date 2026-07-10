@@ -32,7 +32,8 @@ fn push_imm8_0x12_exact_encoding() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let bytes = encode_instruction_bytes(&inst);
     assert_eq!(
@@ -50,7 +51,8 @@ fn push_imm8_minus_1_exact_encoding() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let bytes = encode_instruction_bytes(&inst);
     assert_eq!(
@@ -69,7 +71,8 @@ fn push_imm8_0x7f_boundary_fits_i8() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let bytes = encode_instruction_bytes(&inst);
     assert_eq!(
@@ -88,7 +91,8 @@ fn push_imm32_0x80_boundary_needs_imm32() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let bytes = encode_instruction_bytes(&inst);
     assert_eq!(
@@ -107,7 +111,8 @@ fn push_imm8_minus_0x80_boundary_fits_i8() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let bytes = encode_instruction_bytes(&inst);
     assert_eq!(
@@ -126,7 +131,8 @@ fn push_imm32_minus_0x81_boundary_needs_imm32() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let bytes = encode_instruction_bytes(&inst);
     // -0x81 in little-endian i32 = [0x7F, 0xFF, 0xFF, 0xFF]
@@ -145,7 +151,8 @@ fn push_imm32_0x12345678_exact_encoding() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let bytes = encode_instruction_bytes(&inst);
     // 0x12345678 in little-endian = [0x78, 0x56, 0x34, 0x12]
@@ -165,7 +172,8 @@ fn push_imm32_minus_1i32_uses_imm8_form() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let bytes = encode_instruction_bytes(&inst);
     assert_eq!(
@@ -185,7 +193,8 @@ fn push_imm8_iced_round_trip() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let bytes = encode_instruction_bytes(&inst);
     let mut decoder = Decoder::new(64, &bytes, DecoderOptions::NONE);
@@ -205,7 +214,8 @@ fn push_imm32_iced_round_trip() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let bytes = encode_instruction_bytes(&inst);
     let mut decoder = Decoder::new(64, &bytes, DecoderOptions::NONE);
@@ -226,7 +236,8 @@ fn push_imm32_negative_value_iced_round_trip() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let bytes = encode_instruction_bytes(&inst);
     let mut decoder = Decoder::new(64, &bytes, DecoderOptions::NONE);

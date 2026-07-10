@@ -32,7 +32,8 @@ fn cld_byte_exact_encoding() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
@@ -54,7 +55,8 @@ fn std_byte_exact_encoding() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
@@ -76,7 +78,8 @@ fn cld_mode32_equals_mode64() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mode32_bytes = encode_in_mode(&inst, InstrMode::Mode32);
     let mode64_bytes = encode_in_mode(&inst, InstrMode::Mode64);
@@ -96,7 +99,8 @@ fn std_mode32_equals_mode64() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mode32_bytes = encode_in_mode(&inst, InstrMode::Mode32);
     let mode64_bytes = encode_in_mode(&inst, InstrMode::Mode64);
@@ -118,7 +122,8 @@ fn cld_iced_round_trip() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
@@ -140,7 +145,8 @@ fn std_iced_round_trip() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();

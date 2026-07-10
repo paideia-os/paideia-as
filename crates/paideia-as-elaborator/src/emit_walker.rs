@@ -147,8 +147,10 @@ impl EmitWalker {
     /// buffer via `paideia_as_encoder::estimated_bytes`. If the encoder
     /// cannot handle the instruction, size is 0 — callers must ensure
     /// their instructions actually encode.
-    pub(crate) fn emit_inst(&mut self, node_id: IrNodeId, inst: Instruction) {
+    pub(crate) fn emit_inst(&mut self, node_id: IrNodeId, mut inst: Instruction) {
         let bytes = paideia_as_encoder::estimated_bytes(&inst);
+        inst.emission_order = self.state.next_emission_order;
+        self.state.next_emission_order += 1;
         self.state.instructions.insert(node_id, inst);
         self.state.estimated_offset += bytes;
     }

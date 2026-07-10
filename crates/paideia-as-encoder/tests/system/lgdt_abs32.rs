@@ -28,7 +28,8 @@ fn encode_lgdt_symbol_ref_mode32_emits_abs32_reloc() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -66,7 +67,8 @@ fn encode_lgdt_symbol_ref_mode64_keeps_pcrel32() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -109,7 +111,8 @@ fn encode_lgdt_rax_disp8_mode32_matches_mode64() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     let _ = paideia_as_encoder::encode_instruction(&inst_mode32, &mut buf_mode32, &mut stats)
@@ -127,7 +130,8 @@ fn encode_lgdt_rax_disp8_mode32_matches_mode64() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let _ = paideia_as_encoder::encode_instruction(&inst_mode64, &mut buf_mode64, &mut stats)
         .expect("encoding failed for lgdt [rax+8] Mode64");
@@ -158,7 +162,8 @@ fn iced_x86_32bit_decoder_round_trip_lgdt() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -187,7 +192,8 @@ fn encode_lgdt_symbol_ref_mode32_with_nonzero_addend() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)

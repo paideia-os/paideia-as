@@ -234,7 +234,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         let result = is_unroll_safe(&table, loop_id, 4);
@@ -265,7 +266,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         let result = is_unroll_safe(&table, loop_id, 4);
@@ -295,7 +297,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         let result = is_unroll_safe(&table, loop_id, 4);
@@ -332,7 +335,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         let changed = pass.apply(&mut arena, loop_id, &mut sink);
@@ -399,7 +403,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         let result = is_unroll_safe(&table, loop_id, 4);
@@ -437,7 +442,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         let _changed = pass.apply(&mut arena, loop_id, &mut sink);

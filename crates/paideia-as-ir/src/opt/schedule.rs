@@ -379,7 +379,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         // n1: lea r2, [rax + rbx*4 + 8] (LoadL1 latency)
@@ -401,7 +402,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         // Call the new signature; verify it accepts the table.
@@ -435,7 +437,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         // n1: mov r2, [rax] (conceptually higher latency; we use Lea which maps to AluReg)
@@ -457,7 +460,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         // n2: cmp r3, r4 (AluReg, latency 1)
@@ -474,7 +478,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         // Call schedule_block with the three instructions.
@@ -513,7 +518,8 @@ mod tests {
                     encoding_hint: None,
                     byte_offset_in_text: None,
                     mode: InstrMode::default(),
-                },
+                    emission_order: 0,
+},
             );
             table.insert(
                 n1,
@@ -533,7 +539,8 @@ mod tests {
                     encoding_hint: None,
                     byte_offset_in_text: None,
                     mode: InstrMode::default(),
-                },
+                    emission_order: 0,
+},
             );
         }
 
@@ -717,7 +724,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         // n1: lock cmpxchg [rbx], r1 (barrier)
@@ -739,7 +747,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         // n2: mov r2, [rax] (load that would normally be hoisted without barrier)
@@ -761,7 +770,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         // Schedule should respect the barrier and preserve [0, 1, 2] order.
@@ -799,7 +809,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         // n1: mfence (barrier)
@@ -811,7 +822,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         // n2: mov r2, [rax] (load that would normally be hoisted without barrier)
@@ -833,7 +845,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         // Schedule should respect the barrier and preserve [0, 1, 2] order.
@@ -871,7 +884,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         // n1: sfence (barrier)
@@ -883,7 +897,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         // n2: mov r2, [rax] (load that would normally be hoisted without barrier)
@@ -905,7 +920,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         // Schedule should respect the barrier and preserve [0, 1, 2] order.
@@ -943,7 +959,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         // n1: lfence (barrier)
@@ -955,7 +972,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         // n2: mov r2, [rax] (load that would normally be hoisted without barrier)
@@ -977,7 +995,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         // Schedule should respect the barrier and preserve [0, 1, 2] order.
@@ -1015,7 +1034,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         // n1: xchg (barrier)
@@ -1032,7 +1052,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         // n2: mov r2, [rax] (load that would normally be hoisted without barrier)
@@ -1054,7 +1075,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         // Schedule should respect the barrier and preserve [0, 1, 2] order.

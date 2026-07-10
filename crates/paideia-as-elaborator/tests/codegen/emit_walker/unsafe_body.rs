@@ -44,7 +44,8 @@ mod tests {
         let _raw_inst_kind = IrKind::RawInstruction {
             instruction: 0,
             mode: InstrMode::default(),
-        };
+            emission_order: 0,
+};
 
         // Sanity: the variant exists and is properly structured
         assert!(true, "IrKind::RawInstruction variant exists");

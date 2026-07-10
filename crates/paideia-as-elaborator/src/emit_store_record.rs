@@ -114,6 +114,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+            emission_order: 0,
         };
 
         self.emit_inst(store_id, inst);
@@ -368,12 +369,13 @@ impl EmitWalker {
                 // PA8-m3-001 (generic Mov retained): memory-store immediate
                 // (`mov [rdi+off], 0`). Destination is memory; MovSized encodes a
                 // register-destination immediate move only, so it does not apply.
-                let inst = Instruction {
+                let mut inst = Instruction {
                     mnemonic: Mnemonic::Mov,
                     operands,
                     encoding_hint: None,
                     byte_offset_in_text: None,
                     mode: self.current_mode(),
+                    emission_order: 0,
                 };
 
                 // Virtual ID: record_cons_id * 10 + field_idx to sort in order.
@@ -384,6 +386,9 @@ impl EmitWalker {
                 // would return 0 here. Keep the hardcoded literal until
                 // encode_mov gains this arm. Bytes: 48 C7 47 NN 00 00 00 00
                 // = 8 bytes for small offsets.
+                // #1140: Set emission_order before direct insert to match emit_inst behavior.
+                inst.emission_order = self.state.next_emission_order;
+                self.state.next_emission_order += 1;
                 self.state.instructions.insert(inst_id, inst);
                 self.state.estimated_offset += 8;
             } else {
@@ -406,6 +411,7 @@ impl EmitWalker {
                     encoding_hint: None,
                     byte_offset_in_text: None,
                     mode: self.current_mode(),
+                    emission_order: 0,
                 };
 
                 // Virtual ID: record_cons_id * 10 + field_idx to sort in order.

@@ -80,7 +80,8 @@ fn elaborate_bitop_with_imm64(
         StmtData::Instruction {
             mnemonic: mnemonic_id,
             operands: vec![dst_operand, imm_operand],
-        },
+            emission_order: 0,
+},
     );
 
     // Create unsafe block

@@ -342,7 +342,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         // n1: add r0, 1
@@ -359,7 +360,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            },
+                emission_order: 0,
+},
         );
 
         // Call the new signature; verify it accepts the table.
@@ -420,7 +422,8 @@ mod tests {
                     encoding_hint: None,
                     byte_offset_in_text: None,
                     mode: InstrMode::default(),
-                },
+                    emission_order: 0,
+},
             );
             // n1: mov [rax], r2 (second store to [rax], clobbering the first)
             table.insert(
@@ -441,7 +444,8 @@ mod tests {
                     encoding_hint: None,
                     byte_offset_in_text: None,
                     mode: InstrMode::default(),
-                },
+                    emission_order: 0,
+},
             );
         }
 
@@ -495,7 +499,8 @@ mod tests {
                     encoding_hint: None,
                     byte_offset_in_text: None,
                     mode: InstrMode::default(),
-                },
+                    emission_order: 0,
+},
             );
             // n1: mov [rbx], r2 (store to [rbx], different address)
             table.insert(
@@ -516,7 +521,8 @@ mod tests {
                     encoding_hint: None,
                     byte_offset_in_text: None,
                     mode: InstrMode::default(),
-                },
+                    emission_order: 0,
+},
             );
         }
 

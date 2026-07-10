@@ -49,7 +49,8 @@ impl EmitWalker {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
-            };
+                        emission_order: 0,
+        };
 
             let prelude_ir_id = IrNodeId::new(prelude_id)
                 .unwrap_or_else(|| IrNodeId::new(1).unwrap());
@@ -78,7 +79,8 @@ impl EmitWalker {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
-            };
+                        emission_order: 0,
+        };
 
             let postlude_ir_id = IrNodeId::new(postlude_id)
                 .unwrap_or_else(|| IrNodeId::new(1).unwrap());
@@ -167,7 +169,8 @@ impl EmitWalker {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
-            };
+                        emission_order: 0,
+        };
 
             let prelude_ir_id = IrNodeId::new(ms_prelude_id)
                 .unwrap_or_else(|| IrNodeId::new(1).unwrap());
@@ -356,6 +359,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
 
         self.emit_inst(main_id, call_inst);
@@ -376,7 +380,8 @@ impl EmitWalker {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
-            };
+                        emission_order: 0,
+        };
 
             let postlude_ir_id = IrNodeId::new(ms_postlude_id)
                 .unwrap_or_else(|| IrNodeId::new(1).unwrap());
@@ -406,6 +411,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
         self.emit_inst(ret_id, ret_inst);
     }

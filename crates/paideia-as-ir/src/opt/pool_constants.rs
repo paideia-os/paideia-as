@@ -137,7 +137,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
-        };
+            emission_order: 0,
+};
 
         let mut operands2 = SmallVec::new();
         operands2.push(Operand::Imm64(value));
@@ -147,7 +148,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
-        };
+            emission_order: 0,
+};
 
         arena.instructions_mut().insert(inst1_id, inst1);
         arena.instructions_mut().insert(inst2_id, inst2);
@@ -178,7 +180,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
-        };
+            emission_order: 0,
+};
 
         let mut operands2 = SmallVec::new();
         operands2.push(Operand::Imm64(value1));
@@ -188,7 +191,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
-        };
+            emission_order: 0,
+};
 
         let mut operands3 = SmallVec::new();
         operands3.push(Operand::Imm64(value2));
@@ -199,7 +203,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
-        };
+            emission_order: 0,
+};
 
         arena.instructions_mut().insert(inst1_id, inst1);
         arena.instructions_mut().insert(inst2_id, inst2);
@@ -256,7 +261,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
-        };
+            emission_order: 0,
+};
 
         let mut operands2 = SmallVec::new();
         operands2.push(Operand::Imm64(0x2222_2222_2222_2222i64));
@@ -266,7 +272,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
-        };
+            emission_order: 0,
+};
 
         arena.instructions_mut().insert(inst1_id, inst1);
         arena.instructions_mut().insert(inst2_id, inst2);

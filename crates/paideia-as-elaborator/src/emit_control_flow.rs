@@ -60,6 +60,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
 
         self.emit_inst(test_id, test_inst);
@@ -83,6 +84,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
 
         self.emit_inst(jz_id, jz_inst);
@@ -109,7 +111,8 @@ impl EmitWalker {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
-            };
+                        emission_order: 0,
+        };
 
             self.emit_inst(jmp_id, jmp_inst);
 
@@ -180,6 +183,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
 
         self.emit_inst(test_id, test_inst);
@@ -198,6 +202,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
 
         self.emit_inst(jnz_id, jnz_inst);
@@ -220,6 +225,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
 
         self.emit_inst(jmp_id, jmp_inst);
@@ -284,6 +290,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
 
         self.emit_inst(jmp_id, jmp_inst);

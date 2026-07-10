@@ -179,6 +179,7 @@ impl EmitWalker {
                                             encoding_hint: None,
                                             byte_offset_in_text: None,
                                             mode: self.current_mode(),
+                                        emission_order: 0,
                                         };
 
                                         // Use virtual ID: child_id * 3 + offset to ensure proper sorting
@@ -309,6 +310,7 @@ impl EmitWalker {
                             encoding_hint: None,
                             byte_offset_in_text: None,
                             mode: self.current_mode(),
+                        emission_order: 0,
                         };
 
                         self.emit_inst(test_id, test_inst);
@@ -333,6 +335,7 @@ impl EmitWalker {
                             encoding_hint: None,
                             byte_offset_in_text: None,
                             mode: self.current_mode(),
+                        emission_order: 0,
                         };
 
                         self.emit_inst(jz_id, jz_inst);
@@ -377,6 +380,7 @@ impl EmitWalker {
                                 encoding_hint: None,
                                 byte_offset_in_text: None,
                                 mode: self.current_mode(),
+                            emission_order: 0,
                             };
 
                             self.emit_inst(jmp_id, jmp_inst);
@@ -450,6 +454,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+        emission_order: 0,
         };
         let ret_id = IrNodeId::new(block_id.get() * 2).expect("ret virtual id");
         self.emit_inst(ret_id, ret_inst);
@@ -562,6 +567,7 @@ impl EmitWalker {
                                             encoding_hint: None,
                                             byte_offset_in_text: None,
                                             mode: self.current_mode(),
+                                        emission_order: 0,
                                         };
 
                                         // Use virtual ID: child_id * 3 + offset to ensure proper sorting
@@ -721,6 +727,7 @@ impl EmitWalker {
                                     encoding_hint: None,
                                     byte_offset_in_text: None,
                                     mode: self.current_mode(),
+                                emission_order: 0,
                                 };
                                 self.emit_inst(tail_id, inst);
                             }
@@ -735,6 +742,7 @@ impl EmitWalker {
                                     encoding_hint: None,
                                     byte_offset_in_text: None,
                                     mode: self.current_mode(),
+                                emission_order: 0,
                                 };
                                 self.emit_inst(tail_id, inst);
                             }
@@ -754,6 +762,7 @@ impl EmitWalker {
                                     encoding_hint: None,
                                     byte_offset_in_text: None,
                                     mode: self.current_mode(),
+                                emission_order: 0,
                                 };
                                 self.emit_inst(tail_id, inst);
                             }
@@ -768,6 +777,7 @@ impl EmitWalker {
                                     encoding_hint: None,
                                     byte_offset_in_text: None,
                                     mode: self.current_mode(),
+                                emission_order: 0,
                                 };
                                 self.emit_inst(tail_id, inst);
                             }
@@ -788,6 +798,7 @@ impl EmitWalker {
                                 encoding_hint: None,
                                 byte_offset_in_text: None,
                                 mode: self.current_mode(),
+                            emission_order: 0,
                             };
                             self.emit_inst(tail_id, inst);
                         }

@@ -37,7 +37,8 @@ fn ms_arg_movabs_rcx_i64() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = paideia_as_encoder::EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -64,7 +65,8 @@ fn ms_arg_movabs_rdx_small() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = paideia_as_encoder::EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -91,7 +93,8 @@ fn ms_arg_movabs_r8_small() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = paideia_as_encoder::EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -118,7 +121,8 @@ fn ms_arg_movabs_r9_i64() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = paideia_as_encoder::EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -146,7 +150,8 @@ fn ms_arg_movrr_rcx_from_rdi() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = paideia_as_encoder::EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -171,7 +176,8 @@ fn ms_arg_movrr_rdx_from_rsi() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = paideia_as_encoder::EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -196,7 +202,8 @@ fn ms_arg_movrr_r8_from_rdx() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = paideia_as_encoder::EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -221,7 +228,8 @@ fn ms_arg_movrr_r9_from_rcx() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = paideia_as_encoder::EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -246,7 +254,8 @@ fn ms_arg_movrr_rax_from_r8() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = paideia_as_encoder::EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -271,7 +280,8 @@ fn ms_arg_movrr_rax_from_r9() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = paideia_as_encoder::EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -300,7 +310,8 @@ fn ms_arg_load_rcx_rsp_disp0() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = paideia_as_encoder::EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -327,7 +338,8 @@ fn ms_arg_load_rdx_rsp_disp8() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = paideia_as_encoder::EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -354,7 +366,8 @@ fn ms_arg_load_r8_rsp_disp32() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = paideia_as_encoder::EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -381,7 +394,8 @@ fn ms_arg_load_r9_rsp_disp40() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = paideia_as_encoder::EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -410,7 +424,8 @@ fn ms_arg_store_rsp32_rcx() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = paideia_as_encoder::EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -437,7 +452,8 @@ fn ms_arg_store_rsp40_rdx() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = paideia_as_encoder::EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -464,7 +480,8 @@ fn ms_arg_store_rsp48_r8() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = paideia_as_encoder::EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -491,7 +508,8 @@ fn ms_arg_store_rsp56_r9() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = paideia_as_encoder::EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -516,7 +534,8 @@ fn i32_boundary_max_exactly() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = paideia_as_encoder::EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -540,7 +559,8 @@ fn i32_boundary_max_plus_one() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = paideia_as_encoder::EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -564,7 +584,8 @@ fn i32_boundary_min_exactly() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = paideia_as_encoder::EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -588,7 +609,8 @@ fn i32_boundary_min_minus_one() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = paideia_as_encoder::EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -619,7 +641,8 @@ fn ms_arg_movabs_all_four_regs_sequence() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     paideia_as_encoder::encode_instruction(&inst1, &mut buf, &mut stats)
         .expect("encoding failed for inst1");
 
@@ -630,7 +653,8 @@ fn ms_arg_movabs_all_four_regs_sequence() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     paideia_as_encoder::encode_instruction(&inst2, &mut buf, &mut stats)
         .expect("encoding failed for inst2");
 
@@ -641,7 +665,8 @@ fn ms_arg_movabs_all_four_regs_sequence() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     paideia_as_encoder::encode_instruction(&inst3, &mut buf, &mut stats)
         .expect("encoding failed for inst3");
 
@@ -652,7 +677,8 @@ fn ms_arg_movabs_all_four_regs_sequence() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     paideia_as_encoder::encode_instruction(&inst4, &mut buf, &mut stats)
         .expect("encoding failed for inst4");
 

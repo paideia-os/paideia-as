@@ -302,7 +302,8 @@ fn lower_stmt_instruction_to_raw_instruction() {
         StmtData::Instruction {
             mnemonic: 0, // Stub: real mnemonic interning happens in parser/elaborator
             operands: vec![rax_id, one_id],
-        },
+            emission_order: 0,
+},
     );
 
     // Lower the AST.

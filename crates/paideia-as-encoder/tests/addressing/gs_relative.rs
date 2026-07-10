@@ -29,7 +29,8 @@ fn mov_rax_gs_rax_disp0() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let bytes = encode_one(inst);
     assert_eq!(bytes, &[0x65, 0x48, 0x8B, 0x00]);
 }
@@ -48,7 +49,8 @@ fn mov_r8_gs_r8_disp0() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let bytes = encode_one(inst);
     assert_eq!(bytes, &[0x65, 0x4D, 0x8B, 0x00]);
 }
@@ -67,7 +69,8 @@ fn mov_rax_gs_rsi_disp8() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let bytes = encode_one(inst);
     assert_eq!(bytes, &[0x65, 0x48, 0x8B, 0x46, 0x08]);
 }
@@ -86,7 +89,8 @@ fn mov_rax_fs_rax_disp0() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let bytes = encode_one(inst);
     assert_eq!(bytes, &[0x64, 0x48, 0x8B, 0x00]);
 }
@@ -105,7 +109,8 @@ fn mov_rax_gs_rsi_index_rdi_scale4_disp8() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let bytes = encode_one(inst);
     assert_eq!(bytes, &[0x65, 0x48, 0x8B, 0x44, 0xBE, 0x10]);
 }
@@ -124,7 +129,8 @@ fn mov_rbx_gs_rax_index_rcx_scale2_disp_neg8() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let bytes = encode_one(inst);
     assert_eq!(bytes, &[0x65, 0x48, 0x8B, 0x5C, 0x48, 0xF8]);
 }
@@ -146,7 +152,8 @@ fn lea_rax_gs_rsi_disp8() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let bytes = encode_one(inst);
     assert_eq!(bytes, &[0x65, 0x48, 0x8D, 0x46, 0x08]);
 }
@@ -167,7 +174,8 @@ fn mov_r10_gs_r9_disp8_rex_r_and_b() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let bytes = encode_one(inst);
     assert_eq!(bytes, &[0x65, 0x4D, 0x8B, 0x51, 0x08]);
 }
@@ -189,7 +197,8 @@ fn mov_gs_rdi_disp8_rax_store_form() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let bytes = encode_one(inst);
     assert_eq!(bytes, &[0x65, 0x48, 0x89, 0x47, 0x08]);
 }
@@ -210,7 +219,8 @@ fn mov_rax_gs_rsi_disp8_round_trips_through_iced_x86_with_gs_segment() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let bytes = encode_one(inst);
     assert_eq!(bytes, &[0x65, 0x48, 0x8B, 0x46, 0x08]);
 
@@ -236,7 +246,8 @@ fn mov_rax_fs_rax_disp0_round_trips_through_iced_x86_with_fs_segment() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let bytes = encode_one(inst);
     assert_eq!(bytes, &[0x64, 0x48, 0x8B, 0x00]);
 

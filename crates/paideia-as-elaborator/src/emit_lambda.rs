@@ -48,6 +48,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
 
         self.emit_inst(main_id, mov_inst);
@@ -59,6 +60,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
         self.emit_inst(ret_id, ret_inst);
     }
@@ -85,6 +87,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
 
         self.emit_inst(main_id, mov_inst);
@@ -98,6 +101,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
 
         let not_id = IrNodeId::new(lambda_node_id.get() * 3 + 1).expect("not instr virtual id");
@@ -110,6 +114,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
         self.emit_inst(ret_id, ret_inst);
     }
@@ -162,7 +167,8 @@ impl EmitWalker {
                 encoding_hint: hint,
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
-            };
+                        emission_order: 0,
+        };
             self.emit_inst(main_id, inst);
         }
 
@@ -173,6 +179,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
         self.emit_inst(ret_id, ret_inst);
     }
@@ -197,6 +204,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
 
         self.emit_inst(main_id, lea_inst);
@@ -208,6 +216,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
         self.emit_inst(ret_id, ret_inst);
     }
@@ -251,7 +260,8 @@ impl EmitWalker {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
-            },
+                emission_order: 0,
+},
         );
 
         let mut seq_id = 0u32;
@@ -285,7 +295,8 @@ impl EmitWalker {
                                 encoding_hint: None,
                                 byte_offset_in_text: None,
                                 mode: self.current_mode(),
-                            },
+                                emission_order: 0,
+},
                         );
                     }
                 }
@@ -305,7 +316,8 @@ impl EmitWalker {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
-            },
+                emission_order: 0,
+},
         );
 
         let ret_id = IrNodeId::new(1_170_000u32.saturating_add(l.saturating_mul(100)))
@@ -318,7 +330,8 @@ impl EmitWalker {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
-            },
+                emission_order: 0,
+},
         );
     }
 
@@ -380,7 +393,8 @@ impl EmitWalker {
                                 encoding_hint: None,
                                 byte_offset_in_text: None,
                                 mode: self.current_mode(),
-                            },
+                                emission_order: 0,
+},
                         );
                     }
                 }
@@ -403,7 +417,8 @@ impl EmitWalker {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
-            },
+                emission_order: 0,
+},
         );
 
         let ret_id = IrNodeId::new(1_170_000u32.saturating_add(l.saturating_mul(100)))
@@ -416,7 +431,8 @@ impl EmitWalker {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
-            },
+                emission_order: 0,
+},
         );
     }
 
@@ -466,7 +482,8 @@ impl EmitWalker {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
-            },
+                emission_order: 0,
+},
         );
 
         // Step 2: Marshal arguments into arg_regs
@@ -501,7 +518,8 @@ impl EmitWalker {
                                 encoding_hint: None,
                                 byte_offset_in_text: None,
                                 mode: self.current_mode(),
-                            },
+                                emission_order: 0,
+},
                         );
                     }
                 }
@@ -522,7 +540,8 @@ impl EmitWalker {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
-            },
+                emission_order: 0,
+},
         );
 
         // Step 4: Return
@@ -536,7 +555,8 @@ impl EmitWalker {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
-            },
+                emission_order: 0,
+},
         );
     }
 }

@@ -313,6 +313,7 @@ fn encode_and_decode(inst: &Instruction) -> IcedInstruction {
     assert!(!bytes.is_empty(), "encoder produced no bytes");
     let mut decoder = Decoder::new(64, &bytes, DecoderOptions::NONE);
     decoder.decode()
+    emission_order: 0,
 }
 
 /// Decode and also return the iced `IntelFormatter` rendering of an
@@ -333,7 +334,8 @@ fn mov_sized(width: IntWidth, reg: u8, imm: i64) -> Instruction {
         encoding_hint: None,
         byte_offset_in_text: None,
         mode: InstrMode::default(),
-    }
+        emission_order: 0,
+}
 }
 
 /// Build the cast `Instruction` that m3-002's `cast_plan` selects for `shape`,
@@ -348,7 +350,8 @@ fn cast_instruction(shape: CastShape) -> Option<Instruction> {
         encoding_hint,
         byte_offset_in_text: None,
         mode: InstrMode::default(),
-    })
+        emission_order: 0,
+})
 }
 
 fn shape(src_width: u8, dst_width: u8, src_signed: bool, dst_signed: bool) -> CastShape {

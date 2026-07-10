@@ -190,7 +190,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: Some(100),
             mode: InstrMode::Mode64,
-        };
+            emission_order: 0,
+};
         instructions.insert(node_id, instr);
 
         // Construct a LabelFixup pointing to offset 101 (start at 100, instruction_size=5 for jmp)

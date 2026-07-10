@@ -30,7 +30,8 @@ fn movl_pml4_eax_load() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -59,7 +60,8 @@ fn movl_eax_pml4_store() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -90,7 +92,8 @@ fn reloc_metadata_abs32() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -130,7 +133,8 @@ fn boot_stub_witness_bytes() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst1, &mut buf, &mut stats)
@@ -149,7 +153,8 @@ fn boot_stub_witness_bytes() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     paideia_as_encoder::encode_instruction(&inst2, &mut buf, &mut stats)
         .expect("encoding failed for mov [pml4], eax");
@@ -180,7 +185,8 @@ fn iced_x86_32bit_decoder_round_trip() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -211,7 +217,8 @@ fn mov_mem_abs32_zero_imm() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -246,7 +253,8 @@ fn mov_mem_abs32_max_u32_imm() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -280,7 +288,8 @@ fn mov_mem_abs32_pdpt_plus_zero_addend() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -308,7 +317,8 @@ fn mov_mem_abs32_pdpt_plus_8_addend() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode32,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     let output = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
@@ -343,7 +353,8 @@ fn mov_mem_abs_imm_mode64_unsupported() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut stats = EncodeStats::new();
     let result = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats);

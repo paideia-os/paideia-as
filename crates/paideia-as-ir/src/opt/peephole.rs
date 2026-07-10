@@ -491,7 +491,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
-        };
+            emission_order: 0,
+};
 
         arena.instructions_mut().insert(id, inst);
 
@@ -547,7 +548,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
-        };
+            emission_order: 0,
+};
 
         // Create: je label
         let jcc_id = IrNodeId::new(2).unwrap();
@@ -564,7 +566,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
-        };
+            emission_order: 0,
+};
 
         arena.instructions_mut().insert(cmp_id, cmp_inst);
         arena.instructions_mut().insert(jcc_id, jcc_inst);
@@ -618,7 +621,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
-        };
+            emission_order: 0,
+};
 
         // Create: je label
         let jcc_id = IrNodeId::new(2).unwrap();
@@ -635,7 +639,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
-        };
+            emission_order: 0,
+};
 
         arena.instructions_mut().insert(cmp_id, cmp_inst.clone());
         arena.instructions_mut().insert(jcc_id, jcc_inst);
@@ -672,7 +677,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
-        };
+            emission_order: 0,
+};
 
         // Create: mov rbx, 1 (NOT a jcc)
         let mov_id = IrNodeId::new(2).unwrap();
@@ -687,7 +693,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
-        };
+            emission_order: 0,
+};
 
         arena.instructions_mut().insert(cmp_id, cmp_inst.clone());
         arena.instructions_mut().insert(mov_id, mov_inst);
@@ -725,7 +732,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            };
+                emission_order: 0,
+};
 
             let jcc_id = IrNodeId::new(2).unwrap();
             let jcc_inst = Instruction {
@@ -741,7 +749,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: InstrMode::default(),
-            };
+                emission_order: 0,
+};
 
             arena.instructions_mut().insert(cmp_id, cmp_inst);
             arena.instructions_mut().insert(jcc_id, jcc_inst);

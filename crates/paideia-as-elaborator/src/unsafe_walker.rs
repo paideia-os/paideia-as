@@ -1130,6 +1130,7 @@ impl UnsafeWalker {
                         encoding_hint: None,
                         byte_offset_in_text: None,
                         mode: instr_mode,
+                        emission_order: 0,
                     };
                     arena.instructions_mut().insert(ir_node_id, inst);
                     ir_node_id
@@ -1142,6 +1143,7 @@ impl UnsafeWalker {
                     encoding_hint: None,
                     byte_offset_in_text: None,
                     mode: instr_mode,
+                    emission_order: 0,
                 };
                 arena.instructions_mut().insert(ir_node_id, inst);
                 ir_node_id
@@ -1154,6 +1156,7 @@ impl UnsafeWalker {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: instr_mode,
+                emission_order: 0,
             };
             arena.instructions_mut().insert(ir_node_id, inst);
             ir_node_id

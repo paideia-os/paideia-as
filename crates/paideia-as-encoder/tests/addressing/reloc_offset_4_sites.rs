@@ -48,7 +48,8 @@ fn mov_r64_symbol_reloc_offset_is_3() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     assert_reloc_byte_offset(&inst, 3, "mov rax, [test_symbol]");
 }
 
@@ -66,7 +67,8 @@ fn mov_r64_symbol_reloc_kind_is_pcrel32() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
@@ -96,7 +98,8 @@ fn lea_r64_symbol_reloc_offset_is_3() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     assert_reloc_byte_offset(&inst, 3, "lea rax, [test_symbol]");
 }
 
@@ -114,7 +117,8 @@ fn lea_r64_symbol_reloc_kind_is_pcrel32() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
@@ -141,7 +145,8 @@ fn lgdt_symbol_reloc_offset_is_3() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     assert_reloc_byte_offset(&inst, 3, "lgdt [gdt_table]");
 }
 
@@ -156,7 +161,8 @@ fn lgdt_symbol_reloc_kind_is_pcrel32() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
@@ -183,7 +189,8 @@ fn lidt_symbol_reloc_offset_is_3() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     assert_reloc_byte_offset(&inst, 3, "lidt [idt_table]");
 }
 
@@ -198,7 +205,8 @@ fn lidt_symbol_reloc_kind_is_pcrel32() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
@@ -227,7 +235,8 @@ fn mov_r64_symbol_encodes_7_bytes() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
@@ -250,7 +259,8 @@ fn lea_r64_symbol_encodes_7_bytes() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
@@ -270,7 +280,8 @@ fn lgdt_symbol_encodes_7_bytes() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
@@ -290,7 +301,8 @@ fn lidt_symbol_encodes_7_bytes() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
@@ -317,7 +329,8 @@ fn mov_reloc_addend_is_minus_4_for_zero_input() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
@@ -347,7 +360,8 @@ fn mov_reloc_addend_offsets_ir_addend() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
@@ -378,7 +392,8 @@ fn lea_reloc_addend_is_minus_4_for_zero_input() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
@@ -408,7 +423,8 @@ fn lea_reloc_addend_offsets_ir_addend() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
@@ -436,7 +452,8 @@ fn lgdt_reloc_addend_is_minus_4_for_zero_input() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
@@ -463,7 +480,8 @@ fn lgdt_reloc_addend_offsets_ir_addend() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
@@ -491,7 +509,8 @@ fn lidt_reloc_addend_is_minus_4_for_zero_input() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
@@ -518,7 +537,8 @@ fn lidt_reloc_addend_offsets_ir_addend() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
@@ -546,7 +566,8 @@ fn call_reloc_addend_is_minus_4_for_zero_input() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
@@ -573,7 +594,8 @@ fn call_reloc_addend_offsets_ir_addend() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
@@ -605,7 +627,8 @@ fn ljmp_imm16_symbol_reloc_addend_is_unchanged() {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();

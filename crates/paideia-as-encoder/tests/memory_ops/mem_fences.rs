@@ -37,7 +37,8 @@ fn mfence_byte_exact_encoding() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
@@ -59,7 +60,8 @@ fn mfence_mode32_equals_mode64() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mode32_bytes = encode_in_mode(&inst, InstrMode::Mode32);
     let mode64_bytes = encode_in_mode(&inst, InstrMode::Mode64);
@@ -81,7 +83,8 @@ fn mfence_iced_round_trip() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
@@ -103,7 +106,8 @@ fn sfence_byte_exact_encoding() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
@@ -125,7 +129,8 @@ fn sfence_mode32_equals_mode64() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mode32_bytes = encode_in_mode(&inst, InstrMode::Mode32);
     let mode64_bytes = encode_in_mode(&inst, InstrMode::Mode64);
@@ -147,7 +152,8 @@ fn sfence_iced_round_trip() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
@@ -169,7 +175,8 @@ fn lfence_byte_exact_encoding() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();
@@ -191,7 +198,8 @@ fn lfence_mode32_equals_mode64() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mode32_bytes = encode_in_mode(&inst, InstrMode::Mode32);
     let mode64_bytes = encode_in_mode(&inst, InstrMode::Mode64);
@@ -213,7 +221,8 @@ fn lfence_iced_round_trip() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mut buf = CodeBuffer::new();
     let mut stats = EncodeStats::new();

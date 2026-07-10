@@ -19,7 +19,8 @@ fn encode_reg_imm(mnemonic: Mnemonic, reg_id: u8, imm: i64) -> Vec<u8> {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
         .expect("encode_instruction failed");
@@ -35,7 +36,8 @@ fn encode_reg_reg(mnemonic: Mnemonic, dst_id: u8, src_id: u8) -> Vec<u8> {
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     let mut stats = EncodeStats::new();
     paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
         .expect("encode_instruction failed");

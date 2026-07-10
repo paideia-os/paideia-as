@@ -212,7 +212,8 @@ impl EmitWalker {
                                 encoding_hint: None,
                                 byte_offset_in_text: None,
                                 mode: self.current_mode(),
-                            };
+                                        emission_order: 0,
+        };
 
                             self.emit_inst(main_id, mov_inst);
 
@@ -224,7 +225,8 @@ impl EmitWalker {
                                 encoding_hint: None,
                                 byte_offset_in_text: None,
                                 mode: self.current_mode(),
-                            };
+                                        emission_order: 0,
+        };
 
                             self.emit_inst(ret_id, ret_inst);
                         }
@@ -268,7 +270,9 @@ impl EmitWalker {
                                             let ret_id = IrNodeId::new(lambda_node_id.get()*2 + 1).unwrap();
                                             self.emit_inst(ret_id, Instruction { mnemonic: Mnemonic::Ret,
                                                 operands: SmallVec::new(), encoding_hint: None,
-                                                byte_offset_in_text: None, mode: self.current_mode() });
+                                                byte_offset_in_text: None, mode: self.current_mode(),
+                                                emission_order: 0,
+});
                                             return;
                                         }
                                     }
@@ -886,7 +890,8 @@ impl EmitWalker {
                             encoding_hint: None,
                             byte_offset_in_text: None,
                             mode: self.current_mode(),
-                        };
+                                    emission_order: 0,
+        };
                         self.emit_inst(ret_id, ret_inst);
                     }
                     // #1116: Store-bodied lambda `fn (v: u64) -> counter = v`
@@ -919,7 +924,8 @@ impl EmitWalker {
                             encoding_hint: None,
                             byte_offset_in_text: None,
                             mode: self.current_mode(),
-                        };
+                                    emission_order: 0,
+        };
                         self.emit_inst(ret_id, ret_inst);
                     }
                     _ => {
@@ -948,6 +954,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
         self.emit_inst(inst_id, inst);
     }
@@ -979,6 +986,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
 
         // Use emit_inst which automatically calls paideia_as_encoder::estimated_bytes
@@ -1007,6 +1015,7 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
+                    emission_order: 0,
         };
 
         self.emit_inst(inst_id, inst);

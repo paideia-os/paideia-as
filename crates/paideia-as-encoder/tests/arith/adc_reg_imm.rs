@@ -20,7 +20,8 @@ fn encode_adc_inst(
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     common::encode_bytes(&inst)
 }
 

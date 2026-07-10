@@ -36,7 +36,8 @@ pub fn insert_instruction(
         byte_offset_in_text: None,
         mode: InstrMode::default(),
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
     arena.instructions_mut().insert(node_id, inst);
 }
 

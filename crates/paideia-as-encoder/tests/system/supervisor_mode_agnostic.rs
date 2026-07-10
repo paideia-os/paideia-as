@@ -42,7 +42,8 @@ fn cli_mode32_equals_mode64() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mode32_bytes = encode_in_mode(&inst, InstrMode::Mode32);
     let mode64_bytes = encode_in_mode(&inst, InstrMode::Mode64);
@@ -62,7 +63,8 @@ fn sti_mode32_equals_mode64() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mode32_bytes = encode_in_mode(&inst, InstrMode::Mode32);
     let mode64_bytes = encode_in_mode(&inst, InstrMode::Mode64);
@@ -82,7 +84,8 @@ fn hlt_mode32_equals_mode64() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mode32_bytes = encode_in_mode(&inst, InstrMode::Mode32);
     let mode64_bytes = encode_in_mode(&inst, InstrMode::Mode64);
@@ -102,7 +105,8 @@ fn nop_mode32_equals_mode64() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mode32_bytes = encode_in_mode(&inst, InstrMode::Mode32);
     let mode64_bytes = encode_in_mode(&inst, InstrMode::Mode64);
@@ -122,7 +126,8 @@ fn rdmsr_mode32_equals_mode64() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mode32_bytes = encode_in_mode(&inst, InstrMode::Mode32);
     let mode64_bytes = encode_in_mode(&inst, InstrMode::Mode64);
@@ -146,7 +151,8 @@ fn wrmsr_mode32_equals_mode64() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mode32_bytes = encode_in_mode(&inst, InstrMode::Mode32);
     let mode64_bytes = encode_in_mode(&inst, InstrMode::Mode64);
@@ -172,7 +178,8 @@ fn mov_cr3_rax_mode32_equals_mode64() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mode32_bytes = encode_in_mode(&inst, InstrMode::Mode32);
     let mode64_bytes = encode_in_mode(&inst, InstrMode::Mode64);
@@ -198,7 +205,8 @@ fn mov_rax_cr0_mode32_equals_mode64() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mode32_bytes = encode_in_mode(&inst, InstrMode::Mode32);
     let mode64_bytes = encode_in_mode(&inst, InstrMode::Mode64);
@@ -224,7 +232,8 @@ fn mov_dr0_rax_mode32_equals_mode64() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mode32_bytes = encode_in_mode(&inst, InstrMode::Mode32);
     let mode64_bytes = encode_in_mode(&inst, InstrMode::Mode64);
@@ -250,7 +259,8 @@ fn mov_rax_dr6_mode32_equals_mode64() {
         byte_offset_in_text: None,
         mode: InstrMode::Mode64,
         encoding_hint: None,
-    };
+        emission_order: 0,
+};
 
     let mode32_bytes = encode_in_mode(&inst, InstrMode::Mode32);
     let mode64_bytes = encode_in_mode(&inst, InstrMode::Mode64);

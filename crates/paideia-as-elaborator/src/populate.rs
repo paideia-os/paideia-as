@@ -98,7 +98,8 @@ fn populate_one(ctx: &PopulateContext, id: IrNodeId, table: &mut InstructionSide
                 }),
                 byte_offset_in_text: None,
                 mode: ctx.instr_mode,
-            };
+                        emission_order: 0,
+        };
             table.insert(id, inst);
             true
         }
@@ -132,7 +133,8 @@ fn populate_one(ctx: &PopulateContext, id: IrNodeId, table: &mut InstructionSide
                 }),
                 byte_offset_in_text: None,
                 mode: ctx.instr_mode,
-            };
+                        emission_order: 0,
+        };
             table.insert(id, inst);
             true
         }
@@ -208,7 +210,8 @@ fn synthesise_intrinsic_instruction(
                 }),
                 byte_offset_in_text: None,
                 mode: ctx.instr_mode,
-            }
+                emission_order: 0,
+}
         }
         "index_u64_set" => {
             // Children: [callee, ptr, index, value]
@@ -235,7 +238,8 @@ fn synthesise_intrinsic_instruction(
                 }),
                 byte_offset_in_text: None,
                 mode: ctx.instr_mode,
-            }
+                emission_order: 0,
+}
         }
         "ptr_sub_bytes_u64" => {
             // Children: [callee, ptr1, ptr2]
@@ -257,7 +261,8 @@ fn synthesise_intrinsic_instruction(
                 }),
                 byte_offset_in_text: None,
                 mode: ctx.instr_mode,
-            }
+                emission_order: 0,
+}
         }
         _ => {
             // Other intrinsics: stub Mov(RDI, RAX)
@@ -273,7 +278,8 @@ fn synthesise_intrinsic_instruction(
                 }),
                 byte_offset_in_text: None,
                 mode: ctx.instr_mode,
-            }
+                emission_order: 0,
+}
         }
     };
     table.insert(id, inst);
