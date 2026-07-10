@@ -172,7 +172,7 @@ pub fn lower_ast_to_ir(
         // NodeId and IrNodeId both index from 1.
         let ast_id = NodeId::new((i + 1) as u32).expect("non-zero node id");
         let node = &ast[ast_id];
-        let ir_kind = refine_ir_kind(node, ast, ast_id);
+        let ir_kind = refine_ir_kind(node, ast, ast_id, source_map);
         let ir_id = ir.alloc(ir_kind, node.span);
         ast_to_ir.insert(ast_id, ir_id);
     }
@@ -246,7 +246,7 @@ pub fn lower_ast_to_ir(
 
 /// First-pass `IrKind` classifier: `map_node_kind` plus a few refinements
 /// that depend on `ExprData` payload (BitNot prefix, Store lvalue, Loop/While).
-fn refine_ir_kind(node: &paideia_as_ast::NodeData, ast: &AstArena, ast_id: NodeId) -> IrKind {
+fn refine_ir_kind(node: &paideia_as_ast::NodeData, ast: &AstArena, ast_id: NodeId, source_map: &SourceMap) -> IrKind {
     let mut ir_kind = map_node_kind(node.kind);
 
     // Phase 7 m4-001: prefix `~` lowers to a dedicated `IrKind::BitNot`
@@ -272,8 +272,18 @@ fn refine_ir_kind(node: &paideia_as_ast::NodeData, ast: &AstArena, ast_id: NodeI
     if node.kind == NodeKind::ExprInfix {
         if let Some(ExprData::Infix { op, lhs, .. }) = ast.expr_data(ast_id) {
             let op_node = &ast[*op];
-            // Operator "=" is always 1 byte
-            if op_node.span.byte_len() == 1 && is_lvalue_infix_assignment(ast, *lhs) {
+            // Guard: check that the operator text is exactly "=" and LHS is a valid l-value
+            let is_eq = {
+                let content = source_map.content(op_node.span.file());
+                let start = op_node.span.byte_start() as usize;
+                let len = op_node.span.byte_len() as usize;
+                if start + len <= content.len() {
+                    &content[start..start + len] == "="
+                } else {
+                    false
+                }
+            };
+            if is_eq && is_lvalue_infix_assignment(ast, *lhs) {
                 ir_kind = IrKind::Store;
             }
         }

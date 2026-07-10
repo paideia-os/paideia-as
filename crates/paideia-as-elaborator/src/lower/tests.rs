@@ -12,10 +12,28 @@ fn create_test_source_map_and_sink() -> (SourceMap, VecSink) {
     let mut source_map = SourceMap::new();
     let _file = source_map.add_file(
         std::path::PathBuf::from("test.pdx"),
-        String::from("// test source"),
+        String::from("a[i] = x; *p = y; r.f = z;"),
     );
     let sink = VecSink::new();
     (source_map, sink)
+}
+
+/// Helper to create a span for the "=" operator in the test source.
+/// The test source is "a[i] = x; *p = y; r.f = z;"
+/// Byte positions (0-indexed):
+/// - First "=" is at byte 5 (in "a[i] = x")
+/// - Second "=" is at byte 13 (in "*p = y")
+/// - Third "=" is at byte 22 (in "r.f = z")
+fn eq_operator_span_1() -> paideia_as_diagnostics::Span {
+    paideia_as_diagnostics::Span::new(FileId::new(1).unwrap(), 5, 1)
+}
+
+fn eq_operator_span_2() -> paideia_as_diagnostics::Span {
+    paideia_as_diagnostics::Span::new(FileId::new(1).unwrap(), 13, 1)
+}
+
+fn eq_operator_span_3() -> paideia_as_diagnostics::Span {
+    paideia_as_diagnostics::Span::new(FileId::new(1).unwrap(), 22, 1)
 }
 
 #[test]
@@ -329,8 +347,8 @@ fn lower_array_assign_produces_store() {
     // Allocate value variable: x
     let value_var_id = ast.alloc(NodeKind::Ident, span());
 
-    // Allocate the operator node (=) - a Placeholder with 1-byte span
-    let assign_op_id = ast.alloc(NodeKind::Placeholder, span());
+    // Allocate the operator node (=) - a Placeholder with 1-byte span pointing to "=" in "a[i] = x"
+    let assign_op_id = ast.alloc(NodeKind::Placeholder, eq_operator_span_1());
 
     // Allocate ExprInfix: a[i] = x
     let assign_expr_id = ast.alloc_expr(
@@ -431,8 +449,8 @@ fn lower_deref_assign_produces_store() {
     // Allocate value variable: x
     let value_var_id = ast.alloc(NodeKind::Ident, span());
 
-    // Allocate the operator node (=)
-    let assign_op_id = ast.alloc(NodeKind::Placeholder, span());
+    // Allocate the operator node (=) - pointing to "=" in "*p = y"
+    let assign_op_id = ast.alloc(NodeKind::Placeholder, eq_operator_span_2());
 
     // Allocate ExprInfix: *p = x
     let assign_expr_id = ast.alloc_expr(
@@ -501,8 +519,8 @@ fn lower_field_deref_assign_produces_store() {
     // Allocate value variable: x
     let value_var_id = ast.alloc(NodeKind::Ident, span());
 
-    // Allocate the operator node (=)
-    let assign_op_id = ast.alloc(NodeKind::Placeholder, span());
+    // Allocate the operator node (=) - pointing to "=" in "r.f = z"
+    let assign_op_id = ast.alloc(NodeKind::Placeholder, eq_operator_span_3());
 
     // Allocate ExprInfix: (*p).field = x
     let assign_expr_id = ast.alloc_expr(

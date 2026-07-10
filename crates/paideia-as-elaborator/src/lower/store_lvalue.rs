@@ -83,3 +83,188 @@ pub(super) fn store_children(
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use paideia_as_ast::{AstArena, ExprData};
+    use paideia_as_diagnostics::Span;
+
+    fn dummy_span() -> Span {
+        Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 0, 1)
+    }
+
+    #[test]
+    fn is_lvalue_call_with_one_arg_is_assignment() {
+        // Pattern 1: a[i] = value (ExprCall with 1 argument)
+        let mut ast = AstArena::new();
+
+        let callee_id = ast.alloc(NodeKind::Ident, dummy_span());
+        let arg_id = ast.alloc(NodeKind::ExprLiteral, dummy_span());
+        let call_id = ast.alloc_expr(
+            NodeKind::ExprCall,
+            dummy_span(),
+            ExprData::Call {
+                callee: callee_id,
+                args: vec![arg_id],
+            },
+        );
+
+        assert!(is_lvalue_infix_assignment(&ast, call_id));
+    }
+
+    #[test]
+    fn is_lvalue_call_with_two_args_not_assignment() {
+        // Pattern 1 should only match with 1 argument
+        let mut ast = AstArena::new();
+
+        let callee_id = ast.alloc(NodeKind::Ident, dummy_span());
+        let arg1_id = ast.alloc(NodeKind::ExprLiteral, dummy_span());
+        let arg2_id = ast.alloc(NodeKind::ExprLiteral, dummy_span());
+        let call_id = ast.alloc_expr(
+            NodeKind::ExprCall,
+            dummy_span(),
+            ExprData::Call {
+                callee: callee_id,
+                args: vec![arg1_id, arg2_id],
+            },
+        );
+
+        assert!(!is_lvalue_infix_assignment(&ast, call_id));
+    }
+
+    #[test]
+    fn is_lvalue_deref_is_assignment() {
+        // Pattern 2: *p = value (ExprDeref)
+        let mut ast = AstArena::new();
+
+        let expr_id = ast.alloc(NodeKind::Ident, dummy_span());
+        let deref_id = ast.alloc_expr(
+            NodeKind::ExprDeref,
+            dummy_span(),
+            ExprData::Deref { expr: expr_id },
+        );
+
+        assert!(is_lvalue_infix_assignment(&ast, deref_id));
+    }
+
+    #[test]
+    fn is_lvalue_field_access_on_deref_is_assignment() {
+        // Pattern 3: (*p).f = value (ExprFieldAccess on ExprDeref)
+        let mut ast = AstArena::new();
+
+        let pointer_id = ast.alloc(NodeKind::Ident, dummy_span());
+        let deref_id = ast.alloc_expr(
+            NodeKind::ExprDeref,
+            dummy_span(),
+            ExprData::Deref {
+                expr: pointer_id,
+            },
+        );
+        let field_node_id = ast.alloc(NodeKind::Ident, dummy_span());
+        let field_id = ast.alloc_expr(
+            NodeKind::ExprFieldAccess,
+            dummy_span(),
+            ExprData::FieldAccess {
+                receiver: deref_id,
+                field: field_node_id,
+            },
+        );
+
+        assert!(is_lvalue_infix_assignment(&ast, field_id));
+    }
+
+    #[test]
+    fn is_lvalue_field_access_on_ident_is_assignment() {
+        // Pattern 4: r.f = value (ExprFieldAccess on Ident)
+        let mut ast = AstArena::new();
+
+        let receiver_id = ast.alloc(NodeKind::Ident, dummy_span());
+        let field_node_id = ast.alloc(NodeKind::Ident, dummy_span());
+        let field_id = ast.alloc_expr(
+            NodeKind::ExprFieldAccess,
+            dummy_span(),
+            ExprData::FieldAccess {
+                receiver: receiver_id,
+                field: field_node_id,
+            },
+        );
+
+        assert!(is_lvalue_infix_assignment(&ast, field_id));
+    }
+
+    #[test]
+    fn is_lvalue_field_access_on_path_is_assignment() {
+        // Pattern 4: r.f = value (ExprFieldAccess on ExprPath)
+        let mut ast = AstArena::new();
+
+        let segment_id = ast.alloc(NodeKind::Ident, dummy_span());
+        let receiver_id = ast.alloc_expr(
+            NodeKind::ExprPath,
+            dummy_span(),
+            ExprData::Path {
+                segments: vec![segment_id],
+            },
+        );
+        let field_node_id = ast.alloc(NodeKind::Ident, dummy_span());
+        let field_id = ast.alloc_expr(
+            NodeKind::ExprFieldAccess,
+            dummy_span(),
+            ExprData::FieldAccess {
+                receiver: receiver_id,
+                field: field_node_id,
+            },
+        );
+
+        assert!(is_lvalue_infix_assignment(&ast, field_id));
+    }
+
+    #[test]
+    fn is_lvalue_field_access_on_call_not_assignment() {
+        // Pattern 4 should only match Ident/ExprPath, not Call
+        let mut ast = AstArena::new();
+
+        let callee_id = ast.alloc(NodeKind::Ident, dummy_span());
+        let arg_id = ast.alloc(NodeKind::ExprLiteral, dummy_span());
+        let call_id = ast.alloc_expr(
+            NodeKind::ExprCall,
+            dummy_span(),
+            ExprData::Call {
+                callee: callee_id,
+                args: vec![arg_id],
+            },
+        );
+        let field_node_id = ast.alloc(NodeKind::Ident, dummy_span());
+        let field_id = ast.alloc_expr(
+            NodeKind::ExprFieldAccess,
+            dummy_span(),
+            ExprData::FieldAccess {
+                receiver: call_id,
+                field: field_node_id,
+            },
+        );
+
+        assert!(!is_lvalue_infix_assignment(&ast, field_id));
+    }
+
+    #[test]
+    fn is_lvalue_ident_not_assignment() {
+        // Plain Ident should NOT be considered an l-value (Pattern 5 is not yet implemented)
+        let mut ast = AstArena::new();
+
+        let ident_id = ast.alloc(NodeKind::Ident, dummy_span());
+
+        assert!(!is_lvalue_infix_assignment(&ast, ident_id));
+    }
+
+    #[test]
+    fn is_lvalue_literal_not_assignment() {
+        // Literal should NOT be considered an l-value
+        let mut ast = AstArena::new();
+
+        let lit_id = ast.alloc(NodeKind::ExprLiteral, dummy_span());
+
+        assert!(!is_lvalue_infix_assignment(&ast, lit_id));
+    }
+}
+
