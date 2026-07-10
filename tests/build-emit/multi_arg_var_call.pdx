@@ -1,0 +1,4 @@
+module MultiArgVarCall = structure {
+    let add : (u64, u64) -> u64 = fn (x: u64, y: u64) -> x + y
+    pub let sum : (u64, u64) -> u64 = fn (a: u64, b: u64) -> add(a, b)
+}

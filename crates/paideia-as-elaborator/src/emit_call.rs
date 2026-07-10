@@ -288,18 +288,37 @@ impl EmitWalker {
                     }
                 }
                 IrKind::Var => {
-                    // For Var arguments, check if it's a local binding or parameter
-                    // For now, support copying from RDI (first parameter)
-                    if arg_idx == 0 && dest_reg != abi::RDI {
-                        // Need to copy from RDI to another reg
-                        // Use the old emit_mov_reg_to_reg helper for consistent ID scheme and byte calculation
-                        self.emit_mov_reg_to_reg(lambda_node_id, abi::RDI, dest_reg);
-                    } else if arg_idx != 0 {
-                        // Non-first-arg Var references require local binding lookup
-                        self.push_typed_diag(
-                            t0521_code(),
-                            format!("Var arg {} (non-first-arg) not yet supported", arg_idx),
-                        );
+                    // Resolve the Var's source register: look up its binding name in
+                    // local_bindings (the caller's parameter/let scratch table). If the
+                    // source differs from dest_reg, emit `mov dest, src`; equal-reg is
+                    // a no-op.
+                    let src_reg = arena
+                        .binding_names()
+                        .get(arg_id)
+                        .and_then(|name| self.state.local_bindings.get(name));
+                    match src_reg {
+                        Some(src) if src == dest_reg => {
+                            // No-op: caller's binding already lives in the target arg reg.
+                        }
+                        Some(src) => {
+                            self.emit_mov_reg_to_reg(lambda_node_id, src, dest_reg);
+                        }
+                        None => {
+                            // Legacy fallback for arg 0: if the binding table is not
+                            // populated (older test IR shapes), assume the caller's
+                            // first param is in RDI.
+                            if arg_idx == 0 && dest_reg != abi::RDI {
+                                self.emit_mov_reg_to_reg(lambda_node_id, abi::RDI, dest_reg);
+                            } else if arg_idx != 0 {
+                                self.push_typed_diag(
+                                    t0521_code(),
+                                    format!(
+                                        "Var arg {} has no local binding entry; source register unresolvable",
+                                        arg_idx
+                                    ),
+                                );
+                            }
+                        }
                     }
                 }
                 _ => {
