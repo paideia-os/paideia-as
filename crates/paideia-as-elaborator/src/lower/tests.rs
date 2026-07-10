@@ -12,18 +12,19 @@ fn create_test_source_map_and_sink() -> (SourceMap, VecSink) {
     let mut source_map = SourceMap::new();
     let _file = source_map.add_file(
         std::path::PathBuf::from("test.pdx"),
-        String::from("a[i] = x; *p = y; r.f = z;"),
+        String::from("a[i] = x; *p = y; r.f = z; a[i] + w;"),
     );
     let sink = VecSink::new();
     (source_map, sink)
 }
 
 /// Helper to create a span for the "=" operator in the test source.
-/// The test source is "a[i] = x; *p = y; r.f = z;"
+/// The test source is "a[i] = x; *p = y; r.f = z; a[i] + w;"
 /// Byte positions (0-indexed):
 /// - First "=" is at byte 5 (in "a[i] = x")
 /// - Second "=" is at byte 13 (in "*p = y")
 /// - Third "=" is at byte 22 (in "r.f = z")
+/// - The "+" (non-assignment, also 1 byte) is at byte 32 (in "a[i] + w")
 fn eq_operator_span_1() -> paideia_as_diagnostics::Span {
     paideia_as_diagnostics::Span::new(FileId::new(1).unwrap(), 5, 1)
 }
@@ -34,6 +35,14 @@ fn eq_operator_span_2() -> paideia_as_diagnostics::Span {
 
 fn eq_operator_span_3() -> paideia_as_diagnostics::Span {
     paideia_as_diagnostics::Span::new(FileId::new(1).unwrap(), 22, 1)
+}
+
+/// Non-assignment 1-byte operator ("+"). Regression span for #1132: before the
+/// fix, `refine_ir_kind` gated `IrKind::Store` on `op.span.byte_len() == 1`,
+/// which "+" also satisfies. Any valid l-value-shaped LHS (e.g. `a[i]`) paired
+/// with this operator must NOT be classified as Store.
+fn plus_operator_span() -> paideia_as_diagnostics::Span {
+    paideia_as_diagnostics::Span::new(FileId::new(1).unwrap(), 32, 1)
 }
 
 #[test]
@@ -391,6 +400,68 @@ fn lower_array_assign_produces_store() {
 }
 
 #[test]
+fn lower_indexed_lvalue_with_plus_operator_produces_app() {
+    // Regression test for #1132: dispatch_store 3-way (Pattern 5) broke
+    // unrelated lambda code gen (add_one, my_init) because the old guard
+    // classified `IrKind::Store` on `op.span.byte_len() == 1` alone. "+" is
+    // also a 1-byte operator, so `a[i] + w`-shaped expressions (a valid
+    // Pattern-1 l-value LHS, non-assignment operator) were at risk of being
+    // misclassified as Store. This pins that a real, non-"=" 1-byte operator
+    // is rejected by the operator-text guard even when the LHS has l-value
+    // shape.
+    let (source_map, mut sink) = create_test_source_map_and_sink();
+    // Build: a[i] + w
+    let mut ast = AstArena::new();
+
+    // Allocate base variable: a
+    let base_var_id = ast.alloc(NodeKind::Ident, span());
+
+    // Allocate index variable: i
+    let index_var_id = ast.alloc(NodeKind::Ident, span());
+
+    // Allocate ExprCall: a[i] (Pattern 1 l-value shape)
+    let index_expr_id = ast.alloc_expr(
+        NodeKind::ExprCall,
+        span(),
+        ExprData::Call {
+            callee: base_var_id,
+            args: vec![index_var_id],
+        },
+    );
+
+    // Allocate rhs variable: w
+    let rhs_var_id = ast.alloc(NodeKind::Ident, span());
+
+    // Allocate the operator node (+) - a Placeholder with 1-byte span
+    // pointing to the real "+" character in "a[i] + w".
+    let plus_op_id = ast.alloc(NodeKind::Placeholder, plus_operator_span());
+
+    // Allocate ExprInfix: a[i] + w
+    let infix_expr_id = ast.alloc_expr(
+        NodeKind::ExprInfix,
+        span(),
+        ExprData::Infix {
+            lhs: index_expr_id,
+            op: plus_op_id,
+            rhs: rhs_var_id,
+        },
+    );
+
+    // Lower the AST.
+    let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty(), &std::collections::HashMap::new());
+
+    // Verify the infix lowered to App, NOT Store, despite the l-value-shaped
+    // LHS, because the operator text is "+" and not "=".
+    let infix_ir_id = result.ast_to_ir[&infix_expr_id];
+    assert_eq!(
+        result.ir[infix_ir_id].kind,
+        IrKind::App,
+        "a[i] + w must lower to App: '+' is a 1-byte operator but not '=', \
+         and byte_len()==1 alone must not trigger Store classification"
+    );
+}
+
+#[test]
 fn lower_regular_assign_produces_app() {
     // Verify that regular assignment (not to an index) still lowers to App.
     let (source_map, mut sink) = create_test_source_map_and_sink();
@@ -403,8 +474,11 @@ fn lower_regular_assign_produces_app() {
     // Allocate literal: 5
     let lit_5_id = ast.alloc(NodeKind::ExprLiteral, span());
 
-    // Allocate the operator node (=)
-    let assign_op_id = ast.alloc(NodeKind::Placeholder, span());
+    // Allocate the operator node (=) - a real "=" span, so this test
+    // exercises Pattern-5 (bare Ident LHS) rejection via
+    // `is_lvalue_infix_assignment`, not a vacuous pass caused by a
+    // non-"=" placeholder span.
+    let assign_op_id = ast.alloc(NodeKind::Placeholder, eq_operator_span_1());
 
     // Allocate ExprInfix: x = 5 (not an indexed assignment)
     let assign_expr_id = ast.alloc_expr(
