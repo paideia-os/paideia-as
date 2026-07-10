@@ -536,6 +536,13 @@ impl EmitWalker {
                                 self.state
                                     .insert_unsafe_lambda_pending_idx(lambda_id, pending_idx);
                             }
+
+                            // #1139: also record stmt-position Unsafes (visit_lambda's IrKind::Unsafe
+                            // arm only covers Lambda→Unsafe body form). current_function was last set
+                            // on the enclosing Lambda in id-preorder.
+                            self.state.unsafe_body_to_lambda
+                                .entry(node_id.get())
+                                .or_insert(self.state.current_function);
                         }
                         IrKind::FieldAccess => {
                             // Phase 6 m3-002: emit field access lowering for (*p).field shape.
@@ -715,8 +722,23 @@ impl EmitWalker {
         arena: &mut IrArena,
         typer: Option<&paideia_as_types::TypeInterner>,
     ) {
+        // #1139: Snapshot local_bindings before processing unsafe bodies.
+        // Each unsafe body must see the params of its enclosing lambda,
+        // not whatever local_bindings state the last-visited action-bodied lambda left behind.
+        let saved = self.state.local_bindings.clone();
+
         for id_u32 in pending {
             let Some(unsafe_id) = IrNodeId::new(id_u32) else { continue };
+
+            // #1139: Look up the enclosing lambda and re-register its params.
+            if let Some(&lid) = self.state.unsafe_body_to_lambda.get(&id_u32) {
+                if let Some(l_node) = IrNodeId::new(lid) {
+                    // Clear and re-populate local_bindings with this unsafe body's enclosing lambda's params.
+                    self.state.local_bindings.clear();
+                    self.register_nested_lambda_params(l_node, arena, 0);
+                }
+            }
+
             for &child in arena.children(unsafe_id).iter() {
                 let Some(node) = arena.get(child) else { continue };
                 match node.kind {
@@ -747,6 +769,11 @@ impl EmitWalker {
                 }
             }
         }
+
+        // #1139: Restore the original local_bindings state so downstream (cmd_build.rs:705-786
+        // consumers like resolve_var_operands) observe the pre-fix stale state. This is a
+        // stop-gap; a full fix would re-snapshot there as well (follow-up).
+        self.state.local_bindings = saved;
 
         // #1146 follow-up: instructions emitted above (via emit_action_stmt →
         // dispatch_store/emit_call_stmt → emit_inst) land in

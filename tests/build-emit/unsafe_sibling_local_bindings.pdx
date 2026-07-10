@@ -1,0 +1,16 @@
+// #1139: Sibling lambdas sharing a param name must each resolve to their own register.
+// When emit_pending_unsafe_bodies runs with stale local_bindings from a previous
+// action-bodied lambda, stmt-position unsafe blocks see the wrong register bindings.
+
+module UnsafeSiblingLocalBindings = structure {
+  struct Point { x: u32, y: u32 }
+  pub let write_via_ptr : (*Point, u32) -> () !{} @{} = fn (p: *Point, v: u32) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "#1139 regression: ensure unsafe blocks see correct register bindings",
+    block: {
+      (*p).x = v;
+    }
+  }
+  pub let sum_two : (u64, u64) -> u64 = fn (a: u64, b: u64) -> a + b
+}
