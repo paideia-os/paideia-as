@@ -552,6 +552,8 @@ impl UnsafeWalker {
         local_bindings: &LocalBindingTable,
         instr_mode: InstrMode,
         enabled_features: &HashSet<CpuFeature>,
+        unsafe_body_to_lambda: &HashMap<u32, u32>,
+        instr_to_lambda: &mut HashMap<IrNodeId, u32>,
     ) -> (
         HashMap<String, u32>,
         HashMap<String, paideia_as_ir::IrNodeId>,
@@ -571,6 +573,8 @@ impl UnsafeWalker {
                 Some(id) => id,
                 None => continue,
             };
+            // #1139: Look up the lambda_id for this unsafe body.
+            let owning_lambda_id = unsafe_body_to_lambda.get(&ir_node_id_u32).copied();
 
             // Get the IR node to find the AST node it references.
             // The IR node for Unsafe should have been constructed during lowering.
@@ -690,6 +694,8 @@ impl UnsafeWalker {
                                                     local_bindings,
                                                     instr_mode,
                                                     enabled_features,
+                                                    owning_lambda_id,
+                                                    instr_to_lambda,
                                                 );
 
                                                 // Track first instruction of this unsafe block
@@ -791,6 +797,8 @@ impl UnsafeWalker {
         local_bindings: &LocalBindingTable,
         instr_mode: InstrMode,
         enabled_features: &HashSet<CpuFeature>,
+        owning_lambda_id: Option<u32>,
+        instr_to_lambda: &mut HashMap<IrNodeId, u32>,
     ) -> Option<paideia_as_ir::IrNodeId> {
         // Get the statement data.
         let stmt_data = match ast.stmt_data(stmt_id) {
@@ -1133,6 +1141,10 @@ impl UnsafeWalker {
                         emission_order: 0,
                     };
                     arena.instructions_mut().insert(ir_node_id, inst);
+                    // #1139: Record which lambda owns this instruction.
+                    if let Some(lambda_id) = owning_lambda_id {
+                        instr_to_lambda.insert(ir_node_id, lambda_id);
+                    }
                     ir_node_id
                 }
             } else {
@@ -1146,6 +1158,10 @@ impl UnsafeWalker {
                     emission_order: 0,
                 };
                 arena.instructions_mut().insert(ir_node_id, inst);
+                // #1139: Record which lambda owns this instruction.
+                if let Some(lambda_id) = owning_lambda_id {
+                    instr_to_lambda.insert(ir_node_id, lambda_id);
+                }
                 ir_node_id
             }
         } else {
@@ -1159,6 +1175,10 @@ impl UnsafeWalker {
                 emission_order: 0,
             };
             arena.instructions_mut().insert(ir_node_id, inst);
+            // #1139: Record which lambda owns this instruction.
+            if let Some(lambda_id) = owning_lambda_id {
+                instr_to_lambda.insert(ir_node_id, lambda_id);
+            }
             ir_node_id
         };
 

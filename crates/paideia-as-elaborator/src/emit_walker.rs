@@ -163,6 +163,8 @@ impl EmitWalker {
         let bytes = paideia_as_encoder::estimated_bytes(&inst);
         inst.emission_order = self.state.next_emission_order;
         self.state.next_emission_order += 1;
+        // #1139: Record which lambda owns this instruction.
+        self.state.instr_to_lambda.insert(node_id, self.state.current_function);
         self.state.instructions.insert(node_id, inst);
         self.state.estimated_offset += bytes;
     }
@@ -722,11 +724,6 @@ impl EmitWalker {
         arena: &mut IrArena,
         typer: Option<&paideia_as_types::TypeInterner>,
     ) {
-        // #1139: Snapshot local_bindings before processing unsafe bodies.
-        // Each unsafe body must see the params of its enclosing lambda,
-        // not whatever local_bindings state the last-visited action-bodied lambda left behind.
-        let saved = self.state.local_bindings.clone();
-
         for id_u32 in pending {
             let Some(unsafe_id) = IrNodeId::new(id_u32) else { continue };
 
@@ -770,10 +767,13 @@ impl EmitWalker {
             }
         }
 
-        // #1139: Restore the original local_bindings state so downstream (cmd_build.rs:705-786
-        // consumers like resolve_var_operands) observe the pre-fix stale state. This is a
-        // stop-gap; a full fix would re-snapshot there as well (follow-up).
-        self.state.local_bindings = saved;
+        // #1139: DROP the old snapshot-and-restore pattern (was at 87f2076).
+        // The prior fix stored `saved` and restored it here, but this was a stop-gap that
+        // defeated the real fix for consumers (resolve_var_operands in cmd_build.rs).
+        // With per_lambda_bindings + instr_to_lambda, resolve_var_operands now looks up
+        // each instruction's enclosing lambda and uses that lambda's binding snapshot,
+        // so there's no need to restore the flat state. The snapshot is only needed for
+        // emit_action_stmt's direct emissions (handled above via re-register at lines 739-740).
 
         // #1146 follow-up: instructions emitted above (via emit_action_stmt →
         // dispatch_store/emit_call_stmt → emit_inst) land in

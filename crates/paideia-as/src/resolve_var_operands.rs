@@ -12,6 +12,7 @@
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity};
 use paideia_as_elaborator::LocalBindingTable;
 use paideia_as_ir::{IrNodeId, Operand, SymbolTable, instruction::InstructionSideTable};
+use std::collections::HashMap;
 
 #[cfg(test)]
 use paideia_as_ir::InstrMode;
@@ -53,27 +54,47 @@ fn make_t0531(name: &str) -> Diagnostic {
 /// canonical `DiagnosticSink`. Retires the `700` catch-all fallback that
 /// used to fabricate an unregistered code on parse failure.
 ///
+/// #1139: Extended with per_lambda_bindings and instr_to_lambda to resolve Var
+/// operands against the correct lambda scope. Each instruction looks up its
+/// owning lambda via instr_to_lambda, then uses that lambda's captured
+/// local_bindings (from per_lambda_bindings) for Var resolution. Falls back to
+/// the provided `bindings` parameter if the instruction has no lambda or if
+/// per_lambda_bindings is not available.
+///
 /// # Arguments
 ///
 /// * `instructions` - The instruction side-table to mutate in place.
-/// * `bindings` - The local binding table (populated by EmitWalker).
+/// * `bindings` - The local binding table (populated by EmitWalker); used as fallback.
 /// * `symbol_table` - Owned SymbolTable clone (for distinguishing module-scope symbols).
 /// * `diagnostics` - Mutable typed diagnostics vec; T0528/T0531 entries are pushed here.
+/// * `per_lambda_bindings` - #1139: Per-lambda binding snapshots (lambda_id → LocalBindingTable).
+/// * `instr_to_lambda` - #1139: Instruction → lambda mapping (instr_id → lambda_id).
 pub(crate) fn resolve_var_operands(
     instructions: &mut InstructionSideTable,
     bindings: &LocalBindingTable,
     symbol_table: Option<SymbolTable>,
     diagnostics: &mut Vec<Diagnostic>,
+    per_lambda_bindings: &HashMap<u32, LocalBindingTable>,
+    instr_to_lambda: &HashMap<IrNodeId, u32>,
 ) {
     // Collect all node IDs to avoid borrow conflicts.
     let node_ids: Vec<IrNodeId> = instructions.entries().keys().copied().collect();
 
     for node_id in node_ids {
         if let Some(inst) = instructions.get_mut(node_id) {
+            // #1139: Look up the lambda-specific bindings for this instruction.
+            // First, check if this instruction belongs to a lambda (via instr_to_lambda).
+            // If so, use that lambda's captured bindings (per_lambda_bindings).
+            // Otherwise, fall back to the flat bindings table.
+            let effective_bindings = instr_to_lambda
+                .get(&node_id)
+                .and_then(|lambda_id| per_lambda_bindings.get(lambda_id))
+                .unwrap_or(bindings);
+
             // Walk every operand in the instruction and resolve Var → Reg.
             for operand in inst.operands.iter_mut() {
                 if let Operand::Var { name } = operand {
-                    if let Some(reg) = bindings.get(name) {
+                    if let Some(reg) = effective_bindings.get(name) {
                         // Found binding: rewrite Var → Reg.
                         *operand = Operand::Reg(reg);
                     } else {
@@ -127,7 +148,7 @@ mod tests {
 
         // Resolve variables.
         let mut diags: Vec<Diagnostic> = Vec::new();
-        resolve_var_operands(&mut instructions, &bindings, None, &mut diags);
+        resolve_var_operands(&mut instructions, &bindings, None, &mut diags, &HashMap::new(), &HashMap::new());
 
         // Verify the Var was rewritten to Reg and no diagnostics were emitted.
         let resolved = instructions.get(node_id).unwrap();
@@ -159,7 +180,7 @@ mod tests {
 
         // Resolve variables.
         let mut diags: Vec<Diagnostic> = Vec::new();
-        resolve_var_operands(&mut instructions, &bindings, None, &mut diags);
+        resolve_var_operands(&mut instructions, &bindings, None, &mut diags, &HashMap::new(), &HashMap::new());
 
         // Verify a diagnostic was emitted and the Var was left in place.
         assert_eq!(diags.len(), 1);

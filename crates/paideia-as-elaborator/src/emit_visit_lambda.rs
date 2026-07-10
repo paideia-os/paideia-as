@@ -797,6 +797,11 @@ impl EmitWalker {
                         self.state.local_bindings.clear();
                         self.register_nested_lambda_params(lambda_node_id, arena, 0);
 
+                        // #1139: Snapshot this lambda's local_bindings after parameter registration.
+                        // Used by resolve_var_operands to rewrite Var operands against the correct scope.
+                        self.state.per_lambda_bindings
+                            .insert(lambda_node_id.get(), self.state.local_bindings.clone());
+
                         // Emit the block body.
                         self.emit_block_body(body_id, arena, typer);
                     }
@@ -827,6 +832,11 @@ impl EmitWalker {
                         self.state
                             .unsafe_body_to_lambda
                             .insert(body_id.get(), lambda_node_id.get());
+
+                        // #1139: Snapshot this lambda's local_bindings after parameter registration.
+                        // For Unsafe bodies, parameters were registered at line 186.
+                        self.state.per_lambda_bindings
+                            .insert(lambda_node_id.get(), self.state.local_bindings.clone());
 
                         // Don't queue or recurse here — the top-level walk() loop will
                         // encounter the Unsafe node and queue it for UnsafeWalker.

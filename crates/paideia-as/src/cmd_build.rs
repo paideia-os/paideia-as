@@ -705,19 +705,23 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
             let pending = emit_walker.state_mut().take_pending_unsafe();
             // Issue #1088: Clone pending for emit_pending_unsafe_bodies (after UnsafeWalker).
             let pending_for_ir_emit = pending.clone();
-            let record_layouts = emit_walker.state().record_layouts();
-            let local_bindings = emit_walker.state().local_bindings();
-            let enabled_features = emit_walker.state().enabled_features();
+            // #1139: Extract and clone the data we need before calling UnsafeWalker to avoid borrow conflicts.
+            let record_layouts = emit_walker.state().record_layouts().clone();
+            let local_bindings = emit_walker.state().local_bindings().clone();
+            let enabled_features = emit_walker.state().enabled_features().clone();
+            let unsafe_body_to_lambda = emit_walker.state().unsafe_body_to_lambda().clone();
             let (unsafe_labels, label_to_instr, first_instrs, unsafe_diags) = UnsafeWalker::run(
                 &mut lowering.ir,
                 &arena,
                 pending,
                 &source_map,
                 &mut walker_sink,
-                record_layouts,
-                local_bindings,
+                &record_layouts,
+                &local_bindings,
                 root_mode,
-                enabled_features,
+                &enabled_features,
+                &unsafe_body_to_lambda,
+                emit_walker.state_mut().instr_to_lambda_mut(),
             );
 
             // Register collected unsafe block labels with emit_walker state
@@ -774,12 +778,16 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
             {
                 let symbol_table_clone = lowering.ir.symbols().clone();
                 let bindings = emit_walker.state().local_bindings();
+                let per_lambda_bindings = emit_walker.state().per_lambda_bindings();
+                let instr_to_lambda = emit_walker.state().instr_to_lambda();
                 let mut resolve_diags: Vec<paideia_as_diagnostics::Diagnostic> = Vec::new();
                 resolve_var_operands::resolve_var_operands(
                     lowering.ir.instructions_mut(),
                     bindings,
                     Some(symbol_table_clone),
                     &mut resolve_diags,
+                    per_lambda_bindings,
+                    instr_to_lambda,
                 );
                 for diag in resolve_diags {
                     let _ = walker_sink.emit(diag);

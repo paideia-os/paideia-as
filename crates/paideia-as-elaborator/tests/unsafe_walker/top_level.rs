@@ -93,6 +93,8 @@ fn mov_reg_imm_mnemonic(reg_name: &str) -> Mnemonic {
         &local_bindings,
         InstrMode::Mode64,
         &HashSet::new(),
+        &HashMap::new(),
+        &mut HashMap::new(),
     );
 
     assert_eq!(
@@ -206,6 +208,8 @@ fn test_lgdt_memory_operand() {
         &local_bindings,
         InstrMode::Mode64,
         &HashSet::new(),
+        &HashMap::new(),
+        &mut HashMap::new(),
     );
 
     // Check that no errors were emitted (in a real test with proper AST nodes, this would work)
@@ -268,6 +272,8 @@ fn test_unknown_mnemonic_foozle() {
         &local_bindings,
         InstrMode::Mode64,
         &HashSet::new(),
+        &HashMap::new(),
+        &mut HashMap::new(),
     );
 
     // Check that a U1605 diagnostic was emitted
@@ -349,6 +355,8 @@ fn test_malformed_operand_incomplete_memory() {
         &local_bindings,
         InstrMode::Mode64,
         &HashSet::new(),
+        &HashMap::new(),
+        &mut HashMap::new(),
     );
 
     // Check that a U1606 diagnostic was emitted
@@ -454,6 +462,8 @@ fn parse_instruction_with_imm(
         &local_bindings,
         InstrMode::Mode64,
         &HashSet::new(),
+        &HashMap::new(),
+        &mut HashMap::new(),
     );
 
     assert_eq!(
@@ -634,6 +644,8 @@ fn parse_ljmp_instruction(
         &local_bindings,
         InstrMode::Mode64,
         &HashSet::new(),
+        &HashMap::new(),
+        &mut HashMap::new(),
     );
 
     assert_eq!(
@@ -789,6 +801,8 @@ fn test_lgdt_rip_relative_symbol() {
         &local_bindings,
         InstrMode::Mode64,
         &HashSet::new(),
+        &HashMap::new(),
+        &mut HashMap::new(),
     );
 
     // Verify the instruction was elaborated
@@ -925,6 +939,8 @@ fn parse_branch_instruction_with_label(
         &local_bindings,
         InstrMode::Mode64,
         &HashSet::new(),
+        &HashMap::new(),
+        &mut HashMap::new(),
     );
 
     // Note: This test needs the actual unsafe walker to process labels correctly
@@ -1008,6 +1024,8 @@ fn test_local_label_backward_jump() {
         &local_bindings,
         InstrMode::Mode64,
         &HashSet::new(),
+        &HashMap::new(),
+        &mut HashMap::new(),
     );
 
     // Verify instruction was parsed
@@ -1094,6 +1112,8 @@ fn test_local_label_forward_jump() {
         &local_bindings,
         InstrMode::Mode64,
         &HashSet::new(),
+        &HashMap::new(),
+        &mut HashMap::new(),
     );
 
     // Verify instruction was parsed
@@ -1178,6 +1198,8 @@ fn test_undefined_label_as_symbol_ref() {
         &local_bindings,
         InstrMode::Mode64,
         &HashSet::new(),
+        &HashMap::new(),
+        &mut HashMap::new(),
     );
 
     // For an undefined label with jmp, the label should be parsed as SymbolRef

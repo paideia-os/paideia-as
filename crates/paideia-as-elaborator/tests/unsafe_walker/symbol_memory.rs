@@ -129,6 +129,8 @@ fn mov_symbol_memory_operand(source: &str, ast: &mut AstArena, memref_operand: N
         &local_bindings,
         InstrMode::Mode64,
         &HashSet::new(),
+        &HashMap::new(),
+        &mut HashMap::new(),
     );
 
     assert_eq!(

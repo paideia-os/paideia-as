@@ -1,0 +1,21 @@
+module UnsafeSiblingScopeLeakProbeReversed = structure {
+    pub let g : (u64, u64) -> u64 !{} @{} = fn (a: u64, v: u64) -> unsafe {
+        effects: {},
+        capabilities: {},
+        justification: "probe",
+        block: {
+            mov rax, v;
+            ret
+        }
+    }
+
+    pub let f : (u64) -> u64 !{} @{} = fn (v: u64) -> unsafe {
+        effects: {},
+        capabilities: {},
+        justification: "probe",
+        block: {
+            mov rax, v;
+            ret
+        }
+    }
+}

@@ -115,6 +115,8 @@ fn elaborate_bitop_with_imm64(
         &local_bindings,
         InstrMode::Mode64,
         &HashSet::new(),
+        &HashMap::new(),
+        &mut HashMap::new(),
     );
 
     // Also collect diagnostics from the sink itself

@@ -165,6 +165,18 @@ pub struct EmitPassState {
     /// arena ids or with each other. Initialized well above any realistic
     /// arena id (2^31) so a monotonic bump can't wrap into the arena range.
     pub(crate) next_synthetic_id: u32,
+
+    /// #1139: Per-lambda local_bindings snapshot. Maps lambda_id to the
+    /// local_bindings table captured after register_nested_lambda_params.
+    /// Used by resolve_var_operands to resolve Var operands against the
+    /// correct scope when an instruction belongs to an unsafe lambda.
+    pub(crate) per_lambda_bindings: HashMap<u32, LocalBindingTable>,
+
+    /// #1139: Instruction→lambda mapping. Maps each emitted instruction's
+    /// IrNodeId to the lambda_id that owns it. Populated at emit_inst and
+    /// during UnsafeWalker instruction insertion. Used by resolve_var_operands
+    /// to look up the correct per_lambda_bindings snapshot for each instruction.
+    pub(crate) instr_to_lambda: HashMap<IrNodeId, u32>,
 }
 
 impl Default for EmitPassState {
@@ -196,6 +208,8 @@ impl Default for EmitPassState {
             emitted_store_ids: Default::default(),
             next_emission_order: 1,
             next_synthetic_id: 2_000_000_000,
+            per_lambda_bindings: Default::default(),
+            instr_to_lambda: Default::default(),
         }
     }
 }
@@ -511,6 +525,39 @@ impl EmitPassState {
     #[must_use]
     pub fn enabled_features(&self) -> &HashSet<CpuFeature> {
         &self.enabled_features
+    }
+
+    /// Read-only view of the unsafe-body → lambda mapping.
+    /// #1139: Used to identify which lambda owns each unsafe body.
+    #[must_use]
+    pub fn unsafe_body_to_lambda(&self) -> &HashMap<u32, u32> {
+        &self.unsafe_body_to_lambda
+    }
+
+    /// Mutable access to the instruction → lambda mapping.
+    /// #1139: Used by UnsafeWalker to record which lambda owns each instruction.
+    pub fn instr_to_lambda_mut(&mut self) -> &mut HashMap<IrNodeId, u32> {
+        &mut self.instr_to_lambda
+    }
+
+    /// Mutable access to the per-lambda bindings map.
+    /// #1139: Used by resolve_var_operands to look up scope snapshots for instructions.
+    pub fn per_lambda_bindings_mut(&mut self) -> &mut HashMap<u32, LocalBindingTable> {
+        &mut self.per_lambda_bindings
+    }
+
+    /// Read-only view of the per-lambda bindings map.
+    /// #1139: Used by resolve_var_operands to look up scope snapshots for instructions.
+    #[must_use]
+    pub fn per_lambda_bindings(&self) -> &HashMap<u32, LocalBindingTable> {
+        &self.per_lambda_bindings
+    }
+
+    /// Read-only view of the instruction → lambda mapping.
+    /// #1139: Used by resolve_var_operands to look up which lambda owns each instruction.
+    #[must_use]
+    pub fn instr_to_lambda(&self) -> &HashMap<IrNodeId, u32> {
+        &self.instr_to_lambda
     }
 
     /// Check if a specific CPU feature is enabled.
