@@ -475,6 +475,28 @@ impl EmitWalker {
                                 continue;
                             }
 
+                            // #1094: Skip if this Store is a child of an Action (block statement).
+                            // Such Stores are handled by emit_block_body → emit_action_stmt → dispatch_store,
+                            // not by emit_walker's direct processing. This prevents processing before
+                            // lambda parameters have been registered in local_bindings.
+                            let mut is_child_of_action = false;
+                            for i in 1..=arena.len() as u32 {
+                                if let Some(check_id) = IrNodeId::new(i) {
+                                    if let Some(check_node) = arena.get(check_id) {
+                                        if check_node.kind == IrKind::Action {
+                                            let action_children = arena.children(check_id);
+                                            if action_children.contains(&node_id) {
+                                                is_child_of_action = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if is_child_of_action {
+                                continue;
+                            }
+
                             // Check if this is a field assignment (*p).f = value (first child is FieldAccess),
                             // var assignment counter = v (first child is Var), or a regular deref/array store.
                             let children = arena.children(node_id);

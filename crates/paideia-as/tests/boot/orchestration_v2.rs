@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 #[test]
-#[ignore = "blocked on #1094 (assignment statements inside unsafe blocks not yet routed at emit time). Kernel's exceptions.pdx uses `last_cr2_read = fault_addr` which now correctly fires U1614 since emit_action_stmt's typed-diag pipe was wired. Un-ignore once #1094 lands the Assign routing."]
+#[ignore = "blocked on #1137 (call-RHS assignment not yet routable). Kernel's exceptions.pdx:87 uses `last_cr2_read = exc_reads_cr2(vector)` which is an App-RHS assignment shape. #1094 lands basic Assign routing; #1137 is the critical gap for unblocking this test."]
 fn boot_orchestration_v2_smoke() {
     // Linux-only gate: skip on non-Linux platforms
     if !cfg!(target_os = "linux") {

@@ -59,6 +59,9 @@ mod build_emit {
     pub mod rep_movsb;
     pub mod rep_stosq;
     pub mod smoke;
+    pub mod stmt_assign_call_rhs;
+    pub mod stmt_assign_local_let_mut;
+    pub mod stmt_assign_module_let_mut_plain;
     pub mod target_triplet;
     pub mod typed_encoder_diagnostics;
     pub mod unsafe_call_stmt_diagnostic;

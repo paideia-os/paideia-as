@@ -1,0 +1,4 @@
+module StmtAssignModuleLetMutPlain = structure {
+  let mut counter : u64 = 0
+  pub let bump : (u64) -> u64 = fn (v: u64) -> { counter = v; v }
+}

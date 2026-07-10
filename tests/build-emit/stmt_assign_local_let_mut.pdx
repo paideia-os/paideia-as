@@ -1,0 +1,3 @@
+module StmtAssignLocalLetMut = structure {
+  pub let use_local : () -> u64 = fn () -> { let mut x : u64 = 0; x = 1; x }
+}

@@ -61,6 +61,12 @@ impl EmitWalker {
                 self.visit_store(store_id, arena);
             }
         }
+
+        // #1094: Mark this Store as emitted so emit_walker doesn't process it again.
+        // Nested Stores (inside Action blocks) are handled here; top-level Stores
+        // in emit_walker still handle their own marking via their specific visit_* methods.
+        // This prevents double-processing when a Store appears inside an Action block body.
+        self.state.mark_store_emitted(store_id.get());
     }
 
     /// Phase 7 m1-001: Emit multi-statement block body.
@@ -874,6 +880,11 @@ impl EmitWalker {
                         if cfg!(debug_assertions) {
                             eprintln!("[emit_action_stmt] Literal in statement position — skipped");
                         }
+                    }
+                    IrKind::Store => {
+                        // #1094: StmtExpr wrapping a Pattern 1..5 assignment. Re-use the same
+                        // 3-way store dispatch used when a Store appears directly as a block child.
+                        self.dispatch_store(child_id, arena);
                     }
                     _ => {
                         // Unroutable statement kind (Loop/While/Let/Return/etc.).

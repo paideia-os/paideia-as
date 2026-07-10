@@ -767,8 +767,11 @@ impl EmitWalker {
                         let main_id = lambda_node_id;
                         self.record_lambda_entry(lambda_node_id, main_id);
 
-                        // Reset local bindings for this function.
-                        self.state.local_bindings.clear();
+                        // #1094: DO NOT clear local_bindings before emit_block_body!
+                        // The block body's nested statements (e.g., assignments inside the block)
+                        // need access to the lambda parameters that were just registered.
+                        // Clearing would cause visit_var_assign to fail when looking up the RHS parameter.
+                        // Note: emit_block_body_arm (used for match arms) DOES push/pop scope.
 
                         // Emit the block body.
                         self.emit_block_body(body_id, arena, typer);

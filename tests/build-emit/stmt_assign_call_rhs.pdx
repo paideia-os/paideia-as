@@ -1,0 +1,5 @@
+module StmtAssignCallRhs = structure {
+  let mut counter : u64 = 0
+  let compute : (u64) -> u64 = fn (v: u64) -> v + 1
+  pub let update : (u64) -> u64 = fn (v: u64) -> { counter = compute(v); v }
+}
