@@ -313,7 +313,6 @@ fn encode_and_decode(inst: &Instruction) -> IcedInstruction {
     assert!(!bytes.is_empty(), "encoder produced no bytes");
     let mut decoder = Decoder::new(64, &bytes, DecoderOptions::NONE);
     decoder.decode()
-    emission_order: 0,
 }
 
 /// Decode and also return the iced `IntelFormatter` rendering of an

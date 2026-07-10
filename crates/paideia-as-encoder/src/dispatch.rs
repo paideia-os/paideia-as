@@ -219,6 +219,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         }
     }
 
@@ -233,6 +235,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         }
     }
 
@@ -244,6 +248,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         }
     }
 
@@ -255,6 +261,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         }
     }
 

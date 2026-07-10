@@ -28,9 +28,8 @@ fn cargo_run(args: &[&str]) -> std::process::Output {
 #[test]
 fn call_with_symbol_ref_parses_successfully() {
     // Phase 6 m4-005 AC1: `call cap_alloc` inside unsafe block parses to
-    // Instruction { mnemonic: Call, operands: [SymbolRef { name: "cap_alloc", addend: 0 }]
- emission_order: 0,
-}.
+    // Instruction { mnemonic: Call, operands: [SymbolRef { name: "cap_alloc", addend: 0 }],
+    // emission_order: 0 }
     let input = build_emit_data("cap_mint_calls_alloc.pdx");
     let output = cargo_run(&[
         "build",

@@ -546,7 +546,6 @@ fn build_field_access(
         .get(field_access_id)
         .cloned()
         .expect("No instruction emitted for field access")
-        emission_order: 0,
 }
 
 #[test]
@@ -818,7 +817,6 @@ fn build_field_assign(size: u8, offset: i64, signed: bool) -> Instruction {
         .get(store_id)
         .cloned()
         .expect("visit_field_assign should have emitted an instruction for the Store node")
-        emission_order: 0,
 }
 
 // ── Field assign tests (PA-R17-006) ────

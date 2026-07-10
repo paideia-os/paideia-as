@@ -97,7 +97,6 @@ fn mov_symbol_memory_operand(source: &str, ast: &mut AstArena, memref_operand: N
         StmtData::Instruction {
             mnemonic: mnemonic_id,
             operands: vec![memref_operand, imm_operand],
-            emission_order: 0,
 },
     );
 

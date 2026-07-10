@@ -156,8 +156,7 @@ impl EmitFixture {
             .instructions()
             .get(node_id)
             .expect("no instruction emitted at node")
-            emission_order: 0,
-}
+    }
 
     /// Look up the optional instruction at `node_id` without panicking.
     pub(crate) fn instruction_opt(&self, node_id: IrNodeId) -> Option<&Instruction> {

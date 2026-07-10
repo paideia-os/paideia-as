@@ -4043,6 +4043,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4063,6 +4065,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4081,6 +4085,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4103,6 +4109,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4121,6 +4129,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4139,6 +4149,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4158,6 +4170,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4179,6 +4193,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -4200,6 +4216,8 @@ mod tests {
             }),
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -4224,6 +4242,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4245,6 +4265,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::Mode32,
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -4261,6 +4283,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::Mode32,
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -4277,6 +4301,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::Mode32,
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -4293,6 +4319,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::Mode32,
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -4309,6 +4337,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::Mode32,
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         let result = encode_instruction(&inst, &mut buf, &mut stats);
@@ -4333,6 +4363,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::Mode32,
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         let result = encode_instruction(&inst, &mut buf, &mut stats);
@@ -4357,6 +4389,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::Mode32,
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -4378,6 +4412,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4399,6 +4435,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4420,6 +4458,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4441,6 +4481,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4462,6 +4504,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         let err = encode_instruction(&inst, &mut buf, &mut stats).unwrap_err();
@@ -4479,6 +4523,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4503,6 +4549,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         let err = encode_instruction(&inst, &mut buf, &mut stats).unwrap_err();
@@ -4528,6 +4576,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4551,6 +4601,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4577,6 +4629,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4603,6 +4657,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4628,6 +4684,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4653,6 +4711,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4678,6 +4738,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4700,6 +4762,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4725,6 +4789,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4771,6 +4837,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4794,6 +4862,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4817,6 +4887,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4840,6 +4912,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4863,6 +4937,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4886,6 +4962,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4911,6 +4989,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4934,6 +5014,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4957,6 +5039,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -4980,6 +5064,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5003,6 +5089,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5026,6 +5114,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5051,6 +5141,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5074,6 +5166,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5097,6 +5191,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5123,6 +5219,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5146,6 +5244,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5169,6 +5269,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5192,6 +5294,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5213,6 +5317,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5232,6 +5338,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5255,6 +5363,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5278,6 +5388,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5301,6 +5413,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5322,6 +5436,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5347,6 +5463,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5376,6 +5494,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5405,6 +5525,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5434,6 +5556,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5463,6 +5587,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5492,6 +5618,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5518,6 +5646,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5543,6 +5673,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5567,6 +5699,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5597,6 +5731,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5629,6 +5765,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5657,6 +5795,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5689,6 +5829,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::Mode64,
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5723,6 +5865,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::Mode32,
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5754,6 +5898,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::Mode32,
+        
+        emission_order: 0,
         };
 
         let inst_mode64 = Instruction {
@@ -5768,6 +5914,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::Mode64,
+        
+        emission_order: 0,
         };
 
         let mut buf_mode32 = CodeBuffer::new();
@@ -5804,6 +5952,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5836,6 +5986,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5870,6 +6022,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5907,6 +6061,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5942,6 +6098,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -5977,6 +6135,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -6014,6 +6174,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -6038,6 +6200,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: Some(0),
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -6071,6 +6235,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -6089,6 +6255,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -6107,6 +6275,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -6125,6 +6295,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -6143,6 +6315,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -6161,6 +6335,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -6184,6 +6360,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -6202,6 +6380,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -6220,6 +6400,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -6238,6 +6420,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -6256,6 +6440,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -6274,6 +6460,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -6292,6 +6480,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -6314,6 +6504,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -6335,6 +6527,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -6356,6 +6550,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -6377,6 +6573,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -6398,6 +6596,8 @@ mod tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -6421,6 +6621,8 @@ mod tests {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode,
+            
+            emission_order: 0,
             };
 
             let mut stats = EncodeStats::new();
@@ -6622,6 +6824,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -6646,6 +6850,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -6669,6 +6875,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -6691,6 +6899,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -6713,6 +6923,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -6735,6 +6947,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -6757,6 +6971,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -6779,6 +6995,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -6801,6 +7019,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -6823,6 +7043,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -6845,6 +7067,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -6868,6 +7092,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -6891,6 +7117,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -6913,6 +7141,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -6935,6 +7165,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -6957,6 +7189,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -6982,6 +7216,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -7014,6 +7250,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -7053,6 +7291,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -7074,6 +7314,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -7093,6 +7335,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -7112,6 +7356,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7138,6 +7384,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -7161,6 +7409,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -7186,6 +7436,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7217,6 +7469,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -7242,6 +7496,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -7267,6 +7523,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -7292,6 +7550,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -7319,6 +7579,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7348,6 +7610,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7377,6 +7641,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7403,6 +7669,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7424,6 +7692,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7445,6 +7715,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7466,6 +7738,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7487,6 +7761,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7508,6 +7784,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7537,6 +7815,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7566,6 +7846,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7592,6 +7874,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7613,6 +7897,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7636,6 +7922,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7658,6 +7946,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7685,6 +7975,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7713,6 +8005,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7732,6 +8026,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7753,6 +8049,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7771,6 +8069,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7789,6 +8089,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7808,6 +8110,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7827,6 +8131,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7848,6 +8154,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7866,6 +8174,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7884,6 +8194,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7903,6 +8215,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7922,6 +8236,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7942,6 +8258,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7961,6 +8279,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -7982,6 +8302,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -8001,6 +8323,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -8022,6 +8346,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -8039,6 +8365,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -8056,6 +8384,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -8073,6 +8403,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -8090,6 +8422,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -8107,6 +8441,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -8124,6 +8460,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -8142,6 +8480,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -8162,6 +8502,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8177,6 +8519,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8192,6 +8536,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8207,6 +8553,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8222,6 +8570,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8239,6 +8589,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -8264,6 +8616,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         let err = encode_instruction(&inst, &mut buf, &mut stats).unwrap_err();
@@ -8283,6 +8637,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8301,6 +8657,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8319,6 +8677,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8337,6 +8697,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8355,6 +8717,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8373,6 +8737,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8393,6 +8759,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -8416,6 +8784,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8434,6 +8804,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8452,6 +8824,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8470,6 +8844,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8490,6 +8866,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -8511,6 +8889,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8528,6 +8908,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -8547,6 +8929,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         let err = encode_instruction(&inst, &mut buf, &mut stats).unwrap_err();
@@ -8565,6 +8949,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8582,6 +8968,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8599,6 +8987,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8616,6 +9006,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8633,6 +9025,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8650,6 +9044,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8667,6 +9063,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8684,6 +9082,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8701,6 +9101,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8718,6 +9120,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8735,6 +9139,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8752,6 +9158,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8771,6 +9179,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -8794,6 +9204,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -8813,6 +9225,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         let err = encode_instruction(&inst, &mut buf, &mut stats).unwrap_err();
@@ -8832,6 +9246,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         let err = encode_instruction(&inst, &mut buf, &mut stats).unwrap_err();
@@ -8850,6 +9266,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         let err = encode_instruction(&inst, &mut buf, &mut stats).unwrap_err();
@@ -8869,6 +9287,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8887,6 +9307,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8905,6 +9327,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8923,6 +9347,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8941,6 +9367,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8959,6 +9387,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -8979,6 +9409,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -9002,6 +9434,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         let err = encode_instruction(&inst, &mut buf, &mut stats).unwrap_err();
@@ -9021,6 +9455,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -9038,6 +9474,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -9055,6 +9493,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -9072,6 +9512,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -9091,6 +9533,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
@@ -9113,6 +9557,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         let err = encode_instruction(&inst, &mut buf, &mut stats).unwrap_err();
@@ -9130,6 +9576,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         let err = encode_instruction(&inst, &mut buf, &mut stats).unwrap_err();
@@ -9145,6 +9593,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         let err = encode_instruction(&inst, &mut buf, &mut stats).unwrap_err();
@@ -9168,6 +9618,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -9193,6 +9645,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -9220,6 +9674,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -9246,6 +9702,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -9272,6 +9730,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -9299,6 +9759,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -9326,6 +9788,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         let output = encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -9349,6 +9813,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         let err = encode_instruction(&inst, &mut buf, &mut stats).unwrap_err();
@@ -9372,6 +9838,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
@@ -9398,6 +9866,8 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
+        
+        emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");

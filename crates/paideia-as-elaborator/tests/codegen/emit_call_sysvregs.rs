@@ -57,7 +57,7 @@ fn sysvregs_recipe_with_arg_marshalling() {
         encoding_hint: None,
         byte_offset_in_text: None,
         mode: walker.current_mode(),
-        emission_order: 0,
+emission_order: 0,
 }]);
 
     // Emit arg-marshalling (simulating emit_mov_literal_to_reg)
@@ -75,7 +75,7 @@ fn sysvregs_recipe_with_arg_marshalling() {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: walker.current_mode(),
-                emission_order: 0,
+emission_order: 0,
 },
         );
     }
@@ -144,7 +144,7 @@ fn literal_recipe_skips_arg_marshalling() {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: walker.current_mode(),
-            emission_order: 0,
+emission_order: 0,
 }],
         arg_convention: ArgConvention::Literal,
         labels: vec![],
