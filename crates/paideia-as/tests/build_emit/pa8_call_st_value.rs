@@ -92,5 +92,21 @@ fn build_emit_pa8_call_st_value() {
     assert!(func_symbols[1].2 > 0, "bitwise_not should have size > 0");
     assert!(func_symbols[2].2 > 0, "another should have size > 0");
 
+    // 3. Explicit st_value (offset) regression guard: verify exact offsets are sourced from
+    // encoder ground truth (offset_map), not estimated_offset. This catches silent divergence
+    // if the offset_map and estimator ever disagree.
+    assert_eq!(
+        func_symbols[0].1, 0,
+        "identity st_value should be 0 (offset_map ground truth)"
+    );
+    assert_eq!(
+        func_symbols[1].1, 4,
+        "bitwise_not st_value should be 4 (offset_map ground truth)"
+    );
+    assert_eq!(
+        func_symbols[2].1, 11,
+        "another st_value should be 11 (offset_map ground truth)"
+    );
+
     let _ = std::fs::remove_dir_all(&temp_dir);
 }

@@ -211,32 +211,26 @@ pub(super) fn build_elf_object(
     // function not yet registered.
     //
     // Iterate over arena.symbols().iter() and emit one symbol per entry.
-    // PA8-m1-002: Lambdas' estimated offsets are recorded during emission and should be
-    // propagated directly to function symbols. The old function_offsets approach used
-    // estimated_offset at emission time, which preserves definition order.
-    // We keep this behavior for backward compatibility and correctness.
-    // PA8-m1-002b: For unsafe lambdas, override estimated offsets with post-encoding values.
+    // PA8-m1-002: Source function_offsets from encoder ground truth (offset_map).
+    // Previously estimated_offset was used (advisory running counter), which could diverge
+    // from actual encoder byte positions post-#1140 emission_order sort. Now we source
+    // the ground truth from EmitResult.offset_map for all emitted lambdas, with
+    // estimated_offset preserved as fallback for lambdas not in offset_map (e.g., non-emitting shapes).
     let mut function_offsets = emit_walker.state().function_offsets().clone();
     let _emitted_lambdas = emit_walker.emitted_lambdas();
     let mut emitted_any_symbol = false;
 
-    // PA8-m1-002b: SCOPED offset_map projection for unsafe lambdas only.
-    // Non-unsafe lambdas (identity/bitnot/etc) keep their estimated offsets.
-    // Unsafe lambdas get post-encoding truth from offset_map.
+    // PA8-m1-002c: Project function_offsets from offset_map for all emitted lambdas.
+    // Iterate lambda_first_instr and override function_offsets[lambda_id] with
+    // offset_map[first_instr] for every entry. This ensures ground-truth encoder
+    // offsets take precedence over estimated_offset. Lambdas with no offset_map entry
+    // retain their estimated_offset (fallback for non-emitting shapes like Store).
     {
-        let unsafe_lambdas: std::collections::HashSet<u32> = emit_walker
-            .state()
-            .unsafe_lambda_to_pending_idx()
-            .keys()
-            .copied()
-            .collect();
         let lambda_first_instr = emit_walker.state().lambda_first_instr();
         let offset_map = &emit_result.offset_map;
         for (lambda_id, &first_instr) in lambda_first_instr {
-            if unsafe_lambdas.contains(lambda_id) {
-                if let Some(&byte_off) = offset_map.get(&first_instr) {
-                    function_offsets.insert(*lambda_id, byte_off as u32);
-                }
+            if let Some(&byte_off) = offset_map.get(&first_instr) {
+                function_offsets.insert(*lambda_id, byte_off as u32);
             }
         }
     }
