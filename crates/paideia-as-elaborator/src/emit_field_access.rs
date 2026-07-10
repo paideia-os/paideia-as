@@ -292,10 +292,13 @@ impl EmitWalker {
                 return;
             }
             // Other non-Deref patterns are not yet supported.
-            self.diagnostics.push(format!(
-                "T0516: field access on non-Deref shape (kind={:?})",
-                record_value_node.kind
-            ));
+            self.push_typed_diag(
+                t0516_code(),
+                format!(
+                    "field access on non-Deref shape (kind={:?})",
+                    record_value_node.kind
+                ),
+            );
             return;
         }
 

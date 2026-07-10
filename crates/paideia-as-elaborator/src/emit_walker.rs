@@ -267,7 +267,8 @@ impl EmitWalker {
                     match node.kind {
                         IrKind::Let => {
                             // #1131: Check if this Let node is in the data table
-                            if arena.data().get(node_id).is_some() {
+                            let is_data_let = arena.data().get(node_id).is_some();
+                            if is_data_let {
                                 self.state.mark_data_let_handled(node_id.get());
                             }
 
@@ -282,6 +283,35 @@ impl EmitWalker {
                                         // Let → FieldAccess: owned by visit_let_field_access
                                         IrKind::FieldAccess => {
                                             self.state.mark_field_access_handled(rhs_id.get());
+                                        }
+                                        // #1145: Let → EnumCons → RecordCons (record payload
+                                        // nested inside an enum variant constructor): owned by
+                                        // data_encoder::encode_enum_cons, which recursively
+                                        // encodes the payload via encode_record_cons. The
+                                        // walker's visit_record_cons only understands the
+                                        // Phase 6 m3-004 cap-mint shape (4 u64 fields at
+                                        // offsets [0,8,16,24]) and must not independently
+                                        // visit a RecordCons payload that data_encoder has
+                                        // already correctly serialised to bytes. Gated on
+                                        // `is_data_let` so a RecordCons payload is only
+                                        // suppressed when data_encoder actually produced a
+                                        // data-table entry for this Let (i.e. encode_enum_cons
+                                        // succeeded); if it didn't, visit_record_cons should
+                                        // still get a chance to diagnose a real problem.
+                                        IrKind::EnumCons if is_data_let => {
+                                            if let Some(&payload_id) =
+                                                arena.children(rhs_id).first()
+                                            {
+                                                if let Some(payload_node) =
+                                                    arena.get(payload_id)
+                                                {
+                                                    if payload_node.kind == IrKind::RecordCons {
+                                                        self.state.mark_record_cons_handled(
+                                                            payload_id.get(),
+                                                        );
+                                                    }
+                                                }
+                                            }
                                         }
                                         _ => {}
                                     }

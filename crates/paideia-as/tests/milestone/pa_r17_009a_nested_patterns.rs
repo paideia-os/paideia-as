@@ -28,12 +28,8 @@ fn cargo_run(args: &[&str]) -> std::process::Output {
 }
 
 #[test]
-#[ignore = "blocked on #1145 (T0518: non-cap-mint RecordCons shapes not yet supported in Phase 6 m3-004)"]
 fn match_nested_pattern_builds_successfully() {
     // PA-r17-009a AC1: match_nested_pattern.pdx parses and emits without error.
-    // NOTE: Blocked on #1145 - Point { x: u32, y: u32 } is a non-cap-mint shape that
-    // visit_record_cons rejects in Phase 6 m3-004. This gap was silently dropped before
-    // the T0518 typed-diagnostic migration and now correctly surfaces as a build error.
     let input = build_emit_data("match_nested_pattern.pdx");
     let output = cargo_run(&[
         "build",
@@ -61,12 +57,8 @@ fn match_nested_pattern_builds_successfully() {
 }
 
 #[test]
-#[ignore = "blocked on #1145 (T0518: non-cap-mint RecordCons shapes not yet supported in Phase 6 m3-004)"]
 fn match_nested_pattern_entry_symbol_exists() {
     // PA-r17-009a AC2: The 'entry' function symbol should exist and have non-zero size.
-    // NOTE: Blocked on #1145 - Point { x: u32, y: u32 } is a non-cap-mint shape that
-    // visit_record_cons rejects in Phase 6 m3-004. This gap was silently dropped before
-    // the T0518 typed-diagnostic migration and now correctly surfaces as a build error.
     let input = build_emit_data("match_nested_pattern.pdx");
     let output_path = "/tmp/test_match_nested_pattern_entry.o";
     let output = cargo_run(&[
