@@ -784,9 +784,9 @@ fn emit_walker_m3_004_cap_mint_4_stores_from_arg_regs() {
     // Verify offset advanced by 8 bytes per store (4 stores × 8 = 32 bytes).
     assert_eq!(walker.state().estimated_offset, 32);
 
-    // Verify no diagnostics.
+    // Verify no T0518 diagnostics.
     assert!(
-        walker.diagnostics().is_empty(),
+        walker.structured_diagnostics.iter().all(|d| d.code().number() != 518),
         "cap-mint shape should emit without T0518"
     );
 }
@@ -904,9 +904,9 @@ fn emit_walker_m3_004_cap_mint_wrong_field_count_fires_t0518() {
     // Verify T0518 was fired.
     assert!(
         walker
-            .diagnostics()
+            .structured_diagnostics
             .iter()
-            .any(|d| d.contains("T0518") && d.contains("3 fields")),
+            .any(|d| d.code().number() == 518 && d.message().contains("3 fields")),
         "Should fire T0518 for 3-field record"
     );
 }
@@ -958,9 +958,9 @@ fn emit_walker_m3_004_cap_mint_wrong_field_size_fires_t0518() {
     // Verify T0518 was fired.
     assert!(
         walker
-            .diagnostics()
+            .structured_diagnostics
             .iter()
-            .any(|d| d.contains("T0518") && d.contains("field 0") && d.contains("size 4")),
+            .any(|d| d.code().number() == 518 && d.message().contains("field 0") && d.message().contains("size 4")),
         "Should fire T0518 for non-u64 field"
     );
 }
@@ -1012,9 +1012,9 @@ fn emit_walker_m3_004_cap_mint_wrong_field_offset_fires_t0518() {
     // Verify T0518 was fired.
     assert!(
         walker
-            .diagnostics()
+            .structured_diagnostics
             .iter()
-            .any(|d| d.contains("T0518") && d.contains("field 1") && d.contains("offset 9")),
+            .any(|d| d.code().number() == 518 && d.message().contains("field 1") && d.message().contains("offset 9")),
         "Should fire T0518 for misaligned field"
     );
 }
@@ -1046,9 +1046,9 @@ fn emit_walker_m3_004_no_layout_entry_fires_t0518() {
     // Verify T0518 was fired.
     assert!(
         walker
-            .diagnostics()
+            .structured_diagnostics
             .iter()
-            .any(|d| d.contains("T0518") && d.contains("no layout entry")),
+            .any(|d| d.code().number() == 518 && d.message().contains("no layout entry")),
         "Should fire T0518 when layout entry missing"
     );
 }

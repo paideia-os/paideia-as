@@ -11,6 +11,12 @@ use paideia_as_diagnostics::{DiagnosticCode, Category, Severity};
 
 use crate::emit_walker::EmitWalker;
 
+/// Helper to construct T0518 diagnostic code.
+fn t0518_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::T, Severity::Error, 518)
+        .expect("T0518 is within valid T range")
+}
+
 /// Helper to construct T0540 diagnostic code.
 fn t0540_code() -> DiagnosticCode {
     DiagnosticCode::new(Category::T, Severity::Error, 540)
@@ -303,10 +309,13 @@ impl EmitWalker {
             Some(&tid) => tid,
             None => {
                 // No layout entry → unsupported shape → T0518
-                self.diagnostics.push(format!(
-                    "T0518: RecordCons node {} has no layout entry (unsupported shape in Phase 6)",
-                    record_cons_id.get()
-                ));
+                self.push_typed_diag(
+                    t0518_code(),
+                    format!(
+                        "RecordCons node {} has no layout entry (unsupported shape in Phase 6)",
+                        record_cons_id.get()
+                    ),
+                );
                 return;
             }
         };
@@ -316,11 +325,14 @@ impl EmitWalker {
             Some(l) => l,
             None => {
                 // Layout not finalised → unsupported
-                self.diagnostics.push(format!(
-                    "T0518: RecordCons node {} type {} not finalised (unsupported shape in Phase 6)",
-                    record_cons_id.get(),
-                    type_id.0
-                ));
+                self.push_typed_diag(
+                    t0518_code(),
+                    format!(
+                        "RecordCons node {} type {} not finalised (unsupported shape in Phase 6)",
+                        record_cons_id.get(),
+                        type_id.0
+                    ),
+                );
                 return;
             }
         };
@@ -330,33 +342,42 @@ impl EmitWalker {
         // - All u64 (size 8 each)
         // - Offsets [0, 8, 16, 24], total size 32, align 8
         if layout.fields.len() != 4 {
-            self.diagnostics.push(format!(
-                "T0518: RecordCons node {} has {} fields; cap-mint requires 4 (unsupported shape in Phase 6)",
-                record_cons_id.get(),
-                layout.fields.len()
-            ));
+            self.push_typed_diag(
+                t0518_code(),
+                format!(
+                    "RecordCons node {} has {} fields; cap-mint requires 4 (unsupported shape in Phase 6)",
+                    record_cons_id.get(),
+                    layout.fields.len()
+                ),
+            );
             return;
         }
 
         for (i, field) in layout.fields.iter().enumerate() {
             if field.size != 8 {
-                self.diagnostics.push(format!(
-                    "T0518: RecordCons node {} field {} has size {}; cap-mint requires u64 (size 8) (unsupported shape in Phase 6)",
-                    record_cons_id.get(),
-                    i,
-                    field.size
-                ));
+                self.push_typed_diag(
+                    t0518_code(),
+                    format!(
+                        "RecordCons node {} field {} has size {}; cap-mint requires u64 (size 8) (unsupported shape in Phase 6)",
+                        record_cons_id.get(),
+                        i,
+                        field.size
+                    ),
+                );
                 return;
             }
             let expected_offset = (i as u64) * 8;
             if field.offset != expected_offset {
-                self.diagnostics.push(format!(
-                    "T0518: RecordCons node {} field {} has offset {}; cap-mint requires offset {} (unsupported shape in Phase 6)",
-                    record_cons_id.get(),
-                    i,
-                    field.offset,
-                    expected_offset
-                ));
+                self.push_typed_diag(
+                    t0518_code(),
+                    format!(
+                        "RecordCons node {} field {} has offset {}; cap-mint requires offset {} (unsupported shape in Phase 6)",
+                        record_cons_id.get(),
+                        i,
+                        field.offset,
+                        expected_offset
+                    ),
+                );
                 return;
             }
         }
@@ -364,11 +385,14 @@ impl EmitWalker {
         // Shape is valid cap-mint. Get field values from children.
         let children = arena.children(record_cons_id);
         if children.len() != 4 {
-            self.diagnostics.push(format!(
-                "T0518: RecordCons node {} has {} children; cap-mint requires 4 (unsupported shape in Phase 6)",
-                record_cons_id.get(),
-                children.len()
-            ));
+            self.push_typed_diag(
+                t0518_code(),
+                format!(
+                    "RecordCons node {} has {} children; cap-mint requires 4 (unsupported shape in Phase 6)",
+                    record_cons_id.get(),
+                    children.len()
+                ),
+            );
             return;
         }
 

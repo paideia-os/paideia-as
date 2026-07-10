@@ -16,6 +16,12 @@ use paideia_as_diagnostics::{DiagnosticCode, Category, Severity};
 
 use crate::emit_walker::EmitWalker;
 
+/// Helper to construct T0516 diagnostic code.
+fn t0516_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::T, Severity::Error, 516)
+        .expect("T0516 is within valid T range")
+}
+
 /// Helper to construct T0529 diagnostic code.
 fn t0529_code() -> DiagnosticCode {
     DiagnosticCode::new(Category::T, Severity::Error, 529)
@@ -70,6 +76,9 @@ impl EmitWalker {
         let field_access_id = children[0];
         let _index_or_unused_id = children[1];
         let value_id = children[2];
+
+        // Mark this FieldAccess as handled so emit_walker.walk_inner doesn't double-visit it.
+        self.state.mark_field_access_handled(field_access_id.get());
 
         // Get the field access info from the side-table.
         let field_info = match arena.field_access_info().get(field_access_id) {
@@ -274,7 +283,15 @@ impl EmitWalker {
         };
 
         if record_value_node.kind != IrKind::Deref {
-            // Not a dereference; pattern not supported yet.
+            // Not a dereference. Check if it's a Var (which might be owned by visit_field_assign).
+            // For now, silently skip FieldAccess(Var) patterns — they're handled by visit_field_assign
+            // in Store contexts. Other non-Deref shapes are truly unsupported.
+            if record_value_node.kind == IrKind::Var {
+                // This is FieldAccess(Var), which may be owned by a Store node (handled by
+                // visit_field_assign). Silently skip to avoid double-processing.
+                return;
+            }
+            // Other non-Deref patterns are not yet supported.
             self.diagnostics.push(format!(
                 "T0516: field access on non-Deref shape (kind={:?})",
                 record_value_node.kind
@@ -301,10 +318,13 @@ impl EmitWalker {
 
         if ptr_node.kind != IrKind::Var {
             // Not a variable; pattern not supported yet.
-            self.diagnostics.push(format!(
-                "T0516: field access on non-Var shape (kind={:?})",
-                ptr_node.kind
-            ));
+            self.push_typed_diag(
+                t0516_code(),
+                format!(
+                    "field access on non-Var shape (kind={:?})",
+                    ptr_node.kind
+                ),
+            );
             return;
         }
 
