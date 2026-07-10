@@ -16,7 +16,7 @@
 //! - Symbol: counter (8 bytes, SHT_PROGBITS, writable)
 //! - Initial value: 0x00 (8 zero bytes)
 
-use object::{Object, ObjectSection, ObjectSymbol};
+use object::{Object, ObjectSection, ObjectSymbol, RelocationKind, RelocationTarget};
 
 use crate::common::elf::{assert_elf64_magic, text_bytes, data_bytes};
 use crate::common::fixture::build_emit;
@@ -97,27 +97,61 @@ fn counter_symbol_exists_in_data() {
 
     let file = object::File::parse(&*bytes).expect("object should parse the ELF");
 
-    // Find counter symbol
-    let mut counter_found = false;
-    let mut counter_size = 0;
+    // Find ALL symbols named "counter" (not just the first) so a duplicate
+    // (e.g. a leftover `data_<node_id>` entry aliasing the same offset, or a
+    // second `counter` symbol from a second population pass — see #1134)
+    // is caught rather than silently ignored by an early `break`.
+    let mut counter_syms = Vec::new();
 
     eprintln!("=== Data section symbols ===");
     for sym in file.symbols() {
         if let Ok(name) = sym.name() {
-            let sym_size = sym.size() as usize;
             if name == "counter" {
-                eprintln!("Found counter: size={}", sym_size);
-                counter_found = true;
-                counter_size = sym_size;
-                break;
+                eprintln!(
+                    "Found counter: size={}, section_index={:?}",
+                    sym.size(),
+                    sym.section_index()
+                );
+                counter_syms.push(sym);
             }
         }
     }
 
-    assert!(counter_found, "counter symbol must exist in symbol table");
     assert_eq!(
-        counter_size, 8,
-        "counter must be 8 bytes (u64)"
+        counter_syms.len(),
+        1,
+        "expected exactly one 'counter' symbol, found {}",
+        counter_syms.len()
+    );
+    let counter_sym = &counter_syms[0];
+    assert_eq!(counter_sym.size(), 8, "counter must be 8 bytes (u64)");
+    assert!(counter_sym.is_definition(), "counter must be a defined symbol, not undefined");
+
+    // Confirm it actually lives in the .data section (not .bss/.rodata/.text).
+    let section_index = counter_sym
+        .section_index()
+        .expect("counter symbol must have a section index");
+    let section = file
+        .section_by_index(section_index)
+        .expect("counter's section index should resolve");
+    assert_eq!(
+        section.name().unwrap_or(""),
+        ".data",
+        "counter symbol must live in .data section"
+    );
+
+    // No dangling `data_<node_id>` symbol should exist alongside `counter`
+    // (would indicate the populate_data_table / inline-scanner duplication
+    // risk flagged in #1134 has resurfaced).
+    let stray_data_syms: Vec<&str> = file
+        .symbols()
+        .filter_map(|s| s.name().ok())
+        .filter(|n| n.starts_with("data_") && n[5..].chars().all(|c| c.is_ascii_digit()))
+        .collect();
+    assert!(
+        stray_data_syms.is_empty(),
+        "found stray data_<id> symbol(s) alongside 'counter': {:?}",
+        stray_data_syms
     );
 }
 
@@ -151,44 +185,92 @@ fn set_counter_relocation_at_correct_offset() {
     }
 
     let set_counter_off = set_counter_offset.expect("set_counter symbol must exist");
-
-    // Find relocation for counter at set_counter_off + 3
-    let mut reloc_found = false;
     let reloc_offset = set_counter_off + 3; // disp32 position in mov instruction
+
+    // .text must be large enough that the disp32 field (4 bytes starting at
+    // the relocation offset) fits entirely inside it -- this is the actual
+    // #1130 OOB check, not just "some relocation exists at this offset".
+    assert!(
+        reloc_offset + 4 <= text.len(),
+        "#1130 regression: disp32 field [{}, {}) falls outside .text (len {})",
+        reloc_offset,
+        reloc_offset + 4,
+        text.len()
+    );
+
+    // Find the relocation at set_counter_off + 3 and verify its symbol,
+    // type, and addend -- not just that *a* relocation exists at that offset.
+    let mut matched = None;
 
     eprintln!("=== Relocations ===");
     for section in file.sections() {
-        for (offset, _relocation) in section.relocations() {
-            eprintln!("Relocation: offset={}", offset);
-
+        for (offset, relocation) in section.relocations() {
+            eprintln!("Relocation: offset={} kind={:?} addend={}", offset, relocation.kind(), relocation.addend());
             if offset as usize == reloc_offset {
-                // Found relocation at correct offset
-                reloc_found = true;
-                eprintln!(
-                    "✓ Found correct relocation at offset {}: counter",
-                    offset
-                );
+                matched = Some(relocation);
                 break;
             }
         }
-        if reloc_found {
+        if matched.is_some() {
             break;
         }
     }
 
-    // If relocation not at offset 3, this indicates #1130 still exists
-    if !reloc_found {
-        eprintln!(
-            "WARNING: No relocation found at expected offset {} for counter",
+    let relocation = matched.unwrap_or_else(|| {
+        panic!(
+            "#1130 regression: no relocation found at offset {} (disp32 of set_counter's mov); \
+             the OOB relocation offset bug is back",
             reloc_offset
         );
-        eprintln!("This may indicate #1130 (relocation offset accounting) is not yet fixed.");
-        eprintln!("Printing all relocations in .text:");
-        for section in file.sections() {
-            for (offset, _relocation) in section.relocations() {
-                eprintln!("  Reloc at offset {}", offset);
-            }
+    });
+
+    // Type: R_X86_64_PC32 decodes to RelocationKind::Relative with a 32-bit size in `object`.
+    assert_eq!(
+        relocation.kind(),
+        RelocationKind::Relative,
+        "relocation at offset {} must be R_X86_64_PC32 (RelocationKind::Relative)",
+        reloc_offset
+    );
+    assert_eq!(
+        relocation.size(),
+        32,
+        "relocation at offset {} must be a 32-bit displacement",
+        reloc_offset
+    );
+
+    // Addend: standard PC32 addend is -4 (offset from end of the 4-byte
+    // disp32 field back to the start, since RIP at execution time already
+    // points past the whole instruction).
+    assert_eq!(
+        relocation.addend(),
+        -4,
+        "relocation at offset {} must have addend -4 (standard PC32 disp)",
+        reloc_offset
+    );
+
+    // Symbol: must resolve to "counter", not some other symbol (e.g. a
+    // stray data_<id> alias) that happens to share the offset.
+    match relocation.target() {
+        RelocationTarget::Symbol(sym_idx) => {
+            let sym = file
+                .symbol_by_index(sym_idx)
+                .expect("relocation target symbol index must resolve");
+            assert_eq!(
+                sym.name().unwrap_or(""),
+                "counter",
+                "relocation at offset {} must target symbol 'counter'",
+                reloc_offset
+            );
         }
-        panic!("Relocation at offset {} not found; expected for counter symbol", reloc_offset);
+        other => panic!(
+            "relocation at offset {} must target a symbol, got {:?}",
+            reloc_offset, other
+        ),
     }
+
+    eprintln!(
+        "✓ Verified relocation at offset {}: kind={:?}, size=32, addend=-4, symbol=counter",
+        reloc_offset,
+        relocation.kind()
+    );
 }
