@@ -29,6 +29,7 @@ mod build_emit {
     pub mod label_patches;
     pub mod link_section_probe;
     pub mod match_enum_pattern;
+    pub mod module_let_no_text_emission;
     pub mod pa10_006i_imm;
     pub mod pa10_006k_ljmp;
     pub mod pa10_006l_inout;

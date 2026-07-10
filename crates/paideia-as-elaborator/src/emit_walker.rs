@@ -244,11 +244,18 @@ impl EmitWalker {
         // #1086: Second pre-pass marks nodes owned by other lowering paths so
         // scope-limited visitors (visit_record_cons, visit_field_access) don't
         // fire T0518/T0516 false positives on nodes they don't own.
+        // #1131: Also marks Let nodes handled by populate_data_table so
+        // visit_let_literal skips emitting spurious Mov instructions.
         for i in 1..=arena.len() as u32 {
             if let Some(node_id) = IrNodeId::new(i) {
                 if let Some(node) = arena.get(node_id) {
                     match node.kind {
                         IrKind::Let => {
+                            // #1131: Check if this Let node is in the data table
+                            if arena.data().get(node_id).is_some() {
+                                self.state.mark_data_let_handled(node_id.get());
+                            }
+
                             let children = arena.children(node_id);
                             if let Some(&rhs_id) = children.get(0) {
                                 if let Some(rhs_node) = arena.get(rhs_id) {
@@ -390,17 +397,22 @@ impl EmitWalker {
                                 }
 
                                 // Handle Literal RHS: emit instructions for m1-002.
+                                // #1131: Gate on whether this Let is already handled by populate_data_table.
+                                // If the Let is in the data table, skip Mov emission to prevent spurious
+                                // .text emission before function bodies.
                                 if rhs_kind == IrKind::Literal && has_literal_value {
-                                    if let Some(value) = literal_value {
-                                        // Phase 7 m4-003: width-thread typed integer literals.
-                                        // Resolve the binding's declared type (if recorded) to a
-                                        // bit-width and map it to an IntWidth. Untyped bindings, a
-                                        // missing typer, or non-integer / unsupported widths yield
-                                        // None, preserving the generic 64-bit Mov path.
-                                        let width = typer.and_then(|typer| {
-                                            Self::resolve_let_width(arena, node_id, typer)
-                                        });
-                                        self.visit_let_literal(node_id, value, width);
+                                    if !self.state.was_data_let_handled(node_id.get()) {
+                                        if let Some(value) = literal_value {
+                                            // Phase 7 m4-003: width-thread typed integer literals.
+                                            // Resolve the binding's declared type (if recorded) to a
+                                            // bit-width and map it to an IntWidth. Untyped bindings, a
+                                            // missing typer, or non-integer / unsupported widths yield
+                                            // None, preserving the generic 64-bit Mov path.
+                                            let width = typer.and_then(|typer| {
+                                                Self::resolve_let_width(arena, node_id, typer)
+                                            });
+                                            self.visit_let_literal(node_id, value, width);
+                                        }
                                     }
                                 }
 

@@ -141,6 +141,12 @@ pub struct EmitPassState {
     /// Populated by walk_inner pre-pass. Signals scope-limited visitor skips it
     /// to prevent T0518/T0516 false positives.
     pub(crate) handled_field_access_ids: HashSet<u32>,
+
+    /// #1131: Let IR nodes already handled by populate_data_table (data section lowering).
+    /// Populated by walk_inner pre-pass. Signals visit_let_literal to skip emitting Mov
+    /// for module-level Let nodes that already have a DataEntry, preventing spurious
+    /// .text emission before function bodies.
+    pub(crate) handled_data_let_ids: HashSet<u32>,
 }
 
 impl EmitPassState {
@@ -308,6 +314,17 @@ impl EmitPassState {
     #[must_use]
     pub(crate) fn was_field_access_handled(&self, id: u32) -> bool {
         self.handled_field_access_ids.contains(&id)
+    }
+
+    /// Mark a Let node as handled by populate_data_table (data section lowering).
+    pub(crate) fn mark_data_let_handled(&mut self, id: u32) {
+        self.handled_data_let_ids.insert(id);
+    }
+
+    /// Check if a Let node was already handled by populate_data_table.
+    #[must_use]
+    pub(crate) fn was_data_let_handled(&self, id: u32) -> bool {
+        self.handled_data_let_ids.contains(&id)
     }
 
     // ── Whole-map accessors for cross-crate consumers ────────────────────

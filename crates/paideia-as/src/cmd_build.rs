@@ -655,6 +655,16 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                 }
             }
 
+            // #1131: Populate the IR's data table with module-level Let bindings.
+            // This enables emit_walker to skip Mov emission for Let nodes that are
+            // already handled by data section lowering, preventing spurious .text
+            // emission before function bodies.
+            //
+            // We temporarily detach the data_table from the arena to avoid borrow checker issues.
+            let mut temp_data_table = std::mem::take(lowering.ir.data_mut());
+            paideia_as_elaborator::EmitWalker::populate_data_table(&lowering.ir, &mut temp_data_table);
+            *lowering.ir.data_mut() = temp_data_table;
+
             emit_walker.walk(&mut lowering.ir);
 
             // Phase 15 m2-002: Verify mode_stack is properly cleaned up after walk.

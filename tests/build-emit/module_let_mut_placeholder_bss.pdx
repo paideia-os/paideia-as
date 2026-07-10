@@ -1,0 +1,3 @@
+module ModuleLetMutPlaceholderBss = structure {
+  pub let mut buffer : u64 = uninit
+}

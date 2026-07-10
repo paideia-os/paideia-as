@@ -1,0 +1,3 @@
+module ModuleLetImmutNoTextEmission = structure {
+  pub let counter : u64 = 0
+}

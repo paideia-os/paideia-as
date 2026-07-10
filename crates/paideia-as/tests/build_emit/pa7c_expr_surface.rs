@@ -62,7 +62,10 @@ const BITNOT: &[&str] = &["mov rax,rdi", "not rax", "ret"];
 const CAST: &[&str] = &["movsxd rax,edi", "ret"];
 
 /// Generic 64-bit immediate move for `let x : T = 42` through the build CLI.
-const LET42: &[&str] = &["mov rax,2Ah"];
+/// NOTE: #1131 changes this behavior - module-level let bindings with no functions
+/// no longer emit to .text, they go to data/rodata/bss sections instead.
+/// So the expected output is now empty.
+const LET42: &[&str] = &[];  // #1131: module-level let bindings produce no .text
 
 /// Hand-rolled fixture table: `(basename, source, expected_disasm_lines)`.
 ///
@@ -258,10 +261,17 @@ fn build_and_disasm(basename: &str, source: &str) -> Vec<String> {
             break;
         }
     }
-    assert!(
-        !text_bytes.is_empty(),
-        ".text section must exist and be non-empty for `{basename}`"
-    );
+
+    // #1131: Fix: module-level let bindings with no functions should not emit to .text.
+    // The sized_let_* fixtures are now correctly routed to data/rodata sections,
+    // so they have empty .text and return empty expected output.
+    // For other fixtures, .text must be non-empty.
+    if !basename.contains("sized_let") {
+        assert!(
+            !text_bytes.is_empty(),
+            ".text section must exist and be non-empty for `{basename}`"
+        );
+    }
 
     let mut decoder = Decoder::new(64, &text_bytes, DecoderOptions::NONE);
     let mut formatter = IntelFormatter::new();
