@@ -1300,11 +1300,17 @@ fn emit_indirect_call_via_mem_base_disp_with_args() {
     );
 
     // First instruction should be: mov r11, [rdi + 0]
-    // Issue #1099: Load fnptr ID is now 1_040_000 + L*100 (unified scheme)
-    let load_id = IrNodeId::new(1_040_000u32.saturating_add(1u32.saturating_mul(100)))
-        .expect("load fnptr id");
+    // #1141: identity-agnostic lookup (post-emission_order the fnptr load id is
+    // synthetic and monotonic; locate by shape instead).
     let first_inst = instrs
-        .get(load_id)
+        .entries()
+        .iter()
+        .find(|(_, inst)| {
+            inst.mnemonic == Mnemonic::Mov
+                && matches!(inst.operands.first(), Some(Operand::Reg(r)) if *r == abi::R11)
+                && matches!(inst.operands.get(1), Some(Operand::MemSib { .. }))
+        })
+        .map(|(_, inst)| inst)
         .expect("load fnptr instruction should exist");
 
     assert_eq!(first_inst.mnemonic, Mnemonic::Mov, "First instruction should be mov");
@@ -1378,13 +1384,19 @@ fn emit_indirect_call_via_mem_base_disp_with_nonzero_offset() {
     );
 
     // Verify first instruction encodes the offset correctly
-    // Issue #1099: Load fnptr ID is now 1_040_000 + L*100 (unified scheme)
-    let load_id = IrNodeId::new(1_040_000u32.saturating_add(1u32.saturating_mul(100)))
-        .expect("load fnptr id");
+    // #1141: identity-agnostic lookup (post-emission_order the fnptr load id is
+    // synthetic and monotonic; locate by shape instead).
     let first_inst = walker
         .state()
         .instructions
-        .get(load_id)
+        .entries()
+        .iter()
+        .find(|(_, inst)| {
+            inst.mnemonic == Mnemonic::Mov
+                && matches!(inst.operands.first(), Some(Operand::Reg(r)) if *r == abi::R11)
+                && matches!(inst.operands.get(1), Some(Operand::MemSib { .. }))
+        })
+        .map(|(_, inst)| inst)
         .expect("load fnptr instruction should exist");
 
     match &first_inst.operands[1] {

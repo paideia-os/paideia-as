@@ -243,12 +243,10 @@ impl EmitWalker {
         arg_ids: &[IrNodeId],
         arena: &IrArena,
     ) {
-        let l = lambda_node_id.get();
         let r11 = abi::R11;
         let arg_regs = [abi::RDI, abi::RSI, abi::RDX, abi::RCX, abi::R8, abi::R9];
 
-        let save_id = IrNodeId::new(1_040_000u32.saturating_add(l.saturating_mul(100)))
-            .unwrap_or_else(|| IrNodeId::new(1).unwrap());
+        let save_id = self.alloc_synthetic_id();
         let mut save_ops: SmallVec<[Operand; 3]> = SmallVec::new();
         save_ops.push(Operand::Reg(r11));
         save_ops.push(Operand::Reg(callee_reg));
@@ -264,7 +262,6 @@ impl EmitWalker {
 },
         );
 
-        let mut seq_id = 0u32;
         for (i, &arg_id) in arg_ids.iter().enumerate() {
             let dst = arg_regs[i];
             let arg_node = match arena.get(arg_id) {
@@ -279,11 +276,7 @@ impl EmitWalker {
                 }
                 IrKind::Var => {
                     if let Some(name) = arena.binding_names().get(arg_id) {
-                        let iid = IrNodeId::new(1_060_000u32
-                            .saturating_add(l.saturating_mul(100))
-                            .saturating_add(seq_id))
-                            .expect("arg instr virtual id");
-                        seq_id += 1;
+                        let iid = self.alloc_synthetic_id();
                         let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
                         ops.push(Operand::Reg(dst));
                         ops.push(Operand::Var { name: name.to_string() });
@@ -304,8 +297,7 @@ impl EmitWalker {
             }
         }
 
-        let call_id = IrNodeId::new(1_070_000u32.saturating_add(l.saturating_mul(100)))
-            .unwrap_or_else(|| IrNodeId::new(1).unwrap());
+        let call_id = self.alloc_synthetic_id();
         let mut call_ops: SmallVec<[Operand; 3]> = SmallVec::new();
         call_ops.push(Operand::Reg(r11));
         self.emit_inst(
@@ -320,8 +312,7 @@ impl EmitWalker {
 },
         );
 
-        let ret_id = IrNodeId::new(1_170_000u32.saturating_add(l.saturating_mul(100)))
-            .unwrap_or_else(|| IrNodeId::new(1).unwrap());
+        let ret_id = self.alloc_synthetic_id();
         self.emit_inst(
             ret_id,
             Instruction {
@@ -359,10 +350,8 @@ impl EmitWalker {
         arg_ids: &[IrNodeId],
         arena: &IrArena,
     ) {
-        let l = lambda_node_id.get();
         let arg_regs = [abi::RDI, abi::RSI, abi::RDX, abi::RCX, abi::R8, abi::R9];
 
-        let mut seq_id = 0u32;
         for (i, &arg_id) in arg_ids.iter().enumerate() {
             let dst = arg_regs[i];
             let arg_node = match arena.get(arg_id) {
@@ -377,11 +366,7 @@ impl EmitWalker {
                 }
                 IrKind::Var => {
                     if let Some(name) = arena.binding_names().get(arg_id) {
-                        let iid = IrNodeId::new(1_060_000u32
-                            .saturating_add(l.saturating_mul(100))
-                            .saturating_add(seq_id))
-                            .expect("arg instr virtual id");
-                        seq_id += 1;
+                        let iid = self.alloc_synthetic_id();
                         let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
                         ops.push(Operand::Reg(dst));
                         ops.push(Operand::Var { name: name.to_string() });
@@ -402,8 +387,7 @@ impl EmitWalker {
             }
         }
 
-        let call_id = IrNodeId::new(1_070_000u32.saturating_add(l.saturating_mul(100)))
-            .unwrap_or_else(|| IrNodeId::new(1).unwrap());
+        let call_id = self.alloc_synthetic_id();
         let mut call_ops: SmallVec<[Operand; 3]> = SmallVec::new();
         call_ops.push(Operand::MemRipRelSym {
             name: callee_name,
@@ -421,8 +405,7 @@ impl EmitWalker {
 },
         );
 
-        let ret_id = IrNodeId::new(1_170_000u32.saturating_add(l.saturating_mul(100)))
-            .unwrap_or_else(|| IrNodeId::new(1).unwrap());
+        let ret_id = self.alloc_synthetic_id();
         self.emit_inst(
             ret_id,
             Instruction {
@@ -459,13 +442,11 @@ impl EmitWalker {
         arg_ids: &[IrNodeId],
         arena: &IrArena,
     ) {
-        let l = lambda_node_id.get();
         let r11 = abi::R11;
         let arg_regs = [abi::RDI, abi::RSI, abi::RDX, abi::RCX, abi::R8, abi::R9];
 
         // Step 1: Load fnptr from [base_reg + field_offset] into R11
-        let load_id = IrNodeId::new(1_040_000u32.saturating_add(l.saturating_mul(100)))
-            .unwrap_or_else(|| IrNodeId::new(1).unwrap());
+        let load_id = self.alloc_synthetic_id();
         let mut load_ops: SmallVec<[Operand; 3]> = SmallVec::new();
         load_ops.push(Operand::Reg(r11));
         load_ops.push(Operand::MemSib {
@@ -487,7 +468,6 @@ impl EmitWalker {
         );
 
         // Step 2: Marshal arguments into arg_regs
-        let mut seq_id = 0u32;
         for (i, &arg_id) in arg_ids.iter().enumerate() {
             let dst = arg_regs[i];
             let arg_node = match arena.get(arg_id) {
@@ -502,11 +482,7 @@ impl EmitWalker {
                 }
                 IrKind::Var => {
                     if let Some(name) = arena.binding_names().get(arg_id) {
-                        let iid = IrNodeId::new(1_060_000u32
-                            .saturating_add(l.saturating_mul(100))
-                            .saturating_add(seq_id))
-                            .expect("arg instr virtual id");
-                        seq_id += 1;
+                        let iid = self.alloc_synthetic_id();
                         let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
                         ops.push(Operand::Reg(dst));
                         ops.push(Operand::Var { name: name.to_string() });
@@ -528,8 +504,7 @@ impl EmitWalker {
         }
 
         // Step 3: Call R11
-        let call_id = IrNodeId::new(1_070_000u32.saturating_add(l.saturating_mul(100)))
-            .unwrap_or_else(|| IrNodeId::new(1).unwrap());
+        let call_id = self.alloc_synthetic_id();
         let mut call_ops: SmallVec<[Operand; 3]> = SmallVec::new();
         call_ops.push(Operand::Reg(r11));
         self.emit_inst(
@@ -545,8 +520,7 @@ impl EmitWalker {
         );
 
         // Step 4: Return
-        let ret_id = IrNodeId::new(1_170_000u32.saturating_add(l.saturating_mul(100)))
-            .unwrap_or_else(|| IrNodeId::new(1).unwrap());
+        let ret_id = self.alloc_synthetic_id();
         self.emit_inst(
             ret_id,
             Instruction {

@@ -155,6 +155,17 @@ impl EmitWalker {
         self.state.estimated_offset += bytes;
     }
 
+    /// #1141: Allocate a monotonic synthetic IrNodeId for instructions that
+    /// have no natural AST-derived id (bridge saves, CALL sites, indirect-call
+    /// scaffolds). These are identity-only post-#1140 — `.text` order is
+    /// governed by emission_order, so this counter just needs to hand out
+    /// unique ids that don't collide with arena ids or each other.
+    pub(crate) fn alloc_synthetic_id(&mut self) -> IrNodeId {
+        let id = self.state.next_synthetic_id;
+        self.state.next_synthetic_id = self.state.next_synthetic_id.saturating_add(1);
+        IrNodeId::new(id).expect("synthetic id must be non-zero")
+    }
+
     /// Phase 15 m2-002: Get the current instruction mode (Mode64 if stack is empty).
     /// Will be used in m2-002b for scope-aware mode propagation.
     pub(crate) fn current_mode(&self) -> InstrMode {

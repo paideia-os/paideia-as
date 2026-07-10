@@ -157,6 +157,14 @@ pub struct EmitPassState {
     /// Initialized to 1 (0 is reserved sentinel for test-only instructions).
     /// Incremented before each instruction insertion to break virtual-IrNodeId collisions.
     pub(crate) next_emission_order: u32,
+
+    /// #1141: Monotonic synthetic-IrNodeId allocator for instructions that
+    /// have no natural AST-derived id (bridge saves, CALL sites, indirect-call
+    /// scaffolds, etc.). Post-#1140 the sort key is `(emission_order, node_id)`,
+    /// so these ids are identity-only — but they must not collide with real
+    /// arena ids or with each other. Initialized well above any realistic
+    /// arena id (2^31) so a monotonic bump can't wrap into the arena range.
+    pub(crate) next_synthetic_id: u32,
 }
 
 impl Default for EmitPassState {
@@ -187,6 +195,7 @@ impl Default for EmitPassState {
             handled_data_let_ids: Default::default(),
             emitted_store_ids: Default::default(),
             next_emission_order: 1,
+            next_synthetic_id: 2_000_000_000,
         }
     }
 }
