@@ -1559,6 +1559,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "Issue #1135 (pa-r17-016-followup): Pattern 5 module-level let-mut assignment via var_assign lowering accepts only Var-to-Var shapes where LHS is a module-level let-mut symbol (not shadowed by a local binding) and RHS is a function parameter (register) from local_bindings. Unsupported cases: (1) RHS is not a Var (e.g., literal, field access); (2) LHS is shadowed by a local binding; (3) LHS is not a module symbol; (4) structural invariants violated. For non-Var RHS patterns, use a separate let binding in the function body. For shadowed symbols, rename the local binding or restructure the scope."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0540",
+              "id": "T0540",
+              "name": "Unsupported shape in Pattern 5 module-level let-mut assignment",
+              "shortDescription": {
+                "text": "var_assign accepts only Var-to-Var; LHS must resolve to a module let-mut symbol not shadowed by a local binding"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "Issue #1056 (pa-r16-007-followup): stdlib trait methods like PerCpuOps::percpu_inc require their arguments to be integer literals known at compile time. This allows the code generator to directly encode absolute displacements and immediate values into the instruction encoding. Pass an integer literal (e.g., 0x1000, 8192) instead of a variable or expression."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0551",

@@ -1,0 +1,4 @@
+module ModuleLetMutAssignShadowedLhs = structure {
+  let mut counter : u64 = 0
+  pub let shadow_counter : (u64) -> u64 = fn (counter: u64) -> counter = counter
+}

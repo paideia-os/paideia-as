@@ -7,8 +7,15 @@
 
 use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand};
 use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi};
+use paideia_as_diagnostics::{DiagnosticCode, Category, Severity};
 
 use crate::emit_walker::EmitWalker;
+
+/// Helper to construct T0540 diagnostic code.
+fn t0540_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::T, Severity::Error, 540)
+        .expect("T0540 is within valid T range")
+}
 
 impl EmitWalker {
     /// Phase 6 m3-004: Emit record constructor lowering for cap-mint shape.
@@ -137,11 +144,14 @@ impl EmitWalker {
     pub(crate) fn visit_var_assign(&mut self, store_id: IrNodeId, arena: &IrArena) {
         let children = arena.children(store_id);
         if children.len() != 3 {
-            self.diagnostics.push(format!(
-                "Store node {} has {} children; expected 3",
-                store_id.get(),
-                children.len()
-            ));
+            self.push_typed_diag(
+                t0540_code(),
+                format!(
+                    "Store node {} has {} children; expected 3",
+                    store_id.get(),
+                    children.len()
+                ),
+            );
             return;
         }
 
@@ -154,18 +164,24 @@ impl EmitWalker {
         let rhs_node = arena.get(rhs_id);
 
         if lhs_node.map(|n| n.kind) != Some(IrKind::Var) {
-            self.diagnostics.push(format!(
-                "Store (var_assign) LHS must be Var; got {:?}",
-                lhs_node.map(|n| n.kind)
-            ));
+            self.push_typed_diag(
+                t0540_code(),
+                format!(
+                    "Store (var_assign) LHS must be Var; got {:?}",
+                    lhs_node.map(|n| n.kind)
+                ),
+            );
             return;
         }
 
         if rhs_node.map(|n| n.kind) != Some(IrKind::Var) {
-            self.diagnostics.push(format!(
-                "Store (var_assign) RHS must be Var; got {:?}",
-                rhs_node.map(|n| n.kind)
-            ));
+            self.push_typed_diag(
+                t0540_code(),
+                format!(
+                    "Store (var_assign) RHS must be Var; got {:?}",
+                    rhs_node.map(|n| n.kind)
+                ),
+            );
             return;
         }
 
@@ -173,29 +189,38 @@ impl EmitWalker {
         let lhs_name = match arena.binding_names().get(lhs_id) {
             Some(name) => name.to_string(),
             None => {
-                self.diagnostics.push(format!(
-                    "Store (var_assign) LHS Var {} has no binding name",
-                    lhs_id.get()
-                ));
+                self.push_typed_diag(
+                    t0540_code(),
+                    format!(
+                        "Store (var_assign) LHS Var {} has no binding name",
+                        lhs_id.get()
+                    ),
+                );
                 return;
             }
         };
 
         // Check if LHS is shadowed by a local binding (error case)
         if self.state.local_bindings.contains(&lhs_name) {
-            self.diagnostics.push(format!(
-                "T0518: variable {} is shadowed by a local binding; cannot assign to module symbol",
-                lhs_name
-            ));
+            self.push_typed_diag(
+                t0540_code(),
+                format!(
+                    "variable {} is shadowed by a local binding; cannot assign to module symbol",
+                    lhs_name
+                ),
+            );
             return;
         }
 
         // Verify LHS is a module symbol (not a function parameter)
         if arena.symbols().lookup_by_name(&lhs_name).is_none() {
-            self.diagnostics.push(format!(
-                "T0518: variable {} is not a module symbol; var_assign requires module-level let mut",
-                lhs_name
-            ));
+            self.push_typed_diag(
+                t0540_code(),
+                format!(
+                    "variable {} is not a module symbol; var_assign requires module-level let mut",
+                    lhs_name
+                ),
+            );
             return;
         }
 
@@ -203,10 +228,13 @@ impl EmitWalker {
         let rhs_name = match arena.binding_names().get(rhs_id) {
             Some(name) => name.to_string(),
             None => {
-                self.diagnostics.push(format!(
-                    "Store (var_assign) RHS Var {} has no binding name",
-                    rhs_id.get()
-                ));
+                self.push_typed_diag(
+                    t0540_code(),
+                    format!(
+                        "Store (var_assign) RHS Var {} has no binding name",
+                        rhs_id.get()
+                    ),
+                );
                 return;
             }
         };
@@ -214,10 +242,13 @@ impl EmitWalker {
         let src_reg = match self.state.local_bindings.get(&rhs_name) {
             Some(reg) => reg,
             None => {
-                self.diagnostics.push(format!(
-                    "T0518: var_assign RHS {} not found in local bindings; non-register sources not yet supported",
-                    rhs_name
-                ));
+                self.push_typed_diag(
+                    t0540_code(),
+                    format!(
+                        "var_assign RHS {} not found in local bindings; non-register sources not yet supported",
+                        rhs_name
+                    ),
+                );
                 return;
             }
         };

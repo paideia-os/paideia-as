@@ -12,8 +12,15 @@ use paideia_as_ir::instruction::{
     EncodingHint, Instruction, IntWidth, Mnemonic, Operand, RegId,
 };
 use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi};
+use paideia_as_diagnostics::{DiagnosticCode, Category, Severity};
 
 use crate::emit_walker::EmitWalker;
+
+/// Helper to construct T0529 diagnostic code.
+fn t0529_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::T, Severity::Error, 529)
+        .expect("T0529 is within valid T range")
+}
 
 impl EmitWalker {
     /// Phase 6 m3-002: Emit field access lowering for (*p).field shape.
@@ -547,13 +554,13 @@ impl EmitWalker {
             }
             _ => {
                 // u8/u16/i8/i16/i32: not exercised by the fixture; emit T0529 typed diagnostic.
-                let code = "T0529".parse::<paideia_as_diagnostics::DiagnosticCode>()
-                    .expect("T0529 is a valid diagnostic code");
-                let message = format!(
-                    "field read with size={}, signed={} not yet lowered",
-                    size, signed
+                self.push_typed_diag(
+                    t0529_code(),
+                    format!(
+                        "field read with size={}, signed={} not yet lowered",
+                        size, signed
+                    ),
                 );
-                self.push_typed_diag(code, message);
             }
         }
     }
@@ -616,10 +623,13 @@ impl EmitWalker {
             }
             _ => {
                 // u8/u16/i8/i16/i32: not exercised by the fixture; emit diagnostic.
-                self.diagnostics.push(format!(
-                    "T0518: emit_mem_write_via_rip_sym with size={} not supported; deferred to future phase",
-                    size
-                ));
+                self.push_typed_diag(
+                    t0529_code(),
+                    format!(
+                        "field write with size={} not yet lowered",
+                        size
+                    ),
+                );
             }
         }
     }

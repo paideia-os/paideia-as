@@ -3146,3 +3146,43 @@ fn ms_lambda_param_reg_helper_returns_ms_arg_regs() {
     let idx6_sysv = EmitWalker::param_index_to_reg_for_abi(CallingConvention::Sysv, 6);
     assert_eq!(idx6_sysv, None, "SysV param 6 should be stack (None)");
 }
+
+#[test]
+fn emit_walker_t0540_var_assign_non_var_rhs() {
+    // Issue #1135: T0540 fires when visit_var_assign encounters a non-Var RHS
+    // (e.g., literal or FieldAccess instead of Var).
+
+    let mut arena = IrArena::new();
+    let mut walker = EmitWalker::new();
+
+    let span_ref = span();
+
+    // Create a Store node with [Var(lhs), op, Literal(5)] children
+    // This represents: counter = 5 (non-Var RHS)
+    let lhs_id = arena.alloc(IrKind::Var, span_ref);
+    let op_id = arena.alloc(IrKind::Placeholder, span_ref);
+    let literal_id = arena.alloc(IrKind::Literal, span_ref);
+
+    let store_id = arena.alloc_with_children(
+        IrKind::Store,
+        span_ref,
+        [lhs_id, op_id, literal_id],
+    );
+
+    // Set binding names
+    arena.binding_names_mut().insert(lhs_id, "counter".to_string());
+
+    // Walk only the Store node (not the full arena)
+    walker.visit_var_assign(store_id, &arena);
+
+    // Verify T0540 diagnostic was fired via the typed diagnostic pipe
+    let typed_diags = walker.take_typed_diagnostics();
+    assert!(
+        !typed_diags.is_empty(),
+        "T0540 should be fired for non-Var RHS"
+    );
+    assert!(
+        typed_diags.iter().any(|d| d.code().to_string() == "T0540"),
+        "Diagnostic should have code T0540"
+    );
+}

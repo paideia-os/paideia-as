@@ -1,0 +1,4 @@
+module ModuleLetMutAssignLiteralRhs = structure {
+  let mut counter : u64 = 0
+  pub let set_counter : () -> u64 = fn () -> counter = 5
+}

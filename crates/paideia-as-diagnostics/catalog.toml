@@ -1130,6 +1130,15 @@ description = "Issue #1092 (pa-r17-015): a record literal contains a field name 
 since = "0.17.0"
 deprecated = false
 
+[diagnostic.T0540]
+severity = "error"
+category = "type"
+title = "Unsupported shape in Pattern 5 module-level let-mut assignment"
+brief = "var_assign accepts only Var-to-Var; LHS must resolve to a module let-mut symbol not shadowed by a local binding"
+description = "Issue #1135 (pa-r17-016-followup): Pattern 5 module-level let-mut assignment via var_assign lowering accepts only Var-to-Var shapes where LHS is a module-level let-mut symbol (not shadowed by a local binding) and RHS is a function parameter (register) from local_bindings. Unsupported cases: (1) RHS is not a Var (e.g., literal, field access); (2) LHS is shadowed by a local binding; (3) LHS is not a module symbol; (4) structural invariants violated. For non-Var RHS patterns, use a separate let binding in the function body. For shadowed symbols, rename the local binding or restructure the scope."
+since = "0.17.0"
+deprecated = false
+
 [diagnostic.T0551]
 severity = "error"
 category = "type"

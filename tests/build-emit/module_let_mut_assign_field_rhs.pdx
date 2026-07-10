@@ -1,0 +1,5 @@
+module ModuleLetMutAssignFieldRhs = structure {
+  type Point = { x: u64, y: u64 }
+  let mut counter : u64 = 0
+  pub let set_counter_from_point : (*Point) -> u64 = fn (p: *Point) -> counter = (*p).x
+}
