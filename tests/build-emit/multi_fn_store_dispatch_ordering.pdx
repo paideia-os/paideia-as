@@ -1,4 +1,4 @@
-module TwoStoreLambdas = structure {
+module MultiFnStoreDispatchOrdering = structure {
     let mut sink_a : u64 = 0
     let mut sink_b : u64 = 0
     pub let f3 : (u64) -> u64 = fn (v: u64) -> sink_a = v
