@@ -1,50 +1,30 @@
-//! Test for #1094 negative case: assignment with call RHS (documented gap).
+//! #1136: assignment with an App RHS now routes via scratch-materialization.
 //!
-//! Tests: `counter = compute(v)` where compute is a function call.
-//!
-//! This should emit T0540 because App-RHS is a documented gap.
-//! visit_var_assign requires RHS to be a Var node per #1135.
+//! Pre-#1136 this fixture was a documented gap that fired T0540; now the
+//! same shape lowers to args + CALL + `mov [rip+counter], rax`.
 
+use crate::common::elf::text_bytes;
 use crate::common::fixture::build_emit;
 use crate::common::harness::run_build;
 
-/// Strip ANSI SGR escape sequences for robust diagnostic matching.
-fn strip_ansi(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut chars = s.chars();
-    while let Some(c) = chars.next() {
-        if c == '\u{1b}' {
-            for c2 in chars.by_ref() {
-                if c2 == 'm' {
-                    break;
-                }
-            }
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
-
-/// Assert that exactly one diagnostic appears in stderr.
-fn assert_single_diagnostic(stderr: &str) {
-    let plain = strip_ansi(stderr);
-    assert_eq!(
-        plain.matches("error[").count(),
-        1,
-        "expected exactly one diagnostic (T0540), got:\n{}",
-        stderr
-    );
-}
-
-/// Test that assignment with call-RHS emits T0540 diagnostic.
-///
-/// Call expressions on the RHS are not yet supported; this is a documented gap.
-/// See follow-up issue on routing call-RHS assignment through scratch materialization.
 #[test]
-fn call_rhs_assignment_emits_t0540() {
-    let input = build_emit("stmt_assign_call_rhs.pdx");
-    let out = run_build(input);
-    out.assert_diag("T0540");
-    assert_single_diagnostic(&out.stderr);
+fn call_rhs_assignment_lowers_via_rax() {
+    let out = run_build(build_emit("stmt_assign_call_rhs.pdx"));
+    out.assert_ok();
+    assert!(
+        !out.stderr.contains("T0540"),
+        "T0540 must not fire on App RHS after #1136; stderr:\n{}",
+        out.stderr
+    );
+
+    let bytes = out.artifact_bytes();
+    let text = text_bytes(&bytes);
+    assert!(
+        text.iter().any(|&b| b == 0xe8),
+        ".text must contain a CALL (0xe8) for compute(v)"
+    );
+    assert!(
+        text.windows(3).any(|w| w == [0x48, 0x89, 0x05]),
+        ".text must contain `mov [rip+counter], rax` (48 89 05) for the App-RHS store"
+    );
 }

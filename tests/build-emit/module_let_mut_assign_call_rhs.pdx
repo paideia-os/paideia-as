@@ -1,0 +1,5 @@
+module ModuleLetMutAssignCallRhs = structure {
+    let mut sink : u64 = 0
+    let helper : (u64) -> u64 = fn (x: u64) -> x + 1
+    pub let bump : (u64) -> u64 = fn (v: u64) -> { sink = helper(v); 42 }
+}

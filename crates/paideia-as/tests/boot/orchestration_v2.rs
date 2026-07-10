@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 #[test]
-#[ignore = "blocked on #1137 (call-RHS assignment not yet routable). Kernel's exceptions.pdx:87 uses `last_cr2_read = exc_reads_cr2(vector)` which is an App-RHS assignment shape. #1094 lands basic Assign routing; #1137 is the critical gap for unblocking this test."]
+#[ignore = "blocked on #1089 (Let-with-App RHS) + #1138 (local let mut assignment). #1136 landed call-RHS module let-mut assignment (exceptions.pdx:87 now compiles), but line 113 uses `let fault_addr = read_cr2();` (Let-with-App RHS, #1089) followed by `last_cr2_read = fault_addr;` (Var LHS resolvable only after #1138 wires local let into local_bindings)."]
 fn boot_orchestration_v2_smoke() {
     // Linux-only gate: skip on non-Linux platforms
     if !cfg!(target_os = "linux") {

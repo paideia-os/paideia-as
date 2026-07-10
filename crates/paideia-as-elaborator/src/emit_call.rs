@@ -464,4 +464,18 @@ impl EmitWalker {
         // For statement-position calls, emit RET as well (unlike expression-position calls)
         self.emit_ret_after_call(lambda_node_id, callee_abi);
     }
+
+    /// #1136: Emit an expression-position call (args + CALL, no RET).
+    /// The return value lands in RAX per both SysV and MS integer-return conventions;
+    /// the caller consumes it (e.g. by writing it into a module symbol).
+    pub(crate) fn emit_call_expr(
+        &mut self,
+        lambda_node_id: IrNodeId,
+        target_name: String,
+        arg_ids: &[IrNodeId],
+        arena: &IrArena,
+    ) {
+        let caller_abi = self.state.lambda_abi_option(lambda_node_id.get());
+        self.emit_call_args_and_call(lambda_node_id, target_name, arg_ids, arena, caller_abi);
+    }
 }

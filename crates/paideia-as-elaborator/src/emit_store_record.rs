@@ -175,17 +175,6 @@ impl EmitWalker {
             return;
         }
 
-        if rhs_node.map(|n| n.kind) != Some(IrKind::Var) {
-            self.push_typed_diag(
-                t0540_code(),
-                format!(
-                    "Store (var_assign) RHS must be Var; got {:?}",
-                    rhs_node.map(|n| n.kind)
-                ),
-            );
-            return;
-        }
-
         // Resolve LHS name
         let lhs_name = match arena.binding_names().get(lhs_id) {
             Some(name) => name.to_string(),
@@ -225,29 +214,73 @@ impl EmitWalker {
             return;
         }
 
-        // Resolve RHS name and register
-        let rhs_name = match arena.binding_names().get(rhs_id) {
-            Some(name) => name.to_string(),
-            None => {
-                self.push_typed_diag(
-                    t0540_code(),
-                    format!(
-                        "Store (var_assign) RHS Var {} has no binding name",
-                        rhs_id.get()
-                    ),
-                );
-                return;
+        // Resolve the RHS source register, dispatching on RHS shape.
+        let src_reg = match rhs_node.map(|n| n.kind) {
+            Some(IrKind::Var) => {
+                let rhs_name = match arena.binding_names().get(rhs_id) {
+                    Some(name) => name.to_string(),
+                    None => {
+                        self.push_typed_diag(
+                            t0540_code(),
+                            format!(
+                                "Store (var_assign) RHS Var {} has no binding name",
+                                rhs_id.get()
+                            ),
+                        );
+                        return;
+                    }
+                };
+                match self.state.local_bindings.get(&rhs_name) {
+                    Some(reg) => reg,
+                    None => {
+                        self.push_typed_diag(
+                            t0540_code(),
+                            format!(
+                                "var_assign RHS {} not found in local bindings; non-register sources not yet supported",
+                                rhs_name
+                            ),
+                        );
+                        return;
+                    }
+                }
             }
-        };
-
-        let src_reg = match self.state.local_bindings.get(&rhs_name) {
-            Some(reg) => reg,
-            None => {
+            Some(IrKind::App) => {
+                // #1136: materialize the call to RAX, then use RAX as the store source.
+                let app_children = arena.children(rhs_id);
+                if app_children.is_empty() {
+                    self.push_typed_diag(
+                        t0540_code(),
+                        format!(
+                            "Store (var_assign) App RHS {} has no children",
+                            rhs_id.get()
+                        ),
+                    );
+                    return;
+                }
+                let callee_id = app_children[0];
+                let target_name = match arena.binding_names().get(callee_id) {
+                    Some(name) => name.to_string(),
+                    None => {
+                        self.push_typed_diag(
+                            t0540_code(),
+                            format!(
+                                "Store (var_assign) App RHS callee {} has no binding name",
+                                callee_id.get()
+                            ),
+                        );
+                        return;
+                    }
+                };
+                let arg_ids: Vec<IrNodeId> = app_children[1..].to_vec();
+                self.emit_call_expr(store_id, target_name, &arg_ids, arena);
+                paideia_as_ir::abi::RAX
+            }
+            _ => {
                 self.push_typed_diag(
                     t0540_code(),
                     format!(
-                        "var_assign RHS {} not found in local bindings; non-register sources not yet supported",
-                        rhs_name
+                        "Store (var_assign) RHS must be Var or App; got {:?}",
+                        rhs_node.map(|n| n.kind)
                     ),
                 );
                 return;
