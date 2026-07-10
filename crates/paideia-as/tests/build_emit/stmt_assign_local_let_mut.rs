@@ -17,12 +17,20 @@ use crate::common::harness::run_build;
 fn local_let_mut_assignment_compiles() {
     let input = build_emit("stmt_assign_local_let_mut.pdx");
     let out = run_build(input);
-    // Filter out debug output (lines starting with '[') and check for actual errors
-    let errors: Vec<&str> = out.stderr.lines()
-        .filter(|line| !line.starts_with('[') && line.contains("error["))
-        .collect();
-    assert!(errors.is_empty(), "expected no error diagnostics, got:\n{:?}", errors);
-    // Artifact should exist and have non-zero size (contains the Mov instructions)
+    out.assert_ok();
+
+    // Expected disassembly: `mov $0x1,%rax; ret`
+    // In bytes: `48 c7 c0 01 00 00 00 c3`
+    // - 48: REX.W prefix
+    // - c7 c0: mov r64, imm32 (RAX destination)
+    // - 01 00 00 00: immediate value 1 (little-endian)
+    // - c3: ret
+    let expected_pattern = [0x48u8, 0xc7, 0xc0, 0x01, 0x00, 0x00, 0x00, 0xc3];
+
     let bytes = out.artifact_bytes();
-    assert!(!bytes.is_empty(), "expected non-empty artifact (ELF object file)");
+    assert!(
+        bytes.windows(expected_pattern.len()).any(|w| w == expected_pattern),
+        "expected to find pattern (mov $0x1,%rax; ret) in .text section, got {} bytes",
+        bytes.len()
+    );
 }

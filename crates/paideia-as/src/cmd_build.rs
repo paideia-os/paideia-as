@@ -301,6 +301,43 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
         }
     }
 
+    // Phase 6 m2-004b: Extract binding names from local StmtLet nodes and populate the IR's binding_names table.
+    // Local `let` statements inside function/match-arm bodies use NodeKind::StmtLet, which must be handled
+    // separately from module-level ItemData::Let. This ensures every local let gets a proper binding name entry.
+    {
+        let content_ref = source_map.content(file);
+
+        // Walk AST to find all StmtLet nodes and extract their binding names
+        for i in 0..arena.len() {
+            if let Some(ast_id) = paideia_as_ast::NodeId::new((i + 1) as u32) {
+                if let Some(node) = arena.get(ast_id) {
+                    if node.kind == paideia_as_ast::NodeKind::StmtLet {
+                        if let Some(paideia_as_ast::StmtData::Let { name: name_id, .. }) =
+                            arena.stmt_data(ast_id)
+                        {
+                            // Get the Ident node for the binding name
+                            if let Some(name_node) = arena.get(*name_id) {
+                                let span = name_node.span;
+                                let start = span.byte_start() as usize;
+                                let len = span.byte_len() as usize;
+                                if start + len <= content_ref.len() {
+                                    let binding_text = content_ref[start..start + len].to_string();
+                                    // Map AST StmtLet node ID to IR Let node ID (1-to-1 mapping)
+                                    let ir_let_id = paideia_as_ir::IrNodeId::new(ast_id.get())
+                                        .expect("valid ir node id from ast stmtlet node");
+                                    lowering
+                                        .ir
+                                        .binding_names_mut()
+                                        .insert(ir_let_id, binding_text);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // PA904: Extract public flag from AST Let nodes and populate the IR's public_lets table.
     // This enables the elaborator to mark symbols as global when they have explicit `pub` visibility.
     {

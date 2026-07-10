@@ -90,12 +90,20 @@ fn module_let_mut_assign_field_rhs_emits_t0540() {
 fn module_let_mut_assign_shadowed_lhs_compiles() {
     let input = build_emit("module_let_mut_assign_shadowed_lhs.pdx");
     let out = run_build(input);
-    // Filter out debug output (lines starting with '[') and check for actual errors
-    let errors: Vec<&str> = out.stderr.lines()
-        .filter(|line| !line.starts_with('[') && line.contains("error["))
-        .collect();
-    assert!(errors.is_empty(), "expected no error diagnostics, got:\n{:?}", errors);
-    // Artifact should exist and have non-zero size (contains the no-op Mov instruction)
+    out.assert_ok();
+
+    // Expected disassembly: `mov %rdi,%rdi; ret`
+    // In bytes: `48 89 ff c3`
+    // - 48: REX.W prefix
+    // - 89: mov r/m64, r64
+    // - ff: RDI (register encoding)
+    // - c3: ret
+    let expected_pattern = [0x48u8, 0x89, 0xff, 0xc3];
+
     let bytes = out.artifact_bytes();
-    assert!(!bytes.is_empty(), "expected non-empty artifact (ELF object file)");
+    assert!(
+        bytes.windows(expected_pattern.len()).any(|w| w == expected_pattern),
+        "expected to find pattern (mov %rdi,%rdi; ret) in .text section, got {} bytes",
+        bytes.len()
+    );
 }

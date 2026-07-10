@@ -124,38 +124,11 @@ impl EmitWalker {
                                 self.state.assign_scratch(scratch_reg);
 
                                 // Get binding name from arena.binding_names()
-                                // #1138: If not found on Let node, check next statement for Store with Var LHS
+                                // After Phase 6 m2-004b, all local let bindings have entries in binding_names table
                                 let binding_name = arena
                                     .binding_names()
                                     .get(child_id)
                                     .map(|s| s.to_string())
-                                    .or_else(|| {
-                                        // Look ahead for next statement: if it's an Action containing a Store with Var LHS,
-                                        // use the LHS Var's binding name
-                                        if i + 1 < block_children.len() {
-                                            let next_child_id = block_children[i + 1];
-                                            if let Some(next_node) = arena.get(next_child_id) {
-                                                if next_node.kind == IrKind::Action {
-                                                    let next_children = arena.children(next_child_id);
-                                                    if let Some(&store_id) = next_children.first() {
-                                                        if let Some(store_node) = arena.get(store_id) {
-                                                            if store_node.kind == IrKind::Store {
-                                                                let store_children = arena.children(store_id);
-                                                                if let Some(&lhs_var_id) = store_children.first() {
-                                                                    if let Some(lhs_var_node) = arena.get(lhs_var_id) {
-                                                                        if lhs_var_node.kind == IrKind::Var {
-                                                                            return arena.binding_names().get(lhs_var_id).map(|s| s.to_string());
-                                                                        }
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        None
-                                    })
                                     .unwrap_or_else(|| format!("_let_{}", child_id.get()));
 
                                 // Edit A: Handle Literal RHS

@@ -1,0 +1,4 @@
+module CollisionRepro = structure {
+  pub let mut y : u64 = 100
+  pub let use_local : () -> u64 = fn () -> { let x : u64 = 5; y = 200; x }
+}
