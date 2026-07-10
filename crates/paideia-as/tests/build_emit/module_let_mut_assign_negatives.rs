@@ -7,6 +7,47 @@
 use crate::common::fixture::build_emit;
 use crate::common::harness::run_build;
 
+/// Strip ANSI SGR escape sequences (`\x1b[...m`) from CLI output.
+///
+/// The human diagnostic renderer emits color codes unconditionally
+/// (`NO_COLOR` is not currently honored — a separate, pre-existing gap,
+/// out of scope here), so raw `stderr` contains sequences like
+/// `\x1b[1;31merror\x1b[0m[T0540]`. A naive `stderr.contains("error[")`
+/// check would never match; strip escapes first so diagnostic-counting
+/// assertions are robust regardless of whether color is emitted.
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' {
+            // Consume through the terminating 'm' of a CSI SGR sequence.
+            for c2 in chars.by_ref() {
+                if c2 == 'm' {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Assert that exactly one diagnostic (`error[CODE]`) appears in `stderr`.
+///
+/// Guards against a fixture or code-path change silently introducing extra,
+/// unrelated diagnostics (e.g. parser errors from a malformed fixture)
+/// alongside the expected T0540.
+fn assert_single_diagnostic(stderr: &str) {
+    let plain = strip_ansi(stderr);
+    assert_eq!(
+        plain.matches("error[").count(),
+        1,
+        "expected exactly one diagnostic (T0540), got:\n{}",
+        stderr
+    );
+}
+
 /// Test that literal RHS (counter = 5) emits T0540 diagnostic.
 ///
 /// Issue #1135 case 1: RHS is not a Var node (it's a literal).
@@ -15,11 +56,12 @@ fn module_let_mut_assign_literal_rhs_emits_t0540() {
     let input = build_emit("module_let_mut_assign_literal_rhs.pdx");
     let out = run_build(input);
     out.assert_diag("T0540");
-    assert!(
-        out.stderr.to_lowercase().contains("rhs") || out.stderr.to_lowercase().contains("var"),
-        "T0540 message should mention RHS or Var: {}",
-        out.stderr
-    );
+    // T0540's catalog brief always contains "var"/"module", so a substring
+    // check against those words is satisfied by every T0540 firing regardless
+    // of which branch in visit_var_assign produced it. Assert instead that
+    // T0540 is the *only* diagnostic emitted — no unrelated parse/lowering
+    // errors (e.g. a malformed fixture) are silently riding along.
+    assert_single_diagnostic(&out.stderr);
 }
 
 /// Test that field access RHS (counter = p.x) emits T0540 diagnostic.
@@ -30,11 +72,10 @@ fn module_let_mut_assign_field_rhs_emits_t0540() {
     let input = build_emit("module_let_mut_assign_field_rhs.pdx");
     let out = run_build(input);
     out.assert_diag("T0540");
-    assert!(
-        out.stderr.to_lowercase().contains("rhs") || out.stderr.to_lowercase().contains("var"),
-        "T0540 message should mention RHS or Var: {}",
-        out.stderr
-    );
+    // Same rationale as the literal-RHS case above: assert T0540 fires alone,
+    // with no spurious parser/lowering errors (e.g. from a malformed `struct`
+    // fixture) contaminating the result.
+    assert_single_diagnostic(&out.stderr);
 }
 
 /// Test that shadowed LHS (parameter shadows module let-mut) emits T0540 diagnostic.
@@ -45,9 +86,6 @@ fn module_let_mut_assign_shadowed_lhs_emits_t0540() {
     let input = build_emit("module_let_mut_assign_shadowed_lhs.pdx");
     let out = run_build(input);
     out.assert_diag("T0540");
-    assert!(
-        out.stderr.to_lowercase().contains("shadowed") || out.stderr.to_lowercase().contains("module"),
-        "T0540 message should mention shadowing or module symbol: {}",
-        out.stderr
-    );
+    // Same rationale as the literal-RHS case above.
+    assert_single_diagnostic(&out.stderr);
 }
