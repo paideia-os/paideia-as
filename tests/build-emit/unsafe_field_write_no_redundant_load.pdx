@@ -3,13 +3,37 @@
 // first child is FieldAccess(Deref(...)) so visit_field_access_with_reg
 // doesn't independently emit a load.
 //
-// Tests Store→FieldAccess IR pattern where FieldAccess is the LHS of assignment.
-// Fixture adjusted: uses module-level field write (pt.x = 42) which lowers to
-// Store→FieldAccess pattern (just not with Deref, as the PDX language doesn't
-// yet support (*p).field assignment syntax in high-level lambdas).
+// Tests the actual reported shape: `(*p).field = value` where `p` is a
+// function parameter dereferenced inside an unsafe block, lowering to
+// Store -> FieldAccess(Deref(Var(p))). This is the shape #1146 described
+// (a "[rdi+offset]" base-register store) and is NOT the same code path as
+// a module-level `pt.x = 42` field write, which lowers to a RIP-relative
+// store and never exercises the Deref receiver shape at all.
+//
+// #1146 follow-up (adversarial re-verification of be48580): the original
+// version of this fixture used the module-level (non-Deref) shape and so
+// never actually exercised the pre-pass arm it was meant to regress-test.
+// Reaching this shape also required two upstream fixes that had nothing to
+// do with the pre-pass itself:
+//   - populate_field_access_info (lower/field_access.rs) never unwrapped
+//     the Deref receiver when resolving the pointer's declared type, so
+//     FieldAccessInfo was never populated for `(*p).field` and
+//     visit_field_assign bailed out before emitting anything.
+//   - instructions emitted via emit_pending_unsafe_bodies (statements
+//     inside `unsafe { block: {...} } }`) were written to the walker's
+//     internal state but never copied into the arena's instruction
+//     side-table, so even a correctly computed store was silently dropped
+//     from .text with no diagnostic.
+// Both are fixed alongside this fixture rewrite.
 
 module UnsafeFieldWriteNoRedundantLoad = structure {
   struct Point { x: u32, y: u32 }
-  pub let pt : Point = Point { x: 0, y: 0 }
-  pub let bump_x : () -> () !{} @{} = fn(_: ()) -> { pt.x = 42 }
+  pub let bump_x : (*Point, u32) -> () !{} @{} = fn (p: *Point, v: u32) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "#1146 regression: direct field write via pointer deref must not emit a redundant load",
+    block: {
+      (*p).x = v;
+    }
+  }
 }

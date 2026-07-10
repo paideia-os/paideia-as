@@ -774,11 +774,17 @@ fn build_field_assign(size: u8, offset: i64, signed: bool) -> Instruction {
 
     // Store's 3-child shape: [FieldAccess, index_or_unused, value]
     let ptr_var_id = arena.alloc(IrKind::Var, span());
+    // #1146 follow-up: visit_field_assign resolves base/value operands from
+    // local_bindings rather than hardcoding RDI/RDX. Register "p"/"v" bound
+    // to RDI/RDX so every caller of this helper keeps observing the same
+    // RDI-base / RDX-value byte-level expectations as before.
+    arena.binding_names_mut().insert(ptr_var_id, "p".to_string());
     let deref_id = arena.alloc_with_children(IrKind::Deref, span(), [ptr_var_id]);
     let field_access_id =
         arena.alloc_with_children(IrKind::FieldAccess, span(), [deref_id]);
     let index_id = arena.alloc(IrKind::Var, span());
     let value_id = arena.alloc(IrKind::Var, span());
+    arena.binding_names_mut().insert(value_id, "v".to_string());
     let store_id = arena.alloc_with_children(
         IrKind::Store,
         span(),
@@ -809,6 +815,8 @@ fn build_field_assign(size: u8, offset: i64, signed: bool) -> Instruction {
         .state_mut()
         .record_layouts
         .insert(RecordTypeId(1), layout);
+    walker.state_mut().local_bindings.insert("p".to_string(), abi::RDI);
+    walker.state_mut().local_bindings.insert("v".to_string(), abi::RDX);
     walker.walk(&mut arena);
 
     walker
@@ -994,15 +1002,23 @@ fn visit_field_assign_i32_signed_same_as_u32() {
 fn visit_field_assign_no_redundant_load() {
     // #1146: Store→FieldAccess(Deref) pre-pass arm ensures only ONE
     // instruction (the store) is emitted, not a dead widening load.
+    //
+    // #1146 follow-up: the pointer and value operands are resolved from
+    // local_bindings (mirroring visit_var_assign), not hardcoded to
+    // RDI/RDX, so this test registers both "p" and "v" bindings the same
+    // way a real `fn (p: *Point, v: u32) -> unsafe { block: { (*p).x = v; } } }`
+    // lowering would.
     let mut arena = IrArena::new();
 
     // Store's 3-child shape: [FieldAccess, index_or_unused, value]
     let ptr_var_id = arena.alloc(IrKind::Var, span());
+    arena.binding_names_mut().insert(ptr_var_id, "p".to_string());
     let deref_id = arena.alloc_with_children(IrKind::Deref, span(), [ptr_var_id]);
     let field_access_id =
         arena.alloc_with_children(IrKind::FieldAccess, span(), [deref_id]);
     let index_id = arena.alloc(IrKind::Var, span());
     let value_id = arena.alloc(IrKind::Var, span());
+    arena.binding_names_mut().insert(value_id, "v".to_string());
     let store_id = arena.alloc_with_children(
         IrKind::Store,
         span(),
@@ -1029,6 +1045,11 @@ fn visit_field_assign_no_redundant_load() {
         .state_mut()
         .record_layouts
         .insert(RecordTypeId(1), layout);
+    // Mirror a real SysV two-parameter lambda: p -> RDI (first arg), v -> RSI
+    // (second arg). visit_field_assign must resolve these from
+    // local_bindings, not assume RDI/RDX.
+    walker.state_mut().local_bindings.insert("p".to_string(), abi::RDI);
+    walker.state_mut().local_bindings.insert("v".to_string(), abi::RSI);
     walker.walk(&mut arena);
 
     // Assert exactly 1 instruction emitted (the store, no dead load)
@@ -1038,7 +1059,7 @@ fn visit_field_assign_no_redundant_load() {
         "Should emit exactly 1 instruction (the store), not a redundant load"
     );
 
-    // Assert the instruction is MovSized{W32} with [MemSib, Reg] operands
+    // Assert the instruction is MovSized{W32} with [MemSib(RDI), Reg(RSI)] operands
     let store_instr = walker
         .state()
         .instructions
@@ -1051,8 +1072,19 @@ fn visit_field_assign_no_redundant_load() {
         }
     );
     assert_eq!(store_instr.operands.len(), 2);
-    assert!(matches!(store_instr.operands[0], Operand::MemSib { .. }));
-    assert!(matches!(store_instr.operands[1], Operand::Reg { .. }));
+    match &store_instr.operands[0] {
+        Operand::MemSib { base, disp, .. } => {
+            assert_eq!(*base, abi::RDI, "base register should resolve to p's register (RDI)");
+            assert_eq!(*disp, 0, "field offset should be 0");
+        }
+        other => panic!("expected MemSib operand, got {:?}", other),
+    }
+    match &store_instr.operands[1] {
+        Operand::Reg(reg) => {
+            assert_eq!(*reg, abi::RSI, "source register should resolve to v's register (RSI), not a hardcoded RDX");
+        }
+        other => panic!("expected Reg operand, got {:?}", other),
+    }
 
     // Assert the FieldAccess node is marked as handled (no instruction emitted for it)
     assert!(
@@ -1478,11 +1510,15 @@ fn emit_block_body_arm_dispatches_field_assign_store() {
 
     // Store's 3-child shape: [FieldAccess, index_unused, value]
     let ptr_var_id = arena.alloc(IrKind::Var, span());
+    // #1146 follow-up: visit_field_assign resolves base/value operands from
+    // local_bindings rather than hardcoding RDI/RDX.
+    arena.binding_names_mut().insert(ptr_var_id, "p".to_string());
     let deref_id = arena.alloc_with_children(IrKind::Deref, span(), [ptr_var_id]);
     let field_access_id =
         arena.alloc_with_children(IrKind::FieldAccess, span(), [deref_id]);
     let index_id = arena.alloc(IrKind::Var, span());
     let value_id = arena.alloc(IrKind::Var, span());
+    arena.binding_names_mut().insert(value_id, "v".to_string());
     let store_id = arena.alloc_with_children(
         IrKind::Store,
         span(),
@@ -1507,6 +1543,8 @@ fn emit_block_body_arm_dispatches_field_assign_store() {
         .state_mut()
         .record_layouts
         .insert(RecordTypeId(1), layout);
+    walker.state_mut().local_bindings.insert("p".to_string(), abi::RDI);
+    walker.state_mut().local_bindings.insert("v".to_string(), abi::RDX);
     walker.emit_block_body_arm(block_id, &arena, None);
 
     // Fix asserts: the Store node's instruction is emitted by dispatch_store→visit_field_assign.

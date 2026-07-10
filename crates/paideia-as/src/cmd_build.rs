@@ -754,7 +754,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
             // standard IR emit pipeline.
             emit_walker.emit_pending_unsafe_bodies(
                 pending_for_ir_emit,
-                &lowering.ir,
+                &mut lowering.ir,
                 None,
             );
             for diag in emit_walker.take_typed_diagnostics() {

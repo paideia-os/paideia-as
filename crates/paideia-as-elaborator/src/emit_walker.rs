@@ -639,6 +639,25 @@ impl EmitWalker {
         }
 
         // Transfer accumulated instructions from state to arena's instruction side-table.
+        self.sync_state_instructions_to_arena(arena);
+    }
+
+    /// Copy every instruction accumulated in `self.state.instructions` into
+    /// the arena's instruction side-table.
+    ///
+    /// #1146 follow-up: the encoder and `resolve_var_operands` read only
+    /// from `arena.instructions()` — never from the walker's own
+    /// `self.state.instructions`. `walk_inner` used to perform this copy
+    /// exactly once, as its final step. That left every instruction emitted
+    /// by code paths that run *after* `walk()` returns — chiefly
+    /// `emit_pending_unsafe_bodies` (issue #1088: call/field-write
+    /// statements inside `unsafe { block: {...} } }`, routed through
+    /// `emit_action_stmt` → `dispatch_store`/`emit_call_stmt`) — stranded in
+    /// `self.state.instructions` and silently absent from the emitted
+    /// `.text`, with no diagnostic. Idempotent: re-inserting an
+    /// already-transferred entry is harmless, so callers may call this any
+    /// number of times as new instructions accumulate.
+    pub(crate) fn sync_state_instructions_to_arena(&self, arena: &mut IrArena) {
         for (node_id, inst) in self.state.instructions.entries().iter() {
             arena.instructions_mut().insert(*node_id, inst.clone());
         }
@@ -693,7 +712,7 @@ impl EmitWalker {
     pub fn emit_pending_unsafe_bodies(
         &mut self,
         pending: Vec<u32>,
-        arena: &IrArena,
+        arena: &mut IrArena,
         typer: Option<&paideia_as_types::TypeInterner>,
     ) {
         for id_u32 in pending {
@@ -728,6 +747,16 @@ impl EmitWalker {
                 }
             }
         }
+
+        // #1146 follow-up: instructions emitted above (via emit_action_stmt →
+        // dispatch_store/emit_call_stmt → emit_inst) land in
+        // `self.state.instructions`, not the arena. `walk()` already did its
+        // one-time transfer before this function ever runs, so without this
+        // call every such instruction — e.g. the store for `(*p).field = v;`
+        // inside an unsafe block — is silently dropped: never reaches
+        // `resolve_var_operands` or the encoder, and .text simply omits it
+        // with no diagnostic.
+        self.sync_state_instructions_to_arena(arena);
     }
 
     /// Helper to push U1614 diagnostic with span (internal use).

@@ -54,15 +54,24 @@ pub(super) fn populate_field_access_info(
             _ => continue,
         };
 
-        // Extract receiver name (only simple Ident/ExprPath, not computed expressions)
-        let receiver_name = match extract_source_text_for_record_cons(ast, source_map, *receiver_id)
-        {
-            Some(name) => name,
-            None => {
-                // Receiver is computed or we can't extract text: skip silently
-                continue;
-            }
+        // #1146 follow-up: unwrap a single level of Deref so `(*p).field`
+        // resolves against the pointee's declared type instead of trying
+        // (and failing) to match the raw `*p` source text against the
+        // binding map, which is keyed on the bare identifier `p`.
+        let (receiver_name_id, receiver_is_deref) = match ast.expr_data(*receiver_id) {
+            Some(ExprData::Deref { expr }) => (*expr, true),
+            _ => (*receiver_id, false),
         };
+
+        // Extract receiver name (only simple Ident/ExprPath, not computed expressions)
+        let receiver_name =
+            match extract_source_text_for_record_cons(ast, source_map, receiver_name_id) {
+                Some(name) => name,
+                None => {
+                    // Receiver is computed or we can't extract text: skip silently
+                    continue;
+                }
+            };
 
         // Extract field name
         let field_name = match extract_source_text_for_record_cons(ast, source_map, *field_id) {
@@ -80,6 +89,17 @@ pub(super) fn populate_field_access_info(
                 // Receiver not in binding map: skip silently (non-blocking failure mode)
                 continue;
             }
+        };
+
+        // #1146 follow-up: for a Deref receiver, the binding map holds the
+        // declared *pointer* type text (e.g. "*Point", from `p: *Point`).
+        // Strip the pointer sigil to recover the pointee's struct name
+        // before looking it up in the struct registry, which is keyed on
+        // bare struct names.
+        let struct_type_text = if receiver_is_deref {
+            struct_type_text.trim_start_matches('*').trim().to_string()
+        } else {
+            struct_type_text
         };
 
         // Look up the struct type in the registry

@@ -2324,7 +2324,7 @@ fn emit_pending_unsafe_bodies_routes_action_app() {
     // Create walker and emit pending unsafe bodies.
     let mut walker = EmitWalker::new();
     let pending = vec![unsafe_id.get()];
-    walker.emit_pending_unsafe_bodies(pending, &arena, None);
+    walker.emit_pending_unsafe_bodies(pending, &mut arena, None);
 
     // Verify: a CALL instruction was emitted.
     let insts = &walker.state().instructions;
@@ -2386,7 +2386,7 @@ fn emit_pending_unsafe_bodies_skips_label_sibling() {
     // Create walker and emit pending unsafe bodies.
     let mut walker = EmitWalker::new();
     let pending = vec![unsafe_id.get()];
-    walker.emit_pending_unsafe_bodies(pending, &arena, None);
+    walker.emit_pending_unsafe_bodies(pending, &mut arena, None);
 
     // Verify: a CALL instruction was still emitted for the Action sibling.
     let insts = &walker.state().instructions;
@@ -2447,7 +2447,7 @@ fn emit_walker_ms_zero_arg_call_emits_shadow_prelude_postlude() {
     // Emit the call
     let mut walker = EmitWalker::new();
     let pending = vec![unsafe_id.get()];
-    walker.emit_pending_unsafe_bodies(pending, &arena, None);
+    walker.emit_pending_unsafe_bodies(pending, &mut arena, None);
 
     // Verify prelude (sub rsp, 40) is present
     let insts = &walker.state().instructions;
@@ -2505,7 +2505,7 @@ fn emit_walker_ms_one_arg_call_uses_rcx_not_rdi() {
     // Emit the call
     let mut walker = EmitWalker::new();
     let pending = vec![unsafe_id.get()];
-    walker.emit_pending_unsafe_bodies(pending, &arena, None);
+    walker.emit_pending_unsafe_bodies(pending, &mut arena, None);
 
     // Verify mov rcx, 42
     let insts = &walker.state().instructions;
@@ -2570,7 +2570,7 @@ fn emit_walker_ms_four_arg_call_uses_full_ms_reg_pool() {
 
     let mut walker = EmitWalker::new();
     let pending = vec![unsafe_id.get()];
-    walker.emit_pending_unsafe_bodies(pending, &arena, None);
+    walker.emit_pending_unsafe_bodies(pending, &mut arena, None);
 
     let insts = &walker.state().instructions;
 
@@ -2632,7 +2632,7 @@ fn emit_walker_ms_five_arg_call_emits_t0521() {
 
     let mut walker = EmitWalker::new();
     let pending = vec![unsafe_id.get()];
-    walker.emit_pending_unsafe_bodies(pending, &arena, None);
+    walker.emit_pending_unsafe_bodies(pending, &mut arena, None);
 
     // Verify T0521 is in diagnostics
     let t0521_found = walker.structured_diagnostics.iter().any(|d| d.code().number() == 521);
@@ -2673,7 +2673,7 @@ fn emit_walker_sysv_call_still_uses_rdi_rsi_pool() {
 
     let mut walker = EmitWalker::new();
     let pending = vec![unsafe_id.get()];
-    walker.emit_pending_unsafe_bodies(pending, &arena, None);
+    walker.emit_pending_unsafe_bodies(pending, &mut arena, None);
 
     let insts = &walker.state().instructions;
 
@@ -2720,7 +2720,7 @@ fn emit_walker_absent_abi_call_matches_sysv() {
 
     let mut walker = EmitWalker::new();
     let pending = vec![unsafe_id.get()];
-    walker.emit_pending_unsafe_bodies(pending, &arena, None);
+    walker.emit_pending_unsafe_bodies(pending, &mut arena, None);
 
     let insts = &walker.state().instructions;
 
@@ -2769,7 +2769,7 @@ fn emit_walker_ms_shadow_bump_is_forty_bytes() {
 
     let mut walker = EmitWalker::new();
     let pending = vec![unsafe_id.get()];
-    walker.emit_pending_unsafe_bodies(pending, &arena, None);
+    walker.emit_pending_unsafe_bodies(pending, &mut arena, None);
 
     let insts = &walker.state().instructions;
 
@@ -2820,7 +2820,7 @@ fn emit_walker_ms_prelude_precedes_arg_moves_in_id_order() {
 
     let mut walker = EmitWalker::new();
     let pending = vec![unsafe_id.get()];
-    walker.emit_pending_unsafe_bodies(pending, &arena, None);
+    walker.emit_pending_unsafe_bodies(pending, &mut arena, None);
 
     let insts = &walker.state().instructions;
     let mut inst_list: Vec<_> = insts.entries().iter().collect();
@@ -2888,7 +2888,7 @@ fn emit_walker_ms_postlude_is_between_call_and_ret() {
 
     let mut walker = EmitWalker::new();
     let pending = vec![unsafe_id.get()];
-    walker.emit_pending_unsafe_bodies(pending, &arena, None);
+    walker.emit_pending_unsafe_bodies(pending, &mut arena, None);
 
     let insts = &walker.state().instructions;
     let mut inst_list: Vec<_> = insts.entries().iter().collect();

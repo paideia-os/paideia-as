@@ -218,17 +218,66 @@ impl EmitWalker {
             }
         }
 
-        // Fallthrough: unsafe deref case (existing pattern)
-        // Emit MovSized with operands [MemSib{base: RDI, disp: offset}, Reg(RDX)]
-        // Following the same convention as visit_store: base=RDI (abi::RDI), source=RDX (abi::RDX)
+        // Fallthrough: unsafe deref case, e.g. `(*p).field = value`.
+        //
+        // #1146 follow-up: base and value operands used to be hardcoded to
+        // RDI/RDX. That only produced correct code by coincidence — when
+        // the pointer receiver happened to be the function's first
+        // parameter (RDI) and the value happened to be its third (RDX).
+        // For the common two-argument shape `fn(p: *T, v: U) -> (*p).f = v`
+        // the value lives in RSI, not RDX, so the hardcoded operand wrote
+        // the wrong register's contents into the field. Resolve both
+        // registers from local_bindings instead, mirroring
+        // visit_var_assign's RHS resolution.
+        let base_reg = match receiver_node.kind {
+            IrKind::Deref => arena
+                .children(receiver_id)
+                .first()
+                .and_then(|&ptr_id| arena.binding_names().get(ptr_id))
+                .and_then(|name| self.state.local_bindings.get(name)),
+            _ => None,
+        };
+        let base_reg = match base_reg {
+            Some(reg) => reg,
+            None => {
+                self.diagnostics.push(format!(
+                    "field-assign pointer receiver for Store {} not found in local bindings",
+                    store_id.get()
+                ));
+                return;
+            }
+        };
+
+        let value_reg = match arena.get(value_id).map(|n| n.kind) {
+            Some(IrKind::Var) => {
+                let resolved = arena
+                    .binding_names()
+                    .get(value_id)
+                    .and_then(|name| self.state.local_bindings.get(name));
+                match resolved {
+                    Some(reg) => reg,
+                    None => {
+                        self.diagnostics.push(format!(
+                            "field-assign value Var for Store {} not found in local bindings",
+                            store_id.get()
+                        ));
+                        return;
+                    }
+                }
+            }
+            // Preserve the prior fallback for non-Var RHS shapes (e.g. an
+            // already-materialized scratch result landed in RDX upstream).
+            _ => abi::RDX,
+        };
+
         let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
         operands.push(Operand::MemSib {
-            base: abi::RDI,                               // rdi (pointer)
+            base: base_reg,                               // resolved pointer register
             index: None,                                  // no index
             scale: paideia_as_ir::instruction::Scale::X1, // ignored when no index
             disp: field_offset as i32,                    // field offset
         });
-        operands.push(Operand::Reg(abi::RDX)); // rdx (value, source)
+        operands.push(Operand::Reg(value_reg)); // resolved value register
 
         let inst = Instruction {
             mnemonic: Mnemonic::MovSized { width },
