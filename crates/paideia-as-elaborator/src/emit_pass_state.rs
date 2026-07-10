@@ -129,6 +129,18 @@ pub struct EmitPassState {
     /// Used so lambda's ret_id sorts AFTER all match instructions.
     #[allow(dead_code)]
     pub(crate) max_emitted_node_id: u32,
+
+    /// #1086: RecordCons IR nodes already handled by other lowering paths
+    /// (e.g., data_encoder::encode_record_cons for Let → RecordCons).
+    /// Populated by walk_inner pre-pass. Signals scope-limited visitor skips it
+    /// to prevent T0518/T0516 false positives.
+    pub(crate) handled_record_cons_ids: HashSet<u32>,
+
+    /// #1086: FieldAccess IR nodes already handled by other lowering paths
+    /// (e.g., emit_field_access_lambda for Lambda → FieldAccess).
+    /// Populated by walk_inner pre-pass. Signals scope-limited visitor skips it
+    /// to prevent T0518/T0516 false positives.
+    pub(crate) handled_field_access_ids: HashSet<u32>,
 }
 
 impl EmitPassState {
@@ -272,6 +284,30 @@ impl EmitPassState {
     #[must_use]
     pub fn max_emitted_id(&self) -> u32 {
         self.instructions.iter().map(|(id, _)| id.get()).max().unwrap_or(0)
+    }
+
+    // ── Scope-limited visitor guards (PA-r15-m4-xxx #1086) ────────────────
+
+    /// Mark a RecordCons node as handled by another lowering path.
+    pub(crate) fn mark_record_cons_handled(&mut self, id: u32) {
+        self.handled_record_cons_ids.insert(id);
+    }
+
+    /// Check if a RecordCons node was already handled by another lowering path.
+    #[must_use]
+    pub(crate) fn was_record_cons_handled(&self, id: u32) -> bool {
+        self.handled_record_cons_ids.contains(&id)
+    }
+
+    /// Mark a FieldAccess node as handled by another lowering path.
+    pub(crate) fn mark_field_access_handled(&mut self, id: u32) {
+        self.handled_field_access_ids.insert(id);
+    }
+
+    /// Check if a FieldAccess node was already handled by another lowering path.
+    #[must_use]
+    pub(crate) fn was_field_access_handled(&self, id: u32) -> bool {
+        self.handled_field_access_ids.contains(&id)
     }
 
     // ── Whole-map accessors for cross-crate consumers ────────────────────

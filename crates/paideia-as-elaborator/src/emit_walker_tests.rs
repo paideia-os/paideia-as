@@ -21,3 +21,6 @@ mod scratch_and_ops;
 
 #[path = "emit_walker_tests/match_nested.rs"]
 mod match_nested;
+
+#[path = "emit_walker_tests/scope_guard.rs"]
+mod scope_guard;

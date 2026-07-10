@@ -241,6 +241,78 @@ impl EmitWalker {
             }
         }
 
+        // #1086: Second pre-pass marks nodes owned by other lowering paths so
+        // scope-limited visitors (visit_record_cons, visit_field_access) don't
+        // fire T0518/T0516 false positives on nodes they don't own.
+        for i in 1..=arena.len() as u32 {
+            if let Some(node_id) = IrNodeId::new(i) {
+                if let Some(node) = arena.get(node_id) {
+                    match node.kind {
+                        IrKind::Let => {
+                            let children = arena.children(node_id);
+                            if let Some(&rhs_id) = children.get(0) {
+                                if let Some(rhs_node) = arena.get(rhs_id) {
+                                    match rhs_node.kind {
+                                        // Let → RecordCons: owned by data_encoder::encode_record_cons
+                                        IrKind::RecordCons => {
+                                            self.state.mark_record_cons_handled(rhs_id.get());
+                                        }
+                                        // Let → FieldAccess: owned by visit_let_field_access
+                                        IrKind::FieldAccess => {
+                                            self.state.mark_field_access_handled(rhs_id.get());
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                        }
+                        IrKind::Lambda => {
+                            let children = arena.children(node_id);
+                            if let Some(&body_id) = children.first() {
+                                if let Some(body_node) = arena.get(body_id) {
+                                    match body_node.kind {
+                                        // Lambda → FieldAccess when receiver is Var:
+                                        // owned by emit_field_access_lambda (RIP-relative for module symbols)
+                                        IrKind::FieldAccess => {
+                                            let receiver_id = arena.children(body_id).first().copied();
+                                            if let Some(rid) = receiver_id {
+                                                if let Some(rn) = arena.get(rid) {
+                                                    if rn.kind == IrKind::Var {
+                                                        self.state.mark_field_access_handled(body_id.get());
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        // Lambda → App → FieldAccess (Var receiver): callee is a
+                                        // module-symbol reference, owned by visit_lambda's App arm
+                                        IrKind::App => {
+                                            let app_children = arena.children(body_id);
+                                            if let Some(&callee_id) = app_children.first() {
+                                                if let Some(cn) = arena.get(callee_id) {
+                                                    if cn.kind == IrKind::FieldAccess {
+                                                        let recv_id = arena.children(callee_id).first().copied();
+                                                        if let Some(rid) = recv_id {
+                                                            if let Some(rn) = arena.get(rid) {
+                                                                if rn.kind == IrKind::Var {
+                                                                    self.state.mark_field_access_handled(callee_id.get());
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
         // Iterate over all nodes, looking for Let, Lambda, and Unsafe nodes.
         for i in 1..=arena.len() as u32 {
             if let Some(node_id) = IrNodeId::new(i) {
@@ -365,7 +437,10 @@ impl EmitWalker {
                         }
                         IrKind::FieldAccess => {
                             // Phase 6 m3-002: emit field access lowering for (*p).field shape.
-                            self.visit_field_access(node_id, arena);
+                            // #1086: skip if another lowering path owns this node
+                            if !self.state.was_field_access_handled(node_id.get()) {
+                                self.visit_field_access(node_id, arena);
+                            }
                         }
                         IrKind::Store => {
                             // Check if this is a field assignment (*p).f = value (first child is FieldAccess)
@@ -386,7 +461,10 @@ impl EmitWalker {
                         }
                         IrKind::RecordCons => {
                             // Phase 6 m3-004: emit record constructor lowering for cap-mint shape.
-                            self.visit_record_cons(node_id, arena);
+                            // #1086: skip if another lowering path owns this node
+                            if !self.state.was_record_cons_handled(node_id.get()) {
+                                self.visit_record_cons(node_id, arena);
+                            }
                         }
                         IrKind::EnumCons => {
                             // PA-r17-007: emit enum variant constructor lowering.
