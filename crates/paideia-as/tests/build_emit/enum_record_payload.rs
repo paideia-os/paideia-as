@@ -89,15 +89,15 @@ fn enum_record_payload_parses_and_emits() {
     assert!(symbol_found, "Symbol 'r' not found in ELF");
 
     // Verify the .rodata contains the expected bytes for Result::Ok(Point { x: 5u32, y: 10u32 }):
-    // Note: the encoder doesn't have type information, so it packs all Literal values as u64 (8 bytes each)
+    // Issue #1157: tight-pack encoding per declared field widths.
     // - Discriminant 0 (Ok is variant_index 0) as u64 little-endian: 00 00 00 00 00 00 00 00
-    // - Point.x = 5 as u64 little-endian: 05 00 00 00 00 00 00 00
-    // - Point.y = 10 as u64 little-endian: 0a 00 00 00 00 00 00 00
-    // Total: 24 bytes (discriminant 8 + x 8 + y 8)
+    // - Point.x = 5 as u32 little-endian: 05 00 00 00
+    // - Point.y = 10 as u32 little-endian: 0a 00 00 00
+    // Total: 16 bytes (discriminant 8 + x 4 + y 4)
     let expected_bytes = vec![
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // discriminant 0 (Ok)
-        0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Point.x = 5
-        0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Point.y = 10
+        0x05, 0x00, 0x00, 0x00,                         // Point.x = 5 (u32)
+        0x0a, 0x00, 0x00, 0x00,                         // Point.y = 10 (u32)
     ];
 
     assert!(

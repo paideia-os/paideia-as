@@ -23,7 +23,7 @@ use crate::literal_bytes::LiteralBytesTable;
 use crate::literal_value::LiteralValueTable;
 use crate::loop_meta::LoopMetaTable;
 use crate::node::{IrKind, IrNodeData, IrNodeId};
-use crate::record_layout::{FieldAccessSideTable, RecordLayoutTable};
+use crate::record_layout::{FieldAccessSideTable, RecordLayoutTable, FinalisedLayoutTable};
 use crate::symbol::SymbolTable;
 
 /// Slab-allocated IR storage for one source file.
@@ -74,6 +74,9 @@ pub struct IrArena {
     /// Side-table: finalised enum layouts indexed by EnumTypeId.
     /// PA-r17-007: populated during emission; consumed for register/stack form dispatch.
     enum_finalised_layouts: FinalisedEnumLayoutTable,
+    /// Side-table: finalised record layouts indexed by RecordTypeId.
+    /// Issue #1157: populated after record layout finalization; consumed for tight-pack encoding.
+    finalised_record_layouts: FinalisedLayoutTable,
     /// Side-table: per-variant record payload type lookup indexed by (EnumTypeId, variant_idx).
     /// Issue #1054: populated during elaboration to enable type-directed code generation.
     enum_variant_payload_table: EnumVariantPayloadTable,
@@ -131,6 +134,7 @@ impl IrArena {
             record_layout_table: RecordLayoutTable::new(),
             enum_cons_table: EnumConsSideTable::new(),
             enum_finalised_layouts: FinalisedEnumLayoutTable::new(),
+            finalised_record_layouts: FinalisedLayoutTable::new(),
             enum_variant_payload_table: EnumVariantPayloadTable::new(),
             enum_disc_info_table: EnumDiscriminantSideTable::new(),
             match_arm_meta_table: MatchArmMetaSideTable::new(),
@@ -381,6 +385,18 @@ impl IrArena {
     /// Borrow the enum layout table (mutable).
     pub fn enum_layout_table_mut(&mut self) -> &mut FinalisedEnumLayoutTable {
         &mut self.enum_finalised_layouts
+    }
+
+    /// Borrow the finalised record layouts table (read-only).
+    /// Issue #1157: provides RecordLayout for records used in tight-pack encoding.
+    #[must_use]
+    pub fn finalised_record_layouts(&self) -> &FinalisedLayoutTable {
+        &self.finalised_record_layouts
+    }
+
+    /// Borrow the finalised record layouts table (mutable).
+    pub fn finalised_record_layouts_mut(&mut self) -> &mut FinalisedLayoutTable {
+        &mut self.finalised_record_layouts
     }
 
     /// Borrow the enum discriminant info side-table (read-only).

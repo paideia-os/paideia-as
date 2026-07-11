@@ -43,30 +43,69 @@ pub fn encode_array_lit(arena: &IrArena, array_id: IrNodeId) -> Option<Vec<u8>> 
     Some(bytes)
 }
 
-/// Encode a RecordCons node to bytes for data section initialisation.
+/// Issue #1157: Encode an IR value to bytes with a specified width.
 ///
-/// Assumes all fields are simple literals (u64) and encodes in child order,
-/// skipping the leading type-name child. Does not handle nested arrays or
-/// records in this MVP.
+/// For literals, uses `pack_int_le` to respect the declared width (e.g., u32 = 4 bytes).
+/// For Borrow nodes (fnptr fields), emits width bytes of zeros (placeholder for relocation).
+/// For composite kinds (ArrayLit, RecordCons, EnumCons), ignores width and dispatches
+/// to the recursive `encode_ir_value` since composites carry their own size.
+/// Returns `None` if the node is unencodable.
+#[must_use]
+pub fn encode_ir_value_sized(arena: &IrArena, node_id: IrNodeId, width: u8) -> Option<Vec<u8>> {
+    let node = arena.get(node_id)?;
+    match node.kind {
+        IrKind::Literal => arena.literal_values().get(node_id).map(|v| pack_int_le(v, width)),
+        IrKind::Borrow => {
+            // Fnptr field: emit width bytes of zeros (placeholder for relocation)
+            Some(vec![0u8; width as usize])
+        }
+        IrKind::ArrayLit | IrKind::RecordCons | IrKind::EnumCons | IrKind::InlineBytes => {
+            // Composites carry their own size; ignore width parameter and use standard dispatch
+            encode_ir_value(arena, node_id)
+        }
+        _ => None,
+    }
+}
+
+/// Issue #1157: Encode a RecordCons node to bytes for data section initialisation.
+///
+/// Uses the finalised record layout from `arena.finalised_record_layouts()` to determine
+/// field offsets and sizes. Allocates a buffer filled with zeros (for padding), then
+/// encodes each field at its declared offset and size. Supports nested records and
+/// arrays via recursive `encode_ir_value`.
+///
+/// Returns `None` if the record layout is not available or any field encoding fails.
 #[must_use]
 pub fn encode_record_cons(arena: &IrArena, record_id: IrNodeId) -> Option<Vec<u8>> {
+    // Look up the RecordTypeId for this record constructor
+    let type_id = arena.record_layout_table().get(record_id)?;
+
+    // Look up the finalised layout (C ABI natural-alignment packing)
+    let layout = arena.finalised_record_layouts().get(*type_id)?;
+
+    // Pre-allocate buffer filled with zeros for padding
+    let mut bytes = vec![0u8; layout.size as usize];
+
+    // Encode each field at its declared offset and size
     let children = arena.children(record_id);
-    if children.is_empty() {
-        return Some(Vec::new());
+    for (i, &field_id) in children[1..].iter().enumerate() {
+        // Bounds check: ensure the layout has an entry for this field index
+        if i >= layout.fields.len() {
+            return None; // Layout is incomplete; encoder can't proceed
+        }
+        let fl = &layout.fields[i];
+        let field_bytes = encode_ir_value_sized(arena, field_id, fl.size)?;
+        bytes[fl.offset as usize..fl.offset as usize + fl.size as usize].copy_from_slice(&field_bytes);
     }
-    let mut bytes = Vec::new();
-    for &field_id in &children[1..] {
-        let field_bytes = encode_ir_value(arena, field_id)?;
-        bytes.extend_from_slice(&field_bytes);
-    }
+
     Some(bytes)
 }
 
-/// PA-r17-007 (#1050): Encode an EnumCons node to bytes for data section initialisation.
+/// PA-r17-007 (#1050) + Issue #1157: Encode an EnumCons node to bytes for data section initialisation.
 ///
-/// Encodes the discriminant (variant_index as u64 LE) followed by the payload bytes,
-/// padded to the full enum size. Uses the EnumLayout to determine total size and
-/// payload offset.
+/// Issue #1157: Allocates a buffer filled with zeros, encodes the discriminant at offset 0,
+/// and places the payload at `layout.payload_offset`. For record payloads, the recursive
+/// call to `encode_record_cons` handles tight-pack field encoding automatically.
 ///
 /// Payload is encoded by recursively calling encode_ir_value on payload children.
 /// Returns None if the enum layout is not available or payload encoding fails.
@@ -80,20 +119,28 @@ pub fn encode_enum_cons(arena: &IrArena, enum_cons_id: IrNodeId) -> Option<Vec<u
     // is skipped (no data entry created). Later, emit_enum_cons will emit a diagnostic.
     let layout = arena.enum_layout_table().get(info.type_id)?;
 
-    // Encode discriminant as u64 little-endian
-    let discriminant = info.variant_index as i64;
-    let mut bytes = pack_u64_le(discriminant);
+    // Pre-allocate buffer filled with zeros for padding
+    let mut bytes = vec![0u8; layout.size as usize];
 
-    // Encode payload by concatenating all payload argument values
+    // Encode discriminant as u64 little-endian at offset 0
+    let discriminant = info.variant_index as i64;
+    let disc_bytes = pack_u64_le(discriminant);
+    bytes[0..disc_bytes.len()].copy_from_slice(&disc_bytes);
+
+    // Encode payload and place at payload_offset
     let payload_children = arena.children(enum_cons_id);
     for &payload_id in payload_children {
         let payload_bytes = encode_ir_value(arena, payload_id)?;
-        bytes.extend_from_slice(&payload_bytes);
-    }
-
-    // Pad to total enum size
-    while bytes.len() < layout.size as usize {
-        bytes.push(0);
+        let offset = layout.payload_offset as usize;
+        if offset + payload_bytes.len() <= bytes.len() {
+            bytes[offset..offset + payload_bytes.len()].copy_from_slice(&payload_bytes);
+        } else {
+            // Payload extends beyond enum size; truncate to fit
+            let copyable = bytes.len() - offset;
+            if copyable > 0 {
+                bytes[offset..].copy_from_slice(&payload_bytes[..copyable]);
+            }
+        }
     }
 
     Some(bytes)
@@ -429,6 +476,7 @@ mod tests {
     fn encode_enum_cons_record_payload_produces_correct_bytes() {
         use paideia_as_diagnostics::{FileId, Span};
         use paideia_as_ir::{EnumConsInfo, EnumLayout, EnumTypeId};
+        use paideia_as_ir::record_layout::{RecordTypeId, RecordLayout, FieldLayout};
 
         fn span() -> Span {
             Span::new(FileId::new(1).unwrap(), 0, 1)
@@ -450,6 +498,28 @@ mod tests {
             [type_name_id, field_x_id, field_y_id],
         );
 
+        // Issue #1157: Register record layout for tight-pack encoding.
+        // Point{x: u32, y: u32} has:
+        // - x (u32): 4 bytes at offset 0
+        // - y (u32): 4 bytes at offset 4
+        // - total: 8 bytes
+        let record_type_id = RecordTypeId(200);
+        arena.record_layout_table_mut().insert(
+            record_id,
+            record_type_id,
+        );
+        arena.finalised_record_layouts_mut().insert(
+            record_type_id,
+            RecordLayout::new(
+                8, // size
+                4, // align
+                vec![
+                    FieldLayout { offset: 0, size: 4, signed: false },
+                    FieldLayout { offset: 4, size: 4, signed: false },
+                ],
+            ),
+        );
+
         // Allocate an EnumCons node with discriminant 1 (Ok variant) and RecordCons payload
         let enum_id = arena.alloc_with_children(IrKind::EnumCons, span(), [record_id]);
 
@@ -464,15 +534,15 @@ mod tests {
         );
 
         // Register an EnumLayout for the enum type
-        // Assume: discriminant_size=8, payload_offset=8, payload_size=16 (2 u64 fields), total_size=24, align=8
+        // Issue #1157: payload_offset=8, payload_size=8 (tight record), total_size=16, align=8
         arena.enum_layout_table_mut().insert(
             enum_type_id,
             EnumLayout {
-                size: 24,
+                size: 16,
                 align: 8,
                 discriminant_size: 8,
                 payload_offset: 8,
-                payload_size: 16,
+                payload_size: 8,
             },
         );
 
@@ -482,19 +552,19 @@ mod tests {
 
         let bytes = result.unwrap();
 
-        // Expected byte layout:
+        // Expected byte layout (Issue #1157: tight-pack):
         // Offset 0-7: discriminant 1 as u64 LE = [01 00 00 00 00 00 00 00]
-        // Offset 8-15: record field 1 as u64 LE = [01 00 00 00 00 00 00 00]
-        // Offset 16-23: record field 2 as u64 LE = [02 00 00 00 00 00 00 00]
+        // Offset 8-11: record field x (u32) = 1 as u32 LE = [01 00 00 00]
+        // Offset 12-15: record field y (u32) = 2 as u32 LE = [02 00 00 00]
         let expected = vec![
             0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // discriminant 1
-            0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // field x = 1
-            0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // field y = 2
+            0x01, 0x00, 0x00, 0x00,                         // field x = 1 (u32)
+            0x02, 0x00, 0x00, 0x00,                         // field y = 2 (u32)
         ];
 
         assert_eq!(
             bytes, expected,
-            "EnumCons(discriminant=1, RecordCons(x=1, y=2)) should encode to correct bytes"
+            "EnumCons(discriminant=1, RecordCons(x:u32=1, y:u32=2)) should encode to tight-pack bytes (16 total)"
         );
     }
 }

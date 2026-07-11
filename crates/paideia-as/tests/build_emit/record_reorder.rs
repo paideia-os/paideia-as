@@ -88,13 +88,13 @@ fn record_reorder_parses_and_emits_in_declared_order() {
 
     // Verify the .rodata contains the expected bytes for Point { y: 20u32, x: 10u32 }
     // reordered to declared order Point { x: 10u32, y: 20u32 }:
-    // Note: the encoder packs all Literal values as u64 (8 bytes each)
-    // - Point.x = 10 as u64 little-endian: 0a 00 00 00 00 00 00 00
-    // - Point.y = 20 as u64 little-endian: 14 00 00 00 00 00 00 00
-    // Total: 16 bytes (x 8 + y 8), and they should be in declared order
+    // Issue #1157: tight-pack encoding respects declared field widths (u32 = 4 bytes each)
+    // - Point.x = 10 as u32 little-endian: 0a 00 00 00
+    // - Point.y = 20 as u32 little-endian: 14 00 00 00
+    // Total: 8 bytes (x 4 + y 4), and they should be in declared order
     let expected_bytes = vec![
-        0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Point.x = 10 (declared first)
-        0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Point.y = 20 (declared second)
+        0x0a, 0x00, 0x00, 0x00, // Point.x = 10 (declared first, u32)
+        0x14, 0x00, 0x00, 0x00, // Point.y = 20 (declared second, u32)
     ];
 
     assert!(

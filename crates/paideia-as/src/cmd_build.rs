@@ -602,6 +602,13 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
             // StructRegistry so visit_record_cons + emit_store_record can consume them.
             emit_walker.state_mut().finalise_record_layouts(&registry.fields);
 
+            // Issue #1157: Mirror finalised record layouts into arena for tight-pack encoding.
+            // After state.finalise_record_layouts populates registry state, copy into arena
+            // so data_encoder::encode_record_cons can access layouts during static init encoding.
+            for (record_type_id, record_layout) in emit_walker.state().record_layouts() {
+                lowering.ir.finalised_record_layouts_mut().insert(*record_type_id, record_layout.clone());
+            }
+
             // PA-r17-007 (#1050): Mirror enum layouts from IR into walker state.
             // This enables visit_enum_cons + emit_enum_discriminant to consume layouts during emission.
             for (type_id, layout) in lowering.ir.enum_layout_table().iter() {
@@ -1664,59 +1671,36 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                                         data_entries.push((node_id, entry));
                                     }
                                 } else if rhs_node.kind == paideia_as_ir::IrKind::RecordCons {
-                                    // #988 v2: RecordCons emit with fnptr relocation support.
-                                    // Look up layout from record_layout_table, walk fields, and emit relocations.
-                                    let record_type_id = lowering.ir.record_layout_table().get(rhs_id);
-                                    if let Some(_type_id) = record_type_id {
-                                        // For now, we don't have access to finalised_layout_table here (it's emitter-only),
-                                        // so we'll use the IR structure directly: walk field children, check their kind,
-                                        // and emit relocations for Borrow fields.
-                                        let field_children: Vec<_> = lowering.ir.children(rhs_id).iter().copied().collect();
-                                        let mut bytes = Vec::new();
+                                    // Issue #1157: RecordCons emit via data_encoder delegation.
+                                    // Delegates to encode_record_cons for tight-pack field encoding,
+                                    // then separately walks fields for fnptr Borrow relocations.
+                                    match paideia_as_elaborator::data_encoder::encode_record_cons(&lowering.ir, rhs_id) {
+                                        Some(bytes) => {
+                                        let record_type_id = lowering.ir.record_layout_table().get(rhs_id);
                                         let mut relocs = Vec::new();
 
-                                        // Skip type_name at index 0, process field children
-                                        for (field_idx, &field_id) in field_children.iter().enumerate() {
-                                            if field_idx == 0 {
-                                                // Skip type_name
-                                                continue;
-                                            }
-
-                                            if let Some(field_node) = lowering.ir.get(field_id) {
-                                                if field_node.kind == paideia_as_ir::IrKind::Literal {
-                                                    // Literal field: pack as 8 bytes (MVP assumes all fields are u64)
-                                                    if let Some(value) = lowering.ir.literal_values().get(field_id) {
-                                                        let field_bytes = paideia_as_elaborator::data_encoder::pack_u64_le(value);
-                                                        bytes.extend(field_bytes);
+                                        // Walk fields to collect Borrow relocations (only Borrow nodes need relocs)
+                                        if let Some(type_id) = record_type_id {
+                                            if let Some(layout) = lowering.ir.finalised_record_layouts().get(*type_id) {
+                                                let field_children = lowering.ir.children(rhs_id);
+                                                for (i, &field_id) in field_children[1..].iter().enumerate() {
+                                                    if let Some(field_node) = lowering.ir.get(field_id) {
+                                                        if field_node.kind == paideia_as_ir::IrKind::Borrow {
+                                                            // Borrow field: use tight-pack offset from layout
+                                                            if i < layout.fields.len() {
+                                                                let offset = layout.fields[i].offset;
+                                                                if let Some(meta) = lowering.ir.addr_of().get(field_id) {
+                                                                    let reloc = paideia_as_ir::RelocSpec::with_width(
+                                                                        offset,
+                                                                        meta.symbol.clone(),
+                                                                        paideia_as_ir::RelocWidth::W64,
+                                                                        meta.addend,
+                                                                    );
+                                                                    relocs.push(reloc);
+                                                                }
+                                                            }
+                                                        }
                                                     }
-                                                } else if field_node.kind == paideia_as_ir::IrKind::Borrow {
-                                                    // Borrow field: emit 8 zero bytes + relocation
-                                                    let offset = bytes.len() as u64;
-                                                    bytes.extend_from_slice(&[0u8; 8]);
-
-                                                    // Look up the Borrow in AddrOfSideTable (keyed by Borrow node id)
-                                                    if let Some(meta) = lowering.ir.addr_of().get(field_id) {
-                                                        let reloc = paideia_as_ir::RelocSpec::with_width(
-                                                            offset,
-                                                            meta.symbol.clone(),
-                                                            paideia_as_ir::RelocWidth::W64,
-                                                            meta.addend,
-                                                        );
-                                                        relocs.push(reloc);
-                                                    }
-                                                } else {
-                                                    // Non-Literal, non-Borrow field: emit T0536-style diagnostic
-                                                    let diag = Diagnostic::error(
-                                                        DiagnosticCode::new(
-                                                            Category::T,
-                                                            Severity::Error,
-                                                            536,
-                                                        ).expect("T0536 is valid")
-                                                    )
-                                                    .message("record field must be a literal or function pointer")
-                                                    .with_span(field_node.span)
-                                                    .finish();
-                                                    let _ = sink.emit(diag);
                                                 }
                                             }
                                         }
@@ -1751,6 +1735,12 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                                             entry = entry.with_section_override(name);
                                         }
                                         data_entries.push((node_id, entry));
+                                        }
+                                        None => {
+                                            // encode_record_cons returned None: either layout is not available or
+                                            // a field is not encodable. For now, silently skip (diagnostics should
+                                            // have been emitted during elaboration if there were type errors).
+                                        }
                                     }
                                 } else if rhs_node.kind == paideia_as_ir::IrKind::EnumCons {
                                     // Issue #1091 (#PA-r17-008): EnumCons emit via data_encoder delegation.
