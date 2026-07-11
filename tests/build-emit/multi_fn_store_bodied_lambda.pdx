@@ -1,0 +1,7 @@
+module MultiFnStoreBodiedLambda = structure {
+    let mut counter1 : u64 = 0
+    let mut counter2 : u64 = 0
+    pub let identity : (u64) -> u64 = fn (x: u64) -> x
+    pub let set_first : (u64) -> u64 = fn (v: u64) -> counter1 = v
+    pub let set_second : (u64) -> u64 = fn (v: u64) -> counter2 = v
+}

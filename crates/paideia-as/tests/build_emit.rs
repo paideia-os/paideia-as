@@ -34,6 +34,7 @@ mod build_emit {
     pub mod module_let_mut_assign_negatives;
     pub mod module_let_mut_assign_via_lambda;
     pub mod multi_arg_var_call;
+    pub mod multi_fn_store_bodied_lambda;
     pub mod multi_fn_store_dispatch_ordering;
     pub mod three_fn_store_dispatch_ordering;
     pub mod pa10_006i_imm;
