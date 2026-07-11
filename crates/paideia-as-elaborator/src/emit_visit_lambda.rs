@@ -757,6 +757,8 @@ impl EmitWalker {
                         // Record the lambda's starting offset. Note: For Action bodies, we use
                         // lambda_node_id itself as main_id, which will be resolved by the first
                         // actual instruction emitted in emit_block_body.
+                        // PA8-m1-002c: This sentinel will be overwritten post-walk by scanning
+                        // instr_to_lambda to find the actual first instruction (see cmd_build.rs).
                         let main_id = lambda_node_id;
                         self.record_lambda_entry(lambda_node_id, main_id);
 
@@ -796,11 +798,9 @@ impl EmitWalker {
                     }
                     // Phase 7 m2-001 (PA7C-m2-001): Unsafe block body `unsafe { ... }`
                     IrKind::Unsafe => {
-                        // PA8-m1-002: For Unsafe bodies, we record the offset here as backup,
-                        // but UnsafeWalker will also record it when it emits instructions.
-                        // This ensures backward compatibility if UnsafeWalker doesn't emit anything.
-                        let main_id = lambda_node_id;
-                        self.record_lambda_entry(lambda_node_id, main_id);
+                        // PA8-m1-002: For Unsafe bodies, UnsafeWalker will record the first
+                        // instruction when it emits instructions. The wire-up at cmd_build.rs
+                        // will then insert_lambda_first_instr and mark_lambda_emitted.
 
                         // PA8-m1-002b: Check if the unsafe body has already been queued.
                         // (This can happen if the Unsafe node's ID is lower than the Lambda's ID.)
@@ -839,7 +839,11 @@ impl EmitWalker {
                             );
                         }
 
-                        // Record the lambda's starting offset.
+                        // Record the lambda's starting offset. Note: For Match bodies, we use
+                        // lambda_node_id itself as main_id, which will be resolved by the first
+                        // actual instruction emitted in visit_match.
+                        // PA8-m1-002c: This sentinel will be overwritten post-walk by scanning
+                        // instr_to_lambda to find the actual first instruction (see cmd_build.rs).
                         let main_id = lambda_node_id;
                         self.record_lambda_entry(lambda_node_id, main_id);
 

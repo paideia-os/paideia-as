@@ -799,6 +799,58 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                         emit_walker
                             .state_mut()
                             .insert_lambda_first_instr(lambda_id, *first_instr);
+                        emit_walker
+                            .state_mut()
+                            .mark_lambda_emitted(lambda_id);
+                    }
+                }
+            }
+
+            // PA8-m1-002c (preparatory for #1150 v3): Wire first_instrs for Action/Match lambdas.
+            // Unlike Unsafe lambdas which are queued and processed by UnsafeWalker,
+            // Action/Match lambdas emit inline during the main walk. Their first instruction
+            // is recorded in instr_to_lambda during emission. We scan for the smallest
+            // emission_order instruction that maps back to each lambda via instr_to_lambda.
+            {
+                let lambda_first_instr = emit_walker.state().lambda_first_instr().clone();
+                let instr_to_lambda = emit_walker.state().instr_to_lambda().clone();
+                let instructions = emit_walker.state().instructions().clone();
+
+                for sym in lowering.ir.symbols().iter() {
+                    if sym.kind != paideia_as_ir::SymbolKind::Function {
+                        continue;
+                    }
+                    let lambda_id = sym.ir_node.get();
+                    // Skip lambdas already wired (via unsafe or other paths)
+                    if lambda_first_instr.contains_key(&lambda_id) {
+                        continue;
+                    }
+
+                    // Scan instructions for the one with smallest emission_order that
+                    // maps back to this lambda via instr_to_lambda
+                    let mut first_instr: Option<paideia_as_ir::IrNodeId> = None;
+                    let mut min_order = u32::MAX;
+
+                    for (instr_id, instr) in instructions.iter() {
+                        if let Some(&mapped_lambda_id) = instr_to_lambda.get(instr_id) {
+                            if mapped_lambda_id == lambda_id {
+                                let order = instr.emission_order;
+                                if order < min_order {
+                                    min_order = order;
+                                    first_instr = Some(*instr_id);
+                                }
+                            }
+                        }
+                    }
+
+                    // If we found an instruction for this lambda, wire it up
+                    if let Some(first_instr_id) = first_instr {
+                        emit_walker
+                            .state_mut()
+                            .insert_lambda_first_instr(lambda_id, first_instr_id);
+                        emit_walker
+                            .state_mut()
+                            .mark_lambda_emitted(lambda_id);
                     }
                 }
             }
