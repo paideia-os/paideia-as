@@ -5,7 +5,8 @@
 //! Byte-order verification (actual instruction encoding) is tested in
 //! paideia-as-emitter-pe/tests/text_emitter.rs.
 
-use paideia_as_ir::{IrArena, IrKind, CallMeta, Symbol, SymbolKind};
+use paideia_as_ir::{IrArena, IrKind, IrNodeId, CallMeta, Symbol, SymbolKind};
+use paideia_as_ir::instruction::Mnemonic;
 use paideia_as_diagnostics::{Span, FileId};
 use paideia_as_elaborator::EmitWalker;
 
@@ -49,16 +50,16 @@ fn walker_produces_correct_instruction_ids_for_sysv_call() {
     let mut walker = EmitWalker::new();
     walker.walk(&mut arena);
 
-    // Verify instruction IDs are in the correct range:
-    // - MOVs at 1_000_000 + L*100 + reg
-    // - CALL at 1_050_000 + L*100
-    // - RET at 1_150_000 + L*100
+    // Verify instructions are emitted (Issue #1161: CALL ID now via alloc_synthetic_id, not hardcoded).
+    // - CALL: emitted with synthetic ID (no specific range check post-#1161)
+    // - RET: still uses hardcoded 1_150_000 + L*100 (flagged for follow-up)
+    // - MOVs: for argument marshalling
     let insts = walker.state().instructions().entries();
     let l = lambda_id.get();
 
-    let ids: Vec<u32> = insts
-        .keys()
-        .map(|id: &paideia_as_ir::IrNodeId| id.get())
+    let inst_mnemonics: Vec<Mnemonic> = insts
+        .values()
+        .map(|inst| inst.mnemonic)
         .collect();
 
     // Should have at least 4 instructions: 2 MOVs + CALL + RET
@@ -68,49 +69,26 @@ fn walker_produces_correct_instruction_ids_for_sysv_call() {
         insts.len()
     );
 
-    // Verify CALL ID is in the correct range
-    let call_expected_id = 1_050_000u32.saturating_add(l.saturating_mul(100));
+    // Verify CALL instruction exists
     assert!(
-        ids.contains(&call_expected_id),
-        "CALL ID {} not found. Found IDs: {:?}",
-        call_expected_id,
-        ids
+        inst_mnemonics.iter().any(|m| matches!(m, Mnemonic::Call)),
+        "CALL instruction must be emitted"
     );
 
-    // Verify RET ID is in the correct range
+    // Verify RET instruction exists with hardcoded ID (still uses old scheme per #1161 follow-up)
     let ret_expected_id = 1_150_000u32.saturating_add(l.saturating_mul(100));
+    let ret_inst = walker.state().instructions().get(IrNodeId::new(ret_expected_id).unwrap());
     assert!(
-        ids.contains(&ret_expected_id),
-        "RET ID {} not found. Found IDs: {:?}",
-        ret_expected_id,
-        ids
+        ret_inst.is_some() && ret_inst.unwrap().mnemonic == Mnemonic::Ret,
+        "RET must be emitted at ID {} per current scheme",
+        ret_expected_id
     );
 
-    // Verify at least one MOV ID is in 1_000_000+ range
-    let mov_ids: Vec<u32> = ids
-        .iter()
-        .filter(|id| **id >= 1_000_000 && **id < 1_050_000)
-        .copied()
-        .collect();
+    // Verify at least one MOV instruction is emitted
+    let mov_count = inst_mnemonics.iter().filter(|m| matches!(m, Mnemonic::Mov | Mnemonic::MovSized { .. })).count();
     assert!(
-        !mov_ids.is_empty(),
-        "Expected MOV IDs in range [1_000_000, 1_050_000), found IDs: {:?}",
-        ids
+        mov_count >= 2,
+        "Expected at least 2 MOV instructions for argument marshalling, got {}",
+        mov_count
     );
-
-    // Verify ID ordering: MOV IDs < CALL ID < RET ID
-    for &mov_id in &mov_ids {
-        assert!(
-            mov_id < call_expected_id,
-            "MOV ID {} should be less than CALL ID {}",
-            mov_id,
-            call_expected_id
-        );
-        assert!(
-            call_expected_id < ret_expected_id,
-            "CALL ID {} should be less than RET ID {}",
-            call_expected_id,
-            ret_expected_id
-        );
-    }
 }

@@ -1,0 +1,9 @@
+module TwoLetWithApp = structure {
+  let get_a : (u64) -> u64 = fn (v: u64) -> v + 10
+  let get_b : (u64) -> u64 = fn (v: u64) -> v + 20
+  pub let combo : (u64) -> u64 = fn (v: u64) -> {
+    let a = get_a(v)
+    let b = get_b(v)
+    a
+  }
+}

@@ -82,8 +82,9 @@ const CAST_BUILD: &[&str] = &["movsxd rax,edi", "ret"];
 /// A `build`-compiled block-body `let`/tail-binding function emits the Let
 /// statement via emit_block_body (Fix #1152: Let RHS children at index 1 for
 /// statement-level typed lets). Narrow-width lets use MovSized when typer is
-/// active; u64 and untyped use generic Mov.
-const BLOCK_LET_BUILD: &[&str] = &["mov rax,7", "ret"];
+/// active; u64 and untyped use generic Mov. Post-#1161: scratch register is RCX
+/// (not RAX, to avoid clobbering by function calls), then final Var is moved to RAX.
+const BLOCK_LET_BUILD: &[&str] = &["mov rcx,7", "mov rax,rcx", "ret"];
 
 /// Hand-rolled Tier-A fixture table: `(basename, source, expected_disasm)`.
 ///

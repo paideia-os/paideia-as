@@ -454,34 +454,34 @@ fn emit_walker_m3_003_2_stmt_body_assigns_rax_rcx() {
     // Emit first field access (should go to RAX).
     walker.visit_let_field_access(field_access1_id, field_access1_id, &arena);
 
-    // Verify first instruction uses RAX (abi::RAX).
+    // Verify first instruction uses RCX (abi::RCX) — RAX excluded to avoid call result conflicts.
     let inst1 = walker
         .state()
         .instructions
         .get(field_access1_id)
         .expect("first instruction should be emitted");
     assert_eq!(inst1.mnemonic, Mnemonic::MovSized { width: IntWidth::W64 });
-    assert_eq!(inst1.operands[0], Operand::Reg(abi::RAX)); // RAX
+    assert_eq!(inst1.operands[0], Operand::Reg(abi::RCX)); // RCX
 
     // Verify scratch_assignment tracks the first register.
     assert_eq!(walker.state().scratch_count(), 1);
-    assert_eq!(walker.state().scratch_assignment[0], abi::RAX);
+    assert_eq!(walker.state().scratch_assignment[0], abi::RCX);
 
-    // Emit second field access (should go to RCX).
+    // Emit second field access (should go to RDX).
     walker.visit_let_field_access(field_access2_id, field_access2_id, &arena);
 
-    // Verify second instruction uses RCX (abi::RCX).
+    // Verify second instruction uses RDX (abi::RDX).
     let inst2 = walker
         .state()
         .instructions
         .get(field_access2_id)
         .expect("second instruction should be emitted");
     assert_eq!(inst2.mnemonic, Mnemonic::MovSized { width: IntWidth::W64 });
-    assert_eq!(inst2.operands[0], Operand::Reg(abi::RCX)); // RCX
+    assert_eq!(inst2.operands[0], Operand::Reg(abi::RDX)); // RDX
 
     // Verify scratch_assignment now has two registers.
     assert_eq!(walker.state().scratch_count(), 2);
-    assert_eq!(walker.state().scratch_assignment[1], abi::RCX);
+    assert_eq!(walker.state().scratch_assignment[1], abi::RDX);
 }
 
 #[test]
@@ -536,8 +536,8 @@ fn emit_walker_m3_003_4_stmt_body_assigns_rax_rcx_rdx_r8() {
     walker.state_mut().clear_scratch();
     walker.state_mut().current_function = 2;
 
-    // Expected registers: RAX(0), RCX(1), RDX(2), R8(8).
-    let expected_regs = [abi::RAX, abi::RCX, abi::RDX, abi::R8];
+    // Expected registers: RCX(1), RDX(2), R8(8), R9(9) — RAX excluded to avoid call result conflicts.
+    let expected_regs = [abi::RCX, abi::RDX, abi::R8, abi::R9];
 
     // Emit four field accesses.
     for (i, &field_access_id) in field_access_ids.iter().enumerate() {
@@ -1333,36 +1333,27 @@ fn emit_walker_pa7_002_zero_arg_function_call() {
     );
 
     // Verify call instruction was emitted (5 bytes: E8 + 4-byte rel32)
-    // Issue #1099: CALL ID is now 1_050_000 + L*100 (unified scheme)
-    let call_id = IrNodeId::new(1_050_000u32
-        .saturating_add(lambda_b_id.get().saturating_mul(100)))
-        .expect("call instr id");
-    let call_inst = walker
-        .state()
-        .instructions
-        .get(call_id)
-        .expect("call instruction should be emitted");
-    assert_eq!(call_inst.mnemonic, Mnemonic::Call);
-    assert_eq!(call_inst.operands.len(), 1);
-    match &call_inst.operands[0] {
-        Operand::SymbolRef { name, addend } => {
-            assert_eq!(name, "a");
-            assert_eq!(*addend, 0);
+    // Issue #1161: CALL ID is now allocated via alloc_synthetic_id() to avoid collisions.
+    // Search for the Call instruction in the emitted instruction set.
+    let mut call_inst_found = false;
+    let mut ret_inst_found = false;
+    for (_, inst) in walker.state().instructions.entries().iter() {
+        if inst.mnemonic == Mnemonic::Call {
+            call_inst_found = true;
+            assert_eq!(inst.operands.len(), 1);
+            match &inst.operands[0] {
+                Operand::SymbolRef { name, addend } => {
+                    assert_eq!(name, "a");
+                    assert_eq!(*addend, 0);
+                }
+                _ => panic!("Expected SymbolRef operand"),
+            }
+        } else if inst.mnemonic == Mnemonic::Ret {
+            ret_inst_found = true;
         }
-        _ => panic!("Expected SymbolRef operand"),
     }
-
-    // Verify ret instruction was emitted (1 byte: C3)
-    // Issue #1099: RET ID is now 1_150_000 + L*100 (unified scheme)
-    let ret_id = IrNodeId::new(1_150_000u32
-        .saturating_add(lambda_b_id.get().saturating_mul(100)))
-        .expect("ret instr id");
-    let ret_inst = walker
-        .state()
-        .instructions
-        .get(ret_id)
-        .expect("ret instruction should be emitted");
-    assert_eq!(ret_inst.mnemonic, Mnemonic::Ret);
+    assert!(call_inst_found, "call instruction should be emitted");
+    assert!(ret_inst_found, "ret instruction should be emitted");
 
     // Verify offset: PA19-r19-006 update: lambda_a now emits mov rax, 42; ret.
     // With issue #1101 optimization (C7 imm32 form for i32-range values):

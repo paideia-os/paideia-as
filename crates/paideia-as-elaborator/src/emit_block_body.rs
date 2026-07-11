@@ -95,7 +95,9 @@ impl EmitWalker {
         }
 
         // Scratch register sequence for in-block let bindings.
-        let scratch_regs = [abi::RAX, abi::RCX, abi::RDX, abi::R8]; // RAX, RCX, RDX, R8
+        // Exclude RAX since it's clobbered by function calls (used for return values).
+        // Use RCX, RDX, R8, R9 instead to avoid conflicts with call results.
+        let scratch_regs = [abi::RCX, abi::RDX, abi::R8, abi::R9]; // RCX, RDX, R8, R9
 
         // Walk all children: statements + optional tail.
         for (i, &child_id) in block_children.iter().enumerate() {
@@ -295,14 +297,48 @@ impl EmitWalker {
                         }
                     }
                     IrKind::Var => {
-                        // Phase 7 m2-003: Bare identifier in statement position (e.g., `x;`).
-                        // This is a statement-form variable reference with no side effects.
-                        // Simply skip it — it's a statement expression that doesn't emit code.
-                        if cfg!(debug_assertions) {
-                            eprintln!(
-                                "[emit_block_body] Var (bare identifier) at index {} — skipped",
-                                i
-                            );
+                        // Phase 7 m2-003: Bare identifier in statement or final-expression position.
+                        // If this is the final expression (last child), move its value to RAX for return.
+                        // Otherwise it's a statement-form variable reference with no side effects.
+                        if i == block_children.len() - 1 {
+                            // Final expression: move variable's value to RAX
+                            if cfg!(debug_assertions) {
+                                eprintln!(
+                                    "[emit_block_body] Var (final expression) at index {} — moving to RAX",
+                                    i
+                                );
+                            }
+
+                            // Look up the variable's current register
+                            if let Some(var_name) = arena.binding_names().get(child_id) {
+                                if let Some(src_reg) = self.state.local_bindings.get(var_name) {
+                                    if src_reg != abi::RAX {
+                                        // Emit: mov rax, src_reg
+                                        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                                        ops.push(Operand::Reg(abi::RAX));
+                                        ops.push(Operand::Reg(src_reg));
+                                        let inst = Instruction {
+                                            mnemonic: Mnemonic::Mov,
+                                            operands: ops,
+                                            encoding_hint: None,
+                                            byte_offset_in_text: None,
+                                            mode: self.current_mode(),
+                                            emission_order: 0,
+                                        };
+                                        let inst_id = IrNodeId::new(child_id.get() * 3 + 2)
+                                            .expect("final var mov id");
+                                        self.emit_inst(inst_id, inst);
+                                    }
+                                }
+                            }
+                        } else {
+                            // Statement-form variable reference with no side effects
+                            if cfg!(debug_assertions) {
+                                eprintln!(
+                                    "[emit_block_body] Var (bare identifier) at index {} — skipped",
+                                    i
+                                );
+                            }
                         }
                     }
                     IrKind::Branch => {
@@ -524,7 +560,9 @@ impl EmitWalker {
         }
 
         // Scratch register sequence for in-block let bindings.
-        let scratch_regs = [abi::RAX, abi::RCX, abi::RDX, abi::R8]; // RAX, RCX, RDX, R8
+        // Exclude RAX since it's clobbered by function calls (used for return values).
+        // Use RCX, RDX, R8, R9 instead to avoid conflicts with call results.
+        let scratch_regs = [abi::RCX, abi::RDX, abi::R8, abi::R9]; // RCX, RDX, R8, R9
 
         // Walk all children: statements + optional tail.
         for (i, &child_id) in block_children.iter().enumerate() {

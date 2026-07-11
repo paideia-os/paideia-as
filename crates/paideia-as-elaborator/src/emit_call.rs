@@ -30,15 +30,14 @@ fn t0521_code() -> DiagnosticCode {
 impl EmitWalker {
     /// Emit caller-side bridge prelude for paideia→MS/SysV ABI crossing.
     /// Pushes the registers in `save_regs` (in order) before shadow-space adjustment.
-    /// Uses ID slot range 800_000 + L*100 + k for k = 0..N.
-    fn emit_bridge_prelude(&mut self, lambda_node_id: IrNodeId, save_regs: &[RegId]) {
+    /// Uses alloc_synthetic_id() per iteration to ensure unique IDs across all call sites.
+    #[allow(dead_code)]
+    fn emit_bridge_prelude(&mut self, save_regs: &[RegId]) {
         if save_regs.is_empty() {
             return;
         }
-        for (k, &reg) in save_regs.iter().enumerate() {
-            let prelude_id = 800_000u32
-                .saturating_add(lambda_node_id.get().saturating_mul(100))
-                .saturating_add(k as u32);
+        for &reg in save_regs.iter() {
+            let prelude_ir_id = self.alloc_synthetic_id();
 
             let mut push_ops: SmallVec<[Operand; 3]> = SmallVec::new();
             push_ops.push(Operand::Reg(reg));
@@ -52,23 +51,19 @@ impl EmitWalker {
                         emission_order: 0,
         };
 
-            let prelude_ir_id = IrNodeId::new(prelude_id)
-                .unwrap_or_else(|| IrNodeId::new(1).unwrap());
             self.emit_inst(prelude_ir_id, push_inst);
         }
     }
 
     /// Emit caller-side bridge postlude for paideia→MS/SysV ABI crossing.
     /// Pops the registers in `save_regs` in REVERSE order (LIFO) after shadow-space restoration.
-    /// Uses ID slot range 1_120_000 + L*100 + k for k = 0..N.
-    fn emit_bridge_postlude(&mut self, lambda_node_id: IrNodeId, save_regs: &[RegId]) {
+    /// Uses alloc_synthetic_id() per iteration to ensure unique IDs across all call sites.
+    fn emit_bridge_postlude(&mut self, save_regs: &[RegId]) {
         if save_regs.is_empty() {
             return;
         }
-        for (k, &reg) in save_regs.iter().enumerate().rev() {
-            let postlude_id = 1_120_000u32
-                .saturating_add(lambda_node_id.get().saturating_mul(100))
-                .saturating_add(save_regs.len() as u32 - 1 - k as u32);
+        for &reg in save_regs.iter().rev() {
+            let postlude_ir_id = self.alloc_synthetic_id();
 
             let mut pop_ops: SmallVec<[Operand; 3]> = SmallVec::new();
             pop_ops.push(Operand::Reg(reg));
@@ -82,8 +77,6 @@ impl EmitWalker {
                         emission_order: 0,
         };
 
-            let postlude_ir_id = IrNodeId::new(postlude_id)
-                .unwrap_or_else(|| IrNodeId::new(1).unwrap());
             self.emit_inst(postlude_ir_id, pop_inst);
         }
     }
@@ -97,7 +90,9 @@ impl EmitWalker {
     /// Does NOT emit RET. Call `emit_ret_after_call` separately for statement-position calls.
     ///
     /// Records lambda entry as a side effect.
-    /// Uses per-call-site sequential IDs to ensure deterministic instruction ordering.
+    /// Uses per-call-site sequential IDs (alloc_synthetic_id) to ensure deterministic
+    /// instruction ordering and eliminate ID collisions across multiple call sites in the
+    /// same function.
     fn emit_call_args_and_call(
         &mut self,
         lambda_node_id: IrNodeId,
@@ -122,43 +117,51 @@ impl EmitWalker {
             CallingConvention::Sysv => &abi::ARG_REGS,
         };
 
-        // Allocate CALL instruction ID:
-        // Both SysV and MS use unified ID scheme: 1_050_000 + (lambda_node_id * 100)
-        // This ensures arg MOVs (1_000_000+) sort before CALL, and RET sorts last.
-        let main_id = IrNodeId::new(1_050_000u32
-            .saturating_add(lambda_node_id.get().saturating_mul(100)))
-            .unwrap_or_else(|| IrNodeId::new(1).unwrap());
+        // Allocate first instruction ID upfront. This will be used for:
+        // 1. record_lambda_entry (marks function entry point)
+        // 2. The first actual instruction emission (bridge push, MS prelude, first arg MOV, or CALL)
+        let first_id = self.alloc_synthetic_id();
+        self.record_lambda_entry(lambda_node_id, first_id);
 
-        // Determine first instruction ID for record_lambda_entry.
-        // If bridge saves exist, the first push is the first instruction.
-        // Otherwise if args exist, use the first MOV's ID; otherwise use the CALL ID.
-        let first_instr_id = if !bridge_saves.is_empty() {
-            // First bridge push: 800_000 + L*100 + 0
-            IrNodeId::new(800_000u32
-                .saturating_add(lambda_node_id.get().saturating_mul(100)))
-                .unwrap_or_else(|| IrNodeId::new(1).unwrap())
-        } else if arg_ids.is_empty() {
-            main_id  // No args: CALL is the first instruction
-        } else {
-            // First arg MOV: 1_000_000 + L*100 + first_arg_reg
-            let first_arg_reg = arg_regs[0].0 as u32;
-            IrNodeId::new(1_000_000u32
-                .saturating_add(lambda_node_id.get().saturating_mul(100))
-                .saturating_add(first_arg_reg))
-                .unwrap_or_else(|| IrNodeId::new(1).unwrap())
-        };
-        self.record_lambda_entry(lambda_node_id, first_instr_id);
+        // Track whether we've emitted the first instruction yet
+        let mut first_emission = true;
 
         // Emit caller-side bridge prelude (push R15, R14) if crossing paideia→MS/SysV
-        // Prelude ID slot 800_000 < 900_000 (MS shadow bump), so sorts first ✓
-        self.emit_bridge_prelude(lambda_node_id, bridge_saves);
+        // Use first_id for the first push, subsequent pushes get fresh IDs
+        if !bridge_saves.is_empty() {
+            for (idx, &reg) in bridge_saves.iter().enumerate() {
+                let prelude_ir_id = if idx == 0 && first_emission {
+                    first_emission = false;
+                    first_id
+                } else {
+                    self.alloc_synthetic_id()
+                };
 
-        // MS x64 prelude ID: 900_000 + (lambda_node_id * 100) - sorts BEFORE arg MOVs at 1_000_000
-        let ms_prelude_id = 900_000u32
-            .saturating_add(lambda_node_id.get().saturating_mul(100));
+                let mut push_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                push_ops.push(Operand::Reg(reg));
+
+                let push_inst = Instruction {
+                    mnemonic: Mnemonic::Push,
+                    operands: push_ops,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                };
+
+                self.emit_inst(prelude_ir_id, push_inst);
+            }
+        }
 
         // Emit MS x64 prelude: sub rsp, MS_CALL_STACK_BUMP
         if callee_abi == CallingConvention::Ms {
+            let ms_prelude_id = if first_emission {
+                first_emission = false;
+                first_id
+            } else {
+                self.alloc_synthetic_id()
+            };
+
             let mut prelude_ops: SmallVec<[Operand; 3]> = SmallVec::new();
             prelude_ops.push(Operand::Reg(abi::RSP));
             prelude_ops.push(Operand::Imm64(abi::MS_CALL_STACK_BUMP as i64));
@@ -169,12 +172,10 @@ impl EmitWalker {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
-                        emission_order: 0,
-        };
+                emission_order: 0,
+            };
 
-            let prelude_ir_id = IrNodeId::new(ms_prelude_id)
-                .unwrap_or_else(|| IrNodeId::new(1).unwrap());
-            self.emit_inst(prelude_ir_id, prelude_inst);
+            self.emit_inst(ms_prelude_id, prelude_inst);
         }
 
         // PA-r16-007-registry-runtime-args (#1062): stdlib trait method lowering with
@@ -278,8 +279,14 @@ impl EmitWalker {
                 IrKind::Literal => {
                     // Load literal into the register
                     if let Some(value) = arena.literal_values().get(arg_id) {
-                        // Use the old emit_mov_literal_to_reg helper for consistent ID scheme and byte calculation
-                        self.emit_mov_literal_to_reg(lambda_node_id, dest_reg, value);
+                        // Allocate a fresh ID for this MOV; mark first if still needed
+                        let mov_id = if first_emission {
+                            first_emission = false;
+                            first_id
+                        } else {
+                            self.alloc_synthetic_id()
+                        };
+                        self.emit_mov_literal_to_reg_with_id(mov_id, dest_reg, value);
                     } else {
                         self.push_typed_diag(
                             t0521_code(),
@@ -301,14 +308,26 @@ impl EmitWalker {
                             // No-op: caller's binding already lives in the target arg reg.
                         }
                         Some(src) => {
-                            self.emit_mov_reg_to_reg(lambda_node_id, src, dest_reg);
+                            let mov_id = if first_emission {
+                                first_emission = false;
+                                first_id
+                            } else {
+                                self.alloc_synthetic_id()
+                            };
+                            self.emit_mov_reg_to_reg_with_id(mov_id, src, dest_reg);
                         }
                         None => {
                             // Legacy fallback for arg 0: if the binding table is not
                             // populated (older test IR shapes), assume the caller's
                             // first param is in RDI.
                             if arg_idx == 0 && dest_reg != abi::RDI {
-                                self.emit_mov_reg_to_reg(lambda_node_id, abi::RDI, dest_reg);
+                                let mov_id = if first_emission {
+                                    first_emission = false;
+                                    first_id
+                                } else {
+                                    self.alloc_synthetic_id()
+                                };
+                                self.emit_mov_reg_to_reg_with_id(mov_id, abi::RDI, dest_reg);
                             } else if arg_idx != 0 {
                                 self.push_typed_diag(
                                     t0521_code(),
@@ -365,7 +384,13 @@ impl EmitWalker {
             return;  // Skip Call+Ret block
         }
 
-        // Emit CALL instruction with the recorded main_id
+        // Emit CALL instruction with fresh ID
+        let call_id = if first_emission {
+            first_id
+        } else {
+            self.alloc_synthetic_id()
+        };
+
         let mut call_operands: SmallVec<[Operand; 3]> = SmallVec::new();
         call_operands.push(Operand::SymbolRef {
             name: target_name,
@@ -378,16 +403,14 @@ impl EmitWalker {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
-                    emission_order: 0,
+            emission_order: 0,
         };
 
-        self.emit_inst(main_id, call_inst);
+        self.emit_inst(call_id, call_inst);
 
         // Emit MS x64 postlude: add rsp, MS_CALL_STACK_BUMP
-        // Postlude ID: 1_100_000 + (lambda_node_id * 100) - sorts AFTER MOVs and CALL
         if callee_abi == CallingConvention::Ms {
-            let ms_postlude_id = 1_100_000u32
-                .saturating_add(lambda_node_id.get().saturating_mul(100));
+            let ms_postlude_id = self.alloc_synthetic_id();
 
             let mut postlude_ops: SmallVec<[Operand; 3]> = SmallVec::new();
             postlude_ops.push(Operand::Reg(abi::RSP));
@@ -399,18 +422,14 @@ impl EmitWalker {
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: self.current_mode(),
-                        emission_order: 0,
-        };
+                emission_order: 0,
+            };
 
-            let postlude_ir_id = IrNodeId::new(ms_postlude_id)
-                .unwrap_or_else(|| IrNodeId::new(1).unwrap());
-            self.emit_inst(postlude_ir_id, postlude_inst);
+            self.emit_inst(ms_postlude_id, postlude_inst);
         }
 
         // Emit caller-side bridge postlude (pop R14, R15) if crossing paideia→MS/SysV
-        // Postlude ID slot 1_120_000 > 1_100_000 (MS shadow restore), > 1_050_000 (CALL)
-        // so it sorts after all those, before RET at 1_150_000 ✓
-        self.emit_bridge_postlude(lambda_node_id, bridge_saves);
+        self.emit_bridge_postlude(bridge_saves);
     }
 
     /// Emit RET instruction after a call (or standalone for statement-position calls).

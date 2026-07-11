@@ -31,7 +31,7 @@ fn pa7c_m2_002_let_literal_assigns_first_scratch_reg() {
     let mut walker = EmitWalker::new();
     walker.walk(&mut arena);
 
-    // Verify scratch_assignment[0] == RAX (abi::RAX)
+    // Verify scratch_assignment[0] == RCX (abi::RCX) — excludes RAX which is clobbered by function calls
     assert_eq!(
         walker.state().scratch_count(),
         1,
@@ -39,15 +39,15 @@ fn pa7c_m2_002_let_literal_assigns_first_scratch_reg() {
     );
     assert_eq!(
         walker.state().scratch_assignment[0],
-        abi::RAX,
-        "First scratch should be RAX"
+        abi::RCX,
+        "First scratch should be RCX (RAX excluded to avoid call result conflicts)"
     );
 
-    // Verify local_bindings.get("x") == Some(RAX)
+    // Verify local_bindings.get("x") == Some(RCX)
     assert_eq!(
         walker.state().local_bindings.get("x"),
-        Some(abi::RAX),
-        "Binding 'x' should map to RAX"
+        Some(abi::RCX),
+        "Binding 'x' should map to RCX"
     );
 
     // Verify 1 Mov instruction was emitted (plus the final Ret from emit_block_body)
@@ -98,38 +98,38 @@ fn pa7c_m2_002_three_let_chain_assigns_distinct_scratch_regs() {
         "Should have 3 scratch assignments"
     );
 
-    // Verify they are RAX, RCX, RDX
+    // Verify they are RCX, RDX, R8 (RAX excluded to avoid call result conflicts)
     assert_eq!(
         walker.state().scratch_assignment[0],
-        abi::RAX,
-        "First should be RAX"
+        abi::RCX,
+        "First should be RCX (RAX excluded)"
     );
     assert_eq!(
         walker.state().scratch_assignment[1],
-        abi::RCX,
-        "Second should be RCX"
+        abi::RDX,
+        "Second should be RDX"
     );
     assert_eq!(
         walker.state().scratch_assignment[2],
-        abi::RDX,
-        "Third should be RDX"
+        abi::R8,
+        "Third should be R8"
     );
 
     // Verify local_bindings
     assert_eq!(
         walker.state().local_bindings.get("a"),
-        Some(abi::RAX),
-        "Binding 'a' should map to RAX"
+        Some(abi::RCX),
+        "Binding 'a' should map to RCX"
     );
     assert_eq!(
         walker.state().local_bindings.get("b"),
-        Some(abi::RCX),
-        "Binding 'b' should map to RCX"
+        Some(abi::RDX),
+        "Binding 'b' should map to RDX"
     );
     assert_eq!(
         walker.state().local_bindings.get("c"),
-        Some(abi::RDX),
-        "Binding 'c' should map to RDX"
+        Some(abi::R8),
+        "Binding 'c' should map to R8"
     );
 
     // Verify at least 3 Mov instructions were emitted (for the 3 lets)
@@ -187,26 +187,26 @@ fn pa7c_m2_002_five_let_chain_exhausts_pool_and_emits_t0527() {
         "Should have only 4 scratch assignments"
     );
 
-    // Verify they are RAX, RCX, RDX, R8
+    // Verify they are RCX, RDX, R8, R9 (RAX excluded to avoid call result conflicts)
     assert_eq!(
         walker.state().scratch_assignment[0],
-        abi::RAX,
-        "First should be RAX"
+        abi::RCX,
+        "First should be RCX (RAX excluded)"
     );
     assert_eq!(
         walker.state().scratch_assignment[1],
-        abi::RCX,
-        "Second should be RCX"
+        abi::RDX,
+        "Second should be RDX"
     );
     assert_eq!(
         walker.state().scratch_assignment[2],
-        abi::RDX,
-        "Third should be RDX"
+        abi::R8,
+        "Third should be R8"
     );
     assert_eq!(
         walker.state().scratch_assignment[3],
-        abi::R8,
-        "Fourth should be R8"
+        abi::R9,
+        "Fourth should be R9"
     );
 }
 

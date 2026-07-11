@@ -122,7 +122,9 @@ impl EmitWalker {
         arena: &IrArena,
     ) {
         // Scratch register sequence (calling-convention scratch registers).
-        let scratch_regs = [abi::RAX, abi::RCX, abi::RDX, abi::R8]; // RAX, RCX, RDX, R8
+        // Exclude RAX since it's clobbered by function calls (used for return values).
+        // Use RCX, RDX, R8, R9 instead to avoid conflicts with call results.
+        let scratch_regs = [abi::RCX, abi::RDX, abi::R8, abi::R9]; // RCX, RDX, R8, R9
 
         // Check if we've exceeded register pressure.
         if self.state.scratch_count() >= scratch_regs.len() {

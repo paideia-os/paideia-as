@@ -1008,6 +1008,27 @@ impl EmitWalker {
         self.emit_inst(inst_id, inst);
     }
 
+    /// Emit MOV from one register to another with explicit instruction ID.
+    pub(crate) fn emit_mov_reg_to_reg_with_id(&mut self, inst_id: IrNodeId, src_reg: RegId, dest_reg: RegId) {
+        // PA8-m3-001 (generic Mov retained): reg-to-reg move; not MovSized-encodable.
+        // Uses the provided inst_id directly, enabling per-instruction ID allocation
+        // via alloc_synthetic_id to avoid collision-prone multiplicative ID schemes.
+        let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+        operands.push(Operand::Reg(dest_reg));
+        operands.push(Operand::Reg(src_reg));
+
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands,
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: self.current_mode(),
+            emission_order: 0,
+        };
+
+        self.emit_inst(inst_id, inst);
+    }
+
     /// Emit MOV from one register to another.
     #[allow(dead_code)]
     pub(crate) fn emit_mov_reg_to_reg(&mut self, lambda_node_id: IrNodeId, src_reg: RegId, dest_reg: RegId) {

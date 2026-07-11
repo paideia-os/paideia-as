@@ -19,18 +19,17 @@ fn local_let_mut_assignment_compiles() {
     let out = run_build(input);
     out.assert_ok();
 
-    // Expected disassembly: `mov $0x1,%rax; ret`
-    // In bytes: `48 c7 c0 01 00 00 00 c3`
-    // - 48: REX.W prefix
-    // - c7 c0: mov r64, imm32 (RAX destination)
-    // - 01 00 00 00: immediate value 1 (little-endian)
+    // Expected disassembly (post-#1161): `mov $0x1,%rcx; mov %rcx,%rax; ret`
+    // In bytes: `48 c7 c1 01 00 00 00 48 89 c8 c3`
+    // - 48 c7 c1 01 00 00 00: mov r64, imm32 (RCX destination)
+    // - 48 89 c8: mov rax, rcx (return value)
     // - c3: ret
-    let expected_pattern = [0x48u8, 0xc7, 0xc0, 0x01, 0x00, 0x00, 0x00, 0xc3];
+    let expected_pattern = [0x48u8, 0xc7, 0xc1, 0x01, 0x00, 0x00, 0x00, 0x48, 0x89, 0xc8, 0xc3];
 
     let bytes = out.artifact_bytes();
     assert!(
         bytes.windows(expected_pattern.len()).any(|w| w == expected_pattern),
-        "expected to find pattern (mov $0x1,%rax; ret) in .text section, got {} bytes",
+        "expected to find pattern (mov $0x1,%rcx; mov %rcx,%rax; ret) in .text section, got {} bytes",
         bytes.len()
     );
 }
