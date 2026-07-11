@@ -198,17 +198,21 @@ impl EmitWalker {
 
     /// Record a lambda's entry point instruction and mark it as emitted.
     ///
-    /// Called at the START of each emit_*_lambda function to record BOTH:
-    /// 1. The estimated byte offset (for st_value computation, preserves definition order)
-    /// 2. The first instruction's IrNodeId (for future post-encoding offset projection)
+    /// Called at the START of each emit_*_lambda function to record:
+    /// 1. The first instruction's IrNodeId (for post-encoding offset projection via offset_map)
+    /// 2. The estimated byte offset as a fallback for deferred lambdas
+    /// 3. Marks the lambda as emitted for symbol filtering
     pub fn record_lambda_entry(&mut self, lambda_id: IrNodeId, first_instr_id: IrNodeId) {
-        // Record the estimated offset for backward compatibility and correct ordering
+        // Record the estimated offset for backward compatibility: deferred lambdas (m1-004+)
+        // that don't emit real instructions still need offsets to avoid breaking the build.
+        // This is a fallback; the authoritative offset comes from EmitResult.offset_map
+        // projection in cmd_build/elf.rs.
         self.state
             .function_offsets
             .entry(lambda_id.get())
             .or_insert(self.state.estimated_offset);
 
-        // Also record the first instruction's IR node ID for offset_map projection
+        // Record the first instruction's IR node ID for offset_map projection
         self.state
             .lambda_first_instr
             .entry(lambda_id.get())

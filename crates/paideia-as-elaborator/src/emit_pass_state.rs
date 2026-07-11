@@ -48,8 +48,8 @@ pub struct EmitPassState {
     pub(crate) estimated_offset: u32,
 
     /// Lambda IR node id -> estimated byte offset within function.
-    /// Populated by record_lambda_entry_with_offset during lambda emission.
-    /// Used to compute function symbols' st_value in cmd_build.
+    /// Populated by record_lambda_entry as a fallback for deferred lambdas (m1-004+).
+    /// Authoritative offsets come from EmitResult.offset_map projection in cmd_build/elf.rs.
     pub(crate) function_offsets: HashMap<u32, u32>,
 
     /// Lambda IR node id -> IrNodeId of its first emitted instruction.
@@ -469,8 +469,9 @@ impl EmitPassState {
         self.label_to_instr.insert(name, instr_id);
     }
 
-    /// Read-only view of the function-offset map (lambda-id → byte
-    /// offset).
+    /// Read-only view of the function-offset map (lambda-id → byte offset).
+    /// Fallback offsets for deferred lambdas; authoritative offsets come from
+    /// EmitResult.offset_map projection.
     #[must_use]
     pub fn function_offsets(&self) -> &HashMap<u32, u32> {
         &self.function_offsets

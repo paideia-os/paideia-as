@@ -124,7 +124,7 @@ fn emit_walker_let_literal_produces_entry() {
 }
 
 /// Phase-5-m1-005: Test that EmitWalker records Lambda offsets.
-/// A Lambda should populate function_offsets.
+/// A Lambda should populate EmitResult.offset_map via first_instr recording.
 #[test]
 fn emit_walker_lambda_records_offset() {
     use paideia_as_diagnostics::FileId;

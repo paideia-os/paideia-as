@@ -72,7 +72,7 @@ fn build_emit_pa8_call_st_value() {
 
     // Assertions:
     // 1. None of the function symbols should have st_size=0.
-    // This catches the defect where function_offsets lookup failed and all symbols
+    // This catches the defect where offset_map lookup failed and all symbols
     // were emitted with st_value=0, st_size=0. We only check size because the first
     // symbol legitimately has address 0 (it's at the start of .text).
     for (name, _addr, size) in &func_symbols {

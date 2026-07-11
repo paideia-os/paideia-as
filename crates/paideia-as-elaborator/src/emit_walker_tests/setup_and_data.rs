@@ -13,7 +13,7 @@ fn emit_walker_new_starts_empty() {
     assert!(walker.state().instructions.is_empty());
     assert_eq!(walker.state().current_function, 0);
     assert_eq!(walker.state().estimated_offset, 0);
-    assert!(walker.state().function_offsets.is_empty());
+    assert!(walker.state().lambda_first_instr().is_empty());
 }
 
 #[test]
@@ -182,7 +182,7 @@ fn emit_walker_lambda_identity_emits_mov_rax_rdi_ret() {
     assert!(
         f.walker
             .state()
-            .function_offsets()
+            .lambda_first_instr()
             .contains_key(&lambda_id.get())
     );
 }
@@ -243,7 +243,7 @@ fn emit_walker_lambda_bitnot_emits_mov_rax_rdi_not_rax_ret() {
     assert!(
         walker
             .state()
-            .function_offsets
+            .lambda_first_instr()
             .contains_key(&lambda_id.get())
     );
 }
@@ -297,7 +297,7 @@ fn emit_walker_lambda_cast_emits_movsx_rax_edi_ret() {
     assert!(
         walker
             .state()
-            .function_offsets
+            .lambda_first_instr()
             .contains_key(&lambda_id.get())
     );
 }
@@ -396,10 +396,6 @@ fn emit_cast_lambda_with_shape_narrowing_emits_single_mov_then_ret() {
     let lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [cast_id]);
 
     let mut walker = EmitWalker::new();
-    walker
-        .state
-        .function_offsets
-        .insert(lambda_id.get(), walker.state.estimated_offset);
     walker.emit_cast_lambda_with_shape(lambda_id, shape(8, 4, true, false));
 
     let mov_id = IrNodeId::new(lambda_id.get() * 2).expect("mov instr id");
@@ -510,7 +506,7 @@ fn emit_walker_lambda_double_emits_lea_rdi_rdi_ret() {
     assert!(
         walker
             .state()
-            .function_offsets
+            .lambda_first_instr()
             .contains_key(&lambda_id.get())
     );
 }
@@ -579,7 +575,7 @@ fn emit_walker_lambda_add_one_emits_lea_rdi_1_ret() {
     assert!(
         walker
             .state()
-            .function_offsets
+            .lambda_first_instr()
             .contains_key(&lambda_id.get())
     );
 }

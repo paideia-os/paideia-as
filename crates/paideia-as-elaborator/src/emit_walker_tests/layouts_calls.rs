@@ -1105,7 +1105,7 @@ fn emit_walker_pa7_001_2_stmt_body_let_y_1_y_plus_1() {
     assert!(
         walker
             .state()
-            .function_offsets
+            .lambda_first_instr()
             .contains_key(&lambda_id.get()),
         "Lambda offset should be recorded"
     );
@@ -1237,7 +1237,7 @@ fn emit_walker_pa7_001_3_stmt_unsafe_blocks() {
     assert!(
         walker
             .state()
-            .function_offsets
+            .lambda_first_instr()
             .contains_key(&lambda_id.get()),
         "Lambda offset should be recorded for unsafe block body"
     );
@@ -1269,7 +1269,7 @@ fn emit_walker_pa7_001_empty_body_returns_nothing() {
     assert!(
         walker
             .state()
-            .function_offsets
+            .lambda_first_instr()
             .contains_key(&lambda_id.get()),
         "Lambda offset should be recorded for empty body"
     );

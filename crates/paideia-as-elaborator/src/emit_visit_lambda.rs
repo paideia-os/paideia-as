@@ -917,8 +917,8 @@ impl EmitWalker {
                         }
 
                         // Record the lambda's starting offset.
-                        let main_id = lambda_node_id;
-                        self.record_lambda_entry(lambda_node_id, main_id);
+                        // The actual first instruction is the Store itself (body_id), not lambda_node_id.
+                        self.record_lambda_entry(lambda_node_id, body_id);
 
                         // Dispatch the store based on its first child (see dispatch_store for routing logic).
                         // For Pattern 5 (Var LHS), this routes to visit_var_assign.
