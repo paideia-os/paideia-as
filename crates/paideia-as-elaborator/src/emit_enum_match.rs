@@ -7,12 +7,18 @@
 //! `lower_pattern` is the recursive helper that both stack-form enum
 //! bindings and match arms delegate to.
 
-use paideia_as_ir::instruction::{Cond, Instruction, Mnemonic, Operand, RegId};
-use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi, PassingConvention};
+use paideia_as_ir::instruction::{Cond, Instruction, Mnemonic, Operand, RegId, IntWidth};
+use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi, PassingConvention, EnumLayout, SymbolKind};
 use paideia_as_diagnostics::{DiagnosticCode, Category, Severity};
 
 use crate::emit_block_body::TailContext;
 use crate::emit_walker::EmitWalker;
+
+/// Helper to construct T0556 diagnostic code.
+fn t0556_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::T, Severity::Error, 556)
+        .expect("T0556 is within valid T range")
+}
 
 /// Helper to construct T0559 diagnostic code.
 fn t0559_code() -> DiagnosticCode {
@@ -21,6 +27,126 @@ fn t0559_code() -> DiagnosticCode {
 }
 
 impl EmitWalker {
+    /// #1084: Emit scrutinee load for match expressions.
+    ///
+    /// For Var scrutinees:
+    /// - Module Object symbol: emit `mov rax, [rip+sym]` + optional
+    ///   `mov rdx, [rip+sym+payload_offset]` for register-form enums.
+    /// - Local binding: emit register-to-register moves.
+    /// - Missing binding_names: silent no-op (#1133 compat for test-fixture Vars).
+    /// - Non-Var: T0556 diagnostic.
+    fn emit_scrutinee_load(
+        &mut self,
+        _match_id: IrNodeId,
+        scrutinee_id: IrNodeId,
+        layout: &EnumLayout,
+        arena: &IrArena,
+    ) {
+        let scrutinee_node = match arena.get(scrutinee_id) {
+            Some(n) => n,
+            None => return,
+        };
+
+        // Only Var scrutinees are supported.
+        if scrutinee_node.kind != IrKind::Var {
+            self.push_typed_diag(
+                t0556_code(),
+                format!("unsupported scrutinee kind: {:?}", scrutinee_node.kind),
+            );
+            return;
+        }
+
+        // Get binding name from binding_names table.
+        // Silent no-op if not found (#1133 compat: test-fixture Vars without binding_names).
+        let name = match arena.binding_names().get(scrutinee_id) {
+            Some(n) => n.to_string(),
+            None => return,
+        };
+
+        // Try module symbol first.
+        if let Some(symbol) = arena.symbols().lookup_by_name(&name) {
+            if matches!(symbol.kind, SymbolKind::Object) {
+                // Emit mov rax, [rip+name+0]
+                let load_rax_id = self.alloc_synthetic_id();
+                let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                operands.push(Operand::Reg(abi::RAX));
+                operands.push(Operand::MemRipRelSym {
+                    name: name.clone(),
+                    addend: 0,
+                });
+
+                self.emit_inst(
+                    load_rax_id,
+                    Instruction {
+                        mnemonic: Mnemonic::MovSized {
+                            width: IntWidth::W64,
+                        },
+                        operands,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode: self.current_mode(),
+                        emission_order: 0,
+                    },
+                );
+
+                // If payload_size > 0, emit mov rdx, [rip+name+payload_offset]
+                if layout.payload_size > 0 {
+                    let load_rdx_id = self.alloc_synthetic_id();
+                    let mut rdx_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                    rdx_operands.push(Operand::Reg(abi::RDX));
+                    rdx_operands.push(Operand::MemRipRelSym {
+                        name,
+                        addend: 8,
+                    });
+
+                    self.emit_inst(
+                        load_rdx_id,
+                        Instruction {
+                            mnemonic: Mnemonic::MovSized {
+                                width: IntWidth::W64,
+                            },
+                            operands: rdx_operands,
+                            encoding_hint: None,
+                            byte_offset_in_text: None,
+                            mode: self.current_mode(),
+                            emission_order: 0,
+                        },
+                    );
+                }
+
+                return;
+            }
+        }
+
+        // Fall back to local binding.
+        if let Some(src_reg) = self.state.local_bindings.get(&name) {
+            // Emit mov rax, <src_reg>
+            let mov_rax_id = self.alloc_synthetic_id();
+            let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+            operands.push(Operand::Reg(abi::RAX));
+            operands.push(Operand::Reg(src_reg));
+
+            self.emit_inst(
+                mov_rax_id,
+                Instruction {
+                    mnemonic: Mnemonic::Mov,
+                    operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                },
+            );
+
+            // For register-pair case (payload in RDX), emit if needed.
+            // Local bindings don't have separate payload storage, so this is a no-op
+            // for now. The payload would be in RDX if the enum was previously loaded.
+            return;
+        }
+
+        // Neither module nor local — silent no-op (compat).
+    }
+
     /// PA-r17-007: Emit enum variant constructor lowering.
     ///
     /// Handles register form (≤16-byte enums) and stack form (>16-byte enums).
@@ -451,6 +577,7 @@ impl EmitWalker {
             return;
         }
 
+        let scrutinee_id = children[0];
         let arm_ids: Vec<IrNodeId> = children[1..].to_vec();
 
         if arm_ids.is_empty() {
@@ -474,17 +601,21 @@ impl EmitWalker {
         };
 
         // Look up layout and extract needed fields
-        let (layout_size, _layout_payload_size) =
-            match self.state.enum_layout(enum_type_id) {
-                Some(l) => (l.size, l.payload_size),
-                None => {
-                    self.diagnostics.push(format!(
-                        "No enum layout found for match type {}",
-                        enum_type_id.0
-                    ));
-                    return;
-                }
-            };
+        let layout = match self.state.enum_layout(enum_type_id) {
+            Some(l) => l.clone(),
+            None => {
+                self.diagnostics.push(format!(
+                    "No enum layout found for match type {}",
+                    enum_type_id.0
+                ));
+                return;
+            }
+        };
+        let layout_size = layout.size;
+        let _layout_payload_size = layout.payload_size;
+
+        // #1084: Emit scrutinee load from module symbol or local binding
+        self.emit_scrutinee_load(match_node_id, scrutinee_id, &layout, arena);
 
         // Emit discriminant load for stack form
         // PA-r15-009c: Use match_id * 1000 + N numbering so discriminant load (0)
@@ -734,17 +865,21 @@ impl EmitWalker {
         };
 
         // Look up layout and extract needed fields
-        let (layout_size, layout_payload_size) =
-            match self.state.enum_layout(enum_type_id) {
-                Some(l) => (l.size, l.payload_size),
-                None => {
-                    self.diagnostics.push(format!(
-                        "No enum layout found for match type {}",
-                        enum_type_id.0
-                    ));
-                    return;
-                }
-            };
+        let layout = match self.state.enum_layout(enum_type_id) {
+            Some(l) => l.clone(),
+            None => {
+                self.diagnostics.push(format!(
+                    "No enum layout found for match type {}",
+                    enum_type_id.0
+                ));
+                return;
+            }
+        };
+        let layout_size = layout.size;
+        let layout_payload_size = layout.payload_size;
+
+        // #1084: Emit scrutinee load from module symbol or local binding
+        self.emit_scrutinee_load(match_node_id, _scrutinee_id, &layout, arena);
 
         // Emit discriminant load for stack form
         if layout_size > 16 {

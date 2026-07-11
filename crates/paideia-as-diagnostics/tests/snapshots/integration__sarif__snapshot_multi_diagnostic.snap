@@ -1,5 +1,6 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
+assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -1594,6 +1595,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "Unsupported struct field type",
               "shortDescription": {
                 "text": "struct field type not recognized"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Issue #1084 (PA-r17-009b): The scrutinee (value being matched) must be a Var that resolves to either a module-level Object symbol or a local binding. Other expressions (like literals, function calls, or complex expressions) are not yet supported as match scrutinees in the current emit pass. Extract the value into a local variable and use that variable as the scrutinee."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0556",
+              "id": "T0556",
+              "name": "Unsupported match scrutinee kind",
+              "shortDescription": {
+                "text": "match scrutinee must be a Var reference"
               }
             },
             {

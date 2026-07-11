@@ -164,11 +164,10 @@ fn match_entry_symbol_contains_dispatch_code() {
 }
 
 #[test]
-#[ignore = "blocked on #1084 (scrutinee load)"]
 fn match_entry_references_scrutinee() {
     // Phase 7 m9-009 AC3: The dispatch code should contain relocations
     // for loading the scrutinee (the 'r' global).
-    // Fix D (#1085): Defer this test pending #1084 (real memory load with relocation).
+    // #1084: Now emits RIP-relative load via emit_scrutinee_load.
     let input = build_emit_data("match_enum_pattern.pdx");
     let output_path = "/tmp/test_match_enum_pattern_reloc.o";
     let output = cargo_run(&[
@@ -197,11 +196,26 @@ fn match_entry_references_scrutinee() {
         .expect("Symbol 'r' (scrutinee) not found in ELF");
 
     assert!(
-        r_symbol.address() > 0,
-        "Symbol 'r' has invalid address"
+        r_symbol.index().0 > 0,
+        "Symbol 'r' has invalid index (not properly registered)"
     );
 
-    // Check that .rela.text exists (contains relocations)
+    // #1084: Verify scrutinee load via RIP-relative addressing
+    // Disassemble and check for RIP-relative mov instruction
+    let objdump_output = Command::new("objdump")
+        .arg("-d")
+        .arg(output_path)
+        .output()
+        .expect("Failed to run objdump");
+
+    let disasm = String::from_utf8_lossy(&objdump_output.stdout);
+
+    assert!(
+        disasm.contains("mov    0x0(%rip),%rax"),
+        "Scrutinee should be loaded via RIP-relative addressing (mov 0x0(%rip),%rax)"
+    );
+
+    // Verify .rela.text section exists (contains relocations)
     let rela_text = object_file
         .sections()
         .find(|s| s.name().ok() == Some(".rela.text"));

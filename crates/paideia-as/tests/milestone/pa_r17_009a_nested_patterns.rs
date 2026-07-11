@@ -98,6 +98,25 @@ fn match_nested_pattern_builds_successfully() {
         disasm.contains("jne"),
         "Conditional jump (jne) for arm dispatch not found in disassembly"
     );
+
+    // #1084: Verify scrutinee load via RIP-relative reference
+    // Scrutinee loads should use RIP-relative addressing, not constant-folded movabs
+    assert!(
+        disasm.contains("mov    0x0(%rip),%rax"),
+        "Scrutinee should be loaded via RIP-relative addressing (mov 0x0(%rip),%rax)"
+    );
+
+    // Verify no constant-folded movabs pattern (Defect B is fixed)
+    // The old double-emit would create: 48 b8 <imm64> followed by 48 ba <imm64>
+    let lines: Vec<&str> = disasm.lines().collect();
+    for window in lines.windows(2) {
+        let has_movabs_rax = window[0].contains("movabs") && window[0].contains("%rax");
+        let has_movabs_rdx = window[1].contains("movabs") && window[1].contains("%rdx");
+        assert!(
+            !(has_movabs_rax && has_movabs_rdx),
+            "Disassembly should not contain constant-folded movabs rax followed by movabs rdx pattern"
+        );
+    }
 }
 
 #[test]
