@@ -551,6 +551,350 @@ impl EmitWalker {
         }
     }
 
+    /// #1084 (follow-up): Extract pattern fields from a register (register-form enums).
+    ///
+    /// Mirrors `lower_pattern` but works from RDX (register source) instead of memory
+    /// via RDI. Used for register-form enums (layout.size <= 16) where the payload
+    /// is already in RDX after scrutinee load.
+    ///
+    /// For `Simple` leaves:
+    /// - Emit `mov <dest>, <source_reg>`
+    /// - If bit_offset > 0 and size < 8: emit `shr <dest>, bit_offset*8` (or `sar` if signed)
+    /// - If size < 8: emit narrowing move (movzx, movsx, or plain mov reg32)
+    /// - Insert `local_bindings[name] = dest`
+    ///
+    /// For nested patterns (Record, EnumVariant with payload):
+    /// - Compute sub_offset = bit_offset + field.offset*8 (but stay within bit boundaries)
+    /// - Recurse with adjusted bit_offset
+    ///
+    /// Scratch pool: [RCX, R8, R10, R11] (4 regs, excludes RDX which is source).
+    /// Exhaustion → diagnostic (same as `lower_pattern`).
+    fn lower_pattern_from_reg(
+        &mut self,
+        pattern: &paideia_as_ir::PatternBinding,
+        source_reg: RegId,
+        bit_offset: u32,  // Bit offset into source_reg (0, 32, etc.)
+        arm_id: IrNodeId,
+        slot: &mut u32,
+        arena: &IrArena,
+        default_size_signed: (u8, bool),
+    ) {
+        use paideia_as_ir::PatternBinding;
+
+        match pattern {
+            PatternBinding::Wildcard => {
+                // No-op: wildcard matches anything without binding
+            }
+
+            PatternBinding::Simple(name) => {
+                // Allocate scratch register from pool [RCX, R8, R10, R11] (excludes RDX).
+                let scratch_regs = [abi::RCX, abi::R8, abi::R10, abi::R11];
+
+                if (*slot as usize) >= scratch_regs.len() {
+                    self.diagnostics.push(format!(
+                        "Nested pattern binding exhaustion: >4 leaves in arm {} (from register)",
+                        arm_id.get()
+                    ));
+                    return;
+                }
+
+                let reg_index = (*slot as usize) % scratch_regs.len();
+                let dest_reg = scratch_regs[reg_index];
+                *slot += 1;
+
+                let (size, signed) = default_size_signed;
+
+                // Step 1: Emit `mov <dest>, <source_reg>` (always load full 64 bits first)
+                let mov_id = self.alloc_synthetic_id();
+                let mut mov_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                mov_operands.push(Operand::Reg(dest_reg));
+                mov_operands.push(Operand::Reg(source_reg));
+                self.emit_inst(mov_id, Instruction {
+                    mnemonic: Mnemonic::Mov,
+                    operands: mov_operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                });
+
+                // Step 2: If bit_offset > 0, emit shift to align field to LSBs
+                // Use RCX as the shift count register (x86 standard) and `reg, cl` encoding
+                // If RCX is already allocated, save/restore it to avoid clobbering
+                if bit_offset > 0 {
+                    // Check if RCX is already bound to a previous field
+                    let rcx_in_use = self.state.local_bindings.iter().any(|(_, &r)| r == abi::RCX);
+
+                    // If RCX is in use, save it to R9 (temporary, not in scratch pool)
+                    if rcx_in_use {
+                        let save_rcx_id = self.alloc_synthetic_id();
+                        let mut save_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                        save_operands.push(Operand::Reg(abi::R9));
+                        save_operands.push(Operand::Reg(abi::RCX));
+                        self.emit_inst(save_rcx_id, Instruction {
+                            mnemonic: Mnemonic::Mov,
+                            operands: save_operands,
+                            encoding_hint: None,
+                            byte_offset_in_text: None,
+                            mode: self.current_mode(),
+                            emission_order: 0,
+                        });
+                    }
+
+                    // Load shift count into RCX
+                    let mov_rcx_id = self.alloc_synthetic_id();
+                    let mut mov_rcx_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                    mov_rcx_operands.push(Operand::Reg(abi::RCX));
+                    mov_rcx_operands.push(Operand::Imm64(bit_offset as i64));
+                    self.emit_inst(mov_rcx_id, Instruction {
+                        mnemonic: Mnemonic::Mov,
+                        operands: mov_rcx_operands,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode: self.current_mode(),
+                        emission_order: 0,
+                    });
+
+                    // Shift dest by RCX (cl register)
+                    let shift_id = self.alloc_synthetic_id();
+                    let mut shift_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                    shift_operands.push(Operand::Reg(dest_reg));
+                    shift_operands.push(Operand::Reg(abi::RCX));
+
+                    let mnemonic = if signed {
+                        Mnemonic::Sar
+                    } else {
+                        Mnemonic::Shr
+                    };
+
+                    self.emit_inst(shift_id, Instruction {
+                        mnemonic,
+                        operands: shift_operands,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode: self.current_mode(),
+                        emission_order: 0,
+                    });
+
+                    // If we saved RCX, restore it
+                    if rcx_in_use {
+                        let restore_rcx_id = self.alloc_synthetic_id();
+                        let mut restore_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                        restore_operands.push(Operand::Reg(abi::RCX));
+                        restore_operands.push(Operand::Reg(abi::R9));
+                        self.emit_inst(restore_rcx_id, Instruction {
+                            mnemonic: Mnemonic::Mov,
+                            operands: restore_operands,
+                            encoding_hint: None,
+                            byte_offset_in_text: None,
+                            mode: self.current_mode(),
+                            emission_order: 0,
+                        });
+                    }
+                }
+
+                // Step 3: Emit narrowing move based on size/signedness
+                // For register-to-register narrowing, use the appropriate mnemonic
+                // without additional encoding hints (let the encoder handle register-form encoding)
+                match (size, signed) {
+                    (8, _) => {
+                        // Full 64-bit; already in dest_reg, no narrowing needed
+                    }
+                    (4, false) => {
+                        // Zero-extend: mov dest32, dest32 (implicit zero-extend in encoder)
+                        let narrow_id = self.alloc_synthetic_id();
+                        let mut narrow_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                        narrow_operands.push(Operand::Reg(dest_reg));
+                        narrow_operands.push(Operand::Reg(dest_reg));
+                        self.emit_inst(narrow_id, Instruction {
+                            mnemonic: Mnemonic::Mov,
+                            operands: narrow_operands,
+                            encoding_hint: None,
+                            byte_offset_in_text: None,
+                            mode: self.current_mode(),
+                            emission_order: 0,
+                        });
+                    }
+                    (4, true) => {
+                        // Sign-extend: movsxd dest, dest32 (encoder handles via movsx with width=4)
+                        let narrow_id = self.alloc_synthetic_id();
+                        let mut narrow_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                        narrow_operands.push(Operand::Reg(dest_reg));
+                        narrow_operands.push(Operand::Reg(dest_reg));
+                        self.emit_inst(narrow_id, Instruction {
+                            mnemonic: Mnemonic::Movsx,
+                            operands: narrow_operands,
+                            encoding_hint: None,
+                            byte_offset_in_text: None,
+                            mode: self.current_mode(),
+                            emission_order: 0,
+                        });
+                    }
+                    (2, false) => {
+                        // Zero-extend: movzx dest, dest16
+                        let narrow_id = self.alloc_synthetic_id();
+                        let mut narrow_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                        narrow_operands.push(Operand::Reg(dest_reg));
+                        narrow_operands.push(Operand::Reg(dest_reg));
+                        self.emit_inst(narrow_id, Instruction {
+                            mnemonic: Mnemonic::Movzx,
+                            operands: narrow_operands,
+                            encoding_hint: None,
+                            byte_offset_in_text: None,
+                            mode: self.current_mode(),
+                            emission_order: 0,
+                        });
+                    }
+                    (2, true) => {
+                        // Sign-extend: movsx dest, dest16
+                        let narrow_id = self.alloc_synthetic_id();
+                        let mut narrow_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                        narrow_operands.push(Operand::Reg(dest_reg));
+                        narrow_operands.push(Operand::Reg(dest_reg));
+                        self.emit_inst(narrow_id, Instruction {
+                            mnemonic: Mnemonic::Movsx,
+                            operands: narrow_operands,
+                            encoding_hint: None,
+                            byte_offset_in_text: None,
+                            mode: self.current_mode(),
+                            emission_order: 0,
+                        });
+                    }
+                    (1, false) => {
+                        // Zero-extend: movzx dest, dest8
+                        let narrow_id = self.alloc_synthetic_id();
+                        let mut narrow_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                        narrow_operands.push(Operand::Reg(dest_reg));
+                        narrow_operands.push(Operand::Reg(dest_reg));
+                        self.emit_inst(narrow_id, Instruction {
+                            mnemonic: Mnemonic::Movzx,
+                            operands: narrow_operands,
+                            encoding_hint: None,
+                            byte_offset_in_text: None,
+                            mode: self.current_mode(),
+                            emission_order: 0,
+                        });
+                    }
+                    (1, true) => {
+                        // Sign-extend: movsx dest, dest8
+                        let narrow_id = self.alloc_synthetic_id();
+                        let mut narrow_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                        narrow_operands.push(Operand::Reg(dest_reg));
+                        narrow_operands.push(Operand::Reg(dest_reg));
+                        self.emit_inst(narrow_id, Instruction {
+                            mnemonic: Mnemonic::Movsx,
+                            operands: narrow_operands,
+                            encoding_hint: None,
+                            byte_offset_in_text: None,
+                            mode: self.current_mode(),
+                            emission_order: 0,
+                        });
+                    }
+                    _ => {
+                        self.diagnostics.push(format!(
+                            "Unsupported field size/signed in register pattern: size={}, signed={}",
+                            size, signed
+                        ));
+                    }
+                }
+
+                // Insert binding into LocalBindingTable
+                self.state.local_bindings.insert(name.clone(), dest_reg);
+            }
+
+            PatternBinding::EnumVariant {
+                variant_index: _,
+                payload_type,
+                payload: Some(inner),
+            } => {
+                // #1084: In register form, payload record fields start at bit_offset (no additional offset).
+                // The enum's discriminant is in RAX; payload is already in source_reg (RDX) at bit 0.
+                let sub_bit_offset = bit_offset;
+
+                let (sub_size, sub_signed) = if let Some(payload_type_id) = payload_type {
+                    // If payload_type is a record, look up its layout
+                    if let Some(rec_layout) = self.state.record_layout(*payload_type_id) {
+                        // Use first field's size/signed as default for nested pattern
+                        if let Some(first_field) = rec_layout.fields.first() {
+                            (first_field.size, first_field.signed)
+                        } else {
+                            default_size_signed
+                        }
+                    } else {
+                        // Layout not found; use default
+                        default_size_signed
+                    }
+                } else {
+                    default_size_signed
+                };
+
+                // Recurse with payload pattern
+                self.lower_pattern_from_reg(
+                    inner,
+                    source_reg,
+                    sub_bit_offset,
+                    arm_id,
+                    slot,
+                    arena,
+                    (sub_size, sub_signed),
+                );
+            }
+
+            PatternBinding::EnumVariant {
+                payload: None,
+                ..
+            } => {
+                // Unit variant; no payload to extract
+            }
+
+            PatternBinding::Record {
+                type_id,
+                fields,
+            } => {
+                // Look up record layout
+                let rec_layout = match self.state.record_layout(*type_id) {
+                    Some(l) => l.clone(),
+                    None => {
+                        self.diagnostics.push(format!(
+                            "No record layout found for nested pattern type {}",
+                            type_id.0
+                        ));
+                        return;
+                    }
+                };
+
+                // For each field, compute bit offset and recurse
+                for (field_name, sub_pattern) in fields {
+                    let field_idx = match rec_layout.field_index_by_name(field_name) {
+                        Some(idx) => idx,
+                        None => {
+                            self.diagnostics.push(format!(
+                                "Field '{}' not found in record layout type {}",
+                                field_name, type_id.0
+                            ));
+                            continue;
+                        }
+                    };
+
+                    let field_layout = &rec_layout.fields[field_idx];
+                    // Compute bit offset: byte_offset * 8 bits/byte + bit_offset
+                    let sub_bit_offset = bit_offset + (field_layout.offset as u32) * 8;
+                    let sub_size_signed = (field_layout.size, field_layout.signed);
+
+                    self.lower_pattern_from_reg(
+                        sub_pattern,
+                        source_reg,
+                        sub_bit_offset,
+                        arm_id,
+                        slot,
+                        arena,
+                        sub_size_signed,
+                    );
+                }
+            }
+        }
+    }
+
     /// PA-r15-009b (#1032): Emit jump-table dispatch for dense matches.
     ///
     /// Emits a 4-instruction sequence when `dispatch_meta.jump_table && dispatch_meta.density_ok`:
@@ -985,45 +1329,68 @@ impl EmitWalker {
             self.state.register_label(arm_label);
 
             // Phase 17 m9-009: Nested pattern binding
-            // If pattern_binding is Some, invoke lower_pattern instead of legacy payload load
+            // #1084 (follow-up): Split on layout.size for register vs stack form
             if let Some(ref pattern_binding) = arm_meta.pattern_binding {
                 self.state.local_bindings.push_scope();
                 let mut slot = 0u32;
-                self.lower_pattern(
-                    pattern_binding,
-                    abi::RDI, // RDI = base register (scrutinee pointer)
-                    0,        // base_offset
-                    arm_id,
-                    &mut slot,
-                    arena,
-                    (8, false), // default: u64 unsigned
-                );
+
+                if layout_size <= 16 {
+                    // Register form: extract from RDX (payload already loaded)
+                    self.lower_pattern_from_reg(
+                        pattern_binding,
+                        abi::RDX,   // Source register (payload)
+                        0,           // bit_offset = 0
+                        arm_id,
+                        &mut slot,
+                        arena,
+                        (8, false),  // default: u64 unsigned
+                    );
+                } else {
+                    // Stack form: extract from memory via RDI (scrutinee pointer)
+                    self.lower_pattern(
+                        pattern_binding,
+                        abi::RDI,    // RDI = base register (scrutinee pointer)
+                        0,           // base_offset
+                        arm_id,
+                        &mut slot,
+                        arena,
+                        (8, false),  // default: u64 unsigned
+                    );
+                }
                 // Note: pop_scope happens after emit_block_body_arm below
             } else if let Some(ref binder) = arm_meta.payload_binder {
                 // Legacy single-payload binder (from #986)
+                // #1084 (follow-up): Split on layout.size for register vs stack form
                 if layout_payload_size > 0 {
-                    let payload_load_id = IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10 + 2)
-                        .expect("payload load id");
-                    let mut payload_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-                    payload_operands.push(Operand::Reg(abi::RDX)); // RDX
-                    payload_operands.push(Operand::MemSib {
-                        base: abi::RDI, // RDI
-                        index: None,
-                        scale: paideia_as_ir::instruction::Scale::X1,
-                        disp: 8,
-                    });
+                    if layout_size <= 16 {
+                        // Register form (size <= 16): payload already in RDX after scrutinee load
+                        // No memory load needed — direct rebind
+                        self.state.local_bindings.insert(binder.clone(), abi::RDX);
+                    } else {
+                        // Stack form (size > 16): emit memory load from [RDI+8]
+                        let payload_load_id = IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10 + 2)
+                            .expect("payload load id");
+                        let mut payload_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                        payload_operands.push(Operand::Reg(abi::RDX)); // RDX
+                        payload_operands.push(Operand::MemSib {
+                            base: abi::RDI, // RDI
+                            index: None,
+                            scale: paideia_as_ir::instruction::Scale::X1,
+                            disp: 8,
+                        });
 
-                    self.emit_inst(payload_load_id, Instruction {
-                        mnemonic: Mnemonic::Mov,
-                        operands: payload_operands,
-                        encoding_hint: None,
-                        byte_offset_in_text: None,
-                        mode: self.current_mode(),
-                    emission_order: 0,
-                    });
+                        self.emit_inst(payload_load_id, Instruction {
+                            mnemonic: Mnemonic::Mov,
+                            operands: payload_operands,
+                            encoding_hint: None,
+                            byte_offset_in_text: None,
+                            mode: self.current_mode(),
+                        emission_order: 0,
+                        });
 
-                    // Set up local binding for the payload binder variable
-                    self.state.local_bindings.insert(binder.clone(), abi::RDX);
+                        // Set up local binding for the payload binder variable
+                        self.state.local_bindings.insert(binder.clone(), abi::RDX);
+                    }
                 }
             }
 

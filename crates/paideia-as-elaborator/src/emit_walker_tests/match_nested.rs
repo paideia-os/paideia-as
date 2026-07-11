@@ -191,26 +191,25 @@ fn match_discriminant_load_rdi_0() {
 
 #[test]
 fn match_payload_load_rdi_8_w64() {
-    // Payload load: mov rdx, [rdi+8] → 48 8B 57 08 (4 bytes)
+    // #1084 (follow-up): Register form (size=16): NO memory load, direct rebind to RDX
     let walker = build_and_walk_match(
-        8,
+        8,  // payload_size=8 → layout.size=16 (register form)
         vec![(0, false, Some("x".to_string())), (1, true, None)],
     );
 
+    // Assert: NO memory load instruction emitted for register form
     let payload_load_id = IrNodeId::new(1 * 100 + 0 * 10 + 2).unwrap();
-    let payload_load_inst = walker
-        .state()
-        .instructions
-        .get(payload_load_id)
-        .cloned()
-        .expect("payload load instruction should exist");
+    let payload_load_inst = walker.state().instructions.get(payload_load_id);
+    assert!(
+        payload_load_inst.is_none(),
+        "Register form should NOT emit memory load; payload already in RDX"
+    );
 
-    let mut buf = paideia_as_encoder::CodeBuffer::new();
-    let mut stats = paideia_as_encoder::EncodeStats::new();
-    paideia_as_encoder::encode_instruction(&payload_load_inst, &mut buf, &mut stats)
-        .expect("encode failed");
-    // Encoder produces: 48 8B 57 08 (mov rdx, [rdi+8])
-    assert_eq!(buf.as_slice(), &[0x48, 0x8B, 0x57, 0x08]);
+    // Assert: local_bindings["x"] must be RDX (direct rebind)
+    assert!(
+        walker.state().local_bindings.get("x") == Some(abi::RDX),
+        "Register form should rebind payload_binder to RDX directly"
+    );
 }
 
 #[test]
@@ -262,15 +261,19 @@ fn match_estimated_offset_advances_correctly() {
 
 #[test]
 fn match_arm_with_u64_payload_binder_emits_load() {
-    // Arm with payload_binder should emit payload load
+    // #1084 (follow-up): Register form with payload_binder: NO memory load, direct rebind
     let walker = build_and_walk_match(
-        8,
+        8,  // payload_size=8 → layout.size=16 (register form)
         vec![(0, false, Some("x".to_string())), (1, true, None)],
     );
 
+    // Assert: NO memory load for register form (payload already in RDX)
     let payload_load_id = IrNodeId::new(1 * 100 + 0 * 10 + 2).unwrap();
     let payload_load_inst = walker.state().instructions.get(payload_load_id);
-    assert!(payload_load_inst.is_some());
+    assert!(
+        payload_load_inst.is_none(),
+        "Register form should NOT emit payload load instruction"
+    );
 }
 
 #[test]
