@@ -630,9 +630,10 @@ impl EmitPassState {
             let mut struct_align: u8 = 1;
             let mut current_offset: u64 = 0;
             let mut finalised_fields = Vec::new();
+            let mut field_names_vec: Vec<String> = Vec::new();
             let mut valid = true;
 
-            for (_field_name, field_size_byte_code) in fields {
+            for (field_name, field_size_byte_code) in fields {
                 let size_code = field_size_byte_code & 0x0F;
                 let is_signed = (field_size_byte_code & 0x10) != 0;
 
@@ -659,6 +660,7 @@ impl EmitPassState {
                     signed: is_signed,
                 });
 
+                field_names_vec.push(field_name.clone());
                 current_offset += field_size as u64;
             }
 
@@ -669,7 +671,7 @@ impl EmitPassState {
 
                 self.record_layouts.insert(
                     type_id,
-                    RecordLayout::new(struct_size, struct_align, finalised_fields),
+                    RecordLayout::with_field_names(struct_size, struct_align, finalised_fields, field_names_vec),
                 );
             }
         }

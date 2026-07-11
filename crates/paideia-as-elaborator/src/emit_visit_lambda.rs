@@ -20,6 +20,17 @@ use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, SymbolKind, abi};
 use crate::emit_block_body::TailContext;
 use crate::emit_walker::EmitWalker;
 
+/// Helper to infer operator from callee span length.
+/// Operator span lengths: `<<`/`>>` (2), `+`/`-`/`*`/`&`/`|`/`^` (1).
+/// Used by both lambda-visit dispatch and nested-pattern arm-body matching.
+pub(crate) fn infer_operator_from_span_len(span_len: u32) -> Option<&'static str> {
+    match span_len {
+        1 => Some("+"),  // Could be +, -, *, &, |, ^; default to +
+        2 => Some("<<"), // Could be << or >>; heuristic: more common in practice
+        _ => None,
+    }
+}
+
 impl EmitWalker {
     /// Get the register for parameter index under the specified calling convention.
     ///
@@ -171,15 +182,6 @@ impl EmitWalker {
         arena: &IrArena,
         typer: Option<&paideia_as_types::TypeInterner>,
     ) {
-        // PA8-m1-001d: Helper to infer operator from callee span length.
-        // Operator span lengths: `<<`/`>>` (2), `+`/`-`/`*`/`&`/`|`/`^` (1).
-        fn infer_operator_from_span_len(span_len: u32) -> Option<&'static str> {
-            match span_len {
-                1 => Some("+"),  // Could be +, -, *, &, |, ^; default to +
-                2 => Some("<<"), // Could be << or >>; heuristic: more common in practice
-                _ => None,
-            }
-        }
         // PA8-m1-001b: Register this lambda's parameters and any nested lambdas' parameters.
         // This enables resolve_var_operands to rewrite Operand::Var { name } to Operand::Reg.
         // Outer lambda has param_index=0 (RDI), nested ones increment (RSI, RDX, RCX, R8, R9).

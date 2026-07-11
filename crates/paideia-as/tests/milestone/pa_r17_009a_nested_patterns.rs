@@ -28,7 +28,6 @@ fn cargo_run(args: &[&str]) -> std::process::Output {
 }
 
 #[test]
-#[ignore = "Phase 7 limitation: nested pattern-binding lowering (field lookup + App arm body) not yet supported; tracked as #1148 (#1053 is closed and doesn't cover this codegen gap)"]
 fn match_nested_pattern_builds_successfully() {
     // PA-r17-009a AC1: match_nested_pattern.pdx parses and emits without error.
     let input = build_emit_data("match_nested_pattern.pdx");
@@ -55,10 +54,53 @@ fn match_nested_pattern_builds_successfully() {
         std::path::Path::new("/tmp/test_match_nested_pattern.o").exists(),
         "Output ELF file not created at /tmp/test_match_nested_pattern.o"
     );
+
+    // Disassemble and verify the entry function contains expected instructions
+    let objdump_output = Command::new("objdump")
+        .arg("-d")
+        .arg("/tmp/test_match_nested_pattern.o")
+        .output()
+        .expect("Failed to run objdump");
+
+    let disasm = String::from_utf8_lossy(&objdump_output.stdout);
+
+    // AC1a: Verify field loads from the Point payload are present
+    // The x field should be loaded from offset 0x8 of the payload
+    assert!(
+        disasm.contains("mov    0x8(%rdi)"),
+        "Field load for x (offset 0x8) not found in disassembly"
+    );
+
+    // The y field should be loaded from offset 0xc of the payload
+    assert!(
+        disasm.contains("mov    0xc(%rdi)"),
+        "Field load for y (offset 0xc) not found in disassembly"
+    );
+
+    // AC1b: Verify the addition operation
+    assert!(
+        disasm.contains("add    %rdx,%rax"),
+        "Add instruction (add %rdx,%rax) not found in disassembly"
+    );
+
+    // AC1c: Verify the Err arm moves 0 to rax
+    assert!(
+        disasm.contains("mov    $0x0,%rax"),
+        "Err arm instruction (mov $0x0,%rax) not found in disassembly"
+    );
+
+    // AC1d: Verify cmp+jne dispatch for discriminant matching
+    assert!(
+        disasm.contains("cmp    $0x0,%rax"),
+        "Discriminant comparison (cmp $0x0,%rax) not found in disassembly"
+    );
+    assert!(
+        disasm.contains("jne"),
+        "Conditional jump (jne) for arm dispatch not found in disassembly"
+    );
 }
 
 #[test]
-#[ignore = "Phase 7 limitation: nested pattern-binding lowering (field lookup + App arm body) not yet supported; tracked as #1148 (#1053 is closed and doesn't cover this codegen gap)"]
 fn match_nested_pattern_entry_symbol_exists() {
     // PA-r17-009a AC2: The 'entry' function symbol should exist and have non-zero size.
     let input = build_emit_data("match_nested_pattern.pdx");

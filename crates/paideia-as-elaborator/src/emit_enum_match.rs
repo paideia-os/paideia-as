@@ -612,6 +612,7 @@ impl EmitWalker {
             if let Some(arm_node) = arena.get(arm_id) {
                 match arm_node.kind {
                     IrKind::Action => self.emit_block_body_arm(arm_id, arena, None),
+                    IrKind::App => self.emit_arm_body_app(arm_id, arena, match_node_id, idx as u32),
                     _ => {}
                 }
             }
@@ -926,6 +927,7 @@ impl EmitWalker {
                             }
                         }
                     }
+                    IrKind::App => self.emit_arm_body_app(arm_id, arena, match_node_id, idx as u32),
                     _ => {
                         // Other IR kinds: emit diagnostic (arm body lowered to unsupported kind)
                         self.diagnostics.push(format!(
@@ -994,6 +996,407 @@ impl EmitWalker {
 };
         self.emit_inst(end_nop_id, end_nop_inst);
         self.state.insert_label(end_label, end_nop_id);
+    }
+
+    /// Emit arm body for IrKind::App (binary operator application).
+    /// Handles nested-pattern match arms like `match r { Ok(Point{x,y}) => x + y, Err => 0u32 }`.
+    fn emit_arm_body_app(&mut self, app_id: IrNodeId, arena: &IrArena, _match_id: IrNodeId, _idx: u32) {
+        let children = arena.children(app_id);
+        if children.len() < 3 {
+            self.diagnostics.push(format!(
+                "App node {} has fewer than 3 children (callee, arg0, arg1)",
+                app_id.get()
+            ));
+            return;
+        }
+
+        let callee_id = children[0];
+        let arg0_id = children[1];
+        let arg1_id = children[2];
+
+        // Infer operator from callee's span byte length
+        let callee_node = match arena.get(callee_id) {
+            Some(n) => n,
+            None => {
+                self.diagnostics.push(format!(
+                    "App node {}'s callee child {} not found",
+                    app_id.get(),
+                    callee_id.get()
+                ));
+                return;
+            }
+        };
+
+        let span_len = callee_node.span.byte_len();
+        let operator = match crate::emit_visit_lambda::infer_operator_from_span_len(span_len) {
+            Some(op) => op,
+            None => {
+                self.diagnostics.push(format!(
+                    "App node {}: unsupported operator span length {}",
+                    app_id.get(),
+                    span_len
+                ));
+                return;
+            }
+        };
+
+        let arg0_node = match arena.get(arg0_id) {
+            Some(n) => n,
+            None => {
+                self.diagnostics.push(format!(
+                    "App node {}'s arg0 child {} not found",
+                    app_id.get(),
+                    arg0_id.get()
+                ));
+                return;
+            }
+        };
+
+        let arg1_node = match arena.get(arg1_id) {
+            Some(n) => n,
+            None => {
+                self.diagnostics.push(format!(
+                    "App node {}'s arg1 child {} not found",
+                    app_id.get(),
+                    arg1_id.get()
+                ));
+                return;
+            }
+        };
+
+        // Case-analyze operand shapes
+        match (&arg0_node.kind, &arg1_node.kind) {
+            (IrKind::Var, IrKind::Var) => {
+                // (Var, Var): both arguments in registers
+                let arg0_name = match arena.binding_names().get(arg0_id) {
+                    Some(n) => n,
+                    None => {
+                        self.diagnostics.push(format!(
+                            "App node {} arg0 Var has no binding name",
+                            app_id.get()
+                        ));
+                        return;
+                    }
+                };
+
+                let arg1_name = match arena.binding_names().get(arg1_id) {
+                    Some(n) => n,
+                    None => {
+                        self.diagnostics.push(format!(
+                            "App node {} arg1 Var has no binding name",
+                            app_id.get()
+                        ));
+                        return;
+                    }
+                };
+
+                let arg0_reg = match self.state.local_bindings.get(arg0_name) {
+                    Some(reg) => reg,
+                    None => {
+                        self.diagnostics.push(format!(
+                            "App node {} arg0 var '{}' not in local_bindings",
+                            app_id.get(),
+                            arg0_name
+                        ));
+                        return;
+                    }
+                };
+
+                let arg1_reg = match self.state.local_bindings.get(arg1_name) {
+                    Some(reg) => reg,
+                    None => {
+                        self.diagnostics.push(format!(
+                            "App node {} arg1 var '{}' not in local_bindings",
+                            app_id.get(),
+                            arg1_name
+                        ));
+                        return;
+                    }
+                };
+
+                // Emit: mov rax, arg0_reg
+                let mov_id = self.alloc_synthetic_id();
+                let mut mov_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                mov_operands.push(Operand::Reg(abi::RAX));
+                mov_operands.push(Operand::Reg(arg0_reg));
+                self.emit_inst(mov_id, Instruction {
+                    mnemonic: Mnemonic::Mov,
+                    operands: mov_operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                });
+
+                // Emit: op rax, arg1_reg
+                let mnemonic = match operator {
+                    "+" => Mnemonic::Add,
+                    "-" => Mnemonic::Sub,
+                    "*" => Mnemonic::Imul,
+                    "&" => Mnemonic::And,
+                    "|" => Mnemonic::Or,
+                    "^" => Mnemonic::Xor,
+                    "<<" => Mnemonic::Shl,
+                    ">>" => Mnemonic::Shr,
+                    _ => {
+                        self.diagnostics.push(format!(
+                            "App node {}: unsupported operator '{}'",
+                            app_id.get(),
+                            operator
+                        ));
+                        return;
+                    }
+                };
+
+                let op_id = self.alloc_synthetic_id();
+                let mut op_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                op_operands.push(Operand::Reg(abi::RAX));
+                op_operands.push(Operand::Reg(arg1_reg));
+                self.emit_inst(op_id, Instruction {
+                    mnemonic,
+                    operands: op_operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                });
+            }
+
+            (IrKind::Var, IrKind::Literal) => {
+                // (Var, Literal): arg0 in register, arg1 is immediate
+                let arg0_name = match arena.binding_names().get(arg0_id) {
+                    Some(n) => n,
+                    None => {
+                        self.diagnostics.push(format!(
+                            "App node {} arg0 Var has no binding name",
+                            app_id.get()
+                        ));
+                        return;
+                    }
+                };
+
+                let arg1_value = match arena.literal_values().get(arg1_id) {
+                    Some(val) => val,
+                    None => {
+                        self.diagnostics.push(format!(
+                            "App node {} arg1 Literal has no value",
+                            app_id.get()
+                        ));
+                        return;
+                    }
+                };
+
+                let arg0_reg = match self.state.local_bindings.get(arg0_name) {
+                    Some(reg) => reg,
+                    None => {
+                        self.diagnostics.push(format!(
+                            "App node {} arg0 var '{}' not in local_bindings",
+                            app_id.get(),
+                            arg0_name
+                        ));
+                        return;
+                    }
+                };
+
+                // Emit: mov rax, arg0_reg
+                let mov_id = self.alloc_synthetic_id();
+                let mut mov_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                mov_operands.push(Operand::Reg(abi::RAX));
+                mov_operands.push(Operand::Reg(arg0_reg));
+                self.emit_inst(mov_id, Instruction {
+                    mnemonic: Mnemonic::Mov,
+                    operands: mov_operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                });
+
+                // Emit: op rax, imm64
+                let mnemonic = match operator {
+                    "+" => Mnemonic::Add,
+                    "-" => Mnemonic::Sub,
+                    "*" => Mnemonic::Imul,
+                    "&" => Mnemonic::And,
+                    "|" => Mnemonic::Or,
+                    "^" => Mnemonic::Xor,
+                    "<<" => Mnemonic::Shl,
+                    ">>" => Mnemonic::Shr,
+                    _ => {
+                        self.diagnostics.push(format!(
+                            "App node {}: unsupported operator '{}'",
+                            app_id.get(),
+                            operator
+                        ));
+                        return;
+                    }
+                };
+
+                let op_id = self.alloc_synthetic_id();
+                let mut op_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                op_operands.push(Operand::Reg(abi::RAX));
+                op_operands.push(Operand::Imm64(arg1_value));
+                self.emit_inst(op_id, Instruction {
+                    mnemonic,
+                    operands: op_operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                });
+            }
+
+            (IrKind::Literal, IrKind::Var) => {
+                // (Literal, Var): arg0 is immediate, arg1 in register
+                let arg0_value = match arena.literal_values().get(arg0_id) {
+                    Some(val) => val,
+                    None => {
+                        self.diagnostics.push(format!(
+                            "App node {} arg0 Literal has no value",
+                            app_id.get()
+                        ));
+                        return;
+                    }
+                };
+
+                let arg1_name = match arena.binding_names().get(arg1_id) {
+                    Some(n) => n,
+                    None => {
+                        self.diagnostics.push(format!(
+                            "App node {} arg1 Var has no binding name",
+                            app_id.get()
+                        ));
+                        return;
+                    }
+                };
+
+                let arg1_reg = match self.state.local_bindings.get(arg1_name) {
+                    Some(reg) => reg,
+                    None => {
+                        self.diagnostics.push(format!(
+                            "App node {} arg1 var '{}' not in local_bindings",
+                            app_id.get(),
+                            arg1_name
+                        ));
+                        return;
+                    }
+                };
+
+                // Emit: mov rax, imm64
+                let mov_id = self.alloc_synthetic_id();
+                let mut mov_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                mov_operands.push(Operand::Reg(abi::RAX));
+                mov_operands.push(Operand::Imm64(arg0_value));
+                self.emit_inst(mov_id, Instruction {
+                    mnemonic: Mnemonic::Mov,
+                    operands: mov_operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                });
+
+                // Emit: op rax, arg1_reg
+                let mnemonic = match operator {
+                    "+" => Mnemonic::Add,
+                    "-" => Mnemonic::Sub,
+                    "*" => Mnemonic::Imul,
+                    "&" => Mnemonic::And,
+                    "|" => Mnemonic::Or,
+                    "^" => Mnemonic::Xor,
+                    "<<" => Mnemonic::Shl,
+                    ">>" => Mnemonic::Shr,
+                    _ => {
+                        self.diagnostics.push(format!(
+                            "App node {}: unsupported operator '{}'",
+                            app_id.get(),
+                            operator
+                        ));
+                        return;
+                    }
+                };
+
+                let op_id = self.alloc_synthetic_id();
+                let mut op_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                op_operands.push(Operand::Reg(abi::RAX));
+                op_operands.push(Operand::Reg(arg1_reg));
+                self.emit_inst(op_id, Instruction {
+                    mnemonic,
+                    operands: op_operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                });
+            }
+
+            (IrKind::Literal, IrKind::Literal) => {
+                // (Literal, Literal): both arguments are constants, constant-fold
+                let arg0_value = match arena.literal_values().get(arg0_id) {
+                    Some(val) => val,
+                    None => {
+                        self.diagnostics.push(format!(
+                            "App node {} arg0 Literal has no value",
+                            app_id.get()
+                        ));
+                        return;
+                    }
+                };
+
+                let arg1_value = match arena.literal_values().get(arg1_id) {
+                    Some(val) => val,
+                    None => {
+                        self.diagnostics.push(format!(
+                            "App node {} arg1 Literal has no value",
+                            app_id.get()
+                        ));
+                        return;
+                    }
+                };
+
+                let result = match operator {
+                    "+" => arg0_value.wrapping_add(arg1_value),
+                    "-" => arg0_value.wrapping_sub(arg1_value),
+                    "*" => arg0_value.wrapping_mul(arg1_value),
+                    "&" => arg0_value & arg1_value,
+                    "|" => arg0_value | arg1_value,
+                    "^" => arg0_value ^ arg1_value,
+                    "<<" => arg0_value.wrapping_shl(arg1_value as u32),
+                    ">>" => arg0_value.wrapping_shr(arg1_value as u32),
+                    _ => {
+                        self.diagnostics.push(format!(
+                            "App node {}: unsupported operator '{}'",
+                            app_id.get(),
+                            operator
+                        ));
+                        return;
+                    }
+                };
+
+                // Emit: mov rax, result
+                let mov_id = self.alloc_synthetic_id();
+                let mut mov_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                mov_operands.push(Operand::Reg(abi::RAX));
+                mov_operands.push(Operand::Imm64(result));
+                self.emit_inst(mov_id, Instruction {
+                    mnemonic: Mnemonic::Mov,
+                    operands: mov_operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                });
+            }
+
+            _ => {
+                self.diagnostics.push(format!(
+                    "App node {}: unsupported operand kinds ({:?}, {:?})",
+                    app_id.get(),
+                    arg0_node.kind,
+                    arg1_node.kind
+                ));
+            }
+        }
     }
 }
 
