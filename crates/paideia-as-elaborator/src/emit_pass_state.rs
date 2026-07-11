@@ -136,6 +136,12 @@ pub struct EmitPassState {
     /// to prevent T0518/T0516 false positives.
     pub(crate) handled_record_cons_ids: HashSet<u32>,
 
+    /// #1084: EnumCons IR nodes already handled by other lowering paths
+    /// (e.g., data_encoder::encode_enum_cons for Let → EnumCons).
+    /// Populated by walk_inner pre-pass. Signals scope-limited visitor skips it
+    /// to prevent double-emission in .text section.
+    pub(crate) handled_enum_cons_ids: HashSet<u32>,
+
     /// #1086: FieldAccess IR nodes already handled by other lowering paths
     /// (e.g., emit_field_access_lambda for Lambda → FieldAccess).
     /// Populated by walk_inner pre-pass. Signals scope-limited visitor skips it
@@ -203,6 +209,7 @@ impl Default for EmitPassState {
             emitted_match_ids: Default::default(),
             max_emitted_node_id: Default::default(),
             handled_record_cons_ids: Default::default(),
+            handled_enum_cons_ids: Default::default(),
             handled_field_access_ids: Default::default(),
             handled_data_let_ids: Default::default(),
             emitted_store_ids: Default::default(),
@@ -368,6 +375,17 @@ impl EmitPassState {
     #[must_use]
     pub(crate) fn was_record_cons_handled(&self, id: u32) -> bool {
         self.handled_record_cons_ids.contains(&id)
+    }
+
+    /// Mark an EnumCons node as handled by another lowering path.
+    pub(crate) fn mark_enum_cons_handled(&mut self, id: u32) {
+        self.handled_enum_cons_ids.insert(id);
+    }
+
+    /// Check if an EnumCons node was already handled by another lowering path.
+    #[must_use]
+    pub(crate) fn was_enum_cons_handled(&self, id: u32) -> bool {
+        self.handled_enum_cons_ids.contains(&id)
     }
 
     /// Mark a FieldAccess node as handled by another lowering path.

@@ -313,6 +313,7 @@ impl EmitWalker {
                                         // succeeded); if it didn't, visit_record_cons should
                                         // still get a chance to diagnose a real problem.
                                         IrKind::EnumCons if is_data_let => {
+                                            self.state.mark_enum_cons_handled(rhs_id.get());
                                             if let Some(&payload_id) =
                                                 arena.children(rhs_id).first()
                                             {

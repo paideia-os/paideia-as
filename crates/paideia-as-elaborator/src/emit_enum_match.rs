@@ -29,6 +29,14 @@ impl EmitWalker {
     ///
     /// EnumCons node children: [payload_expr (optional)]
     pub(crate) fn visit_enum_cons(&mut self, enum_cons_id: IrNodeId, arena: &IrArena) {
+        // #1084: If this EnumCons has been marked as handled by the pre-pass
+        // (module-scope Let → EnumCons owned by data_encoder::encode_enum_cons),
+        // skip code generation. The data_encoder has already serialized the enum
+        // to binary data.
+        if self.state.was_enum_cons_handled(enum_cons_id.get()) {
+            return;
+        }
+
         // #1145: If this EnumCons has a RecordCons payload that's been marked as
         // handled (by the pre-pass for data-let EnumCons), skip code generation.
         // The data_encoder has already serialized the enum to binary data.
