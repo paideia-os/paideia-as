@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 #[test]
-#[ignore = "blocked on #1152 (Let-with-App RHS) + #1138 (local let mut assignment). #1136 landed call-RHS module let-mut assignment (exceptions.pdx:87 now compiles), but line 113 uses `let fault_addr = read_cr2();` (Let-with-App RHS, #1152) followed by `last_cr2_read = fault_addr;` (Var LHS resolvable only after #1138 wires local let into local_bindings)."]
+#[ignore = "residual blockers: (1) read_cr2 MSR intrinsic wiring in unsafe requires syscall infrastructure (T0521 partial coverage); (2) stdlib gaps for kernel boot sequence; (3) multi-arg kernel call marshalling edge cases. #1152 clears Let-with-App RHS blocker."]
 fn boot_orchestration_v2_smoke() {
     // Linux-only gate: skip on non-Linux platforms
     if !cfg!(target_os = "linux") {

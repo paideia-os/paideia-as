@@ -1,0 +1,5 @@
+module StmtLetWithCallRhs = structure {
+  let mut store : u64 = 0
+  let get_forty_two : (u64) -> u64 = fn (_: u64) -> 42
+  pub let use_it : (u64) -> u64 = fn (v: u64) -> { let mut x : u64 = get_forty_two(v); store = x; x }
+}

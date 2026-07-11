@@ -79,9 +79,11 @@ use paideia_as_ir::{Instruction, Operand, RegId};
 /// shape; see the m3-002 note above).
 const CAST_BUILD: &[&str] = &["movsxd rax,edi", "ret"];
 
-/// A `build`-compiled block-body `let`/tail-binding function folds to a bare
-/// `ret` on the typer-free `walk` path (m3-001 width routing is inert here).
-const BLOCK_LET_BUILD: &[&str] = &["ret"];
+/// A `build`-compiled block-body `let`/tail-binding function emits the Let
+/// statement via emit_block_body (Fix #1152: Let RHS children at index 1 for
+/// statement-level typed lets). Narrow-width lets use MovSized when typer is
+/// active; u64 and untyped use generic Mov.
+const BLOCK_LET_BUILD: &[&str] = &["mov rax,7", "ret"];
 
 /// Hand-rolled Tier-A fixture table: `(basename, source, expected_disasm)`.
 ///

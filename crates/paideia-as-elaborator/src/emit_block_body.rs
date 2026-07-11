@@ -106,9 +106,11 @@ impl EmitWalker {
                             eprintln!("[emit_block_body] Let statement at index {}", i);
                         }
                         // This is a let binding. Emit the value expression.
-                        // The Let node's child is the RHS expression.
+                        // Statement-level Let children: [name_var, value, ty?], RHS at index 1.
+                        // Direct allocations (unit tests): [value], RHS at index 0.
                         let let_children = arena.children(child_id);
-                        if let Some(&rhs_id) = let_children.first() {
+                        let rhs_idx = if let_children.len() > 1 { 1 } else { 0 };
+                        if let Some(&rhs_id) = let_children.get(rhs_idx) {
                             if let Some(rhs_node) = arena.get(rhs_id) {
                                 // Assign next scratch register if available.
                                 if self.state.scratch_count() >= scratch_regs.len() {
@@ -222,7 +224,37 @@ impl EmitWalker {
                                         }
                                     }
                                 }
-                                // #1138: Handle other RHS kinds (e.g., Var, App) by just recording binding
+                                // Edit D: Handle App RHS (function calls) - #1152
+                                else if rhs_node.kind == IrKind::App {
+                                    if let Some(meta) = arena.call_sites().get(rhs_id) {
+                                        let app_children = arena.children(rhs_id);
+                                        let arg_ids: Vec<IrNodeId> = app_children[1..].to_vec();
+                                        // Use state.current_function (the enclosing lambda's id),
+                                        // NOT child_id (the Let node id).
+                                        let lambda_id = IrNodeId::new(self.state.current_function)
+                                            .expect("current_function set by walker");
+                                        self.emit_call_expr(lambda_id, meta.callee_name.clone(), &arg_ids, arena);
+                                        if scratch_reg != abi::RAX {
+                                            // mov scratch_reg, rax — materialize the CALL result.
+                                            let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                                            ops.push(Operand::Reg(scratch_reg));
+                                            ops.push(Operand::Reg(abi::RAX));
+                                            let inst = Instruction {
+                                                mnemonic: Mnemonic::Mov,
+                                                operands: ops,
+                                                encoding_hint: None,
+                                                byte_offset_in_text: None,
+                                                mode: self.current_mode(),
+                                                emission_order: 0,
+                                            };
+                                            let inst_id = IrNodeId::new(1_200_000 + child_id.get())
+                                                .expect("let-app materialize id");
+                                            self.emit_inst(inst_id, inst);
+                                        }
+                                        self.state.local_bindings.insert(binding_name.clone(), scratch_reg);
+                                    }
+                                }
+                                // #1138: Handle other RHS kinds (e.g., Var) by just recording binding
                                 // without emitting instructions. Instruction emission is deferred or N/A.
                                 else {
                                     self.state
@@ -503,9 +535,11 @@ impl EmitWalker {
                             eprintln!("[emit_block_body_arm] Let statement at index {}", i);
                         }
                         // This is a let binding. Emit the value expression.
-                        // The Let node's child is the RHS expression.
+                        // Statement-level Let children: [name_var, value, ty?], RHS at index 1.
+                        // Direct allocations (unit tests): [value], RHS at index 0.
                         let let_children = arena.children(child_id);
-                        if let Some(&rhs_id) = let_children.first() {
+                        let rhs_idx = if let_children.len() > 1 { 1 } else { 0 };
+                        if let Some(&rhs_id) = let_children.get(rhs_idx) {
                             if let Some(rhs_node) = arena.get(rhs_id) {
                                 // Assign next scratch register if available.
                                 if self.state.scratch_count() >= scratch_regs.len() {
