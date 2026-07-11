@@ -28,33 +28,6 @@ fn t0521_code() -> DiagnosticCode {
 }
 
 impl EmitWalker {
-    /// Emit caller-side bridge prelude for paideia→MS/SysV ABI crossing.
-    /// Pushes the registers in `save_regs` (in order) before shadow-space adjustment.
-    /// Uses alloc_synthetic_id() per iteration to ensure unique IDs across all call sites.
-    #[allow(dead_code)]
-    fn emit_bridge_prelude(&mut self, save_regs: &[RegId]) {
-        if save_regs.is_empty() {
-            return;
-        }
-        for &reg in save_regs.iter() {
-            let prelude_ir_id = self.alloc_synthetic_id();
-
-            let mut push_ops: SmallVec<[Operand; 3]> = SmallVec::new();
-            push_ops.push(Operand::Reg(reg));
-
-            let push_inst = Instruction {
-                mnemonic: Mnemonic::Push,
-                operands: push_ops,
-                encoding_hint: None,
-                byte_offset_in_text: None,
-                mode: self.current_mode(),
-                        emission_order: 0,
-        };
-
-            self.emit_inst(prelude_ir_id, push_inst);
-        }
-    }
-
     /// Emit caller-side bridge postlude for paideia→MS/SysV ABI crossing.
     /// Pops the registers in `save_regs` in REVERSE order (LIFO) after shadow-space restoration.
     /// Uses alloc_synthetic_id() per iteration to ensure unique IDs across all call sites.
@@ -437,19 +410,16 @@ impl EmitWalker {
     /// Issue #1088: For statement-position calls (call expressions whose result is discarded),
     /// emit only the RET, not the full function-call sequence.
     ///
-    /// Issue #1099: Uses unified ID scheme for both SysV and MS: 1_150_000 + (lambda_node_id * 100).
-    /// This ensures RET sorts last (after CALL at 1_050_000+).
-    fn emit_ret_after_call(&mut self, lambda_node_id: IrNodeId, _callee_abi: CallingConvention) {
-        let ret_id = IrNodeId::new(1_150_000u32
-            .saturating_add(lambda_node_id.get().saturating_mul(100)))
-            .unwrap_or_else(|| IrNodeId::new(1).unwrap());
+    /// Issue #1165: RET uses alloc_synthetic_id (identity-only post-#1140).
+    fn emit_ret_after_call(&mut self, _lambda_node_id: IrNodeId, _callee_abi: CallingConvention) {
+        let ret_id = self.alloc_synthetic_id();
         let ret_inst = Instruction {
             mnemonic: Mnemonic::Ret,
             operands: SmallVec::new(),
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: self.current_mode(),
-                    emission_order: 0,
+            emission_order: 0,
         };
         self.emit_inst(ret_id, ret_inst);
     }

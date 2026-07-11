@@ -1,7 +1,7 @@
 //! Integration tests for SysV call argument byte ordering (Issue #1099).
 //!
-//! Verifies that the walker produces instruction IDs in the correct order:
-//! MOVs (1_000_000+), CALL (1_050_000+), and RET (1_150_000+).
+//! Verifies that the walker produces instruction sequences correctly:
+//! MOVs for argument marshalling, CALL, and RET.
 //! Byte-order verification (actual instruction encoding) is tested in
 //! paideia-as-emitter-pe/tests/text_emitter.rs.
 
@@ -50,12 +50,11 @@ fn walker_produces_correct_instruction_ids_for_sysv_call() {
     let mut walker = EmitWalker::new();
     walker.walk(&mut arena);
 
-    // Verify instructions are emitted (Issue #1161: CALL ID now via alloc_synthetic_id, not hardcoded).
-    // - CALL: emitted with synthetic ID (no specific range check post-#1161)
-    // - RET: still uses hardcoded 1_150_000 + L*100 (flagged for follow-up)
+    // Verify instructions are emitted (Issue #1161/#1165: all IDs now via alloc_synthetic_id).
+    // - CALL: emitted with synthetic ID (post-#1161)
+    // - RET: emitted with synthetic ID (post-#1165)
     // - MOVs: for argument marshalling
     let insts = walker.state().instructions().entries();
-    let l = lambda_id.get();
 
     let inst_mnemonics: Vec<Mnemonic> = insts
         .values()
@@ -75,13 +74,10 @@ fn walker_produces_correct_instruction_ids_for_sysv_call() {
         "CALL instruction must be emitted"
     );
 
-    // Verify RET instruction exists with hardcoded ID (still uses old scheme per #1161 follow-up)
-    let ret_expected_id = 1_150_000u32.saturating_add(l.saturating_mul(100));
-    let ret_inst = walker.state().instructions().get(IrNodeId::new(ret_expected_id).unwrap());
+    // Verify RET instruction exists by mnemonic (post-#1165 identity-only allocation)
     assert!(
-        ret_inst.is_some() && ret_inst.unwrap().mnemonic == Mnemonic::Ret,
-        "RET must be emitted at ID {} per current scheme",
-        ret_expected_id
+        inst_mnemonics.iter().any(|m| matches!(m, Mnemonic::Ret)),
+        "RET instruction must be emitted"
     );
 
     // Verify at least one MOV instruction is emitted
