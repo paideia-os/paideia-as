@@ -324,7 +324,9 @@ impl EmitWalker {
                     }
                 };
                 let arg_ids: Vec<IrNodeId> = app_children[1..].to_vec();
-                self.emit_call_expr(store_id, target_name, &arg_ids, arena);
+                let lambda_id = IrNodeId::new(self.state.current_function)
+                    .expect("current_function set by walker");
+                self.emit_call_expr(lambda_id, target_name, &arg_ids, arena);
                 paideia_as_ir::abi::RAX
             }
             _ => {

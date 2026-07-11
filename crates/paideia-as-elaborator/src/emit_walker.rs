@@ -733,6 +733,7 @@ impl EmitWalker {
                 if let Some(l_node) = IrNodeId::new(lid) {
                     // Clear and re-populate local_bindings with this unsafe body's enclosing lambda's params.
                     self.state.local_bindings.clear();
+                    self.state.current_function = lid;
                     self.register_nested_lambda_params(l_node, arena, 0);
                 }
             }

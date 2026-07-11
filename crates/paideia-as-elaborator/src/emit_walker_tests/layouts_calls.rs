@@ -2314,6 +2314,8 @@ fn emit_pending_unsafe_bodies_routes_action_app() {
 
     // Create walker and emit pending unsafe bodies.
     let mut walker = EmitWalker::new();
+    // Register the unsafe body as belonging to a caller lambda (needed for state.current_function tracking)
+    walker.state_mut().unsafe_body_to_lambda.insert(unsafe_id.get(), 200);
     let pending = vec![unsafe_id.get()];
     walker.emit_pending_unsafe_bodies(pending, &mut arena, None);
 
@@ -2376,6 +2378,8 @@ fn emit_pending_unsafe_bodies_skips_label_sibling() {
 
     // Create walker and emit pending unsafe bodies.
     let mut walker = EmitWalker::new();
+    // Register the unsafe body as belonging to a caller lambda (needed for state.current_function tracking)
+    walker.state_mut().unsafe_body_to_lambda.insert(unsafe_id.get(), 200);
     let pending = vec![unsafe_id.get()];
     walker.emit_pending_unsafe_bodies(pending, &mut arena, None);
 
@@ -2437,6 +2441,8 @@ fn emit_walker_ms_zero_arg_call_emits_shadow_prelude_postlude() {
 
     // Emit the call
     let mut walker = EmitWalker::new();
+    // Register the unsafe body as belonging to a caller lambda (needed for state.current_function tracking)
+    walker.state_mut().unsafe_body_to_lambda.insert(unsafe_id.get(), 200);
     let pending = vec![unsafe_id.get()];
     walker.emit_pending_unsafe_bodies(pending, &mut arena, None);
 
@@ -2495,6 +2501,8 @@ fn emit_walker_ms_one_arg_call_uses_rcx_not_rdi() {
 
     // Emit the call
     let mut walker = EmitWalker::new();
+    // Register the unsafe body as belonging to a caller lambda (needed for state.current_function tracking)
+    walker.state_mut().unsafe_body_to_lambda.insert(unsafe_id.get(), 200);
     let pending = vec![unsafe_id.get()];
     walker.emit_pending_unsafe_bodies(pending, &mut arena, None);
 
@@ -2560,6 +2568,8 @@ fn emit_walker_ms_four_arg_call_uses_full_ms_reg_pool() {
     let unsafe_id = arena.alloc_with_children(IrKind::Unsafe, span(), [action_id]);
 
     let mut walker = EmitWalker::new();
+    // Register the unsafe body as belonging to a caller lambda (needed for state.current_function tracking)
+    walker.state_mut().unsafe_body_to_lambda.insert(unsafe_id.get(), 200);
     let pending = vec![unsafe_id.get()];
     walker.emit_pending_unsafe_bodies(pending, &mut arena, None);
 
@@ -2622,6 +2632,8 @@ fn emit_walker_ms_five_arg_call_emits_t0521() {
     let unsafe_id = arena.alloc_with_children(IrKind::Unsafe, span(), [action_id]);
 
     let mut walker = EmitWalker::new();
+    // Register the unsafe body as belonging to a caller lambda (needed for state.current_function tracking)
+    walker.state_mut().unsafe_body_to_lambda.insert(unsafe_id.get(), 200);
     let pending = vec![unsafe_id.get()];
     walker.emit_pending_unsafe_bodies(pending, &mut arena, None);
 
@@ -2663,6 +2675,8 @@ fn emit_walker_sysv_call_still_uses_rdi_rsi_pool() {
     let unsafe_id = arena.alloc_with_children(IrKind::Unsafe, span(), [action_id]);
 
     let mut walker = EmitWalker::new();
+    // Register the unsafe body as belonging to a caller lambda (needed for state.current_function tracking)
+    walker.state_mut().unsafe_body_to_lambda.insert(unsafe_id.get(), 200);
     let pending = vec![unsafe_id.get()];
     walker.emit_pending_unsafe_bodies(pending, &mut arena, None);
 
@@ -2710,6 +2724,8 @@ fn emit_walker_absent_abi_call_matches_sysv() {
     let unsafe_id = arena.alloc_with_children(IrKind::Unsafe, span(), [action_id]);
 
     let mut walker = EmitWalker::new();
+    // Register the unsafe body as belonging to a caller lambda (needed for state.current_function tracking)
+    walker.state_mut().unsafe_body_to_lambda.insert(unsafe_id.get(), 200);
     let pending = vec![unsafe_id.get()];
     walker.emit_pending_unsafe_bodies(pending, &mut arena, None);
 
@@ -2759,6 +2775,8 @@ fn emit_walker_ms_shadow_bump_is_forty_bytes() {
     let unsafe_id = arena.alloc_with_children(IrKind::Unsafe, span(), [action_id]);
 
     let mut walker = EmitWalker::new();
+    // Register the unsafe body as belonging to a caller lambda (needed for state.current_function tracking)
+    walker.state_mut().unsafe_body_to_lambda.insert(unsafe_id.get(), 200);
     let pending = vec![unsafe_id.get()];
     walker.emit_pending_unsafe_bodies(pending, &mut arena, None);
 
@@ -2810,6 +2828,8 @@ fn emit_walker_ms_prelude_precedes_arg_moves_in_id_order() {
     let unsafe_id = arena.alloc_with_children(IrKind::Unsafe, span(), [action_id]);
 
     let mut walker = EmitWalker::new();
+    // Register the unsafe body as belonging to a caller lambda (needed for state.current_function tracking)
+    walker.state_mut().unsafe_body_to_lambda.insert(unsafe_id.get(), 200);
     let pending = vec![unsafe_id.get()];
     walker.emit_pending_unsafe_bodies(pending, &mut arena, None);
 
@@ -2878,6 +2898,8 @@ fn emit_walker_ms_postlude_is_between_call_and_ret() {
     let unsafe_id = arena.alloc_with_children(IrKind::Unsafe, span(), [action_id]);
 
     let mut walker = EmitWalker::new();
+    // Register the unsafe body as belonging to a caller lambda (needed for state.current_function tracking)
+    walker.state_mut().unsafe_body_to_lambda.insert(unsafe_id.get(), 200);
     let pending = vec![unsafe_id.get()];
     walker.emit_pending_unsafe_bodies(pending, &mut arena, None);
 

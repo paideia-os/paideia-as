@@ -928,8 +928,10 @@ impl EmitWalker {
                             if let Some(callee_node) = arena.get(callee_id) {
                                 if callee_node.kind == IrKind::Var {
                                     if let Some(target_name) = arena.binding_names().get(callee_id) {
+                                        let lambda_id = IrNodeId::new(self.state.current_function)
+                                            .expect("current_function set by walker");
                                         self.emit_call_stmt(
-                                            action_id,
+                                            lambda_id,
                                             target_name.to_string(),
                                             &app_children[1..],
                                             arena,
