@@ -373,14 +373,6 @@ impl EmitWalker {
                                                                     if field_index < layout.fields.len() {
                                                                         let field_offset =
                                                                             layout.fields[field_index].offset as i32;
-                                                                        let main_id = IrNodeId::new(
-                                                                            lambda_node_id.get() * 2,
-                                                                        )
-                                                                        .expect("main instr virtual id");
-                                                                        self.record_lambda_entry(
-                                                                            lambda_node_id,
-                                                                            main_id,
-                                                                        );
                                                                         self.emit_indirect_call_via_mem_rip_sym(
                                                                             lambda_node_id,
                                                                             receiver_name.to_string(),
@@ -434,14 +426,6 @@ impl EmitWalker {
                                                                 if field_index < layout.fields.len() {
                                                                     let field_offset =
                                                                         layout.fields[field_index].offset as i32;
-                                                                    let main_id = IrNodeId::new(
-                                                                        lambda_node_id.get() * 2,
-                                                                    )
-                                                                    .expect("main instr virtual id");
-                                                                    self.record_lambda_entry(
-                                                                        lambda_node_id,
-                                                                        main_id,
-                                                                    );
                                                                     self.emit_indirect_call_via_mem_base_disp(
                                                                         lambda_node_id,
                                                                         base_reg,
@@ -472,9 +456,6 @@ impl EmitWalker {
 
                                 // (1) Local-binding lookup — lexical scope shadows module scope.
                                 if let Some(callee_reg) = self.state.local_bindings.get(name) {
-                                    let main_id = IrNodeId::new(lambda_node_id.get() * 2)
-                                        .expect("main instr virtual id");
-                                    self.record_lambda_entry(lambda_node_id, main_id);
                                     self.emit_indirect_call_via_reg(
                                         lambda_node_id, callee_reg, &app_children[1..], arena,
                                     );
@@ -504,9 +485,6 @@ impl EmitWalker {
                                                                     if let Some(target_sym) = arena.symbols().lookup_by_name(target_fn_name) {
                                                                         if target_sym.kind == SymbolKind::Function {
                                                                             // Matched fnptr Object! Emit indirect call via RIP-relative symbol.
-                                                                            let main_id = IrNodeId::new(lambda_node_id.get() * 2)
-                                                                                .expect("main instr virtual id");
-                                                                            self.record_lambda_entry(lambda_node_id, main_id);
                                                                             self.emit_indirect_call_via_mem_rip_sym(
                                                                                 lambda_node_id,
                                                                                 name.clone(),
@@ -529,9 +507,6 @@ impl EmitWalker {
 
                                 // (2) Module symbol lookup by exact name — direct call.
                                 if arena.symbols().lookup_by_name(name).is_some() {
-                                    let main_id = IrNodeId::new(lambda_node_id.get() * 2)
-                                        .expect("main instr virtual id");
-                                    self.record_lambda_entry(lambda_node_id, main_id);
                                     self.emit_function_call(
                                         lambda_node_id, name.clone(), &app_children[1..], arena,
                                     );
@@ -540,9 +515,6 @@ impl EmitWalker {
 
                                 // (3) Cross-file — well-formed name not found locally, writer synthesizes undefined PLT.
                                 // Also handles 7+ arg calls: emit_function_call will generate EncodeError.
-                                let main_id = IrNodeId::new(lambda_node_id.get() * 2)
-                                    .expect("main instr virtual id");
-                                self.record_lambda_entry(lambda_node_id, main_id);
                                 self.emit_function_call(
                                     lambda_node_id, name.clone(), &app_children[1..], arena,
                                 );
