@@ -45,22 +45,28 @@ fn extract_source_text(
 /// - Return final offset (tail-padded to max field alignment)
 ///
 /// Returns None if any field type is unresolvable (will trigger T0557).
+/// Also returns the primitive width for single-primitive-payload variants (for tight-pack encoding).
 fn compute_variant_payload_size(
     payload_node_ids: &[NodeId],
     struct_registry: &StructRegistry,
     ast: &AstArena,
     source_map: &SourceMap,
-) -> Option<u64> {
+) -> Option<(u64, Option<u8>)> {
     let mut offset: u64 = 0;
     let mut max_align: u64 = 1;
+    let mut primitive_width: Option<u8> = None;
 
-    for node_id in payload_node_ids {
+    for (idx, node_id) in payload_node_ids.iter().enumerate() {
         let type_text = extract_source_text(ast, source_map, *node_id)?;
 
         let (field_size, field_align) = match decode_field_type(&type_text) {
             Some(byte_code) => {
                 // Primitive type: extract size from low nibble
                 let size = (byte_code & 0x0F) as u64;
+                // Track width for single-primitive-payload variants (Issue #1160)
+                if payload_node_ids.len() == 1 && idx == 0 {
+                    primitive_width = Some(size as u8);
+                }
                 (size, size.min(8))
             }
             None => {
@@ -83,7 +89,7 @@ fn compute_variant_payload_size(
     // Tail-pad to max field alignment
     offset = ((offset + max_align - 1) / max_align) * max_align;
 
-    Some(offset)
+    Some((offset, primitive_width))
 }
 
 /// Populate enum layouts from the enum registry.
@@ -93,24 +99,31 @@ fn compute_variant_payload_size(
 /// 2. Take the maximum payload size across all variants
 /// 3. Emit EnumLayout::new(max_payload_size)
 /// 4. On unresolvable payload type, emit T0557 and skip the variant
+/// 5. Issue #1160: Track primitive widths for single-primitive-payload variants
 ///
-/// Returns a HashMap from EnumTypeId to EnumLayout.
+/// Returns a tuple of (HashMap from EnumTypeId to EnumLayout, HashMap of primitive widths).
 pub fn finalise_enum_layouts(
     registry: &EnumRegistry,
     struct_registry: &StructRegistry,
     ast: &AstArena,
     source_map: &SourceMap,
     sink: &mut dyn DiagnosticSink,
-) -> HashMap<EnumTypeId, EnumLayout> {
+) -> (HashMap<EnumTypeId, EnumLayout>, HashMap<(EnumTypeId, u32), u8>) {
     let mut layouts = HashMap::new();
+    let mut primitive_widths: HashMap<(EnumTypeId, u32), u8> = HashMap::new();
 
     for (type_id, variants) in &registry.variants {
         let mut max_payload_size: u64 = 0;
+        let mut variant_idx = 0u32;
 
         for (variant_name, payload_node_ids) in variants {
             match compute_variant_payload_size(payload_node_ids, struct_registry, ast, source_map) {
-                Some(size) => {
+                Some((size, width)) => {
                     max_payload_size = max_payload_size.max(size);
+                    // Store primitive width for tight-pack encoding (Issue #1160)
+                    if let Some(w) = width {
+                        primitive_widths.insert((*type_id, variant_idx), w);
+                    }
                 }
                 None => {
                     // Unresolvable payload type — emit T0557 and skip this variant
@@ -120,10 +133,12 @@ pub fn finalise_enum_layouts(
                                 node.span
                             } else {
                                 // Skip diagnostic if we can't locate the node
+                                variant_idx += 1;
                                 continue;
                             }
                         } else {
                             // Skip diagnostic for variants with no payloads
+                            variant_idx += 1;
                             continue;
                         };
 
@@ -138,6 +153,7 @@ pub fn finalise_enum_layouts(
                     }
                 }
             }
+            variant_idx += 1;
         }
 
         // Create layout with max payload size (or 0 for pure tag enums)
@@ -145,7 +161,7 @@ pub fn finalise_enum_layouts(
         layouts.insert(*type_id, layout);
     }
 
-    layouts
+    (layouts, primitive_widths)
 }
 
 #[cfg(test)]
@@ -186,7 +202,7 @@ mod tests {
 
         let mut sink = paideia_as_diagnostics::VecSink::new();
         let struct_registry = crate::struct_registry::StructRegistry::empty();
-        let layouts = finalise_enum_layouts(&setup.registry, &struct_registry, &setup.ast, &setup.source_map, &mut sink);
+        let (layouts, _widths) = finalise_enum_layouts(&setup.registry, &struct_registry, &setup.ast, &setup.source_map, &mut sink);
 
         // Pure tag enum (no payloads) → payload_size = 0
         assert_eq!(layouts.get(&type_id).map(|l| l.payload_size), Some(0));
@@ -210,7 +226,7 @@ mod tests {
 
         let mut sink = paideia_as_diagnostics::VecSink::new();
         let struct_registry = crate::struct_registry::StructRegistry::empty();
-        let layouts = finalise_enum_layouts(&setup.registry, &struct_registry, &setup.ast, &setup.source_map, &mut sink);
+        let (layouts, _widths) = finalise_enum_layouts(&setup.registry, &struct_registry, &setup.ast, &setup.source_map, &mut sink);
 
         assert_eq!(layouts.get(&type_id).map(|l| l.payload_size), Some(0));
         assert_eq!(layouts.get(&type_id).map(|l| l.size), Some(8));
@@ -224,8 +240,8 @@ mod tests {
 
         // Empty payload list (can't easily inject NodeIds in unit test)
         // But compute_variant_payload_size with empty list should return 0
-        let size = compute_variant_payload_size(&[], &struct_registry, &setup.ast, &setup.source_map);
-        assert_eq!(size, Some(0));
+        let result = compute_variant_payload_size(&[], &struct_registry, &setup.ast, &setup.source_map);
+        assert_eq!(result, Some((0, None)));
     }
 
     #[test]
@@ -233,8 +249,8 @@ mod tests {
         // Test: empty variant (unit) → 0 bytes
         let setup = TestSetup::new();
         let struct_registry = crate::struct_registry::StructRegistry::empty();
-        let size = compute_variant_payload_size(&[], &struct_registry, &setup.ast, &setup.source_map);
-        assert_eq!(size, Some(0));
+        let result = compute_variant_payload_size(&[], &struct_registry, &setup.ast, &setup.source_map);
+        assert_eq!(result, Some((0, None)));
     }
 
     #[test]
@@ -255,7 +271,7 @@ mod tests {
 
         let mut sink = paideia_as_diagnostics::VecSink::new();
         let struct_registry = crate::struct_registry::StructRegistry::empty();
-        let layouts = finalise_enum_layouts(&setup.registry, &struct_registry, &setup.ast, &setup.source_map, &mut sink);
+        let (layouts, _widths) = finalise_enum_layouts(&setup.registry, &struct_registry, &setup.ast, &setup.source_map, &mut sink);
 
         assert_eq!(layouts.len(), 2);
         assert!(layouts.contains_key(&type_id_1));
@@ -301,7 +317,7 @@ mod tests {
 
         // Finalise layouts: should not fire T0557, should compute payload_size = 8
         let mut sink = paideia_as_diagnostics::VecSink::new();
-        let layouts = finalise_enum_layouts(&setup.registry, &struct_registry, &setup.ast, &setup.source_map, &mut sink);
+        let (layouts, _widths) = finalise_enum_layouts(&setup.registry, &struct_registry, &setup.ast, &setup.source_map, &mut sink);
 
         // Verify the layout was computed correctly
         assert!(layouts.contains_key(&enum_id), "enum layout should be present");

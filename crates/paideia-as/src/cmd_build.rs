@@ -213,9 +213,16 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
     // PA-r17-007 (#1050): Populate enum layouts from the enum registry.
     // This enables emit_walker to look up enum layouts during EnumCons and EnumDiscriminant lowering.
     // Issue #1090: Also thread StructRegistry for struct-typed variant payloads fallback.
-    let enum_layouts = finalise_enum_layouts(&enum_registry, &registry, &arena, &source_map, &mut sink);
+    // Issue #1160: Also extract primitive payload widths for tight-pack encoding.
+    let (enum_layouts, enum_primitive_widths) = finalise_enum_layouts(&enum_registry, &registry, &arena, &source_map, &mut sink);
     for (type_id, layout) in enum_layouts {
         lowering.ir.enum_layout_table_mut().insert(type_id, layout);
+    }
+
+    // Issue #1160: Populate the enum_variant_primitive_widths table.
+    for ((enum_id, variant_idx), width) in enum_primitive_widths {
+        lowering.ir.enum_variant_primitive_widths_mut()
+            .insert(enum_id, variant_idx, width);
     }
 
     // Populate the enum_variant_payload_table from the computed payload_map.

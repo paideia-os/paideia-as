@@ -135,7 +135,16 @@ pub fn encode_enum_cons(arena: &IrArena, enum_cons_id: IrNodeId) -> Option<Vec<u
     // Encode payload and place at payload_offset
     let payload_children = arena.children(enum_cons_id);
     for &payload_id in payload_children {
-        let payload_bytes = encode_ir_value(arena, payload_id)?;
+        // Issue #1160: For Literal children, consult the primitive width table for tight-pack encoding.
+        let payload_bytes = match arena.get(payload_id).map(|n| n.kind) {
+            Some(IrKind::Literal) => {
+                let w = arena.enum_variant_primitive_widths()
+                    .get(info.type_id, info.variant_index)
+                    .unwrap_or(8);
+                encode_ir_value_sized(arena, payload_id, w)?
+            }
+            _ => encode_ir_value(arena, payload_id)?,
+        };
         let offset = layout.payload_offset as usize;
         if offset + payload_bytes.len() <= bytes.len() {
             bytes[offset..offset + payload_bytes.len()].copy_from_slice(&payload_bytes);

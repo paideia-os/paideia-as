@@ -1,0 +1,4 @@
+module EnumPrimitivePayloadU32 = structure {
+    enum Result { Ok(u32), Err }
+    pub let r : Result = Result::Ok(42u32)
+}

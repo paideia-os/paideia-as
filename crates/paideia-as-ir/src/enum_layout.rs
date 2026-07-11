@@ -191,6 +191,54 @@ impl EnumVariantPayloadTable {
     }
 }
 
+/// Maps (EnumTypeId, variant_index) pairs to their primitive payload width in bytes.
+///
+/// Issue #1160: Tracks the byte width of primitive payloads in enum variants
+/// (e.g., Ok(u32) has width 4) to enable tight-pack encoding instead of
+/// defaulting to u64 (8 bytes).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct EnumVariantPrimitiveWidthTable {
+    inner: HashMap<(EnumTypeId, u32), u8>,
+}
+
+impl EnumVariantPrimitiveWidthTable {
+    /// Create a new empty primitive width table.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            inner: HashMap::new(),
+        }
+    }
+
+    /// Insert a variant's primitive payload width, returning the previous value if any.
+    pub fn insert(&mut self, enum_id: EnumTypeId, variant_idx: u32, width: u8) -> Option<u8> {
+        self.inner.insert((enum_id, variant_idx), width)
+    }
+
+    /// Look up a variant's primitive payload width; returns None if not found.
+    #[must_use]
+    pub fn get(&self, enum_id: EnumTypeId, variant_idx: u32) -> Option<u8> {
+        self.inner.get(&(enum_id, variant_idx)).copied()
+    }
+
+    /// Return the number of (enum_id, variant_idx) entries.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Check if the table is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    /// Iterate over all entries.
+    pub fn iter(&self) -> impl Iterator<Item = (&(EnumTypeId, u32), &u8)> {
+        self.inner.iter()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

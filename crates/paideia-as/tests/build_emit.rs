@@ -16,6 +16,7 @@ mod build_emit {
     pub mod control_flow_corpus;
     pub mod encoder_strict;
     pub mod enum_cons;
+    pub mod enum_primitive_payload_u32;
     pub mod enum_record_payload;
     pub mod field_access_call;
     pub mod field_read;

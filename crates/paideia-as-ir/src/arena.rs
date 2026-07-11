@@ -13,7 +13,7 @@ use crate::call_meta::CallSideTable;
 use crate::constant_pool::ConstantPoolTable;
 use crate::data::DataSideTable;
 use crate::enum_layout::{
-    EnumConsSideTable, EnumDiscriminantSideTable, EnumVariantPayloadTable, FinalisedEnumLayoutTable, MatchArmMetaSideTable,
+    EnumConsSideTable, EnumDiscriminantSideTable, EnumVariantPayloadTable, EnumVariantPrimitiveWidthTable, FinalisedEnumLayoutTable, MatchArmMetaSideTable,
     MatchDispatchMetaSideTable, MatchJumpTableArmValuesSideTable, MatchScrutineeTable,
 };
 use crate::instruction::InstructionSideTable;
@@ -80,6 +80,9 @@ pub struct IrArena {
     /// Side-table: per-variant record payload type lookup indexed by (EnumTypeId, variant_idx).
     /// Issue #1054: populated during elaboration to enable type-directed code generation.
     enum_variant_payload_table: EnumVariantPayloadTable,
+    /// Side-table: per-variant primitive payload width lookup indexed by (EnumTypeId, variant_idx).
+    /// Issue #1160: populated during elaboration for tight-pack encoding of primitive payloads.
+    enum_variant_primitive_widths: EnumVariantPrimitiveWidthTable,
     /// Side-table: enum discriminant extraction metadata indexed by EnumDiscriminant node ID.
     /// PA-r17-008: maps EnumDiscriminant nodes to their EnumTypeId for discriminant load emission.
     enum_disc_info_table: EnumDiscriminantSideTable,
@@ -136,6 +139,7 @@ impl IrArena {
             enum_finalised_layouts: FinalisedEnumLayoutTable::new(),
             finalised_record_layouts: FinalisedLayoutTable::new(),
             enum_variant_payload_table: EnumVariantPayloadTable::new(),
+            enum_variant_primitive_widths: EnumVariantPrimitiveWidthTable::new(),
             enum_disc_info_table: EnumDiscriminantSideTable::new(),
             match_arm_meta_table: MatchArmMetaSideTable::new(),
             match_scrutinee_table: MatchScrutineeTable::new(),
@@ -421,6 +425,18 @@ impl IrArena {
     /// Borrow the enum variant payload side-table (mutable).
     pub fn enum_variant_payload_table_mut(&mut self) -> &mut EnumVariantPayloadTable {
         &mut self.enum_variant_payload_table
+    }
+
+    /// Borrow the enum variant primitive width side-table (read-only).
+    /// Issue #1160: provides byte width for per-variant primitive payload tight-pack encoding.
+    #[must_use]
+    pub fn enum_variant_primitive_widths(&self) -> &EnumVariantPrimitiveWidthTable {
+        &self.enum_variant_primitive_widths
+    }
+
+    /// Borrow the enum variant primitive width side-table (mutable).
+    pub fn enum_variant_primitive_widths_mut(&mut self) -> &mut EnumVariantPrimitiveWidthTable {
+        &mut self.enum_variant_primitive_widths
     }
 
     /// Borrow the match arm metadata side-table (read-only).
