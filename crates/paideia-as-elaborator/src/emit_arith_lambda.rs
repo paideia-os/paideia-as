@@ -20,16 +20,16 @@ impl EmitWalker {
     /// Larger immediates require disp32 (7 bytes).
     /// PA19-r19-006: Use ABI-aware register lookup to support MS x64 calling convention.
     pub(crate) fn emit_add_imm_lambda(&mut self, lambda_node_id: IrNodeId, imm: i64) {
-        let main_id = IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
-        self.record_lambda_entry(lambda_node_id, main_id);
-
-        // Clamp to disp8 range if applicable.
+        // Range validation before recording entry (defense-in-depth for #1167).
         let disp = if imm >= -128 && imm <= 127 {
             imm as i32
         } else {
             // For now, only handle disp8; larger immediates can be deferred.
             return;
         };
+
+        let main_id = IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
+        self.record_lambda_entry(lambda_node_id, main_id);
 
         // PA19-r19-006: Resolve the calling convention and get the first argument register.
         let cc = self.state.lambda_abi(lambda_node_id.get());
@@ -162,20 +162,16 @@ impl EmitWalker {
     // PA8-m3-001 (generic Mov retained): the `mov rax, rdi` here is reg-to-reg
     // and not MovSized-encodable; the shift operand is an immediate to SHL, not MOV.
     pub(crate) fn emit_shl_imm_lambda(&mut self, lambda_node_id: IrNodeId, shift_count: i64) {
-        let main_id = IrNodeId::new(lambda_node_id.get() * 3).expect("main instr virtual id");
-        self.record_lambda_entry(lambda_node_id, main_id);
-
-        // Clamp shift to disp8 range (0-63 for 64-bit shifts).
+        // Range validation before recording entry (defense-in-depth for #1167).
         let shift = if shift_count >= 0 && shift_count <= 63 {
             shift_count as u8
         } else {
             // Out of range; skip emission
-            self.diagnostics.push(format!(
-                "PA8-m1-001d shift count {} out of range [0..63]",
-                shift_count
-            ));
             return;
         };
+
+        let main_id = IrNodeId::new(lambda_node_id.get() * 3).expect("main instr virtual id");
+        self.record_lambda_entry(lambda_node_id, main_id);
 
         // Mov rax, rdi: 48 89 f8 (3 bytes)
         let mut mov_operands: SmallVec<[Operand; 3]> = SmallVec::new();

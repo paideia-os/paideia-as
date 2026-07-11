@@ -1,0 +1,3 @@
+module Pa8ShlImmOutOfRange = structure {
+  pub let g : (u64) -> u64 = fn(x : u64) -> x << 100
+}

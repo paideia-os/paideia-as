@@ -1,0 +1,3 @@
+module Pa8AddImmOutOfRange = structure {
+  pub let f : (u64) -> u64 = fn(x : u64) -> x + 200
+}

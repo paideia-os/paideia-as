@@ -656,43 +656,53 @@ impl EmitWalker {
                                                     };
 
                                                     if op_hint == Some("<<") {
-                                                        if cfg!(debug_assertions) {
-                                                            eprintln!(
-                                                                "[emit_shl_imm_lambda] Lambda {} emit_shl_imm with value {}",
-                                                                lambda_node_id.get(),
-                                                                value
+                                                        // Validate shift count range before recording entry
+                                                        if !(0..=63).contains(&value) {
+                                                            // Out of range; skip emission and fall through to B1704
+                                                        } else {
+                                                            if cfg!(debug_assertions) {
+                                                                eprintln!(
+                                                                    "[emit_shl_imm_lambda] Lambda {} emit_shl_imm with value {}",
+                                                                    lambda_node_id.get(),
+                                                                    value
+                                                                );
+                                                            }
+                                                            let main_id =
+                                                                IrNodeId::new(lambda_node_id.get() * 3)
+                                                                    .expect("main instr virtual id");
+                                                            self.record_lambda_entry(
+                                                                lambda_node_id,
+                                                                main_id,
+                                                            );
+                                                            self.emit_shl_imm_lambda(
+                                                                lambda_node_id,
+                                                                value,
                                                             );
                                                         }
-                                                        let main_id =
-                                                            IrNodeId::new(lambda_node_id.get() * 3)
-                                                                .expect("main instr virtual id");
-                                                        self.record_lambda_entry(
-                                                            lambda_node_id,
-                                                            main_id,
-                                                        );
-                                                        self.emit_shl_imm_lambda(
-                                                            lambda_node_id,
-                                                            value,
-                                                        );
                                                     } else {
-                                                        if cfg!(debug_assertions) {
-                                                            eprintln!(
-                                                                "[emit_add_imm_lambda] Lambda {} emit_add_imm with value {}",
-                                                                lambda_node_id.get(),
-                                                                value
+                                                        // Validate immediate range before recording entry
+                                                        if !(-128..=127).contains(&value) {
+                                                            // Out of range; skip emission and fall through to B1704
+                                                        } else {
+                                                            if cfg!(debug_assertions) {
+                                                                eprintln!(
+                                                                    "[emit_add_imm_lambda] Lambda {} emit_add_imm with value {}",
+                                                                    lambda_node_id.get(),
+                                                                    value
+                                                                );
+                                                            }
+                                                            let main_id =
+                                                                IrNodeId::new(lambda_node_id.get() * 2)
+                                                                    .expect("main instr virtual id");
+                                                            self.record_lambda_entry(
+                                                                lambda_node_id,
+                                                                main_id,
+                                                            );
+                                                            self.emit_add_imm_lambda(
+                                                                lambda_node_id,
+                                                                value,
                                                             );
                                                         }
-                                                        let main_id =
-                                                            IrNodeId::new(lambda_node_id.get() * 2)
-                                                                .expect("main instr virtual id");
-                                                        self.record_lambda_entry(
-                                                            lambda_node_id,
-                                                            main_id,
-                                                        );
-                                                        self.emit_add_imm_lambda(
-                                                            lambda_node_id,
-                                                            value,
-                                                        );
                                                     }
                                                 }
                                             }
@@ -735,17 +745,22 @@ impl EmitWalker {
                                                         );
                                                     } else {
                                                         // Default to add
-                                                        let main_id =
-                                                            IrNodeId::new(lambda_node_id.get() * 2)
-                                                                .expect("main instr virtual id");
-                                                        self.record_lambda_entry(
-                                                            lambda_node_id,
-                                                            main_id,
-                                                        );
-                                                        self.emit_add_imm_lambda(
-                                                            lambda_node_id,
-                                                            value,
-                                                        );
+                                                        // Validate immediate range before recording entry
+                                                        if !(-128..=127).contains(&value) {
+                                                            // Out of range; skip emission and fall through to B1704
+                                                        } else {
+                                                            let main_id =
+                                                                IrNodeId::new(lambda_node_id.get() * 2)
+                                                                    .expect("main instr virtual id");
+                                                            self.record_lambda_entry(
+                                                                lambda_node_id,
+                                                                main_id,
+                                                            );
+                                                            self.emit_add_imm_lambda(
+                                                                lambda_node_id,
+                                                                value,
+                                                            );
+                                                        }
                                                     }
                                                 }
                                             }
