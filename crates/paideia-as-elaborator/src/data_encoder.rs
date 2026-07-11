@@ -60,8 +60,12 @@ pub fn encode_ir_value_sized(arena: &IrArena, node_id: IrNodeId, width: u8) -> O
             Some(vec![0u8; width as usize])
         }
         IrKind::ArrayLit | IrKind::RecordCons | IrKind::EnumCons | IrKind::InlineBytes => {
-            // Composites carry their own size; ignore width parameter and use standard dispatch
-            encode_ir_value(arena, node_id)
+            // #1159: Composites carry their own size; check that encoded bytes match declared width.
+            let bytes = encode_ir_value(arena, node_id)?;
+            if bytes.len() != width as usize {
+                return None;
+            }
+            Some(bytes)
         }
         _ => None,
     }
@@ -95,6 +99,7 @@ pub fn encode_record_cons(arena: &IrArena, record_id: IrNodeId) -> Option<Vec<u8
         }
         let fl = &layout.fields[i];
         let field_bytes = encode_ir_value_sized(arena, field_id, fl.size)?;
+        debug_assert_eq!(field_bytes.len(), fl.size as usize);
         bytes[fl.offset as usize..fl.offset as usize + fl.size as usize].copy_from_slice(&field_bytes);
     }
 
@@ -372,6 +377,30 @@ pub fn populate_jump_tables(arena: &IrArena, data_table: &mut DataSideTable) {
     }
 }
 
+/// #1159: Kinds that encode_ir_value / encode_ir_value_sized can handle as a record field.
+pub const SUPPORTED_FIELD_KINDS: &[IrKind] = &[
+    IrKind::Literal,
+    IrKind::Borrow,
+    IrKind::RecordCons,
+    IrKind::EnumCons,
+    IrKind::ArrayLit,
+    IrKind::InlineBytes,
+];
+
+/// #1159: Returns the first RecordCons child whose IrKind is not in SUPPORTED_FIELD_KINDS.
+/// Used by cmd_build to emit T0536 before delegating to encode_record_cons.
+#[must_use]
+pub fn first_unencodable_field(arena: &IrArena, record_id: IrNodeId) -> Option<IrNodeId> {
+    for &field_id in arena.children(record_id).iter().skip(1) {
+        if let Some(node) = arena.get(field_id) {
+            if !SUPPORTED_FIELD_KINDS.contains(&node.kind) {
+                return Some(field_id);
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -566,5 +595,128 @@ mod tests {
             bytes, expected,
             "EnumCons(discriminant=1, RecordCons(x:u32=1, y:u32=2)) should encode to tight-pack bytes (16 total)"
         );
+    }
+
+    /// #1159: Test that first_unencodable_field detects Var children.
+    #[test]
+    fn first_unencodable_field_returns_var_child() {
+        use paideia_as_diagnostics::{FileId, Span};
+        use paideia_as_ir::record_layout::{RecordTypeId, RecordLayout, FieldLayout};
+
+        fn span() -> Span {
+            Span::new(FileId::new(1).unwrap(), 0, 1)
+        }
+
+        let mut arena = IrArena::new();
+
+        // Allocate a RecordCons with type_name and a Var field (unencodable)
+        let type_name_id = arena.alloc(IrKind::Literal, span());
+        let var_field_id = arena.alloc(IrKind::Var, span());
+
+        let record_id = arena.alloc_with_children(
+            IrKind::RecordCons,
+            span(),
+            [type_name_id, var_field_id],
+        );
+
+        // Register record layout (1 field, 8 bytes)
+        let record_type_id = RecordTypeId(300);
+        arena.record_layout_table_mut().insert(record_id, record_type_id);
+        arena.finalised_record_layouts_mut().insert(
+            record_type_id,
+            RecordLayout::new(
+                8,
+                8,
+                vec![FieldLayout { offset: 0, size: 8, signed: false }],
+            ),
+        );
+
+        let result = first_unencodable_field(&arena, record_id);
+        assert_eq!(result, Some(var_field_id), "Should detect Var field as unencodable");
+    }
+
+    /// #1159: Test that first_unencodable_field returns None for all-Literal children.
+    #[test]
+    fn first_unencodable_field_returns_none_for_all_literal_children() {
+        use paideia_as_diagnostics::{FileId, Span};
+        use paideia_as_ir::record_layout::{RecordTypeId, RecordLayout, FieldLayout};
+
+        fn span() -> Span {
+            Span::new(FileId::new(1).unwrap(), 0, 1)
+        }
+
+        let mut arena = IrArena::new();
+
+        // Allocate a RecordCons with type_name and all-Literal fields
+        let type_name_id = arena.alloc(IrKind::Literal, span());
+        let lit1_id = arena.alloc(IrKind::Literal, span());
+        let lit2_id = arena.alloc(IrKind::Literal, span());
+
+        arena.literal_values_mut().insert(lit1_id, 1);
+        arena.literal_values_mut().insert(lit2_id, 2);
+
+        let record_id = arena.alloc_with_children(
+            IrKind::RecordCons,
+            span(),
+            [type_name_id, lit1_id, lit2_id],
+        );
+
+        // Register record layout (2 fields, 16 bytes)
+        let record_type_id = RecordTypeId(301);
+        arena.record_layout_table_mut().insert(record_id, record_type_id);
+        arena.finalised_record_layouts_mut().insert(
+            record_type_id,
+            RecordLayout::new(
+                16,
+                8,
+                vec![
+                    FieldLayout { offset: 0, size: 8, signed: false },
+                    FieldLayout { offset: 8, size: 8, signed: false },
+                ],
+            ),
+        );
+
+        let result = first_unencodable_field(&arena, record_id);
+        assert_eq!(result, None, "All-Literal fields should return None");
+    }
+
+    /// #1159: Test that encode_ir_value_sized returns None on length mismatch for composites.
+    #[test]
+    fn encode_ir_value_sized_returns_none_on_length_mismatch() {
+        use paideia_as_diagnostics::{FileId, Span};
+        use paideia_as_ir::record_layout::{RecordTypeId, RecordLayout, FieldLayout};
+
+        fn span() -> Span {
+            Span::new(FileId::new(1).unwrap(), 0, 1)
+        }
+
+        let mut arena = IrArena::new();
+
+        // Create a simple RecordCons(type_name, Literal(42))
+        let type_name_id = arena.alloc(IrKind::Literal, span());
+        let lit_id = arena.alloc(IrKind::Literal, span());
+        arena.literal_values_mut().insert(lit_id, 42);
+
+        let record_id = arena.alloc_with_children(
+            IrKind::RecordCons,
+            span(),
+            [type_name_id, lit_id],
+        );
+
+        // Register record layout (1 field, 8 bytes)
+        let record_type_id = RecordTypeId(302);
+        arena.record_layout_table_mut().insert(record_id, record_type_id);
+        arena.finalised_record_layouts_mut().insert(
+            record_type_id,
+            RecordLayout::new(
+                8,
+                8,
+                vec![FieldLayout { offset: 0, size: 8, signed: false }],
+            ),
+        );
+
+        // Call encode_ir_value_sized with width=4 (mismatch; record is 8 bytes)
+        let result = encode_ir_value_sized(&arena, record_id, 4);
+        assert_eq!(result, None, "Length mismatch should return None, not panic");
     }
 }

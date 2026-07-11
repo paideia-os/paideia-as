@@ -1674,7 +1674,22 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                                     // Issue #1157: RecordCons emit via data_encoder delegation.
                                     // Delegates to encode_record_cons for tight-pack field encoding,
                                     // then separately walks fields for fnptr Borrow relocations.
-                                    match paideia_as_elaborator::data_encoder::encode_record_cons(&lowering.ir, rhs_id) {
+                                    // #1159: emit T0536 for unsupported field kinds before delegating.
+                                    if let Some(field_id) = paideia_as_elaborator::data_encoder::first_unencodable_field(&lowering.ir, rhs_id) {
+                                        if let Some(field_node) = lowering.ir.get(field_id) {
+                                            let code = paideia_as_diagnostics::DiagnosticCode::new(
+                                                paideia_as_diagnostics::Category::T,
+                                                paideia_as_diagnostics::Severity::Error,
+                                                536,
+                                            ).expect("T0536 is valid");
+                                            let diag = paideia_as_diagnostics::Diagnostic::error(code)
+                                                .message("record field must be a literal or function pointer")
+                                                .with_span(field_node.span)
+                                                .finish();
+                                            let _ = sink.emit(diag);
+                                        }
+                                    } else {
+                                        match paideia_as_elaborator::data_encoder::encode_record_cons(&lowering.ir, rhs_id) {
                                         Some(bytes) => {
                                         let record_type_id = lowering.ir.record_layout_table().get(rhs_id);
                                         let mut relocs = Vec::new();
@@ -1740,6 +1755,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                                             // encode_record_cons returned None: either layout is not available or
                                             // a field is not encodable. For now, silently skip (diagnostics should
                                             // have been emitted during elaboration if there were type errors).
+                                        }
                                         }
                                     }
                                 } else if rhs_node.kind == paideia_as_ir::IrKind::EnumCons {
