@@ -619,54 +619,14 @@ impl EmitWalker {
                 });
 
                 // Step 2: If bit_offset > 0, emit shift to align field to LSBs
-                // Use RCX as the shift count register (x86 standard) and `reg, cl` encoding
-                // If RCX is already allocated, save/restore it to avoid clobbering
+                // bit_offset is a compile-time constant, so use immediate-form shift encoding
                 if bit_offset > 0 {
-                    // Check if RCX is already bound to a previous field
-                    let rcx_in_use = self.state.local_bindings.iter().any(|(_, &r)| r == abi::RCX);
-
-                    // If RCX is in use, save it to R9 (temporary, not in scratch pool)
-                    if rcx_in_use {
-                        let save_rcx_id = self.alloc_synthetic_id();
-                        let mut save_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-                        save_operands.push(Operand::Reg(abi::R9));
-                        save_operands.push(Operand::Reg(abi::RCX));
-                        self.emit_inst(save_rcx_id, Instruction {
-                            mnemonic: Mnemonic::Mov,
-                            operands: save_operands,
-                            encoding_hint: None,
-                            byte_offset_in_text: None,
-                            mode: self.current_mode(),
-                            emission_order: 0,
-                        });
-                    }
-
-                    // Load shift count into RCX
-                    let mov_rcx_id = self.alloc_synthetic_id();
-                    let mut mov_rcx_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-                    mov_rcx_operands.push(Operand::Reg(abi::RCX));
-                    mov_rcx_operands.push(Operand::Imm64(bit_offset as i64));
-                    self.emit_inst(mov_rcx_id, Instruction {
-                        mnemonic: Mnemonic::Mov,
-                        operands: mov_rcx_operands,
-                        encoding_hint: None,
-                        byte_offset_in_text: None,
-                        mode: self.current_mode(),
-                        emission_order: 0,
-                    });
-
-                    // Shift dest by RCX (cl register)
+                    debug_assert!(bit_offset < 64, "shift amount must fit in 6 bits");
                     let shift_id = self.alloc_synthetic_id();
                     let mut shift_operands: SmallVec<[Operand; 3]> = SmallVec::new();
                     shift_operands.push(Operand::Reg(dest_reg));
-                    shift_operands.push(Operand::Reg(abi::RCX));
-
-                    let mnemonic = if signed {
-                        Mnemonic::Sar
-                    } else {
-                        Mnemonic::Shr
-                    };
-
+                    shift_operands.push(Operand::Imm64(bit_offset as i64));
+                    let mnemonic = if signed { Mnemonic::Sar } else { Mnemonic::Shr };
                     self.emit_inst(shift_id, Instruction {
                         mnemonic,
                         operands: shift_operands,
@@ -675,22 +635,6 @@ impl EmitWalker {
                         mode: self.current_mode(),
                         emission_order: 0,
                     });
-
-                    // If we saved RCX, restore it
-                    if rcx_in_use {
-                        let restore_rcx_id = self.alloc_synthetic_id();
-                        let mut restore_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-                        restore_operands.push(Operand::Reg(abi::RCX));
-                        restore_operands.push(Operand::Reg(abi::R9));
-                        self.emit_inst(restore_rcx_id, Instruction {
-                            mnemonic: Mnemonic::Mov,
-                            operands: restore_operands,
-                            encoding_hint: None,
-                            byte_offset_in_text: None,
-                            mode: self.current_mode(),
-                            emission_order: 0,
-                        });
-                    }
                 }
 
                 // Step 3: Emit narrowing move based on size/signedness
