@@ -28,6 +28,12 @@ fn t0529_code() -> DiagnosticCode {
         .expect("T0529 is within valid T range")
 }
 
+/// Helper to construct T0530 diagnostic code.
+fn t0530_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::T, Severity::Error, 530)
+        .expect("T0530 is within valid T range")
+}
+
 impl EmitWalker {
     /// Phase 6 m3-002: Emit field access lowering for (*p).field shape.
     ///
@@ -181,10 +187,13 @@ impl EmitWalker {
                                     4 => (Mnemonic::MovSized { width: IntWidth::W32 }, 5),
                                     8 => (Mnemonic::Mov, 10),
                                     _ => {
-                                        self.diagnostics.push(format!(
-                                            "T0519: unsupported field size {} for module-level field write",
-                                            field_size
-                                        ));
+                                        self.push_typed_diag(
+                                            t0530_code(),
+                                            format!(
+                                                "unsupported field size {} for module-level field write",
+                                                field_size
+                                            ),
+                                        );
                                         return;
                                     }
                                 };

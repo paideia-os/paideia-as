@@ -174,7 +174,8 @@ fn pa7c_m2_002_five_let_chain_exhausts_pool_and_emits_t0527() {
     walker.walk(&mut arena);
 
     // Verify T0527 was emitted in diagnostics
-    let has_t0527 = walker.diagnostics().iter().any(|d| d.contains("T0527"));
+    let typed = walker.take_typed_diagnostics();
+    let has_t0527 = typed.iter().any(|d| d.code().number() == 527);
     assert!(
         has_t0527,
         "Should emit T0527 diagnostic for register exhaustion"

@@ -27,6 +27,12 @@ fn t0521_code() -> DiagnosticCode {
         .expect("T0521 is within valid T range")
 }
 
+/// Helper to construct T0551 diagnostic code.
+fn t0551_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::T, Severity::Error, 551)
+        .expect("T0551 is within valid T range")
+}
+
 impl EmitWalker {
     /// Emit caller-side bridge postlude for paideia→MS/SysV ABI crossing.
     /// Pops the registers in `save_regs` in REVERSE order (LIFO) after shadow-space restoration.
@@ -210,10 +216,13 @@ impl EmitWalker {
                         method,
                     }) => {
                         // T0551: stdlib intrinsic requires integer-literal argument
-                        self.diagnostics.push(format!(
-                            "T0551: stdlib intrinsic requires integer-literal argument: {} arg {}",
-                            method, arg_index
-                        ));
+                        self.push_typed_diag(
+                            t0551_code(),
+                            format!(
+                                "stdlib intrinsic requires integer-literal argument: {} arg {}",
+                                method, arg_index
+                            ),
+                        );
                         // Fall through to normal call emission
                     }
                 }

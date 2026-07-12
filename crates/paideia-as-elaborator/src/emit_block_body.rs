@@ -12,6 +12,7 @@
 
 use paideia_as_ir::instruction::{Cond, Instruction, IntWidth, Mnemonic, Operand};
 use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi};
+use paideia_as_diagnostics::{Category, DiagnosticCode, Severity};
 
 use crate::emit_walker::EmitWalker;
 
@@ -31,6 +32,12 @@ pub enum TailContext {
         /// Discriminant size in bytes for discriminant-only enums.
         disc_size: i32,
     },
+}
+
+/// Helper to construct T0527 diagnostic code.
+fn t0527_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::T, Severity::Error, 527)
+        .expect("T0527 is within valid T range")
 }
 
 impl EmitWalker {
@@ -117,10 +124,13 @@ impl EmitWalker {
                                 // Assign next scratch register if available.
                                 if self.state.scratch_count() >= scratch_regs.len() {
                                     // Register pressure exceeded.
-                                    self.diagnostics.push(format!(
-                                        "T0527: register pressure exceeded in Phase 7 Let-literal bindings: more than {} in-flight bindings",
-                                        scratch_regs.len()
-                                    ));
+                                    self.push_typed_diag(
+                                        t0527_code(),
+                                        format!(
+                                            "register pressure exceeded in Phase 7 Let-literal bindings: more than {} in-flight bindings",
+                                            scratch_regs.len()
+                                        ),
+                                    );
                                     return;
                                 }
 
@@ -582,10 +592,13 @@ impl EmitWalker {
                                 // Assign next scratch register if available.
                                 if self.state.scratch_count() >= scratch_regs.len() {
                                     // Register pressure exceeded.
-                                    self.diagnostics.push(format!(
-                                        "T0527: register pressure exceeded in Phase 7 Let-literal bindings: more than {} in-flight bindings",
-                                        scratch_regs.len()
-                                    ));
+                                    self.push_typed_diag(
+                                        t0527_code(),
+                                        format!(
+                                            "register pressure exceeded in Phase 7 Let-literal bindings: more than {} in-flight bindings",
+                                            scratch_regs.len()
+                                        ),
+                                    );
                                     // PA10-005 §3.2: Pop scope before early return
                                     self.state.local_bindings.pop_scope();
                                     return;

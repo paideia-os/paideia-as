@@ -1434,6 +1434,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "The module-level field-assign lowering path in emit_field_access.rs\ncurrently handles only u32 (MovSized{W32}) and u64 (Mov) stores. Fields\ntyped u8/u16/i8/i16/i32 are recognized in layout but their narrow-store\nlowering is deferred to Phase 17 m6-b. Write-side counterpart of T0529;\nreplaces the ad-hoc T0519 reuse at emit_field_access.rs:185 (issue #1175).\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0530",
+              "id": "T0530",
+              "name": "Field write width not yet lowered",
+              "shortDescription": {
+                "text": "only u32/u64 field writes supported; u8/u16/i8/i16/i32 deferred"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "Phase 10 m1-001 (PA10-005): PA10-005 nested var lookup. When resolve_var_operands fails to find a binding in the local binding table, it checks the module's SymbolTable. If found there, this diagnostic is emitted instead of T0528. This indicates the variable is module-scoped (e.g., a global let-fn or let-const) and cannot be directly accessed within function-local unsafe blocks without explicit capture or higher-level binding. Either move the reference outside the unsafe block, or declare a local let binding that captures the module-scoped value."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0531",

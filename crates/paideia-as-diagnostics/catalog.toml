@@ -1072,6 +1072,21 @@ replaces the earlier T0517 reuse at emit_field_access.rs (issue #1080).
 since = "0.17.0"
 deprecated = false
 
+[diagnostic.T0530]
+severity = "error"
+category = "type"
+title = "Field write width not yet lowered"
+brief = "only u32/u64 field writes supported; u8/u16/i8/i16/i32 deferred"
+description = """
+The module-level field-assign lowering path in emit_field_access.rs
+currently handles only u32 (MovSized{W32}) and u64 (Mov) stores. Fields
+typed u8/u16/i8/i16/i32 are recognized in layout but their narrow-store
+lowering is deferred to Phase 17 m6-b. Write-side counterpart of T0529;
+replaces the ad-hoc T0519 reuse at emit_field_access.rs:185 (issue #1175).
+"""
+since = "0.17.0"
+deprecated = false
+
 [diagnostic.T0531]
 severity = "error"
 category = "type"
