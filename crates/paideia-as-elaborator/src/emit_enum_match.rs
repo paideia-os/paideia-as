@@ -26,6 +26,36 @@ fn t0559_code() -> DiagnosticCode {
         .expect("T0559 is within valid T range")
 }
 
+/// Helper to construct T0560 diagnostic code.
+fn t0560_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::T, Severity::Error, 560)
+        .expect("T0560 is within valid T range")
+}
+
+/// Helper to construct T0561 diagnostic code.
+fn t0561_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::T, Severity::Error, 561)
+        .expect("T0561 is within valid T range")
+}
+
+/// Helper to construct T0562 diagnostic code.
+fn t0562_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::T, Severity::Error, 562)
+        .expect("T0562 is within valid T range")
+}
+
+/// Helper to construct T0563 diagnostic code.
+fn t0563_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::T, Severity::Error, 563)
+        .expect("T0563 is within valid T range")
+}
+
+/// Helper to construct T0566 diagnostic code.
+fn t0566_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::T, Severity::Error, 566)
+        .expect("T0566 is within valid T range")
+}
+
 impl EmitWalker {
     /// #1084: Emit scrutinee load for match expressions.
     ///
@@ -735,10 +765,7 @@ impl EmitWalker {
                         });
                     }
                     _ => {
-                        self.diagnostics.push(format!(
-                            "Unsupported field size/signed in register pattern: size={}, signed={}",
-                            size, signed
-                        ));
+                        self.push_typed_diag(t0566_code(), format!("Unsupported field size/signed in register pattern: size={}, signed={}", size, signed));
                     }
                 }
 
@@ -1383,10 +1410,7 @@ impl EmitWalker {
                     IrKind::App => self.emit_arm_body_app(arm_id, arena, match_node_id, idx as u32),
                     _ => {
                         // Other IR kinds: emit diagnostic (arm body lowered to unsupported kind)
-                        self.diagnostics.push(format!(
-                            "unsupported match arm body IR kind: {:?}",
-                            arm_node.kind
-                        ));
+                        self.push_typed_diag(t0560_code(), format!("unsupported match arm body IR kind: {:?}", arm_node.kind));
                     }
                 }
             }
@@ -1484,11 +1508,7 @@ impl EmitWalker {
         let operator = match crate::emit_visit_lambda::infer_operator_from_span_len(span_len) {
             Some(op) => op,
             None => {
-                self.diagnostics.push(format!(
-                    "App node {}: unsupported operator span length {}",
-                    app_id.get(),
-                    span_len
-                ));
+                self.push_typed_diag(t0561_code(), format!("App node {}: unsupported operator span length {}", app_id.get(), span_len));
                 return;
             }
         };
@@ -1592,11 +1612,7 @@ impl EmitWalker {
                     "<<" => Mnemonic::Shl,
                     ">>" => Mnemonic::Shr,
                     _ => {
-                        self.diagnostics.push(format!(
-                            "App node {}: unsupported operator '{}'",
-                            app_id.get(),
-                            operator
-                        ));
+                        self.push_typed_diag(t0562_code(), format!("App node {}: unsupported operator '{}'", app_id.get(), operator));
                         return;
                     }
                 };
@@ -1676,11 +1692,7 @@ impl EmitWalker {
                     "<<" => Mnemonic::Shl,
                     ">>" => Mnemonic::Shr,
                     _ => {
-                        self.diagnostics.push(format!(
-                            "App node {}: unsupported operator '{}'",
-                            app_id.get(),
-                            operator
-                        ));
+                        self.push_typed_diag(t0562_code(), format!("App node {}: unsupported operator '{}'", app_id.get(), operator));
                         return;
                     }
                 };
@@ -1760,11 +1772,7 @@ impl EmitWalker {
                     "<<" => Mnemonic::Shl,
                     ">>" => Mnemonic::Shr,
                     _ => {
-                        self.diagnostics.push(format!(
-                            "App node {}: unsupported operator '{}'",
-                            app_id.get(),
-                            operator
-                        ));
+                        self.push_typed_diag(t0562_code(), format!("App node {}: unsupported operator '{}'", app_id.get(), operator));
                         return;
                     }
                 };
@@ -1817,11 +1825,7 @@ impl EmitWalker {
                     "<<" => arg0_value.wrapping_shl(arg1_value as u32),
                     ">>" => arg0_value.wrapping_shr(arg1_value as u32),
                     _ => {
-                        self.diagnostics.push(format!(
-                            "App node {}: unsupported operator '{}'",
-                            app_id.get(),
-                            operator
-                        ));
+                        self.push_typed_diag(t0562_code(), format!("App node {}: unsupported operator '{}'", app_id.get(), operator));
                         return;
                     }
                 };
@@ -1842,12 +1846,7 @@ impl EmitWalker {
             }
 
             _ => {
-                self.diagnostics.push(format!(
-                    "App node {}: unsupported operand kinds ({:?}, {:?})",
-                    app_id.get(),
-                    arg0_node.kind,
-                    arg1_node.kind
-                ));
+                self.push_typed_diag(t0563_code(), format!("App node {}: unsupported operand kinds ({:?}, {:?})", app_id.get(), arg0_node.kind, arg1_node.kind));
             }
         }
     }

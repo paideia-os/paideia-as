@@ -1371,6 +1371,80 @@ of T0564; issue #1147 retag of the legacy string push.
 since = "0.19.0"
 deprecated = false
 
+[diagnostic.T0560]
+severity = "error"
+category = "type"
+title = "Unsupported match-arm body IR kind"
+brief = "arm body IR kind not handled by emit lowering"
+description = """
+The match-arm body lowering path in emit_enum_match.rs dispatches on
+the arm's IR kind. App bodies are lowered via emit_arm_body_app; other
+IR kinds (nested Match, Let, Block, etc.) are not yet supported and
+fall through to this diagnostic. Issue #1147 retag of the legacy
+string push at emit_enum_match.rs.
+"""
+since = "0.19.0"
+deprecated = false
+
+[diagnostic.T0561]
+severity = "error"
+category = "type"
+title = "Unsupported operator span length in App node"
+brief = "callee span length does not map to a known operator"
+description = """
+emit_arm_body_app infers the operator string from the callee's source
+span length via infer_operator_from_span_len. Spans whose length does
+not correspond to any registered operator (1..=2 bytes today) raise
+this diagnostic. Indicates either a novel operator not yet wired or a
+malformed span. Issue #1147 retag.
+"""
+since = "0.19.0"
+deprecated = false
+
+[diagnostic.T0562]
+severity = "error"
+category = "type"
+title = "Unsupported operator in App node lowering"
+brief = "operator string not in the arithmetic/bitwise dispatch table"
+description = """
+The App-node lowering in emit_enum_match.rs dispatches the inferred
+operator against a fixed table (+, -, *, &, |, ^, <<, >>) across four
+operand-shape arms ((Var,Var), (Var,Literal), (Literal,Var),
+(Literal,Literal)). Operators outside this set (e.g. /, %, comparisons)
+are not yet lowered in the match-arm path. Same code fires from all
+four arms; issue #1147 retag.
+"""
+since = "0.19.0"
+deprecated = false
+
+[diagnostic.T0563]
+severity = "error"
+category = "type"
+title = "Unsupported operand kinds in App node lowering"
+brief = "arg0/arg1 IR kind pair not in the (Var|Literal)^2 matrix"
+description = """
+emit_arm_body_app case-analyzes operand shapes over the 2x2 matrix
+(Var|Literal, Var|Literal). Any other operand shape (e.g. nested App,
+FieldAccess, EnumCons) falls through and raises this diagnostic.
+Complements T0562; issue #1147 retag.
+"""
+since = "0.19.0"
+deprecated = false
+
+[diagnostic.T0566]
+severity = "error"
+category = "type"
+title = "Unsupported field size/signed in register-form pattern binding"
+brief = "register-pattern payload extraction handles only supported width/sign combos"
+description = """
+The register-form pattern binding path in emit_enum_match.rs extracts
+enum-variant payload fields via a size-and-signed dispatch. Field
+shapes outside the supported set fall through and raise this
+diagnostic. Register-pattern counterpart of T0565; issue #1147 retag.
+"""
+since = "0.19.0"
+deprecated = false
+
 [diagnostic.P0282]
 severity = "error"
 category = "parser"
