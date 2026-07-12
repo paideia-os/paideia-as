@@ -212,13 +212,13 @@ pub(super) fn build_elf_object(
     //
     // v3 retirement: derive symbol offsets solely from lambda_first_instr × offset_map.
     // Lambdas whose first_instr is not in offset_map fall through to the None branch (B1704).
-    let mut function_offsets: HashMap<u32, u32> = HashMap::new();
+    let mut function_offsets: HashMap<u32, u64> = HashMap::new();
     {
         let lambda_first_instr = emit_walker.state().lambda_first_instr();
         let offset_map = &emit_result.offset_map;
         for (lambda_id, &first_instr) in lambda_first_instr {
             if let Some(&byte_off) = offset_map.get(&first_instr) {
-                function_offsets.insert(*lambda_id, byte_off as u32);
+                function_offsets.insert(*lambda_id, byte_off);
             }
         }
     }
@@ -226,7 +226,7 @@ pub(super) fn build_elf_object(
     let mut emitted_any_symbol = false;
 
     // PA8-m1-002: Pre-compute sorted, deduplicated offsets once to avoid O(N²) lookup.
-    let mut sorted_offsets: Vec<u32> = function_offsets.values().copied().collect();
+    let mut sorted_offsets: Vec<u64> = function_offsets.values().copied().collect();
     sorted_offsets.sort_unstable();
     sorted_offsets.dedup();
 
@@ -246,8 +246,8 @@ pub(super) fn build_elf_object(
                         let end = sorted_offsets
                             .get(idx)
                             .copied()
-                            .unwrap_or(text_bytes.len() as u32);
-                        (off, (end - off) as u64)
+                            .unwrap_or(text_bytes.len() as u64);
+                        (off, end - off)
                     }
                     None => {
                         // PA8-m1-002: Deferred lambdas (m1-004+) that don't call record_lambda_entry
@@ -257,7 +257,7 @@ pub(super) fn build_elf_object(
                         use super::diagnostics::function_symbol_no_offset;
                         let diag = function_symbol_no_offset(&symbol.name, symbol.ir_node.get());
                         let _ = sink.emit(diag);
-                        (0u32, 0u64)
+                        (0u64, 0u64)
                     }
                 };
 
@@ -265,7 +265,7 @@ pub(super) fn build_elf_object(
                     name: symbol.name.clone(),
                     kind: SymKind::Func,
                     is_global: matches!(symbol.visibility, Visibility::Global),
-                    offset: Some(offset as u64),
+                    offset: Some(offset),
                     size,
                     section: None,
                     section_name: None,
