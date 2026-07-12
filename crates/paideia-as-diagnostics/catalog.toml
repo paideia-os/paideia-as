@@ -1587,3 +1587,95 @@ channel to the typed pipe (reclassified from T0526 to unsafe/invariant).
 """
 since = "0.19.0"
 deprecated = false
+
+[diagnostic.U1643]
+severity = "error"
+category = "unsafe"
+title = "Malformed field-shape IR node: shape violates elaborator invariant"
+brief = "Store/FieldAccess/Deref node has wrong child count or missing required child"
+description = """
+During field-access elaboration, a Store, FieldAccess, or Deref node violated
+a structural invariant. This can occur when:
+- A Store node has fewer than 3 children (expected: FieldAccess, index/unused, value)
+- A FieldAccess node has no child (expected: record value/Deref)
+- A Deref node has no child (expected: pointer)
+
+Issue #1147 slice A4 migration from the legacy Vec<String> diagnostic channel
+to the typed pipe. This diagnostic indicates a compiler-internal structural
+invariant violation and should not occur in normal compilation.
+"""
+since = "0.19.0"
+deprecated = false
+
+[diagnostic.U1644]
+severity = "error"
+category = "unsafe"
+title = "FieldAccessInfo side-table entry missing (invariant violation)"
+brief = "FieldAccess node lacks corresponding FieldAccessInfo payload"
+description = """
+During field-access lowering for a Store operation, a FieldAccess node was
+encountered but the corresponding FieldAccessInfo payload was not found in the
+side-table. This indicates an elaboration-phase invariant violation: either the
+FieldAccess node was not properly registered during elaboration, or the
+side-table lookup failed.
+
+Issue #1147 slice A4 migration from the legacy Vec<String> diagnostic channel
+to the typed pipe.
+"""
+since = "0.19.0"
+deprecated = false
+
+[diagnostic.U1645]
+severity = "error"
+category = "unsafe"
+title = "Record layout missing for elaborated field type (invariant violation)"
+brief = "record_layout lookup failed for field access type_id"
+description = """
+During field-access elaboration (read or write), the elaborator attempted to
+look up the record layout for a field's type_id but the layout was not found
+in the record_layouts table. This indicates that a record type was not
+properly registered during elaboration, or the type_id is invalid.
+
+Issue #1147 slice A4 migration from the legacy Vec<String> diagnostic channel
+to the typed pipe. This diagnostic indicates a compiler-internal invariant
+violation and should not occur in normal compilation.
+"""
+since = "0.19.0"
+deprecated = false
+
+[diagnostic.U1646]
+severity = "error"
+category = "unsafe"
+title = "Field index out of bounds vs record layout (invariant violation)"
+brief = "FieldAccessInfo.field_index exceeds record_layout.fields length"
+description = """
+During field-access elaboration, a field_index from FieldAccessInfo was used
+to index into the record layout's fields array, but the index exceeded the
+array's length. This indicates an invariant violation: either the field_index
+is corrupt, or the record layout was incompletely registered.
+
+Issue #1147 slice A4 migration from the legacy Vec<String> diagnostic channel
+to the typed pipe.
+"""
+since = "0.19.0"
+deprecated = false
+
+[diagnostic.U1647]
+severity = "error"
+category = "unsafe"
+title = "Field-assign operand not resolvable via local_bindings"
+brief = "pointer receiver or RHS Var missing from local_bindings map"
+description = """
+During field-assignment lowering ((*p).field = value), the elaborator
+attempted to resolve a local binding name (for either the pointer receiver p
+or the RHS value Var) but the binding was not found in the local_bindings map.
+This can occur when:
+- The pointer receiver binding has not been declared in the enclosing function
+- The RHS Var binding has not been declared or has gone out of scope
+- The resolve_var_operands pass failed to populate local_bindings
+
+Issue #1147 slice A4 migration from the legacy Vec<String> diagnostic channel
+to the typed pipe.
+"""
+since = "0.19.0"
+deprecated = false

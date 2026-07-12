@@ -2301,6 +2301,76 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "During field-access elaboration, a Store, FieldAccess, or Deref node violated\na structural invariant. This can occur when:\n- A Store node has fewer than 3 children (expected: FieldAccess, index/unused, value)\n- A FieldAccess node has no child (expected: record value/Deref)\n- A Deref node has no child (expected: pointer)\n\nIssue #1147 slice A4 migration from the legacy Vec<String> diagnostic channel\nto the typed pipe. This diagnostic indicates a compiler-internal structural\ninvariant violation and should not occur in normal compilation.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1643",
+              "id": "U1643",
+              "name": "Malformed field-shape IR node: shape violates elaborator invariant",
+              "shortDescription": {
+                "text": "Store/FieldAccess/Deref node has wrong child count or missing required child"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "During field-access lowering for a Store operation, a FieldAccess node was\nencountered but the corresponding FieldAccessInfo payload was not found in the\nside-table. This indicates an elaboration-phase invariant violation: either the\nFieldAccess node was not properly registered during elaboration, or the\nside-table lookup failed.\n\nIssue #1147 slice A4 migration from the legacy Vec<String> diagnostic channel\nto the typed pipe.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1644",
+              "id": "U1644",
+              "name": "FieldAccessInfo side-table entry missing (invariant violation)",
+              "shortDescription": {
+                "text": "FieldAccess node lacks corresponding FieldAccessInfo payload"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "During field-access elaboration (read or write), the elaborator attempted to\nlook up the record layout for a field's type_id but the layout was not found\nin the record_layouts table. This indicates that a record type was not\nproperly registered during elaboration, or the type_id is invalid.\n\nIssue #1147 slice A4 migration from the legacy Vec<String> diagnostic channel\nto the typed pipe. This diagnostic indicates a compiler-internal invariant\nviolation and should not occur in normal compilation.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1645",
+              "id": "U1645",
+              "name": "Record layout missing for elaborated field type (invariant violation)",
+              "shortDescription": {
+                "text": "record_layout lookup failed for field access type_id"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "During field-access elaboration, a field_index from FieldAccessInfo was used\nto index into the record layout's fields array, but the index exceeded the\narray's length. This indicates an invariant violation: either the field_index\nis corrupt, or the record layout was incompletely registered.\n\nIssue #1147 slice A4 migration from the legacy Vec<String> diagnostic channel\nto the typed pipe.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1646",
+              "id": "U1646",
+              "name": "Field index out of bounds vs record layout (invariant violation)",
+              "shortDescription": {
+                "text": "FieldAccessInfo.field_index exceeds record_layout.fields length"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "During field-assignment lowering ((*p).field = value), the elaborator\nattempted to resolve a local binding name (for either the pointer receiver p\nor the RHS value Var) but the binding was not found in the local_bindings map.\nThis can occur when:\n- The pointer receiver binding has not been declared in the enclosing function\n- The RHS Var binding has not been declared or has gone out of scope\n- The resolve_var_operands pass failed to populate local_bindings\n\nIssue #1147 slice A4 migration from the legacy Vec<String> diagnostic channel\nto the typed pipe.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1647",
+              "id": "U1647",
+              "name": "Field-assign operand not resolvable via local_bindings",
+              "shortDescription": {
+                "text": "pointer receiver or RHS Var missing from local_bindings map"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "The #![bits = 16] inner attribute specifies 16-bit mode, which is not supported in this implementation. PaideiaOS is designed for x86_64 (64-bit) primarily, with 32-bit fallback available. Either use #![bits = 32] or #![bits = 64], or remove the attribute to use the default."
               },
               "helpUri": "https://paideia-os.org/diagnostics/B1700",

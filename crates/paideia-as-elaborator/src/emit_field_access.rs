@@ -46,6 +46,37 @@ fn t0565_code() -> DiagnosticCode {
         .expect("T0565 is within valid T range")
 }
 
+/// Helper to construct U1643 diagnostic code (Malformed field-shape IR node).
+/// Slice A4 mint — covers Store/FieldAccess/Deref shape violations.
+fn u1643_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::U, Severity::Error, 1643)
+        .expect("U1643 is within valid U range")
+}
+
+/// Helper to construct U1644 diagnostic code (FieldAccessInfo side-table miss).
+fn u1644_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::U, Severity::Error, 1644)
+        .expect("U1644 is within valid U range")
+}
+
+/// Helper to construct U1645 diagnostic code (Record layout missing).
+fn u1645_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::U, Severity::Error, 1645)
+        .expect("U1645 is within valid U range")
+}
+
+/// Helper to construct U1646 diagnostic code (Field index OOB).
+fn u1646_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::U, Severity::Error, 1646)
+        .expect("U1646 is within valid U range")
+}
+
+/// Helper to construct U1647 diagnostic code (Field-assign operand missing from local_bindings).
+fn u1647_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::U, Severity::Error, 1647)
+        .expect("U1647 is within valid U range")
+}
+
 impl EmitWalker {
     /// Phase 6 m3-002: Emit field access lowering for (*p).field shape.
     ///
@@ -83,11 +114,14 @@ impl EmitWalker {
     pub(crate) fn visit_field_assign(&mut self, store_id: IrNodeId, arena: &IrArena) {
         let children = arena.children(store_id);
         if children.len() != 3 {
-            self.diagnostics.push(format!(
-                "Store node {} has {} children; expected 3",
-                store_id.get(),
-                children.len()
-            ));
+            self.push_typed_diag(
+                u1643_code(),
+                format!(
+                    "Store node {} has {} children; expected 3",
+                    store_id.get(),
+                    children.len()
+                ),
+            );
             return;
         }
 
@@ -102,10 +136,13 @@ impl EmitWalker {
         let field_info = match arena.field_access_info().get(field_access_id) {
             Some(info) => info,
             None => {
-                self.diagnostics.push(format!(
-                    "Store field_access node {} has no FieldAccessInfo",
-                    field_access_id.get()
-                ));
+                self.push_typed_diag(
+                    u1644_code(),
+                    format!(
+                        "Store field_access node {} has no FieldAccessInfo",
+                        field_access_id.get()
+                    ),
+                );
                 return;
             }
         };
@@ -114,10 +151,13 @@ impl EmitWalker {
         let record_layout = match self.state.record_layout(field_info.type_id) {
             Some(layout) => layout,
             None => {
-                self.diagnostics.push(format!(
-                    "No record layout found for type {}",
-                    field_info.type_id.0
-                ));
+                self.push_typed_diag(
+                    u1645_code(),
+                    format!(
+                        "No record layout found for type {}",
+                        field_info.type_id.0
+                    ),
+                );
                 return;
             }
         };
@@ -127,10 +167,13 @@ impl EmitWalker {
         let field_layout = match record_layout.fields.get(field_index) {
             Some(layout) => layout,
             None => {
-                self.diagnostics.push(format!(
-                    "Field index {} out of bounds for record type {}",
-                    field_index, field_info.type_id.0
-                ));
+                self.push_typed_diag(
+                    u1646_code(),
+                    format!(
+                        "Field index {} out of bounds for record type {}",
+                        field_index, field_info.type_id.0
+                    ),
+                );
                 return;
             }
         };
@@ -165,10 +208,13 @@ impl EmitWalker {
         let receiver_id = match fa_children.first() {
             Some(&id) => id,
             None => {
-                self.diagnostics.push(format!(
-                    "FieldAccess node {} has no receiver child",
-                    field_access_id.get()
-                ));
+                self.push_typed_diag(
+                    u1643_code(),
+                    format!(
+                        "FieldAccess node {} has no receiver child",
+                        field_access_id.get()
+                    ),
+                );
                 return;
             }
         };
@@ -264,10 +310,13 @@ impl EmitWalker {
         let base_reg = match base_reg {
             Some(reg) => reg,
             None => {
-                self.diagnostics.push(format!(
-                    "field-assign pointer receiver for Store {} not found in local bindings",
-                    store_id.get()
-                ));
+                self.push_typed_diag(
+                    u1647_code(),
+                    format!(
+                        "field-assign pointer receiver for Store {} not found in local bindings",
+                        store_id.get()
+                    ),
+                );
                 return;
             }
         };
@@ -281,10 +330,13 @@ impl EmitWalker {
                 match resolved {
                     Some(reg) => reg,
                     None => {
-                        self.diagnostics.push(format!(
-                            "field-assign value Var for Store {} not found in local bindings",
-                            store_id.get()
-                        ));
+                        self.push_typed_diag(
+                            u1647_code(),
+                            format!(
+                                "field-assign value Var for Store {} not found in local bindings",
+                                store_id.get()
+                            ),
+                        );
                         return;
                     }
                 }
@@ -341,10 +393,13 @@ impl EmitWalker {
             Some(&id) => id,
             None => {
                 // No child; malformed FieldAccess node.
-                self.diagnostics.push(format!(
-                    "FieldAccess node {} has no child",
-                    field_access_id.get()
-                ));
+                self.push_typed_diag(
+                    u1643_code(),
+                    format!(
+                        "FieldAccess node {} has no child",
+                        field_access_id.get()
+                    ),
+                );
                 return;
             }
         };
@@ -380,8 +435,10 @@ impl EmitWalker {
         let ptr_id = match deref_children.first() {
             Some(&id) => id,
             None => {
-                self.diagnostics
-                    .push(format!("Deref node {} has no child", record_value_id.get()));
+                self.push_typed_diag(
+                    u1643_code(),
+                    format!("Deref node {} has no child", record_value_id.get()),
+                );
                 return;
             }
         };
@@ -408,10 +465,13 @@ impl EmitWalker {
         let record_layout = match self.state.record_layout(field_info.type_id) {
             Some(layout) => layout,
             None => {
-                self.diagnostics.push(format!(
-                    "No record layout found for type {}",
-                    field_info.type_id.0
-                ));
+                self.push_typed_diag(
+                    u1645_code(),
+                    format!(
+                        "No record layout found for type {}",
+                        field_info.type_id.0
+                    ),
+                );
                 return;
             }
         };
@@ -421,10 +481,13 @@ impl EmitWalker {
         let field_layout = match record_layout.fields.get(field_index) {
             Some(layout) => layout,
             None => {
-                self.diagnostics.push(format!(
-                    "Field index {} out of bounds for record type {}",
-                    field_index, field_info.type_id.0
-                ));
+                self.push_typed_diag(
+                    u1646_code(),
+                    format!(
+                        "Field index {} out of bounds for record type {}",
+                        field_index, field_info.type_id.0
+                    ),
+                );
                 return;
             }
         };
