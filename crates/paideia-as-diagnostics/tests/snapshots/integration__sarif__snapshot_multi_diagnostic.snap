@@ -2273,6 +2273,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "visit_store requires each IrKind::Store node to carry exactly three children\n[addr, index_or_unused, value] with both addr and value materialized into\nIrKind::Var nodes by the ANF/let-hoisting pass. Any deviation — wrong child\ncount, non-Var addr, or non-Var value — indicates the parser/lowerer produced\na malformed Store: a post-elaboration invariant violation. Issue #1147 slice A2\nmigration from the legacy Vec<String> diagnostic channel to the typed pipe.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1623",
+              "id": "U1623",
+              "name": "Malformed Store IR node: shape violates elaborator invariant",
+              "shortDescription": {
+                "text": "Store node has wrong child count or non-Var addr/value after elaboration"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "The #![bits = 16] inner attribute specifies 16-bit mode, which is not supported in this implementation. PaideiaOS is designed for x86_64 (64-bit) primarily, with 32-bit fallback available. Either use #![bits = 32] or #![bits = 64], or remove the attribute to use the default."
               },
               "helpUri": "https://paideia-os.org/diagnostics/B1700",

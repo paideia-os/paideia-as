@@ -1555,3 +1555,19 @@ legacy Vec<String> diagnostic channel to the typed pipe.
 """
 since = "0.19.0"
 deprecated = false
+
+[diagnostic.U1623]
+severity = "error"
+category = "unsafe"
+title = "Malformed Store IR node: shape violates elaborator invariant"
+brief = "Store node has wrong child count or non-Var addr/value after elaboration"
+description = """
+visit_store requires each IrKind::Store node to carry exactly three children
+[addr, index_or_unused, value] with both addr and value materialized into
+IrKind::Var nodes by the ANF/let-hoisting pass. Any deviation — wrong child
+count, non-Var addr, or non-Var value — indicates the parser/lowerer produced
+a malformed Store: a post-elaboration invariant violation. Issue #1147 slice A2
+migration from the legacy Vec<String> diagnostic channel to the typed pipe.
+"""
+since = "0.19.0"
+deprecated = false

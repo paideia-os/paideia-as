@@ -23,6 +23,12 @@ fn t0540_code() -> DiagnosticCode {
         .expect("T0540 is within valid T range")
 }
 
+/// Helper to construct U1623 diagnostic code.
+fn u1623_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::U, Severity::Error, 1623)
+        .expect("U1623 is within valid U range")
+}
+
 impl EmitWalker {
     /// Phase 6 m3-004: Emit record constructor lowering for cap-mint shape.
     ///
@@ -45,11 +51,10 @@ impl EmitWalker {
         // m5-002: (*p).f = value → [pointer, unused, value] (offset handled later)
         let children = arena.children(store_id);
         if children.len() != 3 {
-            self.diagnostics.push(format!(
-                "Store node {} has {} children; expected 3",
-                store_id.get(),
-                children.len()
-            ));
+            self.push_typed_diag(
+                u1623_code(),
+                format!("Store node {} has {} children; expected 3", store_id.get(), children.len()),
+            );
             return;
         }
 
@@ -61,18 +66,18 @@ impl EmitWalker {
         let value_node = arena.get(value_id);
 
         if addr_node.map(|n| n.kind) != Some(IrKind::Var) {
-            self.diagnostics.push(format!(
-                "Store addr must be Var; got {:?}",
-                addr_node.map(|n| n.kind)
-            ));
+            self.push_typed_diag(
+                u1623_code(),
+                format!("Store addr must be Var; got {:?}", addr_node.map(|n| n.kind)),
+            );
             return;
         }
 
         if value_node.map(|n| n.kind) != Some(IrKind::Var) {
-            self.diagnostics.push(format!(
-                "Store value must be Var; got {:?}",
-                value_node.map(|n| n.kind)
-            ));
+            self.push_typed_diag(
+                u1623_code(),
+                format!("Store value must be Var; got {:?}", value_node.map(|n| n.kind)),
+            );
             return;
         }
 
