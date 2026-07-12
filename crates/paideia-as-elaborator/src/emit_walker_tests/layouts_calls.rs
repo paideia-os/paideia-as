@@ -2021,11 +2021,11 @@ fn emit_walker_function_call_7_args_reject() {
     let mut walker = EmitWalker::new();
     walker.walk(&mut arena);
 
-    // Verify that diagnostics contain the "out of bounds" error
-    let diags = walker.diagnostics();
+    // Verify that structured diagnostics contain the "out of bounds" error
+    let diags = walker.take_typed_diagnostics();
     assert!(
         diags.iter()
-            .any(|d| d.contains("out of bounds") || d.contains("max 6")),
+            .any(|d| d.message().contains("out of bounds") || d.message().contains("max 6")),
         "Expected out-of-bounds error, got: {:?}",
         diags
     );

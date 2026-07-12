@@ -229,8 +229,6 @@ impl EmitWalker {
                 } else {
                     format!("SysV ABI: max 6 arguments supported (arg {} out of bounds)", arg_idx)
                 };
-                // Push both for backward compatibility
-                self.diagnostics.push(format!("T0521: {}", error_msg));
                 self.push_typed_diag(t0521_code(), error_msg);
                 break;
             }
