@@ -1398,9 +1398,8 @@ fn enum_cons_missing_layout_emits_diagnostic() {
     walker.walk(&mut arena);
 
     // Should have a diagnostic
-    assert!(!walker.diagnostics().is_empty());
-    let msg = walker.diagnostics()[0].clone();
-    assert!(msg.contains("No enum layout found"));
+    let typed = walker.take_typed_diagnostics();
+    assert!(typed.iter().any(|d| d.code().number() == 1649), "Expected U1649 diagnostic for missing enum layout");
 }
 
 // ── PA-r17-011 (#989): enum passing convention tests ────────────────────

@@ -2123,13 +2123,10 @@ fn emit_walker_match_empty_arms_produces_diagnostic() {
     walker.walk(&mut arena);
 
     // Verify diagnostic was emitted for missing arms.
-    let diags = walker.diagnostics();
+    let typed = walker.take_typed_diagnostics();
     assert!(
-        diags
-            .iter()
-            .any(|d| d.contains("has scrutinee but no arms")),
-        "Expected missing-arms diagnostic, got: {:?}",
-        diags
+        typed.iter().any(|d| d.code().number() == 1650),
+        "Expected U1650 diagnostic for missing arms"
     );
 }
 

@@ -324,8 +324,8 @@ fn match_missing_scrutinee_type_emits_diagnostic() {
     let mut walker = EmitWalker::new();
     walker.walk(&mut arena);
 
-    assert!(!walker.diagnostics().is_empty());
-    assert!(walker.diagnostics()[0].contains("scrutinee type"));
+    let typed = walker.take_typed_diagnostics();
+    assert!(typed.iter().any(|d| d.code().number() == 1650), "Expected U1650 diagnostic for missing scrutinee type");
 }
 
 #[test]
@@ -350,8 +350,8 @@ fn match_missing_arm_meta_emits_diagnostic() {
     walker.state_mut().insert_enum_layout(EnumTypeId(1), layout);
     walker.walk(&mut arena);
 
-    assert!(!walker.diagnostics().is_empty());
-    assert!(walker.diagnostics()[0].contains("MatchArmMeta"));
+    let typed = walker.take_typed_diagnostics();
+    assert!(typed.iter().any(|d| d.code().number() == 1651), "Expected U1651 diagnostic for missing MatchArmMeta");
 }
 
 // ── Phase 17 m9-009 nested pattern binding tests ─────────────────
@@ -898,7 +898,8 @@ fn nested_missing_payload_layout_diagnostic() {
     walker.walk(&mut arena);
 
     // Should emit diagnostic about missing layout
-    assert!(!walker.diagnostics().is_empty());
+    let typed = walker.take_typed_diagnostics();
+    assert!(typed.iter().any(|d| d.code().number() == 1652), "Expected U1652 diagnostic for missing record layout");
 }
 
 #[test]
