@@ -40,6 +40,10 @@ pub struct EmitPassState {
     /// IrNodeId of the function currently being lowered (or 0 if none).
     pub(crate) current_function: u32,
 
+    /// Pending lambda IR node id whose first instruction has not yet been emitted.
+    /// Set by Action and Match sentinels; consumed by emit_inst on the first instruction.
+    pub(crate) pending_first_instr_lambda: Option<u32>,
+
     /// Estimated byte offset within the current function. Reset to 0 on each
     /// new function entry. This is an advisory estimate based on instruction
     /// mnemonics and is verified to match the actual encoded byte count at
@@ -190,6 +194,7 @@ impl Default for EmitPassState {
         Self {
             instructions: Default::default(),
             current_function: Default::default(),
+            pending_first_instr_lambda: None,
             estimated_offset: Default::default(),
             function_offsets: Default::default(),
             lambda_first_instr: Default::default(),

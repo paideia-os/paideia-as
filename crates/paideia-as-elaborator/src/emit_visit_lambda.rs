@@ -757,8 +757,10 @@ impl EmitWalker {
                         // Record the lambda's starting offset. Note: For Action bodies, we use
                         // lambda_node_id itself as main_id, which will be resolved by the first
                         // actual instruction emitted in emit_block_body.
-                        let main_id = lambda_node_id;
-                        self.record_lambda_entry(lambda_node_id, main_id);
+                        self.state.pending_first_instr_lambda = Some(lambda_node_id.get());
+                        self.state.function_offsets.entry(lambda_node_id.get())
+                            .or_insert(self.state.estimated_offset);
+                        self.state.mark_lambda_emitted(lambda_node_id.get());
 
                         // Adversarial-verify of #1094 (aee6935): the original fix deleted the
                         // `local_bindings.clear()` that used to run here outright, on the theory
@@ -799,8 +801,6 @@ impl EmitWalker {
                         // PA8-m1-002: For Unsafe bodies, we record the offset here as backup,
                         // but UnsafeWalker will also record it when it emits instructions.
                         // This ensures backward compatibility if UnsafeWalker doesn't emit anything.
-                        let main_id = lambda_node_id;
-                        self.record_lambda_entry(lambda_node_id, main_id);
 
                         // PA8-m1-002b: Check if the unsafe body has already been queued.
                         // (This can happen if the Unsafe node's ID is lower than the Lambda's ID.)
@@ -840,8 +840,10 @@ impl EmitWalker {
                         }
 
                         // Record the lambda's starting offset.
-                        let main_id = lambda_node_id;
-                        self.record_lambda_entry(lambda_node_id, main_id);
+                        self.state.pending_first_instr_lambda = Some(lambda_node_id.get());
+                        self.state.function_offsets.entry(lambda_node_id.get())
+                            .or_insert(self.state.estimated_offset);
+                        self.state.mark_lambda_emitted(lambda_node_id.get());
 
                         // Derive TailContext from match return type.
                         // Strategy: Look at the match arms to find what type they construct.

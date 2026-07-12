@@ -57,6 +57,8 @@ mod build_emit {
     pub mod pa8_single_fn_regression;
     pub mod pa8_st_value;
     pub mod pa8_unsafe_block_st_value;
+    pub mod pa8_action_body_st_value;
+    pub mod pa8_match_body_st_value;
     pub mod pa_r12_004_pure_body;
     pub mod pa_r13_008_mut_literal_data;
     pub mod pa_r17_004_identity_multi_param;

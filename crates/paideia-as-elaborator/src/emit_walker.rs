@@ -166,6 +166,12 @@ impl EmitWalker {
         // #1139: Record which lambda owns this instruction.
         self.state.instr_to_lambda.insert(node_id, self.state.current_function);
         self.state.instructions.insert(node_id, inst);
+        // PA8-m1-002c: Capture first instruction of pending lambda before offset advances.
+        if let Some(lid) = self.state.pending_first_instr_lambda.take() {
+            self.state.lambda_first_instr.insert(lid, node_id);
+            self.state.function_offsets.entry(lid).or_insert(self.state.estimated_offset);
+            self.state.mark_lambda_emitted(lid);
+        }
         self.state.estimated_offset += bytes;
     }
 
