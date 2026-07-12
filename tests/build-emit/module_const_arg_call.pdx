@@ -1,0 +1,5 @@
+module ModuleConstArgCall = structure {
+  let SHIFT : u64 = 39
+  let take2 : (u64, u64) -> u64 = fn (a: u64, b: u64) -> a
+  pub let call_site : (u64) -> u64 = fn (v: u64) -> take2(v, SHIFT)
+}

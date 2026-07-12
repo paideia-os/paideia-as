@@ -8,6 +8,7 @@
 use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand, RegId};
 use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi};
 use paideia_as_ir::let_meta::CallingConvention;
+use paideia_as_ir::symbol::SymbolKind;
 use paideia_as_diagnostics::{DiagnosticCode, Category, Severity};
 use std::collections::HashSet;
 
@@ -297,25 +298,49 @@ impl EmitWalker {
                             self.emit_mov_reg_to_reg_with_id(mov_id, src, dest_reg);
                         }
                         None => {
-                            // Legacy fallback for arg 0: if the binding table is not
-                            // populated (older test IR shapes), assume the caller's
-                            // first param is in RDI.
-                            if arg_idx == 0 && dest_reg != abi::RDI {
+                            // Issue #1176: Check for module-level Object constant.
+                            // If the Var references a module-level let CONST : u64 = LIT,
+                            // it lives in arena.symbols(), not state.local_bindings.
+                            let module_const = arena
+                                .binding_names()
+                                .get(arg_id)
+                                .and_then(|name| {
+                                    arena.symbols().lookup_by_name(name)
+                                        .filter(|s| matches!(s.kind, SymbolKind::Object))
+                                        .map(|s| (name.to_string(), s))
+                                })
+                            ;
+
+                            if let Some((name, _sym)) = module_const {
+                                // Emit RIP-relative load: mov dest_reg, [rip+name]
                                 let mov_id = if first_emission {
                                     first_emission = false;
                                     first_id
                                 } else {
                                     self.alloc_synthetic_id()
                                 };
-                                self.emit_mov_reg_to_reg_with_id(mov_id, abi::RDI, dest_reg);
-                            } else if arg_idx != 0 {
-                                self.push_typed_diag(
-                                    t0521_code(),
-                                    format!(
-                                        "Var arg {} has no local binding entry; source register unresolvable",
-                                        arg_idx
-                                    ),
-                                );
+                                self.emit_mem_read_via_rip_sym(mov_id, dest_reg, name, 0, 8, false);
+                            } else {
+                                // Legacy fallback for arg 0: if the binding table is not
+                                // populated (older test IR shapes), assume the caller's
+                                // first param is in RDI.
+                                if arg_idx == 0 && dest_reg != abi::RDI {
+                                    let mov_id = if first_emission {
+                                        first_emission = false;
+                                        first_id
+                                    } else {
+                                        self.alloc_synthetic_id()
+                                    };
+                                    self.emit_mov_reg_to_reg_with_id(mov_id, abi::RDI, dest_reg);
+                                } else if arg_idx != 0 {
+                                    self.push_typed_diag(
+                                        t0521_code(),
+                                        format!(
+                                            "Var arg {} has no local binding entry; source register unresolvable",
+                                            arg_idx
+                                        ),
+                                    );
+                                }
                             }
                         }
                     }
