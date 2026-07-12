@@ -2469,6 +2469,48 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "During arm-body lowering, the elaborator expected an App node to have at\nleast 3 children (callee, arg0, arg1) and for all to be present in the\narena. One or more conditions failed:\n- App node has fewer than 3 children\n- Callee child ID is not in the arena\n- Arg0 (first argument) child ID is not in the arena\n- Arg1 (second argument) child ID is not in the arena\n\nIssue #1147 slice A5b migration from the legacy Vec<String> diagnostic channel\nto the typed pipe.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1655",
+              "id": "U1655",
+              "name": "App node arm-body shape violation",
+              "shortDescription": {
+                "text": "App node < 3 children or callee/arg child missing from arena"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "During arm-body lowering, the elaborator attempted to lower an App node's\noperands but found that the corresponding side-table entry was missing:\n- For Var operands: binding_names side-table has no entry for the variable\n- For Literal operands: literal_values side-table has no entry for the literal\n\nThis indicates an inconsistency in the IR: the operand is registered but not\nindexed in the side-table used to extract its value during lowering.\n\nIssue #1147 slice A5b migration from the legacy Vec<String> diagnostic channel\nto the typed pipe.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1656",
+              "id": "U1656",
+              "name": "App node operand arena side-table miss",
+              "shortDescription": {
+                "text": "App Var lacks binding_names entry or Literal lacks literal_values entry"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "During arm-body lowering, the elaborator attempted to lower a Var operand\nbut found that the variable's binding name is not present in the current\nlocal_bindings map. This indicates that the variable was not bound in the\nmatch arm's scope, or the binding was lost before operand lowering occurred.\n\nIssue #1147 slice A5b migration from the legacy Vec<String> diagnostic channel\nto the typed pipe.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1657",
+              "id": "U1657",
+              "name": "App node var not in local_bindings",
+              "shortDescription": {
+                "text": "App Var name absent from state.local_bindings"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "The #![bits = 16] inner attribute specifies 16-bit mode, which is not supported in this implementation. PaideiaOS is designed for x86_64 (64-bit) primarily, with 32-bit fallback available. Either use #![bits = 32] or #![bits = 64], or remove the attribute to use the default."
               },
               "helpUri": "https://paideia-os.org/diagnostics/B1700",

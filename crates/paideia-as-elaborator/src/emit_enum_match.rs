@@ -98,6 +98,24 @@ fn u1654_code() -> DiagnosticCode {
         .expect("U1654 is within valid U range")
 }
 
+/// Helper to construct U1655 diagnostic code.
+fn u1655_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::U, Severity::Error, 1655)
+        .expect("U1655 is within valid U range")
+}
+
+/// Helper to construct U1656 diagnostic code.
+fn u1656_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::U, Severity::Error, 1656)
+        .expect("U1656 is within valid U range")
+}
+
+/// Helper to construct U1657 diagnostic code.
+fn u1657_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::U, Severity::Error, 1657)
+        .expect("U1657 is within valid U range")
+}
+
 impl EmitWalker {
     /// #1084: Emit scrutinee load for match expressions.
     ///
@@ -1522,7 +1540,7 @@ impl EmitWalker {
     fn emit_arm_body_app(&mut self, app_id: IrNodeId, arena: &IrArena, _match_id: IrNodeId, _idx: u32) {
         let children = arena.children(app_id);
         if children.len() < 3 {
-            self.diagnostics.push(format!(
+            self.push_typed_diag(u1655_code(), format!(
                 "App node {} has fewer than 3 children (callee, arg0, arg1)",
                 app_id.get()
             ));
@@ -1537,7 +1555,7 @@ impl EmitWalker {
         let callee_node = match arena.get(callee_id) {
             Some(n) => n,
             None => {
-                self.diagnostics.push(format!(
+                self.push_typed_diag(u1655_code(), format!(
                     "App node {}'s callee child {} not found",
                     app_id.get(),
                     callee_id.get()
@@ -1558,7 +1576,7 @@ impl EmitWalker {
         let arg0_node = match arena.get(arg0_id) {
             Some(n) => n,
             None => {
-                self.diagnostics.push(format!(
+                self.push_typed_diag(u1655_code(), format!(
                     "App node {}'s arg0 child {} not found",
                     app_id.get(),
                     arg0_id.get()
@@ -1570,7 +1588,7 @@ impl EmitWalker {
         let arg1_node = match arena.get(arg1_id) {
             Some(n) => n,
             None => {
-                self.diagnostics.push(format!(
+                self.push_typed_diag(u1655_code(), format!(
                     "App node {}'s arg1 child {} not found",
                     app_id.get(),
                     arg1_id.get()
@@ -1586,7 +1604,7 @@ impl EmitWalker {
                 let arg0_name = match arena.binding_names().get(arg0_id) {
                     Some(n) => n,
                     None => {
-                        self.diagnostics.push(format!(
+                        self.push_typed_diag(u1656_code(), format!(
                             "App node {} arg0 Var has no binding name",
                             app_id.get()
                         ));
@@ -1597,7 +1615,7 @@ impl EmitWalker {
                 let arg1_name = match arena.binding_names().get(arg1_id) {
                     Some(n) => n,
                     None => {
-                        self.diagnostics.push(format!(
+                        self.push_typed_diag(u1656_code(), format!(
                             "App node {} arg1 Var has no binding name",
                             app_id.get()
                         ));
@@ -1608,7 +1626,7 @@ impl EmitWalker {
                 let arg0_reg = match self.state.local_bindings.get(arg0_name) {
                     Some(reg) => reg,
                     None => {
-                        self.diagnostics.push(format!(
+                        self.push_typed_diag(u1657_code(), format!(
                             "App node {} arg0 var '{}' not in local_bindings",
                             app_id.get(),
                             arg0_name
@@ -1620,7 +1638,7 @@ impl EmitWalker {
                 let arg1_reg = match self.state.local_bindings.get(arg1_name) {
                     Some(reg) => reg,
                     None => {
-                        self.diagnostics.push(format!(
+                        self.push_typed_diag(u1657_code(), format!(
                             "App node {} arg1 var '{}' not in local_bindings",
                             app_id.get(),
                             arg1_name
@@ -1678,7 +1696,7 @@ impl EmitWalker {
                 let arg0_name = match arena.binding_names().get(arg0_id) {
                     Some(n) => n,
                     None => {
-                        self.diagnostics.push(format!(
+                        self.push_typed_diag(u1656_code(), format!(
                             "App node {} arg0 Var has no binding name",
                             app_id.get()
                         ));
@@ -1689,7 +1707,7 @@ impl EmitWalker {
                 let arg1_value = match arena.literal_values().get(arg1_id) {
                     Some(val) => val,
                     None => {
-                        self.diagnostics.push(format!(
+                        self.push_typed_diag(u1656_code(), format!(
                             "App node {} arg1 Literal has no value",
                             app_id.get()
                         ));
@@ -1700,7 +1718,7 @@ impl EmitWalker {
                 let arg0_reg = match self.state.local_bindings.get(arg0_name) {
                     Some(reg) => reg,
                     None => {
-                        self.diagnostics.push(format!(
+                        self.push_typed_diag(u1657_code(), format!(
                             "App node {} arg0 var '{}' not in local_bindings",
                             app_id.get(),
                             arg0_name
@@ -1758,7 +1776,7 @@ impl EmitWalker {
                 let arg0_value = match arena.literal_values().get(arg0_id) {
                     Some(val) => val,
                     None => {
-                        self.diagnostics.push(format!(
+                        self.push_typed_diag(u1656_code(), format!(
                             "App node {} arg0 Literal has no value",
                             app_id.get()
                         ));
@@ -1769,7 +1787,7 @@ impl EmitWalker {
                 let arg1_name = match arena.binding_names().get(arg1_id) {
                     Some(n) => n,
                     None => {
-                        self.diagnostics.push(format!(
+                        self.push_typed_diag(u1656_code(), format!(
                             "App node {} arg1 Var has no binding name",
                             app_id.get()
                         ));
@@ -1780,7 +1798,7 @@ impl EmitWalker {
                 let arg1_reg = match self.state.local_bindings.get(arg1_name) {
                     Some(reg) => reg,
                     None => {
-                        self.diagnostics.push(format!(
+                        self.push_typed_diag(u1657_code(), format!(
                             "App node {} arg1 var '{}' not in local_bindings",
                             app_id.get(),
                             arg1_name
@@ -1838,7 +1856,7 @@ impl EmitWalker {
                 let arg0_value = match arena.literal_values().get(arg0_id) {
                     Some(val) => val,
                     None => {
-                        self.diagnostics.push(format!(
+                        self.push_typed_diag(u1656_code(), format!(
                             "App node {} arg0 Literal has no value",
                             app_id.get()
                         ));
@@ -1849,7 +1867,7 @@ impl EmitWalker {
                 let arg1_value = match arena.literal_values().get(arg1_id) {
                     Some(val) => val,
                     None => {
-                        self.diagnostics.push(format!(
+                        self.push_typed_diag(u1656_code(), format!(
                             "App node {} arg1 Literal has no value",
                             app_id.get()
                         ));

@@ -1819,3 +1819,60 @@ to the typed pipe. Workaround: restructure nested patterns to use fewer than
 """
 since = "0.19.0"
 deprecated = false
+
+[diagnostic.U1655]
+severity = "error"
+category = "unsafe"
+title = "App node arm-body shape violation"
+brief = "App node < 3 children or callee/arg child missing from arena"
+description = """
+During arm-body lowering, the elaborator expected an App node to have at
+least 3 children (callee, arg0, arg1) and for all to be present in the
+arena. One or more conditions failed:
+- App node has fewer than 3 children
+- Callee child ID is not in the arena
+- Arg0 (first argument) child ID is not in the arena
+- Arg1 (second argument) child ID is not in the arena
+
+Issue #1147 slice A5b migration from the legacy Vec<String> diagnostic channel
+to the typed pipe.
+"""
+since = "0.19.0"
+deprecated = false
+
+[diagnostic.U1656]
+severity = "error"
+category = "unsafe"
+title = "App node operand arena side-table miss"
+brief = "App Var lacks binding_names entry or Literal lacks literal_values entry"
+description = """
+During arm-body lowering, the elaborator attempted to lower an App node's
+operands but found that the corresponding side-table entry was missing:
+- For Var operands: binding_names side-table has no entry for the variable
+- For Literal operands: literal_values side-table has no entry for the literal
+
+This indicates an inconsistency in the IR: the operand is registered but not
+indexed in the side-table used to extract its value during lowering.
+
+Issue #1147 slice A5b migration from the legacy Vec<String> diagnostic channel
+to the typed pipe.
+"""
+since = "0.19.0"
+deprecated = false
+
+[diagnostic.U1657]
+severity = "error"
+category = "unsafe"
+title = "App node var not in local_bindings"
+brief = "App Var name absent from state.local_bindings"
+description = """
+During arm-body lowering, the elaborator attempted to lower a Var operand
+but found that the variable's binding name is not present in the current
+local_bindings map. This indicates that the variable was not bound in the
+match arm's scope, or the binding was lost before operand lowering occurred.
+
+Issue #1147 slice A5b migration from the legacy Vec<String> diagnostic channel
+to the typed pipe.
+"""
+since = "0.19.0"
+deprecated = false
