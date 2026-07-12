@@ -6,14 +6,29 @@
 //! RAX(0), RCX(1), RDX(2), R8(8).
 //!
 //! §3.1 Architecture: Implements a scope stack for nested blocks with flat fallback.
-//! - `scopes`: Vec<HashMap<String, RegId>> — stack of scope levels; [0] = function-root
-//! - `flat`: HashMap<String, RegId> — union of all bindings (for resolve_var_operands fallback)
+//! - `scopes`: Vec<HashMap<String, BindingEntry>> — stack of scope levels; [0] = function-root
+//! - `flat`: HashMap<String, BindingEntry> — union of all bindings (for resolve_var_operands fallback)
+//!
+//! #1154: BindingEntry now supports optional payload_reg for register-form enum pair bindings.
 //!
 //! Push/pop explicit scope boundaries when entering/exiting block arms.
 //! Flat fallback resolves post-walk Var operands not found in current stack walk.
 
 use paideia_as_ir::instruction::RegId;
 use std::collections::HashMap;
+
+/// A local binding entry with optional pair-register support.
+///
+/// #1154: Register-form enum scrutinee bindings can carry both a discriminant register
+/// (reg) and an optional payload register (payload). Scalar bindings have payload=None.
+/// Public — needed by emit_enum_match.rs consumers.
+#[derive(Debug, Clone, Copy)]
+pub struct BindingEntry {
+    /// Primary register (discriminant for enums, sole register for scalars).
+    pub reg: RegId,
+    /// Optional payload register for register-form enum bindings.
+    pub payload: Option<RegId>,
+}
 
 /// Tracks local bindings within a function to their assigned scratch registers,
 /// with support for nested scopes (e.g., if/else arms, match arms).
@@ -27,12 +42,12 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub struct LocalBindingTable {
     /// Stack of scopes; scopes[0] is the function root.
-    /// Each scope is a HashMap from binding name to RegId.
-    scopes: Vec<HashMap<String, RegId>>,
+    /// Each scope is a HashMap from binding name to BindingEntry.
+    scopes: Vec<HashMap<String, BindingEntry>>,
 
     /// Union of all bindings across all scopes (for resolve_var_operands fallback).
     /// When stack-walk returns None, fallback to flat lookup.
-    flat: HashMap<String, RegId>,
+    flat: HashMap<String, BindingEntry>,
 }
 
 impl Default for LocalBindingTable {
@@ -53,27 +68,62 @@ impl LocalBindingTable {
 
     /// Register a binding and its assigned scratch register in the top scope AND flat.
     /// PA10-005 §3.1: inserts into both top scope and flat union.
+    /// Constructs a BindingEntry with payload=None (scalar binding).
     pub fn insert(&mut self, name: String, reg: RegId) {
+        let entry = BindingEntry {
+            reg,
+            payload: None,
+        };
         // Insert into top scope
         if let Some(top_scope) = self.scopes.last_mut() {
-            top_scope.insert(name.clone(), reg);
+            top_scope.insert(name.clone(), entry);
         }
         // Insert into flat union
-        self.flat.insert(name, reg);
+        self.flat.insert(name, entry);
+    }
+
+    /// Register a pair binding (discriminant + payload) for register-form enums.
+    /// #1154: Constructs a BindingEntry with payload=Some(payload_reg).
+    pub fn insert_pair(&mut self, name: String, reg: RegId, payload: RegId) {
+        let entry = BindingEntry {
+            reg,
+            payload: Some(payload),
+        };
+        // Insert into top scope
+        if let Some(top_scope) = self.scopes.last_mut() {
+            top_scope.insert(name.clone(), entry);
+        }
+        // Insert into flat union
+        self.flat.insert(name, entry);
     }
 
     /// Look up a binding by walking scopes top-down; if none found, fall back to flat.
     /// PA10-005 §3.1: scope walk with flat fallback for post-walk resolve_var_operands.
+    /// Returns the primary register (reg field of BindingEntry). External API unchanged.
     #[must_use]
     pub fn get(&self, name: &str) -> Option<RegId> {
         // Walk scopes from top (most recent) to root
         for scope in self.scopes.iter().rev() {
-            if let Some(&reg) = scope.get(name) {
-                return Some(reg);
+            if let Some(entry) = scope.get(name) {
+                return Some(entry.reg);
             }
         }
         // Fallback to flat union if stack-walk yields None
-        self.flat.get(name).copied()
+        self.flat.get(name).map(|entry| entry.reg)
+    }
+
+    /// Look up a binding pair (reg, payload) by walking scopes top-down; if none found, fall back to flat.
+    /// #1154: Returns (primary_reg, optional_payload_reg). Mirrors the scope walk of get().
+    #[must_use]
+    pub fn get_pair(&self, name: &str) -> Option<(RegId, Option<RegId>)> {
+        // Walk scopes from top (most recent) to root
+        for scope in self.scopes.iter().rev() {
+            if let Some(entry) = scope.get(name) {
+                return Some((entry.reg, entry.payload));
+            }
+        }
+        // Fallback to flat union if stack-walk yields None
+        self.flat.get(name).map(|entry| (entry.reg, entry.payload))
     }
 
     /// Push a new scope onto the stack (entering a nested block).
@@ -110,8 +160,9 @@ impl LocalBindingTable {
     }
 
     /// Iterate over all flat bindings (backward-compat surface for len/is_empty/iter).
-    pub fn iter(&self) -> impl Iterator<Item = (&String, &RegId)> {
-        self.flat.iter()
+    /// Returns the primary register (reg field) for each binding.
+    pub fn iter(&self) -> impl Iterator<Item = (&String, RegId)> + '_ {
+        self.flat.iter().map(|(name, entry)| (name, entry.reg))
     }
 
     /// Return the number of registered bindings (flat count).
@@ -303,5 +354,69 @@ mod tests {
         table.push_scope(); // Now 2 scopes: [root, nested]
         table.pop_scope(); // Now 1 scope: [root]
         table.pop_scope(); // Panics: already at root
+    }
+
+    /// #1154: insert_pair round-trip: payload set and retrieved.
+    #[test]
+    fn insert_pair_round_trip() {
+        let mut table = LocalBindingTable::new();
+        let reg = abi::RAX;
+        let payload = abi::RDX;
+
+        table.insert_pair("enum_x".to_string(), reg, payload);
+        assert_eq!(table.get_pair("enum_x"), Some((reg, Some(payload))));
+        assert_eq!(table.len(), 1);
+    }
+
+    /// #1154: get_pair returns None payload for scalar insert().
+    #[test]
+    fn get_pair_returns_none_payload_for_scalar_insert() {
+        let mut table = LocalBindingTable::new();
+        let reg = abi::RCX;
+
+        table.insert("scalar_y".to_string(), reg);
+        assert_eq!(table.get_pair("scalar_y"), Some((reg, None)));
+        // Single-reg API still works
+        assert_eq!(table.get("scalar_y"), Some(reg));
+    }
+
+    /// #1154: Shadow with pair wins in scope walk.
+    #[test]
+    fn shadow_with_pair_wins() {
+        let mut table = LocalBindingTable::new();
+
+        // Root: scalar binding z → RAX
+        table.insert("z".to_string(), abi::RAX);
+        assert_eq!(table.get_pair("z"), Some((abi::RAX, None)));
+
+        // Nested: pair binding z → RCX (discriminant), RDX (payload) (shadow)
+        table.push_scope();
+        table.insert_pair("z".to_string(), abi::RCX, abi::RDX);
+
+        // Scope walk finds the pair, not the scalar
+        assert_eq!(table.get_pair("z"), Some((abi::RCX, Some(abi::RDX))));
+
+        // Pop back to root
+        table.pop_scope();
+        assert_eq!(table.get_pair("z"), Some((abi::RAX, None)));
+    }
+
+    /// #1154: Pop preserves pair in flat.
+    #[test]
+    fn pop_preserves_pair_in_flat() {
+        let mut table = LocalBindingTable::new();
+
+        // Root: scalar x → RAX
+        table.insert("x".to_string(), abi::RAX);
+        table.push_scope();
+
+        // Nested: pair y → RCX (disc), RDX (payload)
+        table.insert_pair("y".to_string(), abi::RCX, abi::RDX);
+        assert_eq!(table.get_pair("y"), Some((abi::RCX, Some(abi::RDX))));
+
+        // Pop back to root; y should still be found via flat fallback
+        table.pop_scope();
+        assert_eq!(table.get_pair("y"), Some((abi::RCX, Some(abi::RDX)))); // From flat
+        assert_eq!(table.get("x"), Some(abi::RAX)); // Still in root scope
     }
 }

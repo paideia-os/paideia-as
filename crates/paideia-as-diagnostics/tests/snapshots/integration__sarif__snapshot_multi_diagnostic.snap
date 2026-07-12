@@ -2511,6 +2511,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "emit_scrutinee_load's local-binding branch found a register-form enum scrutinee\n(layout.payload_size > 0) whose local binding was inserted via the scalar insert()\nrather than insert_pair(). Payload consumers reading RDX will see stale data.\nThis diagnostic is defensive: the producer side (#1178) will make it structurally\nimpossible when let-type is a register-form enum. Filed as part of #1154 Slice 1.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1658",
+              "id": "U1658",
+              "name": "Register-form enum local binding missing payload register",
+              "shortDescription": {
+                "text": "local_bindings entry lacks payload_reg for a register-form enum scrutinee"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "The #![bits = 16] inner attribute specifies 16-bit mode, which is not supported in this implementation. PaideiaOS is designed for x86_64 (64-bit) primarily, with 32-bit fallback available. Either use #![bits = 32] or #![bits = 64], or remove the attribute to use the default."
               },
               "helpUri": "https://paideia-os.org/diagnostics/B1700",

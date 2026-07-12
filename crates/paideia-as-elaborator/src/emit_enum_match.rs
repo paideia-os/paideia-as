@@ -116,6 +116,12 @@ fn u1657_code() -> DiagnosticCode {
         .expect("U1657 is within valid U range")
 }
 
+/// Helper to construct U1658 diagnostic code.
+fn u1658_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::U, Severity::Error, 1658)
+        .expect("U1658 is within valid U range")
+}
+
 impl EmitWalker {
     /// #1084: Emit scrutinee load for match expressions.
     ///
@@ -228,7 +234,7 @@ impl EmitWalker {
         }
 
         // Fall back to local binding.
-        if let Some(src_reg) = self.state.local_bindings.get(&name) {
+        if let Some((src_reg, payload_reg)) = self.state.local_bindings.get_pair(&name) {
             // Emit mov rax, <src_reg>
             let mov_rax_id = self.alloc_synthetic_id();
             let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
@@ -247,9 +253,33 @@ impl EmitWalker {
                 },
             );
 
-            // For register-pair case (payload in RDX), emit if needed.
-            // Local bindings don't have separate payload storage, so this is a no-op
-            // for now. The payload would be in RDX if the enum was previously loaded.
+            // #1154: RDX loaded from payload_reg when layout.payload_size > 0; missing payload_reg → U1658.
+            if layout.payload_size > 0 {
+                if let Some(p) = payload_reg {
+                    // Emit mov rdx, <payload_reg>
+                    let load_rdx_id = self.alloc_synthetic_id();
+                    let mut rdx_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                    rdx_operands.push(Operand::Reg(abi::RDX));
+                    rdx_operands.push(Operand::Reg(p));
+
+                    self.emit_inst(
+                        load_rdx_id,
+                        Instruction {
+                            mnemonic: Mnemonic::Mov,
+                            operands: rdx_operands,
+                            encoding_hint: None,
+                            byte_offset_in_text: None,
+                            mode: self.current_mode(),
+                            emission_order: 0,
+                        },
+                    );
+                } else {
+                    self.push_typed_diag(u1658_code(), format!(
+                        "register-form enum local binding '{}' has no payload register; RDX would be stale",
+                        name
+                    ));
+                }
+            }
             return;
         }
 

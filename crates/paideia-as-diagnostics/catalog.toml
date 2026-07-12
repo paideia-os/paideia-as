@@ -1876,3 +1876,18 @@ to the typed pipe.
 """
 since = "0.19.0"
 deprecated = false
+
+[diagnostic.U1658]
+severity = "error"
+category = "unsafe"
+title = "Register-form enum local binding missing payload register"
+brief = "local_bindings entry lacks payload_reg for a register-form enum scrutinee"
+description = """
+emit_scrutinee_load's local-binding branch found a register-form enum scrutinee
+(layout.payload_size > 0) whose local binding was inserted via the scalar insert()
+rather than insert_pair(). Payload consumers reading RDX will see stale data.
+This diagnostic is defensive: the producer side (#1178) will make it structurally
+impossible when let-type is a register-form enum. Filed as part of #1154 Slice 1.
+"""
+since = "0.19.0"
+deprecated = false
