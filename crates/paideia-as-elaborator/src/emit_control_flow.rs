@@ -6,9 +6,22 @@
 
 use paideia_as_ir::instruction::{Cond, Instruction, Mnemonic, Operand};
 use paideia_as_ir::{IrArena, IrNodeId, SmallVec, abi};
+use paideia_as_diagnostics::{Category, DiagnosticCode, Severity};
 
 use crate::emit_pass_state::LoopContext;
 use crate::emit_walker::EmitWalker;
+
+/// Helper to construct U1621 diagnostic code.
+fn u1621_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::U, Severity::Error, 1621)
+        .expect("U1621 is within valid U range")
+}
+
+/// Helper to construct U1622 diagnostic code.
+fn u1622_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::U, Severity::Error, 1622)
+        .expect("U1622 is within valid U range")
+}
 
 impl EmitWalker {
     /// Phase 7 m1-001: Emit if-then-else expression lowering (IrKind::Branch).
@@ -25,11 +38,14 @@ impl EmitWalker {
         let children = arena.children(branch_node_id);
         if children.len() < 2 {
             // Malformed Branch node (needs at least condition + then_body).
-            self.diagnostics.push(format!(
-                "Branch node {} has {} children; expected at least 2",
-                branch_node_id.get(),
-                children.len()
-            ));
+            self.push_typed_diag(
+                u1621_code(),
+                format!(
+                    "Branch node {} has {} children; expected at least 2",
+                    branch_node_id.get(),
+                    children.len()
+                ),
+            );
             return;
         }
 
@@ -152,11 +168,14 @@ impl EmitWalker {
 
         if children.len() < 2 {
             // Malformed While node (expected 2+ children for normal bodies).
-            self.diagnostics.push(format!(
-                "While node {} has {} children; expected 2 (condition + body)",
-                while_node_id.get(),
-                children.len()
-            ));
+            self.push_typed_diag(
+                u1622_code(),
+                format!(
+                    "While node {} has {} children; expected 2 (condition + body)",
+                    while_node_id.get(),
+                    children.len()
+                ),
+            );
             return;
         }
 

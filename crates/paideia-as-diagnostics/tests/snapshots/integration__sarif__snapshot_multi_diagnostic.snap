@@ -2245,6 +2245,34 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "visit_branch requires each IrKind::Branch node to carry at least a condition\nchild and a then_body child (else_body is optional). Fewer than 2 children\nindicates the parser/lowerer produced a malformed Branch — a post-elaboration\ninvariant violation. Issue #1147 slice A1 migration from the legacy Vec<String>\ndiagnostic channel to the typed pipe.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1621",
+              "id": "U1621",
+              "name": "Malformed Branch IR node: insufficient children",
+              "shortDescription": {
+                "text": "Branch node has < 2 children; expected [condition, then_body, else_body?]"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "visit_while accepts two shapes: zero children (While inside an unsafe block —\nhandled by the unsafe_walker) or exactly [condition, body]. Any other count\nindicates the child-transfer pass or lowerer produced a malformed While — a\npost-elaboration invariant violation. Issue #1147 slice A1 migration from the\nlegacy Vec<String> diagnostic channel to the typed pipe.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1622",
+              "id": "U1622",
+              "name": "Malformed While IR node: insufficient children",
+              "shortDescription": {
+                "text": "While node has 1 child; expected 0 (unsafe body) or 2 (condition + body)"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "The #![bits = 16] inner attribute specifies 16-bit mode, which is not supported in this implementation. PaideiaOS is designed for x86_64 (64-bit) primarily, with 32-bit fallback available. Either use #![bits = 32] or #![bits = 64], or remove the attribute to use the default."
               },
               "helpUri": "https://paideia-os.org/diagnostics/B1700",
