@@ -156,6 +156,25 @@ impl EmitWalker {
         // Try module symbol first.
         if let Some(symbol) = arena.symbols().lookup_by_name(&name) {
             if matches!(symbol.kind, SymbolKind::Object) {
+                // #1153: Stack-form enums (size > 16) — caller-pointer convention.
+                // Consumers (visit_enum_discriminant, lower_pattern base_reg=RDI)
+                // read `[rdi+offset]`; load the object's address into RDI.
+                if layout.size > 16 {
+                    let lea_rdi_id = self.alloc_synthetic_id();
+                    let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                    operands.push(Operand::Reg(abi::RDI));
+                    operands.push(Operand::MemRipRelSym { name, addend: 0 });
+                    self.emit_inst(lea_rdi_id, Instruction {
+                        mnemonic: Mnemonic::Lea,
+                        operands,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode: self.current_mode(),
+                        emission_order: 0,
+                    });
+                    return;
+                }
+
                 // Emit mov rax, [rip+name+0]
                 let load_rax_id = self.alloc_synthetic_id();
                 let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
