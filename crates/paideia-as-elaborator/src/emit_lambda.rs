@@ -274,7 +274,7 @@ impl EmitWalker {
             match arg_node.kind {
                 IrKind::Literal => {
                     if let Some(v) = arena.literal_values().get(arg_id) {
-                        self.emit_mov_literal_to_reg(lambda_node_id, dst, v);
+                        self.emit_mov_literal_to_reg(dst, v);
                     }
                 }
                 IrKind::Var => {
@@ -488,7 +488,7 @@ impl EmitWalker {
             match arg_node.kind {
                 IrKind::Literal => {
                     if let Some(v) = arena.literal_values().get(arg_id) {
-                        self.emit_mov_literal_to_reg(lambda_node_id, dst, v);
+                        self.emit_mov_literal_to_reg(dst, v);
                     }
                 }
                 IrKind::Var => {

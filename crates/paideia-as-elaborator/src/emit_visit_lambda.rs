@@ -11,7 +11,6 @@
 //!                                       dispatches to the appropriate
 //!                                       shape-specific emitter
 //! - `emit_mov_literal_to_reg`        — imm→reg mov helper
-//! - `emit_mov_reg_to_reg`            — reg→reg mov helper
 
 use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand, RegId};
 use paideia_as_ir::let_meta::CallingConvention;
@@ -937,9 +936,8 @@ impl EmitWalker {
     ///
     /// #1128: use this when the caller needs the emitted MOV to sort at a specific
     /// position (e.g., match-arm bodies whose IDs must sort between dispatch and
-    /// end anchor). `emit_mov_literal_to_reg` overwrites the caller's ID with a
-    /// 1_000_000+lambda_id*100+reg synthetic value that is load-bearing for
-    /// call-argument marshalling but wrong for match-arm returns.
+    /// end anchor). `emit_mov_literal_to_reg` self-allocates via `alloc_synthetic_id()`;
+    /// if a specific sort position is needed, use `_with_id` variant instead.
     pub(crate) fn emit_mov_literal_to_reg_with_id(&mut self, inst_id: IrNodeId, dest_reg: RegId, value: i64) {
         let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
         operands.push(Operand::Reg(dest_reg));
@@ -957,7 +955,7 @@ impl EmitWalker {
     }
 
     /// Emit MOV of a literal value into a register.
-    pub(crate) fn emit_mov_literal_to_reg(&mut self, lambda_node_id: IrNodeId, dest_reg: RegId, value: i64) {
+    pub(crate) fn emit_mov_literal_to_reg(&mut self, dest_reg: RegId, value: i64) {
         // PA8-m3-001 (width not available — generic Mov retained): the operand
         // shape here IS `(Reg, Imm64)`, so this site is MovSized-encodable in
         // principle. But its sole caller is emit_function_call lowering a call
@@ -968,10 +966,7 @@ impl EmitWalker {
         // correct (zero-extends the literal into the full arg register). Once a
         // callee-signature lookup lands, thread the per-arg IntWidth in here and
         // mirror the visit_let_literal width-routing.
-        // Virtual ID: use a large base ID to avoid collisions
-        // Use 1000000 + (lambda_id * 100) + dest_reg to create unique IDs
-        let inst_id = IrNodeId::new(1000000 + lambda_node_id.get() * 100 + dest_reg.0 as u32)
-            .unwrap_or_else(|| IrNodeId::new(1).unwrap());
+        let inst_id = self.alloc_synthetic_id();
 
         let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
         operands.push(Operand::Reg(dest_reg));
@@ -1014,28 +1009,4 @@ impl EmitWalker {
         self.emit_inst(inst_id, inst);
     }
 
-    /// Emit MOV from one register to another.
-    #[allow(dead_code)]
-    pub(crate) fn emit_mov_reg_to_reg(&mut self, lambda_node_id: IrNodeId, src_reg: RegId, dest_reg: RegId) {
-        // PA8-m3-001 (generic Mov retained): reg-to-reg move; not MovSized-encodable.
-        // Virtual ID: use a large base ID to avoid collisions
-        // Use 2000000 + (lambda_id * 100) to create unique IDs
-        let inst_id = IrNodeId::new(2000000 + lambda_node_id.get() * 100)
-            .unwrap_or_else(|| IrNodeId::new(1).unwrap());
-
-        let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
-        operands.push(Operand::Reg(dest_reg));
-        operands.push(Operand::Reg(src_reg));
-
-        let inst = Instruction {
-            mnemonic: Mnemonic::Mov,
-            operands,
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: self.current_mode(),
-                    emission_order: 0,
-        };
-
-        self.emit_inst(inst_id, inst);
-    }
 }

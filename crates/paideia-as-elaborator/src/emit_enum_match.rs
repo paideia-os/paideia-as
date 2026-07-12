@@ -1348,9 +1348,8 @@ impl EmitWalker {
                     IrKind::Literal => {
                         // Literal arm (e.g., `0u64`): move value to RAX at a match-scoped
                         // IrNodeId so the MOV sorts between dispatch and arm-end anchor.
-                        // #1128: use _with_id variant; the plain emit_mov_literal_to_reg
-                        // overwrites the ID with a 1_000_000+lambda_id*100+reg value
-                        // (load-bearing for call-arg marshalling but wrong here).
+                        // #1128: use _with_id variant; emit_mov_literal_to_reg self-allocates
+                        // via alloc_synthetic_id(), which is fine for call args but wrong here.
                         if let Some(value) = arena.literal_values().get(arm_id) {
                             let mov_id = IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10 + 4)
                                 .expect("literal arm mov id");
