@@ -1571,3 +1571,19 @@ migration from the legacy Vec<String> diagnostic channel to the typed pipe.
 """
 since = "0.19.0"
 deprecated = false
+
+[diagnostic.U1642]
+severity = "error"
+category = "unsafe"
+title = "Instruction payload not found in side-table (invariant violation)"
+brief = "RawInstruction node lacks corresponding instruction payload"
+description = """
+During IR traversal in emit_block_body / emit_block_body_arm, a RawInstruction
+child node was encountered but the instruction payload was not found in the
+InstructionSideTable. Post-elaboration invariant violation: either the
+instruction was not registered during elaboration or the side-table lookup
+failed. Issue #1147 slice A3 migration from the legacy Vec<String> diagnostic
+channel to the typed pipe (reclassified from T0526 to unsafe/invariant).
+"""
+since = "0.19.0"
+deprecated = false

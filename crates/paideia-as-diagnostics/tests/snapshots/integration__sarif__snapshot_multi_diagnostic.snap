@@ -2287,6 +2287,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "During IR traversal in emit_block_body / emit_block_body_arm, a RawInstruction\nchild node was encountered but the instruction payload was not found in the\nInstructionSideTable. Post-elaboration invariant violation: either the\ninstruction was not registered during elaboration or the side-table lookup\nfailed. Issue #1147 slice A3 migration from the legacy Vec<String> diagnostic\nchannel to the typed pipe (reclassified from T0526 to unsafe/invariant).\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1642",
+              "id": "U1642",
+              "name": "Instruction payload not found in side-table (invariant violation)",
+              "shortDescription": {
+                "text": "RawInstruction node lacks corresponding instruction payload"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "The #![bits = 16] inner attribute specifies 16-bit mode, which is not supported in this implementation. PaideiaOS is designed for x86_64 (64-bit) primarily, with 32-bit fallback available. Either use #![bits = 32] or #![bits = 64], or remove the attribute to use the default."
               },
               "helpUri": "https://paideia-os.org/diagnostics/B1700",

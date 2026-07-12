@@ -40,6 +40,20 @@ fn t0527_code() -> DiagnosticCode {
         .expect("T0527 is within valid T range")
 }
 
+/// Helper to construct U1621 diagnostic code (Branch shape invariant).
+/// Shared code with emit_control_flow::visit_branch — slice A1 minted; A3 reuses.
+fn u1621_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::U, Severity::Error, 1621)
+        .expect("U1621 is within valid U range")
+}
+
+/// Helper to construct U1642 diagnostic code (RawInstruction payload invariant).
+/// Slice A3 mint; reclassifies former T0526 emissions in emit_block_body.
+fn u1642_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::U, Severity::Error, 1642)
+        .expect("U1642 is within valid U range")
+}
+
 impl EmitWalker {
     /// #1115 / #1116: Three-way Store dispatch shared by `emit_block_body` and
     /// `emit_block_body_arm`. Chooses field-assign vs. var-assign vs. array/pointer store
@@ -299,11 +313,14 @@ impl EmitWalker {
                         if let Some(inst) = arena.instructions().get(child_id) {
                             self.emit_inst(child_id, inst.clone());
                         } else {
-                            // Instruction payload not found: emit T0526 diagnostic.
-                            self.diagnostics.push(format!(
-                                "T0526: Instruction payload not found in side-table for RawInstruction node {} (internal compiler error)",
-                                child_id.get()
-                            ));
+                            // #1147 A3: invariant violation — RawInstruction lacks side-table payload.
+                            self.push_typed_diag(
+                                u1642_code(),
+                                format!(
+                                    "Instruction payload not found in side-table for RawInstruction node {} (internal compiler error)",
+                                    child_id.get()
+                                ),
+                            );
                         }
                     }
                     IrKind::Var => {
@@ -361,11 +378,14 @@ impl EmitWalker {
 
                         let branch_children = arena.children(child_id);
                         if branch_children.len() < 2 {
-                            self.diagnostics.push(format!(
-                                "Branch node {} has {} children; expected at least 2 (condition + then_body)",
-                                child_id.get(),
-                                branch_children.len()
-                            ));
+                            self.push_typed_diag(
+                                u1621_code(),
+                                format!(
+                                    "Branch node {} has {} children; expected at least 2",
+                                    child_id.get(),
+                                    branch_children.len()
+                                ),
+                            );
                             return;
                         }
 
@@ -725,11 +745,14 @@ impl EmitWalker {
                         if let Some(inst) = arena.instructions().get(child_id) {
                             self.emit_inst(child_id, inst.clone());
                         } else {
-                            // Instruction payload not found: emit T0526 diagnostic.
-                            self.diagnostics.push(format!(
-                                "T0526: Instruction payload not found in side-table for RawInstruction node {} (internal compiler error)",
-                                child_id.get()
-                            ));
+                            // #1147 A3: invariant violation — RawInstruction lacks side-table payload (arm variant).
+                            self.push_typed_diag(
+                                u1642_code(),
+                                format!(
+                                    "Instruction payload not found in side-table for RawInstruction node {} (internal compiler error)",
+                                    child_id.get()
+                                ),
+                            );
                         }
                     }
                     IrKind::Var => {
