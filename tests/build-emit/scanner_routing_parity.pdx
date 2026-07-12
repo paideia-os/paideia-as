@@ -1,0 +1,59 @@
+// #1134 Slice 2: Scanner 2 (cmd_build inline scanner) routing parity test.
+//
+// This fixture tests 14 module-level bindings with 7 RHS shapes × 2 mutabilities.
+// Scanner 2 should route each to the expected section:
+// - Rodata: immutable (RO) or mutable immutable-valued kinds (Literal, ArrayLit, etc.)
+// - Data: mutable versions of kinds with actual storage (mut Literal, mut InlineBytes, etc.)
+// - Bss: Placeholder (uninit), both mutable and immutable
+//
+// The key divergence from Scanner 1 (populate_data_table):
+// G_BYT_RW (InlineBytes + mut) should route to Data in Scanner 2,
+// but routed to Rodata in Scanner 1 (unconditional).
+
+module ScannerRoutingParity = structure {
+  // 1. Literal: immutable → Rodata
+  let A_LIT_RO : u64 = 42
+
+  // 2. Literal: mutable → Data
+  let mut A_LIT_RW : u64 = 42
+
+  // 3. ArrayLit: immutable → Rodata
+  let B_ARR_RO : [u8; 3] = [1, 2, 3]
+
+  // 4. ArrayLit: mutable → Data
+  let mut B_ARR_RW : [u8; 3] = [1, 2, 3]
+
+  // 5. RecordCons: immutable → Rodata
+  struct Pair { x: u64, y: u64 }
+  let C_REC_RO : Pair = Pair { x: 42, y: 100 }
+
+  // 6. RecordCons: mutable → Data
+  let mut C_REC_RW : Pair = Pair { x: 42, y: 100 }
+
+  // 7. EnumCons: immutable → Rodata
+  enum Result { Ok(u64), Err(u64) }
+  let D_ENUM_RO : Result = Result::Ok(42u64)
+
+  // 8. EnumCons: mutable → Data
+  let mut D_ENUM_RW : Result = Result::Ok(42u64)
+
+  // 9. Placeholder (uninit): immutable → Bss
+  let E_BSS_RO : u64 = uninit
+
+  // 10. Placeholder (uninit): mutable → Bss
+  let mut E_BSS_RW : u64 = uninit
+
+  // 11. StringLiteral (@include_str): immutable → Rodata
+  // TODO(#1134-parity-fixture): grammar for StringLiteral at module scope (include_str on Let binding)
+  // let F_STR_RO : [u8; N] = @include_str("data/...")
+
+  // 12. StringLiteral (@include_str): mutable → Data
+  // TODO(#1134-parity-fixture): grammar for StringLiteral at module scope (mutable include_str)
+  // let mut F_STR_RW : [u8; N] = @include_str("data/...")
+
+  // 13. InlineBytes (@guid): immutable → Rodata
+  let G_BYT_RO : [u8; 16] = @guid("12345678-1234-1234-1234-123456789abc")
+
+  // 14. InlineBytes (@guid): mutable → Data (diverges from Scanner 1, which routed to Rodata)
+  let mut G_BYT_RW : [u8; 16] = @guid("12345678-1234-1234-1234-123456789aaa")
+}

@@ -69,6 +69,7 @@ mod build_emit {
     pub mod record_reorder;
     pub mod rep_movsb;
     pub mod rep_stosq;
+    pub mod scanner_routing_parity;
     pub mod smoke;
     pub mod stmt_assign_call_rhs;
     pub mod stmt_assign_local_let_mut;
