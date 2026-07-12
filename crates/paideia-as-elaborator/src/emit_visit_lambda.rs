@@ -754,12 +754,9 @@ impl EmitWalker {
                             );
                         }
 
-                        // Record the lambda's starting offset. Note: For Action bodies, we use
-                        // lambda_node_id itself as main_id, which will be resolved by the first
-                        // actual instruction emitted in emit_block_body.
+                        // Arm the shim: the next emit_inst captures this lambda's first instruction
+                        // into lambda_first_instr.
                         self.state.pending_first_instr_lambda = Some(lambda_node_id.get());
-                        self.state.function_offsets.entry(lambda_node_id.get())
-                            .or_insert(self.state.estimated_offset);
                         self.state.mark_lambda_emitted(lambda_node_id.get());
 
                         // Adversarial-verify of #1094 (aee6935): the original fix deleted the
@@ -839,10 +836,9 @@ impl EmitWalker {
                             );
                         }
 
-                        // Record the lambda's starting offset.
+                        // Arm the shim: the next emit_inst captures this lambda's first instruction
+                        // into lambda_first_instr.
                         self.state.pending_first_instr_lambda = Some(lambda_node_id.get());
-                        self.state.function_offsets.entry(lambda_node_id.get())
-                            .or_insert(self.state.estimated_offset);
                         self.state.mark_lambda_emitted(lambda_node_id.get());
 
                         // Derive TailContext from match return type.

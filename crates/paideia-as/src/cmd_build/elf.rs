@@ -210,21 +210,9 @@ pub(super) fn build_elf_object(
     // symbols, causing duplicate symbol names when a Borrow relocation targeted a
     // function not yet registered.
     //
-    // Iterate over arena.symbols().iter() and emit one symbol per entry.
-    // PA8-m1-002: Source function_offsets from encoder ground truth (offset_map).
-    // We start with record_lambda_entry's seeded values (estimated_offset as fallback for
-    // deferred lambdas), then override with actual encoder offsets from offset_map. This
-    // ensures (1) deferred lambdas still get offsets to avoid breaking the build, and
-    // (2) emitted lambdas use ground-truth encoder offsets instead of estimates.
-    let mut function_offsets = emit_walker.state().function_offsets().clone();
-    let _emitted_lambdas = emit_walker.emitted_lambdas();
-    let mut emitted_any_symbol = false;
-
-    // PA8-m1-002c: Project function_offsets from offset_map for all emitted lambdas.
-    // Iterate lambda_first_instr and override function_offsets[lambda_id] with
-    // offset_map[first_instr] for every entry. This ensures ground-truth encoder
-    // offsets take precedence over estimated_offset. Lambdas with no offset_map entry
-    // retain their estimated_offset (fallback for deferred lambdas and non-emitting shapes).
+    // v3 retirement: derive symbol offsets solely from lambda_first_instr × offset_map.
+    // Lambdas whose first_instr is not in offset_map fall through to the None branch (B1704).
+    let mut function_offsets: HashMap<u32, u32> = HashMap::new();
     {
         let lambda_first_instr = emit_walker.state().lambda_first_instr();
         let offset_map = &emit_result.offset_map;
@@ -234,6 +222,8 @@ pub(super) fn build_elf_object(
             }
         }
     }
+    let _emitted_lambdas = emit_walker.emitted_lambdas();
+    let mut emitted_any_symbol = false;
 
     // PA8-m1-002: Pre-compute sorted, deduplicated offsets once to avoid O(N²) lookup.
     let mut sorted_offsets: Vec<u32> = function_offsets.values().copied().collect();

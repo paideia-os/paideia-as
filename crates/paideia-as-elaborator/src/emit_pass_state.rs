@@ -51,11 +51,6 @@ pub struct EmitPassState {
     /// consume the actual offsets from Instruction.byte_offset_in_text.
     pub(crate) estimated_offset: u32,
 
-    /// Lambda IR node id -> estimated byte offset within function.
-    /// Populated by record_lambda_entry as a fallback for deferred lambdas (m1-004+).
-    /// Authoritative offsets come from EmitResult.offset_map projection in cmd_build/elf.rs.
-    pub(crate) function_offsets: HashMap<u32, u32>,
-
     /// Lambda IR node id -> IrNodeId of its first emitted instruction.
     /// Populated by record_lambda_entry. Resolved to byte offsets
     /// post-encoding via EmitResult.offset_map (future use).
@@ -196,7 +191,6 @@ impl Default for EmitPassState {
             current_function: Default::default(),
             pending_first_instr_lambda: None,
             estimated_offset: Default::default(),
-            function_offsets: Default::default(),
             lambda_first_instr: Default::default(),
             emitted_lambdas: Default::default(),
             lambda_abis: Default::default(),
@@ -472,14 +466,6 @@ impl EmitPassState {
     /// synthetic labels for intra-recipe jumps.
     pub fn insert_label(&mut self, name: String, instr_id: IrNodeId) {
         self.label_to_instr.insert(name, instr_id);
-    }
-
-    /// Read-only view of the function-offset map (lambda-id → byte offset).
-    /// Fallback offsets for deferred lambdas; authoritative offsets come from
-    /// EmitResult.offset_map projection.
-    #[must_use]
-    pub fn function_offsets(&self) -> &HashMap<u32, u32> {
-        &self.function_offsets
     }
 
     /// Read-only view of the lambda-first-instruction map.

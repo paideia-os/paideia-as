@@ -169,7 +169,6 @@ impl EmitWalker {
         // PA8-m1-002c: Capture first instruction of pending lambda before offset advances.
         if let Some(lid) = self.state.pending_first_instr_lambda.take() {
             self.state.lambda_first_instr.insert(lid, node_id);
-            self.state.function_offsets.entry(lid).or_insert(self.state.estimated_offset);
             self.state.mark_lambda_emitted(lid);
         }
         self.state.estimated_offset += bytes;
@@ -206,18 +205,8 @@ impl EmitWalker {
     ///
     /// Called at the START of each emit_*_lambda function to record:
     /// 1. The first instruction's IrNodeId (for post-encoding offset projection via offset_map)
-    /// 2. The estimated byte offset as a fallback for deferred lambdas
-    /// 3. Marks the lambda as emitted for symbol filtering
+    /// 2. Marks the lambda as emitted for symbol filtering
     pub fn record_lambda_entry(&mut self, lambda_id: IrNodeId, first_instr_id: IrNodeId) {
-        // Record the estimated offset for backward compatibility: deferred lambdas (m1-004+)
-        // that don't emit real instructions still need offsets to avoid breaking the build.
-        // This is a fallback; the authoritative offset comes from EmitResult.offset_map
-        // projection in cmd_build/elf.rs.
-        self.state
-            .function_offsets
-            .entry(lambda_id.get())
-            .or_insert(self.state.estimated_offset);
-
         // Record the first instruction's IR node ID for offset_map projection
         self.state
             .lambda_first_instr
