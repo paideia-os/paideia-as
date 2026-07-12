@@ -728,4 +728,229 @@ mod tests {
         let result = encode_ir_value_sized(&arena, record_id, 4);
         assert_eq!(result, None, "Length mismatch should return None, not panic");
     }
+
+    /// Issue #1134: Test that populate_data_table routes each RHS kind and mutability combo to expected section.
+    ///
+    /// This is a parity test documenting scanner 1's routing behavior (populate_data_table in data_encoder.rs).
+    /// For each of 14 rows (7 RHS shapes × 2 mutabilities), constructs a Let node with that shape/mutability
+    /// and verifies the section assignment matches expected (rodata/data/bss).
+    ///
+    /// Key divergence noted: InlineBytes unconditionally routes to Rodata in scanner 1, but scanner 2
+    /// (cmd_build.rs) routes on mutability. This test pins scanner 1's behavior; the integration test
+    /// (future slice) will pin scanner 2's.
+    #[test]
+    fn populate_data_table_routes_each_rhs_kind_to_expected_section() {
+        use paideia_as_diagnostics::{FileId, Span};
+        use paideia_as_ir::{
+            SectionKind, LetInfo, EnumConsInfo, EnumLayout, EnumTypeId,
+            record_layout::{RecordTypeId, RecordLayout, FieldLayout},
+        };
+
+        fn span() -> Span {
+            Span::new(FileId::new(1).unwrap(), 0, 1)
+        }
+
+        // Test cases: (rhs_kind_name, mutability, section_expected, setup_closure)
+        // Each closure returns (rhs_id, side_table_setup_fn)
+        let test_cases: Vec<(&str, bool, SectionKind, Box<dyn Fn(&mut IrArena) -> IrNodeId>)> = vec![
+            // Literal: immutable → Rodata, mutable → Data
+            ("Literal_immutable", false, SectionKind::Rodata, Box::new(|arena| {
+                let rhs_id = arena.alloc(IrKind::Literal, span());
+                arena.literal_values_mut().insert(rhs_id, 42);
+                rhs_id
+            })),
+            ("Literal_mutable", true, SectionKind::Data, Box::new(|arena| {
+                let rhs_id = arena.alloc(IrKind::Literal, span());
+                arena.literal_values_mut().insert(rhs_id, 42);
+                rhs_id
+            })),
+
+            // ArrayLit: immutable → Rodata, mutable → Data
+            ("ArrayLit_immutable", false, SectionKind::Rodata, Box::new(|arena| {
+                let elem_id = arena.alloc(IrKind::Literal, span());
+                arena.literal_values_mut().insert(elem_id, 10);
+                let array_id = arena.alloc_with_children(IrKind::ArrayLit, span(), [elem_id]);
+                array_id
+            })),
+            ("ArrayLit_mutable", true, SectionKind::Data, Box::new(|arena| {
+                let elem_id = arena.alloc(IrKind::Literal, span());
+                arena.literal_values_mut().insert(elem_id, 10);
+                let array_id = arena.alloc_with_children(IrKind::ArrayLit, span(), [elem_id]);
+                array_id
+            })),
+
+            // RecordCons: immutable → Rodata, mutable → Data
+            ("RecordCons_immutable", false, SectionKind::Rodata, Box::new(|arena| {
+                let type_name_id = arena.alloc(IrKind::Literal, span());
+                let field_id = arena.alloc(IrKind::Literal, span());
+                arena.literal_values_mut().insert(field_id, 99);
+                let record_id = arena.alloc_with_children(IrKind::RecordCons, span(), [type_name_id, field_id]);
+                let record_type_id = RecordTypeId(400);
+                arena.record_layout_table_mut().insert(record_id, record_type_id);
+                arena.finalised_record_layouts_mut().insert(
+                    record_type_id,
+                    RecordLayout::new(8, 8, vec![FieldLayout { offset: 0, size: 8, signed: false }]),
+                );
+                record_id
+            })),
+            ("RecordCons_mutable", true, SectionKind::Data, Box::new(|arena| {
+                let type_name_id = arena.alloc(IrKind::Literal, span());
+                let field_id = arena.alloc(IrKind::Literal, span());
+                arena.literal_values_mut().insert(field_id, 99);
+                let record_id = arena.alloc_with_children(IrKind::RecordCons, span(), [type_name_id, field_id]);
+                let record_type_id = RecordTypeId(401);
+                arena.record_layout_table_mut().insert(record_id, record_type_id);
+                arena.finalised_record_layouts_mut().insert(
+                    record_type_id,
+                    RecordLayout::new(8, 8, vec![FieldLayout { offset: 0, size: 8, signed: false }]),
+                );
+                record_id
+            })),
+
+            // EnumCons: immutable → Rodata, mutable → Data
+            ("EnumCons_immutable", false, SectionKind::Rodata, Box::new(|arena| {
+                let payload_id = arena.alloc(IrKind::Literal, span());
+                arena.literal_values_mut().insert(payload_id, 7);
+                let enum_id = arena.alloc_with_children(IrKind::EnumCons, span(), [payload_id]);
+                let enum_type_id = EnumTypeId(200);
+                arena.enum_cons_info_mut().insert(enum_id, EnumConsInfo {
+                    type_id: enum_type_id,
+                    variant_index: 0,
+                });
+                arena.enum_layout_table_mut().insert(
+                    enum_type_id,
+                    EnumLayout {
+                        size: 16,
+                        align: 8,
+                        discriminant_size: 8,
+                        payload_offset: 8,
+                        payload_size: 8,
+                    },
+                );
+                enum_id
+            })),
+            ("EnumCons_mutable", true, SectionKind::Data, Box::new(|arena| {
+                let payload_id = arena.alloc(IrKind::Literal, span());
+                arena.literal_values_mut().insert(payload_id, 7);
+                let enum_id = arena.alloc_with_children(IrKind::EnumCons, span(), [payload_id]);
+                let enum_type_id = EnumTypeId(201);
+                arena.enum_cons_info_mut().insert(enum_id, EnumConsInfo {
+                    type_id: enum_type_id,
+                    variant_index: 0,
+                });
+                arena.enum_layout_table_mut().insert(
+                    enum_type_id,
+                    EnumLayout {
+                        size: 16,
+                        align: 8,
+                        discriminant_size: 8,
+                        payload_offset: 8,
+                        payload_size: 8,
+                    },
+                );
+                enum_id
+            })),
+
+            // Placeholder: always → Bss (regardless of mutability)
+            ("Placeholder_immutable", false, SectionKind::Bss, Box::new(|arena| {
+                arena.alloc(IrKind::Placeholder, span())
+            })),
+            ("Placeholder_mutable", true, SectionKind::Bss, Box::new(|arena| {
+                arena.alloc(IrKind::Placeholder, span())
+            })),
+
+            // StringLiteral: unconditionally → Rodata (with relocation, regardless of mutability)
+            ("StringLiteral_immutable", false, SectionKind::Rodata, Box::new(|arena| {
+                let str_id = arena.alloc(IrKind::StringLiteral, span());
+                arena.literal_bytes_mut().insert(str_id, b"hello".to_vec());
+                str_id
+            })),
+            ("StringLiteral_mutable", true, SectionKind::Rodata, Box::new(|arena| {
+                let str_id = arena.alloc(IrKind::StringLiteral, span());
+                arena.literal_bytes_mut().insert(str_id, b"hello".to_vec());
+                str_id
+            })),
+
+            // InlineBytes: unconditionally → Rodata (scanner 1 divergence — NOTE THIS)
+            // This is the pre-existing divergence: scanner 1 always emits Rodata,
+            // but scanner 2 routes on mutability. This test documents scanner 1's behavior.
+            ("InlineBytes_immutable", false, SectionKind::Rodata, Box::new(|arena| {
+                let bytes_id = arena.alloc(IrKind::InlineBytes, span());
+                arena.literal_bytes_mut().insert(bytes_id, vec![0x01, 0x02, 0x03, 0x04]);
+                bytes_id
+            })),
+            ("InlineBytes_mutable", true, SectionKind::Rodata, Box::new(|arena| {
+                let bytes_id = arena.alloc(IrKind::InlineBytes, span());
+                arena.literal_bytes_mut().insert(bytes_id, vec![0x01, 0x02, 0x03, 0x04]);
+                bytes_id
+            })),
+        ];
+
+        // For each test case, construct arena, Let node, and verify section routing
+        for (case_name, is_mutable, expected_section, setup_fn) in test_cases {
+            let mut arena = IrArena::new();
+            let rhs_id = setup_fn(&mut arena);
+
+            // Allocate a Let node with the RHS
+            let let_id = arena.alloc_with_children(IrKind::Let, span(), [rhs_id]);
+
+            // Set mutability on let_meta
+            let let_info = if is_mutable {
+                LetInfo::mutable()
+            } else {
+                LetInfo::immutable()
+            };
+            arena.let_meta_mut().insert(let_id, let_info);
+
+            // Call populate_data_table
+            let mut data_table = DataSideTable::new();
+            populate_data_table(&arena, &mut data_table);
+
+            // Assert the entry was created and has the expected section
+            let entry = data_table.get(let_id)
+                .unwrap_or_else(|| panic!("populate_data_table should create entry for {}", case_name));
+            assert_eq!(
+                entry.section, expected_section,
+                "Case {}: expected section {:?}, got {:?}",
+                case_name, expected_section, entry.section
+            );
+        }
+    }
+
+    /// Issue #1134: Test that populate_data_table ignores unrecognized RHS kinds.
+    ///
+    /// Tripwire test: If a new RHS shape is added to the IR in the future,
+    /// this test ensures populate_data_table doesn't silently create entries for it.
+    /// The test creates a Let with a Var RHS (not in the 7-shape set) and verifies
+    /// no entry is created.
+    #[test]
+    fn populate_data_table_ignores_unrecognized_rhs_kinds() {
+        use paideia_as_diagnostics::{FileId, Span};
+        use paideia_as_ir::LetInfo;
+
+        fn span() -> Span {
+            Span::new(FileId::new(1).unwrap(), 0, 1)
+        }
+
+        let mut arena = IrArena::new();
+
+        // Allocate a Var RHS (not in the supported set)
+        let var_id = arena.alloc(IrKind::Var, span());
+
+        // Allocate a Let node with the Var RHS
+        let let_id = arena.alloc_with_children(IrKind::Let, span(), [var_id]);
+
+        // Set immutable (to verify mutability doesn't affect filtering)
+        arena.let_meta_mut().insert(let_id, LetInfo::immutable());
+
+        // Call populate_data_table
+        let mut data_table = DataSideTable::new();
+        populate_data_table(&arena, &mut data_table);
+
+        // Assert no entry was created for the unsupported RHS kind
+        assert!(
+            data_table.get(let_id).is_none(),
+            "populate_data_table should not create entry for unsupported RHS kind (Var)"
+        );
+    }
 }
