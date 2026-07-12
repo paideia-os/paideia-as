@@ -17,5 +17,6 @@ mod codegen {
         pub mod mode_propagation;
         pub mod pub_let;
     }
+    pub mod let_app_in_arm;
     pub mod string_lit_emit;
 }
