@@ -34,6 +34,18 @@ fn t0530_code() -> DiagnosticCode {
         .expect("T0530 is within valid T range")
 }
 
+/// Helper to construct T0564 diagnostic code.
+fn t0564_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::T, Severity::Error, 564)
+        .expect("T0564 is within valid T range")
+}
+
+/// Helper to construct T0565 diagnostic code.
+fn t0565_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::T, Severity::Error, 565)
+        .expect("T0565 is within valid T range")
+}
+
 impl EmitWalker {
     /// Phase 6 m3-002: Emit field access lowering for (*p).field shape.
     ///
@@ -136,10 +148,13 @@ impl EmitWalker {
             4 => IntWidth::W32,
             8 => IntWidth::W64,
             _ => {
-                self.diagnostics.push(format!(
-                    "Unsupported field size {} for field store at offset {}",
-                    field_size, field_offset
-                ));
+                self.push_typed_diag(
+                    t0564_code(),
+                    format!(
+                        "Unsupported field size {} for field store at offset {}",
+                        field_size, field_offset
+                    ),
+                );
                 return;
             }
         };
@@ -471,10 +486,13 @@ impl EmitWalker {
                 self.emit_field_access_mov_sized_reg(node_id, offset, dest_reg, IntWidth::W64)
             }
             _ => {
-                self.diagnostics.push(format!(
-                    "Unsupported field: size={}, signed={} at node {}",
-                    size, signed, node_id.get()
-                ));
+                self.push_typed_diag(
+                    t0565_code(),
+                    format!(
+                        "Unsupported field: size={}, signed={} at node {}",
+                        size, signed, node_id.get()
+                    ),
+                );
             }
         }
     }

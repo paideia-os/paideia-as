@@ -1339,6 +1339,38 @@ description = "Phase 8 emit_enum_match: enum constructor payload lowering curren
 since = "0.17.0"
 deprecated = false
 
+[diagnostic.T0564]
+severity = "error"
+category = "type"
+title = "Field-store width not yet lowered"
+brief = "field-store size dispatch handles only 1/2/4/8; other widths deferred"
+description = """
+The pointer-receiver field-assign path in emit_field_access.rs
+(visit_field_assign) dispatches store width on field_size and lowers
+1/2/4/8-byte stores via MovSized. Any other width (e.g. padded or
+oversized fields introduced by future layout work) falls through and
+raises this diagnostic. Store-side counterpart of T0565; issue #1147
+retag of the legacy string push.
+"""
+since = "0.19.0"
+deprecated = false
+
+[diagnostic.T0565]
+severity = "error"
+category = "type"
+title = "Field-load (size, signed) not yet lowered"
+brief = "emit_widening_load handles only 1/2/4/8-byte signed/unsigned; other shapes deferred"
+description = """
+The unified widening-load dispatcher (emit_widening_load) in
+emit_field_access.rs covers the 4x2 (size in {1,2,4,8}, signed in
+{false,true}) matrix that today's frontend can produce. Any other
+(size, signed) combination — e.g. from future non-power-of-two field
+types — falls through and raises this diagnostic. Read-side counterpart
+of T0564; issue #1147 retag of the legacy string push.
+"""
+since = "0.19.0"
+deprecated = false
+
 [diagnostic.P0282]
 severity = "error"
 category = "parser"

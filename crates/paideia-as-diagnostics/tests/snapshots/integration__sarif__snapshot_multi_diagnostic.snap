@@ -1658,6 +1658,34 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "The pointer-receiver field-assign path in emit_field_access.rs\n(visit_field_assign) dispatches store width on field_size and lowers\n1/2/4/8-byte stores via MovSized. Any other width (e.g. padded or\noversized fields introduced by future layout work) falls through and\nraises this diagnostic. Store-side counterpart of T0565; issue #1147\nretag of the legacy string push.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0564",
+              "id": "T0564",
+              "name": "Field-store width not yet lowered",
+              "shortDescription": {
+                "text": "field-store size dispatch handles only 1/2/4/8; other widths deferred"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "The unified widening-load dispatcher (emit_widening_load) in\nemit_field_access.rs covers the 4x2 (size in {1,2,4,8}, signed in\n{false,true}) matrix that today's frontend can produce. Any other\n(size, signed) combination — e.g. from future non-power-of-two field\ntypes — falls through and raises this diagnostic. Read-side counterpart\nof T0564; issue #1147 retag of the legacy string push.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0565",
+              "id": "T0565",
+              "name": "Field-load (size, signed) not yet lowered",
+              "shortDescription": {
+                "text": "emit_widening_load handles only 1/2/4/8-byte signed/unsigned; other shapes deferred"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "A binding declared as Linear or Ordered in the substructural lattice must be used exactly once. This binding was never used. A Linear binding represents a unique resource that must be consumed; Ordered adds ordering constraints. Check that the binding is referenced exactly once in its scope."
               },
               "helpUri": "https://paideia-os.org/diagnostics/S0900",
