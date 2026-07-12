@@ -1,6 +1,5 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
-assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -1658,6 +1657,62 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "The match-arm body lowering path in emit_enum_match.rs dispatches on\nthe arm's IR kind. App bodies are lowered via emit_arm_body_app; other\nIR kinds (nested Match, Let, Block, etc.) are not yet supported and\nfall through to this diagnostic. Issue #1147 retag of the legacy\nstring push at emit_enum_match.rs.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0560",
+              "id": "T0560",
+              "name": "Unsupported match-arm body IR kind",
+              "shortDescription": {
+                "text": "arm body IR kind not handled by emit lowering"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "emit_arm_body_app infers the operator string from the callee's source\nspan length via infer_operator_from_span_len. Spans whose length does\nnot correspond to any registered operator (1..=2 bytes today) raise\nthis diagnostic. Indicates either a novel operator not yet wired or a\nmalformed span. Issue #1147 retag.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0561",
+              "id": "T0561",
+              "name": "Unsupported operator span length in App node",
+              "shortDescription": {
+                "text": "callee span length does not map to a known operator"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "The App-node lowering in emit_enum_match.rs dispatches the inferred\noperator against a fixed table (+, -, *, &, |, ^, <<, >>) across four\noperand-shape arms ((Var,Var), (Var,Literal), (Literal,Var),\n(Literal,Literal)). Operators outside this set (e.g. /, %, comparisons)\nare not yet lowered in the match-arm path. Same code fires from all\nfour arms; issue #1147 retag.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0562",
+              "id": "T0562",
+              "name": "Unsupported operator in App node lowering",
+              "shortDescription": {
+                "text": "operator string not in the arithmetic/bitwise dispatch table"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "emit_arm_body_app case-analyzes operand shapes over the 2x2 matrix\n(Var|Literal, Var|Literal). Any other operand shape (e.g. nested App,\nFieldAccess, EnumCons) falls through and raises this diagnostic.\nComplements T0562; issue #1147 retag.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0563",
+              "id": "T0563",
+              "name": "Unsupported operand kinds in App node lowering",
+              "shortDescription": {
+                "text": "arg0/arg1 IR kind pair not in the (Var|Literal)^2 matrix"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "The pointer-receiver field-assign path in emit_field_access.rs\n(visit_field_assign) dispatches store width on field_size and lowers\n1/2/4/8-byte stores via MovSized. Any other width (e.g. padded or\noversized fields introduced by future layout work) falls through and\nraises this diagnostic. Store-side counterpart of T0565; issue #1147\nretag of the legacy string push.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0564",
@@ -1679,6 +1734,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "Field-load (size, signed) not yet lowered",
               "shortDescription": {
                 "text": "emit_widening_load handles only 1/2/4/8-byte signed/unsigned; other shapes deferred"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "The register-form pattern binding path in emit_enum_match.rs extracts\nenum-variant payload fields via a size-and-signed dispatch. Field\nshapes outside the supported set fall through and raise this\ndiagnostic. Register-pattern counterpart of T0565; issue #1147 retag.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0566",
+              "id": "T0566",
+              "name": "Unsupported field size/signed in register-form pattern binding",
+              "shortDescription": {
+                "text": "register-pattern payload extraction handles only supported width/sign combos"
               }
             },
             {
