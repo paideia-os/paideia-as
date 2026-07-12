@@ -1679,3 +1679,143 @@ to the typed pipe.
 """
 since = "0.19.0"
 deprecated = false
+
+[diagnostic.U1648]
+severity = "error"
+category = "unsafe"
+title = "EnumCons/EnumDiscriminant IR node lacks required side-table entry"
+brief = "EnumConsInfo, payload child, or EnumTypeId missing"
+description = """
+During enum constructor or discriminant lowering, the elaborator attempted to
+look up required metadata but the entry was not found in the side-table. This
+can occur when:
+- EnumCons node lacks EnumConsInfo in the side-table
+- EnumCons has payload_size > 0 but no payload child
+- EnumDiscriminant node lacks EnumTypeId in the side-table
+
+Issue #1147 slice A5a migration from the legacy Vec<String> diagnostic channel
+to the typed pipe. This indicates a structural invariant violation in the
+elaborator and should not occur in normal compilation.
+"""
+since = "0.19.0"
+deprecated = false
+
+[diagnostic.U1649]
+severity = "error"
+category = "unsafe"
+title = "Enum layout missing from state (invariant violation)"
+brief = "state.enum_layout(type_id) returned None during enum lowering"
+description = """
+During enum constructor, discriminant, or match lowering, the elaborator
+attempted to look up the enum layout for a type_id but the layout was not
+found in the state's enum_layouts table. This can occur when:
+- An enum type was not properly registered during elaboration
+- The type_id is invalid or uninitialized
+- The layout was removed prematurely from the state
+
+Issue #1147 slice A5a migration from the legacy Vec<String> diagnostic channel
+to the typed pipe. This indicates a structural invariant violation and should
+not occur in normal compilation.
+"""
+since = "0.19.0"
+deprecated = false
+
+[diagnostic.U1650]
+severity = "error"
+category = "unsafe"
+title = "Match IR node malformed (missing children, arms, or scrutinee type)"
+brief = "Match node shape violation post-elaboration"
+description = """
+During match expression lowering, a Match IR node was found to be malformed:
+- Missing children (expected at least scrutinee)
+- Missing arms in jump-table or cascade dispatch
+- Scrutinee type not resolvable from the node structure
+- Insufficient arms for exhaustive pattern coverage
+
+Issue #1147 slice A5a migration from the legacy Vec<String> diagnostic channel
+to the typed pipe. This indicates a post-elaboration invariant violation: either
+the parser/lowerer produced a malformed Match, or child-transfer passed through
+without validating the shape.
+"""
+since = "0.19.0"
+deprecated = false
+
+[diagnostic.U1651]
+severity = "error"
+category = "unsafe"
+title = "MatchArmMeta missing for arm (invariant violation)"
+brief = "arena.match_arm_meta().get(arm_id) returned None"
+description = """
+During match arm lowering (either jump-table or cascade dispatch), the
+elaborator attempted to look up match-arm metadata but the entry was not found
+in the arena's match_arm_meta side-table. Each arm must have associated
+MatchArmMeta describing its pattern bindings and layout.
+
+Issue #1147 slice A5a migration from the legacy Vec<String> diagnostic channel
+to the typed pipe. This indicates a structural invariant violation: the arm
+was not properly registered during elaboration.
+"""
+since = "0.19.0"
+deprecated = false
+
+[diagnostic.U1652]
+severity = "error"
+category = "unsafe"
+title = "Record layout missing during nested pattern lowering"
+brief = "state.record_layout(type_id) returned None"
+description = """
+During nested pattern binding lowering (in lower_pattern for enum variants
+with record payloads or direct record patterns), the elaborator attempted to
+look up the record layout for a type_id but the layout was not found in the
+state's record_layouts table. This can occur when:
+- A record type was not properly registered during elaboration
+- The type_id is invalid or uninitialized
+- The layout was removed prematurely from the state
+
+Issue #1147 slice A5a migration from the legacy Vec<String> diagnostic channel
+to the typed pipe. This indicates a structural invariant violation and should
+not occur in normal compilation.
+"""
+since = "0.19.0"
+deprecated = false
+
+[diagnostic.U1653]
+severity = "error"
+category = "unsafe"
+title = "Nested-pattern field name not in record layout"
+brief = "field_index_by_name returned None during nested pattern lowering"
+description = """
+During nested pattern binding lowering (in lower_pattern for record fields),
+the elaborator attempted to resolve a field name to its index in the record
+layout but the field was not found. This can occur when:
+- The field name does not exist in the record type definition
+- The record layout was incompletely populated
+- The field name spelling does not match the layout's field index
+
+Issue #1147 slice A5a migration from the legacy Vec<String> diagnostic channel
+to the typed pipe. This indicates a structural invariant violation or type
+mismatch in the record field resolution.
+"""
+since = "0.19.0"
+deprecated = false
+
+[diagnostic.U1654]
+severity = "error"
+category = "unsafe"
+title = "Nested-pattern leaf-binding count exceeded scratch pool"
+brief = ">5 leaves in arm (memory path) / >4 leaves in arm (register path)"
+description = """
+During nested pattern binding lowering (in lower_pattern), the elaborator
+attempted to assign binding slots but exhausted the available scratch
+registers. Two forms:
+- Memory-form patterns: each binding requires a scratch register; limit is 5
+  (scratch_regs array length). Exceeding 5 bindings per arm exhausts the pool.
+- Register-form patterns: limit is 4 caller-save registers. Exceeding 4
+  bindings per arm triggers this diagnostic.
+
+Issue #1147 slice A5a migration from the legacy Vec<String> diagnostic channel
+to the typed pipe. Workaround: restructure nested patterns to use fewer than
+5 (memory) or 4 (register) bindings per arm.
+"""
+since = "0.19.0"
+deprecated = false

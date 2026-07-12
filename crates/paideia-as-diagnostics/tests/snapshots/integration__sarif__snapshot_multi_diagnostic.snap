@@ -2371,6 +2371,104 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "During enum constructor or discriminant lowering, the elaborator attempted to\nlook up required metadata but the entry was not found in the side-table. This\ncan occur when:\n- EnumCons node lacks EnumConsInfo in the side-table\n- EnumCons has payload_size > 0 but no payload child\n- EnumDiscriminant node lacks EnumTypeId in the side-table\n\nIssue #1147 slice A5a migration from the legacy Vec<String> diagnostic channel\nto the typed pipe. This indicates a structural invariant violation in the\nelaborator and should not occur in normal compilation.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1648",
+              "id": "U1648",
+              "name": "EnumCons/EnumDiscriminant IR node lacks required side-table entry",
+              "shortDescription": {
+                "text": "EnumConsInfo, payload child, or EnumTypeId missing"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "During enum constructor, discriminant, or match lowering, the elaborator\nattempted to look up the enum layout for a type_id but the layout was not\nfound in the state's enum_layouts table. This can occur when:\n- An enum type was not properly registered during elaboration\n- The type_id is invalid or uninitialized\n- The layout was removed prematurely from the state\n\nIssue #1147 slice A5a migration from the legacy Vec<String> diagnostic channel\nto the typed pipe. This indicates a structural invariant violation and should\nnot occur in normal compilation.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1649",
+              "id": "U1649",
+              "name": "Enum layout missing from state (invariant violation)",
+              "shortDescription": {
+                "text": "state.enum_layout(type_id) returned None during enum lowering"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "During match expression lowering, a Match IR node was found to be malformed:\n- Missing children (expected at least scrutinee)\n- Missing arms in jump-table or cascade dispatch\n- Scrutinee type not resolvable from the node structure\n- Insufficient arms for exhaustive pattern coverage\n\nIssue #1147 slice A5a migration from the legacy Vec<String> diagnostic channel\nto the typed pipe. This indicates a post-elaboration invariant violation: either\nthe parser/lowerer produced a malformed Match, or child-transfer passed through\nwithout validating the shape.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1650",
+              "id": "U1650",
+              "name": "Match IR node malformed (missing children, arms, or scrutinee type)",
+              "shortDescription": {
+                "text": "Match node shape violation post-elaboration"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "During match arm lowering (either jump-table or cascade dispatch), the\nelaborator attempted to look up match-arm metadata but the entry was not found\nin the arena's match_arm_meta side-table. Each arm must have associated\nMatchArmMeta describing its pattern bindings and layout.\n\nIssue #1147 slice A5a migration from the legacy Vec<String> diagnostic channel\nto the typed pipe. This indicates a structural invariant violation: the arm\nwas not properly registered during elaboration.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1651",
+              "id": "U1651",
+              "name": "MatchArmMeta missing for arm (invariant violation)",
+              "shortDescription": {
+                "text": "arena.match_arm_meta().get(arm_id) returned None"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "During nested pattern binding lowering (in lower_pattern for enum variants\nwith record payloads or direct record patterns), the elaborator attempted to\nlook up the record layout for a type_id but the layout was not found in the\nstate's record_layouts table. This can occur when:\n- A record type was not properly registered during elaboration\n- The type_id is invalid or uninitialized\n- The layout was removed prematurely from the state\n\nIssue #1147 slice A5a migration from the legacy Vec<String> diagnostic channel\nto the typed pipe. This indicates a structural invariant violation and should\nnot occur in normal compilation.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1652",
+              "id": "U1652",
+              "name": "Record layout missing during nested pattern lowering",
+              "shortDescription": {
+                "text": "state.record_layout(type_id) returned None"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "During nested pattern binding lowering (in lower_pattern for record fields),\nthe elaborator attempted to resolve a field name to its index in the record\nlayout but the field was not found. This can occur when:\n- The field name does not exist in the record type definition\n- The record layout was incompletely populated\n- The field name spelling does not match the layout's field index\n\nIssue #1147 slice A5a migration from the legacy Vec<String> diagnostic channel\nto the typed pipe. This indicates a structural invariant violation or type\nmismatch in the record field resolution.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1653",
+              "id": "U1653",
+              "name": "Nested-pattern field name not in record layout",
+              "shortDescription": {
+                "text": "field_index_by_name returned None during nested pattern lowering"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "During nested pattern binding lowering (in lower_pattern), the elaborator\nattempted to assign binding slots but exhausted the available scratch\nregisters. Two forms:\n- Memory-form patterns: each binding requires a scratch register; limit is 5\n  (scratch_regs array length). Exceeding 5 bindings per arm exhausts the pool.\n- Register-form patterns: limit is 4 caller-save registers. Exceeding 4\n  bindings per arm triggers this diagnostic.\n\nIssue #1147 slice A5a migration from the legacy Vec<String> diagnostic channel\nto the typed pipe. Workaround: restructure nested patterns to use fewer than\n5 (memory) or 4 (register) bindings per arm.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1654",
+              "id": "U1654",
+              "name": "Nested-pattern leaf-binding count exceeded scratch pool",
+              "shortDescription": {
+                "text": ">5 leaves in arm (memory path) / >4 leaves in arm (register path)"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "The #![bits = 16] inner attribute specifies 16-bit mode, which is not supported in this implementation. PaideiaOS is designed for x86_64 (64-bit) primarily, with 32-bit fallback available. Either use #![bits = 32] or #![bits = 64], or remove the attribute to use the default."
               },
               "helpUri": "https://paideia-os.org/diagnostics/B1700",

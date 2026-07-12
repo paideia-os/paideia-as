@@ -56,6 +56,48 @@ fn t0566_code() -> DiagnosticCode {
         .expect("T0566 is within valid T range")
 }
 
+/// Helper to construct U1648 diagnostic code.
+fn u1648_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::U, Severity::Error, 1648)
+        .expect("U1648 is within valid U range")
+}
+
+/// Helper to construct U1649 diagnostic code.
+fn u1649_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::U, Severity::Error, 1649)
+        .expect("U1649 is within valid U range")
+}
+
+/// Helper to construct U1650 diagnostic code.
+fn u1650_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::U, Severity::Error, 1650)
+        .expect("U1650 is within valid U range")
+}
+
+/// Helper to construct U1651 diagnostic code.
+fn u1651_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::U, Severity::Error, 1651)
+        .expect("U1651 is within valid U range")
+}
+
+/// Helper to construct U1652 diagnostic code.
+fn u1652_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::U, Severity::Error, 1652)
+        .expect("U1652 is within valid U range")
+}
+
+/// Helper to construct U1653 diagnostic code.
+fn u1653_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::U, Severity::Error, 1653)
+        .expect("U1653 is within valid U range")
+}
+
+/// Helper to construct U1654 diagnostic code.
+fn u1654_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::U, Severity::Error, 1654)
+        .expect("U1654 is within valid U range")
+}
+
 impl EmitWalker {
     /// #1084: Emit scrutinee load for match expressions.
     ///
@@ -209,7 +251,7 @@ impl EmitWalker {
         let info = match arena.enum_cons_info().get(enum_cons_id) {
             Some(i) => i,
             None => {
-                self.diagnostics.push(format!(
+                self.push_typed_diag(u1648_code(), format!(
                     "EnumCons node {} has no EnumConsInfo",
                     enum_cons_id.get()
                 ));
@@ -221,7 +263,7 @@ impl EmitWalker {
             match self.state.enum_layout(info.type_id) {
                 Some(l) => (l.size, l.payload_size),
                 None => {
-                    self.diagnostics.push(format!(
+                    self.push_typed_diag(u1649_code(), format!(
                         "No enum layout found for type {}",
                         info.type_id.0
                     ));
@@ -233,7 +275,7 @@ impl EmitWalker {
         let layout = match self.state.enum_layout(info.type_id) {
             Some(l) => l,
             None => {
-                self.diagnostics.push(format!(
+                self.push_typed_diag(u1649_code(), format!(
                     "No enum layout found for type {}",
                     info.type_id.0
                 ));
@@ -296,7 +338,7 @@ impl EmitWalker {
                             }
                         }
                         None => {
-                            self.diagnostics.push(format!(
+                            self.push_typed_diag(u1648_code(), format!(
                                 "EnumCons {} has payload_size > 0 but no child",
                                 enum_cons_id.get()
                             ));
@@ -382,7 +424,7 @@ impl EmitWalker {
         let type_id = match arena.enum_disc_info().get(enum_disc_id) {
             Some(tid) => *tid,
             None => {
-                self.diagnostics.push(format!(
+                self.push_typed_diag(u1648_code(), format!(
                     "EnumDiscriminant node {} has no EnumTypeId registered",
                     enum_disc_id.get()
                 ));
@@ -393,7 +435,7 @@ impl EmitWalker {
         let layout = match self.state.enum_layout(type_id) {
             Some(l) => l,
             None => {
-                self.diagnostics.push(format!(
+                self.push_typed_diag(u1649_code(), format!(
                     "No enum layout found for type {}",
                     type_id.0
                 ));
@@ -473,7 +515,7 @@ impl EmitWalker {
                 let scratch_regs = [abi::RCX, abi::RDX, abi::R8, abi::R10, abi::R11];
 
                 if (*slot as usize) >= scratch_regs.len() {
-                    self.diagnostics.push(format!(
+                    self.push_typed_diag(u1654_code(), format!(
                         "Nested pattern binding exhaustion: >5 leaves in arm {}",
                         arm_id.get()
                     ));
@@ -542,7 +584,7 @@ impl EmitWalker {
                 let rec_layout = match self.state.record_layout(*type_id) {
                     Some(l) => l.clone(),
                     None => {
-                        self.diagnostics.push(format!(
+                        self.push_typed_diag(u1652_code(), format!(
                             "No record layout found for nested pattern type {}",
                             type_id.0
                         ));
@@ -555,7 +597,7 @@ impl EmitWalker {
                     let field_idx = match rec_layout.field_index_by_name(field_name) {
                         Some(idx) => idx,
                         None => {
-                            self.diagnostics.push(format!(
+                            self.push_typed_diag(u1653_code(), format!(
                                 "Field '{}' not found in record layout type {}",
                                 field_name, type_id.0
                             ));
@@ -621,7 +663,7 @@ impl EmitWalker {
                 let scratch_regs = [abi::RCX, abi::R8, abi::R10, abi::R11];
 
                 if (*slot as usize) >= scratch_regs.len() {
-                    self.diagnostics.push(format!(
+                    self.push_typed_diag(u1654_code(), format!(
                         "Nested pattern binding exhaustion: >4 leaves in arm {} (from register)",
                         arm_id.get()
                     ));
@@ -826,7 +868,7 @@ impl EmitWalker {
                 let rec_layout = match self.state.record_layout(*type_id) {
                     Some(l) => l.clone(),
                     None => {
-                        self.diagnostics.push(format!(
+                        self.push_typed_diag(u1652_code(), format!(
                             "No record layout found for nested pattern type {}",
                             type_id.0
                         ));
@@ -839,7 +881,7 @@ impl EmitWalker {
                     let field_idx = match rec_layout.field_index_by_name(field_name) {
                         Some(idx) => idx,
                         None => {
-                            self.diagnostics.push(format!(
+                            self.push_typed_diag(u1653_code(), format!(
                                 "Field '{}' not found in record layout type {}",
                                 field_name, type_id.0
                             ));
@@ -885,7 +927,7 @@ impl EmitWalker {
     ) {
         let children = arena.children(match_node_id);
         if children.is_empty() {
-            self.diagnostics.push(format!(
+            self.push_typed_diag(u1650_code(), format!(
                 "Match node {} has no children; expected scrutinee + arms",
                 match_node_id.get()
             ));
@@ -896,7 +938,7 @@ impl EmitWalker {
         let arm_ids: Vec<IrNodeId> = children[1..].to_vec();
 
         if arm_ids.is_empty() {
-            self.diagnostics.push(format!(
+            self.push_typed_diag(u1650_code(), format!(
                 "Match node {} has scrutinee but no arms",
                 match_node_id.get()
             ));
@@ -907,7 +949,7 @@ impl EmitWalker {
         let enum_type_id = match arena.match_scrutinee_table().get(match_node_id) {
             Some(tid) => *tid,
             None => {
-                self.diagnostics.push(format!(
+                self.push_typed_diag(u1650_code(), format!(
                     "Match node {} has no scrutinee type",
                     match_node_id.get()
                 ));
@@ -919,7 +961,7 @@ impl EmitWalker {
         let layout = match self.state.enum_layout(enum_type_id) {
             Some(l) => l.clone(),
             None => {
-                self.diagnostics.push(format!(
+                self.push_typed_diag(u1649_code(), format!(
                     "No enum layout found for match type {}",
                     enum_type_id.0
                 ));
@@ -1037,7 +1079,7 @@ impl EmitWalker {
             let arm_meta = match arena.match_arm_meta().get(arm_id) {
                 Some(m) => m,
                 None => {
-                    self.diagnostics.push(format!(
+                    self.push_typed_diag(u1651_code(), format!(
                         "Match arm {} has no MatchArmMeta",
                         arm_id.get()
                     ));
@@ -1142,7 +1184,7 @@ impl EmitWalker {
         self.state.mark_match_emitted(match_node_id.get());
         let children = arena.children(match_node_id);
         if children.is_empty() {
-            self.diagnostics.push(format!(
+            self.push_typed_diag(u1650_code(), format!(
                 "Match node {} has no children; expected scrutinee + arms",
                 match_node_id.get()
             ));
@@ -1160,7 +1202,7 @@ impl EmitWalker {
         let arm_ids: Vec<IrNodeId> = children[1..].to_vec();
 
         if arm_ids.is_empty() {
-            self.diagnostics.push(format!(
+            self.push_typed_diag(u1650_code(), format!(
                 "Match node {} has scrutinee but no arms",
                 match_node_id.get()
             ));
@@ -1171,7 +1213,7 @@ impl EmitWalker {
         let enum_type_id = match arena.match_scrutinee_table().get(match_node_id) {
             Some(tid) => *tid,
             None => {
-                self.diagnostics.push(format!(
+                self.push_typed_diag(u1650_code(), format!(
                     "Match node {} has no scrutinee type",
                     match_node_id.get()
                 ));
@@ -1183,7 +1225,7 @@ impl EmitWalker {
         let layout = match self.state.enum_layout(enum_type_id) {
             Some(l) => l.clone(),
             None => {
-                self.diagnostics.push(format!(
+                self.push_typed_diag(u1649_code(), format!(
                     "No enum layout found for match type {}",
                     enum_type_id.0
                 ));
@@ -1231,7 +1273,7 @@ impl EmitWalker {
             let arm_meta = match arena.match_arm_meta().get(arm_id) {
                 Some(m) => m,
                 None => {
-                    self.diagnostics.push(format!(
+                    self.push_typed_diag(u1651_code(), format!(
                         "Match arm {} has no MatchArmMeta",
                         arm_id.get()
                     ));
