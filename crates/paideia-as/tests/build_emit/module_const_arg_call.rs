@@ -12,7 +12,7 @@
 //! - `call take2` (5 bytes: e8 ?? ?? ?? ??)
 //! - `ret` (1 byte: c3)
 
-use object::{Object, ObjectSection, ObjectSymbol, RelocationTarget};
+use object::{Object, ObjectSection, ObjectSymbol, RelocationKind, RelocationTarget};
 
 use crate::common::elf::{assert_elf64_magic, text_bytes};
 use crate::common::fixture::build_emit;
@@ -71,20 +71,19 @@ fn call_site_emits_mov_rip_sym_for_constant() {
     // Expected: mov rsi, [rip+SHIFT] (7 bytes: 48 8b 35 ?? ?? ?? ??)
     //         + call take2 (5 bytes: e8 ?? ?? ?? ??)
     //         + ret (1 byte: c3)
-    // Total: 13 bytes
-    assert!(
-        actual.len() >= 13,
-        "call_site must be at least 13 bytes (mov [rip+SHIFT]; call take2; ret), got {}",
+    // Total: 13 bytes exactly
+    assert_eq!(
+        actual.len(),
+        13,
+        "call_site must be exactly 13 bytes (mov [rip+SHIFT]; call take2; ret), got {}",
         actual.len()
     );
 
-    // Check for RIP-relative load bytes: 48 8b 35 (mov rsi, [rip+disp32])
-    // This pattern is unique to the RIP-relative load for arg 1 (RSI).
-    let has_rip_load = actual.windows(3).any(|w| w == [0x48, 0x8b, 0x35]);
-    assert!(
-        has_rip_load,
-        "call_site must contain RIP-relative load bytes [48 8b 35] for the constant; bytes:\n{:02X?}",
-        actual
+    // Check for RIP-relative load at offset 0: 48 8b 35 (mov rsi, [rip+disp32])
+    assert_eq!(
+        &actual[0..3],
+        &[0x48, 0x8b, 0x35],
+        "call_site must start with RIP-relative load bytes [48 8b 35] for the constant"
     );
 
     // Check for CALL opcode (0xe8)
@@ -99,7 +98,7 @@ fn call_site_emits_mov_rip_sym_for_constant() {
     assert!(has_ret, ".text must contain RET (0xc3)");
 }
 
-/// Test that a relocation targets SHIFT.
+/// Test that a relocation targets SHIFT with type R_X86_64_PC32.
 #[test]
 fn shift_symbol_has_relocation() {
     let out = run_build(build_emit("module_const_arg_call.pdx"));
@@ -122,17 +121,29 @@ fn shift_symbol_has_relocation() {
     }
     assert!(shift_found, "SHIFT symbol must exist in symbol table");
 
-    // Check that at least one relocation targets SHIFT
+    // Check that a relocation targets SHIFT with type R_X86_64_PC32 (RelocationKind::Relative).
     // (The RIP-relative load should have a PC32 relocation to SHIFT)
     let mut shift_relocation_found = false;
     eprintln!("=== Checking relocations ===");
     for section in file.sections() {
-        for (_offset, relocation) in section.relocations() {
+        for (offset, relocation) in section.relocations() {
+            eprintln!("Relocation: offset={} kind={:?}", offset, relocation.kind());
             if let RelocationTarget::Symbol(sym_idx) = relocation.target() {
                 if let Ok(sym) = file.symbol_by_index(sym_idx) {
                     if let Ok(name) = sym.name() {
-                        eprintln!("Relocation to symbol: {}", name);
+                        eprintln!("  -> targets symbol: {}", name);
                         if name == "SHIFT" {
+                            // Verify the relocation type is R_X86_64_PC32 (RelocationKind::Relative with size 32)
+                            assert_eq!(
+                                relocation.kind(),
+                                RelocationKind::Relative,
+                                "SHIFT relocation must be R_X86_64_PC32 (RelocationKind::Relative)"
+                            );
+                            assert_eq!(
+                                relocation.size(),
+                                32,
+                                "SHIFT relocation must be a 32-bit displacement"
+                            );
                             shift_relocation_found = true;
                         }
                     }
@@ -142,6 +153,6 @@ fn shift_symbol_has_relocation() {
     }
     assert!(
         shift_relocation_found,
-        "At least one relocation must target SHIFT symbol"
+        "At least one R_X86_64_PC32 relocation must target SHIFT symbol"
     );
 }
