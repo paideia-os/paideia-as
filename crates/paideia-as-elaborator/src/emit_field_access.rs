@@ -77,6 +77,12 @@ fn u1647_code() -> DiagnosticCode {
         .expect("U1647 is within valid U range")
 }
 
+/// Helper to construct T0540 diagnostic code (MVP scope guard for module-field writes).
+fn t0540_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::T, Severity::Error, 540)
+        .expect("T0540 is within valid T range")
+}
+
 impl EmitWalker {
     /// Phase 6 m3-002: Emit field access lowering for (*p).field shape.
     ///
@@ -136,6 +142,13 @@ impl EmitWalker {
         let field_info = match arena.field_access_info().get(field_access_id) {
             Some(info) => info,
             None => {
+                // Issue #1182: fall back to module-field write path if the
+                // FieldAccess was recorded as a module-qualified reference.
+                if let Some(field_name) = arena.module_field_refs().get(field_access_id) {
+                    let name_owned = field_name.to_string();
+                    self.emit_module_field_write(store_id, field_access_id, name_owned, arena);
+                    return;
+                }
                 self.push_typed_diag(
                     u1644_code(),
                     format!(
@@ -365,6 +378,71 @@ impl EmitWalker {
         };
 
         self.emit_inst(store_id, inst);
+    }
+
+    /// Issue #1182: emit `Module.field = expr` as a RIP-relative store against
+    /// the bare exported symbol `field`. Assumes the paideia-as bare-name symbol
+    /// convention (see emit_walker.rs::visit_let, preempt.pdx unsafe asm).
+    ///
+    /// MVP scope: RHS = Var only; width = u64 hardcoded (module lets in kernel
+    /// are u64 today; matches #1176/#1179/#1181 precedent). Non-Var RHS is
+    /// scope-guarded via T0540 to avoid silent miscompile — follow-up will
+    /// extend parity with visit_var_assign's full RHS matrix.
+    fn emit_module_field_write(
+        &mut self,
+        store_id: IrNodeId,
+        field_access_id: IrNodeId,
+        field_name: String,
+        arena: &IrArena,
+    ) {
+        let children = arena.children(store_id);
+        if children.len() != 3 {
+            self.push_typed_diag(u1643_code(), format!(
+                "Store node {} has {} children; expected 3",
+                store_id.get(), children.len()));
+            return;
+        }
+        let value_id = children[2];
+
+        // Prevent double-visit under flat dispatch.
+        self.state.mark_field_access_handled(field_access_id.get());
+
+        let value_reg = match arena.get(value_id).map(|n| n.kind) {
+            Some(IrKind::Var) => {
+                let rhs_name = match arena.binding_names().get(value_id) {
+                    Some(n) => n.to_string(),
+                    None => {
+                        self.push_typed_diag(t0540_code(), format!(
+                            "module-field write RHS Var {} has no binding name",
+                            value_id.get()));
+                        return;
+                    }
+                };
+                match self.state.local_bindings.get(&rhs_name) {
+                    Some(reg) => reg,
+                    None => {
+                        self.push_typed_diag(t0540_code(), format!(
+                            "module-field write RHS {} not found in local bindings; \
+                             non-register sources deferred (follow-up #1182)", rhs_name));
+                        return;
+                    }
+                }
+            }
+            other => {
+                self.push_typed_diag(t0540_code(), format!(
+                    "module-field write RHS must be Var (MVP #1182); got {:?}", other));
+                return;
+            }
+        };
+
+        self.emit_mem_write_via_rip_sym(
+            store_id,
+            value_reg,
+            field_name,
+            0,     // no field-offset addend (bare-symbol reference)
+            8,     // u64 hardcode; width dispatch is follow-up
+            false, // unsigned
+        );
     }
 
     /// Phase 6 m3-003: Emit field access with a specified scratch register.

@@ -86,7 +86,17 @@ pub(super) fn populate_field_access_info(
         let struct_type_text = match binding_to_struct_type.get(&receiver_name) {
             Some(text) => text.clone(),
             None => {
-                // Receiver not in binding map: skip silently (non-blocking failure mode)
+                // Issue #1182: receiver is not a struct-typed binding — treat as a
+                // module-qualified reference (e.g. `Runqueue._current_tcb`). Record
+                // the field name so emit_field_access can emit a RIP-relative store
+                // against the bare exported symbol. Skip the deref form: `(*p).field`
+                // on an untyped p is genuinely unresolvable at this stage.
+                if !receiver_is_deref {
+                    if let Some(ir_field_access_id) = ast_to_ir.get(&ast_id) {
+                        ir.module_field_refs_mut()
+                            .insert(*ir_field_access_id, field_name.clone());
+                    }
+                }
                 continue;
             }
         };

@@ -10,6 +10,7 @@ use std::ops::Index;
 use crate::addr_of::AddrOfSideTable;
 use crate::binding_name::BindingNameTable;
 use crate::call_meta::CallSideTable;
+use crate::module_field_ref::ModuleFieldRefTable;
 use crate::constant_pool::ConstantPoolTable;
 use crate::data::DataSideTable;
 use crate::enum_layout::{
@@ -65,6 +66,10 @@ pub struct IrArena {
     /// Side-table: field access metadata indexed by FieldAccess node ID.
     /// Phase 6 m3-002: populated by elaborator, consumed by EmitWalker.
     field_access_table: FieldAccessSideTable,
+    /// Side-table: module-qualified field references indexed by FieldAccess node ID.
+    /// Issue #1182: populated when receiver is a module name (not struct-typed binding);
+    /// consumed by emit_field_access to emit RIP-relative store against bare exported symbol.
+    module_field_ref_table: ModuleFieldRefTable,
     /// Side-table: record constructor type mapping indexed by RecordCons node ID.
     /// Phase 6 m3-004: maps RecordCons nodes to their RecordTypeId for layout lookup.
     record_layout_table: RecordLayoutTable,
@@ -134,6 +139,7 @@ impl IrArena {
             let_meta_table: LetMetaTable::new(),
             symbol_table: SymbolTable::new(),
             field_access_table: FieldAccessSideTable::new(),
+            module_field_ref_table: ModuleFieldRefTable::new(),
             record_layout_table: RecordLayoutTable::new(),
             enum_cons_table: EnumConsSideTable::new(),
             enum_finalised_layouts: FinalisedEnumLayoutTable::new(),
@@ -353,6 +359,18 @@ impl IrArena {
     /// Borrow the field access table (mutable).
     pub fn field_access_info_mut(&mut self) -> &mut FieldAccessSideTable {
         &mut self.field_access_table
+    }
+
+    /// Borrow the module-field-ref table (read-only).
+    /// Issue #1182: provides field name for cross-module field assignments.
+    #[must_use]
+    pub fn module_field_refs(&self) -> &ModuleFieldRefTable {
+        &self.module_field_ref_table
+    }
+
+    /// Borrow the module-field-ref table (mutable).
+    pub fn module_field_refs_mut(&mut self) -> &mut ModuleFieldRefTable {
+        &mut self.module_field_ref_table
     }
 
     /// Borrow the record layout table (read-only).

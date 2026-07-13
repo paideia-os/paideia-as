@@ -1,0 +1,10 @@
+// Issue #1182: cross-module field assignment
+// `Module.field = param` writes to the bare exported symbol `field` via
+// RIP-relative. Tests the module-field-ref side-table + emit path added by
+// the #1182 fix. `Runqueue` is not defined here — the linker resolves
+// `_current_tcb` at link time (extern-style reference by naming convention).
+module CrossModuleFieldWriteU64 = structure {
+  pub let f : (u64) -> () = fn (v: u64) -> {
+    Runqueue._current_tcb = v
+  }
+}

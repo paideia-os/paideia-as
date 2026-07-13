@@ -15,6 +15,7 @@ mod build_emit {
     pub mod call_sym;
     pub mod cap_smoke;
     pub mod control_flow_corpus;
+    pub mod cross_module_field_write_u64;
     pub mod encoder_strict;
     pub mod enum_cons;
     pub mod enum_primitive_payload_u32;

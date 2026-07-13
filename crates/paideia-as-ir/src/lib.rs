@@ -28,6 +28,7 @@ pub mod literal_bytes;
 pub mod literal_value;
 pub mod load_store;
 pub mod loop_meta;
+pub mod module_field_ref;
 pub mod modules;
 pub mod monomorphisation;
 mod node;
@@ -74,6 +75,7 @@ pub use load_store::{
     LoadStoreInfo, LoadStoreSideTable, Signedness, Width, alloc_load, alloc_store,
 };
 pub use loop_meta::{LoopMeta, LoopMetaTable};
+pub use module_field_ref::ModuleFieldRefTable;
 pub use modules::{
     FieldKind, FunctorInfo, ModuleField, ModuleInfo, ModuleSideTable, pretty_module,
 };
