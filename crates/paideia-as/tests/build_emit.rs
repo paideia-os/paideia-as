@@ -42,6 +42,8 @@ mod build_emit {
     pub mod module_let_mut_assign_module_const_rhs;
     pub mod module_let_mut_assign_negatives;
     pub mod module_let_mut_assign_via_lambda;
+    pub mod nested_module_qualification_read;
+    pub mod nested_module_qualification_write;
     pub mod multi_arg_var_call;
     pub mod multi_fn_store_bodied_lambda;
     pub mod multi_fn_store_dispatch_ordering;

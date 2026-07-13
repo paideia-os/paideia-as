@@ -10,6 +10,8 @@
 
 ### Critical bug fixes
 
+- **Issue #1185** — Nested field access (`a.b.c`) silently dropped in assignments and read contexts. Root cause: (1) Store-lvalue classifier (`store_lvalue.rs::is_lvalue_infix_assignment`) rejects nested FieldAccess LHS, causing the `=` to remain as `IrKind::App` instead of `IrKind::Store`; (2) emit_block_body's App arm silently drops the assignment when callee has no `binding_names()` entry; (3) source-text extraction on a nested receiver span like `"Outer.Inner"` inserts wrong flat symbol name in module_field_refs (silent miscompile). **Fix:** Add nested-FA diagnostic check in `lower/field_access.rs::populate_field_access_info` that fires T0541 before source-text extract, blocking both read and write paths with clear error message: "Nested field access (a.b.c) is not yet supported. Introduce a temporary: `let tmp = a.b; tmp.c = ...`". Two new test fixtures (read and write) + integration tests verify T0541 fires cleanly instead of silent drop.
+
 - **Issue #1099** — SysV function calls with 1+ args emit dead-code MOVs after RET. Root cause: arg MOV IDs (1_000_000+) sorted after CALL/RET IDs (L*2, L*2+1), producing broken byte order. **Fix:** Unified CALL/RET ID scheme across SysV and MS to 1_050_000+L*100 (CALL) and 1_150_000+L*100 (RET), ensuring MOVs sort before CALL and RET sorts last. Fixed 3 indirect-call sites in `emit_lambda.rs`. Updated `record_lambda_entry` to use first-MOV ID when args exist. New unit test in `text_emitter.rs` + integration test in `codegen/call_byte_order.rs`. Regression probe: `tools/verify-byte-order.sh`.
 
 ### Key changes

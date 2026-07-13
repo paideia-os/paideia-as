@@ -1,0 +1,6 @@
+module NestedModuleQualificationRead = structure {
+  pub let f : (()) -> u64 = fn (_u: ()) -> {
+    let x : u64 = Outer.Inner.field
+    x
+  }
+}

@@ -63,6 +63,39 @@ pub(super) fn populate_field_access_info(
             _ => (*receiver_id, false),
         };
 
+        // #1185: Reject nested field access (receiver's AST kind is ExprFieldAccess)
+        // before the source-text extract. Without this, a receiver span like
+        // "Outer.Inner" gets treated as a module-qualified reference and
+        // module_field_refs is populated with the wrong flat symbol name
+        // (silent-miscompile hazard). The Store-lvalue classifier
+        // (store_lvalue.rs::is_lvalue_infix_assignment) also rejects nested-FA
+        // LHS, so the Store node is never built and the assignment silently
+        // drops through emit_block_body's App arm. Fire T0541 here so both
+        // read (`let x = A.B.f`) and write (`A.B.f = v`) paths report cleanly.
+        if let Some(ExprData::FieldAccess { .. }) = ast.expr_data(receiver_name_id) {
+            if let Ok(code) = DiagnosticCode::new(Category::T, Severity::Error, 541) {
+                let span = ast.get(ast_id)
+                    .map(|n| n.span)
+                    .unwrap_or_else(|| {
+                        ast.get(receiver_name_id)
+                            .map(|n| n.span)
+                            .expect("FieldAccess AST node has a span")
+                    });
+                let diag = Diagnostic::error(code)
+                    .message(
+                        "Nested field access (a.b.c) is not yet supported. \
+                         Introduce a temporary: `let tmp = a.b; tmp.c = ...` \
+                         (module- or struct-qualified paths deeper than one level \
+                         are a planned follow-up)."
+                            .to_string(),
+                    )
+                    .with_span(span)
+                    .finish();
+                let _ = sink.emit(diag);
+            }
+            continue;
+        }
+
         // Extract receiver name (only simple Ident/ExprPath, not computed expressions)
         let receiver_name =
             match extract_source_text_for_record_cons(ast, source_map, receiver_name_id) {

@@ -1,0 +1,5 @@
+module NestedModuleQualificationWrite = structure {
+  pub let f : (u64) -> () = fn (v: u64) -> {
+    Outer.Inner.field = v
+  }
+}
