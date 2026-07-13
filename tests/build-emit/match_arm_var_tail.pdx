@@ -1,0 +1,9 @@
+// #1188: emit_block_body_arm silently dropped braced Var tail in match arms.
+// This fixture exercises the tail-position variable shape: `{ x }` in an arm.
+module MatchArmVarTail = structure {
+  enum Choice { A, B }
+  pub let f : (Choice, u64) -> u64 = fn (c: Choice, x: u64) -> match c {
+    A => { x }
+    B => { x }
+  }
+}

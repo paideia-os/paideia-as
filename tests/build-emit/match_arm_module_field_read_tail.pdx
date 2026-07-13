@@ -1,0 +1,9 @@
+// #1189: emit_block_body_arm silently dropped module-qualified FieldAccess in match arms.
+// This fixture exercises the tail-position field-read shape: `{ M.f }` in an arm.
+module MatchArmModuleFieldReadTail = structure {
+  enum Choice { A, B }
+  pub let f : (Choice) -> u64 = fn (c: Choice) -> match c {
+    A => { Runqueue._current_tcb }
+    B => { Runqueue._current_tcb }
+  }
+}

@@ -886,14 +886,48 @@ impl EmitWalker {
                         }
                     }
                     IrKind::Var => {
-                        // Phase 7 m2-003: Bare identifier in statement position (e.g., `x;`).
-                        // This is a statement-form variable reference with no side effects.
-                        // Simply skip it — it's a statement expression that doesn't emit code.
-                        if cfg!(debug_assertions) {
-                            eprintln!(
-                                "[emit_block_body_arm] Var (bare identifier) at index {} — skipped",
-                                i
-                            );
+                        // Phase 7 m2-003: Bare identifier in statement or final-expression position.
+                        // #1188: If this is the final expression (last child), move its value to RAX.
+                        // Otherwise it's a statement-form variable reference with no side effects.
+                        if i == block_children.len() - 1 {
+                            // Tail position in match arm: value in RAX becomes the arm's value.
+                            if cfg!(debug_assertions) {
+                                eprintln!(
+                                    "[emit_block_body_arm] Var (tail position) at index {} — moving to RAX",
+                                    i
+                                );
+                            }
+
+                            // Look up the variable's current register
+                            if let Some(var_name) = arena.binding_names().get(child_id) {
+                                if let Some(src_reg) = self.state.local_bindings.get(var_name) {
+                                    if src_reg != abi::RAX {
+                                        // Emit: mov rax, src_reg
+                                        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                                        ops.push(Operand::Reg(abi::RAX));
+                                        ops.push(Operand::Reg(src_reg));
+                                        let inst = Instruction {
+                                            mnemonic: Mnemonic::Mov,
+                                            operands: ops,
+                                            encoding_hint: None,
+                                            byte_offset_in_text: None,
+                                            mode: self.current_mode(),
+                                            emission_order: 0,
+                                        };
+                                        let inst_id = IrNodeId::new(child_id.get() * 3 + 2)
+                                            .expect("arm tail var mov id");
+                                        self.emit_inst(inst_id, inst);
+                                    }
+                                }
+                            }
+                        } else {
+                            // Statement-form variable reference with no side effects
+                            if cfg!(debug_assertions) {
+                                eprintln!(
+                                    "[emit_block_body_arm] Var (bare identifier) at index {} — skipped",
+                                    i
+                                );
+                            }
                         }
                     }
                     IrKind::Store => {
@@ -955,6 +989,24 @@ impl EmitWalker {
                                     }
                                 }
                             }
+                        }
+                    }
+                    IrKind::FieldAccess => {
+                        // #1189: module-qualified field-read tail-in-braces inside a match arm.
+                        // Mirror of the #1187 arm in emit_block_body: at tail position, RIP-relative
+                        // load into RAX via emit_module_field_read. Statement-position FA is inert
+                        // (matches emit_action_stmt::IrKind::FieldAccess).
+                        if i == block_children.len() - 1 {
+                            if let Some(field_name) = arena.module_field_refs().get(child_id) {
+                                let name_owned = field_name.to_string();
+                                self.emit_module_field_read(child_id, abi::RAX, name_owned);
+                            }
+                            // Struct-typed FA at tail: deferred (no fixture exercises it today).
+                        } else if cfg!(debug_assertions) {
+                            eprintln!(
+                                "[emit_block_body_arm] FieldAccess at index {} (statement position, skipped)",
+                                i
+                            );
                         }
                     }
                     _ => {
