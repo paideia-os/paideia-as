@@ -90,6 +90,7 @@ mod build_emit {
     pub mod target_triplet;
     pub mod typed_encoder_diagnostics;
     pub mod two_let_with_app;
+    pub mod two_let_with_app_spill_restore;
     pub mod unsafe_call_stmt_diagnostic;
     pub mod unsafe_field_write_no_redundant_load;
     pub mod unsafe_sibling_scope_leak_probe;
