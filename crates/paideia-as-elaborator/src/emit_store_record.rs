@@ -30,6 +30,20 @@ fn u1623_code() -> DiagnosticCode {
         .expect("U1623 is within valid U range")
 }
 
+/// #1181: arg1-scratch pool for nested BinOp lowering.
+/// Indexed by recursion depth. Index 0 → outer arg1 scratch (dest is RAX).
+/// Index 1 → level-1 arg1 scratch (dest is R10). Length caps the supported
+/// nesting depth; going beyond fires T0540.
+///
+/// R10 and R11 are both SysV caller-saved and appear in PATTERN_SCRATCH
+/// (see abi.rs). They are not SysV arg registers, so live parameter values
+/// in RDI/RSI/RDX/RCX/R8/R9 are not disturbed. R12+ would be callee-saved
+/// and require prologue plumbing this MVP does not have.
+const ARG1_SCRATCHES: [RegId; 2] = [
+    paideia_as_ir::abi::R10,
+    paideia_as_ir::abi::R11,
+];
+
 impl EmitWalker {
     /// Phase 6 m3-004: Emit record constructor lowering for cap-mint shape.
     ///
@@ -576,14 +590,19 @@ impl EmitWalker {
     }
 
     /// #1181: lower a var_assign RHS expression tree into RAX.
-    /// Two-level nesting only; deeper nesting fires T0540 (explicit failure > silent miscompile).
-    /// Clobbers RAX + R10 + RCX (all caller-saved; store-bodied lambda always ends in RET).
+    ///
+    /// Supports operator nesting up to depth 2 (kernel-actual shape:
+    /// `bitmap | (1 << p)`). Arg1 subtrees at depth 0 land in R10; at depth 1
+    /// they land in R11 (see `ARG1_SCRATCHES`). Depth ≥ 2 fires T0540 (explicit
+    /// failure > silent miscompile). BitNot is unary and does not consume a
+    /// scratch slot. Clobbers RAX + R10 + R11 + RCX — all SysV caller-saved;
+    /// store-bodied lambda always ends in RET.
     fn emit_var_assign_expr_to_rax(
         &mut self,
         expr_id: IrNodeId,
         arena: &IrArena,
     ) -> bool {
-        self.emit_var_assign_expr_to_reg(expr_id, arena, paideia_as_ir::abi::RAX)
+        self.emit_var_assign_expr_to_reg(expr_id, arena, paideia_as_ir::abi::RAX, 0)
     }
 
     /// #1181: lower a var_assign RHS expression tree into a given register.
@@ -593,6 +612,7 @@ impl EmitWalker {
         expr_id: IrNodeId,
         arena: &IrArena,
         dest: RegId,
+        depth: usize,
     ) -> bool {
         match arena.get(expr_id).map(|n| n.kind) {
             Some(IrKind::Literal) => {
@@ -679,7 +699,7 @@ impl EmitWalker {
                     );
                     return false;
                 }
-                if !self.emit_var_assign_expr_to_reg(children[0], arena, dest) {
+                if !self.emit_var_assign_expr_to_reg(children[0], arena, dest, depth) {
                     return false;
                 }
                 let inst = Instruction {
@@ -716,14 +736,34 @@ impl EmitWalker {
                         );
                         return false;
                     }
-                    // Recurse arg0 into dest
-                    if !self.emit_var_assign_expr_to_reg(children[1], arena, dest) {
+
+                    // #1181 corrective: depth-indexed arg1 scratch (was hardcoded R10).
+                    let arg1_dest = match ARG1_SCRATCHES.get(depth) {
+                        Some(&r) => r,
+                        None => {
+                            self.push_typed_diag(
+                                t0540_code(),
+                                format!(
+                                    "BinOp RHS nesting depth {} exceeds supported limit {} \
+                                     (no scratch register available for arg1 — refactor \
+                                     deeply-nested expression into let-bindings)",
+                                    depth + 1,
+                                    ARG1_SCRATCHES.len(),
+                                ),
+                            );
+                            return false;
+                        }
+                    };
+
+                    // arg0 into dest at SAME depth (arg0 does not consume a scratch slot).
+                    if !self.emit_var_assign_expr_to_reg(children[1], arena, dest, depth) {
                         return false;
                     }
-                    // Recurse arg1 into R10
-                    if !self.emit_var_assign_expr_to_reg(children[2], arena, paideia_as_ir::abi::R10) {
+                    // arg1 into fresh scratch at depth+1.
+                    if !self.emit_var_assign_expr_to_reg(children[2], arena, arg1_dest, depth + 1) {
                         return false;
                     }
+
                     // Dispatch on operator
                     let mnemonic = match meta.callee_name.as_str() {
                         "|" => Mnemonic::Or,
@@ -740,13 +780,13 @@ impl EmitWalker {
                         }
                         "<<" | ">>" => {
                             // Shift operators require RCX for the count
-                            // We already have arg1 in R10; move it to RCX
+                            // We already have arg1 in arg1_dest; move it to RCX
                             let inst = Instruction {
                                 mnemonic: Mnemonic::Mov,
                                 operands: {
                                     let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
                                     ops.push(Operand::Reg(paideia_as_ir::abi::RCX));
-                                    ops.push(Operand::Reg(paideia_as_ir::abi::R10));
+                                    ops.push(Operand::Reg(arg1_dest));
                                     ops
                                 },
                                 encoding_hint: None,
@@ -780,10 +820,10 @@ impl EmitWalker {
                         ops.push(Operand::Reg(paideia_as_ir::abi::RCX));
                         ops
                     } else {
-                        // Non-shift: dest, r10
+                        // Non-shift: dest, arg1_dest
                         let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
                         ops.push(Operand::Reg(dest));
-                        ops.push(Operand::Reg(paideia_as_ir::abi::R10));
+                        ops.push(Operand::Reg(arg1_dest));
                         ops
                     };
 

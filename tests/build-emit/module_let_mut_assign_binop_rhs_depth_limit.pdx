@@ -1,0 +1,7 @@
+module ModuleLetMutAssignBinopRhsDepthLimit = structure {
+  let mut acc : u64 = 0
+
+  pub let deep_or : (u64, u64, u64, u64) -> () = fn (p1: u64, p2: u64, p3: u64, p4: u64) -> {
+    acc = p1 | (p2 | (p3 | p4))
+  }
+}
