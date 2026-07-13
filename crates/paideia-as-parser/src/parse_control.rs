@@ -362,9 +362,31 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                     );
                     stmts.push(stmt);
                 } else {
-                    // No semicolon: this is the tail expression
-                    tail = Some(expr);
-                    // Next iteration should see RBrace
+                    // No semicolon after this expression.
+                    // Per SY-D3 (newline-as-separator, documented in
+                    // parse_stmt.rs header §9.3 as deferred at lexer level
+                    // but achievable structurally): if more content follows
+                    // before `}`, this expression must be a statement, not
+                    // the tail. Wrapping it here prevents a subsequent
+                    // iteration from overwriting `tail` and leaving the
+                    // current expression orphaned in the AST arena, which
+                    // cascades to a silent miscompile via emit_walker's
+                    // parent-less Store sweep (#1180).
+                    if self.at(TokenKind::RBrace) {
+                        tail = Some(expr);
+                    } else {
+                        let expr_span = self
+                            .arena()
+                            .get(expr)
+                            .map(|nd| nd.span)
+                            .unwrap_or(lbrace_span);
+                        let stmt = self.arena_mut().alloc_stmt(
+                            NodeKind::StmtExpr,
+                            expr_span,
+                            paideia_as_ast::StmtData::Expr { expr },
+                        );
+                        stmts.push(stmt);
+                    }
                 }
             }
         }

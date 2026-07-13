@@ -1,0 +1,6 @@
+module LocalLetNewlinePositive = structure {
+  pub let f : () -> u64 = fn () -> {
+    let x : u64 = 5
+    x
+  }
+}

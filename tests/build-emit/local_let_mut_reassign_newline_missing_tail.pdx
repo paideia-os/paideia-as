@@ -1,0 +1,8 @@
+module LocalLetMutReassignNewlineMissingTail = structure {
+  let K : u64 = 100
+  pub let f : () -> u64 = fn () -> {
+    let mut y : u64 = 0
+    y = K
+    42
+  }
+}

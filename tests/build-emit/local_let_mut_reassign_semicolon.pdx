@@ -1,0 +1,8 @@
+module LocalLetMutReassignSemicolon = structure {
+  let K : u64 = 100;
+  pub let f : () -> u64 = fn () -> {
+    let mut x : u64 = 0;
+    x = K;
+    x
+  }
+}
