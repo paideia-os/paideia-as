@@ -320,9 +320,128 @@ fn module_field_read_let_rhs_has_reloc_to_current_tcb() {
 // ============================================================================
 // Fixture 3: No-braces tail `fn () -> Module.field`
 //
-// NOTE: This pattern currently does not emit code (Issue #1184 follow-up).
-// The tail and let-RHS patterns cover the module-qualified field read functionality
-// and are fully supported. The no-braces lambda body shape is deferred to a
-// follow-up PR when visit_lambda's FieldAccess arm can properly detect module-qualified
-// field references that bypass field_access_info.
+// Issue #1184-corr: The no-braces lambda body shape now correctly emits code via
+// visit_lambda's FieldAccess arm, which has been restructured to test module_field_refs
+// first (before the struct-typed guard that would always fail for module receivers).
 // ============================================================================
+
+#[test]
+fn module_field_read_no_braces_builds_successfully() {
+    // Issue #1184-corr AC1: module_field_read_no_braces.pdx builds without error.
+    // Verifies that:
+    // - Parser accepts module-qualified field read in lambda no-braces tail
+    // - module_field_refs side-table is populated during elaboration
+    // - No U1644 error even though FieldAccessInfo is not populated
+    let input = build_emit_data("module_field_read_no_braces.pdx");
+    let output = cargo_run(&[
+        "build",
+        input.to_str().unwrap(),
+        "--emit",
+        "elf64",
+        "-o",
+        "/tmp/test_module_field_read_no_braces.o",
+    ]);
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "module_field_read_no_braces should build successfully. stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn module_field_read_no_braces_emits_rip_rel_load_rax() {
+    // Issue #1184-corr AC2: fn () -> Runqueue._current_tcb emits mov rax, [rip+...] (u64)
+    // Expected byte sequence: 48 8b 05 (mov rax, [rip+...]) with REX.W prefix + opcode + ModR/M
+    // This verifies that visit_lambda's restructured FieldAccess arm correctly routes
+    // no-braces module field reads to emit_module_field_read.
+    let input = build_emit_data("module_field_read_no_braces.pdx");
+    let tmp = std::env::temp_dir().join("paideia_as_module_field_read_no_braces_emit.o");
+    let _ = std::fs::remove_file(&tmp);
+
+    let out = cargo_run(&[
+        "build",
+        input.to_str().unwrap(),
+        "--emit",
+        "elf64",
+        "-o",
+        tmp.to_str().unwrap(),
+    ]);
+
+    assert!(
+        out.status.success(),
+        "build failed for module_field_read_no_braces: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let bytes = std::fs::read(&tmp).expect("output ELF should exist");
+
+    // Extract function h's bytes via symbol lookup (h is the no-braces lambda in the fixture)
+    let h_bytes = crate::common::elf::symbol_bytes(&bytes, "h")
+        .expect("symbol 'h' should exist in .text");
+
+    // Assert h contains mov rax, [rip+disp32] — should be 3 bytes of the instruction prefix
+    let load_rax_seq = [0x48u8, 0x8b, 0x05];
+    assert!(
+        h_bytes.windows(3).any(|w| w == load_rax_seq),
+        "h should contain 48 8b 05 (mov rax, [rip+...]) instruction, got: {:02X?}",
+        h_bytes
+    );
+
+    let _ = std::fs::remove_file(&tmp);
+}
+
+#[test]
+fn module_field_read_no_braces_has_reloc_to_current_tcb() {
+    // Issue #1184-corr AC3: .rela.text contains PC32 relocation against symbol '_current_tcb'
+    // This verifies that the no-braces lambda correctly generates a relocation record
+    // for the RIP-relative reference to the external module symbol.
+    let input = build_emit_data("module_field_read_no_braces.pdx");
+    let tmp = std::env::temp_dir().join("paideia_as_module_field_read_no_braces_reloc.o");
+    let _ = std::fs::remove_file(&tmp);
+
+    let out = cargo_run(&[
+        "build",
+        input.to_str().unwrap(),
+        "--emit",
+        "elf64",
+        "-o",
+        tmp.to_str().unwrap(),
+    ]);
+
+    assert!(
+        out.status.success(),
+        "build failed for module_field_read_no_braces: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let bytes = std::fs::read(&tmp).expect("output ELF should exist");
+    let file = object::File::parse(&*bytes).expect("object should parse the ELF");
+
+    // Find .text section and iterate its relocations
+    let text_section = file
+        .sections()
+        .find(|s| s.name().unwrap_or("") == ".text")
+        .expect(".text section should exist");
+
+    // Iterate relocations and check for at least one targeting symbol '_current_tcb'
+    let mut found_current_tcb_reloc = false;
+    for (_offset, reloc) in text_section.relocations() {
+        if let RelocationTarget::Symbol(sym_idx) = reloc.target() {
+            let sym = file.symbol_by_index(sym_idx).expect("symbol by index");
+            let name = sym.name().unwrap_or("");
+            if name == "_current_tcb" {
+                found_current_tcb_reloc = true;
+                break;
+            }
+        }
+    }
+
+    assert!(
+        found_current_tcb_reloc,
+        ".rela.text should contain relocation against symbol '_current_tcb' for no-braces lambda"
+    );
+
+    let _ = std::fs::remove_file(&tmp);
+}

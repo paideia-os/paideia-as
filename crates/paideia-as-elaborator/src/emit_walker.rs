@@ -386,21 +386,26 @@ impl EmitWalker {
                             }
                         }
                         IrKind::Store => {
-                            // #1146: Store → FieldAccess(Deref(...)) — owned by visit_field_assign.
-                            // Mark FieldAccess handled BEFORE the flat dispatch reaches its
-                            // (children-first, therefore lower) id, else visit_field_access_with_reg
-                            // emits a dead widening load under the FieldAccess node id.
+                            // #1146: Store → FieldAccess(Deref(...))     — owned by visit_field_assign.
+                            // #1184-corr: Store → FieldAccess(Var-module) — owned by visit_field_assign's
+                            //   module_field_refs fallback (emit_module_field_write). module_field_refs
+                            //   is populated by lower/field_access.rs ONLY for non-deref receivers whose
+                            //   binding is not a struct-typed local (i.e. module names), so membership is
+                            //   authoritative — no receiver-kind test needed for case B.
+                            // Mark the FieldAccess handled BEFORE flat dispatch reaches its (lower) id,
+                            // else visit_field_access_with_reg emits a spurious orphan load under the
+                            // FieldAccess node id (regression on 05f2017).
                             let children = arena.children(node_id);
                             if let Some(&fa_id) = children.first() {
                                 if let Some(fa_node) = arena.get(fa_id) {
                                     if fa_node.kind == IrKind::FieldAccess {
-                                        let fa_children = arena.children(fa_id);
-                                        if let Some(&recv_id) = fa_children.first() {
-                                            if let Some(recv_node) = arena.get(recv_id) {
-                                                if recv_node.kind == IrKind::Deref {
-                                                    self.state.mark_field_access_handled(fa_id.get());
-                                                }
-                                            }
+                                        let is_deref_recv = arena.children(fa_id).first()
+                                            .and_then(|&r| arena.get(r))
+                                            .map(|n| n.kind == IrKind::Deref)
+                                            .unwrap_or(false);
+                                        let is_module_recv = arena.module_field_refs().get(fa_id).is_some();
+                                        if is_deref_recv || is_module_recv {
+                                            self.state.mark_field_access_handled(fa_id.get());
                                         }
                                     }
                                 }

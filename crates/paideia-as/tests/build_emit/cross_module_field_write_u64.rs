@@ -60,9 +60,10 @@ fn cross_module_field_write_u64_builds_successfully() {
 #[test]
 fn cross_module_field_write_u64_emits_rip_rel_store() {
     // Issue #1182 AC2: fn(v: u64) -> () { Runqueue._current_tcb = v } emits mov [rip+...], rsi (u64)
-    // Expected byte sequence: 48 89 3d (mov [rip+...], rsi) with REX.W prefix + opcode + ModR/M
+    // Expected byte sequence: 48 89 3d 00 00 00 00 c3 (exact 8 bytes: mov [rip+disp32], rsi; ret)
     // The function receives v in rsi (second parameter per MS calling convention)
-    // This verifies emit_module_field_write correctly emits RIP-relative store with u64 width.
+    // This verifies emit_module_field_write correctly emits RIP-relative store with u64 width,
+    // with no orphan loads before or after the function symbol (regression guard on 05f2017).
     let input = build_emit_data("cross_module_field_write_u64.pdx");
     let tmp = std::env::temp_dir().join("paideia_as_cross_module_field_write_u64_emit.o");
     let _ = std::fs::remove_file(&tmp);
@@ -83,37 +84,37 @@ fn cross_module_field_write_u64_emits_rip_rel_store() {
     );
 
     let bytes = std::fs::read(&tmp).expect("output ELF should exist");
-    let file = object::File::parse(&*bytes).expect("object should parse the ELF");
+    let text = crate::common::elf::text_bytes(&bytes);
 
-    // Extract .text section bytes
-    let mut text_bytes = Vec::new();
-    for section in file.sections() {
-        if section.name().unwrap_or("") == ".text" {
-            text_bytes = section.data().unwrap_or(b"").to_vec();
-            break;
-        }
-    }
+    assert!(!text.is_empty(), ".text section should contain bytes");
 
-    assert!(!text_bytes.is_empty(), ".text section should contain bytes");
+    // Extract function f's bytes via symbol lookup
+    let f_bytes = crate::common::elf::symbol_bytes(&bytes, "f")
+        .expect("symbol 'f' should exist in .text");
 
-    // Assert: must contain 48 89 3d (mov [rip+...], rsi) with REX.W prefix
-    // 0x48 = REX.W, 0x89 = opcode, 0x3d = ModR/M (rsi as register field)
-    let store_seq = [0x48u8, 0x89, 0x3d];
-    let store_pos = text_bytes.windows(3).position(|w| w == store_seq)
-        .expect("expected 48 89 3d (mov [rip+...], rsi with REX.W) in .text");
-
-    // Verify that REX.W is indeed there (0x48 must be the prefix)
+    // Assert f's exact byte sequence: 48 89 3d (mov [rip+disp32], rsi) + 4 bytes disp + c3 (ret)
+    // Total: 8 bytes (7 for mov + 1 for ret)
+    let expected_f = vec![0x48u8, 0x89, 0x3d, 0x00, 0x00, 0x00, 0x00, 0xc3];
     assert_eq!(
-        text_bytes[store_pos], 0x48,
-        "expected REX.W (0x48) prefix for u64 mov [rip+...], rsi at position {}",
-        store_pos
+        f_bytes, expected_f,
+        "f should emit exactly [mov [rip+disp32], rsi; ret], got: {:02X?}",
+        f_bytes
     );
 
-    // Assert: must contain C3 (ret) — ideally after the mov
+    // Assert .text as a whole does NOT contain orphan RIP-relative reads (48 8b 05)
+    // that would indicate the regression at 05f2017
+    let orphan_read_seq = [0x48u8, 0x8b, 0x05];
     assert!(
-        text_bytes.iter().any(|&b| b == 0xC3),
-        "expected C3 (ret) in .text, got: {:02X?}",
-        text_bytes
+        !text.windows(3).any(|w| w == orphan_read_seq),
+        ".text should NOT contain orphan mov rax, [rip+...] reads (regression guard for 05f2017), got: {:02X?}",
+        text
+    );
+
+    // Assert .text is exactly 8 bytes (function f, no padding or orphan instructions)
+    assert_eq!(
+        text.len(), 8,
+        ".text should be exactly 8 bytes (one function f with no orphan bytes before/after), got {} bytes: {:02X?}",
+        text.len(), text
     );
 
     let _ = std::fs::remove_file(&tmp);
@@ -121,9 +122,10 @@ fn cross_module_field_write_u64_emits_rip_rel_store() {
 
 #[test]
 fn cross_module_field_write_u64_has_reloc_to_current_tcb() {
-    // Issue #1182 AC3: .rela.text contains PC32 relocation against symbol '_current_tcb'
+    // Issue #1182 AC3: .rela.text contains exactly one PC32 relocation against symbol '_current_tcb'
     // This verifies that the relocation record is correctly generated for the RIP-relative reference
-    // to the external module symbol.
+    // to the external module symbol. The count must be exactly 1 — if 05f2017's orphan load
+    // regressed (marked by two relocations), this test catches it.
     let input = build_emit_data("cross_module_field_write_u64.pdx");
     let tmp = std::env::temp_dir().join("paideia_as_cross_module_field_write_u64_reloc.o");
     let _ = std::fs::remove_file(&tmp);
@@ -146,28 +148,27 @@ fn cross_module_field_write_u64_has_reloc_to_current_tcb() {
     let bytes = std::fs::read(&tmp).expect("output ELF should exist");
     let file = object::File::parse(&*bytes).expect("object should parse the ELF");
 
-    // Find .text section and iterate its relocations
+    // Find .text section and count relocations targeting '_current_tcb'
     let text_section = file
         .sections()
         .find(|s| s.name().unwrap_or("") == ".text")
         .expect(".text section should exist");
 
-    // Iterate relocations and check for at least one targeting symbol '_current_tcb'
-    let mut found_current_tcb_reloc = false;
+    let mut current_tcb_reloc_count = 0;
     for (_offset, reloc) in text_section.relocations() {
         if let RelocationTarget::Symbol(sym_idx) = reloc.target() {
             let sym = file.symbol_by_index(sym_idx).expect("symbol by index");
             let name = sym.name().unwrap_or("");
             if name == "_current_tcb" {
-                found_current_tcb_reloc = true;
-                break;
+                current_tcb_reloc_count += 1;
             }
         }
     }
 
-    assert!(
-        found_current_tcb_reloc,
-        ".rela.text should contain relocation against symbol '_current_tcb'"
+    assert_eq!(
+        current_tcb_reloc_count, 1,
+        ".rela.text should contain exactly 1 PC32 relocation against '_current_tcb' (regression check: 2 would indicate orphan load from 05f2017), got {}",
+        current_tcb_reloc_count
     );
 
     let _ = std::fs::remove_file(&tmp);

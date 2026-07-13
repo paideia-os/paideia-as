@@ -248,6 +248,35 @@ impl EmitWalker {
                         if cfg!(debug_assertions) {
                             eprintln!("[emit_field_access_lambda] Lambda {}", lambda_node_id.get());
                         }
+
+                        // #1184-corr: module-qualified field read is the FIRST classification test.
+                        // module_field_refs is populated by lower/field_access.rs only when the
+                        // receiver was classified as a module name (silent-skip in populate_field_access_info),
+                        // so its presence is authoritative and precludes the struct-typed path below.
+                        // This arm fires for the no-braces shape `fn () -> Module.field`, where
+                        // emit_walker.rs's pre-marking pass has already ensured the flat FieldAccess
+                        // dispatch does NOT re-emit it.
+                        if let Some(field_name) = arena.module_field_refs().get(body_id) {
+                            let name_owned = field_name.to_string();
+                            let main_id = IrNodeId::new(lambda_node_id.get() * 2)
+                                .expect("main instr virtual id");
+                            self.record_lambda_entry(lambda_node_id, main_id);
+                            self.emit_module_field_read(main_id, abi::RAX, name_owned);
+                            let ret_id = IrNodeId::new(lambda_node_id.get() * 2 + 1)
+                                .expect("ret virtual id");
+                            self.emit_inst(ret_id, Instruction {
+                                mnemonic: Mnemonic::Ret,
+                                operands: SmallVec::new(),
+                                encoding_hint: None,
+                                byte_offset_in_text: None,
+                                mode: self.current_mode(),
+                                emission_order: 0,
+                            });
+                            return;
+                        }
+
+                        // Struct-typed path (pa-r17-005-e, unchanged from f4df57a baseline):
+                        // Handles field reads from struct-typed bindings like `fn () -> record_var.field`
                         let fa_children = arena.children(body_id);
                         let recv = fa_children.first().and_then(|&r| arena.get(r).map(|n| (r, n.kind)));
                         if let Some((recv_id, IrKind::Var)) = recv {
@@ -276,34 +305,6 @@ impl EmitWalker {
 });
                                             return;
                                         }
-                                    }
-                                    // #1184: module-qualified field read fallback. The struct-typed branch
-                                    // above requires field_access_info; when populate_field_access_info
-                                    // classified the receiver as a module name (not a struct-typed binding),
-                                    // module_field_refs was populated instead. Mirrors the visit_field_assign
-                                    // fallback for the write path (#1182).
-                                    //
-                                    // This arm only fires for the no-braces shape `fn () -> Module.field`,
-                                    // where emit_walker.rs:342-350 pre-marks the FieldAccess as handled so
-                                    // the flat FieldAccess dispatch does NOT reach it. Consumer A (extended
-                                    // above) covers the braced/tail-of-block and let-RHS shapes.
-                                    if let Some(field_name) = arena.module_field_refs().get(body_id) {
-                                        let name_owned = field_name.to_string();
-                                        let main_id = IrNodeId::new(lambda_node_id.get() * 2)
-                                            .expect("main instr virtual id");
-                                        self.record_lambda_entry(lambda_node_id, main_id);
-                                        self.emit_module_field_read(main_id, abi::RAX, name_owned);
-                                        let ret_id = IrNodeId::new(lambda_node_id.get() * 2 + 1)
-                                            .expect("ret virtual id");
-                                        self.emit_inst(ret_id, Instruction {
-                                            mnemonic: Mnemonic::Ret,
-                                            operands: SmallVec::new(),
-                                            encoding_hint: None,
-                                            byte_offset_in_text: None,
-                                            mode: self.current_mode(),
-                                            emission_order: 0,
-                                        });
-                                        return;
                                     }
                                 }
                             }
