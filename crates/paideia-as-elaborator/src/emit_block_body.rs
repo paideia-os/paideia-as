@@ -544,6 +544,46 @@ impl EmitWalker {
                         }
                         self.visit_match(child_id, arena, typer, TailContext::Discard);
                     }
+                    IrKind::App => {
+                        // #1183: route App (call expression) through emit pipeline.
+                        // Distinguish statement-position (discarded) from tail-position calls.
+                        let app_children = arena.children(child_id);
+                        if app_children.len() > 0 {
+                            let callee_id = app_children[0];
+                            if let Some(callee_node) = arena.get(callee_id) {
+                                if callee_node.kind == IrKind::Var {
+                                    if let Some(target_name) = arena.binding_names().get(callee_id) {
+                                        let lambda_id = IrNodeId::new(self.state.current_function)
+                                            .expect("current_function set by walker");
+                                        if i == block_children.len() - 1 {
+                                            // Tail-position call: emit via emit_call_expr (no RET emission).
+                                            // The call result lands in RAX per x86-64 conventions.
+                                            if cfg!(debug_assertions) {
+                                                eprintln!("[emit_block_body] App (tail call) at index {}", i);
+                                            }
+                                            self.emit_call_expr(
+                                                lambda_id,
+                                                target_name.to_string(),
+                                                &app_children[1..],
+                                                arena,
+                                            );
+                                        } else {
+                                            // Statement-position call: emit via emit_call_stmt (discarded result).
+                                            if cfg!(debug_assertions) {
+                                                eprintln!("[emit_block_body] App (statement call) at index {}", i);
+                                            }
+                                            self.emit_call_stmt(
+                                                lambda_id,
+                                                target_name.to_string(),
+                                                &app_children[1..],
+                                                arena,
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     _ => {
                         // Unexpected statement kind.
                         if cfg!(debug_assertions) {

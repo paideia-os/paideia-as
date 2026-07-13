@@ -1,0 +1,8 @@
+module DiscardedCallMiddleOfBlock = structure {
+  let helper : (u64) -> u64 = fn (v: u64) -> v
+  pub let caller : (u64) -> u64 = fn (x: u64) -> {
+    helper(x);
+    let y : u64 = x
+    y
+  }
+}

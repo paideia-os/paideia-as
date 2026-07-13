@@ -1,0 +1,6 @@
+module DiscardedCallAtTail = structure {
+  let helper : (u64) -> u64 = fn (v: u64) -> v
+  pub let f : (u64) -> u64 = fn (x: u64) -> {
+    helper(x)
+  }
+}

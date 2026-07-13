@@ -1,0 +1,8 @@
+module TwoDiscardedCallsThenTail = structure {
+  let helper : (u64) -> u64 = fn (v: u64) -> v
+  pub let f : () -> u64 = fn () -> {
+    helper(1);
+    helper(2);
+    3
+  }
+}

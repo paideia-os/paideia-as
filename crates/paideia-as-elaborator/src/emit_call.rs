@@ -486,7 +486,11 @@ impl EmitWalker {
     /// Phase 7 m4-003: Emit call statement (expression-statement form).
     ///
     /// Issue #1088: Route call expressions inside unsafe blocks through the emit pipeline.
-    /// Emits arguments and CALL only (no RET), as the result is discarded.
+    /// Issue #1183: Emits ONLY arguments + CALL. The terminal RET (when the
+    /// enclosing lambda body is an `Action` block) is the responsibility of
+    /// `emit_block_body` (see `emit_block_body.rs:562-571`). When the enclosing
+    /// lambda body is an `Unsafe` block, the RET must be emitted explicitly by
+    /// the author (matching sibling `pa_r17_unsafe_*` fixtures).
     pub(crate) fn emit_call_stmt(
         &mut self,
         lambda_node_id: IrNodeId,
@@ -494,15 +498,8 @@ impl EmitWalker {
         arg_ids: &[IrNodeId],
         arena: &IrArena,
     ) {
-        // Determine caller and callee ABIs
-        // Use lambda_abi_option to distinguish unannotated (None) from explicitly annotated (Some)
         let caller_abi = self.state.lambda_abi_option(lambda_node_id.get());
-        let callee_abi = arena.symbols().lookup_by_name(&target_name)
-            .and_then(|s| s.abi)
-            .unwrap_or(CallingConvention::Sysv);
         self.emit_call_args_and_call(lambda_node_id, target_name, arg_ids, arena, caller_abi);
-        // For statement-position calls, emit RET as well (unlike expression-position calls)
-        self.emit_ret_after_call(lambda_node_id, callee_abi);
     }
 
     /// #1136: Emit an expression-position call (args + CALL, no RET).
