@@ -60,7 +60,7 @@ mod tests;
 use addr_of::extract_var_name_from_operand;
 use diagnostics::finish_build_error;
 use elf::{build_elf_object, finish_elf};
-use identifier::{is_valid_identifier, parse_integer_literal};
+use identifier::{is_valid_identifier, is_known_operator, parse_integer_literal};
 use layout::{array_element_byte_width, compute_bss_size_from_type, declared_array_len_from_type};
 use pax::{build_pax_object, finish_pax};
 use pe::{build_pe_object, finish_pe};
@@ -655,7 +655,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                                                 let callee_text = content_ref[start..start + len].to_string();
 
                                                 // Only record if it's a valid identifier
-                                                if is_valid_identifier(&callee_text) {
+                                                if is_valid_identifier(&callee_text) || is_known_operator(&callee_text) {
                                                     app_metadata.push((ir_id, callee_text, arg_count));
                                                 }
                                             }

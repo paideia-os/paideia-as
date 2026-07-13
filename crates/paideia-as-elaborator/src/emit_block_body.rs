@@ -253,6 +253,10 @@ impl EmitWalker {
                                 // Edit D: Handle App RHS (function calls) - #1152
                                 else if rhs_node.kind == IrKind::App {
                                     if let Some(meta) = arena.call_sites().get(rhs_id) {
+                                        // #1181: skip operators in call_sites; they're not real function calls
+                                        if matches!(meta.callee_name.as_str(), "|" | "&" | "^" | "<<" | ">>" | "+" | "-" | "*" | "/" | "%" | "~" | "!") {
+                                            // Operators in let-bindings: fall through to record binding without emitting call
+                                        } else {
                                         let app_children = arena.children(rhs_id);
                                         let arg_ids: Vec<IrNodeId> = app_children[1..].to_vec();
                                         // Use state.current_function (the enclosing lambda's id),
@@ -278,6 +282,7 @@ impl EmitWalker {
                                             self.emit_inst(inst_id, inst);
                                         }
                                         self.state.local_bindings.insert(binding_name.clone(), scratch_reg);
+                                        }
                                     }
                                 }
                                 // #1138: Handle other RHS kinds (e.g., Var) by just recording binding
@@ -722,6 +727,10 @@ impl EmitWalker {
                                 // Edit D: Handle App RHS (function calls) - #1162 (mirror of emit_block_body)
                                 else if rhs_node.kind == IrKind::App {
                                     if let Some(meta) = arena.call_sites().get(rhs_id) {
+                                        // #1181: skip operators in call_sites; they're not real function calls
+                                        if matches!(meta.callee_name.as_str(), "|" | "&" | "^" | "<<" | ">>" | "+" | "-" | "*" | "/" | "%" | "~" | "!") {
+                                            // Operators in match arm let-bindings: fall through to record binding
+                                        } else {
                                         let app_children = arena.children(rhs_id);
                                         let arg_ids: Vec<IrNodeId> = app_children[1..].to_vec();
                                         // Use state.current_function (the enclosing lambda's id),
@@ -747,6 +756,7 @@ impl EmitWalker {
                                             self.emit_inst(inst_id, inst);
                                         }
                                         self.state.local_bindings.insert(binding_name.clone(), scratch_reg);
+                                        }
                                     }
                                 }
                                 // #1138: Handle other RHS kinds (e.g., Var) by just recording binding

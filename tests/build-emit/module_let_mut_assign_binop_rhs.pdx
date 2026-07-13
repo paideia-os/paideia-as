@@ -1,0 +1,11 @@
+module ModuleLetMutAssignBinopRhs = structure {
+  let mut priority_bitmap : u64 = 0
+
+  pub let bitmap_set : (u64) -> () = fn (p: u64) -> {
+    priority_bitmap = priority_bitmap | (1 << p)
+  }
+
+  pub let bitmap_clear : (u64) -> () = fn (p: u64) -> {
+    priority_bitmap = priority_bitmap & (~ (1 << p))
+  }
+}

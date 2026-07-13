@@ -453,6 +453,10 @@ impl EmitWalker {
                             if let Some(meta) = arena.call_sites().get(body_id) {
                                 let name = &meta.callee_name;
 
+                                // #1181: operators are in call_sites but aren't real function calls.
+                                // Skip operator entries and fall through to legacy operator handling.
+                                if !matches!(name.as_str(), "|" | "&" | "^" | "<<" | ">>" | "+" | "-" | "*" | "/" | "%" | "~" | "!") {
+
                                 // (1) Local-binding lookup — lexical scope shadows module scope.
                                 if let Some(callee_reg) = self.state.local_bindings.get(name) {
                                     self.emit_indirect_call_via_reg(
@@ -518,6 +522,7 @@ impl EmitWalker {
                                     lambda_node_id, name.clone(), &app_children[1..], arena,
                                 );
                                 return;
+                                }
                             }
                             // Fall through to legacy paths for builtin operators (+, <<, etc.).
                         }

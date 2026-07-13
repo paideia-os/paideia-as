@@ -16,6 +16,16 @@ pub(super) fn is_valid_identifier(s: &str) -> bool {
     s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
+/// #1181: operator lexemes the pre-emit call_sites populator lets through
+/// so the elaborator can identify the operator by string at emit time.
+pub(super) fn is_known_operator(s: &str) -> bool {
+    matches!(s,
+        "|" | "&" | "^" | "<<" | ">>" |
+        "+" | "-" | "*" | "/" | "%" |
+        "~" | "!"
+    )
+}
+
 /// Parse an integer literal from text, supporting decimal, hex, binary, and octal formats.
 ///
 /// Formats:

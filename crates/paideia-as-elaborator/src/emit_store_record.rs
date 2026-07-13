@@ -5,7 +5,7 @@
 //! (Phase 6 m3-004 cap-mint record constructor for the 4-field all-u64
 //! capability descriptor shape).
 
-use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand};
+use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand, RegId};
 use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi};
 use paideia_as_ir::symbol::SymbolKind;
 use paideia_as_diagnostics::{DiagnosticCode, Category, Severity};
@@ -327,43 +327,61 @@ impl EmitWalker {
                 }
             }
             Some(IrKind::App) => {
-                // #1136: materialize the call to RAX, then use RAX as the store source.
-                let app_children = arena.children(rhs_id);
-                if app_children.is_empty() {
-                    self.push_typed_diag(
-                        t0540_code(),
-                        format!(
-                            "Store (var_assign) App RHS {} has no children",
-                            rhs_id.get()
-                        ),
-                    );
-                    return;
-                }
-                let callee_id = app_children[0];
-                let target_name = match arena.binding_names().get(callee_id) {
-                    Some(name) => name.to_string(),
-                    None => {
+                // #1181: dispatch on operator vs function call based on call_sites metadata
+                if let Some(meta) = arena.call_sites().get(rhs_id).cloned() {
+                    if is_operator_callee(&meta.callee_name) {
+                        if !self.emit_var_assign_expr_to_rax(rhs_id, arena) {
+                            return; // helper pushed a T0540 with detail
+                        }
+                        paideia_as_ir::abi::RAX
+                    } else {
+                        self.emit_call_expr_for_var_assign_rhs(rhs_id, &meta.callee_name, arena)
+                    }
+                } else {
+                    // Legacy fallback: no call_sites entry — preserve pre-#1181 behaviour.
+                    let app_children = arena.children(rhs_id);
+                    if app_children.is_empty() {
                         self.push_typed_diag(
                             t0540_code(),
                             format!(
-                                "Store (var_assign) App RHS callee {} has no binding name",
-                                callee_id.get()
+                                "Store (var_assign) App RHS {} has no children",
+                                rhs_id.get()
                             ),
                         );
                         return;
                     }
-                };
-                let arg_ids: Vec<IrNodeId> = app_children[1..].to_vec();
-                let lambda_id = IrNodeId::new(self.state.current_function)
-                    .expect("current_function set by walker");
-                self.emit_call_expr(lambda_id, target_name, &arg_ids, arena);
+                    let callee_id = app_children[0];
+                    let target_name = match arena.binding_names().get(callee_id) {
+                        Some(name) => name.to_string(),
+                        None => {
+                            self.push_typed_diag(
+                                t0540_code(),
+                                format!(
+                                    "Store (var_assign) App RHS callee {} has no binding name",
+                                    callee_id.get()
+                                ),
+                            );
+                            return;
+                        }
+                    };
+                    let arg_ids: Vec<IrNodeId> = app_children[1..].to_vec();
+                    let lambda_id = IrNodeId::new(self.state.current_function)
+                        .expect("current_function set by walker");
+                    self.emit_call_expr(lambda_id, target_name, &arg_ids, arena);
+                    paideia_as_ir::abi::RAX
+                }
+            }
+            Some(IrKind::BitNot) => {
+                if !self.emit_var_assign_expr_to_rax(rhs_id, arena) {
+                    return;
+                }
                 paideia_as_ir::abi::RAX
             }
             _ => {
                 self.push_typed_diag(
                     t0540_code(),
                     format!(
-                        "Store (var_assign) RHS must be Var or App; got {:?}",
+                        "Store (var_assign) RHS must be Var, App, or BitNot; got {:?}",
                         rhs_node.map(|n| n.kind)
                     ),
                 );
@@ -556,4 +574,269 @@ impl EmitWalker {
             }
         }
     }
+
+    /// #1181: lower a var_assign RHS expression tree into RAX.
+    /// Two-level nesting only; deeper nesting fires T0540 (explicit failure > silent miscompile).
+    /// Clobbers RAX + R10 + RCX (all caller-saved; store-bodied lambda always ends in RET).
+    fn emit_var_assign_expr_to_rax(
+        &mut self,
+        expr_id: IrNodeId,
+        arena: &IrArena,
+    ) -> bool {
+        self.emit_var_assign_expr_to_reg(expr_id, arena, paideia_as_ir::abi::RAX)
+    }
+
+    /// #1181: lower a var_assign RHS expression tree into a given register.
+    /// Returns true on success; false if any push_typed_diag fired.
+    fn emit_var_assign_expr_to_reg(
+        &mut self,
+        expr_id: IrNodeId,
+        arena: &IrArena,
+        dest: RegId,
+    ) -> bool {
+        match arena.get(expr_id).map(|n| n.kind) {
+            Some(IrKind::Literal) => {
+                let imm = arena.literal_values().get(expr_id).unwrap_or(0);
+                let inst = Instruction {
+                    mnemonic: Mnemonic::Mov,
+                    operands: {
+                        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                        ops.push(Operand::Reg(dest));
+                        ops.push(Operand::Imm64(imm));
+                        ops
+                    },
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                };
+                let inst_id = self.alloc_synthetic_id();
+                self.emit_inst(inst_id, inst);
+                true
+            }
+            Some(IrKind::Var) => {
+                let name = match arena.binding_names().get(expr_id) {
+                    Some(n) => n.to_string(),
+                    None => {
+                        self.push_typed_diag(
+                            t0540_code(),
+                            format!("expr Var {} has no binding name", expr_id.get()),
+                        );
+                        return false;
+                    }
+                };
+                // Try local binding first
+                if let Some(src_reg) = self.state.local_bindings.get(&name) {
+                    let inst = Instruction {
+                        mnemonic: Mnemonic::Mov,
+                        operands: {
+                            let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                            ops.push(Operand::Reg(dest));
+                            ops.push(Operand::Reg(src_reg));
+                            ops
+                        },
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode: self.current_mode(),
+                        emission_order: 0,
+                    };
+                    let inst_id = self.alloc_synthetic_id();
+                    self.emit_inst(inst_id, inst);
+                    true
+                } else {
+                    // Module object: load via RIP-relative
+                    let is_module_object = arena
+                        .symbols()
+                        .lookup_by_name(&name)
+                        .map(|s| matches!(s.kind, SymbolKind::Object))
+                        .unwrap_or(false);
+                    if is_module_object {
+                        let load_id = self.alloc_synthetic_id();
+                        self.emit_mem_read_via_rip_sym(
+                            load_id,
+                            dest,
+                            name.clone(),
+                            0,
+                            8,
+                            false,
+                        );
+                        true
+                    } else {
+                        self.push_typed_diag(
+                            t0540_code(),
+                            format!("expr Var {} not found in bindings; unsupported", name),
+                        );
+                        false
+                    }
+                }
+            }
+            Some(IrKind::BitNot) => {
+                let children = arena.children(expr_id);
+                if children.len() != 1 {
+                    self.push_typed_diag(
+                        t0540_code(),
+                        format!("BitNot {} has {} children; expected 1", expr_id.get(), children.len()),
+                    );
+                    return false;
+                }
+                if !self.emit_var_assign_expr_to_reg(children[0], arena, dest) {
+                    return false;
+                }
+                let inst = Instruction {
+                    mnemonic: Mnemonic::Not,
+                    operands: {
+                        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                        ops.push(Operand::Reg(dest));
+                        ops
+                    },
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                };
+                let inst_id = self.alloc_synthetic_id();
+                self.emit_inst(inst_id, inst);
+                true
+            }
+            Some(IrKind::App) => {
+                // Binary operator application
+                if let Some(meta) = arena.call_sites().get(expr_id).cloned() {
+                    if !is_operator_callee(&meta.callee_name) {
+                        self.push_typed_diag(
+                            t0540_code(),
+                            format!("nested function calls not supported in BinOp RHS"),
+                        );
+                        return false;
+                    }
+                    let children = arena.children(expr_id);
+                    if children.len() != 3 {
+                        self.push_typed_diag(
+                            t0540_code(),
+                            format!("App {} has {} children; expected 3 (callee + 2 args)", expr_id.get(), children.len()),
+                        );
+                        return false;
+                    }
+                    // Recurse arg0 into dest
+                    if !self.emit_var_assign_expr_to_reg(children[1], arena, dest) {
+                        return false;
+                    }
+                    // Recurse arg1 into R10
+                    if !self.emit_var_assign_expr_to_reg(children[2], arena, paideia_as_ir::abi::R10) {
+                        return false;
+                    }
+                    // Dispatch on operator
+                    let mnemonic = match meta.callee_name.as_str() {
+                        "|" => Mnemonic::Or,
+                        "&" => Mnemonic::And,
+                        "^" => Mnemonic::Xor,
+                        "+" => Mnemonic::Add,
+                        "-" => Mnemonic::Sub,
+                        "*" | "/" | "%" => {
+                            self.push_typed_diag(
+                                t0540_code(),
+                                format!("operator {} not yet supported in BinOp RHS", meta.callee_name),
+                            );
+                            return false;
+                        }
+                        "<<" | ">>" => {
+                            // Shift operators require RCX for the count
+                            // We already have arg1 in R10; move it to RCX
+                            let inst = Instruction {
+                                mnemonic: Mnemonic::Mov,
+                                operands: {
+                                    let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                                    ops.push(Operand::Reg(paideia_as_ir::abi::RCX));
+                                    ops.push(Operand::Reg(paideia_as_ir::abi::R10));
+                                    ops
+                                },
+                                encoding_hint: None,
+                                byte_offset_in_text: None,
+                                mode: self.current_mode(),
+                                emission_order: 0,
+                            };
+                            let inst_id = self.alloc_synthetic_id();
+                            self.emit_inst(inst_id, inst);
+
+                            if meta.callee_name == "<<" {
+                                Mnemonic::Shl
+                            } else {
+                                Mnemonic::Shr
+                            }
+                        }
+                        other => {
+                            self.push_typed_diag(
+                                t0540_code(),
+                                format!("unknown operator {}", other),
+                            );
+                            return false;
+                        }
+                    };
+
+                    // Emit the binary operation
+                    let operands = if matches!(meta.callee_name.as_str(), "<<" | ">>") {
+                        // Shift: dest, cl (implicit RCX)
+                        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                        ops.push(Operand::Reg(dest));
+                        ops.push(Operand::Reg(paideia_as_ir::abi::RCX));
+                        ops
+                    } else {
+                        // Non-shift: dest, r10
+                        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                        ops.push(Operand::Reg(dest));
+                        ops.push(Operand::Reg(paideia_as_ir::abi::R10));
+                        ops
+                    };
+
+                    let inst = Instruction {
+                        mnemonic,
+                        operands,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode: self.current_mode(),
+                        emission_order: 0,
+                    };
+                    let inst_id = self.alloc_synthetic_id();
+                    self.emit_inst(inst_id, inst);
+                    true
+                } else {
+                    self.push_typed_diag(
+                        t0540_code(),
+                        format!("App {} has no call_sites entry", expr_id.get()),
+                    );
+                    false
+                }
+            }
+            other => {
+                self.push_typed_diag(
+                    t0540_code(),
+                    format!("unsupported RHS kind {:?}", other),
+                );
+                false
+            }
+        }
+    }
+
+    /// #1181: extract the call-RHS helper for function calls (non-operator).
+    fn emit_call_expr_for_var_assign_rhs(
+        &mut self,
+        rhs_id: IrNodeId,
+        target_name: &str,
+        arena: &IrArena,
+    ) -> RegId {
+        let app_children = arena.children(rhs_id);
+        let arg_ids: Vec<IrNodeId> = app_children[1..].to_vec();
+        let lambda_id = IrNodeId::new(self.state.current_function)
+            .expect("current_function set by walker");
+        self.emit_call_expr(lambda_id, target_name.to_string(), &arg_ids, arena);
+        paideia_as_ir::abi::RAX
+    }
+}
+
+/// #1181: operator lexemes for dispatch in emit_var_assign_expr_to_reg
+fn is_operator_callee(s: &str) -> bool {
+    matches!(s,
+        "|" | "&" | "^" | "<<" | ">>" |
+        "+" | "-" | "*" | "/" | "%" |
+        "~" | "!"
+    )
 }
