@@ -1,0 +1,11 @@
+// #1186 canary: mixes a discarded call (StmtExpr-wrapped, routes through emit_action_stmt —
+// already worked pre-#1186) with a tail-position bare-App call. Guards against regression
+// of either path.
+module MatchArmMixedCalls = structure {
+  enum Choice { A, B }
+  let helper : (u64) -> u64 = fn (v: u64) -> v
+  pub let f : (Choice, u64) -> u64 = fn (c: Choice, x: u64) -> match c {
+    A => { helper(x); helper(x) }
+    B => { helper(x); helper(x) }
+  }
+}

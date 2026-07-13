@@ -33,6 +33,7 @@ mod build_emit {
     pub mod label_patches;
     pub mod local_let_mut_reassign_newline;
     pub mod link_section_probe;
+    pub mod match_arm_calls_in_body;
     pub mod match_enum_pattern;
     pub mod module_let_no_text_emission;
     pub mod module_const_arg_call;

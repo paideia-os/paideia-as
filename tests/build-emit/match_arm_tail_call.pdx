@@ -1,0 +1,10 @@
+// #1186: emit_block_body_arm silently dropped bare-App children in match-arm bodies.
+// This fixture exercises the tail-position (bare `{ helper(x) }`) shape.
+module MatchArmTailCall = structure {
+  enum Choice { A, B }
+  let helper : (u64) -> u64 = fn (v: u64) -> v
+  pub let f : (Choice, u64) -> u64 = fn (c: Choice, x: u64) -> match c {
+    A => { helper(x) }
+    B => { helper(x) }
+  }
+}

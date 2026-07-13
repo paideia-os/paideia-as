@@ -912,6 +912,51 @@ impl EmitWalker {
                         }
                         self.visit_match(child_id, arena, typer, TailContext::Discard);
                     }
+                    IrKind::App => {
+                        // #1186: mirror of the #1183 App arm in emit_block_body — arm-body block
+                        // walkers must also route bare-App children through the emit pipeline,
+                        // distinguishing tail-position (result to RAX for the arm-value contract)
+                        // from statement-position (result discarded). Both emit_call_expr and
+                        // emit_call_stmt are CALL-only per #1183; the enclosing lambda emits the
+                        // terminal RET, so no RET is emitted here (matches the arm-caller-emits-RET
+                        // contract documented in emit_block_body_arm's tail).
+                        let app_children = arena.children(child_id);
+                        if app_children.len() > 0 {
+                            let callee_id = app_children[0];
+                            if let Some(callee_node) = arena.get(callee_id) {
+                                if callee_node.kind == IrKind::Var {
+                                    if let Some(target_name) = arena.binding_names().get(callee_id) {
+                                        let lambda_id = IrNodeId::new(self.state.current_function)
+                                            .expect("current_function set by walker");
+                                        if i == block_children.len() - 1 {
+                                            // Tail-position call in match arm: value in RAX becomes the arm's value.
+                                            if cfg!(debug_assertions) {
+                                                eprintln!("[emit_block_body_arm] App (tail call) at index {}", i);
+                                            }
+                                            self.emit_call_expr(
+                                                lambda_id,
+                                                target_name.to_string(),
+                                                &app_children[1..],
+                                                arena,
+                                            );
+                                        } else {
+                                            // Statement-position bare-App child (rare — StmtExpr wrapper is the
+                                            // common shape; kept for parallel with emit_block_body).
+                                            if cfg!(debug_assertions) {
+                                                eprintln!("[emit_block_body_arm] App (statement call) at index {}", i);
+                                            }
+                                            self.emit_call_stmt(
+                                                lambda_id,
+                                                target_name.to_string(),
+                                                &app_children[1..],
+                                                arena,
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     _ => {
                         // Unexpected statement kind.
                         if cfg!(debug_assertions) {
