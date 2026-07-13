@@ -445,6 +445,33 @@ impl EmitWalker {
         );
     }
 
+    /// Issue #1184: emit `Module.field` (READ) as a RIP-relative load from the
+    /// bare exported symbol `field`. Mirror of `emit_module_field_write` added
+    /// in #1182 (f4df57a).
+    ///
+    /// MVP scope: width = u64 hardcoded (module lets in kernel are u64 today;
+    /// matches #1176/#1179/#1181/#1182 precedent). Non-u64 module fields are
+    /// deferred — follow-up will thread declared type through module_field_refs.
+    ///
+    /// `node_id` is the emission ID under which the load is registered; callers
+    /// pass either the real FieldAccess node id (from visit_field_access_with_reg)
+    /// or a virtual lambda-scoped id (from the visit_lambda FieldAccess arm).
+    pub(crate) fn emit_module_field_read(
+        &mut self,
+        node_id: IrNodeId,
+        dest_reg: RegId,
+        field_name: String,
+    ) {
+        self.emit_mem_read_via_rip_sym(
+            node_id,
+            dest_reg,
+            field_name,
+            0,
+            8,
+            false,
+        );
+    }
+
     /// Phase 6 m3-003: Emit field access with a specified scratch register.
     ///
     /// Generalizes visit_field_access to support arbitrary destination registers.
@@ -460,7 +487,16 @@ impl EmitWalker {
         let field_info = match arena.field_access_info().get(field_access_id) {
             Some(info) => info,
             None => {
-                // No field access info registered; skip (may happen before elaboration).
+                // Issue #1184: mirror the write-path fallback in visit_field_assign.
+                // If this FieldAccess is a module-qualified reference (populated in
+                // module_field_refs by lower/field_access.rs during elaboration
+                // because the receiver was not a struct-typed binding), route to
+                // the RIP-relative READ helper. Covers braced-tail + let-RHS.
+                if let Some(field_name) = arena.module_field_refs().get(field_access_id) {
+                    let name_owned = field_name.to_string();
+                    self.emit_module_field_read(field_access_id, dest_reg, name_owned);
+                    return;
+                }
                 return;
             }
         };

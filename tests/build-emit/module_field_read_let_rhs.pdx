@@ -1,0 +1,11 @@
+// Issue #1184: module-qualified field read (let-RHS)
+// `fn () -> { let x : u64 = Module.field; x }` reads from the bare exported
+// symbol `field` via RIP-relative load. Tests the module-field-ref side-table +
+// emit path added by the #1184 fix. `Runqueue` is not defined here — the linker
+// resolves `_current_tcb` at link time (extern-style reference by naming convention).
+module ModuleFieldReadLetRhs = structure {
+  pub let g : () -> u64 = fn () -> {
+    let x : u64 = Runqueue._current_tcb
+    x
+  }
+}

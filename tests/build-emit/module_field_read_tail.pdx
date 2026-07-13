@@ -1,0 +1,10 @@
+// Issue #1184: module-qualified field read (braced tail)
+// `fn () -> { Module.field }` reads from the bare exported symbol `field` via
+// RIP-relative load. Tests the module-field-ref side-table + emit path added by
+// the #1184 fix. `Runqueue` is not defined here — the linker resolves
+// `_current_tcb` at link time (extern-style reference by naming convention).
+module ModuleFieldReadTail = structure {
+  pub let f : () -> u64 = fn () -> {
+    Runqueue._current_tcb
+  }
+}
