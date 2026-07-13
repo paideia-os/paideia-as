@@ -34,6 +34,7 @@ mod build_emit {
     pub mod module_let_no_text_emission;
     pub mod module_const_arg_call;
     pub mod module_let_mut_assign_call_rhs;
+    pub mod module_let_mut_assign_module_const_rhs;
     pub mod module_let_mut_assign_negatives;
     pub mod module_let_mut_assign_via_lambda;
     pub mod multi_arg_var_call;

@@ -1,0 +1,8 @@
+module ModuleLetMutAssignModuleConstRhs = structure {
+  let BUDGET_DEFAULT : u64 = 1000000
+  let mut current_budget : u64 = 1000000
+
+  pub let budget_reset : () -> () = fn () -> {
+    current_budget = BUDGET_DEFAULT
+  }
+}

@@ -7,6 +7,7 @@
 
 use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand};
 use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi};
+use paideia_as_ir::symbol::SymbolKind;
 use paideia_as_diagnostics::{DiagnosticCode, Category, Severity};
 
 use crate::emit_walker::EmitWalker;
@@ -290,14 +291,38 @@ impl EmitWalker {
                 match self.state.local_bindings.get(&rhs_name) {
                     Some(reg) => reg,
                     None => {
-                        self.push_typed_diag(
-                            t0540_code(),
-                            format!(
-                                "var_assign RHS {} not found in local bindings; non-register sources not yet supported",
-                                rhs_name
-                            ),
-                        );
-                        return;
+                        // Issue #1179: RHS is a module-level Object (const or let-mut),
+                        // not a local binding — the same blindness fixed in #1176 for
+                        // emit_call.rs. Mirror the App-RHS branch below: materialise
+                        // the value into RAX via a RIP-relative load, then use RAX as
+                        // the store source. u64/8-byte hardcode carried forward from
+                        // #1176 (documented gap; separate follow-up for width dispatch).
+                        let is_module_object = arena
+                            .symbols()
+                            .lookup_by_name(&rhs_name)
+                            .map(|s| matches!(s.kind, SymbolKind::Object))
+                            .unwrap_or(false);
+                        if is_module_object {
+                            let load_id = self.alloc_synthetic_id();
+                            self.emit_mem_read_via_rip_sym(
+                                load_id,
+                                paideia_as_ir::abi::RAX,
+                                rhs_name.clone(),
+                                0,
+                                8,
+                                false,
+                            );
+                            paideia_as_ir::abi::RAX
+                        } else {
+                            self.push_typed_diag(
+                                t0540_code(),
+                                format!(
+                                    "var_assign RHS {} not found in local bindings; non-register sources not yet supported",
+                                    rhs_name
+                                ),
+                            );
+                            return;
+                        }
                     }
                 }
             }
