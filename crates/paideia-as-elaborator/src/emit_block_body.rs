@@ -285,6 +285,29 @@ impl EmitWalker {
                                         }
                                     }
                                 }
+                                else if rhs_node.kind == IrKind::FieldAccess {
+                                    // #1187: module-qualified field-read Let-RHS `let x = M.f`.
+                                    // Emit RIP-relative load into scratch_reg INSIDE the enclosing lambda's
+                                    // Action arm — pending_first_instr_lambda captures this instruction as
+                                    // lambda_first_instr[L], keeping the load bytes inside the function
+                                    // symbol range. Struct-typed FA RHS falls to the #1138 else fallback,
+                                    // where the flat walker's visit_let_field_access already emitted the load
+                                    // (existing pattern; unchanged for #1187 scope).
+                                    if let Some(field_name) = arena.module_field_refs().get(rhs_id) {
+                                        let name_owned = field_name.to_string();
+                                        self.state
+                                            .local_bindings
+                                            .insert(binding_name.clone(), scratch_reg);
+                                        self.emit_module_field_read(rhs_id, scratch_reg, name_owned);
+                                    } else {
+                                        // Struct-typed FA RHS: flat walker's visit_let_field_access emitted
+                                        // the load (existing pattern). Just record the binding here so the
+                                        // tail Var arm can resolve it.
+                                        self.state
+                                            .local_bindings
+                                            .insert(binding_name.clone(), scratch_reg);
+                                    }
+                                }
                                 // #1138: Handle other RHS kinds (e.g., Var) by just recording binding
                                 // without emitting instructions. Instruction emission is deferred or N/A.
                                 else {
@@ -582,6 +605,26 @@ impl EmitWalker {
                                     }
                                 }
                             }
+                        }
+                    }
+                    IrKind::FieldAccess => {
+                        // #1187: module-qualified field-read tail-in-braces `{ M.f }`.
+                        // Emit RIP-relative load into RAX at tail position INSIDE the
+                        // enclosing lambda's Action arm — pending_first_instr_lambda captures
+                        // this instruction as lambda_first_instr[L], keeping the load bytes
+                        // inside the function symbol range. Statement-position FA is inert
+                        // (mirrors emit_action_stmt's IrKind::FieldAccess arm).
+                        if i == block_children.len() - 1 {
+                            if let Some(field_name) = arena.module_field_refs().get(child_id) {
+                                let name_owned = field_name.to_string();
+                                self.emit_module_field_read(child_id, abi::RAX, name_owned);
+                            }
+                            // Struct-typed FA at tail: deferred (no fixture exercises it today).
+                        } else if cfg!(debug_assertions) {
+                            eprintln!(
+                                "[emit_block_body] FieldAccess at index {} (statement position, skipped)",
+                                i
+                            );
                         }
                     }
                     _ => {

@@ -487,16 +487,17 @@ impl EmitWalker {
         let field_info = match arena.field_access_info().get(field_access_id) {
             Some(info) => info,
             None => {
-                // Issue #1184: mirror the write-path fallback in visit_field_assign.
-                // If this FieldAccess is a module-qualified reference (populated in
-                // module_field_refs by lower/field_access.rs during elaboration
-                // because the receiver was not a struct-typed binding), route to
-                // the RIP-relative READ helper. Covers braced-tail + let-RHS.
-                if let Some(field_name) = arena.module_field_refs().get(field_access_id) {
-                    let name_owned = field_name.to_string();
-                    self.emit_module_field_read(field_access_id, dest_reg, name_owned);
-                    return;
-                }
+                // #1187: module-qualified FA reads are owned by three consumers that
+                // run INSIDE the enclosing lambda's function scope, so the load bytes
+                // land inside the function symbol range:
+                //   - emit_visit_lambda.rs FieldAccess arm  — no-braces `fn () -> M.f`
+                //   - emit_block_body.rs Let-arm FA branch  — let-RHS `let x = M.f; x`
+                //   - emit_block_body.rs block-child FA arm — tail-in-braces `{ M.f }`
+                // The fallback previously here (#1184-corr) emitted at the flat-walker's
+                // arena preorder, before `pending_first_instr_lambda = Some(L)` fired,
+                // so the load sorted to a byte offset BEFORE the function symbol
+                // (issue #1187: orphan load). Silent-return preserves pre-#1184 behavior
+                // for shapes we haven't enumerated.
                 return;
             }
         };

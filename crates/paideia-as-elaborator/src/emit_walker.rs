@@ -515,7 +515,14 @@ impl EmitWalker {
 
                                 // Phase 6 m3-003: Handle Let with FieldAccess RHS.
                                 if rhs_kind == IrKind::FieldAccess {
-                                    self.visit_let_field_access(node_id, rhs_id, arena);
+                                    // #1187: module-qualified FA RHS is owned by emit_block_body's Let-arm
+                                    // FieldAccess branch (runs inside visit_lambda's Action arm, after
+                                    // pending_first_instr_lambda = Some(L) is set — load captured as
+                                    // lambda_first_instr[L], keeping bytes inside the function symbol range).
+                                    // Struct-typed FA RHS keeps the pre-existing flat-walker path.
+                                    if arena.module_field_refs().get(rhs_id).is_none() {
+                                        self.visit_let_field_access(node_id, rhs_id, arena);
+                                    }
                                 }
                             }
                         }

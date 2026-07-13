@@ -89,37 +89,26 @@ fn module_field_read_tail_emits_rip_rel_load_rax() {
     );
 
     let bytes = std::fs::read(&tmp).expect("output ELF should exist");
-    let file = object::File::parse(&*bytes).expect("object should parse the ELF");
+    let f_bytes = crate::common::elf::symbol_bytes(&bytes, "f")
+        .expect("symbol 'f' should exist in .text");
 
-    // Extract .text section bytes
-    let mut text_bytes = Vec::new();
-    for section in file.sections() {
-        if section.name().unwrap_or("") == ".text" {
-            text_bytes = section.data().unwrap_or(b"").to_vec();
-            break;
-        }
-    }
-
-    assert!(!text_bytes.is_empty(), ".text section should contain bytes");
-
-    // Assert: must contain 48 8b 05 (mov rax, [rip+...]) with REX.W prefix
-    // 0x48 = REX.W, 0x8b = opcode, 0x05 = ModR/M (rax as register field)
-    let load_seq = [0x48u8, 0x8b, 0x05];
-    let load_pos = text_bytes.windows(3).position(|w| w == load_seq)
-        .expect("expected 48 8b 05 (mov rax, [rip+...] with REX.W) in .text");
-
-    // Verify that REX.W is indeed there (0x48 must be the prefix)
     assert_eq!(
-        text_bytes[load_pos], 0x48,
-        "expected REX.W (0x48) prefix for u64 mov rax, [rip+...] at position {}",
-        load_pos
+        f_bytes.len(),
+        8,
+        "f must be exactly 8 bytes (load + ret); got {} bytes: {:02X?}",
+        f_bytes.len(),
+        f_bytes
     );
-
-    // Assert: must contain C3 (ret) — ideally after the mov
-    assert!(
-        text_bytes.iter().any(|&b| b == 0xC3),
-        "expected C3 (ret) in .text, got: {:02X?}",
-        text_bytes
+    assert_eq!(
+        &f_bytes[..3],
+        &[0x48u8, 0x8b, 0x05],
+        "f must begin with 48 8b 05 (mov rax, [rip+disp32]); got {:02X?}",
+        f_bytes
+    );
+    assert_eq!(
+        f_bytes[7], 0xC3,
+        "f must end with C3 (ret); got {:02X?}",
+        f_bytes
     );
 
     let _ = std::fs::remove_file(&tmp);
@@ -211,9 +200,9 @@ fn module_field_read_let_rhs_builds_successfully() {
 #[test]
 fn module_field_read_let_rhs_emits_load_into_rcx_and_return() {
     // Issue #1184 AC2: fn () -> { let x: u64 = Runqueue._current_tcb; x } emits
-    // mov rax, [rip+...] (load into rax) AND mov rcx, rax (intermediate) AND mov rax, rcx (setup return)
-    // Expected byte sequences: 48 8b 05 (mov rax, [rip+...]) for the RIP-relative load
-    // Order-agnostic via windows().
+    // mov rcx, [rip+...] (load into rcx via scratch) AND mov rax, rcx (setup return)
+    // Expected byte sequences: 48 8b 0d (mov rcx, [rip+...]) for the RIP-relative load,
+    // then 48 89 c8 c3 (mov rax, rcx; ret) to return the value.
     let input = build_emit_data("module_field_read_let_rhs.pdx");
     let tmp = std::env::temp_dir().join("paideia_as_module_field_read_let_rhs_emit.o");
     let _ = std::fs::remove_file(&tmp);
@@ -234,31 +223,27 @@ fn module_field_read_let_rhs_emits_load_into_rcx_and_return() {
     );
 
     let bytes = std::fs::read(&tmp).expect("output ELF should exist");
-    let file = object::File::parse(&*bytes).expect("object should parse the ELF");
+    let g_bytes = crate::common::elf::symbol_bytes(&bytes, "g")
+        .expect("symbol 'g' should exist in .text");
 
-    // Extract .text section bytes
-    let mut text_bytes = Vec::new();
-    for section in file.sections() {
-        if section.name().unwrap_or("") == ".text" {
-            text_bytes = section.data().unwrap_or(b"").to_vec();
-            break;
-        }
-    }
-
-    assert!(!text_bytes.is_empty(), ".text section should contain bytes");
-
-    // Assert: must contain 48 8b 05 (mov rax, [rip+...]) with REX.W prefix for the RIP-relative load
-    let load_rax_seq = [0x48u8, 0x8b, 0x05];
-    let load_rax_found = text_bytes.windows(3).any(|w| w == load_rax_seq);
-    assert!(
-        load_rax_found,
-        "expected 48 8b 05 (mov rax, [rip+...] with REX.W) in .text for let binding field load"
+    assert_eq!(
+        g_bytes.len(),
+        11,
+        "g must be exactly 11 bytes; got {} bytes: {:02X?}",
+        g_bytes.len(),
+        g_bytes
     );
-
-    // Assert: must contain C3 (ret)
-    assert!(
-        text_bytes.iter().any(|&b| b == 0xC3),
-        "expected C3 (ret) in .text"
+    assert_eq!(
+        &g_bytes[..3],
+        &[0x48u8, 0x8b, 0x0d],
+        "g must begin with 48 8b 0d (mov rcx, [rip+disp32]); got {:02X?}",
+        g_bytes
+    );
+    assert_eq!(
+        &g_bytes[7..11],
+        &[0x48u8, 0x89, 0xc8, 0xc3],
+        "g bytes [7..11) must be 48 89 c8 c3 (mov rax, rcx; ret); got {:02X?}",
+        &g_bytes[7..11]
     );
 
     let _ = std::fs::remove_file(&tmp);
@@ -442,6 +427,46 @@ fn module_field_read_no_braces_has_reloc_to_current_tcb() {
         found_current_tcb_reloc,
         ".rela.text should contain relocation against symbol '_current_tcb' for no-braces lambda"
     );
+
+    let _ = std::fs::remove_file(&tmp);
+}
+
+// ============================================================================
+// Fixture 4: Write-then-read tail `fn (v: u64) -> { M.f = v; M.f }`
+//
+// Issue #1187: Combined module-qualified field write + read exercises both
+// emit_module_field_write and emit_module_field_read within the same function.
+// Verifies that both paths correctly place their instructions inside the
+// function symbol range.
+// ============================================================================
+
+#[test]
+fn module_field_write_then_read_tail_emits_write_then_load_and_ret() {
+    let input = build_emit_data("module_field_write_then_read_tail.pdx");
+    let tmp = std::env::temp_dir().join("paideia_as_1187_write_then_read.o");
+    let _ = std::fs::remove_file(&tmp);
+    let out = cargo_run(&[
+        "build", input.to_str().unwrap(), "--emit", "elf64",
+        "-o", tmp.to_str().unwrap(),
+    ]);
+    assert!(out.status.success(),
+        "build failed: {}", String::from_utf8_lossy(&out.stderr));
+
+    let bytes = std::fs::read(&tmp).expect("output ELF should exist");
+    let f_bytes = crate::common::elf::symbol_bytes(&bytes, "f")
+        .expect("symbol 'f' should exist in .text");
+
+    assert_eq!(
+        f_bytes.len(), 15,
+        "f must be exactly 15 bytes (store + load + ret); got {} bytes: {:02X?}",
+        f_bytes.len(), f_bytes
+    );
+    assert_eq!(&f_bytes[..3], &[0x48u8, 0x89, 0x3d],
+        "f[..3] must be 48 89 3d; got {:02X?}", f_bytes);
+    assert_eq!(&f_bytes[7..10], &[0x48u8, 0x8b, 0x05],
+        "f[7..10] must be 48 8b 05; got {:02X?}", f_bytes);
+    assert_eq!(f_bytes[14], 0xC3,
+        "f[14] must be C3; got {:02X?}", f_bytes);
 
     let _ = std::fs::remove_file(&tmp);
 }
