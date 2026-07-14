@@ -15,6 +15,7 @@ use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi};
 use paideia_as_diagnostics::{Category, DiagnosticCode, Severity};
 
 use crate::emit_walker::EmitWalker;
+use crate::emit_store_record::is_operator_callee;
 
 /// PA-r17-013 (#991): Tracks the tail-expression context for proper return-value placement.
 /// When an expression appears in trailing position, its result must land in the correct
@@ -579,17 +580,26 @@ impl EmitWalker {
                                         let lambda_id = IrNodeId::new(self.state.current_function)
                                             .expect("current_function set by walker");
                                         if i == block_children.len() - 1 {
-                                            // Tail-position call: emit via emit_call_expr (no RET emission).
-                                            // The call result lands in RAX per x86-64 conventions.
+                                            // Tail-position call: dispatch on operator vs function call.
+                                            // #1191: operators use BinOp lowerer; real functions use emit_call_expr.
                                             if cfg!(debug_assertions) {
                                                 eprintln!("[emit_block_body] App (tail call) at index {}", i);
                                             }
-                                            self.emit_call_expr(
-                                                lambda_id,
-                                                target_name.to_string(),
-                                                &app_children[1..],
-                                                arena,
-                                            );
+                                            let is_operator = arena.call_sites().get(child_id)
+                                                .map(|m| is_operator_callee(&m.callee_name))
+                                                .unwrap_or(false);
+                                            if is_operator {
+                                                // BinOp/BitNot tail expression lowered into RAX
+                                                let _ = self.emit_var_assign_expr_to_rax(child_id, arena);
+                                            } else {
+                                                // Real function call: existing path
+                                                self.emit_call_expr(
+                                                    lambda_id,
+                                                    target_name.to_string(),
+                                                    &app_children[1..],
+                                                    arena,
+                                                );
+                                            }
                                         } else {
                                             // Statement-position call: emit via emit_call_stmt (discarded result).
                                             if cfg!(debug_assertions) {
@@ -963,16 +973,26 @@ impl EmitWalker {
                                         let lambda_id = IrNodeId::new(self.state.current_function)
                                             .expect("current_function set by walker");
                                         if i == block_children.len() - 1 {
-                                            // Tail-position call in match arm: value in RAX becomes the arm's value.
+                                            // Tail-position call in match arm: dispatch on operator vs function call.
+                                            // #1191: operators use BinOp lowerer; real functions use emit_call_expr.
                                             if cfg!(debug_assertions) {
                                                 eprintln!("[emit_block_body_arm] App (tail call) at index {}", i);
                                             }
-                                            self.emit_call_expr(
-                                                lambda_id,
-                                                target_name.to_string(),
-                                                &app_children[1..],
-                                                arena,
-                                            );
+                                            let is_operator = arena.call_sites().get(child_id)
+                                                .map(|m| is_operator_callee(&m.callee_name))
+                                                .unwrap_or(false);
+                                            if is_operator {
+                                                // BinOp/BitNot tail expression lowered into RAX
+                                                let _ = self.emit_var_assign_expr_to_rax(child_id, arena);
+                                            } else {
+                                                // Real function call: existing path
+                                                self.emit_call_expr(
+                                                    lambda_id,
+                                                    target_name.to_string(),
+                                                    &app_children[1..],
+                                                    arena,
+                                                );
+                                            }
                                         } else {
                                             // Statement-position bare-App child (rare — StmtExpr wrapper is the
                                             // common shape; kept for parallel with emit_block_body).

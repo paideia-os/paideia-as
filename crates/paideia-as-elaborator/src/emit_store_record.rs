@@ -597,7 +597,7 @@ impl EmitWalker {
     /// failure > silent miscompile). BitNot is unary and does not consume a
     /// scratch slot. Clobbers RAX + R10 + R11 + RCX — all SysV caller-saved;
     /// store-bodied lambda always ends in RET.
-    fn emit_var_assign_expr_to_rax(
+    pub(crate) fn emit_var_assign_expr_to_rax(
         &mut self,
         expr_id: IrNodeId,
         arena: &IrArena,
@@ -607,7 +607,7 @@ impl EmitWalker {
 
     /// #1181: lower a var_assign RHS expression tree into a given register.
     /// Returns true on success; false if any push_typed_diag fired.
-    fn emit_var_assign_expr_to_reg(
+    pub(crate) fn emit_var_assign_expr_to_reg(
         &mut self,
         expr_id: IrNodeId,
         arena: &IrArena,
@@ -873,7 +873,7 @@ impl EmitWalker {
 }
 
 /// #1181: operator lexemes for dispatch in emit_var_assign_expr_to_reg
-fn is_operator_callee(s: &str) -> bool {
+pub(crate) fn is_operator_callee(s: &str) -> bool {
     matches!(s,
         "|" | "&" | "^" | "<<" | ">>" |
         "+" | "-" | "*" | "/" | "%" |

@@ -1,0 +1,8 @@
+module SingleLetThenTailAdd = structure {
+  let helper : (u64) -> u64 = fn (v: u64) -> v + 10
+  pub let f : (u64) -> u64 = fn (v: u64) -> {
+    let x : u64 = helper(v)
+    x + 1
+  }
+  pub let entry : () -> u64 = fn () -> f(5)
+}

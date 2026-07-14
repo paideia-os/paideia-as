@@ -92,6 +92,9 @@ mod build_emit {
     pub mod typed_encoder_diagnostics;
     pub mod two_let_with_app;
     pub mod two_let_with_app_spill_restore;
+    pub mod two_let_with_tail_binop;
+    pub mod single_let_then_tail_add;
+    pub mod tail_binop_nested_app;
     pub mod two_let_with_4arg_call_saves_rcx;
     pub mod two_let_with_ms_call_saves_rcx;
     pub mod unsafe_call_stmt_diagnostic;

@@ -16,4 +16,7 @@ mod runtime {
     mod match_nested_pattern;
     mod ms_call_saves_rcx_value;
     mod four_arg_call_saves_rcx_value;
+    mod two_let_with_tail_binop_value;
+    mod single_let_then_tail_add_value;
+    mod tail_binop_nested_app_value;
 }

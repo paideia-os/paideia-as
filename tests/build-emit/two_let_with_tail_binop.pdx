@@ -1,0 +1,10 @@
+module TwoLetWithTailBinop = structure {
+  let helper_a : (u64) -> u64 = fn (v: u64) -> v + 10
+  let helper_b : (u64) -> u64 = fn (v: u64) -> v + 20
+  pub let combo : (u64) -> u64 = fn (v: u64) -> {
+    let a : u64 = helper_a(v)
+    let b : u64 = helper_b(v)
+    a + b
+  }
+  pub let entry : () -> u64 = fn () -> combo(1)
+}
