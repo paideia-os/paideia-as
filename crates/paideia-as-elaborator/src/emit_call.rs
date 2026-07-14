@@ -135,6 +135,20 @@ impl EmitWalker {
             0
         };
 
+        // #1195: Compute dynamic SysV alignment pad based on scratch-save parity.
+        // When callee_abi == Sysv AND we have bridge_saves (paideia→SysV cross-call),
+        // check if scratch_save_set.len() is even. If so, emit 8-byte pad before
+        // scratch saves to restore RSP ≡ 0 mod 16 at CALL.
+        let sysv_bump: u32 = if callee_abi == CallingConvention::Sysv && !bridge_saves.is_empty() {
+            if scratch_save_set.len() % 2 == 0 {
+                abi::SYSV_CALL_ALIGN_PAD
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+
         // Emit caller-side bridge prelude (push R15, R14) if crossing paideia→MS/SysV
         // Use first_id for the first push, subsequent pushes get fresh IDs
         if !bridge_saves.is_empty() {
@@ -185,6 +199,31 @@ impl EmitWalker {
             };
 
             self.emit_inst(ms_prelude_id, prelude_inst);
+        }
+
+        // #1195: Emit SysV alignment pad: sub rsp, 8 (for paideia→SysV with even scratch count)
+        if sysv_bump > 0 {
+            let sysv_prelude_id = if first_emission {
+                first_emission = false;
+                first_id
+            } else {
+                self.alloc_synthetic_id()
+            };
+
+            let mut prelude_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            prelude_ops.push(Operand::Reg(abi::RSP));
+            prelude_ops.push(Operand::Imm64(sysv_bump as i64));
+
+            let prelude_inst = Instruction {
+                mnemonic: Mnemonic::Sub,
+                operands: prelude_ops,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+                emission_order: 0,
+            };
+
+            self.emit_inst(sysv_prelude_id, prelude_inst);
         }
 
         // Issue #1163 (corrective): Spill live caller-save scratch bindings before arg-MOVs
@@ -483,6 +522,26 @@ impl EmitWalker {
             };
 
             self.emit_inst(scratch_restore_id, pop_inst);
+        }
+
+        // #1195: Emit SysV alignment postlude: add rsp, 8 (matches SysV prelude)
+        if sysv_bump > 0 {
+            let sysv_postlude_id = self.alloc_synthetic_id();
+
+            let mut postlude_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            postlude_ops.push(Operand::Reg(abi::RSP));
+            postlude_ops.push(Operand::Imm64(sysv_bump as i64));
+
+            let postlude_inst = Instruction {
+                mnemonic: Mnemonic::Add,
+                operands: postlude_ops,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+                emission_order: 0,
+            };
+
+            self.emit_inst(sysv_postlude_id, postlude_inst);
         }
 
         // Emit MS x64 postlude: add rsp, ms_bump (dynamic, matches prelude)

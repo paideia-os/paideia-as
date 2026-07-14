@@ -88,6 +88,7 @@ mod build_emit {
     pub mod stmt_assign_local_let_mut_unrelated_store;
     pub mod stmt_assign_module_let_mut_plain;
     pub mod stmt_let_with_call_rhs;
+    pub mod sysv_bridge_bump;
     pub mod target_triplet;
     pub mod typed_encoder_diagnostics;
     pub mod two_let_with_app;

@@ -110,6 +110,14 @@ pub const MS_CALL_STACK_BUMP: u32 = 40;
 /// instead of MS_CALL_STACK_BUMP alone.
 pub const MS_CALL_STACK_BUMP_ODD_PAD: u32 = 8;
 
+/// #1195: pad added to paideia→SysV cross-ABI call sequence when the
+/// scratch-save count is even, restoring RSP ≡ 0 mod 16 at CALL as required
+/// by SysV ABI. bridge_saves contributes 2 pushes for cross-ABI calls;
+/// combined with entry RSP ≡ 8 mod 16, even scratch counts leave RSP = 8
+/// mod 16 at CALL (misaligned). Adding 8 shifts alignment back to 0 mod 16.
+/// N odd cases are already aligned by parity — no bump needed.
+pub const SYSV_CALL_ALIGN_PAD: u32 = 8;
+
 /// Return-value register.
 pub const RET: RegId = RAX;
 

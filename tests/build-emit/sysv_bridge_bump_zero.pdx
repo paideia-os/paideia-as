@@ -1,0 +1,4 @@
+module SysvBridgeBumpZero = structure {
+  let sysv_callee : (u64) -> u64 = fn (v: u64) -> v + 1 @abi("sysv")
+  pub let f : (u64) -> u64 = fn (v: u64) -> sysv_callee(v)
+}
