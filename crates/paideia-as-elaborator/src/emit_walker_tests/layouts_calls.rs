@@ -2641,7 +2641,10 @@ fn emit_walker_ms_five_arg_call_emits_t0521() {
 
 #[test]
 fn emit_walker_sysv_call_still_uses_rdi_rsi_pool() {
-    // SysV callee (explicitly annotated), 1 arg. Verify mov rdi, imm (no prelude/postlude).
+    // SysV callee (explicitly annotated), 1 arg, 0 scratch saves (N=0).
+    // Verify mov rdi, imm AND paideia→SysV alignment pad (sub rsp, 8) per #1195.
+    // Entry RSP ≡ 8 mod 16; bridge (2 pushes) + N=0 scratches leaves RSP ≡ 8 mod 16.
+    // Pad (sub rsp, 8) restores alignment for CALL (RSP ≡ 0 mod 16).
     use paideia_as_ir::let_meta::{LetInfo, CallingConvention};
 
     let mut arena = IrArena::new();
@@ -2687,12 +2690,13 @@ fn emit_walker_sysv_call_still_uses_rdi_rsi_pool() {
     });
     assert!(rdi_found, "Expected 'mov rdi, 99' for SysV call");
 
-    // Verify NO prelude
-    let sub_found = insts.entries().iter().any(|(_, inst)| {
+    // Verify paideia→SysV alignment pad (sub rsp, 8) present for N=0 case per #1195
+    let sysv_pad_found = insts.entries().iter().any(|(_, inst)| {
         inst.mnemonic == paideia_as_ir::instruction::Mnemonic::Sub &&
-        matches!(&inst.operands[0], paideia_as_ir::instruction::Operand::Reg(r) if *r == paideia_as_ir::abi::RSP)
+        matches!(&inst.operands[0], paideia_as_ir::instruction::Operand::Reg(r) if *r == paideia_as_ir::abi::RSP) &&
+        matches!(&inst.operands[1], paideia_as_ir::instruction::Operand::Imm64(8))
     });
-    assert!(!sub_found, "SysV call should NOT emit 'sub rsp' prelude");
+    assert!(sysv_pad_found, "Expected 'sub rsp, 8' for paideia→SysV N=0 case per #1195");
 }
 
 #[test]

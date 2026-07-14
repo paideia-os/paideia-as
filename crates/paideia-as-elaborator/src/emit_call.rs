@@ -136,10 +136,10 @@ impl EmitWalker {
         };
 
         // #1195: Compute dynamic SysV alignment pad based on scratch-save parity.
-        // When callee_abi == Sysv AND we have bridge_saves (paideia→SysV cross-call),
-        // check if scratch_save_set.len() is even. If so, emit 8-byte pad before
+        // Only for EXPLICIT SysV ABI calls (callee_abi_option == Some(Sysv)) with bridge saves.
+        // When paideia→SysV cross-call and scratch count is even, emit 8-byte pad before
         // scratch saves to restore RSP ≡ 0 mod 16 at CALL.
-        let sysv_bump: u32 = if callee_abi == CallingConvention::Sysv && !bridge_saves.is_empty() {
+        let sysv_bump: u32 = if callee_abi_option == Some(CallingConvention::Sysv) && !bridge_saves.is_empty() {
             if scratch_save_set.len() % 2 == 0 {
                 abi::SYSV_CALL_ALIGN_PAD
             } else {
