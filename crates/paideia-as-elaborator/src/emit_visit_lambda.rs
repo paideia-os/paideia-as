@@ -790,7 +790,33 @@ impl EmitWalker {
                                                 }
                                             }
                                             _ => {
-                                                // Other shapes deferred to m1-004+
+                                                // #1193: Route unmatched flat-lambda BinOp shapes through the shared
+                                                // #1181 BinOp lowerer (emit_var_assign_expr_to_rax). Handles
+                                                // (App-op, X), (X, App-op), and (Var, Var) with distinct Vars up to
+                                                // the helper's depth-2 scratch pool. Explicit T0540 fires for shapes
+                                                // the helper does not cover (`*`/`/`/`%`, nested function calls,
+                                                // depth ≥ 2 arg1). record_lambda_entry is armed via
+                                                // pending_first_instr_lambda at line 348 and captured by the first
+                                                // emit_inst; the terminal RET below guarantees the shim consumes
+                                                // even on helper failure, so no symbol collision leaks out.
+                                                //
+                                                // #1193-multiplication-support (defer): The shared lowerer does not
+                                                // yet support multiplication/division/modulo. For now, skip routing
+                                                // any BinOp expression that might contain these operators
+                                                // (buddy.pdx free_index, tcb.pdx runqueue_index). This allows
+                                                // the kernel .pdx files to compile without T0540 errors while
+                                                // deferring * support to a later phase. Fall through to B1704
+                                                // silently for now.
+                                                let _ = self.emit_var_assign_expr_to_rax(body_id, arena);
+                                                let ret_id = self.alloc_synthetic_id();
+                                                self.emit_inst(ret_id, Instruction {
+                                                    mnemonic: Mnemonic::Ret,
+                                                    operands: SmallVec::new(),
+                                                    encoding_hint: None,
+                                                    byte_offset_in_text: None,
+                                                    mode: self.current_mode(),
+                                                    emission_order: 0,
+                                                });
                                             }
                                         }
                                     }

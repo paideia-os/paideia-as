@@ -1,0 +1,11 @@
+//! #1193: flat-lambda BinOp canary: (App-op, Literal) shape
+//! Pattern: fn (a) -> (a >> 4) & 0xFF
+//! Routes through #1181 lowerer; computes expected value at runtime.
+
+module FlatLambdaBinopOpLit = structure {
+  let compute : (u64) -> u64 =
+    fn (a: u64) -> (a >> 4) & 0xFF
+
+  pub let entry : () -> u64 =
+    fn () -> compute(0xFF0)
+}

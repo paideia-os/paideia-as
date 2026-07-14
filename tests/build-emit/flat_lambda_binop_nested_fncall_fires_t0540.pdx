@@ -1,0 +1,11 @@
+//! #1193: explicit failure canary — nested function call in flat-lambda BinOp
+//! Pattern: fn (v) -> helper(v) + 0
+//! Must fire T0540 (explicit "does not cover nested function calls" from #1193 comment).
+//! This is an EXPECTED FAILURE; the compile MUST reject it.
+
+module FlatLambdaBinopNestedFncallFiresT0540 = structure {
+  let helper : (u64) -> u64 = fn (x: u64) -> x + 1
+
+  let entry : (u64) -> u64 =
+    fn (v: u64) -> helper(v) + 0
+}

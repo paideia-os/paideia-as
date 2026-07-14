@@ -12,6 +12,7 @@ mod runtime {
     pub mod harness;
     pub mod driver_template;
 
+    mod flat_lambda_binop_canaries;
     mod match_enum_pattern;
     mod match_nested_pattern;
     mod ms_call_saves_rcx_value;

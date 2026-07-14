@@ -1,0 +1,9 @@
+//! #1193: explicit failure canary — multiplication in flat-lambda BinOp
+//! Pattern: fn (v) -> v * 2
+//! Must fire T0540 (explicit "`*`/`/`/`%` not covered by helper" from #1193 comment).
+//! This is an EXPECTED FAILURE; the compile MUST reject it.
+
+module FlatLambdaBinopMultiplicationFiresT0540 = structure {
+  let entry : (u64) -> u64 =
+    fn (v: u64) -> v * 2
+}

@@ -1,0 +1,27 @@
+//! #1193: flat-lambda BinOp canary: symbol collision regression fence
+//! Pattern: 3 sibling flat lambdas with catch-all shapes
+//! Regression test for #1193 (pending_first_instr_lambda collision across sibling lambdas).
+//! Each lambda must capture its own symbol entry; RET must prevent leakage.
+
+module FlatLambdaBinopSymbolFootprint = structure {
+  // Three sibling flat lambdas exercising different BinOp catch-all shapes.
+  // The regression test for #1193 ensures each captures its own lambda_first_instr
+  // via pending_first_instr_lambda, not leaking to adjacent functions.
+
+  let f1 : (u64, u64) -> u64 =
+    fn (a: u64) (b: u64) -> (a & 0xFF) | (b & 0xFF00)
+
+  let f2 : (u64, u64) -> u64 =
+    fn (x: u64) (y: u64) -> (x >> 4) & y
+
+  let f3 : (u64, u64) -> u64 =
+    fn (p: u64) (t: u64) -> p | (t << 12)
+
+  // Entry point for testing: combines results from f1 and f2
+  pub let entry : () -> u64 =
+    fn () -> {
+      let r1 : u64 = f1(0xFF, 0xFF00);
+      let r2 : u64 = f2(0xFF0, 0xFF);
+      r1 + r2
+    }
+}
