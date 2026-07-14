@@ -1,0 +1,7 @@
+module LetWithBitnotShlRhs = structure {
+  pub let f : (u64) -> u64 = fn (v: u64) -> {
+    let mask : u64 = ~16
+    v & mask
+  }
+  pub let entry : () -> u64 = fn () -> f(0xFF)
+}

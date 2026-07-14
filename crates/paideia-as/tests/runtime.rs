@@ -20,5 +20,7 @@ mod runtime {
     mod two_let_with_tail_binop_value;
     mod single_let_then_tail_add_value;
     mod let_with_binop_rhs_value;
+    mod let_with_bitnot_rhs_value;
+    mod let_with_bitnot_shl_rhs_value;
     mod sysv_bridge_bump_value;
 }

@@ -293,6 +293,15 @@ impl EmitWalker {
                                         }
                                     }
                                 }
+                                else if rhs_node.kind == IrKind::BitNot {
+                                    // #1194: Handle BitNot RHS (~expr) — route through #1181 lowerer to emit
+                                    // mov dest, operand ; not dest. Without this, the catch-all at #1138
+                                    // records the binding but never emits the operation.
+                                    self.state
+                                        .local_bindings
+                                        .insert(binding_name.clone(), scratch_reg);
+                                    let _ = self.emit_var_assign_expr_to_reg(rhs_id, arena, scratch_reg, 0);
+                                }
                                 else if rhs_node.kind == IrKind::FieldAccess {
                                     // #1187: module-qualified field-read Let-RHS `let x = M.f`.
                                     // Emit RIP-relative load into scratch_reg INSIDE the enclosing lambda's
@@ -865,6 +874,15 @@ impl EmitWalker {
                                             self.state.local_bindings.insert(binding_name.clone(), scratch_reg);
                                         }
                                     }
+                                }
+                                else if rhs_node.kind == IrKind::BitNot {
+                                    // #1194: Handle BitNot RHS (~expr) — route through #1181 lowerer to emit
+                                    // mov dest, operand ; not dest. Without this, the catch-all at #1138
+                                    // records the binding but never emits the operation.
+                                    self.state
+                                        .local_bindings
+                                        .insert(binding_name.clone(), scratch_reg);
+                                    let _ = self.emit_var_assign_expr_to_reg(rhs_id, arena, scratch_reg, 0);
                                 }
                                 // #1138: Handle other RHS kinds (e.g., Var) by just recording binding
                                 // without emitting instructions. Instruction emission is deferred or N/A.

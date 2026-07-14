@@ -32,6 +32,8 @@ mod build_emit {
     pub mod include_bytes_probe;
     pub mod include_str_probe;
     pub mod label_patches;
+    pub mod let_with_bitnot_rhs;
+    pub mod let_with_bitnot_shl_rhs;
     pub mod local_let_mut_reassign_newline;
     pub mod link_section_probe;
     pub mod match_arm_calls_in_body;
