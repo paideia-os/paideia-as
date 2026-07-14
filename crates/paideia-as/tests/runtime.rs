@@ -14,4 +14,6 @@ mod runtime {
 
     mod match_enum_pattern;
     mod match_nested_pattern;
+    mod ms_call_saves_rcx_value;
+    mod four_arg_call_saves_rcx_value;
 }
