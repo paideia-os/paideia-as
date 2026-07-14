@@ -1,0 +1,10 @@
+module EnumLitCallArgAmbiguous = structure {
+  enum Choice1 { A, B }
+  enum Choice2 { A, C }
+
+  let helper : (Choice1) -> u64 = fn (c: Choice1) -> 0u64
+
+  pub let f : () -> u64 = fn () -> helper(A)
+
+  pub let entry : () -> u64 = fn () -> f()
+}

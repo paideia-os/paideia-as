@@ -1195,6 +1195,24 @@ description = "Issue #1070 (PA-r17-010a): Struct field types must be one of the 
 since = "0.17.0"
 deprecated = false
 
+[diagnostic.T0554]
+severity = "error"
+category = "type"
+title = "Unknown variant in known enum"
+brief = "enum type exists but the variant name was not found"
+description = "Issue #1198 (phase 7 m1-005): A call expression references an enum type with an EnumType::Variant qualifier (e.g., Choice::A), but the variant name does not match any variant declared in that enum. Check the spelling of the variant name and ensure it matches one of the declared variants in the enum definition."
+since = "0.20.0"
+deprecated = false
+
+[diagnostic.T0555]
+severity = "error"
+category = "type"
+title = "Ambiguous bare enum variant identifier"
+brief = "bare enum variant name matches multiple enum variants"
+description = "Issue #1198 (phase 7 m1-005): A bare enum variant identifier (e.g., `A` without the `EnumType::` prefix) is ambiguous because multiple enum types declare a variant with that name. Use the fully-qualified form (e.g., Choice::A) to disambiguate which variant you intend."
+since = "0.20.0"
+deprecated = false
+
 [diagnostic.T0556]
 severity = "error"
 category = "type"

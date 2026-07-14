@@ -1,5 +1,6 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
+assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -1608,6 +1609,34 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "Unsupported struct field type",
               "shortDescription": {
                 "text": "struct field type not recognized"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Issue #1198 (phase 7 m1-005): A call expression references an enum type with an EnumType::Variant qualifier (e.g., Choice::A), but the variant name does not match any variant declared in that enum. Check the spelling of the variant name and ensure it matches one of the declared variants in the enum definition."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0554",
+              "id": "T0554",
+              "name": "Unknown variant in known enum",
+              "shortDescription": {
+                "text": "enum type exists but the variant name was not found"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Issue #1198 (phase 7 m1-005): A bare enum variant identifier (e.g., `A` without the `EnumType::` prefix) is ambiguous because multiple enum types declare a variant with that name. Use the fully-qualified form (e.g., Choice::A) to disambiguate which variant you intend."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0555",
+              "id": "T0555",
+              "name": "Ambiguous bare enum variant identifier",
+              "shortDescription": {
+                "text": "bare enum variant name matches multiple enum variants"
               }
             },
             {

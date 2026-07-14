@@ -83,6 +83,7 @@ use paideia_as_ir::IrNodeId;
 mod array_repeat;
 mod children;
 mod enum_cons;
+mod enum_lit_var;
 mod field_access;
 mod kind_map;
 mod match_arm;
@@ -100,6 +101,7 @@ mod tests;
 
 use children::collect_ast_children;
 use enum_cons::populate_enum_cons_info;
+use enum_lit_var::populate_enum_lit_var_rewrites;
 use field_access::populate_field_access_info;
 use kind_map::map_node_kind;
 use match_arm::populate_match_arm_meta;
@@ -216,6 +218,9 @@ pub fn lower_ast_to_ir(
 
     // Phase 7 m4-003 (#1048/#1049): Populate EnumConsInfoTable for EnumCons expressions.
     populate_enum_cons_info(ast, &mut ir, &ast_to_ir, enum_registry, source_map, sink);
+
+    // Issue #1198: Rewrite bare enum-variant Vars (unit-payload only) to EnumCons.
+    populate_enum_lit_var_rewrites(&mut ir, ast, &ast_to_ir, enum_registry, source_map, sink);
 
     // Phase 7 m9-009 (#1081/#1082): Populate MatchArmMeta for match arms and
     // match_scrutinee_table for match expressions.

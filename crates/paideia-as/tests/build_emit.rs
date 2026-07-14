@@ -19,6 +19,10 @@ mod build_emit {
     pub mod discarded_call_middle_of_block;
     pub mod encoder_strict;
     pub mod enum_cons;
+    pub mod enum_lit_call_arg_first_pos;
+    pub mod enum_lit_call_arg_second_pos;
+    pub mod enum_lit_call_arg_ambiguous;
+    pub mod enum_lit_call_arg_local_shadow;
     pub mod flat_lambda_binop_canaries;
     pub mod enum_primitive_payload_u32;
     pub mod enum_record_payload;

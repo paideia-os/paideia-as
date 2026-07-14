@@ -1,0 +1,12 @@
+module EnumLitCallArgLocalShadow = structure {
+  enum Choice { A, B }
+
+  let helper : (u64, u64) -> u64 = fn (x: u64, y: u64) -> x
+
+  pub let f : () -> u64 = fn () -> {
+    let A : u64 = 5u64
+    helper(A, 0u64)
+  }
+
+  pub let entry : () -> u64 = fn () -> f()
+}

@@ -434,6 +434,36 @@ impl EmitWalker {
                         }
                     }
                 }
+                IrKind::EnumCons => {
+                    let info = match arena.enum_cons_info().get(arg_id) {
+                        Some(i) => i,
+                        None => {
+                            self.push_typed_diag(
+                                t0521_code(),
+                                format!("EnumCons arg {} missing EnumConsInfo", arg_idx),
+                            );
+                            continue;
+                        }
+                    };
+                    // Payload-bearing enum literal as call arg: not supported by this fix.
+                    if !arena.children(arg_id).is_empty() {
+                        self.push_typed_diag(
+                            t0521_code(),
+                            format!(
+                                "payload-bearing enum literal as call arg {} not yet supported (use let-binding)",
+                                arg_idx
+                            ),
+                        );
+                        continue;
+                    }
+                    let mov_id = if first_emission {
+                        first_emission = false;
+                        first_id
+                    } else {
+                        self.alloc_synthetic_id()
+                    };
+                    self.emit_mov_literal_to_reg_with_id(mov_id, dest_reg, info.variant_index as i64);
+                }
                 _ => {
                     // Other argument shapes not yet supported
                     self.push_typed_diag(

@@ -1,0 +1,9 @@
+module EnumLitCallArgSecondPos = structure {
+  enum Choice { A, B }
+
+  let helper : (u64, Choice) -> u64 = fn (v: u64, c: Choice) -> v
+
+  pub let f : () -> u64 = fn () -> helper(0x37, A)
+
+  pub let entry : () -> u64 = fn () -> f()
+}
