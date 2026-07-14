@@ -1,0 +1,12 @@
+module SysvBridgeBumpValueN2 = structure {
+  let helper_a : (u64) -> u64 = fn (v: u64) -> v + 10
+  let helper_b : (u64) -> u64 = fn (v: u64) -> v + 20
+  let sysv_callee : (u64) -> u64 = fn (v: u64) -> v + 1 @abi("sysv")
+  pub let f : (u64) -> u64 = fn (v: u64) -> {
+    let a : u64 = helper_a(v)
+    let b : u64 = helper_b(v)
+    let c : u64 = sysv_callee(v)
+    a + b
+  }
+  pub let entry : () -> u64 = fn () -> f(5)
+}
