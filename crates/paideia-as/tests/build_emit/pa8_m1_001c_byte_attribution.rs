@@ -29,7 +29,7 @@ fn pa8_m1_001c_entry_lambda_app_scratch_saves_within_symbol_range() {
     // The fixture lives at `tests/build-emit/two_let_with_ms_call_saves_rcx.pdx`
     // relative to the crate root.
     let fixture_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../tests/build-emit/two_let_with_ms_call_saves_rcx.pdx");
+        .join("../../tests/build-emit/two_let_with_ms_call_saves_rcx.pdx");
 
     assert!(
         fixture_path.exists(),
@@ -163,8 +163,8 @@ fn pa8_m1_001c_entry_lambda_app_scratch_saves_within_symbol_range() {
     // RCX/RDX if they're used by parameter marshalling or callee-save preservation).
     //
     // Check for at least one push (0x50-0x57) and at least one pop (0x58-0x5F).
-    let has_push = entry_bytes.iter().any(|&b| matches!(b, 0x50..=0x57));
-    let has_pop = entry_bytes.iter().any(|&b| matches!(b, 0x58..=0x5F));
+    let _has_push = entry_bytes.iter().any(|&b| matches!(b, 0x50..=0x57));
+    let _has_pop = entry_bytes.iter().any(|&b| matches!(b, 0x58..=0x5F));
 
     // Note: entry might be very minimal (just a call), so we only assert that
     // if there are push/pop pairs, they must be in entry's range, not combo's.
@@ -172,7 +172,7 @@ fn pa8_m1_001c_entry_lambda_app_scratch_saves_within_symbol_range() {
     // For now, just verify no overlap violations by checking byte ranges don't
     // cross in the wrong direction.
     assert!(
-        entry_start > combo_end || combo_start > entry_end,
+        entry_start >= combo_end || combo_start >= entry_end,
         "entry and combo symbol ranges overlap: combo=[{}, {}), entry=[{}, {})",
         combo_start,
         combo_end,

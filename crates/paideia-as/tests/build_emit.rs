@@ -62,6 +62,7 @@ mod build_emit {
     pub mod pa8_call_st_value;
     pub mod pa8_cross_module_call;
     pub mod pa8_m1_001b_lambda_params;
+    pub mod pa8_m1_001c_byte_attribution;
     pub mod pa8_m3_004;
     pub mod pa8_mixed_shapes;
     pub mod pa8_add_imm_out_of_range;
