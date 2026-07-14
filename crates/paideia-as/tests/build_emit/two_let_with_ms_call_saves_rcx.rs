@@ -113,31 +113,9 @@ fn two_let_with_ms_call_saves_rcx_prelude_is_48_for_odd_scratch() {
 
     // Look for MS prelude pattern: sub rsp, 48 = 0x48 0x83 0xec 0x30
     let ms_prelude_48_pattern = [0x48u8, 0x83, 0xec, 0x30];
-    let mut prelude_48_found = false;
-    for i in 0..text.len().saturating_sub(3) {
-        if text[i..i + 4] == ms_prelude_48_pattern {
-            prelude_48_found = true;
-            break;
-        }
-    }
+    let prelude_48_found = text.windows(4).any(|w| w == ms_prelude_48_pattern);
     assert!(
         prelude_48_found,
-        "MS prelude must be 'sub rsp, 48' (0x48 0x83 0xec 0x30) for N=1 odd scratch; \
-         found prelude pattern 0x48 0x83 0xec 0x30: {}",
-        prelude_48_found
+        "MS prelude must be 'sub rsp, 48' (0x48 0x83 0xec 0x30) for N=1 odd scratch"
     );
-
-    // Regression: ensure we do NOT have the old 40-byte prelude in the .text
-    // (this would indicate the fix was reverted or incorrectly applied)
-    let ms_prelude_40_pattern = [0x48u8, 0x83, 0xec, 0x28];
-    let mut prelude_40_found = false;
-    for i in 0..text.len().saturating_sub(3) {
-        if text[i..i + 4] == ms_prelude_40_pattern {
-            prelude_40_found = true;
-            break;
-        }
-    }
-    // We expect NOT to find the 40-byte pattern (since this fixture has N=1, odd)
-    // However, there could be other functions in the same .text with N=0. So we
-    // just verify that 48 exists. The critical check is that prelude_48_found is true.
 }
