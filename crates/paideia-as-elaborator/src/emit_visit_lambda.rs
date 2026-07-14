@@ -340,6 +340,26 @@ impl EmitWalker {
                     // Case 2 & 3: Application `fn (x) -> x + ...` or `fn (x) -> ... + x`
                     // Phase 7 m1-001: Also handles inter-function calls `fn () -> foo()` or `fn (x) -> foo(x)`
                     IrKind::App => {
+                        // #1190 (emission-order): Arm the shim so the first-emitted instruction
+                        // — whatever it turns out to be (scratch push, MS prelude, arg MOV, or
+                        // CALL) — claims lambda_first_instr[L]. Without this, emit_call_args_and_call's
+                        // scratch-save pushes (allocated after `first_id` but emitted BEFORE it)
+                        // fall into the preceding function's ELF symbol range.
+                        self.state.pending_first_instr_lambda = Some(lambda_node_id.get());
+                        self.state.mark_lambda_emitted(lambda_node_id.get());
+
+                        // #1190 (scoping): Clear + re-register mirrors the Action arm at
+                        // lines 818-819. A bare-tail-call body must not inherit a sibling
+                        // lambda's `local_bindings.flat` — under #1163's scratch-save loop
+                        // the inherited bindings would be spuriously spilled with no matching
+                        // live push, producing an unmatched pop → SIGSEGV.
+                        self.state.local_bindings.clear();
+                        self.register_nested_lambda_params(lambda_node_id, arena, 0);
+
+                        // #1139: Snapshot this lambda's local_bindings for resolve_var_operands.
+                        self.state.per_lambda_bindings
+                            .insert(lambda_node_id.get(), self.state.local_bindings.clone());
+
                         if cfg!(debug_assertions) {
                             eprintln!(
                                 "[visit_lambda App] Lambda {} body={}",

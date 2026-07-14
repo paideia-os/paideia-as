@@ -10,13 +10,9 @@
 //! not just at the byte-pattern level.
 use super::harness::{run_and_verify, Poison, Reg, RetTy, RuntimeCase};
 
-// #[ignore]: this fixture's `entry` wrapper currently SIGSEGVs at runtime due
-// to #1190 (local_bindings leaks across the App-bodied `entry` lambda
-// boundary, producing an unmatched `pop` with no executed `push`). This is a
-// regression canary -- remove `#[ignore]` once #1190 is fixed and confirm
-// this then also validates the #1163 corrective fix (Defect A) end-to-end.
+// #1190 fix: entry-wrapper SIGSEGV is resolved. This test validates both
+// the local_bindings scoping fix and the #1163 corrective fix (Defect A) end-to-end.
 #[test]
-#[ignore = "blocked on #1190: entry-wrapper SIGSEGV (local_bindings leak / unmatched pop)"]
 fn combo_returns_15_ms_abi_call() {
     let poison = [
         Poison { reg: Reg::Rcx, value: 0xDEADBEEF01 },
