@@ -1,0 +1,8 @@
+module LetWithBinopRhs = structure {
+  pub let f : (u64) -> u64 = fn (v: u64) -> {
+    let x : u64 = v & 15
+    let y : u64 = v >> 4
+    x + y
+  }
+  pub let entry : () -> u64 = fn () -> f(0x37)
+}

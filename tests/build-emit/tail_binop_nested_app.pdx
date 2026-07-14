@@ -1,5 +1,0 @@
-module TailBinopNestedApp = structure {
-  let helper : (u64) -> u64 = fn (v: u64) -> v + 5
-  pub let f : (u64) -> u64 = fn (v: u64) -> helper(v) + 0
-  pub let entry : () -> u64 = fn () -> f(5)
-}

@@ -15,15 +15,13 @@ fn two_let_with_tail_binop_returns_32() {
         Poison { reg: Reg::R8, value: 0xDEADBEEF03 },
         Poison { reg: Reg::R9, value: 0xDEADBEEF04 },
     ];
-    // NOTE: Expected is currently 21 (result of helper_b), not 32 (a + b).
-    // This test documents the bug #1191: tail-BinOp is not being emitted.
-    // After the fix, this should return 32.
+    // helper_a(1)=11, helper_b(1)=21, tail a+b=32.
     let case = RuntimeCase {
         fixture_pdx: "two_let_with_tail_binop.pdx",
         entry: "entry",
         ret_ty: RetTy::I64,
         poison: &poison,
-        expected: 21, // Currently returns b, not a + b
+        expected: 32,
     };
     run_and_verify(&case);
 }

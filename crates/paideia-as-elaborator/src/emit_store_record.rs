@@ -779,9 +779,35 @@ impl EmitWalker {
                             return false;
                         }
                         "<<" | ">>" => {
-                            // Shift operators require RCX for the count
-                            // We already have arg1 in arg1_dest; move it to RCX
-                            let inst = Instruction {
+                            // Shift operators require RCX for the count.
+                            // If RCX is in use by a prior binding (when dest != RCX), we must save/restore it.
+                            // Check if RCX is in local_bindings (i.e., holds a binding value).
+                            let rcx_in_use = if dest != paideia_as_ir::abi::RCX {
+                                self.state.local_bindings.iter().any(|(_, reg)| reg == paideia_as_ir::abi::RCX)
+                            } else {
+                                false // If dest is RCX, RCX will be overwritten anyway
+                            };
+
+                            if rcx_in_use {
+                                // Save RCX before moving shift count there
+                                let save_inst = Instruction {
+                                    mnemonic: Mnemonic::Push,
+                                    operands: {
+                                        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                                        ops.push(Operand::Reg(paideia_as_ir::abi::RCX));
+                                        ops
+                                    },
+                                    encoding_hint: None,
+                                    byte_offset_in_text: None,
+                                    mode: self.current_mode(),
+                                    emission_order: 0,
+                                };
+                                let save_id = self.alloc_synthetic_id();
+                                self.emit_inst(save_id, save_inst);
+                            }
+
+                            // Move shift count to RCX
+                            let mov_inst = Instruction {
                                 mnemonic: Mnemonic::Mov,
                                 operands: {
                                     let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
@@ -794,14 +820,52 @@ impl EmitWalker {
                                 mode: self.current_mode(),
                                 emission_order: 0,
                             };
-                            let inst_id = self.alloc_synthetic_id();
-                            self.emit_inst(inst_id, inst);
+                            let mov_id = self.alloc_synthetic_id();
+                            self.emit_inst(mov_id, mov_inst);
 
-                            if meta.callee_name == "<<" {
+                            let mnemonic = if meta.callee_name == "<<" {
                                 Mnemonic::Shl
                             } else {
                                 Mnemonic::Shr
+                            };
+
+                            // Perform the shift operation
+                            let shift_operands = {
+                                let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                                ops.push(Operand::Reg(dest));
+                                ops.push(Operand::Reg(paideia_as_ir::abi::RCX));
+                                ops
+                            };
+                            let shift_inst = Instruction {
+                                mnemonic,
+                                operands: shift_operands,
+                                encoding_hint: None,
+                                byte_offset_in_text: None,
+                                mode: self.current_mode(),
+                                emission_order: 0,
+                            };
+                            let shift_id = self.alloc_synthetic_id();
+                            self.emit_inst(shift_id, shift_inst);
+
+                            if rcx_in_use {
+                                // Restore RCX after the shift
+                                let restore_inst = Instruction {
+                                    mnemonic: Mnemonic::Pop,
+                                    operands: {
+                                        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                                        ops.push(Operand::Reg(paideia_as_ir::abi::RCX));
+                                        ops
+                                    },
+                                    encoding_hint: None,
+                                    byte_offset_in_text: None,
+                                    mode: self.current_mode(),
+                                    emission_order: 0,
+                                };
+                                let restore_id = self.alloc_synthetic_id();
+                                self.emit_inst(restore_id, restore_inst);
                             }
+
+                            return true; // Already emitted all instructions
                         }
                         other => {
                             self.push_typed_diag(

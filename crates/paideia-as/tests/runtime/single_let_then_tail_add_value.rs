@@ -14,15 +14,13 @@ fn single_let_then_tail_add_returns_16() {
         Poison { reg: Reg::R8, value: 0xDEADBEEF03 },
         Poison { reg: Reg::R9, value: 0xDEADBEEF04 },
     ];
-    // NOTE: Expected is currently 15 (result of helper), not 16 (x + 1).
-    // This test documents the bug #1191: tail-BinOp is not being emitted.
-    // After the fix, this should return 16.
+    // helper(5)=15, tail x+1=16.
     let case = RuntimeCase {
         fixture_pdx: "single_let_then_tail_add.pdx",
         entry: "entry",
         ret_ty: RetTy::I64,
         poison: &poison,
-        expected: 15, // Currently returns x, not x + 1
+        expected: 16,
     };
     run_and_verify(&case);
 }

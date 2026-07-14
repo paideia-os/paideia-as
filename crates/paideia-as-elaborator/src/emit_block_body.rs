@@ -251,38 +251,45 @@ impl EmitWalker {
                                         }
                                     }
                                 }
-                                // Edit D: Handle App RHS (function calls) - #1152
+                                // Edit D: Handle App RHS (function calls and operators) - #1152 / #1191
                                 else if rhs_node.kind == IrKind::App {
                                     if let Some(meta) = arena.call_sites().get(rhs_id) {
-                                        // #1181: skip operators in call_sites; they're not real function calls
-                                        if matches!(meta.callee_name.as_str(), "|" | "&" | "^" | "<<" | ">>" | "+" | "-" | "*" | "/" | "%" | "~" | "!") {
-                                            // Operators in let-bindings: fall through to record binding without emitting call
+                                        // #1191 corrective: check if this is an operator or function call
+                                        if is_operator_callee(&meta.callee_name) {
+                                            // Operator App at let-RHS: emit the binary operation into scratch_reg
+                                            // Register binding FIRST so emit has access
+                                            self.state
+                                                .local_bindings
+                                                .insert(binding_name.clone(), scratch_reg);
+                                            // Emit operator into scratch_reg (mirrors tail-App dispatch from lines 571-619)
+                                            let _ = self.emit_var_assign_expr_to_reg(rhs_id, arena, scratch_reg, 0);
                                         } else {
-                                        let app_children = arena.children(rhs_id);
-                                        let arg_ids: Vec<IrNodeId> = app_children[1..].to_vec();
-                                        // Use state.current_function (the enclosing lambda's id),
-                                        // NOT child_id (the Let node id).
-                                        let lambda_id = IrNodeId::new(self.state.current_function)
-                                            .expect("current_function set by walker");
-                                        self.emit_call_expr(lambda_id, meta.callee_name.clone(), &arg_ids, arena);
-                                        if scratch_reg != abi::RAX {
-                                            // mov scratch_reg, rax — materialize the CALL result.
-                                            let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
-                                            ops.push(Operand::Reg(scratch_reg));
-                                            ops.push(Operand::Reg(abi::RAX));
-                                            let inst = Instruction {
-                                                mnemonic: Mnemonic::Mov,
-                                                operands: ops,
-                                                encoding_hint: None,
-                                                byte_offset_in_text: None,
-                                                mode: self.current_mode(),
-                                                emission_order: 0,
-                                            };
-                                            let inst_id = IrNodeId::new(1_200_000 + child_id.get())
-                                                .expect("let-app materialize id");
-                                            self.emit_inst(inst_id, inst);
-                                        }
-                                        self.state.local_bindings.insert(binding_name.clone(), scratch_reg);
+                                            // Real function call (callee is not an operator)
+                                            let app_children = arena.children(rhs_id);
+                                            let arg_ids: Vec<IrNodeId> = app_children[1..].to_vec();
+                                            // Use state.current_function (the enclosing lambda's id),
+                                            // NOT child_id (the Let node id).
+                                            let lambda_id = IrNodeId::new(self.state.current_function)
+                                                .expect("current_function set by walker");
+                                            self.emit_call_expr(lambda_id, meta.callee_name.clone(), &arg_ids, arena);
+                                            if scratch_reg != abi::RAX {
+                                                // mov scratch_reg, rax — materialize the CALL result.
+                                                let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                                                ops.push(Operand::Reg(scratch_reg));
+                                                ops.push(Operand::Reg(abi::RAX));
+                                                let inst = Instruction {
+                                                    mnemonic: Mnemonic::Mov,
+                                                    operands: ops,
+                                                    encoding_hint: None,
+                                                    byte_offset_in_text: None,
+                                                    mode: self.current_mode(),
+                                                    emission_order: 0,
+                                                };
+                                                let inst_id = IrNodeId::new(1_200_000 + child_id.get())
+                                                    .expect("let-app materialize id");
+                                                self.emit_inst(inst_id, inst);
+                                            }
+                                            self.state.local_bindings.insert(binding_name.clone(), scratch_reg);
                                         }
                                     }
                                 }
@@ -569,48 +576,48 @@ impl EmitWalker {
                         self.visit_match(child_id, arena, typer, TailContext::Discard);
                     }
                     IrKind::App => {
-                        // #1183: route App (call expression) through emit pipeline.
-                        // Distinguish statement-position (discarded) from tail-position calls.
-                        let app_children = arena.children(child_id);
-                        if app_children.len() > 0 {
-                            let callee_id = app_children[0];
-                            if let Some(callee_node) = arena.get(callee_id) {
-                                if callee_node.kind == IrKind::Var {
-                                    if let Some(target_name) = arena.binding_names().get(callee_id) {
-                                        let lambda_id = IrNodeId::new(self.state.current_function)
-                                            .expect("current_function set by walker");
-                                        if i == block_children.len() - 1 {
-                                            // Tail-position call: dispatch on operator vs function call.
-                                            // #1191: operators use BinOp lowerer; real functions use emit_call_expr.
-                                            if cfg!(debug_assertions) {
-                                                eprintln!("[emit_block_body] App (tail call) at index {}", i);
-                                            }
-                                            let is_operator = arena.call_sites().get(child_id)
-                                                .map(|m| is_operator_callee(&m.callee_name))
-                                                .unwrap_or(false);
-                                            if is_operator {
-                                                // BinOp/BitNot tail expression lowered into RAX
-                                                let _ = self.emit_var_assign_expr_to_rax(child_id, arena);
+                        // #1191 corrective: dispatch on call_sites metadata FIRST — operator callees
+                        // are IrKind::Placeholder, not IrKind::Var, so the older Var-callee guard
+                        // dead-branched around them. Mirrors Let-RHS operator gate at lines 255-260.
+                        let is_operator = arena.call_sites().get(child_id)
+                            .map(|m| is_operator_callee(&m.callee_name))
+                            .unwrap_or(false);
+
+                        if is_operator {
+                            if i == block_children.len() - 1 {
+                                // Tail-position operator App (a + b, x + 1, ...): lower into RAX
+                                // via #1181's context-neutral BinOp lowerer.
+                                if cfg!(debug_assertions) {
+                                    eprintln!("[emit_block_body] operator App (tail) at index {}", i);
+                                }
+                                let _ = self.emit_var_assign_expr_to_rax(child_id, arena);
+                            } else if cfg!(debug_assertions) {
+                                eprintln!("[emit_block_body] operator App (statement, discarded) at index {}", i);
+                            }
+                        } else {
+                            // Real function call (callee is IrKind::Var with a binding name).
+                            // Existing #1183 path preserved.
+                            let app_children = arena.children(child_id);
+                            if app_children.len() > 0 {
+                                let callee_id = app_children[0];
+                                if let Some(callee_node) = arena.get(callee_id) {
+                                    if callee_node.kind == IrKind::Var {
+                                        if let Some(target_name) = arena.binding_names().get(callee_id) {
+                                            let lambda_id = IrNodeId::new(self.state.current_function)
+                                                .expect("current_function set by walker");
+                                            if i == block_children.len() - 1 {
+                                                if cfg!(debug_assertions) {
+                                                    eprintln!("[emit_block_body] App (tail call) at index {}", i);
+                                                }
+                                                self.emit_call_expr(lambda_id, target_name.to_string(),
+                                                    &app_children[1..], arena);
                                             } else {
-                                                // Real function call: existing path
-                                                self.emit_call_expr(
-                                                    lambda_id,
-                                                    target_name.to_string(),
-                                                    &app_children[1..],
-                                                    arena,
-                                                );
+                                                if cfg!(debug_assertions) {
+                                                    eprintln!("[emit_block_body] App (statement call) at index {}", i);
+                                                }
+                                                self.emit_call_stmt(lambda_id, target_name.to_string(),
+                                                    &app_children[1..], arena);
                                             }
-                                        } else {
-                                            // Statement-position call: emit via emit_call_stmt (discarded result).
-                                            if cfg!(debug_assertions) {
-                                                eprintln!("[emit_block_body] App (statement call) at index {}", i);
-                                            }
-                                            self.emit_call_stmt(
-                                                lambda_id,
-                                                target_name.to_string(),
-                                                &app_children[1..],
-                                                arena,
-                                            );
                                         }
                                     }
                                 }
@@ -817,38 +824,45 @@ impl EmitWalker {
                                         }
                                     }
                                 }
-                                // Edit D: Handle App RHS (function calls) - #1162 (mirror of emit_block_body)
+                                // Edit D: Handle App RHS (function calls and operators) - #1162/#1191 (mirror of emit_block_body)
                                 else if rhs_node.kind == IrKind::App {
                                     if let Some(meta) = arena.call_sites().get(rhs_id) {
-                                        // #1181: skip operators in call_sites; they're not real function calls
-                                        if matches!(meta.callee_name.as_str(), "|" | "&" | "^" | "<<" | ">>" | "+" | "-" | "*" | "/" | "%" | "~" | "!") {
-                                            // Operators in match arm let-bindings: fall through to record binding
+                                        // #1191 corrective: check if this is an operator or function call
+                                        if is_operator_callee(&meta.callee_name) {
+                                            // Operator App at let-RHS in match arm: emit the binary operation into scratch_reg
+                                            // Register binding FIRST so emit has access
+                                            self.state
+                                                .local_bindings
+                                                .insert(binding_name.clone(), scratch_reg);
+                                            // Emit operator into scratch_reg (mirrors tail-App dispatch)
+                                            let _ = self.emit_var_assign_expr_to_reg(rhs_id, arena, scratch_reg, 0);
                                         } else {
-                                        let app_children = arena.children(rhs_id);
-                                        let arg_ids: Vec<IrNodeId> = app_children[1..].to_vec();
-                                        // Use state.current_function (the enclosing lambda's id),
-                                        // NOT child_id (the Let node id).
-                                        let lambda_id = IrNodeId::new(self.state.current_function)
-                                            .expect("current_function set by walker");
-                                        self.emit_call_expr(lambda_id, meta.callee_name.clone(), &arg_ids, arena);
-                                        if scratch_reg != abi::RAX {
-                                            // mov scratch_reg, rax — materialize the CALL result.
-                                            let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
-                                            ops.push(Operand::Reg(scratch_reg));
-                                            ops.push(Operand::Reg(abi::RAX));
-                                            let inst = Instruction {
-                                                mnemonic: Mnemonic::Mov,
-                                                operands: ops,
-                                                encoding_hint: None,
-                                                byte_offset_in_text: None,
-                                                mode: self.current_mode(),
-                                                emission_order: 0,
-                                            };
-                                            let inst_id = IrNodeId::new(1_200_000 + child_id.get())
-                                                .expect("let-app materialize id");
-                                            self.emit_inst(inst_id, inst);
-                                        }
-                                        self.state.local_bindings.insert(binding_name.clone(), scratch_reg);
+                                            // Real function call (callee is not an operator)
+                                            let app_children = arena.children(rhs_id);
+                                            let arg_ids: Vec<IrNodeId> = app_children[1..].to_vec();
+                                            // Use state.current_function (the enclosing lambda's id),
+                                            // NOT child_id (the Let node id).
+                                            let lambda_id = IrNodeId::new(self.state.current_function)
+                                                .expect("current_function set by walker");
+                                            self.emit_call_expr(lambda_id, meta.callee_name.clone(), &arg_ids, arena);
+                                            if scratch_reg != abi::RAX {
+                                                // mov scratch_reg, rax — materialize the CALL result.
+                                                let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                                                ops.push(Operand::Reg(scratch_reg));
+                                                ops.push(Operand::Reg(abi::RAX));
+                                                let inst = Instruction {
+                                                    mnemonic: Mnemonic::Mov,
+                                                    operands: ops,
+                                                    encoding_hint: None,
+                                                    byte_offset_in_text: None,
+                                                    mode: self.current_mode(),
+                                                    emission_order: 0,
+                                                };
+                                                let inst_id = IrNodeId::new(1_200_000 + child_id.get())
+                                                    .expect("let-app materialize id");
+                                                self.emit_inst(inst_id, inst);
+                                            }
+                                            self.state.local_bindings.insert(binding_name.clone(), scratch_reg);
                                         }
                                     }
                                 }
@@ -957,54 +971,48 @@ impl EmitWalker {
                         self.visit_match(child_id, arena, typer, TailContext::Discard);
                     }
                     IrKind::App => {
-                        // #1186: mirror of the #1183 App arm in emit_block_body — arm-body block
-                        // walkers must also route bare-App children through the emit pipeline,
-                        // distinguishing tail-position (result to RAX for the arm-value contract)
-                        // from statement-position (result discarded). Both emit_call_expr and
-                        // emit_call_stmt are CALL-only per #1183; the enclosing lambda emits the
-                        // terminal RET, so no RET is emitted here (matches the arm-caller-emits-RET
-                        // contract documented in emit_block_body_arm's tail).
-                        let app_children = arena.children(child_id);
-                        if app_children.len() > 0 {
-                            let callee_id = app_children[0];
-                            if let Some(callee_node) = arena.get(callee_id) {
-                                if callee_node.kind == IrKind::Var {
-                                    if let Some(target_name) = arena.binding_names().get(callee_id) {
-                                        let lambda_id = IrNodeId::new(self.state.current_function)
-                                            .expect("current_function set by walker");
-                                        if i == block_children.len() - 1 {
-                                            // Tail-position call in match arm: dispatch on operator vs function call.
-                                            // #1191: operators use BinOp lowerer; real functions use emit_call_expr.
-                                            if cfg!(debug_assertions) {
-                                                eprintln!("[emit_block_body_arm] App (tail call) at index {}", i);
-                                            }
-                                            let is_operator = arena.call_sites().get(child_id)
-                                                .map(|m| is_operator_callee(&m.callee_name))
-                                                .unwrap_or(false);
-                                            if is_operator {
-                                                // BinOp/BitNot tail expression lowered into RAX
-                                                let _ = self.emit_var_assign_expr_to_rax(child_id, arena);
+                        // #1191 corrective: dispatch on call_sites metadata FIRST — operator callees
+                        // are IrKind::Placeholder, not IrKind::Var, so the older Var-callee guard
+                        // dead-branched around them. Mirrors Let-RHS operator gate at lines 255-260.
+                        let is_operator = arena.call_sites().get(child_id)
+                            .map(|m| is_operator_callee(&m.callee_name))
+                            .unwrap_or(false);
+
+                        if is_operator {
+                            if i == block_children.len() - 1 {
+                                // Tail-position operator App (a + b, x + 1, ...): lower into RAX
+                                // via #1181's context-neutral BinOp lowerer.
+                                if cfg!(debug_assertions) {
+                                    eprintln!("[emit_block_body_arm] operator App (tail) at index {}", i);
+                                }
+                                let _ = self.emit_var_assign_expr_to_rax(child_id, arena);
+                            } else if cfg!(debug_assertions) {
+                                eprintln!("[emit_block_body_arm] operator App (statement, discarded) at index {}", i);
+                            }
+                        } else {
+                            // Real function call (callee is IrKind::Var with a binding name).
+                            // Existing #1183 path preserved.
+                            let app_children = arena.children(child_id);
+                            if app_children.len() > 0 {
+                                let callee_id = app_children[0];
+                                if let Some(callee_node) = arena.get(callee_id) {
+                                    if callee_node.kind == IrKind::Var {
+                                        if let Some(target_name) = arena.binding_names().get(callee_id) {
+                                            let lambda_id = IrNodeId::new(self.state.current_function)
+                                                .expect("current_function set by walker");
+                                            if i == block_children.len() - 1 {
+                                                if cfg!(debug_assertions) {
+                                                    eprintln!("[emit_block_body_arm] App (tail call) at index {}", i);
+                                                }
+                                                self.emit_call_expr(lambda_id, target_name.to_string(),
+                                                    &app_children[1..], arena);
                                             } else {
-                                                // Real function call: existing path
-                                                self.emit_call_expr(
-                                                    lambda_id,
-                                                    target_name.to_string(),
-                                                    &app_children[1..],
-                                                    arena,
-                                                );
+                                                if cfg!(debug_assertions) {
+                                                    eprintln!("[emit_block_body_arm] App (statement call) at index {}", i);
+                                                }
+                                                self.emit_call_stmt(lambda_id, target_name.to_string(),
+                                                    &app_children[1..], arena);
                                             }
-                                        } else {
-                                            // Statement-position bare-App child (rare — StmtExpr wrapper is the
-                                            // common shape; kept for parallel with emit_block_body).
-                                            if cfg!(debug_assertions) {
-                                                eprintln!("[emit_block_body_arm] App (statement call) at index {}", i);
-                                            }
-                                            self.emit_call_stmt(
-                                                lambda_id,
-                                                target_name.to_string(),
-                                                &app_children[1..],
-                                                arena,
-                                            );
                                         }
                                     }
                                 }
