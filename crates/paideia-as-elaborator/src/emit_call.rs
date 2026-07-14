@@ -106,6 +106,35 @@ impl EmitWalker {
         // Track whether we've emitted the first instruction yet
         let mut first_emission = true;
 
+        // Issue #1163 (corrective): Compute scratch-save set BEFORE MS prelude emission
+        // to determine dynamic MS bump based on parity. This hoisting avoids dependency
+        // reordering and captures all caller-save registers that hold live bindings.
+        let caller_save_scratch = [abi::RCX, abi::RDX, abi::R8, abi::R9];
+        let scratch_save_set: Vec<RegId> = caller_save_scratch.iter()
+            .filter(|&&r| self.state.local_bindings.iter().any(|(_, reg)| reg == r))
+            .copied()
+            .collect();
+
+        // #1192: Compute dynamic MS shadow-space bump based on scratch-save parity.
+        // Entry RSP ≡ 8 mod 16 (return address already on stack).
+        // bridge_saves = 2 pushes (R15, R14) if paideia→MS/SysV crossing, else 0.
+        // scratch_saves = scratch_save_set.len() pushes.
+        // Total prelude bump = bridge_saves*8 + ms_bump + scratch_saves*8.
+        // Require: (bridge_saves*8 + ms_bump + scratch_saves*8 + 8) ≡ 16 mod 16
+        // ⟹ ms_bump ≡ 0 mod 16 when (bridge_saves + scratch_saves) is even
+        // ⟹ ms_bump ≡ 8 mod 16 when (bridge_saves + scratch_saves) is odd
+        // When callee_abi == Ms, both even and odd cases need ms_bump ≥ 40.
+        // If scratch_save_set.len() is odd, add 8 to restore 0-mod-16 alignment.
+        let ms_bump: u32 = if callee_abi == CallingConvention::Ms {
+            if scratch_save_set.len() % 2 == 1 {
+                abi::MS_CALL_STACK_BUMP + abi::MS_CALL_STACK_BUMP_ODD_PAD
+            } else {
+                abi::MS_CALL_STACK_BUMP
+            }
+        } else {
+            0
+        };
+
         // Emit caller-side bridge prelude (push R15, R14) if crossing paideia→MS/SysV
         // Use first_id for the first push, subsequent pushes get fresh IDs
         if !bridge_saves.is_empty() {
@@ -133,7 +162,7 @@ impl EmitWalker {
             }
         }
 
-        // Emit MS x64 prelude: sub rsp, MS_CALL_STACK_BUMP
+        // Emit MS x64 prelude: sub rsp, ms_bump (dynamic based on scratch-save parity)
         if callee_abi == CallingConvention::Ms {
             let ms_prelude_id = if first_emission {
                 first_emission = false;
@@ -144,7 +173,7 @@ impl EmitWalker {
 
             let mut prelude_ops: SmallVec<[Operand; 3]> = SmallVec::new();
             prelude_ops.push(Operand::Reg(abi::RSP));
-            prelude_ops.push(Operand::Imm64(abi::MS_CALL_STACK_BUMP as i64));
+            prelude_ops.push(Operand::Imm64(ms_bump as i64));
 
             let prelude_inst = Instruction {
                 mnemonic: Mnemonic::Sub,
@@ -159,15 +188,8 @@ impl EmitWalker {
         }
 
         // Issue #1163 (corrective): Spill live caller-save scratch bindings before arg-MOVs
-        // Emit push instructions for RCX, RDX, R8, R9 that have active bindings.
-        // Save ALL caller-save-scratch regs that hold live bindings, including those
-        // that will be clobbered by arg marshalling (that's exactly when saving is critical).
-        let caller_save_scratch = [abi::RCX, abi::RDX, abi::R8, abi::R9];
-        let scratch_save_set: Vec<RegId> = caller_save_scratch.iter()
-            .filter(|&&r| self.state.local_bindings.iter().any(|(_, reg)| reg == r))
-            .copied()
-            .collect();
-
+        // scratch_save_set was computed earlier (before MS prelude) for #1192 alignment calculation.
+        // Now emit the push instructions for each register in the set.
         for &reg in &scratch_save_set {
             let scratch_save_id = self.alloc_synthetic_id();
 
@@ -463,13 +485,13 @@ impl EmitWalker {
             self.emit_inst(scratch_restore_id, pop_inst);
         }
 
-        // Emit MS x64 postlude: add rsp, MS_CALL_STACK_BUMP
+        // Emit MS x64 postlude: add rsp, ms_bump (dynamic, matches prelude)
         if callee_abi == CallingConvention::Ms {
             let ms_postlude_id = self.alloc_synthetic_id();
 
             let mut postlude_ops: SmallVec<[Operand; 3]> = SmallVec::new();
             postlude_ops.push(Operand::Reg(abi::RSP));
-            postlude_ops.push(Operand::Imm64(abi::MS_CALL_STACK_BUMP as i64));
+            postlude_ops.push(Operand::Imm64(ms_bump as i64));
 
             let postlude_inst = Instruction {
                 mnemonic: Mnemonic::Add,

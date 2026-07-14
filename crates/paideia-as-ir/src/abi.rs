@@ -104,6 +104,12 @@ pub const MS_SHADOW_SPACE_BYTES: u32 = 32;
 /// When caller-side prologue push support is added, revisit this constant.
 pub const MS_CALL_STACK_BUMP: u32 = 40;
 
+/// #1192: Padding added to MS shadow-space bump when the scratch-save count
+/// is odd, restoring RSP ≡ 0 mod 16 at CALL as required by MS ABI.
+/// When scratch_save_set.len() % 2 == 1, use MS_CALL_STACK_BUMP + MS_CALL_STACK_BUMP_ODD_PAD
+/// instead of MS_CALL_STACK_BUMP alone.
+pub const MS_CALL_STACK_BUMP_ODD_PAD: u32 = 8;
+
 /// Return-value register.
 pub const RET: RegId = RAX;
 

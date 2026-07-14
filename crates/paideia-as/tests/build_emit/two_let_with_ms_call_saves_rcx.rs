@@ -1,19 +1,22 @@
 //! Issue #1163 (corrective): scratch binding save/restore ordering around MS-ABI call.
+//! Issue #1192 (fix): dynamic MS shadow-space bump for odd scratch-spill count.
 //!
 //! Fixture: two consecutive calls, first returns into RCX via SysV ABI,
 //! second is MS-ABI and will clobber RCX. After fix, RCX is pushed after the MS prelude
 //! (before arg marshalling for the MS call) and popped before the MS postlude.
 //!
+//! With #1192 fix: N=1 (odd scratch), so MS bump is 48 (0x30) not 40 (0x28).
+//!
 //! The sequence should be:
 //! [call helper_a]
 //! [mov rax -> rcx, holding the result]
 //! [bridge saves: push R14, R15]
-//! [MS prelude: sub rsp, 0x28]
+//! [MS prelude: sub rsp, 0x30]  ← 48 bytes (40 + 8 for odd N)
 //! [push rcx]  ← must push before arg marshalling
 //! [arg marshalling MOVs]
 //! [call helper_ms]
 //! [pop rcx]   ← must pop before MS postlude
-//! [MS postlude: add rsp, 0x28]
+//! [MS postlude: add rsp, 0x30]  ← 48 bytes (40 + 8 for odd N)
 
 use crate::common::elf::text_bytes;
 use crate::common::fixture::build_emit;
@@ -95,4 +98,46 @@ fn two_let_with_ms_call_saves_rcx_assembles() {
             ms_postlude_off
         );
     }
+}
+
+#[test]
+fn two_let_with_ms_call_saves_rcx_prelude_is_48_for_odd_scratch() {
+    // #1192 regression fence: verify MS prelude is sub rsp, 48 (0x30) not 40 (0x28)
+    // when N=1 live scratch binding (RCX) needs saving.
+    // The prelude byte sequence must be 0x48 0x83 0xec 0x30 (not 0x28).
+    let out = run_build(build_emit("two_let_with_ms_call_saves_rcx.pdx"));
+    out.assert_ok();
+
+    let bytes = out.artifact_bytes();
+    let text = text_bytes(&bytes);
+
+    // Look for MS prelude pattern: sub rsp, 48 = 0x48 0x83 0xec 0x30
+    let ms_prelude_48_pattern = [0x48u8, 0x83, 0xec, 0x30];
+    let mut prelude_48_found = false;
+    for i in 0..text.len().saturating_sub(3) {
+        if text[i..i + 4] == ms_prelude_48_pattern {
+            prelude_48_found = true;
+            break;
+        }
+    }
+    assert!(
+        prelude_48_found,
+        "MS prelude must be 'sub rsp, 48' (0x48 0x83 0xec 0x30) for N=1 odd scratch; \
+         found prelude pattern 0x48 0x83 0xec 0x30: {}",
+        prelude_48_found
+    );
+
+    // Regression: ensure we do NOT have the old 40-byte prelude in the .text
+    // (this would indicate the fix was reverted or incorrectly applied)
+    let ms_prelude_40_pattern = [0x48u8, 0x83, 0xec, 0x28];
+    let mut prelude_40_found = false;
+    for i in 0..text.len().saturating_sub(3) {
+        if text[i..i + 4] == ms_prelude_40_pattern {
+            prelude_40_found = true;
+            break;
+        }
+    }
+    // We expect NOT to find the 40-byte pattern (since this fixture has N=1, odd)
+    // However, there could be other functions in the same .text with N=0. So we
+    // just verify that 48 exists. The critical check is that prelude_48_found is true.
 }

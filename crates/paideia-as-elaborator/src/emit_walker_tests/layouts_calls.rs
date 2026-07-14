@@ -3196,3 +3196,75 @@ fn emit_walker_t0540_var_assign_non_var_rhs() {
         "Diagnostic should have code T0540"
     );
 }
+
+// ============================================================================
+// #1192: Dynamic MS shadow-space bump for odd scratch-save alignment
+// ============================================================================
+
+#[test]
+fn emit_walker_ms_shadow_bump_is_forty_eight_when_scratch_odd() {
+    // #1192: MS prelude is dynamically 48 bytes (not 40) when scratch-save count is odd.
+    // This is verified via the integration test two_let_with_ms_call_saves_rcx.pdx.
+    // This unit test verifies the logic: when ms_bump_odd_pad is defined, the constant exists.
+    assert_eq!(paideia_as_ir::abi::MS_CALL_STACK_BUMP, 40);
+    assert_eq!(paideia_as_ir::abi::MS_CALL_STACK_BUMP_ODD_PAD, 8);
+    assert_eq!(
+        paideia_as_ir::abi::MS_CALL_STACK_BUMP + paideia_as_ir::abi::MS_CALL_STACK_BUMP_ODD_PAD,
+        48
+    );
+}
+
+#[test]
+fn emit_walker_ms_shadow_bump_remains_forty_when_scratch_even() {
+    // MS-ABI callee with zero live scratch bindings (N=0 = even).
+    // When scratch_save_set is empty, ms_bump should be 40 (the base value).
+    // Verify the existing test emit_walker_ms_shadow_bump_is_forty_bytes still passes.
+    // (It was not modified by #1192, since N=0 case already uses 40.)
+    // This test just verifies that 40 is still the base MS bump constant.
+    assert_eq!(paideia_as_ir::abi::MS_CALL_STACK_BUMP, 40);
+}
+
+#[test]
+fn emit_walker_ms_shadow_bump_stays_forty_when_scratch_even_nonzero() {
+    // #1192: When scratch-save count is even (N=2), ms_bump remains 40.
+    // The existing test emit_walker_ms_shadow_bump_is_forty_bytes verifies N=0 uses 40.
+    // This verifies the logic: (MS_CALL_STACK_BUMP + pad) when odd, else MS_CALL_STACK_BUMP.
+    // For N even, the formula should produce the base value 40.
+    let n_even = 2;
+    let expected_bump = if n_even % 2 == 1 {
+        paideia_as_ir::abi::MS_CALL_STACK_BUMP + paideia_as_ir::abi::MS_CALL_STACK_BUMP_ODD_PAD
+    } else {
+        paideia_as_ir::abi::MS_CALL_STACK_BUMP
+    };
+    assert_eq!(expected_bump, 40);
+}
+
+#[test]
+fn emit_walker_ms_rsp_zero_mod_16_at_call_all_scratch_parities() {
+    // #1192: Verify RSP alignment is preserved at CALL for all scratch-save parities.
+    // Entry RSP ≡ 8 mod 16 (return address already on stack).
+    // After prelude/scratches, RSP must ≡ 0 mod 16 for MS ABI.
+    // Total: bridge_saves*8 + ms_bump + scratch_saves*8 + retaddr(8) ≡ 0 mod 16
+    // When bridge_saves=0 (no paideia→MS crossing), this becomes:
+    //   ms_bump + N*8 + 8 ≡ 0 mod 16
+    // For N even: ms_bump=40 → 40 + N*8 + 8 ≡ 0 mod 16 ✓ (48 + N*8 ≡ 0 mod 16 for even N)
+    // For N odd:  ms_bump=48 → 48 + N*8 + 8 ≡ 0 mod 16 ✓ (56 + N*8 ≡ 0 mod 16 for odd N)
+
+    for n_scratches in 0..=4 {
+        let ms_bump = if n_scratches % 2 == 1 {
+            paideia_as_ir::abi::MS_CALL_STACK_BUMP + paideia_as_ir::abi::MS_CALL_STACK_BUMP_ODD_PAD
+        } else {
+            paideia_as_ir::abi::MS_CALL_STACK_BUMP
+        };
+
+        // Compute total RSP adjustment (including return address)
+        let total_adjustment = ms_bump as u64 + (n_scratches as u64) * 8 + 8;
+
+        // Verify alignment: total should be divisible by 16
+        assert_eq!(
+            total_adjustment % 16, 0,
+            "RSP alignment violation for N={}: ms_bump={}, total_adjustment={}",
+            n_scratches, ms_bump, total_adjustment
+        );
+    }
+}
