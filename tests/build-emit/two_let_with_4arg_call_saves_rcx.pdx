@@ -1,0 +1,10 @@
+module TwoLetWith4argCallSavesRcx = structure {
+  let helper_a : (u64) -> u64 = fn (v: u64) -> v + 10
+  let take4 : (u64, u64, u64, u64) -> u64 = fn (a: u64, b: u64, c: u64, d: u64) -> a
+  pub let combo : (u64) -> u64 = fn (v: u64) -> {
+    let a : u64 = helper_a(v)
+    let b : u64 = take4(v, v, v, v)
+    a
+  }
+  pub let entry : () -> u64 = fn () -> combo(5)
+}

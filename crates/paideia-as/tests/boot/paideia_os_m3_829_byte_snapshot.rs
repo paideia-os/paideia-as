@@ -106,8 +106,17 @@ struct Case {
 // call sequence to ipc_dispatch) now correctly spills RCX (which holds a live
 // binding from a prior syscall result) before a second call to another syscall
 // handler, then restores it after. This prevents silent miscompile where RCX
-// would be clobbered by a callee. exceptions grows 321 -> 323 bytes
-// (one push rcx + one pop rcx = 2 bytes added to spill/restore the binding).
+// would be clobbered by a callee. exceptions remains 323 bytes.
+//
+// UPDATED (2026-07, #1163 corrective): Fix #1163 (corrective) — drop inverted
+// scratch-register filter and reorder scratch-restores BEFORE MS postlude.
+// Defect A: the prior filter skipped saving registers exactly when they'd be
+// clobbered by arg marshalling (inverted logic). Defect B: pops read wrong
+// stack slots because MS postlude (add rsp, 40) happened before pops. After
+// fix: save all live caller-save-scratch regs (no exceptions), pop them before
+// MS postlude, ensuring RSP is still pointing to saved locations when we
+// restore. kernel_main: 566 bytes (unchanged), exceptions: 323 bytes (unchanged),
+// idt: 1223 bytes (unchanged).
 
 const KERNEL_MAIN_TEXT: &[u8] = &[
     0x48, 0x8b, 0x05, 0x00, 0x00, 0x00, 0x00, 0x48, 0x89, 0x05, 0x00, 0x00, 0x00, 0x00, 0xe8, 0x00,

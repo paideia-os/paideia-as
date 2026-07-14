@@ -158,16 +158,13 @@ impl EmitWalker {
             self.emit_inst(ms_prelude_id, prelude_inst);
         }
 
-        // Issue #1163: Spill live caller-save scratch bindings before arg-MOVs
-        // Emit push instructions for RCX, RDX, R8, R9 that have active bindings
-        // EXCLUDING bindings that live in argument registers that will be used for this call
+        // Issue #1163 (corrective): Spill live caller-save scratch bindings before arg-MOVs
+        // Emit push instructions for RCX, RDX, R8, R9 that have active bindings.
+        // Save ALL caller-save-scratch regs that hold live bindings, including those
+        // that will be clobbered by arg marshalling (that's exactly when saving is critical).
         let caller_save_scratch = [abi::RCX, abi::RDX, abi::R8, abi::R9];
-        let used_arg_regs: Vec<RegId> = arg_regs.iter().take(arg_ids.len()).copied().collect();
         let scratch_save_set: Vec<RegId> = caller_save_scratch.iter()
-            .filter(|&&r| {
-                self.state.local_bindings.iter().any(|(_, reg)| reg == r) &&
-                !used_arg_regs.contains(&r)  // Only exclude registers used for THIS call's arguments
-            })
+            .filter(|&&r| self.state.local_bindings.iter().any(|(_, reg)| reg == r))
             .copied()
             .collect();
 
@@ -444,6 +441,28 @@ impl EmitWalker {
 
         self.emit_inst(call_id, call_inst);
 
+        // Issue #1163 (corrective): Restore spilled caller-save scratch bindings after CALL,
+        // BEFORE MS postlude. This ensures RSP is still pointing to the saved registers
+        // when we pop them. After we restore all scratch regs, THEN adjust RSP by MS postlude.
+        // Pop in REVERSE order (LIFO)
+        for &reg in scratch_save_set.iter().rev() {
+            let scratch_restore_id = self.alloc_synthetic_id();
+
+            let mut pop_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            pop_ops.push(Operand::Reg(reg));
+
+            let pop_inst = Instruction {
+                mnemonic: Mnemonic::Pop,
+                operands: pop_ops,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+                emission_order: 0,
+            };
+
+            self.emit_inst(scratch_restore_id, pop_inst);
+        }
+
         // Emit MS x64 postlude: add rsp, MS_CALL_STACK_BUMP
         if callee_abi == CallingConvention::Ms {
             let ms_postlude_id = self.alloc_synthetic_id();
@@ -462,26 +481,6 @@ impl EmitWalker {
             };
 
             self.emit_inst(ms_postlude_id, postlude_inst);
-        }
-
-        // Issue #1163: Restore spilled caller-save scratch bindings after CALL
-        // Pop in REVERSE order (LIFO)
-        for &reg in scratch_save_set.iter().rev() {
-            let scratch_restore_id = self.alloc_synthetic_id();
-
-            let mut pop_ops: SmallVec<[Operand; 3]> = SmallVec::new();
-            pop_ops.push(Operand::Reg(reg));
-
-            let pop_inst = Instruction {
-                mnemonic: Mnemonic::Pop,
-                operands: pop_ops,
-                encoding_hint: None,
-                byte_offset_in_text: None,
-                mode: self.current_mode(),
-                emission_order: 0,
-            };
-
-            self.emit_inst(scratch_restore_id, pop_inst);
         }
 
         // Emit caller-side bridge postlude (pop R14, R15) if crossing paideia→MS/SysV

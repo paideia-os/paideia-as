@@ -1,0 +1,10 @@
+module TwoLetWithMsCallSavesRcx = structure {
+  let helper_a : (u64) -> u64 = fn (v: u64) -> v + 10
+  let helper_ms : (u64) -> u64 = fn (v: u64) -> v + 1 @abi("ms")
+  pub let combo : (u64) -> u64 = fn (v: u64) -> {
+    let a : u64 = helper_a(v)
+    let b : u64 = helper_ms(v)
+    a
+  }
+  pub let entry : () -> u64 = fn () -> combo(5)
+}
