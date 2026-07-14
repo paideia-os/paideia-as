@@ -367,6 +367,15 @@ impl EmitWalker {
                                                     }
                                                 }
                                             }
+                                            // #1198: Mark EnumCons arguments as handled so emit_call_args_and_call
+                                            // and main-loop visit_enum_cons don't double-emit the variant index load.
+                                            for &arg_id in app_children.iter().skip(1) {
+                                                if let Some(arg_node) = arena.get(arg_id) {
+                                                    if arg_node.kind == IrKind::EnumCons {
+                                                        self.state.mark_enum_cons_handled(arg_id.get());
+                                                    }
+                                                }
+                                            }
                                         }
                                         // #1116: Lambda → Store with Var LHS (Pattern 5)
                                         // Owned by visit_lambda's Store arm, mark as emitted
@@ -625,7 +634,10 @@ impl EmitWalker {
                         }
                         IrKind::EnumCons => {
                             // PA-r17-007: emit enum variant constructor lowering.
-                            self.visit_enum_cons(node_id, arena);
+                            // #1198: skip if another lowering path owns this node
+                            if !self.state.was_enum_cons_handled(node_id.get()) {
+                                self.visit_enum_cons(node_id, arena);
+                            }
                         }
                         IrKind::EnumDiscriminant => {
                             // PA-r17-008: emit enum discriminant extraction.

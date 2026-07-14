@@ -463,6 +463,7 @@ impl EmitWalker {
                         self.alloc_synthetic_id()
                     };
                     self.emit_mov_literal_to_reg_with_id(mov_id, dest_reg, info.variant_index as i64);
+                    self.state.mark_enum_cons_handled(arg_id.get());
                 }
                 _ => {
                     // Other argument shapes not yet supported
