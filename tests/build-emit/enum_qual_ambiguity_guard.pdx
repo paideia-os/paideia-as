@@ -1,0 +1,17 @@
+// Issue #1202: Qualified-path enum variant disambiguation
+// Tests that Choice1::A is unambiguously resolved despite multiple enum types having variant A
+// Expected: build succeeds without T0555 ambiguity error
+
+module EnumQualAmbiguityGuard = structure {
+  enum Choice1 { A, B }
+  enum Choice2 { A, C }
+
+  pub let pick1 : (Choice1) -> u64 =
+    fn (t: Choice1) -> match t {
+      A => 42u64
+      B => 0u64
+    }
+
+  pub let entry : () -> u64 =
+    fn () -> pick1(Choice1::A)
+}

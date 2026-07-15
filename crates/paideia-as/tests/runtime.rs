@@ -35,4 +35,11 @@ mod runtime {
     mod pick4_arm_d_value;
     mod pick5_arm_c_value;
     mod pick5_arm_e_value;
+    mod enum_qual_arg_pos0_3arg_value;
+    mod enum_qual_arg_pos0_3arg_b_value;
+    mod enum_qual_arg_pos0_4arg_value;
+    mod enum_qual_arg_pos0_2arg_value;
+    mod enum_qual_arg_pos1_2arg_value;
+    mod enum_qual_arg_mixed_locals_value;
+    mod enum_match_arm_binop_mul_value;
 }

@@ -1,0 +1,16 @@
+// Issue #1202: Qualified-path enum variant at arg position 0 of 3-arg call — variant B
+// Tests that Tag::B (unit variant) correctly marshalled to rdi in pick(Tag::B, 7u64, 6u64)
+// Expected exit code: 0 (B arm)
+
+module EnumQualArgPos03argB = structure {
+  enum Tag { A, B }
+
+  pub let pick : (Tag, u64, u64) -> u64 =
+    fn (t: Tag) (x: u64) (y: u64) -> match t {
+      A => x * y
+      B => 0u64
+    }
+
+  pub let entry : () -> u64 =
+    fn () -> pick(Tag::B, 7u64, 6u64)
+}

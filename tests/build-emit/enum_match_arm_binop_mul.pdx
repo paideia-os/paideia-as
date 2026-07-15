@@ -1,0 +1,18 @@
+// Issue #1196 deferred: enum-match arm-body fixture with BinOp (now using unit variants)
+// Previously deferred as it required #1202 fix.
+// Tests that an enum match arm body correctly executes multiplication
+// Pattern: pick_mul(Tag::A) with implicit constants → A arm returns 7 * 6 = 42
+// Expected exit code: 42
+
+module EnumMatchArmBinopMul = structure {
+  enum Tag { A, B }
+
+  pub let pick_mul : (Tag) -> u64 =
+    fn (t: Tag) -> match t {
+      A => 7u64 * 6u64
+      B => 0u64
+    }
+
+  pub let entry : () -> u64 =
+    fn () -> pick_mul(Tag::A)
+}

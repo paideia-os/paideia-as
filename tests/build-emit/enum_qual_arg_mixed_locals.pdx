@@ -1,0 +1,20 @@
+// Issue #1202: Qualified-path enum variant with local variable arguments
+// Tests that Tag::A (unit variant) correctly marshalled in pick(Tag::A, x, y) where x,y are locals
+// Expected exit code: 42 (7 * 6)
+
+module EnumQualArgMixedLocals = structure {
+  enum Tag { A, B }
+
+  pub let pick : (Tag, u64, u64) -> u64 =
+    fn (t: Tag) (x: u64) (y: u64) -> match t {
+      A => x * y
+      B => 0u64
+    }
+
+  pub let entry : () -> u64 =
+    fn () -> {
+      let x = 7u64;
+      let y = 6u64;
+      pick(Tag::A, x, y)
+    }
+}

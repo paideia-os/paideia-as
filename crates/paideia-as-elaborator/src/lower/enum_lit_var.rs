@@ -115,6 +115,24 @@ pub(super) fn populate_enum_lit_var_rewrites(
             let Some(text) = extract_source_text_for_record_cons(ast, source_map, ast_id)
                 else { continue };
             if shadow_names.contains(&text) { continue }
+
+            // #1202: Qualified 2-segment shape (Type::Variant) — unambiguous, no shadow check.
+            if let Some((seg0, seg1)) = text.split_once("::") {
+                if let Some(&type_id) = enum_registry.by_name.get(seg0) {
+                    if let Some(variants) = enum_registry.variants.get(&type_id) {
+                        if let Some((idx, _)) = variants.iter().enumerate()
+                            .find(|(_, (name, payload))| name == seg1 && payload.is_empty())
+                        {
+                            rewrites.push((arg_id, paideia_as_ir::EnumConsInfo {
+                                type_id,
+                                variant_index: idx as u32,
+                            }));
+                            continue;
+                        }
+                    }
+                }
+            }
+
             match unit_variant_lookup.get(text.as_str()) {
                 None => {}
                 Some(v) if v.len() == 1 => {

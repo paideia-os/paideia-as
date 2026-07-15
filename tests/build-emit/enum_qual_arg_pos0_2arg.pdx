@@ -1,0 +1,16 @@
+// Issue #1202: Qualified-path enum variant at arg position 0 of 2-arg call
+// Tests that Tag::A (unit variant) correctly marshalled to rdi in pick2(Tag::A, 7u64)
+// Expected exit code: 7 (A arm returns x)
+
+module EnumQualArgPos02arg = structure {
+  enum Tag { A, B }
+
+  pub let pick2 : (Tag, u64) -> u64 =
+    fn (t: Tag) (x: u64) -> match t {
+      A => x
+      B => 0u64
+    }
+
+  pub let entry : () -> u64 =
+    fn () -> pick2(Tag::A, 7u64)
+}

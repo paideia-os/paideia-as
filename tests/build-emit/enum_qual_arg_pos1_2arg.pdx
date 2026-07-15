@@ -1,0 +1,17 @@
+// Issue #1202: Qualified-path enum variant at arg position 1 of 2-arg call
+// Tests that Tag::A (unit variant) correctly marshalled to rsi in pick2_swap(7u64, Tag::A)
+// Expected exit code: 7 (A arm returns x)
+// Note: This was failing as T0521 before the fix
+
+module EnumQualArgPos12arg = structure {
+  enum Tag { A, B }
+
+  pub let pick2_swap : (u64, Tag) -> u64 =
+    fn (x: u64) (t: Tag) -> match t {
+      A => x
+      B => 0u64
+    }
+
+  pub let entry : () -> u64 =
+    fn () -> pick2_swap(7u64, Tag::A)
+}

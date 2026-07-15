@@ -2639,3 +2639,4 @@ fn bare_variant_arm_leaves_pattern_binding_none() {
         "Blue bare-variant arm should have pattern_binding = None"
     );
 }
+
