@@ -411,8 +411,8 @@ impl EmitWalker {
                                 self.emit_mem_read_via_rip_sym(mov_id, dest_reg, name, 0, 8, false);
                             } else {
                                 // Legacy fallback for arg 0: if the binding table is not
-                                // populated (older test IR shapes), assume the caller's
-                                // first param is in RDI.
+                                // populated (older test IR shapes) and dest_reg != RDI, assume
+                                // the caller's first param is in RDI.
                                 if arg_idx == 0 && dest_reg != abi::RDI {
                                     let mov_id = if first_emission {
                                         first_emission = false;
@@ -421,7 +421,7 @@ impl EmitWalker {
                                         self.alloc_synthetic_id()
                                     };
                                     self.emit_mov_reg_to_reg_with_id(mov_id, abi::RDI, dest_reg);
-                                } else if arg_idx != 0 {
+                                } else {
                                     self.push_typed_diag(
                                         t0521_code(),
                                         format!(

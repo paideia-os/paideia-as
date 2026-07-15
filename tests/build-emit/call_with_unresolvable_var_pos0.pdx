@@ -1,0 +1,11 @@
+// Issue #1205: Unresolvable Var at position 0 of call should fire T0521
+// This is a negative fixture: build must fail with T0521
+// References undefined identifier `undefined_var` at position 0 of add(undefined_var, 7u64)
+
+module CallWithUnresolvableVarPos0 = structure {
+  pub let add : (u64, u64) -> u64 =
+    fn (x: u64) (y: u64) -> x + y
+
+  pub let entry : () -> u64 =
+    fn () -> add(undefined_var, 7u64)
+}
