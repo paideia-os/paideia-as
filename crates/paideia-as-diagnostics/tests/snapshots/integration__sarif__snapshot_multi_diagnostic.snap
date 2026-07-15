@@ -2554,6 +2554,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "During emit_block_body / emit_block_body_arm, a Let statement was encountered\nwhose RHS expression kind is not explicitly handled by the emitter. The binding\nwas recorded in local_bindings but no code was emitted to populate its scratch\nregister. This means the binding will read garbage when referenced later.\n\nThis is a hard invariant violation: every RHS kind that can appear syntactically\nmust have a dedicated emit path. If a new IR kind is introduced, the Let-RHS\ndispatch must be updated.\n\nPart of #1209 / #1207 hardening. This diagnostic prevents silent miscompilation\nwhen new Let-RHS shapes are added without updating the dispatcher.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1659",
+              "id": "U1659",
+              "name": "Unhandled Let-RHS kind — binding would be uninitialized",
+              "shortDescription": {
+                "text": "Let-RHS expression kind not handled by emitter; binding not populated"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "The #![bits = 16] inner attribute specifies 16-bit mode, which is not supported in this implementation. PaideiaOS is designed for x86_64 (64-bit) primarily, with 32-bit fallback available. Either use #![bits = 32] or #![bits = 64], or remove the attribute to use the default."
               },
               "helpUri": "https://paideia-os.org/diagnostics/B1700",

@@ -150,23 +150,41 @@ pub(super) fn populate_enum_lit_var_rewrites(
         }
     }
 
-    // 4b. #1204: Scan Let-RHS for bare enum variant Vars.
-    // Scan every IrKind::Let. If its sole RHS child is a bare-Var whose source text
-    // resolves to a unit enum variant, enqueue the same rewrite. Skip shadow-check
-    // because Let-RHS is module scope (no local shadows to worry about).
+    // 4b. #1204 + #1206: Scan Let-RHS for bare enum variant Vars.
+    // Covers ItemData::Let (module scope, children=[value]) AND
+    // StmtData::Let (function scope, children=[name, value, ty?]).
+    // AST-side dispatch avoids fragile children-index arithmetic.
     for i in 1..=ir.len() as u32 {
         let Some(let_id) = IrNodeId::new(i) else { continue };
         let Some(node) = ir.get(let_id) else { continue };
         if node.kind != IrKind::Let { continue }
-        let children = ir.children(let_id).to_vec();
-        let Some(&rhs_id) = children.first() else { continue };
+        let Some(&ast_let_id) = ir_to_ast.get(&let_id) else { continue };
+
+        // Extract RHS AST id from whichever data variant this Let carries.
+        let rhs_ast_id = if let Some(paideia_as_ast::ItemData::Let { value, .. })
+            = ast.item_data(ast_let_id)
+        {
+            *value
+        } else if let Some(paideia_as_ast::StmtData::Let { value, .. })
+            = ast.stmt_data(ast_let_id)
+        {
+            *value
+        } else {
+            continue;
+        };
+
+        let Some(&rhs_id) = ast_to_ir.get(&rhs_ast_id) else { continue };
         let Some(rhs) = ir.get(rhs_id) else { continue };
         if rhs.kind != IrKind::Var { continue }
-        let Some(&ast_id) = ir_to_ast.get(&rhs_id) else { continue };
-        let Some(text) = extract_source_text_for_record_cons(ast, source_map, ast_id)
+        let Some(text) = extract_source_text_for_record_cons(ast, source_map, rhs_ast_id)
             else { continue };
 
-        // Try qualified 2-segment shape (Type::Variant) first.
+        // Shadow-check for BARE names only. Qualified `Type::Variant`
+        // cannot collide with any binding name (see section 4a precedent).
+        let is_qualified = text.contains("::");
+        if !is_qualified && shadow_names.contains(&text) { continue }
+
+        // Qualified resolution then bare — unchanged from prior 4b.
         if let Some((seg0, seg1)) = text.split_once("::") {
             if let Some(&type_id) = enum_registry.by_name.get(seg0) {
                 if let Some(variants) = enum_registry.variants.get(&type_id) {
@@ -183,7 +201,6 @@ pub(super) fn populate_enum_lit_var_rewrites(
             }
         }
 
-        // Try bare name lookup.
         match unit_variant_lookup.get(text.as_str()) {
             None => {}
             Some(v) if v.len() == 1 => {

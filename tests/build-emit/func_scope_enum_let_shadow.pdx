@@ -1,0 +1,11 @@
+// #1206 shadow guard: local `let North : u64 = 42u64` must WIN over
+// bare enum-variant reference. Post-fix returns 42; without shadow
+// check the second let-RHS would be rewritten to EnumCons(Direction, 0).
+module FuncScopeEnumLetShadow = structure {
+  enum Direction { North, South }
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    let North : u64 = 42u64
+    let d : u64 = North
+    d
+  }
+}

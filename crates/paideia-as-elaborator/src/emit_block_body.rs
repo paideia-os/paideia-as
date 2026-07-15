@@ -55,6 +55,13 @@ fn u1642_code() -> DiagnosticCode {
         .expect("U1642 is within valid U range")
 }
 
+/// Helper to construct U1659 diagnostic code (Unhandled Let-RHS kind).
+/// Part of #1209/#1207 hardening — detects gaps in Let-RHS dispatcher.
+fn u1659_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::U, Severity::Error, 1659)
+        .expect("U1659 is within valid U range")
+}
+
 impl EmitWalker {
     /// #1115 / #1116: Three-way Store dispatch shared by `emit_block_body` and
     /// `emit_block_body_arm`. Chooses field-assign vs. var-assign vs. array/pointer store
@@ -325,12 +332,76 @@ impl EmitWalker {
                                             .insert(binding_name.clone(), scratch_reg);
                                     }
                                 }
-                                // #1138: Handle other RHS kinds (e.g., Var) by just recording binding
-                                // without emitting instructions. Instruction emission is deferred or N/A.
+                                // Part A: #1209 — Handle Var RHS: `let y = x` copies source register to scratch
+                                else if rhs_node.kind == IrKind::Var {
+                                    self.state
+                                        .local_bindings
+                                        .insert(binding_name.clone(), scratch_reg);
+                                    let _ = self.emit_var_assign_expr_to_reg(rhs_id, arena, scratch_reg, 0);
+                                }
+                                // Part B: #1207 — Handle Match RHS: `let x = match ... { ... }`
+                                else if rhs_node.kind == IrKind::Match {
+                                    self.state
+                                        .local_bindings
+                                        .insert(binding_name.clone(), scratch_reg);
+                                    self.visit_match(rhs_id, arena, typer, TailContext::ReturnRax);
+                                    self.state.mark_match_emitted(rhs_id.get());
+                                    if scratch_reg != abi::RAX {
+                                        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                                        ops.push(Operand::Reg(scratch_reg));
+                                        ops.push(Operand::Reg(abi::RAX));
+                                        self.emit_inst(
+                                            IrNodeId::new(1_300_000 + child_id.get()).expect("let-match materialize id"),
+                                            Instruction {
+                                                mnemonic: Mnemonic::Mov,
+                                                operands: ops,
+                                                encoding_hint: None,
+                                                byte_offset_in_text: None,
+                                                mode: self.current_mode(),
+                                                emission_order: 0,
+                                            },
+                                        );
+                                    }
+                                }
+                                // Part D: #1206 / #1209 — Handle EnumCons RHS (unit enum variant)
+                                else if rhs_node.kind == IrKind::EnumCons {
+                                    // `let x : Enum = Enum::Variant` — load variant discriminant.
+                                    let info = arena.enum_cons_info().get(rhs_id)
+                                        .expect("EnumCons node must have EnumConsInfo");
+                                    self.state
+                                        .local_bindings
+                                        .insert(binding_name.clone(), scratch_reg);
+                                    if !arena.children(rhs_id).is_empty() {
+                                        // Payload-carrying variant — not yet supported
+                                        self.push_typed_diag(
+                                            u1659_code(),
+                                            format!(
+                                                "payload-carrying EnumCons at Let-RHS not yet supported (variant {})",
+                                                info.variant_index
+                                            ),
+                                        );
+                                    } else {
+                                        // Unit variant — emit mov scratch_reg, discriminant_value
+                                        self.emit_mov_literal_to_reg_with_id(
+                                            IrNodeId::new(1_310_000 + child_id.get()).expect("let-enum materialize id"),
+                                            scratch_reg,
+                                            info.variant_index as i64,
+                                        );
+                                        self.state.mark_enum_cons_handled(rhs_id.get());
+                                    }
+                                }
+                                // Part C: #1209/#1207 hardening — convert catch-all to typed diagnostic
                                 else {
                                     self.state
                                         .local_bindings
                                         .insert(binding_name.clone(), scratch_reg);
+                                    self.push_typed_diag(
+                                        u1659_code(),
+                                        format!(
+                                            "unhandled Let-RHS kind {:?} at node {} — binding {} would be uninitialized",
+                                            rhs_node.kind, rhs_id.get(), binding_name
+                                        ),
+                                    );
                                 }
 
                                 if cfg!(debug_assertions) {
@@ -884,12 +955,76 @@ impl EmitWalker {
                                         .insert(binding_name.clone(), scratch_reg);
                                     let _ = self.emit_var_assign_expr_to_reg(rhs_id, arena, scratch_reg, 0);
                                 }
-                                // #1138: Handle other RHS kinds (e.g., Var) by just recording binding
-                                // without emitting instructions. Instruction emission is deferred or N/A.
+                                // Part A: #1209 — Handle Var RHS: `let y = x` copies source register to scratch
+                                else if rhs_node.kind == IrKind::Var {
+                                    self.state
+                                        .local_bindings
+                                        .insert(binding_name.clone(), scratch_reg);
+                                    let _ = self.emit_var_assign_expr_to_reg(rhs_id, arena, scratch_reg, 0);
+                                }
+                                // Part B: #1207 — Handle Match RHS: `let x = match ... { ... }` in match arms
+                                else if rhs_node.kind == IrKind::Match {
+                                    self.state
+                                        .local_bindings
+                                        .insert(binding_name.clone(), scratch_reg);
+                                    self.visit_match(rhs_id, arena, typer, TailContext::ReturnRax);
+                                    self.state.mark_match_emitted(rhs_id.get());
+                                    if scratch_reg != abi::RAX {
+                                        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                                        ops.push(Operand::Reg(scratch_reg));
+                                        ops.push(Operand::Reg(abi::RAX));
+                                        self.emit_inst(
+                                            IrNodeId::new(1_300_000 + child_id.get()).expect("let-match materialize id"),
+                                            Instruction {
+                                                mnemonic: Mnemonic::Mov,
+                                                operands: ops,
+                                                encoding_hint: None,
+                                                byte_offset_in_text: None,
+                                                mode: self.current_mode(),
+                                                emission_order: 0,
+                                            },
+                                        );
+                                    }
+                                }
+                                // Part D: #1206 / #1209 — Handle EnumCons RHS (unit enum variant)
+                                else if rhs_node.kind == IrKind::EnumCons {
+                                    // `let x : Enum = Enum::Variant` — load variant discriminant.
+                                    let info = arena.enum_cons_info().get(rhs_id)
+                                        .expect("EnumCons node must have EnumConsInfo");
+                                    self.state
+                                        .local_bindings
+                                        .insert(binding_name.clone(), scratch_reg);
+                                    if !arena.children(rhs_id).is_empty() {
+                                        // Payload-carrying variant — not yet supported
+                                        self.push_typed_diag(
+                                            u1659_code(),
+                                            format!(
+                                                "payload-carrying EnumCons at Let-RHS not yet supported (variant {})",
+                                                info.variant_index
+                                            ),
+                                        );
+                                    } else {
+                                        // Unit variant — emit mov scratch_reg, discriminant_value
+                                        self.emit_mov_literal_to_reg_with_id(
+                                            IrNodeId::new(1_310_000 + child_id.get()).expect("let-enum materialize id"),
+                                            scratch_reg,
+                                            info.variant_index as i64,
+                                        );
+                                        self.state.mark_enum_cons_handled(rhs_id.get());
+                                    }
+                                }
+                                // Part C: #1209/#1207 hardening — convert catch-all to typed diagnostic
                                 else {
                                     self.state
                                         .local_bindings
                                         .insert(binding_name.clone(), scratch_reg);
+                                    self.push_typed_diag(
+                                        u1659_code(),
+                                        format!(
+                                            "unhandled Let-RHS kind {:?} at node {} — binding {} would be uninitialized",
+                                            rhs_node.kind, rhs_id.get(), binding_name
+                                        ),
+                                    );
                                 }
 
                                 if cfg!(debug_assertions) {

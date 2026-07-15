@@ -1,0 +1,7 @@
+module LetChainOf = structure {
+  pub let entry : () -> u64 = fn() -> {
+    let x = 42u64
+    let y = x
+    y
+  }
+}

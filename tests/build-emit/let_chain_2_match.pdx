@@ -1,0 +1,8 @@
+module LetChainMatch = structure {
+  enum R { Ok, Err }
+  pub let entry : () -> u64 = fn() -> {
+    let c : R = R::Ok
+    let x : u64 = match c { Ok => 20u64, Err => 0u64 }
+    x
+  }
+}

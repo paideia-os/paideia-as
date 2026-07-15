@@ -23,6 +23,16 @@ mod runtime {
     mod let_with_binop_rhs_value;
     mod let_with_bitnot_rhs_value;
     mod let_with_bitnot_shl_rhs_value;
+    mod let_chain_2_of_2_value;
+    mod let_chain_3_of_3_value;
+    mod let_chain_2_typed_value;
+    mod let_chain_2_binop_value;
+    mod let_chain_2_call_value;
+    mod let_chain_2_match_value;
+    mod func_scope_enum_let_a_value;
+    // func_scope_enum_let_{b,c,multiple_lets}: deferred pending #1208 fix
+    // (braced-block match cascade jne offset — variants B/C SIGSEGV).
+    mod func_scope_enum_let_shadow_value;
     mod sysv_bridge_bump_value;
     mod let_rhs_binop_mul_value;
     mod module_var_assign_mul_value;

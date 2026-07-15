@@ -1909,3 +1909,24 @@ impossible when let-type is a register-form enum. Filed as part of #1154 Slice 1
 """
 since = "0.19.0"
 deprecated = false
+
+[diagnostic.U1659]
+severity = "error"
+category = "unsafe"
+title = "Unhandled Let-RHS kind — binding would be uninitialized"
+brief = "Let-RHS expression kind not handled by emitter; binding not populated"
+description = """
+During emit_block_body / emit_block_body_arm, a Let statement was encountered
+whose RHS expression kind is not explicitly handled by the emitter. The binding
+was recorded in local_bindings but no code was emitted to populate its scratch
+register. This means the binding will read garbage when referenced later.
+
+This is a hard invariant violation: every RHS kind that can appear syntactically
+must have a dedicated emit path. If a new IR kind is introduced, the Let-RHS
+dispatch must be updated.
+
+Part of #1209 / #1207 hardening. This diagnostic prevents silent miscompilation
+when new Let-RHS shapes are added without updating the dispatcher.
+"""
+since = "0.19.0"
+deprecated = false
