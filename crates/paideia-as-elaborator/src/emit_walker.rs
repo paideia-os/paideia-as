@@ -307,7 +307,10 @@ impl EmitWalker {
                             }
 
                             let children = arena.children(node_id);
-                            if let Some(&rhs_id) = children.get(0) {
+                            // Statement-level Let children: [name_var, value, ty?], RHS at index 1.
+                            // Direct allocations (unit tests): [value], RHS at index 0.
+                            let rhs_idx = if children.len() > 1 { 1 } else { 0 };
+                            if let Some(&rhs_id) = children.get(rhs_idx) {
                                 if let Some(rhs_node) = arena.get(rhs_id) {
                                     match rhs_node.kind {
                                         // Let → RecordCons: owned by data_encoder::encode_record_cons
@@ -332,18 +335,20 @@ impl EmitWalker {
                                         // data-table entry for this Let (i.e. encode_enum_cons
                                         // succeeded); if it didn't, visit_record_cons should
                                         // still get a chance to diagnose a real problem.
-                                        IrKind::EnumCons if is_data_let => {
+                                        IrKind::EnumCons => {
                                             self.state.mark_enum_cons_handled(rhs_id.get());
-                                            if let Some(&payload_id) =
-                                                arena.children(rhs_id).first()
-                                            {
-                                                if let Some(payload_node) =
-                                                    arena.get(payload_id)
+                                            if is_data_let {
+                                                if let Some(&payload_id) =
+                                                    arena.children(rhs_id).first()
                                                 {
-                                                    if payload_node.kind == IrKind::RecordCons {
-                                                        self.state.mark_record_cons_handled(
-                                                            payload_id.get(),
-                                                        );
+                                                    if let Some(payload_node) =
+                                                        arena.get(payload_id)
+                                                    {
+                                                        if payload_node.kind == IrKind::RecordCons {
+                                                            self.state.mark_record_cons_handled(
+                                                                payload_id.get(),
+                                                            );
+                                                        }
                                                     }
                                                 }
                                             }

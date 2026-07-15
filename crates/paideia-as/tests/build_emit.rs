@@ -26,6 +26,7 @@ mod build_emit {
     pub mod flat_lambda_binop_canaries;
     pub mod enum_primitive_payload_u32;
     pub mod enum_record_payload;
+    pub mod func_scope_enum_let_orphan;
     pub mod field_access_call;
     pub mod field_read;
     pub mod field_read_multi_field;
