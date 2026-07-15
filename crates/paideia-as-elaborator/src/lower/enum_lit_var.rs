@@ -102,6 +102,7 @@ pub(super) fn populate_enum_lit_var_rewrites(
     let mut rewrites: Vec<(IrNodeId, paideia_as_ir::EnumConsInfo)> = Vec::new();
     let mut ambig: Vec<(paideia_as_diagnostics::Span, String)> = Vec::new();
 
+    // 4a. Scan call arguments (App nodes).
     for i in 1..=ir.len() as u32 {
         let Some(app_id) = IrNodeId::new(i) else { continue };
         let Some(node) = ir.get(app_id) else { continue };
@@ -145,6 +146,55 @@ pub(super) fn populate_enum_lit_var_rewrites(
                         text, v.len()
                     )));
                 }
+            }
+        }
+    }
+
+    // 4b. #1204: Scan Let-RHS for bare enum variant Vars.
+    // Scan every IrKind::Let. If its sole RHS child is a bare-Var whose source text
+    // resolves to a unit enum variant, enqueue the same rewrite. Skip shadow-check
+    // because Let-RHS is module scope (no local shadows to worry about).
+    for i in 1..=ir.len() as u32 {
+        let Some(let_id) = IrNodeId::new(i) else { continue };
+        let Some(node) = ir.get(let_id) else { continue };
+        if node.kind != IrKind::Let { continue }
+        let children = ir.children(let_id).to_vec();
+        let Some(&rhs_id) = children.first() else { continue };
+        let Some(rhs) = ir.get(rhs_id) else { continue };
+        if rhs.kind != IrKind::Var { continue }
+        let Some(&ast_id) = ir_to_ast.get(&rhs_id) else { continue };
+        let Some(text) = extract_source_text_for_record_cons(ast, source_map, ast_id)
+            else { continue };
+
+        // Try qualified 2-segment shape (Type::Variant) first.
+        if let Some((seg0, seg1)) = text.split_once("::") {
+            if let Some(&type_id) = enum_registry.by_name.get(seg0) {
+                if let Some(variants) = enum_registry.variants.get(&type_id) {
+                    if let Some((idx, _)) = variants.iter().enumerate()
+                        .find(|(_, (name, payload))| name == seg1 && payload.is_empty())
+                    {
+                        rewrites.push((rhs_id, paideia_as_ir::EnumConsInfo {
+                            type_id,
+                            variant_index: idx as u32,
+                        }));
+                        continue;
+                    }
+                }
+            }
+        }
+
+        // Try bare name lookup.
+        match unit_variant_lookup.get(text.as_str()) {
+            None => {}
+            Some(v) if v.len() == 1 => {
+                let (type_id, variant_index) = v[0];
+                rewrites.push((rhs_id, paideia_as_ir::EnumConsInfo { type_id, variant_index }));
+            }
+            Some(v) => {
+                ambig.push((rhs.span, format!(
+                    "Ambiguous bare enum variant '{}': matches {} enum type(s)",
+                    text, v.len()
+                )));
             }
         }
     }

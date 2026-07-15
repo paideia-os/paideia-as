@@ -1,0 +1,13 @@
+// Issue #1204: bare enum literal in let binding — unit variant B
+// Tests that `let c : Choice = Choice::B` emits data and symbol correctly
+// Expected exit code: 2
+
+module UnitVarModuleLetMatchesB = structure {
+  enum Choice { A, B, C }
+  pub let c : Choice = Choice::B
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> match c {
+    A => 1u64
+    B => 2u64
+    C => 3u64
+  }
+}

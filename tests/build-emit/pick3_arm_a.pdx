@@ -1,13 +1,14 @@
-// Issue #1199: 3-arm enum-match cmp/jne cascade — arm A (unit variants with payload)
-// Tests that match arms with 3 unit-variant enum patterns emit dispatch code with cmp/jne cascade
+// Issue #1199 + #1204: 3-arm enum-match cmp/jne cascade — arm A (unit variants)
+// Tests that match arms with 3 unit-variant enum patterns emit dispatch code with cmp/jne cascade.
+// Also exercises #1204 fix: bare enum literal in module-let binding emits correct data symbol.
 // Expected exit code: 10
 
 module Pick3ArmA = structure {
-  enum Choice { A(u64), B(u64), C(u64) }
-  pub let c : Choice = Choice::A(0u64)
+  enum Choice { A, B, C }
+  pub let c : Choice = Choice::A
   pub let entry : () -> u64 !{} @{} = fn(_: ()) -> match c {
-    A(x) => 10u64
-    B(x) => 20u64
-    C(x) => 30u64
+    A => 10u64
+    B => 20u64
+    C => 30u64
   }
 }
