@@ -1,0 +1,15 @@
+// Issue #1213: payload-carrying enum variant in function-scope let — A with payload 0, returns hardcoded 10
+// Tests mixing unit variants (A, B) with payload variants (C)
+// Expected exit code: 10
+
+module PayloadLetPayloadA = structure {
+  enum Choice { A(u64), B, C(u64) }
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    let c : Choice = Choice::A(0u64)
+    match c {
+      A(_) => 10u64
+      B => 20u64
+      C(v) => v
+    }
+  }
+}

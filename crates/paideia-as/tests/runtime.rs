@@ -34,6 +34,11 @@ mod runtime {
     mod func_scope_enum_let_c_value;
     mod func_scope_multiple_lets_value;
     mod func_scope_enum_let_shadow_value;
+    mod payload_let_payload_c_value;
+    mod payload_let_payload_a_value;
+    mod payload_let_b_pass_thru_value;
+    // payload_let_{mixed,multiple}: deferred pending follow-ups
+    // (nested-match U1648 + sequential-payload-lets U1610).
     mod block_match_direct_expr_value;
     mod block_match_braced_2arm_value;
     mod block_match_braced_3arm_value;

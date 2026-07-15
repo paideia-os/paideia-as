@@ -62,6 +62,13 @@ fn u1659_code() -> DiagnosticCode {
         .expect("U1659 is within valid U range")
 }
 
+/// Helper to construct T0559 diagnostic code (Pattern shape violation).
+/// #1213: Used when EnumCons payload child is neither Literal nor Var.
+fn t0559_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::T, Severity::Error, 559)
+        .expect("T0559 is within valid T range")
+}
+
 impl EmitWalker {
     /// #1115 / #1116: Three-way Store dispatch shared by `emit_block_body` and
     /// `emit_block_body_arm`. Chooses field-assign vs. var-assign vs. array/pointer store
@@ -363,25 +370,61 @@ impl EmitWalker {
                                         );
                                     }
                                 }
-                                // Part D: #1206 / #1209 — Handle EnumCons RHS (unit enum variant)
+                                // Part D: #1206 / #1209 / #1213 — Handle EnumCons RHS
                                 else if rhs_node.kind == IrKind::EnumCons {
-                                    // `let x : Enum = Enum::Variant` — load variant discriminant.
+                                    // `let x : Enum = Enum::Variant` — load variant discriminant (and payload if present).
                                     let info = arena.enum_cons_info().get(rhs_id)
                                         .expect("EnumCons node must have EnumConsInfo");
-                                    self.state
-                                        .local_bindings
-                                        .insert(binding_name.clone(), scratch_reg);
                                     if !arena.children(rhs_id).is_empty() {
-                                        // Payload-carrying variant — not yet supported
-                                        self.push_typed_diag(
-                                            u1659_code(),
-                                            format!(
-                                                "payload-carrying EnumCons at Let-RHS not yet supported (variant {})",
-                                                info.variant_index
-                                            ),
+                                        // #1213: payload-carrying variant — allocate paired scratch register.
+                                        if self.state.scratch_count() >= scratch_regs.len() {
+                                            self.push_typed_diag(t0527_code(), format!(
+                                                "register pressure exceeded: payload enum needs 2nd scratch (variant {})",
+                                                info.variant_index));
+                                            return;
+                                        }
+                                        let payload_reg = scratch_regs[self.state.scratch_count()];
+                                        self.state.assign_scratch(payload_reg);
+
+                                        // Rewire insert → insert_pair (primary reg stays scratch_reg for parity).
+                                        self.state.local_bindings.insert_pair(
+                                            binding_name.clone(), scratch_reg, payload_reg);
+
+                                        // Emit discriminant load.
+                                        self.emit_mov_literal_to_reg_with_id(
+                                            IrNodeId::new(1_310_000 + child_id.get()).expect("let-enum disc id"),
+                                            scratch_reg,
+                                            info.variant_index as i64,
                                         );
+
+                                        // Emit payload load. Support Literal + Var children (mirror visit_enum_cons
+                                        // producer path at emit_enum_match.rs:385-406).
+                                        let payload_child_id = arena.children(rhs_id)[0];
+                                        match arena.get(payload_child_id).map(|n| n.kind) {
+                                            Some(IrKind::Literal) => {
+                                                let val = arena.literal_values().get(payload_child_id).unwrap_or(0);
+                                                self.emit_mov_literal_to_reg_with_id(
+                                                    IrNodeId::new(1_320_000 + child_id.get()).expect("let-enum payload id"),
+                                                    payload_reg,
+                                                    val,
+                                                );
+                                            }
+                                            Some(IrKind::Var) => {
+                                                let _ = self.emit_var_assign_expr_to_reg(payload_child_id, arena, payload_reg, 0);
+                                            }
+                                            _ => {
+                                                self.push_typed_diag(t0559_code(), format!(
+                                                    "payload child kind {:?} not supported at let-RHS (only Literal/Var)",
+                                                    arena.get(payload_child_id).map(|n| n.kind)));
+                                                return;
+                                            }
+                                        }
+                                        self.state.mark_enum_cons_handled(rhs_id.get());
                                     } else {
                                         // Unit variant — emit mov scratch_reg, discriminant_value
+                                        self.state
+                                            .local_bindings
+                                            .insert(binding_name.clone(), scratch_reg);
                                         self.emit_mov_literal_to_reg_with_id(
                                             IrNodeId::new(1_310_000 + child_id.get()).expect("let-enum materialize id"),
                                             scratch_reg,
@@ -986,25 +1029,63 @@ impl EmitWalker {
                                         );
                                     }
                                 }
-                                // Part D: #1206 / #1209 — Handle EnumCons RHS (unit enum variant)
+                                // Part D: #1206 / #1209 / #1213 — Handle EnumCons RHS
                                 else if rhs_node.kind == IrKind::EnumCons {
-                                    // `let x : Enum = Enum::Variant` — load variant discriminant.
+                                    // `let x : Enum = Enum::Variant` — load variant discriminant (and payload if present).
                                     let info = arena.enum_cons_info().get(rhs_id)
                                         .expect("EnumCons node must have EnumConsInfo");
-                                    self.state
-                                        .local_bindings
-                                        .insert(binding_name.clone(), scratch_reg);
                                     if !arena.children(rhs_id).is_empty() {
-                                        // Payload-carrying variant — not yet supported
-                                        self.push_typed_diag(
-                                            u1659_code(),
-                                            format!(
-                                                "payload-carrying EnumCons at Let-RHS not yet supported (variant {})",
-                                                info.variant_index
-                                            ),
+                                        // #1213: payload-carrying variant — allocate paired scratch register.
+                                        if self.state.scratch_count() >= scratch_regs.len() {
+                                            self.push_typed_diag(t0527_code(), format!(
+                                                "register pressure exceeded: payload enum needs 2nd scratch (variant {})",
+                                                info.variant_index));
+                                            self.state.local_bindings.pop_scope();
+                                            return;
+                                        }
+                                        let payload_reg = scratch_regs[self.state.scratch_count()];
+                                        self.state.assign_scratch(payload_reg);
+
+                                        // Rewire insert → insert_pair (primary reg stays scratch_reg for parity).
+                                        self.state.local_bindings.insert_pair(
+                                            binding_name.clone(), scratch_reg, payload_reg);
+
+                                        // Emit discriminant load.
+                                        self.emit_mov_literal_to_reg_with_id(
+                                            IrNodeId::new(1_310_000 + child_id.get()).expect("let-enum disc id"),
+                                            scratch_reg,
+                                            info.variant_index as i64,
                                         );
+
+                                        // Emit payload load. Support Literal + Var children (mirror visit_enum_cons
+                                        // producer path at emit_enum_match.rs:385-406).
+                                        let payload_child_id = arena.children(rhs_id)[0];
+                                        match arena.get(payload_child_id).map(|n| n.kind) {
+                                            Some(IrKind::Literal) => {
+                                                let val = arena.literal_values().get(payload_child_id).unwrap_or(0);
+                                                self.emit_mov_literal_to_reg_with_id(
+                                                    IrNodeId::new(1_320_000 + child_id.get()).expect("let-enum payload id"),
+                                                    payload_reg,
+                                                    val,
+                                                );
+                                            }
+                                            Some(IrKind::Var) => {
+                                                let _ = self.emit_var_assign_expr_to_reg(payload_child_id, arena, payload_reg, 0);
+                                            }
+                                            _ => {
+                                                self.push_typed_diag(t0559_code(), format!(
+                                                    "payload child kind {:?} not supported at let-RHS (only Literal/Var)",
+                                                    arena.get(payload_child_id).map(|n| n.kind)));
+                                                self.state.local_bindings.pop_scope();
+                                                return;
+                                            }
+                                        }
+                                        self.state.mark_enum_cons_handled(rhs_id.get());
                                     } else {
                                         // Unit variant — emit mov scratch_reg, discriminant_value
+                                        self.state
+                                            .local_bindings
+                                            .insert(binding_name.clone(), scratch_reg);
                                         self.emit_mov_literal_to_reg_with_id(
                                             IrNodeId::new(1_310_000 + child_id.get()).expect("let-enum materialize id"),
                                             scratch_reg,

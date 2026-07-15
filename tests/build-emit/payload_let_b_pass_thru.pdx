@@ -1,0 +1,15 @@
+// Issue #1213: payload-carrying enum, pass-through payload value
+// Tests that payload is correctly loaded and passed through match arm
+// Expected exit code: 99
+
+module PayloadLetBPassThru = structure {
+  enum Choice { A, B(u64), C }
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    let c : Choice = Choice::B(99u64)
+    match c {
+      A => 0u64
+      B(v) => v
+      C => 3u64
+    }
+  }
+}

@@ -1,0 +1,16 @@
+// Issue #1213: payload-carrying enum variant in function-scope let — C with payload 42
+// Tests that `let c : Choice = Choice::C(42u64)` in function body emits code correctly
+// The match extracts the payload and returns it.
+// Expected exit code: 42
+
+module PayloadLetPayloadC = structure {
+  enum Choice { A, B, C(u64) }
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    let c : Choice = Choice::C(42u64)
+    match c {
+      A => 1u64
+      B => 2u64
+      C(v) => v
+    }
+  }
+}
