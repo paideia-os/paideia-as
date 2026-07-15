@@ -30,9 +30,14 @@ mod runtime {
     mod let_chain_2_call_value;
     mod let_chain_2_match_value;
     mod func_scope_enum_let_a_value;
-    // func_scope_enum_let_{b,c,multiple_lets}: deferred pending #1208 fix
-    // (braced-block match cascade jne offset — variants B/C SIGSEGV).
+    mod func_scope_enum_let_b_value;
+    mod func_scope_enum_let_c_value;
+    mod func_scope_multiple_lets_value;
     mod func_scope_enum_let_shadow_value;
+    mod block_match_direct_expr_value;
+    mod block_match_braced_2arm_value;
+    mod block_match_braced_3arm_value;
+    mod block_match_braced_nested_value;
     mod sysv_bridge_bump_value;
     mod let_rhs_binop_mul_value;
     mod module_var_assign_mul_value;

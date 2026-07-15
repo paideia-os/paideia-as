@@ -216,6 +216,28 @@ impl EmitWalker {
         self.state.mark_lambda_emitted(lambda_id.get());
     }
 
+    /// #1208: Recursively mark all Match nodes reachable from a given node.
+    ///
+    /// Called during the #1085 pre-pass to mark Match nodes that are owned by
+    /// emit_block_body's dispatch (lines 656 and 1124 in emit_block_body.rs).
+    /// Prevents the flat walker's Match arm (line 663) from double-emitting when
+    /// the direct body of a Lambda is a Block containing a Match.
+    ///
+    /// Descends recursively through all children but stops at Lambda/Unsafe
+    /// boundaries (those are owned-dispatch boundaries).
+    fn mark_matches_recursive(&mut self, id: IrNodeId, arena: &IrArena) {
+        if let Some(n) = arena.get(id) {
+            match n.kind {
+                IrKind::Match => self.state.mark_match_emitted(id.get()),
+                IrKind::Lambda | IrKind::Unsafe => return,
+                _ => {}
+            }
+            for &child_id in arena.children(id) {
+                self.mark_matches_recursive(child_id, arena);
+            }
+        }
+    }
+
     /// Drive the walker over an IR arena.
     ///
     /// m1-002: processes Let → Literal bindings, emitting Mov instructions.
@@ -247,8 +269,11 @@ impl EmitWalker {
         }
 
         // Fix B (#1085): Pre-pass to prevent Match double-emission.
-        // For every Lambda whose direct body child is a Match, mark the Match as already emitted.
-        // This ensures the Match is not visited twice (once in trailing position, once in Discard context).
+        // #1208: Extended to recursively mark EVERY Match reachable from Lambda bodies,
+        // not just direct children. For `fn(...) -> { match ... }`, the direct child
+        // is a Block wrapping the Match. Without this recursion, the flat walker's
+        // Match arm fires at wrong offset, then emit_block_body dispatches Match at
+        // correct offset → double visit_match with ID collision and offset overflow.
         for i in 1..=arena.len() as u32 {
             if let Some(lambda_id) = IrNodeId::new(i) {
                 if let Some(lambda_node) = arena.get(lambda_id) {
@@ -256,11 +281,7 @@ impl EmitWalker {
                         let children = arena.children(lambda_id);
                         // Lambda has one child: the body expression
                         if let Some(&body_id) = children.first() {
-                            if let Some(body_node) = arena.get(body_id) {
-                                if body_node.kind == IrKind::Match {
-                                    self.state.mark_match_emitted(body_id.get());
-                                }
-                            }
+                            self.mark_matches_recursive(body_id, arena);
                         }
                     }
                 }

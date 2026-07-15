@@ -1,0 +1,16 @@
+// Issue #1208: 3-arm braced match dispatching on MIDDLE arm
+// Tests that a 3-arm enum match as tail correctly computes jne offsets
+// for the middle arm (tests offset accumulation more rigorously).
+// Expected exit code: 2 (middle arm)
+
+module BlockMatchBraced3arm = structure {
+  enum Mode { Read, Write, Execute }
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    let m : Mode = Mode::Write
+    match m {
+      Read => 1u64
+      Write => 2u64
+      Execute => 3u64
+    }
+  }
+}

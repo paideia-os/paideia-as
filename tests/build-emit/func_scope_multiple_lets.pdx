@@ -1,0 +1,17 @@
+// Issue #1206: multiple function-scope enum lets
+// Tests that sequential `let` bindings of enum types work correctly and
+// match dispatch operates on the correct binding.
+// Expected exit code: 3 (c2 is Choice::C, match returns 3)
+
+module FuncScopeMultipleLets = structure {
+  enum Choice { A, B, C }
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    let c1 : Choice = Choice::A
+    let c2 : Choice = Choice::C
+    match c2 {
+      A => 1u64
+      B => 2u64
+      C => 3u64
+    }
+  }
+}

@@ -1,0 +1,15 @@
+// Issue #1206: bare enum literal in function-scope let — unit variant B
+// Tests that `let c : Choice = Choice::B` in function body emits code correctly
+// Expected exit code: 2
+
+module FuncScopeEnumLetB = structure {
+  enum Choice { A, B, C }
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    let c : Choice = Choice::B
+    match c {
+      A => 1u64
+      B => 2u64
+      C => 3u64
+    }
+  }
+}

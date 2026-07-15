@@ -1,0 +1,17 @@
+// Issue #1208: nested blocks with match
+// Tests that the recursive pre-pass correctly descends through multiple
+// Block layers to find and mark all Match nodes.
+// Expected exit code: 3 (innermost arm)
+
+module BlockMatchBracedNested = structure {
+  enum Level { Low, Mid, High }
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    let lvl : Level = Level::High
+    let unused : () = ()
+    match lvl {
+      Low => 1u64
+      Mid => 2u64
+      High => 3u64
+    }
+  }
+}

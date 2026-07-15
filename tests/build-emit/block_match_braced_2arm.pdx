@@ -1,0 +1,15 @@
+// Issue #1208: smallest braced-block repro for match cascade jne offset bug
+// Tests that a 2-arm enum match as tail expression works correctly.
+// The function body having multiple statements triggers the Block wrapper.
+// Expected exit code: 2
+
+module BlockMatchBraced2arm = structure {
+  enum Status { Off, On }
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    let st : Status = Status::On
+    match st {
+      Off => 1u64
+      On => 2u64
+    }
+  }
+}
