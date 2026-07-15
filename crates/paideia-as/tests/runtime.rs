@@ -40,8 +40,12 @@ mod runtime {
     mod payload_let_payload_c_value;
     mod payload_let_payload_a_value;
     mod payload_let_b_pass_thru_value;
-    // payload_let_{mixed,multiple}: deferred pending follow-ups
-    // (nested-match U1648 + sequential-payload-lets U1610).
+    mod payload_let_mixed_value;
+    mod match_wildcard_last_value;
+    mod nested_match_two_lets_unit_value;
+    mod nested_match_two_lets_payload_value;
+    mod nested_match_three_deep_value;
+    mod nested_match_same_var_value;
     mod block_match_direct_expr_value;
     mod block_match_braced_2arm_value;
     mod block_match_braced_3arm_value;

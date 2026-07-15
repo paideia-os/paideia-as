@@ -1386,11 +1386,19 @@ impl EmitWalker {
                 });
 
                 // Emit jne to next arm or default
-                let next_label = if idx + 1 < arm_ids.len() {
-                    format!("match_arm_{}_{}", match_node_id.get(), idx + 1)
-                } else {
-                    default_label.clone()
-                };
+                // #1214: If the successor arm is a default (`_ =>`), it registers only
+                // `default_label`, not `match_arm_N_(idx+1)`. Route jne to whichever label
+                // that arm will actually register.
+                let next_label = arm_ids.get(idx + 1)
+                    .and_then(|&next_id| arena.match_arm_meta().get(next_id))
+                    .map(|next_meta| {
+                        if next_meta.is_default {
+                            default_label.clone()
+                        } else {
+                            format!("match_arm_{}_{}", match_node_id.get(), idx + 1)
+                        }
+                    })
+                    .unwrap_or_else(|| default_label.clone());
 
                 let jne_id = IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10 + 1)
                     .expect("jne id");

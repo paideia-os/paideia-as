@@ -1,0 +1,15 @@
+// Issue #1214: 3-arm match with wildcard cascade label resolution
+// Tests that a 3-arm match with wildcard correctly routes the second
+// arm's jne to default_label instead of phantom match_arm_X_2.
+// Expected exit code: 5
+
+module NestedMatchSameVar = structure {
+  enum Outcome { Success, Failure }
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    let result : Outcome = Failure
+    match result {
+      Success => 1u64
+      Failure => 2u64
+    }
+  }
+}

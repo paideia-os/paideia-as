@@ -1,0 +1,21 @@
+// Issue #1214: nested match with payload and wildcard
+// Tests that nested matches with payload-bearing variants followed by
+// wildcard arms correctly resolve labels in cascades.
+// Expected exit code: 10
+
+module NestedMatchTwoLetsPayload = structure {
+  enum Status { Ok(u64), Err }
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    let outer : Status = Status::Ok(99u64)
+    match outer {
+      Ok(v) => {
+        let inner : Status = Status::Ok(10u64)
+        match inner {
+          Ok(x) => x
+          _ => 3u64
+        }
+      }
+      _ => 5u64
+    }
+  }
+}

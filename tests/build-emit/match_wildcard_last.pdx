@@ -1,0 +1,15 @@
+// Issue #1214: wildcard arm in cascade
+// Tests that a flat 2-arm match with wildcard-last correctly resolves labels
+// when the preceding arm's jne targets the wildcard arm's label.
+// Expected exit code: 10
+
+module MatchWildcardLast = structure {
+  enum E { A, B }
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    let e : E = E::A
+    match e {
+      A => 10u64
+      _ => 99u64
+    }
+  }
+}

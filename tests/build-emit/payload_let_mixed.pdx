@@ -1,0 +1,15 @@
+// Issue #1214: wildcard arm with payload extraction
+// Tests that a match with payload-bearing variant followed by wildcard
+// correctly resolves the wildcard arm's label in the cascade.
+// Expected exit code: 10
+
+module PayloadLetMixed = structure {
+  enum Choice { A(u64), B, C }
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    let c : Choice = Choice::A(10u64)
+    match c {
+      A(v) => v
+      _ => 99u64
+    }
+  }
+}

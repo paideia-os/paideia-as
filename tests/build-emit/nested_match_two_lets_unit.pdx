@@ -1,0 +1,23 @@
+// Issue #1214: simple nested match on unit variants without wildcards
+// Tests that nested matches on unit variants work correctly as a baseline
+// for ensuring the fix doesn't regress non-wildcard matches.
+// Expected exit code: 42
+
+module NestedMatchTwoLetsUnit = structure {
+  enum Level { Low, Mid, High }
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    let outer : Level = Level::High
+    match outer {
+      Low => 1u64
+      Mid => 2u64
+      High => {
+        let level2 : Level = Level::Mid
+        match level2 {
+          Low => 3u64
+          Mid => 42u64
+          High => 4u64
+        }
+      }
+    }
+  }
+}
