@@ -1,0 +1,14 @@
+// Issue #1199: 4-arm enum-match cmp/jne cascade — arm B (payload-carrying)
+// Tests that match arms with 4 payload-carrying enum patterns emit dispatch code with cmp/jne cascade
+// Expected exit code: 20
+
+module Pick4ArmB = structure {
+  enum Choice { A(u64), B(u64), C(u64), D(u64) }
+  pub let c : Choice = Choice::B(0u64)
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> match c {
+    A(x) => 10u64
+    B(x) => 20u64
+    C(x) => 30u64
+    D(x) => 40u64
+  }
+}

@@ -1364,6 +1364,10 @@ impl EmitWalker {
                 continue;
             }
 
+            // #1199: Register arm label at the START of the discriminator check (before cmp)
+            // so that the previous arm's jne correctly targets this arm's cmp, not its body.
+            self.state.register_label(arm_label);
+
             // Non-default arm: emit cmp rax, variant_index
             if let Some(variant_index) = arm_meta.variant_index {
                 let cmp_id = IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10)
@@ -1405,9 +1409,6 @@ impl EmitWalker {
                 emission_order: 0,
                 });
             }
-
-            // Register arm label at current estimated offset
-            self.state.register_label(arm_label);
 
             // Phase 17 m9-009: Nested pattern binding
             // #1084 (follow-up): Split on layout.size for register vs stack form

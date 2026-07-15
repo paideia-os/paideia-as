@@ -1,0 +1,13 @@
+// Issue #1199: 3-arm enum-match cmp/jne cascade — arm C (unit variants with payload)
+// Tests that match arms with 3 unit-variant enum patterns emit dispatch code with cmp/jne cascade
+// Expected exit code: 30
+
+module Pick3ArmC = structure {
+  enum Choice { A(u64), B(u64), C(u64) }
+  pub let c : Choice = Choice::C(0u64)
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> match c {
+    A(x) => 10u64
+    B(x) => 20u64
+    C(x) => 30u64
+  }
+}

@@ -26,4 +26,13 @@ mod runtime {
     mod sysv_bridge_bump_value;
     mod let_rhs_binop_mul_value;
     mod module_var_assign_mul_value;
+    mod pick3_arm_a_value;
+    mod pick3_arm_b_value;
+    mod pick3_arm_c_value;
+    mod pick4_arm_a_value;
+    mod pick4_arm_b_value;
+    mod pick4_arm_c_value;
+    mod pick4_arm_d_value;
+    mod pick5_arm_c_value;
+    mod pick5_arm_e_value;
 }
