@@ -773,11 +773,9 @@ impl EmitWalker {
                         "-" => Mnemonic::Sub,
                         "*" => Mnemonic::Imul,
                         "/" | "%" => {
-                            self.push_typed_diag(
-                                t0540_code(),
-                                format!("operator {} not yet supported in BinOp RHS (requires RDX:RAX + signed/unsigned selection; see #1200)", meta.callee_name),
-                            );
-                            return false;
+                            let result_reg = if meta.callee_name == "/" { abi::RAX } else { abi::RDX };
+                            self.emit_div_unsigned(dest, arg1_dest, result_reg);
+                            return true;
                         }
                         "<<" | ">>" => {
                             // Shift operators require RCX for the count.
@@ -934,6 +932,211 @@ impl EmitWalker {
             .expect("current_function set by walker");
         self.emit_call_expr(lambda_id, target_name.to_string(), &arg_ids, arena);
         paideia_as_ir::abi::RAX
+    }
+
+    /// #1200: Emit unsigned DIV/MOD instruction sequence.
+    ///
+    /// Unsigned division requires the RDX:RAX pair:
+    /// - RAX holds the dividend (numerator)
+    /// - RDX is the high half (must be zeroed for unsigned)
+    /// - Result goes to RAX (for /) or RDX (for %)
+    ///
+    /// This method:
+    /// 1. Saves RDX if it's live (bound in local_bindings and not our dest/divisor)
+    /// 2. Saves RAX if it's live (bound in local_bindings and not our dest/divisor)
+    /// 3. Spills divisor if it aliases RAX or RDX
+    /// 4. Emits: mov rax, dest; xor rdx, rdx; div divisor_reg; mov dest, result_reg
+    /// 5. Restores in reverse order
+    fn emit_div_unsigned(&mut self, dest: RegId, divisor: RegId, result_reg: RegId) {
+        // Check if RDX is live and must be saved.
+        let rdx_live = if dest != abi::RDX && divisor != abi::RDX {
+            self.state.local_bindings.iter().any(|(_, reg)| reg == abi::RDX)
+        } else {
+            false
+        };
+
+        // Check if RAX is live and must be saved.
+        let rax_live = if dest != abi::RAX && divisor != abi::RAX {
+            self.state.local_bindings.iter().any(|(_, reg)| reg == abi::RAX)
+        } else {
+            false
+        };
+
+        // Determine if divisor aliases RAX or RDX and needs spilling.
+        let divisor_clobbered = divisor == abi::RAX || divisor == abi::RDX;
+        let divisor_spill_reg = if divisor_clobbered {
+            // Pick a scratch register (R10 or R11).
+            if dest != abi::R10 && divisor != abi::R10 {
+                Some(abi::R10)
+            } else {
+                Some(abi::R11)
+            }
+        } else {
+            None
+        };
+
+        // Save RDX if live.
+        if rdx_live {
+            let save_inst = Instruction {
+                mnemonic: Mnemonic::Push,
+                operands: {
+                    let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                    ops.push(Operand::Reg(abi::RDX));
+                    ops
+                },
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+                emission_order: 0,
+            };
+            let save_id = self.alloc_synthetic_id();
+            self.emit_inst(save_id, save_inst);
+        }
+
+        // Save RAX if live.
+        if rax_live {
+            let save_inst = Instruction {
+                mnemonic: Mnemonic::Push,
+                operands: {
+                    let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                    ops.push(Operand::Reg(abi::RAX));
+                    ops
+                },
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+                emission_order: 0,
+            };
+            let save_id = self.alloc_synthetic_id();
+            self.emit_inst(save_id, save_inst);
+        }
+
+        // Spill divisor if it aliases RAX or RDX.
+        if let Some(spill_reg) = divisor_spill_reg {
+            let spill_inst = Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: {
+                    let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                    ops.push(Operand::Reg(spill_reg));
+                    ops.push(Operand::Reg(divisor));
+                    ops
+                },
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+                emission_order: 0,
+            };
+            let spill_id = self.alloc_synthetic_id();
+            self.emit_inst(spill_id, spill_inst);
+        }
+
+        // Move dividend to RAX (skip if dest is already RAX).
+        if dest != abi::RAX {
+            let mov_inst = Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: {
+                    let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                    ops.push(Operand::Reg(abi::RAX));
+                    ops.push(Operand::Reg(dest));
+                    ops
+                },
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+                emission_order: 0,
+            };
+            let mov_id = self.alloc_synthetic_id();
+            self.emit_inst(mov_id, mov_inst);
+        }
+
+        // Zero RDX (required for unsigned division).
+        let xor_inst = Instruction {
+            mnemonic: Mnemonic::Xor,
+            operands: {
+                let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                ops.push(Operand::Reg(abi::RDX));
+                ops.push(Operand::Reg(abi::RDX));
+                ops
+            },
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: self.current_mode(),
+            emission_order: 0,
+        };
+        let xor_id = self.alloc_synthetic_id();
+        self.emit_inst(xor_id, xor_inst);
+
+        // Emit DIV with the (possibly spilled) divisor.
+        let actual_divisor = divisor_spill_reg.unwrap_or(divisor);
+        let div_inst = Instruction {
+            mnemonic: Mnemonic::Div,
+            operands: {
+                let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                ops.push(Operand::Reg(actual_divisor));
+                ops
+            },
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: self.current_mode(),
+            emission_order: 0,
+        };
+        let div_id = self.alloc_synthetic_id();
+        self.emit_inst(div_id, div_inst);
+
+        // Move result to dest (skip if dest is already result_reg).
+        if dest != result_reg {
+            let mov_inst = Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: {
+                    let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                    ops.push(Operand::Reg(dest));
+                    ops.push(Operand::Reg(result_reg));
+                    ops
+                },
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+                emission_order: 0,
+            };
+            let mov_id = self.alloc_synthetic_id();
+            self.emit_inst(mov_id, mov_inst);
+        }
+
+        // Restore RAX if it was saved.
+        if rax_live {
+            let restore_inst = Instruction {
+                mnemonic: Mnemonic::Pop,
+                operands: {
+                    let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                    ops.push(Operand::Reg(abi::RAX));
+                    ops
+                },
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+                emission_order: 0,
+            };
+            let restore_id = self.alloc_synthetic_id();
+            self.emit_inst(restore_id, restore_inst);
+        }
+
+        // Restore RDX if it was saved.
+        if rdx_live {
+            let restore_inst = Instruction {
+                mnemonic: Mnemonic::Pop,
+                operands: {
+                    let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                    ops.push(Operand::Reg(abi::RDX));
+                    ops
+                },
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+                emission_order: 0,
+            };
+            let restore_id = self.alloc_synthetic_id();
+            self.emit_inst(restore_id, restore_inst);
+        }
     }
 }
 

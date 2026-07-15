@@ -1,0 +1,11 @@
+//! #1200: flat-lambda BinOp canary: (Var, Var) modulo
+//! Pattern: fn (a, b) -> a % b
+//! After #1200 (modulo support), this computes 17 % 5 = 2.
+
+module FlatLambdaBinopModVarVar = structure {
+  let compute : (u64, u64) -> u64 =
+    fn (a: u64) (b: u64) -> a % b
+
+  pub let entry : () -> u64 =
+    fn () -> compute(17, 5)
+}

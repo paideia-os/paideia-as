@@ -1,0 +1,11 @@
+//! #1200: let-RHS BinOp canary: division
+//! Pattern: let r = 12u64 / 4u64; r
+//! After #1200 (division support), this computes 12 / 4 = 3.
+
+module LetRhsBinopDiv = structure {
+  pub let entry : () -> u64 =
+    fn () -> {
+      let r = 12u64 / 4u64
+      r
+    }
+}

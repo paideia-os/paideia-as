@@ -1,0 +1,13 @@
+// #1200 canary: modulo in module-level let-mut assignment
+// Pattern: counter = 17u64 % 5u64; return counter
+// Expected: 2
+
+module ModuleVarAssignMod = structure {
+  let mut counter : u64 = 0u64
+
+  pub let entry : () -> u64 =
+    fn () -> {
+      counter = 17u64 % 5u64;
+      counter
+    }
+}

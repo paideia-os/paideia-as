@@ -1,0 +1,11 @@
+//! #1200: flat-lambda BinOp canary: (Var, Var) division
+//! Pattern: fn (a, b) -> a / b
+//! After #1200 (division support), this computes 42 / 6 = 7.
+
+module FlatLambdaBinopDivVarVar = structure {
+  let compute : (u64, u64) -> u64 =
+    fn (a: u64) (b: u64) -> a / b
+
+  pub let entry : () -> u64 =
+    fn () -> compute(42, 6)
+}

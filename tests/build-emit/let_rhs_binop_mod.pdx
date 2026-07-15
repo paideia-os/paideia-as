@@ -1,0 +1,11 @@
+//! #1200: let-RHS BinOp canary: modulo
+//! Pattern: let r = 13u64 % 5u64; r
+//! After #1200 (modulo support), this computes 13 % 5 = 3.
+
+module LetRhsBinopMod = structure {
+  pub let entry : () -> u64 =
+    fn () -> {
+      let r = 13u64 % 5u64
+      r
+    }
+}

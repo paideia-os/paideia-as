@@ -14,6 +14,9 @@ mod runtime {
 
     mod flat_lambda_binop_canaries;
     mod flat_lambda_binop_mul_var_var_value;
+    mod flat_lambda_binop_div_var_var_value;
+    mod flat_lambda_binop_mod_var_var_value;
+    mod flat_lambda_binop_div_var_var_rdx_live_value;
     mod match_enum_pattern;
     mod match_nested_pattern;
     mod ms_call_saves_rcx_value;
@@ -45,7 +48,11 @@ mod runtime {
     mod block_match_braced_nested_value;
     mod sysv_bridge_bump_value;
     mod let_rhs_binop_mul_value;
+    mod let_rhs_binop_div_value;
+    mod let_rhs_binop_mod_value;
     mod module_var_assign_mul_value;
+    mod module_var_assign_div_value;
+    mod module_var_assign_mod_value;
     mod pick3_arm_a_value;
     mod pick3_arm_b_value;
     mod pick3_arm_c_value;
