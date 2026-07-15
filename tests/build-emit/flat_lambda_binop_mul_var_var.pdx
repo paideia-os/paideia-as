@@ -1,0 +1,11 @@
+//! #1196 + #1197: flat-lambda BinOp canary: (Var, Var) multiplication
+//! Pattern: fn (a, b) -> a * b
+//! After #1197 (multiplication support), this computes 7 * 6 = 42.
+
+module FlatLambdaBinopMulVarVar = structure {
+  let compute : (u64, u64) -> u64 =
+    fn (a: u64) (b: u64) -> a * b
+
+  pub let entry : () -> u64 =
+    fn () -> compute(7, 6)
+}

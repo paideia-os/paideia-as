@@ -1,0 +1,8 @@
+// #1196 + #1197 canary: multiplication at let-RHS position
+// Pattern: let r = 7u64 * 6u64; r
+// Expected: 42
+
+module LetRhsBinopMul = structure {
+  pub let entry : () -> u64 =
+    fn () -> { let r = 7u64 * 6u64; r }
+}

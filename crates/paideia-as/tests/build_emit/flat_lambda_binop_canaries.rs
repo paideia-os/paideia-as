@@ -61,8 +61,50 @@ fn flat_lambda_binop_nested_fncall_fires_t0540() {
     assert!(out.stderr.contains("T0540"), "T0540 must fire on nested function calls in BinOp");
 }
 
-// Note: The current phase-5 m1 heuristic (infer_operator_from_span_len) cannot distinguish
-// `v * 2` from `v + 2` (both are single-character operators). The heuristic defaults to `+`.
-// This fixture currently mis-compiles as addition rather than firing T0540.
-// Once operator disambiguation lands (phase m1-004+), this should fire T0540 loudly.
-// For now, this test is skipped as a known limitation of the span-length heuristic.
+// #1196: operator-disambiguation fixtures
+//
+// These canaries verify that single-char operators (`*`, `&`, `|`, `^`, `-`)
+// and `>>` are now handled correctly after #1196 (operator_lexeme_of) replaces
+// the span-length heuristic (infer_operator_from_span_len).
+
+#[test]
+fn flat_lambda_binop_mul_var_var_compiles_and_computes_42() {
+    let out = run_build(fixture::build_emit("flat_lambda_binop_mul_var_var.pdx"));
+    out.assert_ok();
+    assert!(!out.stderr.contains("T0540"), "T0540 must not fire on multiplication after #1197 fix");
+}
+
+#[test]
+fn flat_lambda_binop_and_var_lit_compiles() {
+    let out = run_build(fixture::build_emit("flat_lambda_binop_and_var_lit.pdx"));
+    out.assert_ok();
+    assert!(!out.stderr.contains("T0540"), "T0540 must not fire on (Var, Literal) AND after #1196 fix");
+}
+
+#[test]
+fn flat_lambda_binop_or_lit_var_compiles() {
+    let out = run_build(fixture::build_emit("flat_lambda_binop_or_lit_var.pdx"));
+    out.assert_ok();
+    assert!(!out.stderr.contains("T0540"), "T0540 must not fire on (Literal, Var) OR after #1196 fix");
+}
+
+#[test]
+fn flat_lambda_binop_xor_var_lit_compiles() {
+    let out = run_build(fixture::build_emit("flat_lambda_binop_xor_var_lit.pdx"));
+    out.assert_ok();
+    assert!(!out.stderr.contains("T0540"), "T0540 must not fire on (Var, Literal) XOR after #1196 fix");
+}
+
+#[test]
+fn flat_lambda_binop_sub_var_lit_compiles() {
+    let out = run_build(fixture::build_emit("flat_lambda_binop_sub_var_lit.pdx"));
+    out.assert_ok();
+    assert!(!out.stderr.contains("T0540"), "T0540 must not fire on (Var, Literal) SUB after #1196 fix");
+}
+
+#[test]
+fn flat_lambda_binop_shr_var_lit_compiles() {
+    let out = run_build(fixture::build_emit("flat_lambda_binop_shr_var_lit.pdx"));
+    out.assert_ok();
+    assert!(!out.stderr.contains("T0540"), "T0540 must not fire on (Var, Literal) SHR after #1196 fix");
+}

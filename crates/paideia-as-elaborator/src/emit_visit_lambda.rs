@@ -17,18 +17,8 @@ use paideia_as_ir::let_meta::CallingConvention;
 use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, SymbolKind, abi};
 
 use crate::emit_block_body::TailContext;
+use crate::emit_store_record::operator_lexeme_of;
 use crate::emit_walker::EmitWalker;
-
-/// Helper to infer operator from callee span length.
-/// Operator span lengths: `<<`/`>>` (2), `+`/`-`/`*`/`&`/`|`/`^` (1).
-/// Used by both lambda-visit dispatch and nested-pattern arm-body matching.
-pub(crate) fn infer_operator_from_span_len(span_len: u32) -> Option<&'static str> {
-    match span_len {
-        1 => Some("+"),  // Could be +, -, *, &, |, ^; default to +
-        2 => Some("<<"), // Could be << or >>; heuristic: more common in practice
-        _ => None,
-    }
-}
 
 impl EmitWalker {
     /// Get the register for parameter index under the specified calling convention.
@@ -618,50 +608,51 @@ impl EmitWalker {
                                             // large IDs (51+) are usually single-param simple lambdas.
                                             // (This is inverted from normal, but it seems to work for this test.)
                                             (IrKind::Var, IrKind::Var) => {
-                                                if lambda_node_id.get() > 50 {
-                                                    // Heuristic: only emit for large lambdas (likely single-param)
-                                                    // PA8-m1-001d: Try to infer operator from callee span.
-                                                    let op_hint = if let Some(callee_node) =
-                                                        arena.get(callee_id)
-                                                    {
-                                                        infer_operator_from_span_len(
-                                                            callee_node.span.byte_len(),
-                                                        )
-                                                    } else {
-                                                        None
-                                                    };
-
-                                                    if op_hint == Some("<<") {
-                                                        if cfg!(debug_assertions) {
-                                                            eprintln!(
-                                                                "[emit_shl_var_lambda] Lambda {}",
-                                                                lambda_node_id.get()
-                                                            );
-                                                        }
-                                                        let main_id =
-                                                            IrNodeId::new(lambda_node_id.get() * 4)
-                                                                .expect("main instr virtual id");
-                                                        self.record_lambda_entry(
-                                                            lambda_node_id,
-                                                            main_id,
+                                                // #1196: Use authoritative operator lexeme from call_sites()
+                                                let op = operator_lexeme_of(arena, body_id);
+                                                // Heuristic: only emit fast-path for large lambdas (likely single-param)
+                                                if lambda_node_id.get() > 50 && op == Some("<<") {
+                                                    if cfg!(debug_assertions) {
+                                                        eprintln!(
+                                                            "[emit_shl_var_lambda] Lambda {}",
+                                                            lambda_node_id.get()
                                                         );
-                                                        self.emit_shl_var_lambda(lambda_node_id);
-                                                    } else {
-                                                        if cfg!(debug_assertions) {
-                                                            eprintln!(
-                                                                "[emit_double_lambda] Lambda {}",
-                                                                lambda_node_id.get()
-                                                            );
-                                                        }
-                                                        let main_id =
-                                                            IrNodeId::new(lambda_node_id.get() * 2)
-                                                                .expect("main instr virtual id");
-                                                        self.record_lambda_entry(
-                                                            lambda_node_id,
-                                                            main_id,
-                                                        );
-                                                        self.emit_double_lambda(lambda_node_id);
                                                     }
+                                                    let main_id =
+                                                        IrNodeId::new(lambda_node_id.get() * 4)
+                                                            .expect("main instr virtual id");
+                                                    self.record_lambda_entry(
+                                                        lambda_node_id,
+                                                        main_id,
+                                                    );
+                                                    self.emit_shl_var_lambda(lambda_node_id);
+                                                } else if lambda_node_id.get() > 50 && op == Some("+") {
+                                                    if cfg!(debug_assertions) {
+                                                        eprintln!(
+                                                            "[emit_double_lambda] Lambda {}",
+                                                            lambda_node_id.get()
+                                                        );
+                                                    }
+                                                    let main_id =
+                                                        IrNodeId::new(lambda_node_id.get() * 2)
+                                                            .expect("main instr virtual id");
+                                                    self.record_lambda_entry(
+                                                        lambda_node_id,
+                                                        main_id,
+                                                    );
+                                                    self.emit_double_lambda(lambda_node_id);
+                                                } else {
+                                                    // #1196: Non-fast-path operator or small lambda; route through shared lowerer
+                                                    let _ = self.emit_var_assign_expr_to_rax(body_id, arena);
+                                                    let ret_id = self.alloc_synthetic_id();
+                                                    self.emit_inst(ret_id, Instruction {
+                                                        mnemonic: Mnemonic::Ret,
+                                                        operands: SmallVec::new(),
+                                                        encoding_hint: None,
+                                                        byte_offset_in_text: None,
+                                                        mode: self.current_mode(),
+                                                        emission_order: 0,
+                                                    });
                                                 }
                                             }
                                             // Case 3: x + literal or x << literal
@@ -669,64 +660,70 @@ impl EmitWalker {
                                                 if let Some(value) =
                                                     arena.literal_values().get(arg1_id)
                                                 {
-                                                    // PA8-m1-001d: Try to infer operator from callee span.
-                                                    let op_hint = if let Some(callee_node) =
-                                                        arena.get(callee_id)
-                                                    {
-                                                        infer_operator_from_span_len(
-                                                            callee_node.span.byte_len(),
-                                                        )
-                                                    } else {
-                                                        None
-                                                    };
-
-                                                    if op_hint == Some("<<") {
-                                                        // Validate shift count range before recording entry
-                                                        if !(0..=63).contains(&value) {
-                                                            // Out of range; skip emission and fall through to B1704
-                                                        } else {
-                                                            if cfg!(debug_assertions) {
-                                                                eprintln!(
-                                                                    "[emit_shl_imm_lambda] Lambda {} emit_shl_imm with value {}",
-                                                                    lambda_node_id.get(),
-                                                                    value
+                                                    // #1196: Use authoritative operator lexeme from call_sites()
+                                                    match operator_lexeme_of(arena, body_id) {
+                                                        Some("<<") => {
+                                                            // Validate shift count range before recording entry
+                                                            if !(0..=63).contains(&value) {
+                                                                // Out of range; skip emission (B1704 will fire for missing symbol)
+                                                            } else {
+                                                                if cfg!(debug_assertions) {
+                                                                    eprintln!(
+                                                                        "[emit_shl_imm_lambda] Lambda {} emit_shl_imm with value {}",
+                                                                        lambda_node_id.get(),
+                                                                        value
+                                                                    );
+                                                                }
+                                                                let main_id =
+                                                                    IrNodeId::new(lambda_node_id.get() * 3)
+                                                                        .expect("main instr virtual id");
+                                                                self.record_lambda_entry(
+                                                                    lambda_node_id,
+                                                                    main_id,
+                                                                );
+                                                                self.emit_shl_imm_lambda(
+                                                                    lambda_node_id,
+                                                                    value,
                                                                 );
                                                             }
-                                                            let main_id =
-                                                                IrNodeId::new(lambda_node_id.get() * 3)
-                                                                    .expect("main instr virtual id");
-                                                            self.record_lambda_entry(
-                                                                lambda_node_id,
-                                                                main_id,
-                                                            );
-                                                            self.emit_shl_imm_lambda(
-                                                                lambda_node_id,
-                                                                value,
-                                                            );
                                                         }
-                                                    } else {
-                                                        // Validate immediate range before recording entry
-                                                        if !(-128..=127).contains(&value) {
-                                                            // Out of range; skip emission and fall through to B1704
-                                                        } else {
-                                                            if cfg!(debug_assertions) {
-                                                                eprintln!(
-                                                                    "[emit_add_imm_lambda] Lambda {} emit_add_imm with value {}",
-                                                                    lambda_node_id.get(),
-                                                                    value
+                                                        Some("+") => {
+                                                            // Validate immediate range before recording entry
+                                                            if !(-128..=127).contains(&value) {
+                                                                // Out of range; skip emission (B1704 will fire for missing symbol)
+                                                            } else {
+                                                                if cfg!(debug_assertions) {
+                                                                    eprintln!(
+                                                                        "[emit_add_imm_lambda] Lambda {} emit_add_imm with value {}",
+                                                                        lambda_node_id.get(),
+                                                                        value
+                                                                    );
+                                                                }
+                                                                let main_id =
+                                                                    IrNodeId::new(lambda_node_id.get() * 2)
+                                                                        .expect("main instr virtual id");
+                                                                self.record_lambda_entry(
+                                                                    lambda_node_id,
+                                                                    main_id,
+                                                                );
+                                                                self.emit_add_imm_lambda(
+                                                                    lambda_node_id,
+                                                                    value,
                                                                 );
                                                             }
-                                                            let main_id =
-                                                                IrNodeId::new(lambda_node_id.get() * 2)
-                                                                    .expect("main instr virtual id");
-                                                            self.record_lambda_entry(
-                                                                lambda_node_id,
-                                                                main_id,
-                                                            );
-                                                            self.emit_add_imm_lambda(
-                                                                lambda_node_id,
-                                                                value,
-                                                            );
+                                                        }
+                                                        _ => {
+                                                            // #1196: Non-fast-path operator; route through shared lowerer
+                                                            let _ = self.emit_var_assign_expr_to_rax(body_id, arena);
+                                                            let ret_id = self.alloc_synthetic_id();
+                                                            self.emit_inst(ret_id, Instruction {
+                                                                mnemonic: Mnemonic::Ret,
+                                                                operands: SmallVec::new(),
+                                                                encoding_hint: None,
+                                                                byte_offset_in_text: None,
+                                                                mode: self.current_mode(),
+                                                                emission_order: 0,
+                                                            });
                                                         }
                                                     }
                                                 }
@@ -736,55 +733,59 @@ impl EmitWalker {
                                                 if let Some(value) =
                                                     arena.literal_values().get(arg0_id)
                                                 {
-                                                    // PA8-m1-001d: Try to infer operator from callee span.
-                                                    let op_hint = if let Some(callee_node) =
-                                                        arena.get(callee_id)
-                                                    {
-                                                        // Span length heuristic: <</>>=2, single-char ops=1
-                                                        infer_operator_from_span_len(
-                                                            callee_node.span.byte_len(),
-                                                        )
-                                                    } else {
-                                                        None
-                                                    };
-
-                                                    if op_hint == Some("<<") {
-                                                        // PAGE_SIZE << order: constant value needs to be loaded into rax first
-                                                        if cfg!(debug_assertions) {
-                                                            eprintln!(
-                                                                "[emit_shl_const_var_lambda] Lambda {} with const {} << var",
-                                                                lambda_node_id.get(),
-                                                                value
-                                                            );
-                                                        }
-                                                        let main_id =
-                                                            IrNodeId::new(lambda_node_id.get() * 4)
-                                                                .expect("main instr virtual id");
-                                                        self.record_lambda_entry(
-                                                            lambda_node_id,
-                                                            main_id,
-                                                        );
-                                                        self.emit_shl_const_var_lambda(
-                                                            lambda_node_id,
-                                                            value,
-                                                        );
-                                                    } else {
-                                                        // Default to add
-                                                        // Validate immediate range before recording entry
-                                                        if !(-128..=127).contains(&value) {
-                                                            // Out of range; skip emission and fall through to B1704
-                                                        } else {
+                                                    // #1196: Use authoritative operator lexeme from call_sites()
+                                                    match operator_lexeme_of(arena, body_id) {
+                                                        Some("<<") => {
+                                                            // PAGE_SIZE << order: constant value needs to be loaded into rax first
+                                                            if cfg!(debug_assertions) {
+                                                                eprintln!(
+                                                                    "[emit_shl_const_var_lambda] Lambda {} with const {} << var",
+                                                                    lambda_node_id.get(),
+                                                                    value
+                                                                );
+                                                            }
                                                             let main_id =
-                                                                IrNodeId::new(lambda_node_id.get() * 2)
+                                                                IrNodeId::new(lambda_node_id.get() * 4)
                                                                     .expect("main instr virtual id");
                                                             self.record_lambda_entry(
                                                                 lambda_node_id,
                                                                 main_id,
                                                             );
-                                                            self.emit_add_imm_lambda(
+                                                            self.emit_shl_const_var_lambda(
                                                                 lambda_node_id,
                                                                 value,
                                                             );
+                                                        }
+                                                        Some("+") => {
+                                                            // Validate immediate range before recording entry
+                                                            if !(-128..=127).contains(&value) {
+                                                                // Out of range; skip emission (B1704 will fire for missing symbol)
+                                                            } else {
+                                                                let main_id =
+                                                                    IrNodeId::new(lambda_node_id.get() * 2)
+                                                                        .expect("main instr virtual id");
+                                                                self.record_lambda_entry(
+                                                                    lambda_node_id,
+                                                                    main_id,
+                                                                );
+                                                                self.emit_add_imm_lambda(
+                                                                    lambda_node_id,
+                                                                    value,
+                                                                );
+                                                            }
+                                                        }
+                                                        _ => {
+                                                            // #1196: Non-fast-path operator; route through shared lowerer
+                                                            let _ = self.emit_var_assign_expr_to_rax(body_id, arena);
+                                                            let ret_id = self.alloc_synthetic_id();
+                                                            self.emit_inst(ret_id, Instruction {
+                                                                mnemonic: Mnemonic::Ret,
+                                                                operands: SmallVec::new(),
+                                                                encoding_hint: None,
+                                                                byte_offset_in_text: None,
+                                                                mode: self.current_mode(),
+                                                                emission_order: 0,
+                                                            });
                                                         }
                                                     }
                                                 }
@@ -794,19 +795,10 @@ impl EmitWalker {
                                                 // #1181 BinOp lowerer (emit_var_assign_expr_to_rax). Handles
                                                 // (App-op, X), (X, App-op), and (Var, Var) with distinct Vars up to
                                                 // the helper's depth-2 scratch pool. Explicit T0540 fires for shapes
-                                                // the helper does not cover (`*`/`/`/`%`, nested function calls,
-                                                // depth ≥ 2 arg1). record_lambda_entry is armed via
-                                                // pending_first_instr_lambda at line 348 and captured by the first
-                                                // emit_inst; the terminal RET below guarantees the shim consumes
-                                                // even on helper failure, so no symbol collision leaks out.
-                                                //
-                                                // #1193-multiplication-support (defer): The shared lowerer does not
-                                                // yet support multiplication/division/modulo. For now, skip routing
-                                                // any BinOp expression that might contain these operators
-                                                // (buddy.pdx free_index, tcb.pdx runqueue_index). This allows
-                                                // the kernel .pdx files to compile without T0540 errors while
-                                                // deferring * support to a later phase. Fall through to B1704
-                                                // silently for now.
+                                                // the helper does not cover (nested function calls, depth ≥ 2 arg1).
+                                                // record_lambda_entry is armed via pending_first_instr_lambda at line 348
+                                                // and captured by the first emit_inst; the terminal RET below guarantees
+                                                // the shim consumes even on helper failure, so no symbol collision leaks out.
                                                 let _ = self.emit_var_assign_expr_to_rax(body_id, arena);
                                                 let ret_id = self.alloc_synthetic_id();
                                                 self.emit_inst(ret_id, Instruction {

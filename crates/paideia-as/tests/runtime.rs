@@ -13,6 +13,7 @@ mod runtime {
     pub mod driver_template;
 
     mod flat_lambda_binop_canaries;
+    mod flat_lambda_binop_mul_var_var_value;
     mod match_enum_pattern;
     mod match_nested_pattern;
     mod ms_call_saves_rcx_value;
@@ -23,4 +24,6 @@ mod runtime {
     mod let_with_bitnot_rhs_value;
     mod let_with_bitnot_shl_rhs_value;
     mod sysv_bridge_bump_value;
+    mod let_rhs_binop_mul_value;
+    mod module_var_assign_mul_value;
 }

@@ -771,10 +771,11 @@ impl EmitWalker {
                         "^" => Mnemonic::Xor,
                         "+" => Mnemonic::Add,
                         "-" => Mnemonic::Sub,
-                        "*" | "/" | "%" => {
+                        "*" => Mnemonic::Imul,
+                        "/" | "%" => {
                             self.push_typed_diag(
                                 t0540_code(),
-                                format!("operator {} not yet supported in BinOp RHS", meta.callee_name),
+                                format!("operator {} not yet supported in BinOp RHS (requires RDX:RAX + signed/unsigned selection; see #1200)", meta.callee_name),
                             );
                             return false;
                         }
@@ -943,4 +944,14 @@ pub(crate) fn is_operator_callee(s: &str) -> bool {
         "+" | "-" | "*" | "/" | "%" |
         "~" | "!"
     )
+}
+
+/// #1196: authoritative operator-lexeme lookup for an App IR node.
+/// Returns the lexeme string from call_sites() if the App has an entry and
+/// the lexeme is a known operator.
+pub(crate) fn operator_lexeme_of<'a>(
+    arena: &'a IrArena, app_id: IrNodeId,
+) -> Option<&'a str> {
+    let lexeme = arena.call_sites().get(app_id)?.callee_name.as_str();
+    is_operator_callee(lexeme).then_some(lexeme)
 }

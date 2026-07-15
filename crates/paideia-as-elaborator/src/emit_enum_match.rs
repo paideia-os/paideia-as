@@ -12,6 +12,7 @@ use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi, PassingConvention,
 use paideia_as_diagnostics::{DiagnosticCode, Category, Severity};
 
 use crate::emit_block_body::TailContext;
+use crate::emit_store_record::operator_lexeme_of;
 use crate::emit_walker::EmitWalker;
 
 /// Helper to construct T0556 diagnostic code.
@@ -1596,28 +1597,15 @@ impl EmitWalker {
             return;
         }
 
-        let callee_id = children[0];
+        // Extract argument IDs; callee (children[0]) is looked up via call_sites() #1196
         let arg0_id = children[1];
         let arg1_id = children[2];
 
-        // Infer operator from callee's span byte length
-        let callee_node = match arena.get(callee_id) {
-            Some(n) => n,
-            None => {
-                self.push_typed_diag(u1655_code(), format!(
-                    "App node {}'s callee child {} not found",
-                    app_id.get(),
-                    callee_id.get()
-                ));
-                return;
-            }
-        };
-
-        let span_len = callee_node.span.byte_len();
-        let operator = match crate::emit_visit_lambda::infer_operator_from_span_len(span_len) {
+        // #1196: Use authoritative operator lexeme from call_sites()
+        let operator = match operator_lexeme_of(arena, app_id) {
             Some(op) => op,
             None => {
-                self.push_typed_diag(t0561_code(), format!("App node {}: unsupported operator span length {}", app_id.get(), span_len));
+                self.push_typed_diag(t0561_code(), format!("App node {}: operator lexeme not found in call_sites", app_id.get()));
                 return;
             }
         };

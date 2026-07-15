@@ -1,0 +1,12 @@
+//! #1196: flat-lambda BinOp canary: (Var, Literal) bitwise XOR
+//! Pattern: fn (v) -> v ^ 6
+//! Before #1196: silently miscompiled as v + 6
+//! After #1196: correctly emits XOR instruction via shared lowerer
+
+module FlatLambdaBinopXorVarLit = structure {
+  let compute : (u64) -> u64 =
+    fn (v: u64) -> v ^ 6
+
+  pub let entry : () -> u64 =
+    fn () -> compute(3)
+}

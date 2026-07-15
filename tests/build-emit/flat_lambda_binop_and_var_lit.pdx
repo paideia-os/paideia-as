@@ -1,0 +1,12 @@
+//! #1196: flat-lambda BinOp canary: (Var, Literal) bitwise AND
+//! Pattern: fn (v) -> v & 3
+//! Before #1196: silently miscompiled as v + 3
+//! After #1196: correctly emits AND instruction via shared lowerer
+
+module FlatLambdaBinopAndVarLit = structure {
+  let compute : (u64) -> u64 =
+    fn (v: u64) -> v & 3
+
+  pub let entry : () -> u64 =
+    fn () -> compute(7)
+}

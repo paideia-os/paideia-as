@@ -449,6 +449,13 @@ fn emit_walker_lambda_double_emits_lea_rdi_rdi_ret() {
     let arg1_id = arena.alloc(IrKind::Var, span());
     let app_id = arena.alloc_with_children(IrKind::App, span(), [callee_id, arg0_id, arg1_id]);
 
+    // Populate call_sites so operator_lexeme_of can find the "+" operator.
+    arena.call_sites_mut().insert(app_id, CallMeta {
+        callee_name: "+".to_string(),
+        arg_count: 2,
+        is_intrinsic: true,
+    });
+
     // Allocate Lambda with App as body.
     // Note: Lambda IDs are small in unit tests. For the (Var, Var) case to emit, we need lambda_id > 50.
     // We'll manually craft the test to have lambda_id in the right range, or we'll use a large ID.
@@ -523,6 +530,13 @@ fn emit_walker_lambda_add_one_emits_lea_rdi_1_ret() {
 
     // Register the literal value 1.
     arena.literal_values_mut().insert(lit_id, 1);
+
+    // Populate call_sites so operator_lexeme_of can find the "+" operator.
+    arena.call_sites_mut().insert(app_id, CallMeta {
+        callee_name: "+".to_string(),
+        arg_count: 2,
+        is_intrinsic: true,
+    });
 
     // Allocate Lambda with App as body.
     let lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [app_id]);

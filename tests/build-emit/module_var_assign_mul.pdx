@@ -1,0 +1,13 @@
+// #1196 + #1197 canary: multiplication in module-level let-mut assignment
+// Pattern: counter = 7u64 * 6u64; return counter
+// Expected: 42
+
+module ModuleVarAssignMul = structure {
+  let mut counter : u64 = 0u64
+
+  pub let entry : () -> u64 =
+    fn () -> {
+      counter = 7u64 * 6u64;
+      counter
+    }
+}
