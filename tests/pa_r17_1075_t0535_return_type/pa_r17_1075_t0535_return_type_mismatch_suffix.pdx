@@ -1,0 +1,9 @@
+// PA-r17-1075 (#1075): T0535 test - lambda return type mismatch (suffixed int)
+//
+// Fixture: Lambda returns u32 literal, but fn-ptr signature expects u64.
+// Expected: Compilation fails with T0535 diagnostic for return type mismatch.
+
+module PaR17T0535ReturnTypeMismatchSuffix = structure {
+  let returns_u32 : (u64) -> u32 !{} @{} = fn(x : u64) -> 42u32
+  pub let want_u64 : (u64) -> u64 !{} @{} = &returns_u32
+}

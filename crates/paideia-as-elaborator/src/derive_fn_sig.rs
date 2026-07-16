@@ -49,7 +49,7 @@ pub fn derive_fn_sig_from_lambda(
     // Match on ExprData::Lambda
     let ExprData::Lambda {
         params,
-        body: _,
+        body,
         pipe_form: _,
         generic_params: _,
     } = expr_data
@@ -90,9 +90,11 @@ pub fn derive_fn_sig_from_lambda(
         }
     }
 
-    // Phase-1: Return type is Top (placeholder).
-    // Phase-2+: compute from body type or extract from explicit annotation.
-    let ret_ty = types.top();
+    // Phase-1 → Phase-2: Derive return type from lambda body literals.
+    // Cases: bool literal, suffixed integer, bare param reference.
+    // Fallback to Top for complex bodies.
+    let ret_ty = derive_lambda_ret_type(ast, source_map, *body, params, types)
+        .unwrap_or_else(|| types.top());
 
     // Phase-1: Effect row is empty.
     // Phase-2+: extract from lambda action block annotations or compute from body.
@@ -111,6 +113,90 @@ pub fn derive_fn_sig_from_lambda(
     };
 
     Some(types.intern(fn_type))
+}
+
+/// Extract source text corresponding to an AST node.
+///
+/// Returns the source code substring for the given node's span, or None if
+/// the span is out of bounds.
+fn extract_source_text(
+    ast: &AstArena,
+    source_map: &SourceMap,
+    node_id: NodeId,
+) -> Option<String> {
+    let node = ast.get(node_id)?;
+    let span = node.span;
+    let file_id = span.file();
+    let source = source_map.content(file_id);
+
+    let start = span.byte_start() as usize;
+    let len = span.byte_len() as usize;
+    if start + len > source.len() {
+        return None;
+    }
+
+    let text = &source[start..start + len];
+    Some(text.to_string())
+}
+
+/// Derive lambda return type from body-literal inspection.
+///
+/// Attempts to infer the return type by examining common body patterns:
+/// - Bool literal ("true" or "false") → bool
+/// - Suffixed integer (e.g., "42u32", "7i64") → uint(width) or sint(width)
+/// - Bare parameter reference → None (not yet supported; requires param type lookup)
+/// - Other expressions → None (fallback to Top)
+///
+/// Returns Some(TypeId) if inference succeeds, None to signal fallback to Top.
+fn derive_lambda_ret_type(
+    ast: &AstArena,
+    source_map: &SourceMap,
+    body: NodeId,
+    _params: &[NodeId],
+    types: &mut TypeInterner,
+) -> Option<TypeId> {
+    let node = ast.get(body)?;
+
+    match node.kind {
+        // Case 1 & 2: Literal expressions (bool or suffixed integer)
+        paideia_as_ast::NodeKind::ExprLiteral => {
+            let text = extract_source_text(ast, source_map, body)?;
+
+            // Case 1: bool literal
+            if text == "true" || text == "false" {
+                return Some(types.bool_ty());
+            }
+
+            // Case 2: suffixed integer
+            // Try each suffix from longest to shortest
+            for (suffix, is_signed, width) in &[
+                ("u64", false, 64u16), ("u32", false, 32u16),
+                ("u16", false, 16u16), ("u8", false, 8u16),
+                ("i64", true, 64u16), ("i32", true, 32u16),
+                ("i16", true, 16u16), ("i8", true, 8u16),
+            ] {
+                if text.ends_with(suffix) {
+                    return Some(if *is_signed {
+                        types.sint(*width)
+                    } else {
+                        types.uint(*width)
+                    });
+                }
+            }
+
+            None
+        }
+
+        // Case 3: Bare parameter reference (not yet supported)
+        paideia_as_ast::NodeKind::ExprPath => {
+            // Would require looking up param type via pattern_type_hints
+            // and lowering it; more invasive. For MVP, skip.
+            None
+        }
+
+        // Other expression kinds: conservatively return None
+        _ => None,
+    }
 }
 
 #[cfg(test)]

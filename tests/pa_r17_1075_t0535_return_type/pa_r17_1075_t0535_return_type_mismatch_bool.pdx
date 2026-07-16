@@ -1,0 +1,9 @@
+// PA-r17-1075 (#1075): T0535 test - lambda return type mismatch (bool)
+//
+// Fixture: Lambda returns bool literal, but fn-ptr signature expects u64.
+// Expected: Compilation fails with T0535 diagnostic for return type mismatch.
+
+module PaR17T0535ReturnTypeMismatchBool = structure {
+  let returns_bool : (u64) -> bool !{} @{} = fn(x : u64) -> true
+  pub let want_u64 : (u64) -> u64 !{} @{} = &returns_bool
+}

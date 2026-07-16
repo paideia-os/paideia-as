@@ -1,0 +1,9 @@
+// PA-r17-1075 (#1075): T0535 test - lambda return type compatible
+//
+// Fixture: Lambda returns u64 literal, fn-ptr signature expects u64.
+// Expected: Compilation succeeds without T0535 diagnostic.
+
+module PaR17T0535ReturnTypeCompatible = structure {
+  let returns_u64_literal : (u64) -> u64 !{} @{} = fn(x : u64) -> 42u64
+  pub let want_u64 : (u64) -> u64 !{} @{} = &returns_u64_literal
+}
