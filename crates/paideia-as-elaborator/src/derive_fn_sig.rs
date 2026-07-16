@@ -12,6 +12,7 @@ use paideia_as_types::CapSetInterner;
 
 use crate::lower_type::lower_type_ast;
 use crate::struct_registry::StructRegistry;
+use crate::EnumRegistry;
 
 /// Derive a Type::Fn signature from a Lambda expression in the AST.
 ///
@@ -30,6 +31,7 @@ use crate::struct_registry::StructRegistry;
 /// - `effects`: The effect-row interner (mutable)
 /// - `caps`: The capability-set interner (mutable)
 /// - `registry`: The struct registry for named type lookup
+/// - `enum_registry`: The enum registry for enum type lookup
 ///
 /// Returns the interned TypeId of Type::Fn, or None if the lambda cannot be processed.
 pub fn derive_fn_sig_from_lambda(
@@ -40,6 +42,7 @@ pub fn derive_fn_sig_from_lambda(
     effects: &mut EffectInterner,
     caps: &mut CapSetInterner,
     registry: &StructRegistry,
+    enum_registry: &EnumRegistry,
 ) -> Option<TypeId> {
     let expr_data = ast.expr_data(lambda_ast_id)?;
 
@@ -71,6 +74,7 @@ pub fn derive_fn_sig_from_lambda(
                 effects,
                 caps,
                 registry,
+                enum_registry,
             ) {
                 Ok(param_ty) => param_types.push(param_ty),
                 Err(_diags) => {

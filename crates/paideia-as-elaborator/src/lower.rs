@@ -372,6 +372,7 @@ fn populate_let_meta(
                                                     ring: None,
                                                     link_section: None,
                                                     abi: None,
+                                                    enum_type_id: None,
                                                 });
                                             let_info.abi = Some(ir_abi_val);
                                             ir.let_meta_mut().insert(*let_ir_id, let_info);

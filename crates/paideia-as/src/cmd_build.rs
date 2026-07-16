@@ -216,6 +216,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
     let mut caps = CapSetInterner::new();
 
     // Issue #1219: Populate LetInfo::ty from explicit type annotations on Let bindings
+    // Issue #1222: Also populate LetInfo::enum_type_id for enum-typed bindings
     paideia_as_elaborator::populate_let_meta_ty(
         &arena,
         &mut lowering.ir,
@@ -225,6 +226,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
         &mut effects,
         &mut caps,
         &registry,
+        &enum_registry,
     );
 
     // PA-r17-007 (#1050): Populate enum layouts from the enum registry.
@@ -1309,6 +1311,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                             &mut effects,
                             &mut caps,
                             &registry,
+                            &enum_registry,
                         ) {
                             // Look up the lambda via symbol table
                             if let Some(symbol) = lowering.ir.symbols().lookup_by_name(&var_name) {
@@ -1324,6 +1327,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                                     &mut effects,
                                     &mut caps,
                                     &registry,
+                                    &enum_registry,
                                 ) {
                                     // T0535 check only applies to fn-ptr LHS types.
                                     if matches!(types.get(lhs_tid), paideia_as_types::Type::Fn { .. }) {
@@ -1373,6 +1377,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                                     &mut effects,
                                     &mut caps,
                                     &registry,
+                                    &enum_registry,
                                 ) {
                                     // Check if the field type is a function-pointer
                                     if matches!(types.get(field_ty_tid), paideia_as_types::Type::Fn { .. }) {
@@ -1390,6 +1395,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                                                 &mut effects,
                                                 &mut caps,
                                                 &registry,
+                                                &enum_registry,
                                             ) {
                                                 // Check fn-ptr assignment compatibility
                                                 let mut subst = Subst::new();

@@ -12,12 +12,13 @@ use paideia_as_ir::EffectRowId;
 use paideia_as_types::CapSetInterner;
 
 use crate::struct_registry::StructRegistry;
+use crate::EnumRegistry;
 
 /// Lower an AST type node to an interned Type::Fn or other monomorphic type.
 ///
 /// Recursively processes TypeData variants, handling:
 /// - Primitive names (u8, u16, u32, u64, i8, i16, i32, i64, f32, f64, bool, char, unit)
-/// - Named types (struct registry lookup)
+/// - Named types (struct registry lookup, enum registry lookup)
 /// - Function pointers (FnPtr with params, ret, effects, caps)
 /// - Tuples, pointers, references
 ///
@@ -29,6 +30,7 @@ use crate::struct_registry::StructRegistry;
 /// - `effects`: The effect-row interner (mutable for interning)
 /// - `caps`: The capability-set interner (mutable for interning)
 /// - `registry`: The struct registry for named type lookup
+/// - `enum_registry`: The enum registry for enum type lookup
 ///
 /// Returns the interned TypeId, or diagnostics on error.
 pub fn lower_type_ast(
@@ -39,6 +41,7 @@ pub fn lower_type_ast(
     effects: &mut EffectInterner,
     caps: &mut CapSetInterner,
     registry: &StructRegistry,
+    enum_registry: &EnumRegistry,
 ) -> Result<TypeId, Vec<Diagnostic>> {
     let type_data = ast.type_data(node).ok_or_else(|| {
         let span = ast.get(node).map(|nd| nd.span).unwrap_or_else(|| {
@@ -80,6 +83,9 @@ pub fn lower_type_ast(
                     if registry.get_by_name(&name_text).is_some() {
                         // Struct found; phase-1 returns Top
                         Ok(types.top())
+                    } else if enum_registry.get_by_name(&name_text).is_some() {
+                        // Enum found; phase-1 returns Top
+                        Ok(types.top())
                     } else {
                         let span = ast.get(node).map(|nd| nd.span).unwrap_or_else(|| {
                             paideia_as_diagnostics::Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 0, 0)
@@ -104,14 +110,14 @@ pub fn lower_type_ast(
             let mut param_types = Vec::new();
             for param_node in params {
                 let param_ty = lower_type_ast(
-                    ast, source_map, *param_node, types, effects, caps, registry,
+                    ast, source_map, *param_node, types, effects, caps, registry, enum_registry,
                 )?;
                 param_types.push(param_ty);
             }
 
             // Lower return type
             let ret_ty = lower_type_ast(
-                ast, source_map, *ret, types, effects, caps, registry,
+                ast, source_map, *ret, types, effects, caps, registry, enum_registry,
             )?;
 
             // Lower effect row (if present)
@@ -142,7 +148,7 @@ pub fn lower_type_ast(
             let mut elem_types = Vec::new();
             for elem_node in elements {
                 let elem_ty = lower_type_ast(
-                    ast, source_map, *elem_node, types, effects, caps, registry,
+                    ast, source_map, *elem_node, types, effects, caps, registry, enum_registry,
                 )?;
                 elem_types.push(elem_ty);
             }
@@ -152,7 +158,7 @@ pub fn lower_type_ast(
 
         TypeData::Ptr { pointee } => {
             let pointee_ty = lower_type_ast(
-                ast, source_map, *pointee, types, effects, caps, registry,
+                ast, source_map, *pointee, types, effects, caps, registry, enum_registry,
             )?;
             let ptr_type = paideia_as_types::Type::Ptr {
                 pointee: pointee_ty,
@@ -163,7 +169,7 @@ pub fn lower_type_ast(
 
         TypeData::Ref { pointee, mutable } => {
             let pointee_ty = lower_type_ast(
-                ast, source_map, *pointee, types, effects, caps, registry,
+                ast, source_map, *pointee, types, effects, caps, registry, enum_registry,
             )?;
             let ref_type = paideia_as_types::Type::Ref {
                 pointee: pointee_ty,
@@ -247,7 +253,7 @@ fn lower_cap_set(
 
 /// Extract identifier text from an Ident node.
 /// Reads the source text using source_map.
-fn get_ident_text(
+pub fn get_ident_text(
     ast: &AstArena,
     node: NodeId,
     source_map: &paideia_as_diagnostics::SourceMap,
@@ -325,5 +331,11 @@ mod tests {
     #[test]
     fn primitives_lower_correctly() {
         // Placeholder: detailed tests in integration test suite
+    }
+
+    #[test]
+    fn type_data_name_hits_enum_registry_returns_top() {
+        // Placeholder: enum registry lookup tested in elaborator integration tests
+        // (paideia-as-elaborator/tests/lowering/let_meta_ty_populator.rs)
     }
 }

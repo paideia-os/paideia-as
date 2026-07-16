@@ -9,6 +9,7 @@
 
 use std::collections::HashMap;
 
+use crate::enum_layout::EnumTypeId;
 use crate::monomorphisation::TypeId;
 use crate::node::IrNodeId;
 
@@ -67,6 +68,9 @@ pub struct LetInfo {
     /// When `Some(cc)`, specifies the calling convention for function-shaped bindings.
     /// `None` means paideia default (unannotated), not explicitly `Sysv`.
     pub abi: Option<CallingConvention>,
+    /// Optional enum type ID if the binding is annotated with an enum type (#1222).
+    /// When `Some(eid)`, the binding's declared type is an enum variant of that type.
+    pub enum_type_id: Option<EnumTypeId>,
 }
 
 impl LetInfo {
@@ -80,6 +84,7 @@ impl LetInfo {
             ring: None,
             link_section: None,
             abi: None,
+            enum_type_id: None,
         }
     }
 
@@ -93,6 +98,7 @@ impl LetInfo {
             ring: None,
             link_section: None,
             abi: None,
+            enum_type_id: None,
         }
     }
 
@@ -102,7 +108,7 @@ impl LetInfo {
     /// is known, enabling width-threaded integer-literal emission.
     #[must_use]
     pub fn with_type(mutable: bool, ty: Option<TypeId>) -> Self {
-        Self { mutable, ty, align: None, ring: None, link_section: None, abi: None }
+        Self { mutable, ty, align: None, ring: None, link_section: None, abi: None, enum_type_id: None }
     }
 
     /// Construct a LetInfo with explicit mutability, type, and alignment.
@@ -111,7 +117,7 @@ impl LetInfo {
     /// and optional alignment directive are known.
     #[must_use]
     pub fn with_align(mutable: bool, ty: Option<TypeId>, align: Option<u32>) -> Self {
-        Self { mutable, ty, align, ring: None, link_section: None, abi: None }
+        Self { mutable, ty, align, ring: None, link_section: None, abi: None, enum_type_id: None }
     }
 
     /// Construct a LetInfo with explicit mutability, type, alignment, and ring.
@@ -120,7 +126,7 @@ impl LetInfo {
     /// optional alignment directive, and optional ring buffer directive are known.
     #[must_use]
     pub fn with_ring(mutable: bool, ty: Option<TypeId>, align: Option<u32>, ring: Option<(u32, u32)>) -> Self {
-        Self { mutable, ty, align, ring, link_section: None, abi: None }
+        Self { mutable, ty, align, ring, link_section: None, abi: None, enum_type_id: None }
     }
 
     /// Construct a LetInfo with explicit mutability, type, alignment, ring, and link_section.
@@ -130,7 +136,7 @@ impl LetInfo {
     /// directive are known.
     #[must_use]
     pub fn with_link_section(mutable: bool, ty: Option<TypeId>, align: Option<u32>, ring: Option<(u32, u32)>, link_section: Option<String>) -> Self {
-        Self { mutable, ty, align, ring, link_section, abi: None }
+        Self { mutable, ty, align, ring, link_section, abi: None, enum_type_id: None }
     }
 
     /// Construct a LetInfo with explicit mutability, type, alignment, ring, link_section, and abi.
@@ -140,7 +146,7 @@ impl LetInfo {
     /// directive, and optional calling convention directive are known.
     #[must_use]
     pub fn with_abi(mutable: bool, ty: Option<TypeId>, align: Option<u32>, ring: Option<(u32, u32)>, link_section: Option<String>, abi: Option<CallingConvention>) -> Self {
-        Self { mutable, ty, align, ring, link_section, abi }
+        Self { mutable, ty, align, ring, link_section, abi, enum_type_id: None }
     }
 }
 
@@ -245,6 +251,7 @@ mod tests {
         assert_eq!(info.align, None);
         assert_eq!(info.ring, None);
         assert_eq!(info.link_section, None);
+        assert_eq!(info.enum_type_id, None);
 
         let untyped = LetInfo::with_type(false, None);
         assert!(!untyped.mutable);
@@ -252,6 +259,7 @@ mod tests {
         assert_eq!(untyped.align, None);
         assert_eq!(untyped.ring, None);
         assert_eq!(untyped.link_section, None);
+        assert_eq!(untyped.enum_type_id, None);
     }
 
     #[test]
@@ -263,6 +271,7 @@ mod tests {
         assert_eq!(info.align, Some(4096));
         assert_eq!(info.ring, None);
         assert_eq!(info.link_section, None);
+        assert_eq!(info.enum_type_id, None);
 
         let unaligned = LetInfo::with_align(false, None, None);
         assert!(!unaligned.mutable);
@@ -270,6 +279,7 @@ mod tests {
         assert_eq!(unaligned.align, None);
         assert_eq!(unaligned.ring, None);
         assert_eq!(unaligned.link_section, None);
+        assert_eq!(unaligned.enum_type_id, None);
     }
 
     #[test]
@@ -282,6 +292,7 @@ mod tests {
         assert_eq!(info.align, Some(64));
         assert_eq!(info.ring, Some(ring_info));
         assert_eq!(info.link_section, None);
+        assert_eq!(info.enum_type_id, None);
 
         let no_ring = LetInfo::with_ring(false, None, None, None);
         assert!(!no_ring.mutable);
@@ -289,6 +300,7 @@ mod tests {
         assert_eq!(no_ring.align, None);
         assert_eq!(no_ring.ring, None);
         assert_eq!(no_ring.link_section, None);
+        assert_eq!(no_ring.enum_type_id, None);
     }
 
     #[test]
@@ -303,6 +315,7 @@ mod tests {
         assert_eq!(info.ring, Some(ring_info));
         assert_eq!(info.link_section, link_sec);
         assert_eq!(info.abi, None);
+        assert_eq!(info.enum_type_id, None);
 
         let no_link_section = LetInfo::with_link_section(false, None, None, None, None);
         assert!(!no_link_section.mutable);
@@ -311,6 +324,7 @@ mod tests {
         assert_eq!(no_link_section.ring, None);
         assert_eq!(no_link_section.link_section, None);
         assert_eq!(no_link_section.abi, None);
+        assert_eq!(no_link_section.enum_type_id, None);
     }
 
     #[test]
@@ -326,6 +340,7 @@ mod tests {
         assert_eq!(info.ring, Some(ring_info));
         assert_eq!(info.link_section, link_sec);
         assert_eq!(info.abi, abi_cc);
+        assert_eq!(info.enum_type_id, None);
 
         let no_abi = LetInfo::with_abi(false, None, None, None, None, None);
         assert!(!no_abi.mutable);
@@ -334,10 +349,12 @@ mod tests {
         assert_eq!(no_abi.ring, None);
         assert_eq!(no_abi.link_section, None);
         assert_eq!(no_abi.abi, None);
+        assert_eq!(no_abi.enum_type_id, None);
 
         let sysv_abi = Some(CallingConvention::Sysv);
         let sysv_info = LetInfo::with_abi(true, Some(ty), None, None, None, sysv_abi.clone());
         assert_eq!(sysv_info.abi, sysv_abi);
+        assert_eq!(sysv_info.enum_type_id, None);
     }
 
     #[test]

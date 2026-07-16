@@ -20,7 +20,7 @@ use paideia_as_effects::EffectInterner;
 use paideia_as_types::CapSetInterner;
 use std::collections::HashMap;
 
-/// Populate `LetInfo::ty` from explicit type annotations on Let bindings.
+/// Populate `LetInfo::ty` and `LetInfo::enum_type_id` from explicit type annotations on Let bindings.
 ///
 /// Walks all AST nodes (1..=ast.len()) and, for each `NodeKind::Let` (item-level)
 /// or `NodeKind::StmtLet` (statement-level) with an explicit type annotation:
@@ -28,6 +28,7 @@ use std::collections::HashMap;
 /// 2. Calls `lower_type_ast` on the annotation subtree.
 /// 3. On success: uses read-modify-write to preserve existing fields and write `ty`.
 /// 4. On error: silently drops the diagnostic (swallow Err).
+/// 5. After success, re-inspects AST for enum names and populates `enum_type_id` if found.
 ///
 /// # Arguments
 ///
@@ -39,6 +40,7 @@ use std::collections::HashMap;
 /// * `effects` - Effect interner (mutable for interning)
 /// * `caps` - Capability set interner (mutable for interning)
 /// * `registry` - Struct registry for type lookup
+/// * `enum_registry` - Enum registry for enum type lookup
 pub fn populate_let_meta_ty(
     ast: &AstArena,
     ir: &mut IrArena,
@@ -48,6 +50,7 @@ pub fn populate_let_meta_ty(
     effects: &mut EffectInterner,
     caps: &mut CapSetInterner,
     registry: &crate::StructRegistry,
+    enum_registry: &crate::EnumRegistry,
 ) {
     // Walk all AST nodes
     for i in 1..=ast.len() {
@@ -87,6 +90,7 @@ pub fn populate_let_meta_ty(
             effects,
             caps,
             registry,
+            enum_registry,
         ) {
             Ok(types_tid) => {
                 // Success: read-modify-write to preserve existing LetInfo fields
@@ -96,6 +100,16 @@ pub fn populate_let_meta_ty(
                     .cloned()
                     .unwrap_or_else(LetInfo::immutable);
                 info.ty = Some(TypeId(types_tid.get()));
+
+                // Re-inspect the annotation to see if it was an enum name
+                if let Some(paideia_as_ast::TypeData::Name { name, .. }) = ast.type_data(ty_node) {
+                    if let Ok(name_text) = super::super::lower_type::get_ident_text(ast, *name, source_map) {
+                        if let Some(eid) = enum_registry.get_by_name(&name_text) {
+                            info.enum_type_id = Some(eid);
+                        }
+                    }
+                }
+
                 ir.let_meta_mut().insert(*let_ir_id, info);
             }
             Err(_) => {
