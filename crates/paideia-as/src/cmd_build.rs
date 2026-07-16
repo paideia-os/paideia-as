@@ -1418,6 +1418,10 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
             if let Some(node_id) = IrNodeId::new(i) {
                 if let Some(node) = lowering.ir.get(node_id) {
                     if node.kind == paideia_as_ir::IrKind::Let {
+                        // Issue #1212: Skip statement-scope Lets (function-local bindings).
+                        if lowering.ir.is_stmt_let(node_id) {
+                            continue;
+                        }
                         let children = lowering.ir.children(node_id);
 
                         // PA10-006s: Look for ArrayLit anywhere in children, not just first.

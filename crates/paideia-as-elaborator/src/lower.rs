@@ -177,6 +177,12 @@ pub fn lower_ast_to_ir(
         let ir_kind = refine_ir_kind(node, ast, ast_id, source_map);
         let ir_id = ir.alloc(ir_kind, node.span);
         ast_to_ir.insert(ast_id, ir_id);
+
+        // Issue #1212: Track statement-scope Let nodes for gating data-section emission.
+        // Only `NodeKind::StmtLet` (function-local) are added; `NodeKind::Let` (module-scope) are not.
+        if node.kind == NodeKind::StmtLet {
+            ir.stmt_lets_mut().insert(ir_id);
+        }
     }
 
     // Second pass: transfer structure (children) from AST to IR.

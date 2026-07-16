@@ -459,6 +459,12 @@ impl EmitWalker {
                     let node_kind = node.kind;
                     match node_kind {
                         IrKind::Let => {
+                            // Issue #1212: Skip statement-scope Lets (function-local bindings).
+                            // These are handled by emit_block_body's Let arm via insert_pair.
+                            if arena.is_stmt_let(node_id) {
+                                continue;
+                            }
+
                             // Get the single child (the RHS expression).
                             let children = arena.children(node_id);
                             let rhs_id = if let Some(&rhs) = children.first() {

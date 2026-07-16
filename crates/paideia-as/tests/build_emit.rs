@@ -28,6 +28,7 @@ mod build_emit {
     pub mod enum_primitive_payload_u32;
     pub mod enum_record_payload;
     pub mod func_scope_enum_let_orphan;
+    pub mod func_scope_enum_let_no_weak_symbol;
     pub mod field_access_call;
     pub mod field_read;
     pub mod field_read_multi_field;

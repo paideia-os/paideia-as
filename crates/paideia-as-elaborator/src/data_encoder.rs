@@ -202,6 +202,10 @@ pub fn populate_data_table(arena: &IrArena, data_table: &mut DataSideTable) {
         if node.kind != IrKind::Let {
             continue;
         }
+        // Issue #1212: Skip statement-scope Lets (function-local bindings).
+        if arena.is_stmt_let(node_id) {
+            continue;
+        }
         let Some(&rhs_id) = arena.children(node_id).first() else { continue };
         let Some(rhs_node) = arena.get(rhs_id) else { continue };
 

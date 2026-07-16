@@ -110,6 +110,10 @@ pub struct IrArena {
     /// Side-table: set of Let node IDs marked as public (`pub let`).
     /// PA904: tracks which let bindings have explicit `pub` visibility for global export.
     public_lets: HashSet<IrNodeId>,
+    /// Side-table: set of Let node IDs that are statement-scope (function-local bindings).
+    /// Issue #1212: tracks which let bindings are `NodeKind::StmtLet` (statement-scope)
+    /// vs. `NodeKind::Let` (module-scope), used to gate data-section emission.
+    stmt_lets: HashSet<IrNodeId>,
     /// Side-table: call site metadata indexed by App node ID.
     /// PA-r17-004: populated by pre-emit pass; consumed by emit_walker for indirect/direct dispatch.
     call_sites: CallSideTable,
@@ -153,6 +157,7 @@ impl IrArena {
             match_jump_table_arm_values_table: MatchJumpTableArmValuesSideTable::new(),
             addr_of_table: AddrOfSideTable::new(),
             public_lets: HashSet::new(),
+            stmt_lets: HashSet::new(),
             call_sites: CallSideTable::new(),
         }
     }
@@ -532,6 +537,23 @@ impl IrArena {
     #[must_use]
     pub fn is_public_let(&self, id: IrNodeId) -> bool {
         self.public_lets.contains(&id)
+    }
+
+    /// Get the set of Let node IDs that are statement-scope (function-local).
+    #[must_use]
+    pub fn stmt_lets(&self) -> &HashSet<IrNodeId> {
+        &self.stmt_lets
+    }
+
+    /// Borrow the stmt_lets set (mutable).
+    pub fn stmt_lets_mut(&mut self) -> &mut HashSet<IrNodeId> {
+        &mut self.stmt_lets
+    }
+
+    /// Check if a Let node ID is statement-scope (function-local).
+    #[must_use]
+    pub fn is_stmt_let(&self, id: IrNodeId) -> bool {
+        self.stmt_lets.contains(&id)
     }
 
     /// Borrow the call sites side-table (read-only).
