@@ -566,6 +566,28 @@ impl EmitWalker {
         arena: &IrArena,
         default_size_signed: (u8, bool),
     ) {
+        // #1216: pool snapshot at outer entry; all sibling binders share one pool.
+        let base_pool = [abi::RCX, abi::RDX, abi::R8, abi::R10, abi::R11];
+        let live = self.state.local_bindings.live_regs();
+        let pool: SmallVec<[RegId; 5]> =
+            base_pool.iter().copied().filter(|r| !live.contains(r)).collect();
+        self.lower_pattern_inner(pattern, base_reg, base_offset, arm_id, slot, arena, default_size_signed, &pool);
+    }
+
+    /// Private inner method for lower_pattern that threads the register pool through recursion.
+    /// Pool is snapshot once at outer entry and shared across all sibling binders.
+    #[allow(clippy::too_many_arguments)]
+    fn lower_pattern_inner(
+        &mut self,
+        pattern: &paideia_as_ir::PatternBinding,
+        base_reg: RegId,
+        base_offset: i32,
+        arm_id: IrNodeId,
+        slot: &mut u32,
+        arena: &IrArena,
+        default_size_signed: (u8, bool),
+        pool: &[RegId],
+    ) {
         use paideia_as_ir::PatternBinding;
 
         match pattern {
@@ -574,24 +596,15 @@ impl EmitWalker {
             }
 
             PatternBinding::Simple(name) => {
-                // Allocate next scratch register from pool. Use the per-pattern
-                // `slot` counter (which counts leaf bindings within THIS pattern
-                // lowering), NOT `local_bindings.len()` — the latter is the
-                // whole-function cumulative binding count and would collide with
-                // outer-scope registers or spuriously trigger exhaustion after
-                // 5+ prior `let` bindings in the same function.
-                let scratch_regs = [abi::RCX, abi::RDX, abi::R8, abi::R10, abi::R11];
-
-                if (*slot as usize) >= scratch_regs.len() {
+                let idx = *slot as usize;
+                if idx >= pool.len() {
+                    // U1654 — pool exhausted after outer live-reg filter
                     self.push_typed_diag(u1654_code(), format!(
-                        "Nested pattern binding exhaustion: >5 leaves in arm {}",
-                        arm_id.get()
-                    ));
+                        "Nested pattern binding exhaustion: pool={} slot={} in arm {}",
+                        pool.len(), *slot, arm_id.get()));
                     return;
                 }
-
-                let reg_index = (*slot as usize) % scratch_regs.len();
-                let dest_reg = scratch_regs[reg_index];
+                let dest_reg = pool[idx];
                 let load_id = IrNodeId::new(arm_id.get() * 1000 + *slot + 1).unwrap_or(arm_id);
                 *slot += 1;
 
@@ -634,7 +647,7 @@ impl EmitWalker {
                 };
 
                 // Recurse with payload pattern
-                self.lower_pattern(inner, base_reg, sub_offset, arm_id, slot, arena, (sub_size, sub_signed));
+                self.lower_pattern_inner(inner, base_reg, sub_offset, arm_id, slot, arena, (sub_size, sub_signed), pool);
             }
 
             PatternBinding::EnumVariant {
@@ -677,7 +690,7 @@ impl EmitWalker {
                     let sub_offset = base_offset + field_layout.offset as i32;
                     let sub_size_signed = (field_layout.size, field_layout.signed);
 
-                    self.lower_pattern(
+                    self.lower_pattern_inner(
                         sub_pattern,
                         base_reg,
                         sub_offset,
@@ -685,6 +698,7 @@ impl EmitWalker {
                         slot,
                         arena,
                         sub_size_signed,
+                        pool,
                     );
                 }
             }
@@ -709,7 +723,7 @@ impl EmitWalker {
     ///
     /// Scratch pool: [RCX, R8, R10, R11] (4 regs, excludes RDX which is source).
     /// Exhaustion → diagnostic (same as `lower_pattern`).
-    fn lower_pattern_from_reg(
+    pub(crate) fn lower_pattern_from_reg(
         &mut self,
         pattern: &paideia_as_ir::PatternBinding,
         source_reg: RegId,
@@ -719,6 +733,27 @@ impl EmitWalker {
         arena: &IrArena,
         default_size_signed: (u8, bool),
     ) {
+        // #1216: pool snapshot at outer entry; all sibling binders share one pool.
+        let base_pool = [abi::RCX, abi::R8, abi::R10, abi::R11];
+        let live = self.state.local_bindings.live_regs();
+        let pool: SmallVec<[RegId; 4]> =
+            base_pool.iter().copied().filter(|r| !live.contains(r)).collect();
+        self.lower_pattern_from_reg_inner(pattern, source_reg, bit_offset, arm_id, slot, arena, default_size_signed, &pool);
+    }
+
+    /// Private inner method for lower_pattern_from_reg that threads the register pool through recursion.
+    /// Pool is snapshot once at outer entry and shared across all sibling binders.
+    fn lower_pattern_from_reg_inner(
+        &mut self,
+        pattern: &paideia_as_ir::PatternBinding,
+        source_reg: RegId,
+        bit_offset: u32,  // Bit offset into source_reg (0, 32, etc.)
+        arm_id: IrNodeId,
+        slot: &mut u32,
+        arena: &IrArena,
+        default_size_signed: (u8, bool),
+        pool: &[RegId],
+    ) {
         use paideia_as_ir::PatternBinding;
 
         match pattern {
@@ -727,19 +762,15 @@ impl EmitWalker {
             }
 
             PatternBinding::Simple(name) => {
-                // Allocate scratch register from pool [RCX, R8, R10, R11] (excludes RDX).
-                let scratch_regs = [abi::RCX, abi::R8, abi::R10, abi::R11];
-
-                if (*slot as usize) >= scratch_regs.len() {
+                let idx = *slot as usize;
+                if idx >= pool.len() {
+                    // U1654 — pool exhausted after outer live-reg filter
                     self.push_typed_diag(u1654_code(), format!(
-                        "Nested pattern binding exhaustion: >4 leaves in arm {} (from register)",
-                        arm_id.get()
-                    ));
+                        "Nested pattern binding exhaustion: pool={} slot={} in arm {} (from register)",
+                        pool.len(), *slot, arm_id.get()));
                     return;
                 }
-
-                let reg_index = (*slot as usize) % scratch_regs.len();
-                let dest_reg = scratch_regs[reg_index];
+                let dest_reg = pool[idx];
                 *slot += 1;
 
                 let (size, signed) = default_size_signed;
@@ -910,7 +941,7 @@ impl EmitWalker {
                 };
 
                 // Recurse with payload pattern
-                self.lower_pattern_from_reg(
+                self.lower_pattern_from_reg_inner(
                     inner,
                     source_reg,
                     sub_bit_offset,
@@ -918,6 +949,7 @@ impl EmitWalker {
                     slot,
                     arena,
                     (sub_size, sub_signed),
+                    pool,
                 );
             }
 
@@ -962,7 +994,7 @@ impl EmitWalker {
                     let sub_bit_offset = bit_offset + (field_layout.offset as u32) * 8;
                     let sub_size_signed = (field_layout.size, field_layout.signed);
 
-                    self.lower_pattern_from_reg(
+                    self.lower_pattern_from_reg_inner(
                         sub_pattern,
                         source_reg,
                         sub_bit_offset,
@@ -970,6 +1002,7 @@ impl EmitWalker {
                         slot,
                         arena,
                         sub_size_signed,
+                        pool,
                     );
                 }
             }

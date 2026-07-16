@@ -15,7 +15,7 @@
 //! Flat fallback resolves post-walk Var operands not found in current stack walk.
 
 use paideia_as_ir::instruction::RegId;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// A local binding entry with optional pair-register support.
 ///
@@ -183,6 +183,26 @@ impl LocalBindingTable {
     #[must_use]
     pub fn scopes_len(&self) -> usize {
         self.scopes.len()
+    }
+
+    /// #1215: Registers currently committed to any binding in the active scope stack.
+    /// Does NOT include bindings in exited scopes (which are only in flat for fallback).
+    /// Used by the enum-match pattern-binder pool filter so binders can't land on
+    /// a register that is already live for an enclosing pair-binding's
+    /// discriminant/payload.
+    /// Intended as an outer-entry snapshot for pattern lowering; do not call per-leaf.
+    #[must_use]
+    pub fn live_regs(&self) -> HashSet<RegId> {
+        let mut s = HashSet::new();
+        for scope in self.scopes.iter() {
+            for e in scope.values() {
+                s.insert(e.reg);
+                if let Some(p) = e.payload {
+                    s.insert(p);
+                }
+            }
+        }
+        s
     }
 }
 
@@ -418,5 +438,32 @@ mod tests {
         table.pop_scope();
         assert_eq!(table.get_pair("y"), Some((abi::RCX, Some(abi::RDX)))); // From flat
         assert_eq!(table.get("x"), Some(abi::RAX)); // Still in root scope
+    }
+
+    /// #1215: live_regs includes both registers from pair bindings.
+    #[test]
+    fn live_regs_includes_pair_binding_both_regs() {
+        let mut table = LocalBindingTable::new();
+
+        // Insert pair binding: x → RCX (disc), RDX (payload)
+        table.insert_pair("x".to_string(), abi::RCX, abi::RDX);
+
+        let live = table.live_regs();
+        assert!(live.contains(&abi::RCX), "live_regs should contain disc register RCX");
+        assert!(live.contains(&abi::RDX), "live_regs should contain payload register RDX");
+        assert_eq!(live.len(), 2);
+    }
+
+    /// #1215: live_regs includes only primary register for scalar bindings.
+    #[test]
+    fn live_regs_includes_scalar_binding_single_reg() {
+        let mut table = LocalBindingTable::new();
+
+        // Insert scalar binding: y → RAX
+        table.insert("y".to_string(), abi::RAX);
+
+        let live = table.live_regs();
+        assert!(live.contains(&abi::RAX), "live_regs should contain scalar binding's register RAX");
+        assert_eq!(live.len(), 1);
     }
 }

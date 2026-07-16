@@ -1,0 +1,13 @@
+// Issue #1216: Stack-form enum with six-field record pattern exhausts register pool
+// Tests that pattern matching on a six-field record inside an enum variant correctly
+// detects register pool exhaustion and emits U1654 diagnostic (pool size 5, slot 5 overruns).
+
+module RecordPatternSixFieldsStackExhaust = structure {
+  struct Big { a: u64, b: u64, c: u64, d: u64, e: u64, f: u64 }
+  enum Wrap { Ok(Big), Err }
+  pub let w : Wrap = Wrap::Ok(Big { a: 1u64, b: 2u64, c: 3u64, d: 4u64, e: 5u64, f: 6u64 })
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> match w {
+    Ok(Big { a, b, c, d, e, f }) => a + b + c + d + e + f
+    Err => 0u64
+  }
+}

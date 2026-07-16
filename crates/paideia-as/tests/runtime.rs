@@ -52,6 +52,9 @@ mod runtime {
     mod block_match_braced_nested_value;
     mod sysv_bridge_bump_value;
     mod let_rhs_binop_mul_value;
+    mod two_payload_lets_arith_value;
+    mod two_payload_lets_separate_matches_value;
+    mod nested_match_two_lets_payload_arith_value;
     mod let_rhs_binop_div_value;
     mod let_rhs_binop_mod_value;
     mod module_var_assign_mul_value;

@@ -79,9 +79,10 @@ fn match_nested_pattern_builds_successfully() {
     );
 
     // AC1b: Verify the addition operation
-    // #1084: Fields are extracted into scratch registers (R8 for y), so addition uses those
+    // #1084: Fields are extracted into scratch registers, so addition uses those.
+    // #1216: pattern binder allocation is deterministic under snapshot-once; y → R8 canonically.
     assert!(
-        disasm.contains("add") && (disasm.contains("add    %r8,%rax") || disasm.contains("add    %rcx,%rax")),
+        disasm.contains("add    %r8,%rax"),
         "Add instruction for fields not found in disassembly"
     );
 

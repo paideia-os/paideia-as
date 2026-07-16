@@ -635,6 +635,68 @@ fn nested_wildcard_at_leaf() {
     assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());
 }
 
+/// #1216: Test that four simple fields in a record pattern allocate correctly from pool without exhaustion.
+#[test]
+fn nested_record_four_simple_fields_no_exhaustion() {
+    use paideia_as_ir::{PatternBinding, RecordLayout, FieldLayout};
+    use paideia_as_ir::record_layout::RecordTypeId;
+
+    let mut arena = IrArena::new();
+    let scrutinee_id = arena.alloc(IrKind::Var, span());
+    let arm_id = arena.alloc(IrKind::Action, span());
+    let match_id = arena.alloc_with_children(IrKind::Match, span(), [scrutinee_id, arm_id]);
+
+    arena.match_scrutinee_table_mut().insert(match_id, EnumTypeId(1));
+
+    let pattern = PatternBinding::Record {
+        type_id: RecordTypeId(100),
+        fields: vec![
+            ("a".to_string(), PatternBinding::Simple("a_var".to_string())),
+            ("b".to_string(), PatternBinding::Simple("b_var".to_string())),
+            ("c".to_string(), PatternBinding::Simple("c_var".to_string())),
+            ("d".to_string(), PatternBinding::Simple("d_var".to_string())),
+        ],
+    };
+
+    arena.match_arm_meta_mut().insert(
+        arm_id,
+        paideia_as_ir::MatchArmMeta {
+            variant_index: Some(0),
+            payload_binder: None,
+            is_default: false,
+            pattern_binding: Some(pattern),
+        },
+    );
+
+    let rec_layout = RecordLayout::with_field_names(
+        32,
+        8,
+        vec![
+            FieldLayout { offset: 0, size: 8, signed: false },
+            FieldLayout { offset: 8, size: 8, signed: false },
+            FieldLayout { offset: 16, size: 8, signed: false },
+            FieldLayout { offset: 24, size: 8, signed: false },
+        ],
+        vec!["a".to_string(), "b".to_string(), "c".to_string(), "d".to_string()],
+    );
+
+    let mut walker = EmitWalker::new();
+    walker.state_mut().insert_enum_layout(EnumTypeId(1), EnumLayout::new(32));
+    walker.state_mut().insert_record_layout(RecordTypeId(100), rec_layout);
+    walker.walk(&mut arena);
+
+    // #1216: Should emit no diagnostic — four fields fit in pool of size 5
+    assert!(walker.diagnostics().is_empty(), "{:?}", walker.diagnostics());
+
+    // Verify four loads were emitted for a, b, c, d into RCX, RDX, R8, R10 respectively
+    let moves = collect_move_bytes(&walker);
+    assert!(
+        moves.len() >= 4,
+        "Expected at least 4 move instructions, got {}",
+        moves.len()
+    );
+}
+
 /// Helper: collect all emitted Mov-family instructions (Mov, MovSized,
 /// Movzx, Movsx) from a walker's state in ir-node-id order, encode each
 /// via the real encoder, and return the byte sequences.

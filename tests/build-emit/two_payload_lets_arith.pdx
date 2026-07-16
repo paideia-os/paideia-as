@@ -1,0 +1,17 @@
+// Issue #1215: Pattern-binder pool collision with paired-binding registers
+// Tests nested match arms where first let binds enum with payload to x (RCX+RDX),
+// second let binds enum with payload to y (R8+R9).
+// Nested match: inner match's v1 binder must not collide with outer x's discriminant (RCX).
+// Expected exit code: 7 (5 + 2 from v1 + v2 arithmetic)
+
+module TwoPayloadLetsArith = structure {
+  enum Choice { A(u64), B(u64), C }
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    let x : Choice = Choice::A(5u64)
+    let y : Choice = Choice::B(2u64)
+    match x {
+      A(v1) => { match y { B(v2) => v1 + v2, _ => 0u64 } }
+      _ => 99u64
+    }
+  }
+}

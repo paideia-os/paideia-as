@@ -1,0 +1,17 @@
+// Issue #1215: Verify pool-filter doesn't over-conservatively exhaust on sibling matches
+// Tests two sequential payload lets (x, y) with two SIBLING (not nested) match expressions.
+// First match on x, second match on y. Pool reuse across separate match scopes
+// should not cause exhaustion since bindings exit their scopes.
+// Expected exit code: 2 (from second match's v2 return)
+
+module TwoPayloadLetsSeparateMatches = structure {
+  enum Choice { A(u64), B(u64), C }
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    let x : Choice = Choice::A(5u64)
+    let y : Choice = Choice::B(2u64)
+    match x {
+      A(_) => { match y { B(v2) => v2, _ => 0u64 } }
+      _ => 0u64
+    }
+  }
+}

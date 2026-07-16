@@ -1,0 +1,17 @@
+// Issue #1215: Nested match arithmetic with multiplication (variant from #1215 base case)
+// Tests nested match where outer arm binds v1 (5), inner arm binds v2 (2).
+// Verifies register allocation under pool-filter: v1 gets a non-colliding scratch reg.
+// Multiplication instead of addition to distinguish from two_payload_lets_arith.
+// Expected exit code: 10 (5 * 2 from v1 * v2)
+
+module NestedMatchTwoLetsPayloadArith = structure {
+  enum Choice { A(u64), B(u64), C }
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    let x : Choice = Choice::A(5u64)
+    let y : Choice = Choice::B(2u64)
+    match x {
+      A(v1) => { match y { B(v2) => v1 * v2, _ => 0u64 } }
+      _ => 99u64
+    }
+  }
+}
