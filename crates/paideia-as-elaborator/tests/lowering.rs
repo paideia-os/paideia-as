@@ -12,6 +12,7 @@
 mod common;
 
 mod lowering {
+    pub mod let_meta_ty_populator;
     pub mod lower_unsafe;
     pub mod pa_r15_009c_jump_table_fixture;
     pub mod pa_r17_012_pure_control_flow;

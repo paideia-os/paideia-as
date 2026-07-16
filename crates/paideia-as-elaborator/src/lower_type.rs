@@ -47,8 +47,8 @@ pub fn lower_type_ast(
         vec![Diagnostic::error(paideia_as_diagnostics::DiagnosticCode::new(
             paideia_as_diagnostics::Category::T,
             paideia_as_diagnostics::Severity::Error,
-            1,
-        ).expect("valid code")).message("missing type data").with_span(span).finish()]
+            568,
+        ).expect("T0568 is valid")).message("missing type data").with_span(span).finish()]
     })?;
 
     match type_data {
@@ -87,8 +87,8 @@ pub fn lower_type_ast(
                         Err(vec![Diagnostic::error(paideia_as_diagnostics::DiagnosticCode::new(
                             paideia_as_diagnostics::Category::T,
                             paideia_as_diagnostics::Severity::Error,
-                            1,
-                        ).expect("valid code")).message(format!("unknown type name: {}", name_text)).with_span(span).finish()])
+                            569,
+                        ).expect("T0569 is valid")).message(format!("unknown type name: {}", name_text)).with_span(span).finish()])
                     }
                 }
             }
@@ -181,8 +181,8 @@ pub fn lower_type_ast(
             Err(vec![Diagnostic::error(paideia_as_diagnostics::DiagnosticCode::new(
                 paideia_as_diagnostics::Category::T,
                 paideia_as_diagnostics::Severity::Error,
-                1,
-            ).expect("valid code")).message("type lowering not yet implemented for this variant").with_span(span).finish()])
+                570,
+            ).expect("T0570 is valid")).message("type lowering not yet implemented for this variant").with_span(span).finish()])
         }
     }
 }
@@ -267,8 +267,8 @@ fn get_ident_text(
                     return Err(vec![Diagnostic::error(paideia_as_diagnostics::DiagnosticCode::new(
                         paideia_as_diagnostics::Category::T,
                         paideia_as_diagnostics::Severity::Error,
-                        1,
-                    ).expect("valid code")).message("span out of bounds").with_span(err_span).finish()]);
+                        571,
+                    ).expect("T0571 is valid")).message("span out of bounds").with_span(err_span).finish()]);
                 }
 
                 let text = &source[start..end];
@@ -279,8 +279,8 @@ fn get_ident_text(
                 Err(vec![Diagnostic::error(paideia_as_diagnostics::DiagnosticCode::new(
                     paideia_as_diagnostics::Category::T,
                     paideia_as_diagnostics::Severity::Error,
-                    1,
-                ).expect("valid code")).message("expected Ident node").with_span(span).finish()])
+                    572,
+                ).expect("T0572 is valid")).message("expected Ident node").with_span(span).finish()])
             }
         }
     } else {
@@ -288,8 +288,8 @@ fn get_ident_text(
         Err(vec![Diagnostic::error(paideia_as_diagnostics::DiagnosticCode::new(
             paideia_as_diagnostics::Category::T,
             paideia_as_diagnostics::Severity::Error,
-            1,
-        ).expect("valid code")).message("missing node").with_span(span).finish()])
+            573,
+        ).expect("T0573 is valid")).message("missing node").with_span(span).finish()])
     }
 }
 

@@ -86,6 +86,7 @@ mod enum_cons;
 mod enum_lit_var;
 mod field_access;
 mod kind_map;
+pub mod let_meta_ty;
 mod match_arm;
 mod match_auto_dispatch;
 mod match_dispatch;

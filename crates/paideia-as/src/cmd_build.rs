@@ -210,6 +210,23 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
     // If there are any errors so far, do not emit anything downstream.
     let mut lowering = lower_ast_to_ir(&arena, &source_map, &mut sink, &registry, &enum_registry, &payload_map);
 
+    // Issue #1219: Construct interners for populating LetInfo::ty
+    let mut types = TypeInterner::new();
+    let mut effects = EffectInterner::new();
+    let mut caps = CapSetInterner::new();
+
+    // Issue #1219: Populate LetInfo::ty from explicit type annotations on Let bindings
+    paideia_as_elaborator::populate_let_meta_ty(
+        &arena,
+        &mut lowering.ir,
+        &lowering.ast_to_ir,
+        &source_map,
+        &mut types,
+        &mut effects,
+        &mut caps,
+        &registry,
+    );
+
     // PA-r17-007 (#1050): Populate enum layouts from the enum registry.
     // This enables emit_walker to look up enum layouts during EnumCons and EnumDiscriminant lowering.
     // Issue #1090: Also thread StructRegistry for struct-typed variant payloads fallback.
@@ -716,6 +733,8 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
             paideia_as_elaborator::EmitWalker::populate_data_table(&lowering.ir, &mut temp_data_table);
             *lowering.ir.data_mut() = temp_data_table;
 
+            // Issue #1219 populated let_meta.ty; consumption at walk() awaits a follow-up
+            // that flips to walk_with_typer to activate resolve_let_width in production.
             emit_walker.walk(&mut lowering.ir);
 
             // Phase 15 m2-002: Verify mode_stack is properly cleaned up after walk.
@@ -923,10 +942,17 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                                         paideia_as_ast::CallingConvention::Sysv => paideia_as_ir::CallingConvention::Sysv,
                                     });
                                     if let Some(ir_id) = paideia_as_ir::IrNodeId::new(ast_id.get()) {
-                                        lowering.ir.let_meta_mut().insert(
-                                            ir_id,
-                                            paideia_as_ir::LetInfo::with_abi(*mutable, None, *align, *ring, link_section.clone(), ir_abi),
-                                        );
+                                        // Issue #1219: Use read-modify-write to preserve any ty already set by populate_let_meta_ty
+                                        let mut info = lowering.ir.let_meta()
+                                            .get(ir_id)
+                                            .cloned()
+                                            .unwrap_or_else(paideia_as_ir::LetInfo::immutable);
+                                        info.mutable = *mutable;
+                                        info.align = *align;
+                                        info.ring = *ring;
+                                        info.link_section = link_section.clone();
+                                        info.abi = ir_abi;
+                                        lowering.ir.let_meta_mut().insert(ir_id, info);
                                     }
                                 }
                             }
@@ -1242,11 +1268,6 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                 }
             }
         }
-
-        // Construct interners for T0535 type checking
-        let mut types = TypeInterner::new();
-        let mut effects = EffectInterner::new();
-        let mut caps = CapSetInterner::new();
 
         // Now populate the AddrOfSideTable and perform T0535 checks
         // #988 v2: Keyed by rhs_id (Borrow node) not let_id
