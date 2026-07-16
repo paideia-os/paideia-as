@@ -1,0 +1,13 @@
+// Issue #1226 — Caller with literal EnumCons pair-form argument (Case C)
+// Tests that a literal Result::Ok(42) is correctly marshalled
+// to RAX (discriminant) + RDX (payload) when passed as pos-0 argument.
+// Expected exit code: 42
+
+module CallerLiteralPairArg = structure {
+  enum Result { Ok(u64), Err(u64) }
+  pub let extract_ok : (Result) -> u64 !{} @{} = fn(r : Result) -> match r {
+    Ok(v) => v
+    Err(_) => 0u64
+  }
+  pub let entry : () -> u64 !{} @{} = fn(_ : ()) -> extract_ok(Result::Ok(42u64))
+}

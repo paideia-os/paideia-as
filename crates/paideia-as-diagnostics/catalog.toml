@@ -1994,3 +1994,82 @@ Part of #1156 (receiver-side).
 """
 since = "0.20.0"
 deprecated = false
+
+[diagnostic.U1670]
+severity = "error"
+category = "unsafe"
+title = "Pair-form Var or App argument at position > 0 not supported"
+brief = "caller-side pair-form argument not at position 0"
+description = """
+An argument at position N > 0 in a function call was classified as a register-pair
+enum (Var with payload, or App returning a pair-form enum). Register-pair calling
+convention requires both discriminant and payload to be passed in RAX and RDX
+respectively, which is only supported when the pair-form argument is at position 0.
+
+For positions N >= 1, the standard register-passing order (RDI, RSI, RDX, ...)
+conflicts with the pair-form binding locations. This requires stack spilling,
+which is not yet implemented.
+
+Refactor your call to place pair-form arguments only at position 0, or use
+let-bindings and qualified paths to avoid pair-form argument passing.
+
+Part of #1226 (caller-side pair enum args).
+"""
+since = "0.20.1"
+deprecated = false
+
+[diagnostic.U1671]
+severity = "error"
+category = "unsafe"
+title = "Nested pair-returning App with additional arguments"
+brief = "pos-0 nested App + additional args risk RDX/RSI clobber"
+description = """
+A nested function call returning a register-pair enum was passed at argument
+position 0, along with one or more additional arguments. The nested call result
+lands in RAX + RDX, but additional arguments need to be marshalled into RSI, RDX,
+RCX, etc. This creates a potential data corruption hazard.
+
+Refactor by moving the nested call to a separate let-binding, then pass that
+binding as the pair-form argument.
+
+Part of #1226 (caller-side pair enum args).
+"""
+since = "0.20.1"
+deprecated = false
+
+[diagnostic.U1672]
+severity = "error"
+category = "unsafe"
+title = "Pair-form arg at position 0 conflicts with pos-2 argument"
+brief = "RDX usage conflict between pair-form and position-2 argument"
+description = """
+A register-pair enum argument at position 0 requires both RAX and RDX.
+When three or more arguments are present, position 2 (the third argument)
+is mapped to RDX per the System-V calling convention, creating a clobber.
+
+Refactor to fewer arguments, or move one of the conflicting arguments to a
+let-binding and reference it by variable name.
+
+Part of #1226 (caller-side pair enum args).
+"""
+since = "0.20.1"
+deprecated = false
+
+[diagnostic.U1673]
+severity = "error"
+category = "unsafe"
+title = "Pair-arg source register aliases a pos-N argument target"
+brief = "pair-form argument's registers overlap with other argument destinations"
+description = """
+A pair-form Var argument at position 0 uses register(s) that are also target
+destinations for subsequent arguments. For example, if the pair's payload is
+in RDX, and argument 1 (mapped to RSI) or argument 2 (mapped to RDX) reads
+the same register, the clobber order will corrupt one value.
+
+Refactor by rearranging argument order or moving arguments to temporary
+let-bindings.
+
+Part of #1226 (caller-side pair enum args).
+"""
+since = "0.20.1"
+deprecated = false

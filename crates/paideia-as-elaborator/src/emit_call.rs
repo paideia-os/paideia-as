@@ -6,7 +6,7 @@
 //! `[RDI, RSI, RDX, RCX, R8, R9]` followed by `call target; ret`.
 
 use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand, RegId};
-use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi};
+use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi, PassingConvention};
 use paideia_as_ir::let_meta::CallingConvention;
 use paideia_as_ir::symbol::SymbolKind;
 use paideia_as_diagnostics::{DiagnosticCode, Category, Severity};
@@ -34,7 +34,129 @@ fn t0551_code() -> DiagnosticCode {
         .expect("T0551 is within valid T range")
 }
 
+/// Diagnostic helpers for #1226 (caller-side pos-0 pair enum args)
+fn u1670_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::U, Severity::Error, 1670)
+        .expect("U1670 is within valid U range")
+}
+
+fn u1671_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::U, Severity::Error, 1671)
+        .expect("U1671 is within valid U range")
+}
+
+fn u1672_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::U, Severity::Error, 1672)
+        .expect("U1672 is within valid U range")
+}
+
+fn u1673_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::U, Severity::Error, 1673)
+        .expect("U1673 is within valid U range")
+}
+
+/// Payload source for literal enum constructor at pos 0
+#[derive(Debug)]
+enum PayloadSrc {
+    Imm(i64),
+    Reg(RegId),
+}
+
+/// Discriminant+payload pair at pos 0 in call arguments
+#[derive(Debug)]
+enum PosZeroPair {
+    None,
+    VarPair { disc: RegId, payload: RegId },
+    NestedApp { callee: String, nested_args: Vec<IrNodeId> },
+    LiteralCons { disc: i64, payload: PayloadSrc },
+}
+
 impl EmitWalker {
+    /// Classify pos-0 argument as a register-pair enum form.
+    /// Returns PosZeroPair enum indicating which case applies (if any).
+    /// No emission; only reads state + arena.
+    fn classify_pos_zero_pair(&self, arg_ids: &[IrNodeId], arena: &IrArena) -> PosZeroPair {
+        // If no args, return None
+        if arg_ids.is_empty() {
+            return PosZeroPair::None;
+        }
+
+        let arg_id = arg_ids[0];
+        let arg_node = match arena.get(arg_id) {
+            Some(node) => node,
+            None => return PosZeroPair::None,
+        };
+
+        match arg_node.kind {
+            IrKind::Var => {
+                // Look up binding name and check for pair
+                if let Some(name) = arena.binding_names().get(arg_id) {
+                    if let Some((disc, Some(payload))) = self.state.local_bindings.get_pair(name) {
+                        return PosZeroPair::VarPair { disc, payload };
+                    }
+                }
+                PosZeroPair::None
+            }
+            IrKind::App => {
+                // Look up call site info
+                if let Some(call_info) = arena.call_sites().get(arg_id) {
+                    let callee_name = call_info.callee_name.clone();
+                    let nested_args = arena.children(arg_id)
+                        .iter()
+                        .skip(1)
+                        .copied()
+                        .collect();
+                    return PosZeroPair::NestedApp { callee: callee_name, nested_args };
+                }
+                PosZeroPair::None
+            }
+            IrKind::EnumCons => {
+                // Look up enum constructor info
+                let info = match arena.enum_cons_info().get(arg_id) {
+                    Some(i) => i,
+                    None => return PosZeroPair::None,
+                };
+
+                let type_id = info.type_id;
+                let layout = match arena.enum_layout_table().get(type_id) {
+                    Some(l) => l,
+                    None => return PosZeroPair::None,
+                };
+
+                // Only handle RegisterPair passing with payload
+                if layout.passing_convention() != PassingConvention::RegisterPair
+                    || layout.payload_size <= 0 {
+                    return PosZeroPair::None;
+                }
+
+                // Check if there's a payload child
+                let children = arena.children(arg_id);
+                if children.is_empty() {
+                    return PosZeroPair::None;
+                }
+
+                let child_id = children[0];
+                let payload_src = if let Some(value) = arena.literal_values().get(child_id) {
+                    PayloadSrc::Imm(value)
+                } else if let Some(name) = arena.binding_names().get(child_id) {
+                    if let Some(reg) = self.state.local_bindings.get(name) {
+                        PayloadSrc::Reg(reg)
+                    } else {
+                        return PosZeroPair::None;
+                    }
+                } else {
+                    return PosZeroPair::None;
+                };
+
+                PosZeroPair::LiteralCons {
+                    disc: info.variant_index as i64,
+                    payload: payload_src,
+                }
+            }
+            _ => PosZeroPair::None,
+        }
+    }
+
     /// Emit caller-side bridge postlude for paideia→MS/SysV ABI crossing.
     /// Pops the registers in `save_regs` in REVERSE order (LIFO) after shadow-space restoration.
     /// Uses alloc_synthetic_id() per iteration to ensure unique IDs across all call sites.
@@ -251,6 +373,10 @@ impl EmitWalker {
             self.emit_inst(scratch_save_id, push_inst);
         }
 
+        // #1226: Classify pos-0 argument for register-pair enum handling.
+        // This determines whether pos-0 should be hoisted out of the sequential loop.
+        let pos_zero_pair = self.classify_pos_zero_pair(arg_ids, arena);
+
         // PA-r16-007-registry-runtime-args (#1062): stdlib trait method lowering with
         // arg-convention awareness. Literal recipes skip arg-marshalling entirely;
         // SysVRegs recipes fall through to arg-marshalling then splice.
@@ -325,6 +451,11 @@ impl EmitWalker {
 
         // Emit MOV instructions for each argument
         for (arg_idx, &arg_id) in arg_ids.iter().enumerate() {
+            // #1226: Skip pos-0 if it's a register-pair enum (hoisted for separate handling)
+            if arg_idx == 0 && !matches!(pos_zero_pair, PosZeroPair::None) {
+                continue;
+            }
+
             if arg_idx >= arg_regs.len() {
                 // Emit distinct T0521 message for MS branch
                 let error_msg = if callee_abi == CallingConvention::Ms {
@@ -369,6 +500,19 @@ impl EmitWalker {
                     }
                 }
                 IrKind::Var => {
+                    // #1226: Check for pair-form Var at pos > 0 (not yet supported)
+                    if arg_idx > 0 {
+                        if let Some(name) = arena.binding_names().get(arg_id) {
+                            if let Some((_, Some(_))) = self.state.local_bindings.get_pair(name) {
+                                self.push_typed_diag(
+                                    u1670_code(),
+                                    format!("pair-form Var arg at position {} (> 0) not yet supported", arg_idx),
+                                );
+                                continue;
+                            }
+                        }
+                    }
+
                     // Resolve the Var's source register: look up its binding name in
                     // local_bindings (the caller's parameter/let scratch table). If the
                     // source differs from dest_reg, emit `mov dest, src`; equal-reg is
@@ -438,6 +582,13 @@ impl EmitWalker {
                         }
                     }
                 }
+                IrKind::App => {
+                    // #1226: App args at pos > 0 with pair return not yet supported
+                    self.push_typed_diag(
+                        u1670_code(),
+                        format!("nested pair-returning App arg at position {} (> 0) not yet supported; use stack spilling", arg_idx),
+                    );
+                }
                 IrKind::EnumCons => {
                     let info = match arena.enum_cons_info().get(arg_id) {
                         Some(i) => i,
@@ -475,6 +626,96 @@ impl EmitWalker {
                         t0521_code(),
                         format!("arg {} kind not supported", arg_idx),
                     );
+                }
+            }
+        }
+
+        // #1226: Emit pos-0 register-pair enum arguments AFTER loop, BEFORE sysv_recipe.
+        // Ordering-critical: ensures discriminant and payload are set up correctly
+        // for the register-pair calling convention (RAX + RDX).
+        // Check for multi-arg conflicts first.
+        let mut pair_emission_ok = true;
+        if !matches!(pos_zero_pair, PosZeroPair::None) && arg_ids.len() >= 2 {
+            // U1671: nested App + more args
+            if matches!(pos_zero_pair, PosZeroPair::NestedApp { .. }) {
+                self.push_typed_diag(
+                    u1671_code(),
+                    "nested pair-returning App arg with additional args (RDX/RSI clobber risk)".to_string(),
+                );
+                pair_emission_ok = false;
+            }
+            // U1672: pos-2 clobbers RDX
+            if arg_ids.len() >= 3 {
+                self.push_typed_diag(
+                    u1672_code(),
+                    "pair-form arg at position 0 conflicts with pos-2 arg (RDX clobber)".to_string(),
+                );
+                pair_emission_ok = false;
+            }
+        }
+
+        // U1673: Check for source-reg alias in additional args
+        if pair_emission_ok && !matches!(pos_zero_pair, PosZeroPair::None) {
+            if let PosZeroPair::VarPair { disc, payload } = pos_zero_pair {
+                for (arg_idx, &arg_id) in arg_ids.iter().enumerate().skip(1) {
+                    if let Some(name) = arena.binding_names().get(arg_id) {
+                        if let Some(reg) = self.state.local_bindings.get(name) {
+                            if reg == disc || reg == payload {
+                                self.push_typed_diag(
+                                    u1673_code(),
+                                    format!("pair-arg source register {} aliases a pos-{} arg-reg target",
+                                            if reg == disc { "disc" } else { "payload" }, arg_idx),
+                                );
+                                pair_emission_ok = false;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Emit the pair if no conflicts
+        if pair_emission_ok {
+            match &pos_zero_pair {
+                PosZeroPair::None => {}
+                PosZeroPair::VarPair { disc, payload } => {
+                    // Emit discriminant to RAX if not already there
+                    if *disc != abi::RAX {
+                        let mov_id = self.alloc_synthetic_id();
+                        self.emit_mov_reg_to_reg_with_id(mov_id, *disc, abi::RAX);
+                    }
+                    // Emit payload to RDX if not already there
+                    if *payload != abi::RDX {
+                        let mov_id = self.alloc_synthetic_id();
+                        self.emit_mov_reg_to_reg_with_id(mov_id, *payload, abi::RDX);
+                    }
+                }
+                PosZeroPair::NestedApp { callee, nested_args } => {
+                    // Recursive call to emit nested app; return value lands in RAX + RDX
+                    self.emit_call_expr(lambda_node_id, callee.clone(), nested_args, arena);
+                }
+                PosZeroPair::LiteralCons { disc, payload } => {
+                    // Emit discriminant to RAX
+                    let mov_id = self.alloc_synthetic_id();
+                    self.emit_mov_literal_to_reg_with_id(mov_id, abi::RAX, *disc);
+                    // Emit payload to RDX
+                    match payload {
+                        PayloadSrc::Imm(v) => {
+                            let mov_id = self.alloc_synthetic_id();
+                            self.emit_mov_literal_to_reg_with_id(mov_id, abi::RDX, *v);
+                        }
+                        PayloadSrc::Reg(r) if *r != abi::RDX => {
+                            let mov_id = self.alloc_synthetic_id();
+                            self.emit_mov_reg_to_reg_with_id(mov_id, *r, abi::RDX);
+                        }
+                        PayloadSrc::Reg(_) => {
+                            // Already in RDX, no-op
+                        }
+                    }
+                    if let Some(arg_id) = arg_ids.first() {
+                        self.state.mark_enum_cons_handled(arg_id.get());
+                    }
                 }
             }
         }

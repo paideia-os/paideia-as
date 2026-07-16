@@ -1,0 +1,14 @@
+// Issue #1226 — Caller with App pair-returning argument (Case B)
+// Tests that a nested call returning Result::Ok(42) is correctly marshalled
+// to RAX (discriminant) + RDX (payload) when passed as pos-0 argument.
+// Expected exit code: 42
+
+module CallerAppPairArg = structure {
+  enum Result { Ok(u64), Err(u64) }
+  pub let make_ok : (u64) -> Result !{} @{} = fn(x : u64) -> Result::Ok(x)
+  pub let extract_ok : (Result) -> u64 !{} @{} = fn(r : Result) -> match r {
+    Ok(v) => v
+    Err(_) => 0u64
+  }
+  pub let entry : () -> u64 !{} @{} = fn(_ : ()) -> extract_ok(make_ok(42u64))
+}

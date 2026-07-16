@@ -1,0 +1,19 @@
+// Issue #1226 — Caller with Var pair-form argument (Case A)
+// Tests that a Var binding holding Result::Ok(42) is correctly marshalled
+// to RAX (discriminant) + RDX (payload) when passed as pos-0 argument.
+// Expected exit code: 42
+
+module CallerVarPairArg = structure {
+  enum Result { Ok(u64), Err(u64) }
+  pub let make_ok : (u64) -> Result !{} @{} = fn(x : u64) -> Result::Ok(x)
+  pub let extract_ok : (Result) -> u64 !{} @{} = fn(r : Result) -> {
+    match r {
+      Ok(v) => v
+      Err(_) => 0u64
+    }
+  }
+  pub let entry : () -> u64 !{} @{} = fn(_ : ()) -> {
+    let s : Result = make_ok(42u64)
+    extract_ok(s)
+  }
+}

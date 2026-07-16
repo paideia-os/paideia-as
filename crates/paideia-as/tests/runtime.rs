@@ -44,6 +44,9 @@ mod runtime {
     mod bare_enum_cons_lambda_value;
     mod app_rhs_enum_pair_ok_value;
     mod pair_binding_call_preserve_value;
+    mod caller_var_pair_arg_value;
+    mod caller_app_pair_arg_value;
+    mod caller_literal_pair_arg_value;
     mod match_wildcard_last_value;
     mod nested_match_two_lets_unit_value;
     mod nested_match_two_lets_payload_value;

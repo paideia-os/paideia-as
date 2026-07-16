@@ -2624,6 +2624,62 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "An argument at position N > 0 in a function call was classified as a register-pair\nenum (Var with payload, or App returning a pair-form enum). Register-pair calling\nconvention requires both discriminant and payload to be passed in RAX and RDX\nrespectively, which is only supported when the pair-form argument is at position 0.\n\nFor positions N >= 1, the standard register-passing order (RDI, RSI, RDX, ...)\nconflicts with the pair-form binding locations. This requires stack spilling,\nwhich is not yet implemented.\n\nRefactor your call to place pair-form arguments only at position 0, or use\nlet-bindings and qualified paths to avoid pair-form argument passing.\n\nPart of #1226 (caller-side pair enum args).\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1670",
+              "id": "U1670",
+              "name": "Pair-form Var or App argument at position > 0 not supported",
+              "shortDescription": {
+                "text": "caller-side pair-form argument not at position 0"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "A nested function call returning a register-pair enum was passed at argument\nposition 0, along with one or more additional arguments. The nested call result\nlands in RAX + RDX, but additional arguments need to be marshalled into RSI, RDX,\nRCX, etc. This creates a potential data corruption hazard.\n\nRefactor by moving the nested call to a separate let-binding, then pass that\nbinding as the pair-form argument.\n\nPart of #1226 (caller-side pair enum args).\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1671",
+              "id": "U1671",
+              "name": "Nested pair-returning App with additional arguments",
+              "shortDescription": {
+                "text": "pos-0 nested App + additional args risk RDX/RSI clobber"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "A register-pair enum argument at position 0 requires both RAX and RDX.\nWhen three or more arguments are present, position 2 (the third argument)\nis mapped to RDX per the System-V calling convention, creating a clobber.\n\nRefactor to fewer arguments, or move one of the conflicting arguments to a\nlet-binding and reference it by variable name.\n\nPart of #1226 (caller-side pair enum args).\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1672",
+              "id": "U1672",
+              "name": "Pair-form arg at position 0 conflicts with pos-2 argument",
+              "shortDescription": {
+                "text": "RDX usage conflict between pair-form and position-2 argument"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "A pair-form Var argument at position 0 uses register(s) that are also target\ndestinations for subsequent arguments. For example, if the pair's payload is\nin RDX, and argument 1 (mapped to RSI) or argument 2 (mapped to RDX) reads\nthe same register, the clobber order will corrupt one value.\n\nRefactor by rearranging argument order or moving arguments to temporary\nlet-bindings.\n\nPart of #1226 (caller-side pair enum args).\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1673",
+              "id": "U1673",
+              "name": "Pair-arg source register aliases a pos-N argument target",
+              "shortDescription": {
+                "text": "pair-form argument's registers overlap with other argument destinations"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "The #![bits = 16] inner attribute specifies 16-bit mode, which is not supported in this implementation. PaideiaOS is designed for x86_64 (64-bit) primarily, with 32-bit fallback available. Either use #![bits = 32] or #![bits = 64], or remove the attribute to use the default."
               },
               "helpUri": "https://paideia-os.org/diagnostics/B1700",
