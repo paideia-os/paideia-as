@@ -1,0 +1,12 @@
+// Issue #1210: integer-scrutinee match where the scrutinee literal falls
+// between the explicit arms and hits the default (`_ =>`).
+// Scrutinee 2u64 misses 0u64 and 1u64; expected exit code: 30
+
+module IntmatchLitFallsThrough = structure {
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) ->
+    match 2u64 {
+      0u64 => 10u64
+      1u64 => 20u64
+      _ => 30u64
+    }
+}

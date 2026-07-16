@@ -1463,6 +1463,49 @@ diagnostic. Register-pattern counterpart of T0565; issue #1147 retag.
 since = "0.19.0"
 deprecated = false
 
+[diagnostic.T0567]
+severity = "error"
+category = "type"
+title = "Integer match requires explicit default arm"
+brief = "integer-scrutinee match must include a default `_ =>` arm"
+description = """
+Issue #1210: An integer-scrutinee match expression is missing an explicit
+default arm. All integer-scrutinee matches require a `_ =>` arm to handle
+values that do not match any literal pattern. Add a default arm to handle
+the fallback case. Example: `match x { 1u64 => ..., _ => ... }`.
+"""
+since = "0.20.0"
+deprecated = false
+
+[diagnostic.T0568]
+severity = "error"
+category = "type"
+title = "Non-integer pattern in integer-scrutinee match"
+brief = "only integer literals and wildcards are allowed in integer matches"
+description = """
+Issue #1210: An integer-scrutinee match expression contains a pattern
+that is neither an integer literal nor a wildcard. Only integer literal
+patterns (e.g. `1u64`, `42i32`) and default/wildcard patterns (`_`) are
+supported in integer-scrutinee matches. Rewrite the pattern using integer
+literals or a wildcard.
+"""
+since = "0.20.0"
+deprecated = false
+
+[diagnostic.T0569]
+severity = "error"
+category = "type"
+title = "Integer pattern width mismatch"
+brief = "integer pattern width does not match scrutinee width"
+description = """
+Issue #1210: An arm pattern's integer width does not match the integer
+scrutinee's width. For example, matching a u64 value against a u8 literal
+pattern. Ensure all arm patterns use the same width as the scrutinee
+(e.g. if scrutinee is u64, use u64 patterns like `0u64`, `1u64`).
+"""
+since = "0.20.0"
+deprecated = false
+
 [diagnostic.P0282]
 severity = "error"
 category = "parser"

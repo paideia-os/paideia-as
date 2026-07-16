@@ -22,6 +22,7 @@ pub mod effect_rewrite;
 pub mod enum_layout;
 pub mod handler_value;
 pub mod instruction;
+pub mod int_match;
 pub mod lambda_param;
 pub mod let_meta;
 pub mod literal_bytes;
@@ -67,6 +68,7 @@ pub use instruction::{
     Cond, EncodingHint, InstrMode, Instruction, InstructionSideTable, IntWidth, Mnemonic, Operand,
     RegId, Scale, SegPrefix, SegReg,
 };
+pub use int_match::{IntMatchScrutinee, IntMatchScrutineeTable};
 pub use lambda_param::LambdaParamTable;
 pub use let_meta::{CallingConvention, LetInfo, LetMetaTable};
 pub use literal_bytes::LiteralBytesTable;

@@ -75,6 +75,11 @@ mod runtime {
     mod pick5_arm_e_value;
     mod pick5uv_arm_c_value;
     mod pick8uv_arm_e_value;
+    mod intmatch_lit_zero_value;
+    mod intmatch_lit_one_value;
+    mod intmatch_lit_three_value;
+    mod intmatch_lit_falls_through_value;
+    mod intmatch_default_value;
     mod enum_qual_arg_pos0_3arg_value;
     mod enum_qual_arg_pos0_3arg_b_value;
     mod enum_qual_arg_pos0_4arg_value;

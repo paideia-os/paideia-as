@@ -89,6 +89,7 @@ mod kind_map;
 mod match_arm;
 mod match_auto_dispatch;
 mod match_dispatch;
+mod match_int;
 mod pattern_data;
 mod record_cons;
 mod record_layout;
@@ -107,6 +108,7 @@ use kind_map::map_node_kind;
 use match_arm::populate_match_arm_meta;
 use match_auto_dispatch::populate_auto_jump_table_meta;
 use match_dispatch::populate_match_dispatch_meta;
+use match_int::populate_int_match_meta;
 use record_layout::populate_record_layout_table;
 use store_lvalue::is_lvalue_infix_assignment;
 use unsafe_scan::collect_nodes_in_unsafe_blocks;
@@ -240,6 +242,10 @@ pub fn lower_ast_to_ir(
         source_map,
         sink,
     );
+
+    // Issue #1210: Populate IntMatchScrutineeTable for integer-scrutinee matches.
+    // Must run AFTER populate_match_arm_meta and BEFORE populate_auto_jump_table_meta.
+    populate_int_match_meta(ast, &mut ir, &ast_to_ir, source_map);
 
     // Issue #1052: Auto-detect dense enum-variant matches and inject MatchDispatchMeta.
     // Must run AFTER populate_match_arm_meta (needs variant_index) and BEFORE emit walker.

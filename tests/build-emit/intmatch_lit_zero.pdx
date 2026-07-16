@@ -1,0 +1,11 @@
+// Issue #1210: Integer-scrutinee match with literal scrutinee 0u64
+// Tests basic integer match with literal 0u64 matching first arm.
+// Expected exit code: 10
+
+module IntmatchLitZero = structure {
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) ->
+    match 0u64 {
+      0u64 => 10u64
+      _ => 0u64
+    }
+}

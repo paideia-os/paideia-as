@@ -1784,6 +1784,48 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "Issue #1210: An integer-scrutinee match expression is missing an explicit\ndefault arm. All integer-scrutinee matches require a `_ =>` arm to handle\nvalues that do not match any literal pattern. Add a default arm to handle\nthe fallback case. Example: `match x { 1u64 => ..., _ => ... }`.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0567",
+              "id": "T0567",
+              "name": "Integer match requires explicit default arm",
+              "shortDescription": {
+                "text": "integer-scrutinee match must include a default `_ =>` arm"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Issue #1210: An integer-scrutinee match expression contains a pattern\nthat is neither an integer literal nor a wildcard. Only integer literal\npatterns (e.g. `1u64`, `42i32`) and default/wildcard patterns (`_`) are\nsupported in integer-scrutinee matches. Rewrite the pattern using integer\nliterals or a wildcard.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0568",
+              "id": "T0568",
+              "name": "Non-integer pattern in integer-scrutinee match",
+              "shortDescription": {
+                "text": "only integer literals and wildcards are allowed in integer matches"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Issue #1210: An arm pattern's integer width does not match the integer\nscrutinee's width. For example, matching a u64 value against a u8 literal\npattern. Ensure all arm patterns use the same width as the scrutinee\n(e.g. if scrutinee is u64, use u64 patterns like `0u64`, `1u64`).\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0569",
+              "id": "T0569",
+              "name": "Integer pattern width mismatch",
+              "shortDescription": {
+                "text": "integer pattern width does not match scrutinee width"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "A binding declared as Linear or Ordered in the substructural lattice must be used exactly once. This binding was never used. A Linear binding represents a unique resource that must be consumed; Ordered adds ordering constraints. Check that the binding is referenced exactly once in its scope."
               },
               "helpUri": "https://paideia-os.org/diagnostics/S0900",

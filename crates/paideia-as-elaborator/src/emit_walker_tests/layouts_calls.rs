@@ -2157,6 +2157,7 @@ fn emit_walker_match_single_arm_emits_instructions() {
             payload_binder: None,
             is_default: true,
             pattern_binding: None,
+            int_pattern_value: None,
         },
     );
 
@@ -2191,6 +2192,7 @@ fn emit_walker_match_multiple_arms_emits_dispatch_chain() {
             payload_binder: None,
             is_default: false,
             pattern_binding: None,
+            int_pattern_value: None,
         },
     );
     arena.match_arm_meta_mut().insert(
@@ -2200,6 +2202,7 @@ fn emit_walker_match_multiple_arms_emits_dispatch_chain() {
             payload_binder: None,
             is_default: false,
             pattern_binding: None,
+            int_pattern_value: None,
         },
     );
 

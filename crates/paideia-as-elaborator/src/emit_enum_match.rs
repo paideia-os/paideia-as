@@ -139,6 +139,9 @@ impl EmitWalker {
         layout: &EnumLayout,
         arena: &IrArena,
     ) {
+        debug_assert!(arena.int_match_scrutinee().get(_match_id).is_none(),
+            "int match reached enum path");
+
         let scrutinee_node = match arena.get(scrutinee_id) {
             Some(n) => n,
             None => return,
@@ -1342,6 +1345,12 @@ impl EmitWalker {
     ) {
         // Mark this match as emitted in tail position
         self.state.mark_match_emitted(match_node_id.get());
+
+        // Issue #1210: Intercept integer-scrutinee matches and route to visit_int_match
+        if let Some(int_meta) = arena.int_match_scrutinee().get(match_node_id).copied() {
+            return self.visit_int_match(match_node_id, arena, typer, _tail, int_meta);
+        }
+
         let children = arena.children(match_node_id);
         if children.is_empty() {
             self.push_typed_diag(u1650_code(), format!(

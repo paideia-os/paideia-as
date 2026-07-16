@@ -700,6 +700,7 @@ mod tests {
             payload_binder: Some("payload".to_string()),
             is_default: false,
             pattern_binding: Some(PatternBinding::Wildcard),
+            int_pattern_value: None,
         };
         assert_eq!(meta.variant_index, Some(3));
         assert!(meta.payload_binder.is_some());
@@ -946,6 +947,9 @@ pub struct MatchArmMeta {
     pub is_default: bool,
     /// Nested pattern binding tree for complex pattern matching.
     pub pattern_binding: Option<PatternBinding>,
+    /// Integer pattern value for integer-scrutinee matches (#1210).
+    /// Set when this arm matches an integer literal in an integer match.
+    pub int_pattern_value: Option<i64>,
 }
 
 impl Default for MatchArmMeta {
@@ -955,6 +959,7 @@ impl Default for MatchArmMeta {
             payload_binder: None,
             is_default: false,
             pattern_binding: None,
+            int_pattern_value: None,
         }
     }
 }

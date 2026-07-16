@@ -18,6 +18,7 @@ use crate::enum_layout::{
     MatchDispatchMetaSideTable, MatchJumpTableArmValuesSideTable, MatchScrutineeTable,
 };
 use crate::instruction::InstructionSideTable;
+use crate::int_match::IntMatchScrutineeTable;
 use crate::lambda_param::LambdaParamTable;
 use crate::let_meta::LetMetaTable;
 use crate::literal_bytes::LiteralBytesTable;
@@ -114,6 +115,10 @@ pub struct IrArena {
     /// Issue #1212: tracks which let bindings are `NodeKind::StmtLet` (statement-scope)
     /// vs. `NodeKind::Let` (module-scope), used to gate data-section emission.
     stmt_lets: HashSet<IrNodeId>,
+    /// Side-table: integer-scrutinee match metadata indexed by Match node ID.
+    /// Issue #1210: populated by populate_int_match_meta for integer-scrutinee matches;
+    /// consumed by visit_int_match to route around the enum-only pipeline.
+    int_match_scrutinee: IntMatchScrutineeTable,
     /// Side-table: call site metadata indexed by App node ID.
     /// PA-r17-004: populated by pre-emit pass; consumed by emit_walker for indirect/direct dispatch.
     call_sites: CallSideTable,
@@ -158,6 +163,7 @@ impl IrArena {
             addr_of_table: AddrOfSideTable::new(),
             public_lets: HashSet::new(),
             stmt_lets: HashSet::new(),
+            int_match_scrutinee: IntMatchScrutineeTable::new(),
             call_sites: CallSideTable::new(),
         }
     }
@@ -554,6 +560,18 @@ impl IrArena {
     #[must_use]
     pub fn is_stmt_let(&self, id: IrNodeId) -> bool {
         self.stmt_lets.contains(&id)
+    }
+
+    /// Borrow the integer-scrutinee match side-table (read-only).
+    /// Issue #1210: provides access to IntMatchScrutinee for Match nodes.
+    #[must_use]
+    pub fn int_match_scrutinee(&self) -> &IntMatchScrutineeTable {
+        &self.int_match_scrutinee
+    }
+
+    /// Borrow the integer-scrutinee match side-table (mutable).
+    pub fn int_match_scrutinee_mut(&mut self) -> &mut IntMatchScrutineeTable {
+        &mut self.int_match_scrutinee
     }
 
     /// Borrow the call sites side-table (read-only).
