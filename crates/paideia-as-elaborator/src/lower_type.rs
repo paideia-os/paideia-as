@@ -179,6 +179,18 @@ pub fn lower_type_ast(
             Ok(types.intern(ref_type))
         }
 
+        TypeData::Array { element, length: _ } => {
+            // #1227: MVP mirrors struct/enum handling — array types resolve
+            // to Top in the type interner. Distinguished array typing is
+            // deferred until a downstream consumer needs it. Recursively
+            // lower the element type so its interning fires and any
+            // element-name error surfaces normally.
+            let _elem_ty = lower_type_ast(
+                ast, source_map, *element, types, effects, caps, registry, enum_registry,
+            )?;
+            Ok(types.top())
+        }
+
         _ => {
             // Unimplemented type variants (Array, Record, Enum, etc.) → placeholder Top
             let span = ast.get(node).map(|nd| nd.span).unwrap_or_else(|| {

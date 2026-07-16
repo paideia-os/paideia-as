@@ -854,12 +854,11 @@ fn test_stmt_let_i32_primitive_annotated_populates_ty() {
     assert!(info.enum_type_id.is_none(), "enum_type_id stays None for primitive");
 }
 
-/// Test 13: StmtLet with array annotation does not populate ty.
-/// #1221: TypeData::Array has no arm in lower_type_ast (T0570 catch-all).
-/// Negative witness — populator must not panic; ty stays None.
-/// TODO: revisit when Array lowering lands (follow-up filed).
+/// Test 13: StmtLet with array annotation populates ty as Top.
+/// #1227: MVP resolves Array to Top, mirroring struct/enum precedent.
+/// Distinguished array typing deferred until downstream consumer needs it.
 #[test]
-fn test_stmt_let_array_annotated_does_not_populate_ty() {
+fn test_stmt_let_array_annotated_populates_ty_as_top() {
     let mut ast = AstArena::new();
     let mut source_map = SourceMap::new();
     let fid = source_map.add_file(
@@ -907,12 +906,10 @@ fn test_stmt_let_array_annotated_does_not_populate_ty() {
     );
 
     let stmt_let_ir_id = lowering.ast_to_ir[&stmt_let_id];
-    let info = lowering.ir.let_meta().get(stmt_let_ir_id);
-    if let Some(i) = info {
-        assert!(i.ty.is_none(), "array-type not lowered → ty stays None");
-        assert!(i.enum_type_id.is_none());
-    }
-    // No panic reaching here IS the assertion.
+    let info = lowering.ir.let_meta().get(stmt_let_ir_id)
+        .expect("populator wrote LetInfo for array annotation");
+    assert!(info.ty.is_some(), "array-type lowered to Top; ty populated");
+    assert!(info.enum_type_id.is_none(), "enum_type_id stays None for arrays");
 }
 
 /// Test 14: Populator does not panic on broken annotation.
