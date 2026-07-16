@@ -12,6 +12,8 @@ use paideia_as_elaborator::{
 };
 use paideia_as_types::TypeInterner;
 use paideia_as_effects::EffectInterner;
+use paideia_as_ir::enum_layout::EnumTypeId;
+use paideia_as_diagnostics::{Span, SourceMap, VecSink};
 use crate::common::{test_span, create_test_source_map_and_sink};
 
 /// Test 1: Unannotated item Let (no type annotation).
@@ -446,29 +448,35 @@ fn test_many_unannotated_lets() {
 /// Create a StmtLet with `let s : Result = ...`, run populator, verify ty is populated.
 #[test]
 fn test_stmt_let_enum_annotated_populates_enum_type_id() {
+    // #1223 rewrite: assert on a real EnumRegistry hit, not the
+    // silently-guarded no-op the prior test performed.
     let mut ast = AstArena::new();
-    let span = test_span();
-    let (source_map, mut sink) = create_test_source_map_and_sink();
 
-    // Create type annotation node with TypeData::Name for "Result"
-    let type_ident = ast.alloc(NodeKind::Ident, span);
+    let mut source_map = SourceMap::new();
+    let fid = source_map.add_file(
+        std::path::PathBuf::from("test.pdx"),
+        String::from("Result"),
+    );
+    let mut sink = VecSink::new();
+
+    let name_span = Span::new(fid, 0, 6);   // covers "Result"
+    let benign_span = Span::new(fid, 0, 1); // for non-ident nodes
+
+    let type_ident = ast.alloc(NodeKind::Ident, name_span);
     let type_node = ast.alloc_type(
         NodeKind::TypeName,
-        span,
+        benign_span,
         paideia_as_ast::TypeData::Name {
             name: type_ident,
             args: vec![],
         },
     );
+    let rhs_id = ast.alloc(NodeKind::ExprLiteral, benign_span);
+    let name_id = ast.alloc(NodeKind::Ident, benign_span);
 
-    // Create RHS
-    let rhs_id = ast.alloc(NodeKind::ExprLiteral, span);
-    let name_id = ast.alloc(NodeKind::Ident, span);
-
-    // Create a StmtLet with enum type annotation
     let stmt_let_id = ast.alloc_stmt(
         NodeKind::StmtLet,
-        span,
+        benign_span,
         StmtData::Let {
             mutable: false,
             name: name_id,
@@ -477,17 +485,24 @@ fn test_stmt_let_enum_annotated_populates_enum_type_id() {
         },
     );
 
-    let enum_registry = EnumRegistry::empty();
+    let mut enum_registry = EnumRegistry::empty();
+    enum_registry.by_name.insert("Result".to_string(), EnumTypeId(7));
+
     let registry = StructRegistry::empty();
     let payload_map = HashMap::new();
-    let mut lowering = lower_ast_to_ir(&ast, &source_map, &mut sink, &registry, &enum_registry, &payload_map);
+    let mut lowering = lower_ast_to_ir(
+        &ast,
+        &source_map,
+        &mut sink,
+        &registry,
+        &enum_registry,
+        &payload_map,
+    );
 
-    // Construct interners
     let mut types = TypeInterner::new();
     let mut effects = EffectInterner::new();
     let mut caps = paideia_as_types::CapSetInterner::new();
 
-    // Run the populator
     populate_let_meta_ty(
         &ast,
         &mut lowering.ir,
@@ -500,43 +515,50 @@ fn test_stmt_let_enum_annotated_populates_enum_type_id() {
         &enum_registry,
     );
 
-    // Assert that the StmtLet's LetInfo.ty is populated
     let stmt_let_ir_id = lowering.ast_to_ir[&stmt_let_id];
-    let let_info = lowering.ir.let_meta().get(stmt_let_ir_id);
-    if let Some(info) = let_info {
-        assert!(info.ty.is_some(), "StmtLet with type annotation should have ty populated");
-        // enum_type_id would be populated if the enum was in the registry
-        // For this test, we just verify it doesn't crash
-    }
+    let info = lowering.ir.let_meta().get(stmt_let_ir_id)
+        .expect("populator must have written LetInfo for annotated Let");
+    assert!(info.ty.is_some(), "ty populated from enum annotation");
+    assert_eq!(
+        info.enum_type_id,
+        Some(EnumTypeId(7)),
+        "enum_type_id populated from registry lookup"
+    );
 }
 
 /// Test 8: Item Let with enum type annotation populates enum_type_id.
 /// Create a NodeKind::Let with enum type annotation.
 #[test]
 fn test_item_let_enum_annotated_populates_enum_type_id() {
+    // #1223 rewrite: assert on a real EnumRegistry hit, not the
+    // silently-guarded no-op the prior test performed.
     let mut ast = AstArena::new();
-    let span = test_span();
-    let (source_map, mut sink) = create_test_source_map_and_sink();
 
-    // Create type annotation node with TypeData::Name for "Result"
-    let type_ident = ast.alloc(NodeKind::Ident, span);
+    let mut source_map = SourceMap::new();
+    let fid = source_map.add_file(
+        std::path::PathBuf::from("test.pdx"),
+        String::from("Result"),
+    );
+    let mut sink = VecSink::new();
+
+    let name_span = Span::new(fid, 0, 6);   // covers "Result"
+    let benign_span = Span::new(fid, 0, 1); // for non-ident nodes
+
+    let type_ident = ast.alloc(NodeKind::Ident, name_span);
     let type_node = ast.alloc_type(
         NodeKind::TypeName,
-        span,
+        benign_span,
         paideia_as_ast::TypeData::Name {
             name: type_ident,
             args: vec![],
         },
     );
+    let rhs_id = ast.alloc(NodeKind::ExprLiteral, benign_span);
+    let name_id = ast.alloc(NodeKind::Ident, benign_span);
 
-    // Create RHS
-    let rhs_id = ast.alloc(NodeKind::ExprLiteral, span);
-    let name_id = ast.alloc(NodeKind::Ident, span);
-
-    // Create an item-level Let with enum type annotation
     let let_ast_id = ast.alloc_item(
         NodeKind::Let,
-        span,
+        benign_span,
         ItemData::Let {
             public: false,
             mutable: false,
@@ -552,17 +574,24 @@ fn test_item_let_enum_annotated_populates_enum_type_id() {
         },
     );
 
-    let enum_registry = EnumRegistry::empty();
+    let mut enum_registry = EnumRegistry::empty();
+    enum_registry.by_name.insert("Result".to_string(), EnumTypeId(7));
+
     let registry = StructRegistry::empty();
     let payload_map = HashMap::new();
-    let mut lowering = lower_ast_to_ir(&ast, &source_map, &mut sink, &registry, &enum_registry, &payload_map);
+    let mut lowering = lower_ast_to_ir(
+        &ast,
+        &source_map,
+        &mut sink,
+        &registry,
+        &enum_registry,
+        &payload_map,
+    );
 
-    // Construct interners
     let mut types = TypeInterner::new();
     let mut effects = EffectInterner::new();
     let mut caps = paideia_as_types::CapSetInterner::new();
 
-    // Run the populator
     populate_let_meta_ty(
         &ast,
         &mut lowering.ir,
@@ -575,12 +604,15 @@ fn test_item_let_enum_annotated_populates_enum_type_id() {
         &enum_registry,
     );
 
-    // Assert that the Let's LetInfo.ty is populated
     let let_ir_id = lowering.ast_to_ir[&let_ast_id];
-    let let_info = lowering.ir.let_meta().get(let_ir_id);
-    if let Some(info) = let_info {
-        assert!(info.ty.is_some(), "Let with type annotation should have ty populated");
-    }
+    let info = lowering.ir.let_meta().get(let_ir_id)
+        .expect("populator must have written LetInfo for annotated Let");
+    assert!(info.ty.is_some(), "ty populated from enum annotation");
+    assert_eq!(
+        info.enum_type_id,
+        Some(EnumTypeId(7)),
+        "enum_type_id populated from registry lookup"
+    );
 }
 
 /// Test 9: StmtLet with struct type annotation leaves enum_type_id None.
