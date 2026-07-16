@@ -39,6 +39,9 @@ fn u1623_code() -> DiagnosticCode {
 /// (see abi.rs). They are not SysV arg registers, so live parameter values
 /// in RDI/RSI/RDX/RCX/R8/R9 are not disturbed. R12+ would be callee-saved
 /// and require prologue plumbing this MVP does not have.
+///
+/// NOTE (#1225): filtered against live_regs() at call site because pattern-binder
+/// pool (see emit_enum_match.rs::lower_pattern_from_reg) overlaps R10/R11.
 const ARG1_SCRATCHES: [RegId; 2] = [
     paideia_as_ir::abi::R10,
     paideia_as_ir::abi::R11,
@@ -738,17 +741,28 @@ impl EmitWalker {
                     }
 
                     // #1181 corrective: depth-indexed arg1 scratch (was hardcoded R10).
-                    let arg1_dest = match ARG1_SCRATCHES.get(depth) {
+                    // #1225: filter against live_regs() so a pattern-binder that landed
+                    // on R10/R11 (via lower_pattern_from_reg's [RCX,R8,R10,R11] pool)
+                    // isn't clobbered by this pool. Snapshotting per call is safe: nested
+                    // BinOp emission adds no bindings, so recursion inherits an identical
+                    // live set.
+                    let live = self.state.local_bindings.live_regs();
+                    let pool: SmallVec<[RegId; 2]> = ARG1_SCRATCHES.iter()
+                        .copied()
+                        .filter(|r| !live.contains(r))
+                        .collect();
+                    let arg1_dest = match pool.get(depth) {
                         Some(&r) => r,
                         None => {
                             self.push_typed_diag(
                                 t0540_code(),
                                 format!(
                                     "BinOp RHS nesting depth {} exceeds supported limit {} \
-                                     (no scratch register available for arg1 — refactor \
-                                     deeply-nested expression into let-bindings)",
+                                     after live-reg filter (base=[R10,R11], {} slot(s) free) \
+                                     — refactor deeply-nested expression into let-bindings",
                                     depth + 1,
                                     ARG1_SCRATCHES.len(),
+                                    pool.len(),
                                 ),
                             );
                             return false;
