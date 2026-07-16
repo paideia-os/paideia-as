@@ -2610,6 +2610,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "During register_nested_lambda_params in emit_visit_lambda, a parameter was found\nto have a type that resolves to a registered enum with RegisterPair passing\nconvention. Pair parameters (with both discriminant and payload in registers)\nare only supported at parameter index 0 (registers RAX, RDX).\n\nFor index >= 1, the prologue would need to allocate different scratch registers\nto hold the pair, which is not yet implemented. Either reorder your lambda\nparameters to place enum-typed parameters first, or refactor the lambda to\naccept fewer parameters.\n\nPart of #1156 (receiver-side).\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/U1660",
+              "id": "U1660",
+              "name": "Register-pair enum parameter at non-zero position unsupported",
+              "shortDescription": {
+                "text": "register_nested_lambda_params encountered enum-typed parameter beyond position 0"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "The #![bits = 16] inner attribute specifies 16-bit mode, which is not supported in this implementation. PaideiaOS is designed for x86_64 (64-bit) primarily, with 32-bit fallback available. Either use #![bits = 32] or #![bits = 64], or remove the attribute to use the default."
               },
               "helpUri": "https://paideia-os.org/diagnostics/B1700",

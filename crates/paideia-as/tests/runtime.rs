@@ -93,6 +93,7 @@ mod runtime {
     mod enum_qual_arg_pos1_2arg_value;
     mod enum_qual_arg_mixed_locals_value;
     mod enum_match_arm_binop_mul_value;
+    mod fn_param_enum_scrutinee_value;
     mod unit_var_module_let_matches_value;
     mod unit_var_module_let_matches_b_value;
     mod unit_var_module_let_matches_c_value;

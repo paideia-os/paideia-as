@@ -20,6 +20,7 @@ use crate::enum_layout::{
 use crate::instruction::InstructionSideTable;
 use crate::int_match::IntMatchScrutineeTable;
 use crate::lambda_param::LambdaParamTable;
+use crate::lambda_param_enum_ty::LambdaParamEnumTypeTable;
 use crate::let_meta::LetMetaTable;
 use crate::literal_bytes::LiteralBytesTable;
 use crate::literal_value::LiteralValueTable;
@@ -119,6 +120,10 @@ pub struct IrArena {
     /// Issue #1210: populated by populate_int_match_meta for integer-scrutinee matches;
     /// consumed by visit_int_match to route around the enum-only pipeline.
     int_match_scrutinee: IntMatchScrutineeTable,
+    /// Side-table: lambda parameter enum types indexed by (Lambda node ID, param_index).
+    /// Issue #1156: populated by populate_lambda_param_enum_types for enum-typed parameters;
+    /// consumed by register_nested_lambda_params to install (RAX, RDX) pair bindings.
+    lambda_param_enum_types: LambdaParamEnumTypeTable,
     /// Side-table: call site metadata indexed by App node ID.
     /// PA-r17-004: populated by pre-emit pass; consumed by emit_walker for indirect/direct dispatch.
     call_sites: CallSideTable,
@@ -164,6 +169,7 @@ impl IrArena {
             public_lets: HashSet::new(),
             stmt_lets: HashSet::new(),
             int_match_scrutinee: IntMatchScrutineeTable::new(),
+            lambda_param_enum_types: LambdaParamEnumTypeTable::new(),
             call_sites: CallSideTable::new(),
         }
     }
@@ -572,6 +578,18 @@ impl IrArena {
     /// Borrow the integer-scrutinee match side-table (mutable).
     pub fn int_match_scrutinee_mut(&mut self) -> &mut IntMatchScrutineeTable {
         &mut self.int_match_scrutinee
+    }
+
+    /// Borrow the lambda parameter enum types side-table (read-only).
+    /// Issue #1156: provides access to EnumTypeId for lambda parameters.
+    #[must_use]
+    pub fn lambda_param_enum_types(&self) -> &LambdaParamEnumTypeTable {
+        &self.lambda_param_enum_types
+    }
+
+    /// Borrow the lambda parameter enum types side-table (mutable).
+    pub fn lambda_param_enum_types_mut(&mut self) -> &mut LambdaParamEnumTypeTable {
+        &mut self.lambda_param_enum_types
     }
 
     /// Borrow the call sites side-table (read-only).

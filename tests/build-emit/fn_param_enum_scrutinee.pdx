@@ -1,0 +1,12 @@
+// #1156 receiver-side. Driver poisons RAX=0 (Ok disc), RDX=42 (payload)
+// before `call f`. Prologue's insert_pair(e, RAX, RDX) then feeds
+// match e { Ok(x) => x } which returns 42.
+// Expected exit code: 42
+
+module FnParamEnumScrutinee = structure {
+  enum Result { Ok(u64), Err(u64) }
+  pub let f : (Result) -> u64 !{} @{} = fn(e : Result) -> match e {
+    Ok(x) => x
+    Err(_) => 0u64
+  }
+}

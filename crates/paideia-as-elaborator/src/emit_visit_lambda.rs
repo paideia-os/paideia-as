@@ -14,11 +14,19 @@
 
 use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand, RegId};
 use paideia_as_ir::let_meta::CallingConvention;
-use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, SymbolKind, abi};
+use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, SymbolKind, abi, PassingConvention};
+use paideia_as_diagnostics::{DiagnosticCode, Category, Severity};
 
 use crate::emit_block_body::TailContext;
 use crate::emit_store_record::operator_lexeme_of;
 use crate::emit_walker::EmitWalker;
+
+/// Helper to construct U1660 diagnostic code.
+/// Issue #1156: register-pair enum parameter at non-zero position unsupported.
+fn u1660_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::U, Severity::Error, 1660)
+        .expect("U1660 is within valid U range")
+}
 
 impl EmitWalker {
     /// Get the register for parameter index under the specified calling convention.
@@ -92,7 +100,27 @@ impl EmitWalker {
                             format!("_param_{}", current_param_index)
                         };
 
-                        self.state.local_bindings.insert(param_name.clone(), param_reg);
+                        // Issue #1156: Check if this parameter has an enum type that uses RegisterPair convention
+                        let should_use_pair = arena.lambda_param_enum_types()
+                            .get(&(lambda_node_id, current_param_index as u32))
+                            .and_then(|eid| self.state.enum_layout(*eid))
+                            .map(|l| l.passing_convention() == PassingConvention::RegisterPair && l.payload_size > 0)
+                            .unwrap_or(false);
+
+                        if should_use_pair {
+                            if current_param_index == 0 {
+                                self.state.local_bindings.insert_pair(param_name.clone(), abi::RAX, abi::RDX);
+                            } else {
+                                self.push_typed_diag(u1660_code(), format!(
+                                    "register-pair enum parameter '{}' at position {} unsupported",
+                                    param_name, current_param_index
+                                ));
+                                self.state.local_bindings.insert(param_name.clone(), param_reg);
+                            }
+                        } else {
+                            self.state.local_bindings.insert(param_name.clone(), param_reg);
+                        }
+
                         if cfg!(debug_assertions) {
                             eprintln!(
                                 "[visit_lambda PA8-m1-001c] Lambda {} param_index={} name={} → register {} (ABI={:?})",

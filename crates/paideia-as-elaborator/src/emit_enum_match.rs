@@ -165,44 +165,50 @@ impl EmitWalker {
 
         // Issue #1212: Try local bindings first (defensive consumer reorder).
         if let Some((src_reg, payload_reg)) = self.state.local_bindings.get_pair(&name) {
-            // Emit mov rax, <src_reg>
-            let mov_rax_id = self.alloc_synthetic_id();
-            let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
-            operands.push(Operand::Reg(abi::RAX));
-            operands.push(Operand::Reg(src_reg));
+            // Issue #1156 (Part 3): Skip self-move for discriminant register.
+            // Emit mov rax, <src_reg> (skip if src_reg == RAX to avoid redundant mov rax, rax)
+            if src_reg != abi::RAX {
+                let mov_rax_id = self.alloc_synthetic_id();
+                let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                operands.push(Operand::Reg(abi::RAX));
+                operands.push(Operand::Reg(src_reg));
 
-            self.emit_inst(
-                mov_rax_id,
-                Instruction {
-                    mnemonic: Mnemonic::Mov,
-                    operands,
-                    encoding_hint: None,
-                    byte_offset_in_text: None,
-                    mode: self.current_mode(),
-                    emission_order: 0,
-                },
-            );
+                self.emit_inst(
+                    mov_rax_id,
+                    Instruction {
+                        mnemonic: Mnemonic::Mov,
+                        operands,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode: self.current_mode(),
+                        emission_order: 0,
+                    },
+                );
+            }
 
             // #1154: RDX loaded from payload_reg when layout.payload_size > 0; missing payload_reg → U1658.
             if layout.payload_size > 0 {
                 if let Some(p) = payload_reg {
-                    // Emit mov rdx, <payload_reg>
-                    let load_rdx_id = self.alloc_synthetic_id();
-                    let mut rdx_operands: SmallVec<[Operand; 3]> = SmallVec::new();
-                    rdx_operands.push(Operand::Reg(abi::RDX));
-                    rdx_operands.push(Operand::Reg(p));
+                    // Issue #1156 (Part 3): Skip self-move for payload register.
+                    // Emit mov rdx, <payload_reg> (skip if p == RDX to avoid redundant mov rdx, rdx)
+                    if p != abi::RDX {
+                        let load_rdx_id = self.alloc_synthetic_id();
+                        let mut rdx_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                        rdx_operands.push(Operand::Reg(abi::RDX));
+                        rdx_operands.push(Operand::Reg(p));
 
-                    self.emit_inst(
-                        load_rdx_id,
-                        Instruction {
-                            mnemonic: Mnemonic::Mov,
-                            operands: rdx_operands,
-                            encoding_hint: None,
-                            byte_offset_in_text: None,
-                            mode: self.current_mode(),
-                            emission_order: 0,
-                        },
-                    );
+                        self.emit_inst(
+                            load_rdx_id,
+                            Instruction {
+                                mnemonic: Mnemonic::Mov,
+                                operands: rdx_operands,
+                                encoding_hint: None,
+                                byte_offset_in_text: None,
+                                mode: self.current_mode(),
+                                emission_order: 0,
+                            },
+                        );
+                    }
                 } else {
                     self.push_typed_diag(u1658_code(), format!(
                         "register-form enum local binding '{}' has no payload register; RDX would be stale",

@@ -1973,3 +1973,24 @@ when new Let-RHS shapes are added without updating the dispatcher.
 """
 since = "0.19.0"
 deprecated = false
+
+[diagnostic.U1660]
+severity = "error"
+category = "unsafe"
+title = "Register-pair enum parameter at non-zero position unsupported"
+brief = "register_nested_lambda_params encountered enum-typed parameter beyond position 0"
+description = """
+During register_nested_lambda_params in emit_visit_lambda, a parameter was found
+to have a type that resolves to a registered enum with RegisterPair passing
+convention. Pair parameters (with both discriminant and payload in registers)
+are only supported at parameter index 0 (registers RAX, RDX).
+
+For index >= 1, the prologue would need to allocate different scratch registers
+to hold the pair, which is not yet implemented. Either reorder your lambda
+parameters to place enum-typed parameters first, or refactor the lambda to
+accept fewer parameters.
+
+Part of #1156 (receiver-side).
+"""
+since = "0.20.0"
+deprecated = false

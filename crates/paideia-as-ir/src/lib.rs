@@ -24,6 +24,7 @@ pub mod handler_value;
 pub mod instruction;
 pub mod int_match;
 pub mod lambda_param;
+pub mod lambda_param_enum_ty;
 pub mod let_meta;
 pub mod literal_bytes;
 pub mod literal_value;
@@ -70,6 +71,7 @@ pub use instruction::{
 };
 pub use int_match::{IntMatchScrutinee, IntMatchScrutineeTable};
 pub use lambda_param::LambdaParamTable;
+pub use lambda_param_enum_ty::LambdaParamEnumTypeTable;
 pub use let_meta::{CallingConvention, LetInfo, LetMetaTable};
 pub use literal_bytes::LiteralBytesTable;
 pub use literal_value::LiteralValueTable;

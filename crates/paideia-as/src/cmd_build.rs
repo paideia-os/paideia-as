@@ -229,6 +229,17 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
         &enum_registry,
     );
 
+    // Issue #1156: Populate lambda_param_enum_types for enum-typed lambda parameters.
+    // This enables register_nested_lambda_params to detect enum-typed pos-0 parameters
+    // and install (RAX, RDX) pair bindings instead of scalar RDI binding.
+    paideia_as_elaborator::populate_lambda_param_enum_types(
+        &arena,
+        &mut lowering.ir,
+        &lowering.ast_to_ir,
+        &source_map,
+        &enum_registry,
+    );
+
     // PA-r17-007 (#1050): Populate enum layouts from the enum registry.
     // This enables emit_walker to look up enum layouts during EnumCons and EnumDiscriminant lowering.
     // Issue #1090: Also thread StructRegistry for struct-typed variant payloads fallback.

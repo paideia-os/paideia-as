@@ -135,6 +135,7 @@ pub use lifetime_walker::LifetimeWalker;
 pub use linearity_ctx::{Binding, LinearityCtx};
 pub use local_binding_table::{LocalBindingTable, BindingEntry};
 pub use lower::{LoweringResult, lower_ast_to_ir};
+pub use lower::lambda_param_enum_ty::populate_lambda_param_enum_types;
 pub use lower::let_meta_ty::populate_let_meta_ty;
 pub use macro_expand::{
     ExpansionOutcome, M_MACRO_EFFECT_VIOLATION, M_RECURSION_LIMIT, M_UNBOUND_META,
