@@ -43,6 +43,7 @@ mod runtime {
     mod payload_let_mixed_value;
     mod bare_enum_cons_lambda_value;
     mod app_rhs_enum_pair_ok_value;
+    mod pair_binding_call_preserve_value;
     mod match_wildcard_last_value;
     mod nested_match_two_lets_unit_value;
     mod nested_match_two_lets_payload_value;

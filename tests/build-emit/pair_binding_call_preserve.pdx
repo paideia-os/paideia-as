@@ -1,0 +1,21 @@
+// #1220: pair-binding payload_reg must be saved across intervening CALL.
+// make_ok returns Result::Ok(42), pair-bound to (RCX disc, RDX payload).
+// make_err returns Result::Err(99) — its Err(99u64) MUST materialize
+// payload=99 into RDX, guaranteeing the clobber if RDX isn't saved.
+// Without #1220 fix: `match s` reads RDX=99, arm returns 99. Wrong.
+// With #1220 fix: RDX pushed/popped around make_err() call. Reads 42. Correct.
+// Expected exit: 42
+
+module PairBindingCallPreserve = structure {
+  enum Result { Ok(u64), Err(u64) }
+  pub let make_ok  : (u64) -> Result !{} @{} = fn(x : u64) -> Result::Ok(x)
+  pub let make_err : (u64) -> Result !{} @{} = fn(x : u64) -> Result::Err(x)
+  pub let entry : () -> u64 !{} @{} = fn(_ : ()) -> {
+    let s : Result = make_ok(42u64)
+    let _t : Result = make_err(99u64)
+    match s {
+      Ok(v) => v
+      Err(_) => 0u64
+    }
+  }
+}

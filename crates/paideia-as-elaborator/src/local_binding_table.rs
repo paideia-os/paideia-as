@@ -466,4 +466,26 @@ mod tests {
         assert!(live.contains(&abi::RAX), "live_regs should contain scalar binding's register RAX");
         assert_eq!(live.len(), 1);
     }
+
+    /// #1220: iter() yields primary only; live_regs() is pair-aware.
+    /// Locking the semantics to prevent regression where iter() was used
+    /// to detect register liveness, missing pair-binding payload_regs.
+    #[test]
+    fn iter_yields_primary_only_live_regs_is_pair_aware() {
+        let mut table = LocalBindingTable::new();
+        table.push_scope();
+        table.insert_pair("s".to_string(), abi::RCX, abi::RDX);
+        table.insert("scalar".to_string(), abi::R8);
+
+        let iter_regs: HashSet<RegId> = table.iter().map(|(_, r)| r).collect();
+        assert_eq!(iter_regs, HashSet::from([abi::RCX, abi::R8]));
+        // RDX (payload) NOT in iter — that's #1220's whole point
+        assert!(!iter_regs.contains(&abi::RDX));
+
+        let live = table.live_regs();
+        assert!(live.contains(&abi::RCX));
+        assert!(live.contains(&abi::RDX));  // payload IS in live_regs
+        assert!(live.contains(&abi::R8));
+        assert_eq!(live.len(), 3);
+    }
 }

@@ -782,7 +782,7 @@ impl EmitWalker {
                             // If RCX is in use by a prior binding (when dest != RCX), we must save/restore it.
                             // Check if RCX is in local_bindings (i.e., holds a binding value).
                             let rcx_in_use = if dest != paideia_as_ir::abi::RCX {
-                                self.state.local_bindings.iter().any(|(_, reg)| reg == paideia_as_ir::abi::RCX)
+                                self.state.local_bindings.live_regs().contains(&paideia_as_ir::abi::RCX)  // #1220
                             } else {
                                 false // If dest is RCX, RCX will be overwritten anyway
                             };
@@ -949,15 +949,16 @@ impl EmitWalker {
     /// 5. Restores in reverse order
     fn emit_div_unsigned(&mut self, dest: RegId, divisor: RegId, result_reg: RegId) {
         // Check if RDX is live and must be saved.
+        let live = self.state.local_bindings.live_regs();  // #1220: pair-aware liveness
         let rdx_live = if dest != abi::RDX && divisor != abi::RDX {
-            self.state.local_bindings.iter().any(|(_, reg)| reg == abi::RDX)
+            live.contains(&abi::RDX)
         } else {
             false
         };
 
         // Check if RAX is live and must be saved.
         let rax_live = if dest != abi::RAX && divisor != abi::RAX {
-            self.state.local_bindings.iter().any(|(_, reg)| reg == abi::RAX)
+            live.contains(&abi::RAX)
         } else {
             false
         };

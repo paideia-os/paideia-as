@@ -109,10 +109,14 @@ impl EmitWalker {
         // Issue #1163 (corrective): Compute scratch-save set BEFORE MS prelude emission
         // to determine dynamic MS bump based on parity. This hoisting avoids dependency
         // reordering and captures all caller-save registers that hold live bindings.
+        // #1220: filter against live_regs() (includes pair-binding payload_reg)
+        // rather than iter() (primary only). iter() left payload_regs unsaved
+        // across CALLs → silent clobber of the pair's payload.
+        let live = self.state.local_bindings.live_regs();
         let caller_save_scratch = [abi::RCX, abi::RDX, abi::R8, abi::R9];
         let scratch_save_set: Vec<RegId> = caller_save_scratch.iter()
-            .filter(|&&r| self.state.local_bindings.iter().any(|(_, reg)| reg == r))
             .copied()
+            .filter(|r| live.contains(r))
             .collect();
 
         // #1192: Compute dynamic MS shadow-space bump based on scratch-save parity.
