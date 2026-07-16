@@ -749,3 +749,220 @@ fn test_stmt_let_unknown_type_leaves_both_none() {
         assert_eq!(info.enum_type_id, None, "Unknown type should leave enum_type_id as None");
     }
 }
+
+/// Test 11: StmtLet with u64 primitive annotation populates ty.
+/// Verify that primitive u64-typed bindings populate ty correctly.
+#[test]
+fn test_stmt_let_u64_primitive_annotated_populates_ty() {
+    let mut ast = AstArena::new();
+    let mut source_map = SourceMap::new();
+    let fid = source_map.add_file(
+        std::path::PathBuf::from("test.pdx"),
+        String::from("u64"),
+    );
+    let mut sink = VecSink::new();
+
+    let name_span = Span::new(fid, 0, 3);  // covers "u64"
+    let benign_span = Span::new(fid, 0, 1);
+
+    let type_ident = ast.alloc(NodeKind::Ident, name_span);
+    let type_node = ast.alloc_type(
+        NodeKind::TypeName,
+        benign_span,
+        paideia_as_ast::TypeData::Name { name: type_ident, args: vec![] },
+    );
+    let rhs_id = ast.alloc(NodeKind::ExprLiteral, benign_span);
+    let name_id = ast.alloc(NodeKind::Ident, benign_span);
+    let stmt_let_id = ast.alloc_stmt(
+        NodeKind::StmtLet,
+        benign_span,
+        StmtData::Let { mutable: false, name: name_id, ty: Some(type_node), value: rhs_id },
+    );
+
+    let registry = StructRegistry::empty();
+    let enum_registry = EnumRegistry::empty();
+    let payload_map = HashMap::new();
+    let mut lowering = lower_ast_to_ir(
+        &ast, &source_map, &mut sink, &registry, &enum_registry, &payload_map,
+    );
+
+    let mut types = TypeInterner::new();
+    let mut effects = EffectInterner::new();
+    let mut caps = paideia_as_types::CapSetInterner::new();
+
+    populate_let_meta_ty(
+        &ast, &mut lowering.ir, &lowering.ast_to_ir, &source_map,
+        &mut types, &mut effects, &mut caps, &registry, &enum_registry,
+    );
+
+    let stmt_let_ir_id = lowering.ast_to_ir[&stmt_let_id];
+    let info = lowering.ir.let_meta().get(stmt_let_ir_id)
+        .expect("populator wrote LetInfo for u64 annotation");
+    assert!(info.ty.is_some(), "ty populated for primitive u64");
+    assert!(info.enum_type_id.is_none(), "enum_type_id stays None for primitive");
+}
+
+/// Test 12: StmtLet with i32 primitive annotation populates ty.
+/// Verify that primitive i32-typed bindings populate ty correctly.
+#[test]
+fn test_stmt_let_i32_primitive_annotated_populates_ty() {
+    let mut ast = AstArena::new();
+    let mut source_map = SourceMap::new();
+    let fid = source_map.add_file(
+        std::path::PathBuf::from("test.pdx"),
+        String::from("i32"),
+    );
+    let mut sink = VecSink::new();
+
+    let name_span = Span::new(fid, 0, 3);  // covers "i32"
+    let benign_span = Span::new(fid, 0, 1);
+
+    let type_ident = ast.alloc(NodeKind::Ident, name_span);
+    let type_node = ast.alloc_type(
+        NodeKind::TypeName,
+        benign_span,
+        paideia_as_ast::TypeData::Name { name: type_ident, args: vec![] },
+    );
+    let rhs_id = ast.alloc(NodeKind::ExprLiteral, benign_span);
+    let name_id = ast.alloc(NodeKind::Ident, benign_span);
+    let stmt_let_id = ast.alloc_stmt(
+        NodeKind::StmtLet,
+        benign_span,
+        StmtData::Let { mutable: false, name: name_id, ty: Some(type_node), value: rhs_id },
+    );
+
+    let registry = StructRegistry::empty();
+    let enum_registry = EnumRegistry::empty();
+    let payload_map = HashMap::new();
+    let mut lowering = lower_ast_to_ir(
+        &ast, &source_map, &mut sink, &registry, &enum_registry, &payload_map,
+    );
+
+    let mut types = TypeInterner::new();
+    let mut effects = EffectInterner::new();
+    let mut caps = paideia_as_types::CapSetInterner::new();
+
+    populate_let_meta_ty(
+        &ast, &mut lowering.ir, &lowering.ast_to_ir, &source_map,
+        &mut types, &mut effects, &mut caps, &registry, &enum_registry,
+    );
+
+    let stmt_let_ir_id = lowering.ast_to_ir[&stmt_let_id];
+    let info = lowering.ir.let_meta().get(stmt_let_ir_id)
+        .expect("populator wrote LetInfo for i32 annotation");
+    assert!(info.ty.is_some(), "ty populated for primitive i32");
+    assert!(info.enum_type_id.is_none(), "enum_type_id stays None for primitive");
+}
+
+/// Test 13: StmtLet with array annotation does not populate ty.
+/// #1221: TypeData::Array has no arm in lower_type_ast (T0570 catch-all).
+/// Negative witness — populator must not panic; ty stays None.
+/// TODO: revisit when Array lowering lands (follow-up filed).
+#[test]
+fn test_stmt_let_array_annotated_does_not_populate_ty() {
+    let mut ast = AstArena::new();
+    let mut source_map = SourceMap::new();
+    let fid = source_map.add_file(
+        std::path::PathBuf::from("test.pdx"),
+        String::from("u8"),
+    );
+    let mut sink = VecSink::new();
+
+    let span = Span::new(fid, 0, 2);
+
+    let elem_ident = ast.alloc(NodeKind::Ident, span);
+    let elem_type = ast.alloc_type(
+        NodeKind::TypeName,
+        span,
+        paideia_as_ast::TypeData::Name { name: elem_ident, args: vec![] },
+    );
+    let length = ast.alloc(NodeKind::ExprLiteral, span);
+    let type_node = ast.alloc_type(
+        NodeKind::TypeName,  // populator only reads type_data, kind irrelevant
+        span,
+        paideia_as_ast::TypeData::Array { element: elem_type, length },
+    );
+    let rhs_id = ast.alloc(NodeKind::ExprLiteral, span);
+    let name_id = ast.alloc(NodeKind::Ident, span);
+    let stmt_let_id = ast.alloc_stmt(
+        NodeKind::StmtLet,
+        span,
+        StmtData::Let { mutable: false, name: name_id, ty: Some(type_node), value: rhs_id },
+    );
+
+    let registry = StructRegistry::empty();
+    let enum_registry = EnumRegistry::empty();
+    let payload_map = HashMap::new();
+    let mut lowering = lower_ast_to_ir(
+        &ast, &source_map, &mut sink, &registry, &enum_registry, &payload_map,
+    );
+
+    let mut types = TypeInterner::new();
+    let mut effects = EffectInterner::new();
+    let mut caps = paideia_as_types::CapSetInterner::new();
+
+    populate_let_meta_ty(
+        &ast, &mut lowering.ir, &lowering.ast_to_ir, &source_map,
+        &mut types, &mut effects, &mut caps, &registry, &enum_registry,
+    );
+
+    let stmt_let_ir_id = lowering.ast_to_ir[&stmt_let_id];
+    let info = lowering.ir.let_meta().get(stmt_let_ir_id);
+    if let Some(i) = info {
+        assert!(i.ty.is_none(), "array-type not lowered → ty stays None");
+        assert!(i.enum_type_id.is_none());
+    }
+    // No panic reaching here IS the assertion.
+}
+
+/// Test 14: Populator does not panic on broken annotation.
+/// #1221: regression witness — Name with non-Ident name (T0572 path).
+/// Distinct from Test 10 (T0569 unknown-name). populator must not panic.
+#[test]
+fn test_populator_does_not_panic_on_broken_annotation() {
+    let mut ast = AstArena::new();
+    let mut source_map = SourceMap::new();
+    let fid = source_map.add_file(
+        std::path::PathBuf::from("test.pdx"),
+        String::from("x"),
+    );
+    let mut sink = VecSink::new();
+
+    let span = Span::new(fid, 0, 1);
+
+    // Name field points to non-Ident node — get_ident_text returns Err(T0572).
+    let bogus = ast.alloc(NodeKind::ExprLiteral, span);
+    let type_node = ast.alloc_type(
+        NodeKind::TypeName,
+        span,
+        paideia_as_ast::TypeData::Name { name: bogus, args: vec![] },
+    );
+    let rhs_id = ast.alloc(NodeKind::ExprLiteral, span);
+    let name_id = ast.alloc(NodeKind::Ident, span);
+    let stmt_let_id = ast.alloc_stmt(
+        NodeKind::StmtLet,
+        span,
+        StmtData::Let { mutable: false, name: name_id, ty: Some(type_node), value: rhs_id },
+    );
+
+    let registry = StructRegistry::empty();
+    let enum_registry = EnumRegistry::empty();
+    let payload_map = HashMap::new();
+    let mut lowering = lower_ast_to_ir(
+        &ast, &source_map, &mut sink, &registry, &enum_registry, &payload_map,
+    );
+
+    let mut types = TypeInterner::new();
+    let mut effects = EffectInterner::new();
+    let mut caps = paideia_as_types::CapSetInterner::new();
+
+    populate_let_meta_ty(
+        &ast, &mut lowering.ir, &lowering.ast_to_ir, &source_map,
+        &mut types, &mut effects, &mut caps, &registry, &enum_registry,
+    );
+
+    // No panic. Either no entry, or ty stays None.
+    let stmt_let_ir_id = lowering.ast_to_ir[&stmt_let_id];
+    let info = lowering.ir.let_meta().get(stmt_let_ir_id);
+    if let Some(i) = info { assert!(i.ty.is_none()); }
+}
