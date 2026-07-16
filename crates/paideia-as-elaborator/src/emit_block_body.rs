@@ -11,7 +11,7 @@
 //! expression to RAX.
 
 use paideia_as_ir::instruction::{Cond, Instruction, IntWidth, Mnemonic, Operand};
-use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi};
+use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi, PassingConvention};
 use paideia_as_diagnostics::{Category, DiagnosticCode, Severity};
 
 use crate::emit_walker::EmitWalker;
@@ -279,6 +279,31 @@ impl EmitWalker {
                                             let _ = self.emit_var_assign_expr_to_reg(rhs_id, arena, scratch_reg, 0);
                                         } else {
                                             // Real function call (callee is not an operator)
+                                            // #1178: Check if return value is a register-form enum with payload.
+                                            let pair_layout = Self::resolve_let_enum_layout(arena, child_id)
+                                                .filter(|l| l.passing_convention() == PassingConvention::RegisterPair
+                                                            && l.payload_size > 0);
+
+                                            // Reserve payload_reg from the SAME [RCX,RDX,R8,R9] scratch pool
+                                            // (do NOT introduce an R10 sub-pool — softarch scope rule).
+                                            // Only when pair_layout is Some.
+                                            let payload_reg = if pair_layout.is_some() {
+                                                // Same allocator as scratch_reg — increment scratch_count.
+                                                let idx = self.state.scratch_count();
+                                                if idx >= scratch_regs.len() {
+                                                    self.push_typed_diag(t0527_code(), format!(
+                                                        "let-App RHS scratch-pool exhausted (enum pair) for '{}'",
+                                                        binding_name
+                                                    ));
+                                                    return;
+                                                }
+                                                let reg = scratch_regs[idx];
+                                                self.state.assign_scratch(reg);
+                                                Some(reg)
+                                            } else {
+                                                None
+                                            };
+
                                             let app_children = arena.children(rhs_id);
                                             let arg_ids: Vec<IrNodeId> = app_children[1..].to_vec();
                                             // Use state.current_function (the enclosing lambda's id),
@@ -286,6 +311,28 @@ impl EmitWalker {
                                             let lambda_id = IrNodeId::new(self.state.current_function)
                                                 .expect("current_function set by walker");
                                             self.emit_call_expr(lambda_id, meta.callee_name.clone(), &arg_ids, arena);
+
+                                            // #1178 CRITICAL: emit payload capture FIRST (only if pair path AND payload_reg != RDX).
+                                            if let Some(preg) = payload_reg {
+                                                if preg != abi::RDX {
+                                                    let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                                                    ops.push(Operand::Reg(preg));
+                                                    ops.push(Operand::Reg(abi::RDX));
+                                                    let inst = Instruction {
+                                                        mnemonic: Mnemonic::Mov,
+                                                        operands: ops,
+                                                        encoding_hint: None,
+                                                        byte_offset_in_text: None,
+                                                        mode: self.current_mode(),
+                                                        emission_order: 0,
+                                                    };
+                                                    let payload_inst_id = IrNodeId::new(1_210_000 + child_id.get())
+                                                        .expect("let-app payload capture id");
+                                                    self.emit_inst(payload_inst_id, inst);
+                                                }
+                                            }
+
+                                            // Existing mov scratch_reg, rax block (unchanged).
                                             if scratch_reg != abi::RAX {
                                                 // mov scratch_reg, rax — materialize the CALL result.
                                                 let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
@@ -303,7 +350,13 @@ impl EmitWalker {
                                                     .expect("let-app materialize id");
                                                 self.emit_inst(inst_id, inst);
                                             }
-                                            self.state.local_bindings.insert(binding_name.clone(), scratch_reg);
+
+                                            // Registration.
+                                            if let Some(preg) = payload_reg {
+                                                self.state.local_bindings.insert_pair(binding_name.clone(), scratch_reg, preg);
+                                            } else {
+                                                self.state.local_bindings.insert(binding_name.clone(), scratch_reg);
+                                            }
                                         }
                                     }
                                 }
@@ -961,6 +1014,32 @@ impl EmitWalker {
                                             let _ = self.emit_var_assign_expr_to_reg(rhs_id, arena, scratch_reg, 0);
                                         } else {
                                             // Real function call (callee is not an operator)
+                                            // #1178: Check if return value is a register-form enum with payload.
+                                            let pair_layout = Self::resolve_let_enum_layout(arena, child_id)
+                                                .filter(|l| l.passing_convention() == PassingConvention::RegisterPair
+                                                            && l.payload_size > 0);
+
+                                            // Reserve payload_reg from the SAME [RCX,RDX,R8,R9] scratch pool
+                                            // (do NOT introduce an R10 sub-pool — softarch scope rule).
+                                            // Only when pair_layout is Some.
+                                            let payload_reg = if pair_layout.is_some() {
+                                                // Same allocator as scratch_reg — increment scratch_count.
+                                                let idx = self.state.scratch_count();
+                                                if idx >= scratch_regs.len() {
+                                                    self.push_typed_diag(t0527_code(), format!(
+                                                        "let-App RHS scratch-pool exhausted (enum pair) for '{}'",
+                                                        binding_name
+                                                    ));
+                                                    self.state.local_bindings.pop_scope();
+                                                    return;
+                                                }
+                                                let reg = scratch_regs[idx];
+                                                self.state.assign_scratch(reg);
+                                                Some(reg)
+                                            } else {
+                                                None
+                                            };
+
                                             let app_children = arena.children(rhs_id);
                                             let arg_ids: Vec<IrNodeId> = app_children[1..].to_vec();
                                             // Use state.current_function (the enclosing lambda's id),
@@ -968,6 +1047,28 @@ impl EmitWalker {
                                             let lambda_id = IrNodeId::new(self.state.current_function)
                                                 .expect("current_function set by walker");
                                             self.emit_call_expr(lambda_id, meta.callee_name.clone(), &arg_ids, arena);
+
+                                            // #1178 CRITICAL: emit payload capture FIRST (only if pair path AND payload_reg != RDX).
+                                            if let Some(preg) = payload_reg {
+                                                if preg != abi::RDX {
+                                                    let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                                                    ops.push(Operand::Reg(preg));
+                                                    ops.push(Operand::Reg(abi::RDX));
+                                                    let inst = Instruction {
+                                                        mnemonic: Mnemonic::Mov,
+                                                        operands: ops,
+                                                        encoding_hint: None,
+                                                        byte_offset_in_text: None,
+                                                        mode: self.current_mode(),
+                                                        emission_order: 0,
+                                                    };
+                                                    let payload_inst_id = IrNodeId::new(1_211_000 + child_id.get())
+                                                        .expect("let-app payload capture id");
+                                                    self.emit_inst(payload_inst_id, inst);
+                                                }
+                                            }
+
+                                            // Existing mov scratch_reg, rax block (unchanged).
                                             if scratch_reg != abi::RAX {
                                                 // mov scratch_reg, rax — materialize the CALL result.
                                                 let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
@@ -985,7 +1086,13 @@ impl EmitWalker {
                                                     .expect("let-app materialize id");
                                                 self.emit_inst(inst_id, inst);
                                             }
-                                            self.state.local_bindings.insert(binding_name.clone(), scratch_reg);
+
+                                            // Registration.
+                                            if let Some(preg) = payload_reg {
+                                                self.state.local_bindings.insert_pair(binding_name.clone(), scratch_reg, preg);
+                                            } else {
+                                                self.state.local_bindings.insert(binding_name.clone(), scratch_reg);
+                                            }
                                         }
                                     }
                                 }

@@ -1,0 +1,18 @@
+// Issue #1178 — App-RHS callee returns register-form enum; producer must
+// reserve a payload register AND capture RDX before it is clobbered by
+// the discriminant-to-scratch materialization.
+// bare_enum_cons_lambda (#1224) covers the same shape but binds via
+// tail-in-block; this one specifically drives the App-RHS producer path.
+// Expected exit code: 42
+
+module AppRhsEnumPairOk = structure {
+  enum Result { Ok(u64), Err(u64) }
+  pub let make_ok : (u64) -> Result !{} @{} = fn(x : u64) -> Result::Ok(x)
+  pub let entry : () -> u64 !{} @{} = fn(_ : ()) -> {
+    let s : Result = make_ok(42u64)
+    match s {
+      Ok(v) => v
+      Err(_) => 0u64
+    }
+  }
+}

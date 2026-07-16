@@ -415,6 +415,10 @@ impl EmitWalker {
                                                 }
                                             }
                                         }
+                                        // #1224: Lambda -> EnumCons body owned by visit_lambda; preempt flat pass at ~line 670.
+                                        IrKind::EnumCons => {
+                                            self.state.mark_enum_cons_handled(body_id.get());
+                                        }
                                         _ => {}
                                     }
                                 }

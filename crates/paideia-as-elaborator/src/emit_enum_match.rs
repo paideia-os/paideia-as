@@ -292,9 +292,8 @@ impl EmitWalker {
 
     /// PA-r17-007: Emit enum variant constructor lowering.
     ///
-    /// Handles register form (≤16-byte enums) and stack form (>16-byte enums).
-    /// Register form: RAX = discriminant, RDX = payload (if any)
-    /// Stack form: [rsp+0] = discriminant, [rsp+8] = payload
+    /// Guard function that checks if the EnumCons has already been handled.
+    /// If so, returns early. Otherwise delegates to emit_enum_cons_inner.
     ///
     /// EnumCons node children: [payload_expr (optional)]
     pub(crate) fn visit_enum_cons(&mut self, enum_cons_id: IrNodeId, arena: &IrArena) {
@@ -319,6 +318,17 @@ impl EmitWalker {
             }
         }
 
+        self.emit_enum_cons_inner(enum_cons_id, arena);
+    }
+
+    /// Emit the body of enum variant constructor lowering.
+    ///
+    /// Handles register form (≤16-byte enums) and stack form (>16-byte enums).
+    /// Register form: RAX = discriminant, RDX = payload (if any)
+    /// Stack form: [rsp+0] = discriminant, [rsp+8] = payload
+    ///
+    /// Called by visit_enum_cons (guarded entry point) and emit_visit_lambda (for lambda bodies).
+    pub(crate) fn emit_enum_cons_inner(&mut self, enum_cons_id: IrNodeId, arena: &IrArena) {
         let info = match arena.enum_cons_info().get(enum_cons_id) {
             Some(i) => i,
             None => {

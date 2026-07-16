@@ -34,6 +34,20 @@ impl EmitWalker {
         IntWidth::from_bits(bits)
     }
 
+    /// Resolve the enum layout for a Let node, if enum-typed.
+    ///
+    /// Issue #1178: reads the binding's recorded enum_type_id from the
+    /// arena's let-meta table, then looks up the finalized enum layout
+    /// from the arena's enum_layout_table. Returns `None` when the binding
+    /// has no enum_type_id, or when the layout is not yet finalized.
+    pub(crate) fn resolve_let_enum_layout(
+        arena: &IrArena,
+        let_node_id: IrNodeId,
+    ) -> Option<paideia_as_ir::EnumLayout> {
+        let eid = arena.let_meta().get(let_node_id)?.enum_type_id?;
+        arena.enum_layout_table().get(eid).cloned()
+    }
+
     /// Emit instruction for Let with Literal RHS.
     ///
     /// Lowers `let x : u64 = imm` to:

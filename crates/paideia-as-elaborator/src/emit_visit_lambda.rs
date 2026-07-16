@@ -996,6 +996,50 @@ impl EmitWalker {
         };
                         self.emit_inst(ret_id, ret_inst);
                     }
+                    // #1224: Bare-tail enum-constructor body `fn(x: T) -> Enum::Variant(x)`.
+                    // Previously fell into the catch-all → no record_lambda_entry, no ret.
+                    // Flat pass at emit_walker.rs:670 emitted the two constructor movs
+                    // stranded outside the function symbol range, causing control to fall
+                    // through into the next function → recursion → SIGSEGV.
+                    IrKind::EnumCons => {
+                        if cfg!(debug_assertions) {
+                            eprintln!(
+                                "[visit_lambda EnumCons] Lambda {} body=EnumCons",
+                                lambda_node_id.get()
+                            );
+                        }
+
+                        // Arm the pending-first-instr shim so emit_enum_cons_inner's first
+                        // emit_inst call is captured as lambda_first_instr[L]. Mirrors App
+                        // (line 338) / Match (line 912) / Action (line 830).
+                        self.state.pending_first_instr_lambda = Some(lambda_node_id.get());
+                        self.state.mark_lambda_emitted(lambda_node_id.get());
+
+                        // #1139 discipline: snapshot per-lambda bindings for resolve_var_operands.
+                        self.state.per_lambda_bindings
+                            .insert(lambda_node_id.get(), self.state.local_bindings.clone());
+
+                        // Emit constructor bytes directly via the guard-bypassing inner helper.
+                        // Pre-pass at emit_walker.rs already marked body_id as handled to
+                        // preempt the flat pass at line 670. If we called the guarded entry
+                        // visit_enum_cons here, the guard would silently no-op → ret with no
+                        // discriminant/payload.
+                        self.emit_enum_cons_inner(body_id, arena);
+
+                        // Idempotent re-mark for symmetry with Store arm's mark_store_emitted.
+                        self.state.mark_enum_cons_handled(body_id.get());
+
+                        // Emit ret. .text order is governed by emission_order (#1141).
+                        let ret_id = self.alloc_synthetic_id();
+                        self.emit_inst(ret_id, Instruction {
+                            mnemonic: Mnemonic::Ret,
+                            operands: SmallVec::new(),
+                            encoding_hint: None,
+                            byte_offset_in_text: None,
+                            mode: self.current_mode(),
+                            emission_order: 0,
+                        });
+                    }
                     _ => {
                         // Other lambda shapes deferred to m1-004+
                     }

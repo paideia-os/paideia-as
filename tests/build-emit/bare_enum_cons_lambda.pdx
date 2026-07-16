@@ -1,0 +1,11 @@
+module BareEnumConsLambda = structure {
+  enum Result { Ok(u64), Err(u64) }
+  pub let make_ok : (u64) -> Result !{} @{} = fn(x : u64) -> Result::Ok(x)
+  pub let entry : () -> u64 !{} @{} = fn(_ : ()) -> {
+    let s : Result = make_ok(42u64)
+    match s {
+      Ok(v) => v
+      Err(_) => 0u64
+    }
+  }
+}
