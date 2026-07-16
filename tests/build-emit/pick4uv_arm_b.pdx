@@ -1,0 +1,14 @@
+// Issue #1203: 4-arm enum-match jump-table dispatch — arm B (unit variants)
+// Tests that match arms with 4 unit-variant enum patterns emit dispatch code with jump table.
+// Expected exit code: 20
+
+module Pick4uvArmB = structure {
+  enum Choice { A, B, C, D }
+  pub let c : Choice = Choice::B
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> match c {
+    A => 10u64
+    B => 20u64
+    C => 30u64
+    D => 40u64
+  }
+}

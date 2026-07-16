@@ -131,6 +131,24 @@ pub(super) fn build_elf_object(
 
     writer.add_text_bytes(&text_bytes);
 
+    // Issue #1203: Create ELF symbols for match-arm jump-table entry points.
+    // Arm labels like `match_arm_<match_id>_<idx>` are resolved in label_to_instr,
+    // but must be exported as actual symbols for relocations from rodata to reference them.
+    for (label_name, offset_u32) in &resolved_labels {
+        if label_name.starts_with("match_arm_") {
+            let sym_entry = SymbolEntry {
+                name: label_name.clone(),
+                offset: Some(*offset_u32 as u64),
+                size: 0,
+                kind: SymKind::Func,
+                is_global: false, // Local to this object file
+                section: None, // Will be resolved to .text during finalize
+                section_name: None,
+            };
+            let _ = writer.add_symbol(sym_entry);
+        }
+    }
+
     // Phase-7-m1-003: emit_walker's `estimated_offset` is now ADVISORY (the
     // authoritative byte position is the per-Instruction `byte_offset_in_text`
     // recorded by the encoder pass). The walker's estimate diverges from the

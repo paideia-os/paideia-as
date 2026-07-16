@@ -1175,6 +1175,9 @@ impl EmitWalker {
         emission_order: 0,
         });
 
+        // Track whether we encounter an explicit default arm
+        let mut default_arm_registered = false;
+
         // Now emit arm bodies and default arm
         for (idx, &arm_id) in arm_ids.iter().enumerate() {
             let arm_meta = match arena.match_arm_meta().get(arm_id) {
@@ -1193,6 +1196,7 @@ impl EmitWalker {
             // If default arm, skip to default label
             if arm_meta.is_default {
                 self.state.register_label(default_label.clone());
+                default_arm_registered = true;
                 if let Some(arm_node) = arena.get(arm_id) {
                     match arm_node.kind {
                         IrKind::Action => self.emit_block_body_arm(arm_id, arena, None),
@@ -1202,15 +1206,55 @@ impl EmitWalker {
                 continue;
             }
 
-            // Register arm label (jump table entries will jump here)
-            self.state.register_label(arm_label);
+            // Emit NOP anchor for arm label (jump table entries will jump here)
+            // PA-r15-009c: Use M*1000 + 100 + idx*10 to sort before arm body instructions
+            let arm_nop_id = IrNodeId::new(match_node_id.get() * 1000 + 100 + idx as u32 * 10)
+                .expect("arm anchor NOP virtual id");
+            self.emit_inst(arm_nop_id, Instruction {
+                mnemonic: Mnemonic::Nop,
+                operands: SmallVec::new(),
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+                emission_order: 0,
+            });
+            self.state.insert_label(arm_label, arm_nop_id);
 
             // Emit arm body
             if let Some(arm_node) = arena.get(arm_id) {
                 match arm_node.kind {
                     IrKind::Action => self.emit_block_body_arm(arm_id, arena, None),
+                    IrKind::Literal => {
+                        if let Some(value) = arena.literal_values().get(arm_id) {
+                            let mov_id = IrNodeId::new(match_node_id.get() * 1000 + 100 + idx as u32 * 10 + 4)
+                                .expect("literal arm mov id");
+                            self.emit_mov_literal_to_reg_with_id(mov_id, abi::RAX, value);
+                        }
+                    }
+                    IrKind::Var => {
+                        if let Some(var_name) = arena.binding_names().get(arm_id) {
+                            if let Some(var_reg) = self.state.local_bindings.get(var_name) {
+                                if var_reg != abi::RAX {
+                                    let mov_id = IrNodeId::new(match_node_id.get() * 1000 + 100 + idx as u32 * 10 + 3)
+                                        .expect("var arm mov id");
+                                    let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                                    operands.push(Operand::Reg(abi::RAX));
+                                    operands.push(Operand::Reg(var_reg));
+                                    self.emit_inst(mov_id, Instruction {
+                                        mnemonic: Mnemonic::Mov,
+                                        operands,
+                                        encoding_hint: None,
+                                        byte_offset_in_text: None,
+                                        mode: self.current_mode(),
+                                    emission_order: 0,
+                                    });
+                                }
+                            }
+                        }
+                    }
                     IrKind::App => self.emit_arm_body_app(arm_id, arena, match_node_id, idx as u32),
-                    _ => {}
+                    _ => self.push_typed_diag(t0560_code(), format!(
+                        "unsupported match arm body IR kind: {:?}", arm_node.kind)),
                 }
             }
 
@@ -1232,6 +1276,21 @@ impl EmitWalker {
                 mode: self.current_mode(),
             emission_order: 0,
             });
+        }
+
+        // Register default label if no explicit default arm was present
+        if !default_arm_registered {
+            let default_nop_id = IrNodeId::new(match_node_id.get() * 1000 + 998)
+                .expect("match default anchor NOP virtual id");
+            self.emit_inst(default_nop_id, Instruction {
+                mnemonic: Mnemonic::Nop,
+                operands: SmallVec::new(),
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+                emission_order: 0,
+            });
+            self.state.insert_label(default_label, default_nop_id);
         }
 
         // #1120: register end_label via label_to_instr (offset resolved post-sort)

@@ -1,0 +1,18 @@
+// Issue #1203: 8-arm enum-match jump-table dispatch — arm E (unit variants)
+// Tests that match arms with 8 unit-variant enum patterns emit dispatch code with jump table.
+// Expected exit code: 50
+
+module Pick8uvArmE = structure {
+  enum Choice { A, B, C, D, E, F, G, H }
+  pub let c : Choice = Choice::E
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> match c {
+    A => 10u64
+    B => 20u64
+    C => 30u64
+    D => 40u64
+    E => 50u64
+    F => 60u64
+    G => 70u64
+    H => 80u64
+  }
+}
