@@ -147,6 +147,21 @@ if let Some((trait_name, method_name)) = resolve_stdlib_trait_method(&target_nam
 - **Labels**: Demonstrates label/Jcc extension from #1066 and Adc-imm from #1069.
 - **Encoding hints**: Movzx instructions include operand-size hints (0x0F opcode with width 2 for word, 1 for byte).
 
+### BulkMemOps (PA-r16-007-bulkmem, #1064 Phase 1)
+
+- **Trait**: `BulkMemOps` (x86-64 REP-prefixed bulk memory primitives).
+- **Methods**:
+  - `memcpy(dst: u64, src: u64, len: u64) -> ()`
+  - `memset(dst: u64, val: u64, len: u64) -> ()`
+  - `memcpy_qwords(dst: u64, src: u64, count: u64) -> ()`
+  - `memset_qwords(dst: u64, val: u64, count: u64) -> ()`
+- **Arg Convention**: `ArgConvention::SysVRegs` — args pre-marshalled into registers.
+  - arg0 (dst) → RDI
+  - arg1 (src|val) → RSI
+  - arg2 (count) → RDX (recipe moves to RCX for REP prefix implicit count)
+- **Recipes**: Deferred to Phase 2 follow-up issue (lowering + mnemonic implementation).
+- **Direction flag**: Caller must have DF clear (SysV convention).
+
 ## Explicitly Deferred
 
 ### MmioOps Variants (u8, u16, u64)
@@ -167,13 +182,7 @@ if let Some((trait_name, method_name)) = resolve_stdlib_trait_method(&target_nam
 - **Rationale**: `percpu_inc` and `percpu_add` cover typical counter uses; `read`/`write`/`dec` deferred to Phase 18 m3+.
 - **Mnemonics**: `gs:` prefix + `mov`/`sub` recipes.
 
-### 2. BytesOps Extended Methods (future issue)
-
-- **Methods**: `memcpy`, internal `rep movsb`, `rep stosb`.
-- **Blocker**: requires operand-source resolution (loading `rcx`, `rdi`, `rsi` from arguments).
-- **Mnemonics**: `mov` (args→registers) + `rep movsb`/`rep stosb`.
-
-### 3. ChecksumOps Extended Methods (future issue)
+### 2. ChecksumOps Extended Methods (future issue)
 
 - **Methods**: `crc32b`, `crc32d`.
 - **Blocker**: requires operand-width plumbing (immediate vs. register encodings).

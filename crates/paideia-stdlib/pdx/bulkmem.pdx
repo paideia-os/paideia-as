@@ -1,0 +1,16 @@
+// PA-r16-007-bulkmem (#1064): x86-64 REP-prefixed bulk memory primitives.
+//
+// Register conventions on entry (SysV marshalled by emit_call):
+//   arg0 (dst)   -> RDI    (REP MOVS/STOS implicit dest)
+//   arg1 (src|val) -> RSI  (REP MOVS implicit src; STOS wants val in RAX/AL)
+//   arg2 (count) -> RDX    (recipe moves to RCX; REP implicit count)
+//
+// Direction flag: caller must have DF clear (SysV convention).
+// Upper bits of `val` for byte memset are ignored (STOSB reads only AL).
+
+trait BulkMemOps {
+  fn memcpy(dst: u64, src: u64, len: u64) -> () !{RawMem};
+  fn memset(dst: u64, val: u64, len: u64) -> () !{RawMem};
+  fn memcpy_qwords(dst: u64, src: u64, count: u64) -> () !{RawMem};
+  fn memset_qwords(dst: u64, val: u64, count: u64) -> () !{RawMem};
+}
