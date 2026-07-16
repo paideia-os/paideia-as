@@ -131,11 +131,13 @@ pub(super) fn build_elf_object(
 
     writer.add_text_bytes(&text_bytes);
 
-    // Issue #1203: Create ELF symbols for match-arm jump-table entry points.
-    // Arm labels like `match_arm_<match_id>_<idx>` are resolved in label_to_instr,
-    // but must be exported as actual symbols for relocations from rodata to reference them.
+    // Issues #1203 (arm labels) + #1217 (default label): Create ELF symbols
+    // for match-arm jump-table entry points AND the default label. Both may
+    // appear as rodata relocation targets in @jump_table dispatches — user
+    // @jump_table with density_ok=true and holes leaves match_default_<id>
+    // relocations that must resolve to a real symbol in the object file.
     for (label_name, offset_u32) in &resolved_labels {
-        if label_name.starts_with("match_arm_") {
+        if label_name.starts_with("match_arm_") || label_name.starts_with("match_default_") {
             let sym_entry = SymbolEntry {
                 name: label_name.clone(),
                 offset: Some(*offset_u32 as u64),

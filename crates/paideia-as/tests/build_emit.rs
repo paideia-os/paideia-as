@@ -92,6 +92,7 @@ mod build_emit {
     pub mod rep_movsb;
     pub mod rep_stosq;
     pub mod scanner_routing_parity;
+    pub mod semi_sparse_jump_table;
     pub mod smoke;
     pub mod stmt_assign_call_rhs;
     pub mod stmt_assign_local_let_mut;

@@ -1,0 +1,13 @@
+// Test #1217: @jump_table with a hole (values 0,1,2,4 — slot 3 is a hole).
+// Exercises rodata reloc to match_default_<N> which must resolve to a
+// defined ELF symbol. Without the fix, LD fails with undefined reference.
+
+module PaR15JumpTableSemiSparse = structure {
+  let dispatch = fn (n: u8) -> match n @jump_table {
+    0 => 0x0A
+    1 => 0x0B
+    2 => 0x0C
+    4 => 0x0D
+    _ => 0xFF
+  }
+}
