@@ -80,6 +80,9 @@ mod runtime {
     mod intmatch_lit_three_value;
     mod intmatch_lit_falls_through_value;
     mod intmatch_default_value;
+    mod intmatch_var_local_let_value;
+    mod intmatch_var_param_value;
+    mod intmatch_var_i32_value;
     mod enum_qual_arg_pos0_3arg_value;
     mod enum_qual_arg_pos0_3arg_b_value;
     mod enum_qual_arg_pos0_4arg_value;

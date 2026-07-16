@@ -1,0 +1,14 @@
+// Issue #1218: variable-scrutinee integer match — signed i32 width.
+// Expected exit code: 30
+
+module IntmatchVarI32 = structure {
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    let n : i32 = 2i32
+    match n {
+      0i32 => 10u64
+      1i32 => 20u64
+      2i32 => 30u64
+      _ => 99u64
+    }
+  }
+}

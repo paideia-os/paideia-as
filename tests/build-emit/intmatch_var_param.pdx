@@ -1,0 +1,12 @@
+// Issue #1218: variable-scrutinee integer match — lambda parameter.
+// Expected exit code: 30
+
+module IntmatchVarParam = structure {
+  pub let pick : (u64) -> u64 !{} @{} = fn(t: u64) -> match t {
+    0u64 => 10u64
+    1u64 => 20u64
+    2u64 => 30u64
+    _ => 99u64
+  }
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> pick(2u64)
+}

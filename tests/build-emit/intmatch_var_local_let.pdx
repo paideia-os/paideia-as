@@ -1,0 +1,14 @@
+// Issue #1218: variable-scrutinee integer match — local StmtLet.
+// Expected exit code: 30
+
+module IntmatchVarLocalLet = structure {
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    let x : u64 = 2u64
+    match x {
+      0u64 => 10u64
+      1u64 => 20u64
+      2u64 => 30u64
+      _ => 99u64
+    }
+  }
+}

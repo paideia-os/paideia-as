@@ -82,6 +82,7 @@ fn classify_match_integer(
     source_map: &SourceMap,
     match_ast_id: NodeId,
     match_ir_id: IrNodeId,
+    binding_type_map: &HashMap<String, String>,
 ) -> bool {
     // Step 1: Skip if enum pipeline already claimed this match
     if ir.match_scrutinee_table().contains_key(match_ir_id) {
@@ -89,7 +90,7 @@ fn classify_match_integer(
     }
 
     // Step 2: Get match arms from AST
-    let (_scrutinee_id, arms) = match ast.expr_data(match_ast_id) {
+    let (scrutinee_id, arms) = match ast.expr_data(match_ast_id) {
         Some(ExprData::Match { scrutinee, arms, .. }) => (scrutinee, arms),
         _ => return false,
     };
@@ -125,20 +126,12 @@ fn classify_match_integer(
                 }
             }
             IrKind::Var => {
-                // #1218 (follow-up to #1210): currently unreachable in practice.
-                // binding_names is populated in cmd_build's Phase 6 m2-004/m2-004b
-                // AFTER populate_int_match_meta runs, so the lookup below always
-                // returns None for local let-bindings and lambda parameters.
-                // Match on variable u64 scrutinee falls through to enum path → U1650.
-                // Fix path: traverse AST directly to find binding's type annotation.
-                let binding_type_map = build_binding_type_map(ast, source_map);
-                if let Some(name) = ir.binding_names().get(scrutinee_ir_id) {
-                    binding_type_map.get(name).and_then(|type_text| {
-                        parse_integer_suffix(type_text)
-                    })
-                } else {
-                    None
-                }
+                // #1218: use AST-side lookup instead of ir.binding_names()
+                // (binding_names is populated by cmd_build post-lowering — not
+                // available here). Same pattern populate_match_arm_meta uses.
+                extract_source_text_for_record_cons(ast, source_map, *scrutinee_id)
+                    .and_then(|name| binding_type_map.get(&name).cloned())
+                    .and_then(|type_text| parse_integer_suffix(type_text.as_str()))
             }
             _ => None,
         },
@@ -263,6 +256,8 @@ pub(super) fn populate_int_match_meta(
     ast_to_ir: &HashMap<NodeId, IrNodeId>,
     source_map: &SourceMap,
 ) {
+    let binding_type_map = build_binding_type_map(ast, source_map);
+
     for ast_id in 1..=ast.len() {
         if let Some(match_ast_id) = NodeId::new(ast_id as u32) {
             if let Some(ast_node) = ast.get(match_ast_id) {
@@ -274,6 +269,7 @@ pub(super) fn populate_int_match_meta(
                             source_map,
                             match_ast_id,
                             *match_ir_id,
+                            &binding_type_map,
                         );
                     }
                 }
