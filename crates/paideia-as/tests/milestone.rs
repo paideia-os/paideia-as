@@ -27,4 +27,5 @@ mod milestone {
     pub mod pa_r17_015_call_rip_rel;
     pub mod pa_r17_1074_t0535_record_field;
     pub mod pa_r17_1075_t0535_return_type;
+    pub mod pa_r17_1076_t0535_effect_cap_row;
 }

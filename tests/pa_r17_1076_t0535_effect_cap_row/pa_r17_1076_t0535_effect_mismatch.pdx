@@ -1,0 +1,9 @@
+// PA-r17-1076 (#1076): T0535 test - lambda effect row mismatch
+//
+// Fixture: Lambda has Io effect, but fn-ptr signature expects no effects.
+// Expected: Compilation fails with T0535 diagnostic for effect mismatch.
+
+module PaR17T0535EffectMismatch = structure {
+  let effectful_worker : (u64) -> u64 !{Io} @{} = fn(x : u64) -> 42u64
+  pub let pure_slot : (u64) -> u64 !{} @{} = &effectful_worker
+}

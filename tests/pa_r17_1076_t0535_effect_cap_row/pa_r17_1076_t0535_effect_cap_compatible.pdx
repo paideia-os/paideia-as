@@ -1,0 +1,10 @@
+// PA-r17-1076 (#1076): T0535 test - lambda effect/cap compatible
+//
+// Fixture: Lambda is pure, but fn-ptr signature expects effects and capabilities.
+// This is contravariant - a pure lambda CAN be assigned to a slot requiring effects/caps.
+// Expected: Compilation succeeds without T0535 diagnostic.
+
+module PaR17T0535EffectCapCompatible = structure {
+  let pure_worker : (u64) -> u64 !{} @{} = fn(x : u64) -> 42u64
+  pub let effectful_slot : (u64) -> u64 !{Io} @{FileRead} = &pure_worker
+}

@@ -4,7 +4,7 @@
 //! effect row + cap set, lowers each via lower_type_ast, produces the
 //! interned Type::Fn signature.
 
-use paideia_as_ast::{AstArena, ExprData, NodeId};
+use paideia_as_ast::{AstArena, ExprData, ItemData, NodeId, StmtData};
 use paideia_as_diagnostics::SourceMap;
 use paideia_as_types::{TypeId, TypeInterner, CapSetId};
 use paideia_as_effects::EffectInterner;
@@ -113,6 +113,71 @@ pub fn derive_fn_sig_from_lambda(
     };
 
     Some(types.intern(fn_type))
+}
+
+/// Derive a Type::Fn signature from a source binding's LHS type annotation.
+///
+/// PA-r17-1076 (#1076): Reads the LHS type annotation from a let-binding and
+/// lowers it via lower_type_ast, which handles effect rows and capability sets.
+/// Falls back to derive_fn_sig_from_lambda when no annotation is present.
+///
+/// # Path A: Source binding has explicit type annotation
+/// Reads ItemData::Let or StmtData::Let's ty field, lowers it via lower_type_ast.
+/// This path captures effects and capabilities from the annotation.
+///
+/// # Path B: Fallback to lambda-side derivation
+/// If no annotation is found, delegates to derive_fn_sig_from_lambda to extract
+/// the signature from the lambda expression itself.
+///
+/// # Arguments
+/// - `ast`: The AST arena containing the let-binding node
+/// - `source_map`: Source location mapping
+/// - `source_let_ast_id`: The AST NodeId of the let-item that binds the referenced fn
+/// - `lambda_ast_id`: The AST NodeId of the lambda expression (RHS of the let)
+/// - `types`: The type interner (mutable)
+/// - `effects`: The effect-row interner (mutable)
+/// - `caps`: The capability-set interner (mutable)
+/// - `registry`: The struct registry for named type lookup
+/// - `enum_registry`: The enum registry for enum type lookup
+///
+/// Returns the interned TypeId of Type::Fn, or None if derivation fails.
+pub fn derive_fn_sig_from_source_binding(
+    ast: &AstArena,
+    source_map: &SourceMap,
+    source_let_ast_id: NodeId,
+    lambda_ast_id: NodeId,
+    types: &mut TypeInterner,
+    effects: &mut EffectInterner,
+    caps: &mut CapSetInterner,
+    registry: &StructRegistry,
+    enum_registry: &EnumRegistry,
+) -> Option<TypeId> {
+    // Path A: read LHS annotation from the let-item
+    let ty_node_id = if let Some(item_data) = ast.item_data(source_let_ast_id) {
+        if let ItemData::Let { ty: Some(t), .. } = item_data {
+            Some(*t)
+        } else {
+            None
+        }
+    } else if let Some(stmt_data) = ast.stmt_data(source_let_ast_id) {
+        if let StmtData::Let { ty: Some(t), .. } = stmt_data {
+            Some(*t)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    if let Some(t) = ty_node_id {
+        // Path A hit: lower the LHS type annotation
+        if let Ok(tid) = lower_type_ast(ast, source_map, t, types, effects, caps, registry, enum_registry) {
+            return Some(tid);
+        }
+    }
+
+    // Path B fallback: existing lambda-side derivation
+    derive_fn_sig_from_lambda(ast, source_map, lambda_ast_id, types, effects, caps, registry, enum_registry)
 }
 
 /// Extract source text corresponding to an AST node.

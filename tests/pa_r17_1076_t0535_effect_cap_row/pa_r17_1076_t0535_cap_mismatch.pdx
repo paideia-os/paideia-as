@@ -1,0 +1,9 @@
+// PA-r17-1076 (#1076): T0535 test - lambda capability set mismatch
+//
+// Fixture: Lambda has FileRead capability, but fn-ptr signature expects no capabilities.
+// Expected: Compilation fails with T0535 diagnostic for capability mismatch.
+
+module PaR17T0535CapMismatch = structure {
+  let priv_worker : (u64) -> u64 !{} @{FileRead} = fn(x : u64) -> 42u64
+  pub let uncapped_slot : (u64) -> u64 !{} @{} = &priv_worker
+}

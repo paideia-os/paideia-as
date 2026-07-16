@@ -17,7 +17,7 @@
 //! `functors_from_modules`); every extracted helper is `pub(super)`-scoped
 //! and lives under `cmd_build/`. Nothing new is public.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::path::Path;
 use std::process::ExitCode;
@@ -1209,6 +1209,54 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
     // (needed for record literals with multiple fnptr fields).
     if !lowering.ir.is_empty() {
         let arena_len = lowering.ir.len();
+
+        // PA-r17-1076 (#1076): Build a binding name → AST node ID map for T0535 checks.
+        // Scan the AST arena to map binding names to their Let node IDs.
+        // This enables derive_fn_sig_from_source_binding to read the LHS type annotation.
+        let mut binding_name_to_ast_id: HashMap<String, AstNodeId> = HashMap::new();
+        let content_ref = source_map.content(file);
+
+        for i in 0..arena.len() {
+            if let Some(ast_id) = AstNodeId::new((i + 1) as u32) {
+                if let Some(node) = arena.get(ast_id) {
+                    // Handle ItemData::Let (module-level)
+                    if node.kind == paideia_as_ast::NodeKind::Let {
+                        if let Some(paideia_as_ast::ItemData::Let { name: name_id, .. }) =
+                            arena.item_data(ast_id)
+                        {
+                            if let Some(name_node) = arena.get(*name_id) {
+                                let span = name_node.span;
+                                let start = span.byte_start() as usize;
+                                let len = span.byte_len() as usize;
+                                if start + len <= content_ref.len() {
+                                    let binding_text = content_ref[start..start + len].to_string();
+                                    // First-match semantics: if binding name exists, don't overwrite
+                                    binding_name_to_ast_id.entry(binding_text).or_insert(ast_id);
+                                }
+                            }
+                        }
+                    }
+                    // Handle StmtData::Let (statement-level)
+                    else if node.kind == paideia_as_ast::NodeKind::StmtLet {
+                        if let Some(paideia_as_ast::StmtData::Let { name: name_id, .. }) =
+                            arena.stmt_data(ast_id)
+                        {
+                            if let Some(name_node) = arena.get(*name_id) {
+                                let span = name_node.span;
+                                let start = span.byte_start() as usize;
+                                let len = span.byte_len() as usize;
+                                if start + len <= content_ref.len() {
+                                    let binding_text = content_ref[start..start + len].to_string();
+                                    // First-match semantics: if binding name exists, don't overwrite
+                                    binding_name_to_ast_id.entry(binding_text).or_insert(ast_id);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Collect all address-of entries first to avoid borrow issues.
         // Also collect let_id for T0535 checking.
         // #1074: Extended to track record-field context: Option<(rc_ir_id, field_idx0)>
@@ -1329,10 +1377,18 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                                 // Convert IR node ID to AST node ID (they're the same)
                                 let lambda_ast_id = AstNodeId::new(symbol.ir_node.get()).unwrap();
 
-                                // Derive the RHS signature from the lambda
-                                if let Some(rhs_tid) = paideia_as_elaborator::derive_fn_sig::derive_fn_sig_from_lambda(
+                                // PA-r17-1076 (#1076): Derive the RHS signature from the source binding's annotation
+                                // Look up source binding's AST node ID via var_name
+                                let source_let_ast_id = binding_name_to_ast_id
+                                    .get(&var_name)
+                                    .copied()
+                                    .unwrap_or(ast_let_id); // Fallback to current behavior if not found
+
+                                // Use derive_fn_sig_from_source_binding to read LHS type annotation (including effects/caps)
+                                if let Some(rhs_tid) = paideia_as_elaborator::derive_fn_sig::derive_fn_sig_from_source_binding(
                                     &arena,
                                     &source_map,
+                                    source_let_ast_id,
                                     lambda_ast_id,
                                     &mut types,
                                     &mut effects,
@@ -1397,10 +1453,18 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                                             // Convert IR node ID to AST node ID
                                             let lambda_ast_id = AstNodeId::new(symbol.ir_node.get()).unwrap();
 
-                                            // Derive the RHS signature from the lambda
-                                            if let Some(rhs_tid) = paideia_as_elaborator::derive_fn_sig::derive_fn_sig_from_lambda(
+                                            // PA-r17-1076 (#1076): Derive the RHS signature from the source binding's annotation
+                                            // Look up source binding's AST node ID via var_name
+                                            let source_let_ast_id = binding_name_to_ast_id
+                                                .get(&var_name)
+                                                .copied()
+                                                .unwrap_or(lambda_ast_id); // Fallback if not found
+
+                                            // Use derive_fn_sig_from_source_binding to read LHS type annotation (including effects/caps)
+                                            if let Some(rhs_tid) = paideia_as_elaborator::derive_fn_sig::derive_fn_sig_from_source_binding(
                                                 &arena,
                                                 &source_map,
+                                                source_let_ast_id,
                                                 lambda_ast_id,
                                                 &mut types,
                                                 &mut effects,
