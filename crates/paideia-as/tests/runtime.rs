@@ -133,4 +133,5 @@ mod runtime {
     mod bind_variant_unit_value;
     mod command_dispatch_shell;
     mod closure_type;
+    mod hashmap;
 }

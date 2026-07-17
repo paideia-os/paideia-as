@@ -1,0 +1,24 @@
+// v0.18 issue #996 (pa-r18-003): HashMap canonical documented surface.
+//
+// Trait surface for future generic monomorphization. Today: HashMapU64U64 only.
+// See hashmap_u64_u64.pdx for the working implementation.
+//
+// Scope baseline (v0.18): fixed-capacity, open-addressing, u64→u64.
+// Deferred:
+//   - #996b: HashMapStrU64 (Str-keyed, blocked on #1234)
+//   - #996c: HashMapU64Closure (closure-valued)
+//   - #996d: remove operation + tombstone scan
+//   - #996e: heap-backed rehash (blocked on alloc substrate)
+//   - #996f: robin-hood displacement
+//   - #996g: iter API (blocked on for-expr #998c)
+//   - #996h: bool return for contains (pending #1229 bool-return canary)
+
+struct HashMapU64U64 { }
+
+trait HashMapOps {
+  fn hashmap_u64_new() -> () !{};
+  fn hashmap_u64_put(k: u64, v: u64) -> u64 !{};
+  fn hashmap_u64_get(k: u64) -> OptionU64 !{};
+  fn hashmap_u64_contains(k: u64) -> u64 !{};
+  fn hashmap_u64_len() -> u64 !{};
+}

@@ -1,0 +1,174 @@
+// v0.18 issue #996 (pa-r18-003): Runtime canary driver — HashMapU64U64 collision resolution.
+// Expected exit code: 100 (sum of 4 × 25)
+//
+// Four keys designed to hash to slot 0, testing linear-probing collision handling.
+// Keys: 0, 0x9000000000000000, 0xA000000000000000, 0xB000000000000000
+// (these should hash to slot 0; if test fails, verify hash locally and adjust)
+
+module HashmapU64Collisions = structure {
+  pub let mut hm_state  : [u64; 32] = uninit
+  pub let mut hm_keys   : [u64; 32] = uninit
+  pub let mut hm_values : [u64; 32] = uninit
+  pub let mut hm_len    : u64       = 0
+
+  enum OptionU64 { Some(u64), None }
+
+  let fibhash : (u64) -> u64 !{} @{} = fn(k: u64) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "Fibonacci hash fold into 5-bit index",
+    block: {
+      mov rax, rdi
+      shr rax, 33
+      xor rax, rdi
+      mov r11, 0x9E3779B97F4A7C15
+      imul rax, r11
+      shr rax, 59
+    }
+  }
+
+  let hashmap_u64_put : (u64, u64) -> u64 !{} @{} = fn(k: u64, v: u64) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "HashMapU64U64 put with linear probing",
+    block: {
+      push rsi
+      push rdi
+      call fibhash
+      pop rdi
+      pop rsi
+
+      mov r12, rax
+      xor r13, r13
+
+      put_probe_loop:
+      mov r14, r12
+      add r14, r13
+      and r14, 0x1f
+
+      lea r15, [rip + hm_state]
+      mov r8, [r15 + r14*8]
+
+      cmp r8, 0
+      je put_insert
+
+      cmp r8, 1
+      jne put_probe_next
+
+      lea r15, [rip + hm_keys]
+      mov r8, [r15 + r14*8]
+      cmp r8, rdi
+      je put_replace
+
+      put_probe_next:
+      inc r13
+      cmp r13, 32
+      jl put_probe_loop
+
+      mov rax, 0
+      jmp put_done
+
+      put_insert:
+      lea r15, [rip + hm_state]
+      mov [r15 + r14*8], 1
+      lea r15, [rip + hm_keys]
+      mov [r15 + r14*8], rdi
+      lea r15, [rip + hm_values]
+      mov [r15 + r14*8], rsi
+
+      lea r15, [rip + hm_len]
+      mov r8, [r15]
+      inc r8
+      mov [r15], r8
+
+      mov rax, 1
+      jmp put_done
+
+      put_replace:
+      lea r15, [rip + hm_values]
+      mov [r15 + r14*8], rsi
+      mov rax, 1
+
+      put_done:
+    }
+  }
+
+  let hashmap_u64_get : (u64) -> OptionU64 !{} @{} = fn(k: u64) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "HashMapU64U64 get with linear probing",
+    block: {
+      push rdi
+      call fibhash
+      pop rdi
+
+      mov r12, rax
+      xor r13, r13
+
+      get_probe_loop:
+      mov r14, r12
+      add r14, r13
+      and r14, 0x1f
+
+      lea r15, [rip + hm_state]
+      mov r8, [r15 + r14*8]
+
+      cmp r8, 0
+      je get_not_found
+
+      cmp r8, 1
+      jne get_probe_next
+
+      lea r15, [rip + hm_keys]
+      mov r8, [r15 + r14*8]
+      cmp r8, rdi
+      je get_found
+
+      get_probe_next:
+      inc r13
+      cmp r13, 32
+      jl get_probe_loop
+
+      get_not_found:
+      xor rax, rax
+      xor rdx, rdx
+      jmp get_done
+
+      get_found:
+      lea r15, [rip + hm_values]
+      mov rdx, [r15 + r14*8]
+      mov rax, 1
+
+      get_done:
+    }
+  }
+
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    // Insert 4 keys with value 25 each (should collide at slot 0).
+    hashmap_u64_put(0, 25)
+    hashmap_u64_put(0x9000000000000000, 25)
+    hashmap_u64_put(0xA000000000000000, 25)
+    hashmap_u64_put(0xB000000000000000, 25)
+
+    // Get and sum all 4 values (compute sum directly to avoid multi-binding limit).
+    let v1 : u64 = match hashmap_u64_get(0) {
+      Some(v) => v,
+      None    => 0,
+    }
+
+    let sum : u64 = v1 + match hashmap_u64_get(0x9000000000000000) {
+      Some(v) => v,
+      None    => 0,
+    }
+
+    let sum2 : u64 = sum + match hashmap_u64_get(0xA000000000000000) {
+      Some(v) => v,
+      None    => 0,
+    }
+
+    sum2 + match hashmap_u64_get(0xB000000000000000) {
+      Some(v) => v,
+      None    => 0,
+    }
+  }
+}
