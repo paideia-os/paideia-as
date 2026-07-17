@@ -719,35 +719,159 @@ impl EmitWalker {
         // constructing the env/fat pointer, so a subsequent read through the
         // fat pointer (env_ptr[k]) observes the value captured at
         // ClosureCons-construction time. Captures are read from wherever the
-        // CALLER currently holds them; only register-resident sources are
-        // supported for phase-1 (a capture whose current binding is not a
-        // scalar register — e.g. re-capturing an outer closure's own
-        // env-slot capture — is silently skipped; legalizing that path is
-        // deferred to the closure-call work in #995).
+        // CALLER currently holds them.
+        //
+        // Issue #1238: Handle all BindingHome variants:
+        // - Reg(r): mov [rsp + env_off + cap.offset], r
+        // - RegPair(lo, hi): emit two writes for discriminant and payload
+        // - EnvSlot(off): load from outer env [r14 + off] into r11, then store
+        // - Closure(r): fat pointer captured, treat as single pointer register
         for cap in &closure_meta.captures {
-            if let Some(crate::local_binding_table::BindingHome::Reg(src_reg)) =
+            if let Some(binding_home) =
                 self.state.local_bindings.get_home(&cap.name)
             {
-                let store_id = self.alloc_synthetic_id();
-                let mut store_ops: SmallVec<[Operand; 3]> = SmallVec::new();
-                store_ops.push(Operand::MemSib {
-                    base: abi::RSP,
-                    index: None,
-                    scale: paideia_as_ir::Scale::X1,
-                    disp: env_off + cap.offset,
-                });
-                store_ops.push(Operand::Reg(src_reg));
-                self.emit_inst(
-                    store_id,
-                    Instruction {
-                        mnemonic: Mnemonic::Mov,
-                        operands: store_ops,
-                        encoding_hint: None,
-                        byte_offset_in_text: None,
-                        mode: self.current_mode(),
-                        emission_order: 0,
-                    },
-                );
+                use crate::local_binding_table::BindingHome;
+                match binding_home {
+                    BindingHome::Reg(src_reg) => {
+                        // Scalar register: mov [rsp + env_off + cap.offset], src_reg
+                        let store_id = self.alloc_synthetic_id();
+                        let mut store_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                        store_ops.push(Operand::MemSib {
+                            base: abi::RSP,
+                            index: None,
+                            scale: paideia_as_ir::Scale::X1,
+                            disp: env_off + cap.offset,
+                        });
+                        store_ops.push(Operand::Reg(src_reg));
+                        self.emit_inst(
+                            store_id,
+                            Instruction {
+                                mnemonic: Mnemonic::Mov,
+                                operands: store_ops,
+                                encoding_hint: None,
+                                byte_offset_in_text: None,
+                                mode: self.current_mode(),
+                                emission_order: 0,
+                            },
+                        );
+                    }
+                    BindingHome::RegPair(lo_reg, hi_reg) => {
+                        // Enum pair: emit two 8-byte writes for discriminant and payload
+                        // mov [rsp + env_off + cap.offset], lo_reg
+                        let store_lo_id = self.alloc_synthetic_id();
+                        let mut store_lo_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                        store_lo_ops.push(Operand::MemSib {
+                            base: abi::RSP,
+                            index: None,
+                            scale: paideia_as_ir::Scale::X1,
+                            disp: env_off + cap.offset,
+                        });
+                        store_lo_ops.push(Operand::Reg(lo_reg));
+                        self.emit_inst(
+                            store_lo_id,
+                            Instruction {
+                                mnemonic: Mnemonic::Mov,
+                                operands: store_lo_ops,
+                                encoding_hint: None,
+                                byte_offset_in_text: None,
+                                mode: self.current_mode(),
+                                emission_order: 0,
+                            },
+                        );
+
+                        // mov [rsp + env_off + cap.offset + 8], hi_reg
+                        let store_hi_id = self.alloc_synthetic_id();
+                        let mut store_hi_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                        store_hi_ops.push(Operand::MemSib {
+                            base: abi::RSP,
+                            index: None,
+                            scale: paideia_as_ir::Scale::X1,
+                            disp: env_off + cap.offset + 8,
+                        });
+                        store_hi_ops.push(Operand::Reg(hi_reg));
+                        self.emit_inst(
+                            store_hi_id,
+                            Instruction {
+                                mnemonic: Mnemonic::Mov,
+                                operands: store_hi_ops,
+                                encoding_hint: None,
+                                byte_offset_in_text: None,
+                                mode: self.current_mode(),
+                                emission_order: 0,
+                            },
+                        );
+                    }
+                    BindingHome::EnvSlot(outer_off) => {
+                        // Nested closure re-capturing an outer capture.
+                        // First load from outer env [r14 + outer_off] into r11
+                        let load_id = self.alloc_synthetic_id();
+                        let mut load_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                        load_ops.push(Operand::Reg(abi::R11));
+                        load_ops.push(Operand::MemSib {
+                            base: abi::R14,
+                            index: None,
+                            scale: paideia_as_ir::Scale::X1,
+                            disp: outer_off,
+                        });
+                        self.emit_inst(
+                            load_id,
+                            Instruction {
+                                mnemonic: Mnemonic::Mov,
+                                operands: load_ops,
+                                encoding_hint: None,
+                                byte_offset_in_text: None,
+                                mode: self.current_mode(),
+                                emission_order: 0,
+                            },
+                        );
+
+                        // Then store r11 to env slot [rsp + env_off + cap.offset]
+                        let store_id = self.alloc_synthetic_id();
+                        let mut store_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                        store_ops.push(Operand::MemSib {
+                            base: abi::RSP,
+                            index: None,
+                            scale: paideia_as_ir::Scale::X1,
+                            disp: env_off + cap.offset,
+                        });
+                        store_ops.push(Operand::Reg(abi::R11));
+                        self.emit_inst(
+                            store_id,
+                            Instruction {
+                                mnemonic: Mnemonic::Mov,
+                                operands: store_ops,
+                                encoding_hint: None,
+                                byte_offset_in_text: None,
+                                mode: self.current_mode(),
+                                emission_order: 0,
+                            },
+                        );
+                    }
+                    BindingHome::Closure(closure_reg) => {
+                        // Closure captured as fat pointer (pointer-sized).
+                        // Treat like scalar register: mov [rsp + env_off + cap.offset], closure_reg
+                        let store_id = self.alloc_synthetic_id();
+                        let mut store_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                        store_ops.push(Operand::MemSib {
+                            base: abi::RSP,
+                            index: None,
+                            scale: paideia_as_ir::Scale::X1,
+                            disp: env_off + cap.offset,
+                        });
+                        store_ops.push(Operand::Reg(closure_reg));
+                        self.emit_inst(
+                            store_id,
+                            Instruction {
+                                mnemonic: Mnemonic::Mov,
+                                operands: store_ops,
+                                encoding_hint: None,
+                                byte_offset_in_text: None,
+                                mode: self.current_mode(),
+                                emission_order: 0,
+                            },
+                        );
+                    }
+                }
             }
         }
 
