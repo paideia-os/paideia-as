@@ -85,13 +85,13 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             // Parse pattern
             let pattern = self.parse_pattern_match()?;
 
-            // Optional guard (deferred for phase-1)
-            if self.at(TokenKind::KwIf) {
+            // Optional guard
+            let guard = if self.at(TokenKind::KwIf) {
                 self.bump(); // consume `if`
-                // Parse the guard expression
-                let _guard_expr = self.parse_expr()?;
-                // For phase-1, we drop the guard; it's parsed but not stored.
-            }
+                Some(self.parse_expr()?)
+            } else {
+                None
+            };
 
             // Expect `=>`
             self.expect(TokenKind::FatArrow)?;
@@ -102,7 +102,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             // Add the arm
             arms.push(MatchArm {
                 pattern,
-                guard: None, // Guards deferred to future PR
+                guard,
                 body,
             });
 
@@ -988,6 +988,119 @@ mod tests {
                 } else {
                     panic!("expected EnumVariant pattern data");
                 }
+            } else {
+                panic!("expected ExprMatch");
+            }
+        }
+    }
+
+    #[test]
+    fn guard_is_stored_after_pattern() {
+        // Test: match x { 0 if y => 1, _ => 2 } stores guard
+        let tokens = vec![
+            tok(TokenKind::KwMatch, 0, 5),  // match
+            tok(TokenKind::Ident, 6, 1),    // x
+            tok(TokenKind::LBrace, 8, 1),
+            tok(TokenKind::IntLit, 10, 1),  // 0
+            tok(TokenKind::KwIf, 12, 2),    // if
+            tok(TokenKind::Ident, 15, 1),   // y
+            tok(TokenKind::FatArrow, 17, 2), // =>
+            tok(TokenKind::IntLit, 20, 1),  // 1
+            tok(TokenKind::Comma, 21, 1),
+            tok(TokenKind::Ident, 23, 1),   // _
+            tok(TokenKind::FatArrow, 25, 2), // =>
+            tok(TokenKind::IntLit, 28, 1),  // 2
+            tok(TokenKind::RBrace, 29, 1),
+            tok(TokenKind::Eof, 30, 0),
+        ];
+        let (arena, root, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected");
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprMatch);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Match { arms, .. } = expr_data {
+                assert_eq!(arms.len(), 2);
+                assert!(
+                    arms[0].guard.is_some(),
+                    "first arm should have guard stored"
+                );
+                assert!(
+                    arms[1].guard.is_none(),
+                    "second arm should have no guard"
+                );
+            } else {
+                panic!("expected ExprMatch");
+            }
+        }
+    }
+
+    #[test]
+    fn guard_absent_yields_none() {
+        // Test: match x { 0 => 1 } → arm.guard.is_none()
+        let tokens = vec![
+            tok(TokenKind::KwMatch, 0, 5),  // match
+            tok(TokenKind::Ident, 6, 1),    // x
+            tok(TokenKind::LBrace, 8, 1),
+            tok(TokenKind::IntLit, 10, 1),  // 0
+            tok(TokenKind::FatArrow, 12, 2), // =>
+            tok(TokenKind::IntLit, 15, 1),  // 1
+            tok(TokenKind::RBrace, 16, 1),
+            tok(TokenKind::Eof, 17, 0),
+        ];
+        let (arena, root, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected");
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprMatch);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Match { arms, .. } = expr_data {
+                assert_eq!(arms.len(), 1);
+                assert!(
+                    arms[0].guard.is_none(),
+                    "arm without guard should have guard.is_none()"
+                );
+            } else {
+                panic!("expected ExprMatch");
+            }
+        }
+    }
+
+    #[test]
+    fn guard_on_default() {
+        // Test: match x { _ if y => 1, _ => 2 } → arms[0].guard.is_some(), arms[1].guard.is_none()
+        let tokens = vec![
+            tok(TokenKind::KwMatch, 0, 5),  // match
+            tok(TokenKind::Ident, 6, 1),    // x
+            tok(TokenKind::LBrace, 8, 1),
+            tok(TokenKind::Ident, 10, 1),   // _
+            tok(TokenKind::KwIf, 12, 2),    // if
+            tok(TokenKind::Ident, 15, 1),   // y
+            tok(TokenKind::FatArrow, 17, 2), // =>
+            tok(TokenKind::IntLit, 20, 1),  // 1
+            tok(TokenKind::Comma, 21, 1),
+            tok(TokenKind::Ident, 23, 1),   // _
+            tok(TokenKind::FatArrow, 25, 2), // =>
+            tok(TokenKind::IntLit, 28, 1),  // 2
+            tok(TokenKind::RBrace, 29, 1),
+            tok(TokenKind::Eof, 30, 0),
+        ];
+        let (arena, root, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected");
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprMatch);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Match { arms, .. } = expr_data {
+                assert_eq!(arms.len(), 2);
+                assert!(
+                    arms[0].guard.is_some(),
+                    "first arm (wildcard with guard) should have guard"
+                );
+                assert!(
+                    arms[1].guard.is_none(),
+                    "second arm (wildcard without guard) should not have guard"
+                );
             } else {
                 panic!("expected ExprMatch");
             }

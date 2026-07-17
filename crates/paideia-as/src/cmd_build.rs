@@ -283,15 +283,24 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                                 let len = span.byte_len() as usize;
                                 if start + len <= content_ref.len() {
                                     let literal_text = &content_ref[start..start + len];
-                                    // Try to parse the literal as u64/i64
-                                    // Handle common formats: decimal, hex (0x...), binary (0b...), octal (0o...)
-                                    if let Ok(value) = parse_integer_literal(literal_text) {
+                                    // Try to parse the literal: boolean literals first, then numeric
+                                    // Handle boolean: true (1), false (0)
+                                    // Handle numeric formats: decimal, hex (0x...), binary (0b...), octal (0o...)
+                                    let value = if literal_text == "true" {
+                                        Some(1i64)
+                                    } else if literal_text == "false" {
+                                        Some(0i64)
+                                    } else {
+                                        parse_integer_literal(literal_text).ok()
+                                    };
+
+                                    if let Some(val) = value {
                                         // Map AST node ID to IR node ID (1-to-1 mapping)
                                         // The KEY is the ExprLiteral node ID (ast_id), not the Placeholder child ID,
                                         // because the IR Literal node ID = ast_id (1-to-1 mapping).
                                         let ir_lit_id = paideia_as_ir::IrNodeId::new(ast_id.get())
                                             .expect("valid ir node id from ast expr literal node");
-                                        lowering.ir.literal_values_mut().insert(ir_lit_id, value);
+                                        lowering.ir.literal_values_mut().insert(ir_lit_id, val);
                                     }
                                 }
                             }

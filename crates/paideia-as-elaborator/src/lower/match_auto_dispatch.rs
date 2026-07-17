@@ -90,6 +90,12 @@ fn process_match_for_auto_dispatch(ir: &mut IrArena, match_node_id: IrNodeId) {
                 break;
             }
 
+            // Skip if arm has guard (guards can't be expressed in jump-table dispatch).
+            if arm_meta.guard.is_some() {
+                has_invalid_arm = true;
+                break;
+            }
+
             // Collect variant_index if present.
             if let Some(variant_idx) = arm_meta.variant_index {
                 variant_arms.push((variant_idx, arm_idx as u32));

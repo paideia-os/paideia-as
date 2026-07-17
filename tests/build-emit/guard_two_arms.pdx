@@ -1,0 +1,15 @@
+// Issue #1000: guard_two_arms_first_fails
+// Tests that when first guard fails, second guarded arm is checked.
+// Expected exit code: 20
+
+module GuardTwoArms = structure {
+  enum Status { Off, Low, High }
+  pub let entry : () -> u64 !{} @{} = fn(_ : ()) -> {
+    let st : Status = Status::Low
+    match st {
+      High if true => 100u64
+      Low if true => 20u64
+      _ => 0u64
+    }
+  }
+}

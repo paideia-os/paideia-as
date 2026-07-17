@@ -230,8 +230,11 @@ fn expr_children(
         }
         ExprData::Match { scrutinee, arms, .. } => {
             // Match: scrutinee + arm bodies only.
-            // Patterns and guards are dropped here; populate_match_arm_meta
-            // walks AST arms directly to extract pattern classification.
+            // Patterns are dropped here; populate_match_arm_meta walks AST arms directly
+            // to extract pattern classification.
+            // Guards are NOT included as direct children here. They are separately
+            // allocated as orphan IR nodes in the first pass and are accessed via
+            // ast_to_ir map lookup in populate_match_arm_meta (#1000).
             let mut children = vec![*scrutinee];
             for arm in arms {
                 children.push(arm.body);

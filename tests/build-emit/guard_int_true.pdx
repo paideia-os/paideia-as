@@ -1,0 +1,14 @@
+// Issue #1000: guard_int_true_takes_arm
+// Tests that guard condition true takes the guarded arm.
+// Expected exit code: 1
+
+module GuardIntTrue = structure {
+  enum Status { Off, On }
+  pub let entry : () -> u64 !{} @{} = fn(_ : ()) -> {
+    let st : Status = Status::On
+    match st {
+      On if true => 1u64
+      _ => 0u64
+    }
+  }
+}

@@ -1,0 +1,15 @@
+// Issue #1000: guard_enum_wildcard_default_guarded
+// Tests that guarded wildcard doesn't match (guard false), falls through to unguarded default.
+// Expected exit code: 7
+
+module GuardEnumWildcardDefault = structure {
+  enum Result { Ok(u64), Err(u64) }
+
+  pub let entry : () -> u64 !{} @{} = fn(_ : ()) -> {
+    let r : Result = Result::Err(0u64)
+    match r {
+      _ if false => 99u64
+      _ => 7u64
+    }
+  }
+}

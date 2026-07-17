@@ -1,0 +1,15 @@
+// Issue #1000: guard_enum_payload_binder
+// Tests that pattern binder is available in guard expression.
+// Expected exit code: 5
+
+module GuardEnumPayloadBinder = structure {
+  enum Result { Ok(u64), Err(u64) }
+
+  pub let entry : () -> u64 !{} @{} = fn(_ : ()) -> {
+    let r : Result = Result::Ok(5u64)
+    match r {
+      Ok(x) if true => x
+      _ => 0u64
+    }
+  }
+}

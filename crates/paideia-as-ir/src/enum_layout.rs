@@ -701,6 +701,7 @@ mod tests {
             is_default: false,
             pattern_binding: Some(PatternBinding::Wildcard),
             int_pattern_value: None,
+            guard: None,
         };
         assert_eq!(meta.variant_index, Some(3));
         assert!(meta.payload_binder.is_some());
@@ -950,6 +951,8 @@ pub struct MatchArmMeta {
     /// Integer pattern value for integer-scrutinee matches (#1210).
     /// Set when this arm matches an integer literal in an integer match.
     pub int_pattern_value: Option<i64>,
+    /// Optional guard expression IR node ID (#1000).
+    pub guard: Option<IrNodeId>,
 }
 
 impl Default for MatchArmMeta {
@@ -960,6 +963,7 @@ impl Default for MatchArmMeta {
             is_default: false,
             pattern_binding: None,
             int_pattern_value: None,
+            guard: None,
         }
     }
 }

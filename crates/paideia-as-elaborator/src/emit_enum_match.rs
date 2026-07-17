@@ -1468,6 +1468,18 @@ impl EmitWalker {
 
             let arm_label = format!("match_arm_{}_{}", match_node_id.get(), idx);
 
+            // Hoist next_label computation for use in both pattern-check-jne and guard-jz
+            let next_label = arm_ids.get(idx + 1)
+                .and_then(|&next_id| arena.match_arm_meta().get(next_id))
+                .map(|next_meta| {
+                    if next_meta.is_default {
+                        default_label.clone()
+                    } else {
+                        format!("match_arm_{}_{}", match_node_id.get(), idx + 1)
+                    }
+                })
+                .unwrap_or_else(|| default_label.clone());
+
             // If default arm, skip comparisons and emit body directly
             if arm_meta.is_default {
                 self.state.register_label(default_label.clone());
@@ -1475,7 +1487,44 @@ impl EmitWalker {
                 if let Some(arm_node) = arena.get(arm_id) {
                     match arm_node.kind {
                         IrKind::Action => self.emit_block_body_arm(arm_id, arena, typer),
-                        _ => {}
+                        IrKind::Literal => {
+                            // Literal arm (e.g., `0u64`): move value to RAX at a match-scoped
+                            // IrNodeId so the MOV sorts between dispatch and arm-end anchor.
+                            if let Some(value) = arena.literal_values().get(arm_id) {
+                                let mov_id = IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10 + 4)
+                                    .expect("literal arm mov id");
+                                self.emit_mov_literal_to_reg_with_id(mov_id, abi::RAX, value);
+                            }
+                        }
+                        IrKind::Var => {
+                            // Var arm (e.g., `x`): move variable value to RAX
+                            // Get binding name from binding_names table
+                            if let Some(var_name) = arena.binding_names().get(arm_id) {
+                                if let Some(var_reg) = self.state.local_bindings.get(var_name) {
+                                    // Variable is already in a register; move it to RAX if needed
+                                    if var_reg != abi::RAX {
+                                        let mov_id = IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10 + 5)
+                                            .expect("var arm mov id");
+                                        let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                                        operands.push(Operand::Reg(abi::RAX));
+                                        operands.push(Operand::Reg(var_reg));
+                                        self.emit_inst(mov_id, Instruction {
+                                            mnemonic: Mnemonic::Mov,
+                                            operands,
+                                            encoding_hint: None,
+                                            byte_offset_in_text: None,
+                                            mode: self.current_mode(),
+                                            emission_order: 0,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                        IrKind::App => self.emit_arm_body_app(arm_id, arena, match_node_id, idx as u32),
+                        _ => {
+                            // Other IR kinds: emit diagnostic (arm body lowered to unsupported kind)
+                            self.push_typed_diag(t0560_code(), format!("unsupported match arm body IR kind: {:?}", arm_node.kind));
+                        }
                     }
                 }
                 continue;
@@ -1503,25 +1552,11 @@ impl EmitWalker {
                 });
 
                 // Emit jne to next arm or default
-                // #1214: If the successor arm is a default (`_ =>`), it registers only
-                // `default_label`, not `match_arm_N_(idx+1)`. Route jne to whichever label
-                // that arm will actually register.
-                let next_label = arm_ids.get(idx + 1)
-                    .and_then(|&next_id| arena.match_arm_meta().get(next_id))
-                    .map(|next_meta| {
-                        if next_meta.is_default {
-                            default_label.clone()
-                        } else {
-                            format!("match_arm_{}_{}", match_node_id.get(), idx + 1)
-                        }
-                    })
-                    .unwrap_or_else(|| default_label.clone());
-
                 let jne_id = IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10 + 1)
                     .expect("jne id");
                 let mut jne_operands: SmallVec<[Operand; 3]> = SmallVec::new();
                 jne_operands.push(Operand::LabelRef {
-                    name: next_label,
+                    name: next_label.clone(),
                     addend: 0,
                 });
 
@@ -1599,6 +1634,44 @@ impl EmitWalker {
                         self.state.local_bindings.insert(binder.clone(), abi::RDX);
                     }
                 }
+            }
+
+            // Emit guard if present (#1000)
+            if let Some(guard_ir_id) = arm_meta.guard {
+                // Emit guard expression evaluation into RAX
+                self.emit_guard_expression(guard_ir_id, arena);
+
+                // test rax, rax
+                let test_id = IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10 + 6)
+                    .expect("guard test id");
+                let mut test_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                test_ops.push(Operand::Reg(abi::RAX));
+                test_ops.push(Operand::Reg(abi::RAX));
+                self.emit_inst(test_id, Instruction {
+                    mnemonic: Mnemonic::Test,
+                    operands: test_ops,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                });
+
+                // jz next_label (if guard is false, jump to next arm)
+                let jz_id = IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10 + 7)
+                    .expect("guard jz id");
+                let mut jz_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                jz_ops.push(Operand::LabelRef {
+                    name: next_label.clone(),
+                    addend: 0,
+                });
+                self.emit_inst(jz_id, Instruction {
+                    mnemonic: Mnemonic::Jcc(Cond::Zero),
+                    operands: jz_ops,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                });
             }
 
             // Emit arm body based on its IR kind
@@ -2072,6 +2145,16 @@ impl EmitWalker {
                 self.push_typed_diag(t0563_code(), format!("App node {}: unsupported operand kinds ({:?}, {:?})", app_id.get(), arg0_node.kind, arg1_node.kind));
             }
         }
+    }
+
+    /// Emit guard expression evaluation into RAX (#1000).
+    ///
+    /// Evaluates the guard expression (which should be a comparison or variable)
+    /// and places the result (boolean: 0 or non-zero) into RAX for testing.
+    /// Uses the existing emit_var_assign_expr_to_reg machinery to handle
+    /// Var (load variable), Literal (load constant), and comparison operators.
+    pub(crate) fn emit_guard_expression(&mut self, guard_ir_id: IrNodeId, arena: &IrArena) {
+        let _ = self.emit_var_assign_expr_to_reg(guard_ir_id, arena, abi::RAX, 0);
     }
 }
 

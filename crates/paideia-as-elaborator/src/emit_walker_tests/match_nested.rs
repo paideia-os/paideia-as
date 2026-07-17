@@ -39,6 +39,7 @@ fn build_and_walk_match(
                 is_default: *is_default,
                 pattern_binding: None,
                 int_pattern_value: None,
+            guard: None,
             },
         );
     }
@@ -319,6 +320,7 @@ fn match_missing_scrutinee_type_emits_diagnostic() {
             is_default: false,
             pattern_binding: None,
             int_pattern_value: None,
+            guard: None,
         },
     );
 
@@ -388,6 +390,7 @@ fn nested_record_simple_two_fields() {
             is_default: false,
             pattern_binding: Some(pattern),
             int_pattern_value: None,
+            guard: None,
         },
     );
 
@@ -454,6 +457,7 @@ fn nested_enum_over_leaf() {
             is_default: false,
             pattern_binding: Some(pattern),
             int_pattern_value: None,
+            guard: None,
         },
     );
 
@@ -499,6 +503,7 @@ fn nested_enum_over_record() {
             is_default: false,
             pattern_binding: Some(pattern),
             int_pattern_value: None,
+            guard: None,
         },
     );
 
@@ -563,6 +568,7 @@ fn nested_record_over_enum_over_record() {
             is_default: false,
             pattern_binding: Some(container_pattern),
             int_pattern_value: None,
+            guard: None,
         },
     );
 
@@ -621,6 +627,7 @@ fn nested_wildcard_at_leaf() {
             is_default: false,
             pattern_binding: Some(pattern),
             int_pattern_value: None,
+            guard: None,
         },
     );
 
@@ -673,6 +680,7 @@ fn nested_record_four_simple_fields_no_exhaustion() {
             is_default: false,
             pattern_binding: Some(pattern),
             int_pattern_value: None,
+            guard: None,
         },
     );
 
@@ -768,6 +776,7 @@ fn nested_byte_exact_enum_over_record_offsets() {
             is_default: false,
             pattern_binding: Some(pattern),
             int_pattern_value: None,
+            guard: None,
         },
     );
 
@@ -842,6 +851,7 @@ fn nested_byte_exact_record_over_enum_offsets() {
             is_default: false,
             pattern_binding: Some(container_pattern),
             int_pattern_value: None,
+            guard: None,
         },
     );
 
@@ -905,6 +915,7 @@ fn nested_multiple_sibling_bindings_widths() {
             is_default: false,
             pattern_binding: Some(pattern),
             int_pattern_value: None,
+            guard: None,
         },
     );
 
@@ -963,6 +974,7 @@ fn nested_missing_payload_layout_diagnostic() {
             is_default: false,
             pattern_binding: Some(pattern),
             int_pattern_value: None,
+            guard: None,
         },
     );
 
@@ -1008,6 +1020,7 @@ fn nested_wildcard_at_multiple_levels() {
             is_default: false,
             pattern_binding: Some(container_pattern),
             int_pattern_value: None,
+            guard: None,
         },
     );
 
@@ -1072,6 +1085,7 @@ fn nested_smoke_no_panic_on_deep_nesting() {
             is_default: false,
             pattern_binding: Some(level1),
             int_pattern_value: None,
+            guard: None,
         },
     );
 
@@ -1138,6 +1152,7 @@ fn match_returning_small_enum_writes_rax_rdx_ir_level() {
             is_default: false,
             pattern_binding: None,
             int_pattern_value: None,
+            guard: None,
         },
     );
 
@@ -1195,6 +1210,7 @@ fn nested_match_arm_body_is_match_ir_level() {
             is_default: false,
             pattern_binding: None,
             int_pattern_value: None,
+            guard: None,
         },
     );
 
@@ -1220,6 +1236,7 @@ fn nested_match_arm_body_is_match_ir_level() {
             is_default: false,
             pattern_binding: None,
             int_pattern_value: None,
+            guard: None,
         },
     );
 
@@ -1288,6 +1305,7 @@ fn match_returning_large_enum_writes_rdi_slot_ir_level() {
             is_default: false,
             pattern_binding: None,
             int_pattern_value: None,
+            guard: None,
         },
     );
 

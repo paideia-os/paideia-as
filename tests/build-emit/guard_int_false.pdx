@@ -1,0 +1,14 @@
+// Issue #1000: guard_int_false_falls_through
+// Tests that guard condition false falls through to next arm.
+// Expected exit code: 0
+
+module GuardIntFalse = structure {
+  enum Status { Off, On }
+  pub let entry : () -> u64 !{} @{} = fn(_ : ()) -> {
+    let st : Status = Status::Off
+    match st {
+      Off if false => 1u64
+      _ => 0u64
+    }
+  }
+}

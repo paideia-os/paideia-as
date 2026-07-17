@@ -1,0 +1,15 @@
+// Issue #1000: guard_pattern_binder_not_leaked
+// Tests that pattern binder in guard is NOT leaked to arm body of next arm.
+// Expected exit code: 42
+
+module GuardPatternBinderNotLeaked = structure {
+  enum Result { Ok(u64), Err(u64) }
+
+  pub let entry : () -> u64 !{} @{} = fn(_ : ()) -> {
+    let r : Result = Result::Ok(1u64)
+    match r {
+      Ok(x) if false => x
+      _ => 42u64
+    }
+  }
+}

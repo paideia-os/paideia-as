@@ -219,6 +219,18 @@ impl EmitWalker {
 
             let arm_label = format!("match_arm_{}_{}", match_node_id.get(), idx);
 
+            // Hoist next_label computation for use in both pattern-check-jne and guard-jz
+            let next_label = arm_ids.get(idx + 1)
+                .and_then(|&next_id| arena.match_arm_meta().get(next_id))
+                .map(|next_meta| {
+                    if next_meta.is_default {
+                        default_label.clone()
+                    } else {
+                        format!("match_arm_{}_{}", match_node_id.get(), idx + 1)
+                    }
+                })
+                .unwrap_or_else(|| default_label.clone());
+
             // If default arm, skip comparisons and emit body directly
             if arm_meta.is_default {
                 self.state.register_label(default_label.clone());
@@ -251,31 +263,55 @@ impl EmitWalker {
                 });
 
                 // Emit jne to next arm or default
-                // #1214: If the successor arm is a default (`_ =>`), it registers only
-                // `default_label`, not `match_arm_N_(idx+1)`. Route jne to whichever label
-                // that arm will actually register.
-                let next_label = arm_ids.get(idx + 1)
-                    .and_then(|&next_id| arena.match_arm_meta().get(next_id))
-                    .map(|next_meta| {
-                        if next_meta.is_default {
-                            default_label.clone()
-                        } else {
-                            format!("match_arm_{}_{}", match_node_id.get(), idx + 1)
-                        }
-                    })
-                    .unwrap_or_else(|| default_label.clone());
-
                 let jne_id = IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10 + 1)
                     .expect("jne id");
                 let mut jne_operands: SmallVec<[Operand; 3]> = SmallVec::new();
                 jne_operands.push(Operand::LabelRef {
-                    name: next_label,
+                    name: next_label.clone(),
                     addend: 0,
                 });
 
                 self.emit_inst(jne_id, Instruction {
                     mnemonic: Mnemonic::Jcc(Cond::Ne),
                     operands: jne_operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                });
+            }
+
+            // Emit guard if present (#1000)
+            if let Some(guard_ir_id) = arm_meta.guard {
+                // Emit guard expression evaluation into RAX
+                self.emit_guard_expression(guard_ir_id, arena);
+
+                // test rax, rax
+                let test_id = IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10 + 6)
+                    .expect("guard test id");
+                let mut test_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                test_ops.push(Operand::Reg(abi::RAX));
+                test_ops.push(Operand::Reg(abi::RAX));
+                self.emit_inst(test_id, Instruction {
+                    mnemonic: Mnemonic::Test,
+                    operands: test_ops,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                });
+
+                // jz next_label (if guard is false, jump to next arm)
+                let jz_id = IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10 + 7)
+                    .expect("guard jz id");
+                let mut jz_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                jz_ops.push(Operand::LabelRef {
+                    name: next_label.clone(),
+                    addend: 0,
+                });
+                self.emit_inst(jz_id, Instruction {
+                    mnemonic: Mnemonic::Jcc(Cond::Zero),
+                    operands: jz_ops,
                     encoding_hint: None,
                     byte_offset_in_text: None,
                     mode: self.current_mode(),

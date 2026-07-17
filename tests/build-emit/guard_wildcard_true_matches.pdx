@@ -1,0 +1,18 @@
+// Issue #1000: guarded wildcard with true guard MUST match.
+// Regression test — without match_arm.rs::PatIdent L130 fix, the guarded wildcard
+// was silently treated as unconditional default; guard was skipped; the second
+// arm's `mov rax, 0x7` overwrote the first arm's `mov rax, 0x63`, returning 7.
+// This fixture must return 99 with the guard correctly evaluated.
+// Expected exit code: 99
+
+module GuardWildcardTrueMatches = structure {
+  enum Result { Ok(u64), Err(u64) }
+
+  pub let entry : () -> u64 !{} @{} = fn(_ : ()) -> {
+    let r : Result = Result::Err(0u64)
+    match r {
+      _ if true => 99u64
+      _ => 7u64
+    }
+  }
+}

@@ -109,4 +109,11 @@ mod runtime {
     mod cmp_ge_eq_true_value;
     mod cmp_eq_true_value;
     mod cmp_ne_true_value;
+    mod guard_int_true_takes_arm_value;
+    mod guard_int_false_falls_through_value;
+    mod guard_two_arms_first_fails_value;
+    mod guard_enum_payload_binder_value;
+    mod guard_enum_wildcard_default_guarded_value;
+    mod guard_pattern_binder_not_leaked_value;
+    mod guard_wildcard_true_matches_value;
 }

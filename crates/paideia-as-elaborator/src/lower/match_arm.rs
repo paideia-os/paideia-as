@@ -116,7 +116,10 @@ pub(super) fn populate_match_arm_meta(
 
             match pattern_node.kind {
                 NodeKind::PatWildcard => {
-                    arm_meta.is_default = true;
+                    // Only mark as unconditional default when no guard.
+                    // A guarded wildcard (_ if pred => ...) is conditional — must fall into
+                    // the normal cascade path so the guard check runs.
+                    arm_meta.is_default = arm.guard.is_none();
                 }
                 NodeKind::PatIdent => {
                     // Extract pattern source text
@@ -124,7 +127,10 @@ pub(super) fn populate_match_arm_meta(
                         extract_source_text_for_record_cons(ast, source_map, arm.pattern)
                     {
                         if pattern_text == "_" {
-                            arm_meta.is_default = true;
+                            // #1000: mark as unconditional default only when no guard.
+                            // A guarded wildcard (`_ if pred => ...`) is conditional and
+                            // must fall into the cascade path so the guard runs.
+                            arm_meta.is_default = arm.guard.is_none();
                         } else {
                             // Check if this matches a bare variant name
                             if let Some((variant_idx, _)) = variants
@@ -207,6 +213,13 @@ pub(super) fn populate_match_arm_meta(
                     type_id,
                 ) {
                     arm_meta.pattern_binding = Some(pattern_binding);
+                }
+            }
+
+            // Populate guard if present
+            if let Some(guard_ast_id) = arm.guard {
+                if let Some(&guard_ir_id) = ast_to_ir.get(&guard_ast_id) {
+                    arm_meta.guard = Some(guard_ir_id);
                 }
             }
 
