@@ -1,0 +1,21 @@
+// Issue #999: pa-r18-006 command-dispatch pattern reference fixture
+// Tests that command dispatch via enum-tag match works end-to-end.
+// Unit-variant enum with 4 handlers, dispatching on Cmd::Echo.
+// Expected exit code: 3
+
+module PaR18CommandDispatchShell = structure {
+  // Unit-variant enum: each command is a tag with no payload.
+  enum Cmd { Ls, Pwd, Echo, Exit }
+
+  // Dispatch: match on command tag.
+  // Routes enum variants to their corresponding exit codes.
+  pub let dispatch : (Cmd) -> u64 !{} @{} = fn(c: Cmd) -> match c {
+    Ls   => 1u64
+    Pwd  => 2u64
+    Echo => 3u64
+    Exit => 0u64
+  }
+
+  // Entry: invoke dispatch on Echo command, expecting exit code 3.
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> dispatch(Cmd::Echo)
+}

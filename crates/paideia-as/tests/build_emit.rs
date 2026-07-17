@@ -48,6 +48,7 @@ mod build_emit {
     pub mod match_enum_pattern;
     pub mod option_u64_some_extract;
     pub mod option_u64_none_default;
+    pub mod pa_r18_006_command_dispatch_shell;
     pub mod result_u64_u64_ok_extract;
     pub mod result_u64_u64_err_extract;
     pub mod module_let_no_text_emission;

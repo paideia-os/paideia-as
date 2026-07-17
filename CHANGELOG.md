@@ -68,6 +68,8 @@ Foundational stdlib types `Option<T>`, `Result<T,E>`, and `Str` now have concret
   - Deferred unsafe-asm `str_byte_at` to #998a (requires module constants).
   - Deferred string comparison, hashing, substring, split to issues #998b–e (blocked on deref/loop/by-value args/by-value return).
 
+- **Issue #999** — Command-dispatch pattern documentation (PA-R18-006). Canonicalises the dispatch pattern for semantic-shell command routing as a hash-table mapping command names to closures (target shape, blocked on #994/#995/#996/#998b–e). Documents three dispatch strategies buildable today: (1) enum-tag dispatch via cmp/je cascade, (2) enum-tag dispatch via @jump_table O(1), (3) function-pointer indirect dispatch. Deliverables: design documentation at `design/toolchain/command-dispatch-pattern.md` (~265 LOC), reference fixture `tests/build-emit/pa_r18_006_command_dispatch_shell.pdx`, runtime canary returning exit code 3, build-emit integration test. Witness fixtures demonstrate enum-tag dispatch + @jump_table codegen on unit-variant commands (Ls, Pwd, Echo, Exit); expected exit code 3. Blocks paideia-os phase 11 semantic-shell implementation; migration path table shows when each blocker lands.
+
 ## v0.17.0 — CONTROL-FLOW: pure functions with if/match/while/loop
 
 **In development:** Milestone PA-R17-012 (#990).

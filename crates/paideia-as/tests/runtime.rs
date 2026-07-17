@@ -131,4 +131,5 @@ mod runtime {
     mod bind_with_guard_value;
     mod bind_with_guard_false_value;
     mod bind_variant_unit_value;
+    mod command_dispatch_shell;
 }
