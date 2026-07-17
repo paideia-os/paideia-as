@@ -10,7 +10,7 @@ use paideia_as_diagnostics::{Catalog, DiagnosticSink, HumanRenderer, HumanSink, 
 use paideia_as_emitter_pe::emit_text_from_instructions;
 use paideia_as_emitter_pe::{
     COFF_FILE_HEADER_SIZE, CoffFileHeader, DOS_HEADER_SIZE, DosHeader, NT_SIGNATURE,
-    OPTIONAL_HEADER_PE32PLUS_SIZE, OptionalHeaderPe32Plus, NamedSectionError, SectionTable as PeSectionTable,
+    OPTIONAL_HEADER_PE32PLUS_SIZE, OptionalHeaderPe32Plus, NamedSectionError, Section, SectionTable as PeSectionTable,
 };
 use paideia_as_encoder::EncodeStats;
 use paideia_as_ir::{IrNodeId, SectionKind};
@@ -103,18 +103,24 @@ pub(super) fn build_pe_object(
 
     sections.add_text(text_bytes);
 
+    // Track symbol offsets and relocations for data entries.
+    // We need to collect relocations and process them after finalization.
+    let mut data_symbol_offsets: std::collections::HashMap<String, (usize, u64)> = std::collections::HashMap::new();
+    // Each tuple: (target_symbol, source_section_idx, relocation_offset, width, addend)
+    let mut reloc_specs: Vec<(String, usize, u64, paideia_as_ir::RelocWidth, i64)> = Vec::new();
+
     // Iterate through data entries and add them to appropriate sections.
     // Phase 19 R19-M1 (pa-r19-013-followup): iterate arena.data() and emit data sections.
     for (_node_id, entry) in arena.data().iter() {
-        if !entry.relocations.is_empty() {
-            #[cfg(debug_assertions)]
-            eprintln!("[pe-emit] skipping DataEntry with cross-section relocations (deferred #1105)");
-            continue;
-        }
-        if let Some(name) = &entry.section_name_override {
+        let (section_idx, offset_in_section) = if let Some(name) = &entry.section_name_override {
             let writable = matches!(entry.section, SectionKind::Data | SectionKind::Bss);
             match sections.add_bytes_to_named_section(name, &entry.bytes, entry.align, writable) {
-                Ok(_) => {},
+                Ok(offset) => {
+                    // Find the section index for this custom section
+                    let idx = sections.find_section_by_name(name)
+                        .expect("custom section must exist after add_bytes_to_named_section");
+                    (idx, offset)
+                },
                 Err(NamedSectionError::NameTooLong { name: ref _section_name, len: _len }) => {
                     // Emit P0289 through the sink (if sink is available)
                     // For now we skip this entry; a diagnostic would be emitted at elaboration time
@@ -125,17 +131,61 @@ pub(super) fn build_pe_object(
             }
         } else {
             match entry.section {
-                SectionKind::Rodata => { sections.add_rodata_bytes(&entry.bytes, entry.align); }
-                SectionKind::Data   => { sections.add_data_bytes(&entry.bytes, entry.align); }
-                SectionKind::Bss    => { sections.add_bss_space(entry.size_hint, entry.align); }
-                SectionKind::Text   => { /* deferred */ }
+                SectionKind::Rodata => {
+                    let offset = sections.add_rodata_bytes(&entry.bytes, entry.align);
+                    let idx = sections.find_section_by_name(".rdata")
+                        .expect(".rdata section must exist after add_rodata_bytes");
+                    (idx, offset)
+                },
+                SectionKind::Data => {
+                    let offset = sections.add_data_bytes(&entry.bytes, entry.align);
+                    let idx = sections.find_section_by_name(".data")
+                        .expect(".data section must exist after add_data_bytes");
+                    (idx, offset)
+                },
+                SectionKind::Bss => {
+                    let offset = sections.add_bss_space(entry.size_hint, entry.align);
+                    let idx = sections.find_section_by_name(".bss")
+                        .expect(".bss section must exist after add_bss_space");
+                    (idx, offset)
+                },
+                SectionKind::Text => {
+                    // Skip text entries for now
+                    continue;
+                }
             }
+        };
+
+        // Track symbol offset for relocation resolution
+        data_symbol_offsets.insert(entry.symbol_name.clone(), (section_idx, offset_in_section));
+
+        // Collect relocations for processing after finalization
+        for reloc in &entry.relocations {
+            reloc_specs.push((
+                reloc.symbol.clone(),  // Target symbol (not source)
+                section_idx,
+                offset_in_section + reloc.offset,
+                reloc.width,
+                reloc.addend,
+            ));
         }
     }
 
     // Store offset_map for DWARF emit-stage (Phase-4-m2-002).
     // This enables DWARF .debug_line reconstruction with post-rewrite offsets.
     let _offset_map = emit_result.offset_map;
+
+    // Reserve space for .reloc section if we have relocations
+    let has_relocations = !sections.relocations.is_empty();
+    if has_relocations {
+        // Add placeholder .reloc section (will be populated after finalization)
+        sections.sections.push(Section::new_named(
+            b".reloc\0\0",
+            paideia_as_emitter_pe::CHARACTERISTICS_RDATA,
+            Vec::new(),
+            0,
+        ));
+    }
 
     let headers_size = DOS_HEADER_SIZE
         + 4
@@ -147,6 +197,66 @@ pub(super) fn build_pe_object(
         opt.file_alignment,
         headers_size as u32,
     );
+
+    // Resolve relocations: patch data with target RVAs and record base relocations.
+    // Convert symbol offsets to RVAs and process each relocation.
+    for (symbol_name, section_idx, data_offset, width, addend) in reloc_specs {
+        // Get the target symbol's RVA
+        if let Some((target_section_idx, target_offset)) = data_symbol_offsets.get(&symbol_name) {
+            if *target_section_idx < sections.sections.len() {
+                let target_section = &sections.sections[*target_section_idx];
+                let target_rva = target_section.header.virtual_address + *target_offset as u32;
+
+                // Patch the data slot with the resolved RVA
+                if section_idx < sections.sections.len() {
+                    let section = &mut sections.sections[section_idx];
+                    let data_slot = data_offset as usize;
+
+                    match width {
+                        paideia_as_ir::RelocWidth::W64 => {
+                            if data_slot + 8 <= section.content.len() {
+                                let patched_value = (target_rva as i64 + addend).to_le_bytes();
+                                section.content[data_slot..data_slot + 8].copy_from_slice(&patched_value);
+                            }
+                        },
+                        paideia_as_ir::RelocWidth::W32 => {
+                            if data_slot + 4 <= section.content.len() {
+                                let patched_value = ((target_rva as i64 + addend) as u32).to_le_bytes();
+                                section.content[data_slot..data_slot + 4].copy_from_slice(&patched_value);
+                            }
+                        },
+                    }
+                }
+
+                // Record the relocation for the .reloc section
+                sections.add_relocation(section_idx, data_offset, paideia_as_emitter_pe::IMAGE_REL_BASED_DIR64);
+            }
+        }
+    }
+
+    // Populate the .reloc section if we have relocations
+    if has_relocations {
+        let reloc_section = sections.build_reloc_section();
+        let reloc_bytes = reloc_section.to_bytes();
+        if let Some(reloc_sec_idx) = sections.find_section_by_name(".reloc") {
+            if reloc_sec_idx < sections.sections.len() {
+                let reloc_sec = &mut sections.sections[reloc_sec_idx];
+                reloc_sec.content = reloc_bytes;
+                let content_len = reloc_sec.content.len() as u32;
+                reloc_sec.header.virtual_size = content_len;
+                // Update size_of_raw_data to account for the populated content
+                // (aligned to file_alignment, same as was done in finalize())
+                let aligned_size = paideia_as_emitter_pe::align_up(content_len, opt.file_alignment);
+                reloc_sec.header.size_of_raw_data = aligned_size;
+
+                // Update opt.size_of_image if .reloc extended the image
+                let reloc_end = reloc_sec.header.virtual_address + content_len;
+                if reloc_end > opt.size_of_image {
+                    opt.size_of_image = reloc_end;
+                }
+            }
+        }
+    }
 
     coff.number_of_sections = sections.sections.len() as u16;
 

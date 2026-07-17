@@ -250,7 +250,7 @@ pub struct Section {
 
 impl Section {
     /// Create a new section with the given name, characteristics, content, and virtual size.
-    fn new_named(name: &[u8], characteristics: u32, content: Vec<u8>, virtual_size: u32) -> Self {
+    pub fn new_named(name: &[u8], characteristics: u32, content: Vec<u8>, virtual_size: u32) -> Self {
         let mut name_bytes = [0u8; SECTION_NAME_LEN];
         let copy_len = core::cmp::min(name.len(), SECTION_NAME_LEN);
         name_bytes[..copy_len].copy_from_slice(&name[..copy_len]);
@@ -281,6 +281,10 @@ impl Section {
 pub struct SectionTable {
     /// Collection of sections.
     pub sections: Vec<Section>,
+    /// Relocation entries to be written to .reloc section.
+    /// Each tuple is (section_index, offset_in_section, relocation_type).
+    /// The offset_in_section is a file offset that will be converted to RVA during finalization.
+    pub relocations: Vec<(usize, u64, u16)>,
 }
 
 impl SectionTable {
@@ -288,6 +292,7 @@ impl SectionTable {
     pub fn new() -> Self {
         Self {
             sections: Vec::new(),
+            relocations: Vec::new(),
         }
     }
 
@@ -456,6 +461,13 @@ impl SectionTable {
         self.sections.iter().position(|s| s.header.name == name_bytes)
     }
 
+    /// Record a relocation entry for a given section and offset within that section.
+    /// The offset is relative to the start of the section's content.
+    /// The relocation type should be one of IMAGE_REL_BASED_* constants (typically IMAGE_REL_BASED_DIR64 for 64-bit addresses).
+    pub fn add_relocation(&mut self, section_idx: usize, offset: u64, reloc_type: u16) {
+        self.relocations.push((section_idx, offset, reloc_type));
+    }
+
     /// Add a .text section (code).
     pub fn add_text(&mut self, content: Vec<u8>) {
         let vsize = content.len() as u32;
@@ -575,6 +587,31 @@ impl SectionTable {
         }
 
         result
+    }
+
+    /// Build a RelocSection from the tracked relocations.
+    /// This converts section-relative offsets to RVAs and groups them appropriately.
+    /// Call this AFTER finalize() so that section RVAs are correctly set.
+    pub fn build_reloc_section(&self) -> super::reloc::RelocSection {
+        use super::reloc::{RelocSection, Relocation, IMAGE_REL_BASED_DIR64};
+
+        let mut reloc_section = RelocSection::new();
+
+        for (section_idx, offset_in_section, reloc_type) in &self.relocations {
+            if *section_idx >= self.sections.len() {
+                continue; // Skip invalid indices
+            }
+
+            let section = &self.sections[*section_idx];
+            let rva = section.header.virtual_address + *offset_in_section as u32;
+
+            reloc_section.relocations.push(Relocation {
+                rva,
+                typ: *reloc_type,
+            });
+        }
+
+        reloc_section
     }
 }
 
