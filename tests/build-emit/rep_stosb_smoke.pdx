@@ -1,0 +1,52 @@
+// Test: #1228 (Phase 2 of #1064) — rep stosb instruction encoding audit
+// This file verifies that rep stosb encodes correctly in various contexts:
+// - bare rep stosb → F3 AA C3
+// - after cld instruction → FC F3 AA C3
+// - after label → F3 AA C3
+//
+// The audit ensures rep stosb (0xF3 0xAA) is only emitted when no operands
+// are present and rejects any operand-bearing forms like rep stosb rax;
+
+module RepStosbSmoke = structure {
+  let bare_rep_stosb : () -> () !{mem} @{boot} = fn(_: ()) -> unsafe {
+    effects: {mem},
+    capabilities: {boot},
+    justification: "bare rep stosb smoke test",
+    block: {
+      rep_stosb;
+      ret
+    }
+  }
+
+  let after_cld : () -> () !{mem} @{boot} = fn(_: ()) -> unsafe {
+    effects: {mem},
+    capabilities: {boot},
+    justification: "rep stosb after cld clears direction flag",
+    block: {
+      cld;
+      rep_stosb;
+      ret
+    }
+  }
+
+  let after_label : () -> () !{mem} @{boot} = fn(_: ()) -> unsafe {
+    effects: {mem},
+    capabilities: {boot},
+    justification: "rep stosb after label at offset 0",
+    block: {
+      fill_loop: rep_stosb;
+      ret
+    }
+  }
+
+  let labeled_cld_rep : () -> () !{mem} @{boot} = fn(_: ()) -> unsafe {
+    effects: {mem},
+    capabilities: {boot},
+    justification: "label then cld then rep stosb",
+    block: {
+      loop_start: cld;
+      rep_stosb;
+      ret
+    }
+  }
+}

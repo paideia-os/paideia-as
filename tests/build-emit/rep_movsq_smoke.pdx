@@ -1,0 +1,52 @@
+// Test: #1228 (Phase 2 of #1064) — rep movsq instruction encoding audit
+// This file verifies that rep movsq encodes correctly in various contexts:
+// - bare rep movsq → F3 48 A5 C3
+// - after cld instruction → FC F3 48 A5 C3
+// - after label → F3 48 A5 C3
+//
+// The audit ensures rep movsq (0xF3 0x48 0xA5) is only emitted when no operands
+// are present and rejects any operand-bearing forms like rep movsq rax;
+
+module RepMovsqSmoke = structure {
+  let bare_rep_movsq : () -> () !{mem} @{boot} = fn(_: ()) -> unsafe {
+    effects: {mem},
+    capabilities: {boot},
+    justification: "bare rep movsq smoke test",
+    block: {
+      rep_movsq;
+      ret
+    }
+  }
+
+  let after_cld : () -> () !{mem} @{boot} = fn(_: ()) -> unsafe {
+    effects: {mem},
+    capabilities: {boot},
+    justification: "rep movsq after cld clears direction flag",
+    block: {
+      cld;
+      rep_movsq;
+      ret
+    }
+  }
+
+  let after_label : () -> () !{mem} @{boot} = fn(_: ()) -> unsafe {
+    effects: {mem},
+    capabilities: {boot},
+    justification: "rep movsq after label at offset 0",
+    block: {
+      copy_loop: rep_movsq;
+      ret
+    }
+  }
+
+  let labeled_cld_rep : () -> () !{mem} @{boot} = fn(_: ()) -> unsafe {
+    effects: {mem},
+    capabilities: {boot},
+    justification: "label then cld then rep movsq",
+    block: {
+      loop_start: cld;
+      rep_movsq;
+      ret
+    }
+  }
+}

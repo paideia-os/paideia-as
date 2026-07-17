@@ -4530,6 +4530,38 @@ pub fn encode_rep_stosq(buf: &mut CodeBuffer) {
     buf.bytes.push(0xAB); // stosq opcode
 }
 
+/// Encode repeat store byte instruction: `rep stosb` (no operands).
+///
+/// Stores AL to memory at [RDI], then decrements RCX and repeats until RCX is zero.
+/// Used primarily for `memset`: AL=fill byte, RCX=byte count, RDI=dest base.
+///
+/// # Instructions
+/// - `rep stosb`: `F3 AA` (2 bytes: rep prefix, stosb opcode)
+///
+/// # Arguments
+/// - `buf`: code buffer to append instruction to
+pub fn encode_rep_stosb(buf: &mut CodeBuffer) {
+    buf.bytes.push(0xF3); // rep prefix
+    buf.bytes.push(0xAA); // stosb opcode
+}
+
+/// Encode repeat move quadword instruction: `rep movsq` (no operands).
+///
+/// Copies a quadword from [RSI] to [RDI], advances both, then decrements RCX
+/// and repeats until RCX is zero. Used for qword-granular `memcpy`:
+/// RSI=src base, RDI=dest base, RCX=qword count.
+///
+/// # Instructions
+/// - `rep movsq`: `F3 48 A5` (3 bytes: rep prefix, REX.W, movsq opcode)
+///
+/// # Arguments
+/// - `buf`: code buffer to append instruction to
+pub fn encode_rep_movsq(buf: &mut CodeBuffer) {
+    buf.bytes.push(0xF3); // rep prefix
+    buf.bytes.push(0x48); // REX.W for 64-bit operand
+    buf.bytes.push(0xA5); // movsq opcode
+}
+
 /// Encode `jmp far [mem]` with SIB or RIP-relative addressing.
 ///
 /// Far jump to memory uses `FF /5` with REX.W prefix (`48`).

@@ -108,6 +108,8 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
             InstructionClass::Branch
         }
         Mnemonic::RepMovsb => InstructionClass::Other, // Conservative: treat as other
+        // #1228: REP string bulk-mem primitives; conservative Other (implicit RCX/RSI/RDI, side effects).
+        Mnemonic::RepStosb | Mnemonic::RepMovsq => InstructionClass::Other,
         // Phase R13 PA-R13-003/004/005/007: LOCK-prefixed atomics and memory barriers.
         // Backtrack #1035: reclassify as AtomicLocked (full barrier semantics).
         Mnemonic::Xchg

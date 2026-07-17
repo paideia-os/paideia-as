@@ -120,6 +120,8 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     ("endbr64", Mnemonic::Endbr64),
     ("endbr32", Mnemonic::Endbr32),
     ("rep_stosq", Mnemonic::RepStosq),
+    ("rep_stosb", Mnemonic::RepStosb),
+    ("rep_movsq", Mnemonic::RepMovsq),
     ("farjmp", Mnemonic::FarJmp),
     ("ljmp", Mnemonic::FarJmp), // PA10-006h: ljmp alias for farjmp (two-operand form)
     // Jcc (conditional jump) variants (16 forms)
@@ -1495,6 +1497,16 @@ mod tests {
     #[test]
     fn resolve_mnemonic_rep_stosq() {
         assert_eq!(resolve_mnemonic("rep_stosq"), Some(Mnemonic::RepStosq));
+    }
+
+    #[test]
+    fn resolve_mnemonic_rep_stosb() {
+        assert_eq!(resolve_mnemonic("rep_stosb"), Some(Mnemonic::RepStosb));
+    }
+
+    #[test]
+    fn resolve_mnemonic_rep_movsq() {
+        assert_eq!(resolve_mnemonic("rep_movsq"), Some(Mnemonic::RepMovsq));
     }
 
     #[test]

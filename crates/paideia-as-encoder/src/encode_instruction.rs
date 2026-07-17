@@ -364,6 +364,8 @@ fn encode_instruction_impl(
         Mnemonic::Sysret => encode_sysret_inst(inst, buf),
         Mnemonic::Syscall => encode_syscall_inst(inst, buf),
         Mnemonic::RepStosq => encode_rep_stosq_inst(inst, buf),
+        Mnemonic::RepStosb => encode_rep_stosb_inst(inst, buf),
+        Mnemonic::RepMovsq => encode_rep_movsq_inst(inst, buf),
         Mnemonic::FarJmp => encode_far_jmp_inst(inst, buf),
         Mnemonic::Movzx => encode_movzx(inst, buf),
         Mnemonic::Movsx => encode_movsx(inst, buf),
@@ -3994,6 +3996,38 @@ fn encode_rep_stosq_inst(
     Ok(EncodeOutput::new())
 }
 
+fn encode_rep_stosb_inst(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+) -> Result<EncodeOutput, EncodeError> {
+    // rep stosb expects exactly 0 operands (AL=value, RCX=count, RDI=destination implicit)
+    if !inst.operands.is_empty() {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::RepStosb,
+            expected: 0,
+            got: inst.operands.len(),
+        });
+    }
+    encode_rep_stosb(buf);
+    Ok(EncodeOutput::new())
+}
+
+fn encode_rep_movsq_inst(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+) -> Result<EncodeOutput, EncodeError> {
+    // rep movsq expects exactly 0 operands (RSI=source, RDI=destination, RCX=count implicit)
+    if !inst.operands.is_empty() {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::RepMovsq,
+            expected: 0,
+            got: inst.operands.len(),
+        });
+    }
+    encode_rep_movsq(buf);
+    Ok(EncodeOutput::new())
+}
+
 fn encode_far_jmp_inst(
     inst: &Instruction,
     buf: &mut CodeBuffer,
@@ -4707,6 +4741,94 @@ mod tests {
         let mut stats = EncodeStats::new();
         let err = encode_instruction(&inst, &mut buf, &mut stats).unwrap_err();
         assert!(matches!(err, EncodeError::OperandCount { mnemonic: Mnemonic::RepStosq, expected: 0, .. }));
+    }
+
+    #[test]
+    fn encode_rep_stosb_round_trips() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::RepStosb,
+            operands: smallvec::smallvec![],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+
+        emission_order: 0,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Verify byte sequence: F3 AA
+        assert_eq!(buf.as_slice(), &[0xF3, 0xAA]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Stosb);
+    }
+
+    #[test]
+    fn encode_rep_stosb_rejects_operand() {
+        // #1228: rep stosb must not have any operands (AL/RCX/RDI implicit).
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::RepStosb,
+            operands: smallvec::smallvec![Operand::Reg(RegId(0))],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+
+        emission_order: 0,
+        };
+        let mut stats = EncodeStats::new();
+        let err = encode_instruction(&inst, &mut buf, &mut stats).unwrap_err();
+        assert!(matches!(err, EncodeError::OperandCount { mnemonic: Mnemonic::RepStosb, expected: 0, .. }));
+    }
+
+    #[test]
+    fn encode_rep_movsq_round_trips() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::RepMovsq,
+            operands: smallvec::smallvec![],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+
+        emission_order: 0,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        // Verify byte sequence: F3 48 A5
+        assert_eq!(buf.as_slice(), &[0xF3, 0x48, 0xA5]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Movsq);
+    }
+
+    #[test]
+    fn encode_rep_movsq_rejects_operand() {
+        // #1228: rep movsq must not have any operands (RSI/RDI/RCX implicit).
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::RepMovsq,
+            operands: smallvec::smallvec![Operand::Reg(RegId(0))],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+
+        emission_order: 0,
+        };
+        let mut stats = EncodeStats::new();
+        let err = encode_instruction(&inst, &mut buf, &mut stats).unwrap_err();
+        assert!(matches!(err, EncodeError::OperandCount { mnemonic: Mnemonic::RepMovsq, expected: 0, .. }));
     }
 
     #[test]

@@ -180,6 +180,12 @@ pub enum Mnemonic {
     Endbr32,
     /// REP-prefixed STOSQ (store to memory via RCX iterations).
     RepStosq,
+    /// REP-prefixed STOSB (store byte AL to [RDI] via RCX iterations).
+    /// Zero-arity; operands (AL/RDI/RCX) are implicit. Emits `F3 AA`.
+    RepStosb,
+    /// REP-prefixed MOVSQ (copy qword [RSI]->[RDI] via RCX iterations).
+    /// Zero-arity; operands (RSI/RDI/RCX) are implicit. Emits `F3 48 A5`.
+    RepMovsq,
     /// Far jump (intersegment).
     FarJmp,
     /// Move with zero-extend: zero-extend smaller operand to larger width.
@@ -876,6 +882,8 @@ impl Mnemonic {
             | Mnemonic::Sysret
             | Mnemonic::Syscall
             | Mnemonic::RepStosq
+            | Mnemonic::RepStosb
+            | Mnemonic::RepMovsq
             | Mnemonic::Rdtsc
             | Mnemonic::Pushfq
             | Mnemonic::Popfq
@@ -1153,6 +1161,12 @@ impl Mnemonic {
 
             // RepStosq: 2 bytes
             Mnemonic::RepStosq => 2,
+
+            // RepStosb: 2 bytes (F3 AA)
+            Mnemonic::RepStosb => 2,
+
+            // RepMovsq: 3 bytes (F3 48 A5)
+            Mnemonic::RepMovsq => 3,
 
             // Software interrupt: 2 bytes
             Mnemonic::Int => 2,

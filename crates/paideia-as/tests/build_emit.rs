@@ -99,6 +99,8 @@ mod build_emit {
     pub mod phase6_cr_moves;
     pub mod record_reorder;
     pub mod rep_movsb;
+    pub mod rep_movsq;
+    pub mod rep_stosb;
     pub mod rep_stosq;
     pub mod scanner_routing_parity;
     pub mod semi_sparse_jump_table;

@@ -862,6 +862,129 @@ pub fn lower_stdlib_method(
                 labels: vec![],
             }))
         }
+        // #1228 (Phase 2 of #1064): BulkMemOps REP-string bulk-memory primitives.
+        // SysVRegs: RDI = dest, RSI = src/fill, RDX = count. REP uses implicit RCX,
+        // so each recipe first moves the SysV count (RDX) into RCX.
+        ("BulkMemOps", "memcpy") => {
+            // memcpy(dest, src, n) -> (): mov rcx, rdx; rep movsb
+            let build_inst = |mnemonic, ops: SmallVec<[Operand; 3]>| Instruction {
+                mnemonic,
+                operands: ops,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode,
+                emission_order: 0,
+            };
+            let make_ops = |ops: Vec<Operand>| -> SmallVec<[Operand; 3]> {
+                let mut sv = SmallVec::new();
+                for op in ops {
+                    sv.push(op);
+                }
+                sv
+            };
+
+            Some(Ok(LoweringRecipe {
+                instructions: vec![
+                    // 0: mov rcx, rdx              ; RCX = byte count (REP implicit counter)
+                    build_inst(Mnemonic::Mov, make_ops(vec![Operand::Reg(abi::RCX), Operand::Reg(abi::RDX)])),
+                    // 1: rep movsb                 ; copy [RSI]->[RDI], RCX times
+                    build_inst(Mnemonic::RepMovsb, make_ops(vec![])),
+                ],
+                arg_convention: ArgConvention::SysVRegs,
+                labels: vec![],
+            }))
+        }
+        ("BulkMemOps", "memset") => {
+            // memset(dest, fill, n) -> (): mov rax, rsi; mov rcx, rdx; rep stosb
+            let build_inst = |mnemonic, ops: SmallVec<[Operand; 3]>| Instruction {
+                mnemonic,
+                operands: ops,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode,
+                emission_order: 0,
+            };
+            let make_ops = |ops: Vec<Operand>| -> SmallVec<[Operand; 3]> {
+                let mut sv = SmallVec::new();
+                for op in ops {
+                    sv.push(op);
+                }
+                sv
+            };
+
+            Some(Ok(LoweringRecipe {
+                instructions: vec![
+                    // 0: mov rax, rsi              ; AL = fill byte (STOSB stores AL)
+                    build_inst(Mnemonic::Mov, make_ops(vec![Operand::Reg(abi::RAX), Operand::Reg(abi::RSI)])),
+                    // 1: mov rcx, rdx              ; RCX = byte count (REP implicit counter)
+                    build_inst(Mnemonic::Mov, make_ops(vec![Operand::Reg(abi::RCX), Operand::Reg(abi::RDX)])),
+                    // 2: rep stosb                 ; store AL to [RDI], RCX times
+                    build_inst(Mnemonic::RepStosb, make_ops(vec![])),
+                ],
+                arg_convention: ArgConvention::SysVRegs,
+                labels: vec![],
+            }))
+        }
+        ("BulkMemOps", "memcpy_qwords") => {
+            // memcpy_qwords(dest, src, n_qwords) -> (): mov rcx, rdx; rep movsq
+            let build_inst = |mnemonic, ops: SmallVec<[Operand; 3]>| Instruction {
+                mnemonic,
+                operands: ops,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode,
+                emission_order: 0,
+            };
+            let make_ops = |ops: Vec<Operand>| -> SmallVec<[Operand; 3]> {
+                let mut sv = SmallVec::new();
+                for op in ops {
+                    sv.push(op);
+                }
+                sv
+            };
+
+            Some(Ok(LoweringRecipe {
+                instructions: vec![
+                    // 0: mov rcx, rdx              ; RCX = qword count (REP implicit counter)
+                    build_inst(Mnemonic::Mov, make_ops(vec![Operand::Reg(abi::RCX), Operand::Reg(abi::RDX)])),
+                    // 1: rep movsq                 ; copy qword [RSI]->[RDI], RCX times
+                    build_inst(Mnemonic::RepMovsq, make_ops(vec![])),
+                ],
+                arg_convention: ArgConvention::SysVRegs,
+                labels: vec![],
+            }))
+        }
+        ("BulkMemOps", "memset_qwords") => {
+            // memset_qwords(dest, fill_qword, n_qwords) -> (): mov rax, rsi; mov rcx, rdx; rep stosq
+            let build_inst = |mnemonic, ops: SmallVec<[Operand; 3]>| Instruction {
+                mnemonic,
+                operands: ops,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode,
+                emission_order: 0,
+            };
+            let make_ops = |ops: Vec<Operand>| -> SmallVec<[Operand; 3]> {
+                let mut sv = SmallVec::new();
+                for op in ops {
+                    sv.push(op);
+                }
+                sv
+            };
+
+            Some(Ok(LoweringRecipe {
+                instructions: vec![
+                    // 0: mov rax, rsi              ; RAX = fill qword (STOSQ stores RAX)
+                    build_inst(Mnemonic::Mov, make_ops(vec![Operand::Reg(abi::RAX), Operand::Reg(abi::RSI)])),
+                    // 1: mov rcx, rdx              ; RCX = qword count (REP implicit counter)
+                    build_inst(Mnemonic::Mov, make_ops(vec![Operand::Reg(abi::RCX), Operand::Reg(abi::RDX)])),
+                    // 2: rep stosq                 ; store RAX to [RDI], RCX times
+                    build_inst(Mnemonic::RepStosq, make_ops(vec![])),
+                ],
+                arg_convention: ArgConvention::SysVRegs,
+                labels: vec![],
+            }))
+        }
         ("ChecksumOps", "ipv4_checksum") => {
             // RFC 1071 one's-complement fold.
             // SysVRegs: RDI = hdr pointer, RSI = length (bytes).
@@ -1836,5 +1959,128 @@ mod tests {
             Mnemonic::Adc { width: IntWidth::W64 } => { /* expected */ }
             _ => panic!("instruction[15] should be Adc with W64 width"),
         }
+    }
+
+    // #1228 (Phase 2 of #1064): BulkMemOps REP-string recipe shape tests.
+
+    #[test]
+    fn bulkmem_ops_memcpy_recipe_exists() {
+        let arena = IrArena::new();
+        let recipe = lower_stdlib_method("BulkMemOps", "memcpy", InstrMode::Mode64, &[], &arena)
+            .expect("memcpy recipe should exist")
+            .expect("memcpy lowering should succeed");
+
+        assert_eq!(recipe.instructions.len(), 2);
+        assert_eq!(recipe.arg_convention, ArgConvention::SysVRegs);
+
+        // First instruction: mov rcx, rdx
+        assert_eq!(recipe.instructions[0].mnemonic, Mnemonic::Mov);
+        assert_eq!(recipe.instructions[0].operands.len(), 2);
+        match (&recipe.instructions[0].operands[0], &recipe.instructions[0].operands[1]) {
+            (Operand::Reg(dst), Operand::Reg(src)) => {
+                assert_eq!(*dst, abi::RCX);
+                assert_eq!(*src, abi::RDX);
+            }
+            _ => panic!("expected mov rcx, rdx"),
+        }
+
+        // Terminal instruction: rep movsb (zero-arity)
+        assert_eq!(recipe.instructions[1].mnemonic, Mnemonic::RepMovsb);
+        assert!(recipe.instructions[1].operands.is_empty());
+    }
+
+    #[test]
+    fn bulkmem_ops_memset_recipe_exists() {
+        let arena = IrArena::new();
+        let recipe = lower_stdlib_method("BulkMemOps", "memset", InstrMode::Mode64, &[], &arena)
+            .expect("memset recipe should exist")
+            .expect("memset lowering should succeed");
+
+        assert_eq!(recipe.instructions.len(), 3);
+        assert_eq!(recipe.arg_convention, ArgConvention::SysVRegs);
+
+        // First instruction: mov rax, rsi (fill byte into AL)
+        assert_eq!(recipe.instructions[0].mnemonic, Mnemonic::Mov);
+        match (&recipe.instructions[0].operands[0], &recipe.instructions[0].operands[1]) {
+            (Operand::Reg(dst), Operand::Reg(src)) => {
+                assert_eq!(*dst, abi::RAX);
+                assert_eq!(*src, abi::RSI);
+            }
+            _ => panic!("expected mov rax, rsi"),
+        }
+
+        // Second instruction: mov rcx, rdx (REP implicit counter)
+        assert_eq!(recipe.instructions[1].mnemonic, Mnemonic::Mov);
+        match (&recipe.instructions[1].operands[0], &recipe.instructions[1].operands[1]) {
+            (Operand::Reg(dst), Operand::Reg(src)) => {
+                assert_eq!(*dst, abi::RCX);
+                assert_eq!(*src, abi::RDX);
+            }
+            _ => panic!("expected mov rcx, rdx"),
+        }
+
+        // Terminal instruction: rep stosb (zero-arity)
+        assert_eq!(recipe.instructions[2].mnemonic, Mnemonic::RepStosb);
+        assert!(recipe.instructions[2].operands.is_empty());
+    }
+
+    #[test]
+    fn bulkmem_ops_memcpy_qwords_recipe_exists() {
+        let arena = IrArena::new();
+        let recipe = lower_stdlib_method("BulkMemOps", "memcpy_qwords", InstrMode::Mode64, &[], &arena)
+            .expect("memcpy_qwords recipe should exist")
+            .expect("memcpy_qwords lowering should succeed");
+
+        assert_eq!(recipe.instructions.len(), 2);
+        assert_eq!(recipe.arg_convention, ArgConvention::SysVRegs);
+
+        // First instruction: mov rcx, rdx
+        assert_eq!(recipe.instructions[0].mnemonic, Mnemonic::Mov);
+        match (&recipe.instructions[0].operands[0], &recipe.instructions[0].operands[1]) {
+            (Operand::Reg(dst), Operand::Reg(src)) => {
+                assert_eq!(*dst, abi::RCX);
+                assert_eq!(*src, abi::RDX);
+            }
+            _ => panic!("expected mov rcx, rdx"),
+        }
+
+        // Terminal instruction: rep movsq (zero-arity)
+        assert_eq!(recipe.instructions[1].mnemonic, Mnemonic::RepMovsq);
+        assert!(recipe.instructions[1].operands.is_empty());
+    }
+
+    #[test]
+    fn bulkmem_ops_memset_qwords_recipe_exists() {
+        let arena = IrArena::new();
+        let recipe = lower_stdlib_method("BulkMemOps", "memset_qwords", InstrMode::Mode64, &[], &arena)
+            .expect("memset_qwords recipe should exist")
+            .expect("memset_qwords lowering should succeed");
+
+        assert_eq!(recipe.instructions.len(), 3);
+        assert_eq!(recipe.arg_convention, ArgConvention::SysVRegs);
+
+        // First instruction: mov rax, rsi (fill qword into RAX)
+        assert_eq!(recipe.instructions[0].mnemonic, Mnemonic::Mov);
+        match (&recipe.instructions[0].operands[0], &recipe.instructions[0].operands[1]) {
+            (Operand::Reg(dst), Operand::Reg(src)) => {
+                assert_eq!(*dst, abi::RAX);
+                assert_eq!(*src, abi::RSI);
+            }
+            _ => panic!("expected mov rax, rsi"),
+        }
+
+        // Second instruction: mov rcx, rdx (REP implicit counter)
+        assert_eq!(recipe.instructions[1].mnemonic, Mnemonic::Mov);
+        match (&recipe.instructions[1].operands[0], &recipe.instructions[1].operands[1]) {
+            (Operand::Reg(dst), Operand::Reg(src)) => {
+                assert_eq!(*dst, abi::RCX);
+                assert_eq!(*src, abi::RDX);
+            }
+            _ => panic!("expected mov rcx, rdx"),
+        }
+
+        // Terminal instruction: rep stosq (zero-arity)
+        assert_eq!(recipe.instructions[2].mnemonic, Mnemonic::RepStosq);
+        assert!(recipe.instructions[2].operands.is_empty());
     }
 }

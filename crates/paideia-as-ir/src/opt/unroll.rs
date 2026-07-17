@@ -84,9 +84,9 @@ pub fn is_unroll_safe(
                     reason: "loop body contains Call instruction".to_string(),
                 };
             }
-            Mnemonic::RepMovsb => {
+            Mnemonic::RepMovsb | Mnemonic::RepStosb | Mnemonic::RepMovsq => {
                 return UnrollPlan::Unsafe {
-                    reason: "loop body contains RepMovsb instruction".to_string(),
+                    reason: "loop body contains REP string instruction".to_string(),
                 };
             }
             _ => {} // Safe to continue
