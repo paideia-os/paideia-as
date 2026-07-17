@@ -1,0 +1,13 @@
+// v0.18 issue #996b (pa-r18-003b, DEFERRED): HashMapStrU64 — Str-keyed shape.
+// This file is parse-only documentation; real implementation deferred until #1234 lands.
+// Blocked on: #1234 (RecordCons Borrow of data symbol, prevents module-scope Str constants).
+
+struct HashMapStrU64 { }
+
+trait HashMapStrOps {
+  fn hashmap_str_new() -> () !{};
+  fn hashmap_str_put(k: Str, v: u64) -> u64 !{};
+  fn hashmap_str_get(k: Str) -> OptionU64 !{};
+  fn hashmap_str_contains(k: Str) -> u64 !{};
+  fn hashmap_str_len() -> u64 !{};
+}

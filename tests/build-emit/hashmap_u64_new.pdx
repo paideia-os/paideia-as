@@ -1,0 +1,71 @@
+// v0.18 issue #996 (pa-r18-003): Runtime canary driver — HashMapU64U64::new returns empty.
+// Expected exit code: 0 (len of empty map)
+
+module HashmapU64New = structure {
+  // Inline the full hashmap module (struct-of-arrays, hash fn, all 5 ops).
+  pub let mut hm_state  : [u64; 32] = uninit
+  pub let mut hm_keys   : [u64; 32] = uninit
+  pub let mut hm_values : [u64; 32] = uninit
+  pub let mut hm_len    : u64       = 0
+
+  enum OptionU64 { Some(u64), None }
+
+  let fibhash : (u64) -> u64 !{} @{} = fn(k: u64) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "Fibonacci hash fold into 5-bit index",
+    block: {
+      mov rax, rdi
+      shr rax, 33
+      xor rax, rdi
+      mov r11, 0x9E3779B97F4A7C15
+      imul rax, r11
+      shr rax, 59
+      ret
+    }
+  }
+
+  let hashmap_u64_new : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "HashMapU64U64 initialization",
+    block: {
+      lea r15, [rip + hm_state]
+      xor r8, r8
+
+      new_loop:
+      cmp r8, 32
+      jz new_done
+
+      mov [r15 + r8*8], 0
+      lea r14, [rip + hm_keys]
+      mov [r14 + r8*8], 0
+      lea r14, [rip + hm_values]
+      mov [r14 + r8*8], 0
+
+      inc r8
+      jmp new_loop
+
+      new_done:
+      lea r15, [rip + hm_len]
+      mov [r15], 0
+      ret
+    }
+  }
+
+  let hashmap_u64_len : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "HashMapU64U64 length query",
+    block: {
+      lea r15, [rip + hm_len]
+      mov rax, [r15]
+      ret
+    }
+  }
+
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    hashmap_u64_new()
+    hashmap_u64_len()
+  }
+}
