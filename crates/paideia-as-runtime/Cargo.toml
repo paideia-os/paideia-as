@@ -20,4 +20,5 @@ static_assertions = { workspace = true }
 # (moved from ir); encoder stays dependent on ir to avoid circular deps.
 
 [dev-dependencies]
+paideia-as-encoder = { path = "../paideia-as-encoder" }
 iced-x86 = { workspace = true }

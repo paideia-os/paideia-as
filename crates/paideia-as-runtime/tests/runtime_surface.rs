@@ -7,7 +7,7 @@
 //! - no_std + alloc compatibility
 
 use paideia_as_runtime::{
-    Cond, Instruction, InstrMode, Mnemonic, Operand, RegId, Scale, IrNodeId,
+    Instruction, InstrMode, Mnemonic, Operand, RegId, IrNodeId,
 };
 use smallvec::SmallVec;
 
@@ -37,9 +37,8 @@ fn construct_add_r64_r64() {
 /// ADD RAX, RBX → 48 01 D8
 #[test]
 fn encode_add_r64_r64_bytes() {
-    // This test imports encode_instruction from encoder via ir re-export
-    use paideia_as_ir::encode_instruction;
-    use paideia_as_ir::CodeBuffer;
+    // This test imports encode_instruction from encoder
+    use paideia_as_encoder::{encode_instruction, CodeBuffer, EncodeStats};
 
     let inst = Instruction {
         mnemonic: Mnemonic::Add,
@@ -56,11 +55,11 @@ fn encode_add_r64_r64_bytes() {
     };
 
     let mut buf = CodeBuffer::new();
-    let mut stats = paideia_as_ir::EncodeStats::default();
+    let mut stats = EncodeStats::default();
     let result = encode_instruction(&inst, &mut buf, &mut stats);
 
     assert!(result.is_ok());
-    let bytes = buf.data();
+    let bytes = buf.as_slice();
     // ADD RAX, RBX is 48 01 D8 (REX.W 01 /r)
     assert_eq!(&bytes[0..3], &[0x48, 0x01, 0xD8]);
 }
@@ -68,8 +67,7 @@ fn encode_add_r64_r64_bytes() {
 /// Test 3: MOV r64, imm64 encoding (10-byte form).
 #[test]
 fn encode_mov_r64_imm64_bytes() {
-    use paideia_as_ir::encode_instruction;
-    use paideia_as_ir::CodeBuffer;
+    use paideia_as_encoder::{encode_instruction, CodeBuffer, EncodeStats};
 
     let inst = Instruction {
         mnemonic: Mnemonic::Mov,
@@ -86,11 +84,11 @@ fn encode_mov_r64_imm64_bytes() {
     };
 
     let mut buf = CodeBuffer::new();
-    let mut stats = paideia_as_ir::EncodeStats::default();
+    let mut stats = EncodeStats::default();
     let result = encode_instruction(&inst, &mut buf, &mut stats);
 
     assert!(result.is_ok());
-    let bytes = buf.data();
+    let bytes = buf.as_slice();
     // MOV RAX, imm64 is 48 B8 imm64 (10 bytes)
     assert_eq!(bytes.len(), 10);
     assert_eq!(bytes[0], 0x48); // REX.W
@@ -100,8 +98,7 @@ fn encode_mov_r64_imm64_bytes() {
 /// Test 4: RET (zero-operand instruction).
 #[test]
 fn encode_ret_bytes() {
-    use paideia_as_ir::encode_instruction;
-    use paideia_as_ir::CodeBuffer;
+    use paideia_as_encoder::{encode_instruction, CodeBuffer, EncodeStats};
 
     let inst = Instruction {
         mnemonic: Mnemonic::Ret,
@@ -113,11 +110,11 @@ fn encode_ret_bytes() {
     };
 
     let mut buf = CodeBuffer::new();
-    let mut stats = paideia_as_ir::EncodeStats::default();
+    let mut stats = EncodeStats::default();
     let result = encode_instruction(&inst, &mut buf, &mut stats);
 
     assert!(result.is_ok());
-    let bytes = buf.data();
+    let bytes = buf.as_slice();
     // RET is 1 byte: C3
     assert_eq!(&bytes[0..1], &[0xC3]);
 }
@@ -125,8 +122,7 @@ fn encode_ret_bytes() {
 /// Test 5: estimated_bytes matches actual encoded length.
 #[test]
 fn estimated_bytes_add_r64_r64() {
-    use paideia_as_ir::{encode_instruction, estimated_bytes};
-    use paideia_as_ir::CodeBuffer;
+    use paideia_as_encoder::{encode_instruction, estimated_bytes, CodeBuffer, EncodeStats};
 
     let inst = Instruction {
         mnemonic: Mnemonic::Add,
@@ -145,32 +141,28 @@ fn estimated_bytes_add_r64_r64() {
     let estimated = estimated_bytes(&inst);
 
     let mut buf = CodeBuffer::new();
-    let mut stats = paideia_as_ir::EncodeStats::default();
+    let mut stats = EncodeStats::default();
     encode_instruction(&inst, &mut buf, &mut stats).ok();
-    let actual = buf.data().len() as u32;
+    let actual = buf.as_slice().len() as u32;
 
     // Estimate should be >= actual
     assert!(estimated >= actual);
 }
 
-/// Test 6: IrNodeId identity and compatibility via re-export.
+/// Test 6: IrNodeId identity and roundtrip operations.
 #[test]
 fn ir_node_id_identity() {
     let id = IrNodeId::new(42).unwrap();
     assert_eq!(id.get(), 42);
     assert_eq!(id.index(), 41);
-
-    // Verify type identity via ir re-export matches runtime source.
-    let ir_id: paideia_as_ir::IrNodeId = IrNodeId::new(42).unwrap();
-    assert_eq!(ir_id.get(), 42);
+    assert_eq!(format!("{id}"), "i42");
 }
 
 /// Test 7: Round-trip via iced-x86 decoder to verify encoding correctness.
 #[test]
 fn iced_roundtrip_add_r64_r64() {
-    use paideia_as_ir::{encode_instruction};
-    use paideia_as_ir::CodeBuffer;
-    use iced_x86::{Decoder, DecoderOptions};
+    use paideia_as_encoder::{encode_instruction, CodeBuffer, EncodeStats};
+    use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnemonic};
 
     let inst = Instruction {
         mnemonic: Mnemonic::Add,
@@ -187,15 +179,15 @@ fn iced_roundtrip_add_r64_r64() {
     };
 
     let mut buf = CodeBuffer::new();
-    let mut stats = paideia_as_ir::EncodeStats::default();
+    let mut stats = EncodeStats::default();
     encode_instruction(&inst, &mut buf, &mut stats).ok();
 
-    let bytes = buf.data();
+    let bytes = buf.as_slice();
     let mut decoder = Decoder::new(64, bytes, DecoderOptions::NONE);
     let decoded = decoder.decode();
 
-    // iced-x86 mnemonic code for ADD is 0x01 (Mnemonic::Add)
-    assert_eq!(decoded.mnemonic() as u32, 1); // ADD mnemonic
+    // Verify the decoded instruction is recognized as ADD
+    assert_eq!(decoded.mnemonic(), IcedMnemonic::Add);
 }
 
 /// Test 8: Compile-time no_std check via fixture.
