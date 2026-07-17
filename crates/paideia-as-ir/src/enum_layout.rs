@@ -702,6 +702,8 @@ mod tests {
             pattern_binding: Some(PatternBinding::Wildcard),
             int_pattern_value: None,
             guard: None,
+            alt_int_values: Vec::new(),
+            alt_variant_indices: Vec::new(),
         };
         assert_eq!(meta.variant_index, Some(3));
         assert!(meta.payload_binder.is_some());
@@ -953,6 +955,12 @@ pub struct MatchArmMeta {
     pub int_pattern_value: Option<i64>,
     /// Optional guard expression IR node ID (#1000).
     pub guard: Option<IrNodeId>,
+    /// Integer values for or-pattern alternatives (#1001).
+    /// Used for int-scrutinee or-patterns; empty if not applicable.
+    pub alt_int_values: Vec<i64>,
+    /// Variant indices for or-pattern alternatives (#1001).
+    /// Used for enum-scrutinee or-patterns; empty if not applicable.
+    pub alt_variant_indices: Vec<u32>,
 }
 
 impl Default for MatchArmMeta {
@@ -964,6 +972,8 @@ impl Default for MatchArmMeta {
             pattern_binding: None,
             int_pattern_value: None,
             guard: None,
+            alt_int_values: Vec::new(),
+            alt_variant_indices: Vec::new(),
         }
     }
 }

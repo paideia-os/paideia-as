@@ -147,7 +147,50 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         ))
     }
 
-    /// Parse a pattern for use in match arms.
+    /// Parse a pattern for use in match arms, with support for or-patterns.
+    ///
+    /// Supports or-patterns: `p1 | p2 | ... | pN => body`.
+    /// Each alternative is parsed via parse_pattern_match_atom and wrapped
+    /// in PatOr if multiple alternatives are found.
+    fn parse_pattern_match(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
+        let first = self.parse_pattern_match_atom()?;
+
+        // Check for `|` to form an or-pattern
+        if self.at(TokenKind::Pipe) {
+            let mut alternatives = vec![first];
+            let span_start = self
+                .arena()
+                .get(first)
+                .map(|n| n.span)
+                .unwrap_or_else(|| self.current_span());
+
+            while self.eat(TokenKind::Pipe) {
+                let alt = self.parse_pattern_match_atom()?;
+                alternatives.push(alt);
+            }
+
+            let span_end = self
+                .arena()
+                .get(*alternatives.last().unwrap())
+                .map(|n| n.span)
+                .unwrap_or(span_start);
+            let span = Span::new(
+                span_start.file(),
+                span_start.byte_start(),
+                span_end.byte_start() + span_end.byte_len() - span_start.byte_start(),
+            );
+
+            Ok(self.arena_mut().alloc_pattern(
+                NodeKind::PatOr,
+                span,
+                PatternData::Or { alternatives },
+            ))
+        } else {
+            Ok(first)
+        }
+    }
+
+    /// Parse a single alternative pattern for match arms (atomic, no or-patterns).
     ///
     /// Supports:
     /// - Identifier (including wildcard `_`)
@@ -160,7 +203,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     ///   - Bare variant without args: `Pending`
     ///
     /// Returns a pattern node.
-    fn parse_pattern_match(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
+    fn parse_pattern_match_atom(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
         if let Some(tok) = self.peek() {
             let tok_kind = tok.kind;
             let span = tok.span;
@@ -1101,6 +1144,172 @@ mod tests {
                     arms[1].guard.is_none(),
                     "second arm (wildcard without guard) should not have guard"
                 );
+            } else {
+                panic!("expected ExprMatch");
+            }
+        }
+    }
+
+    #[test]
+    fn parse_pattern_match_or_two_int_lits() {
+        // Test: match x { 0 | 1 => result, _ => other }
+        let tokens = vec![
+            tok(TokenKind::KwMatch, 0, 5),  // match
+            tok(TokenKind::Ident, 6, 1),    // x
+            tok(TokenKind::LBrace, 8, 1),
+            tok(TokenKind::IntLit, 10, 1),  // 0
+            tok(TokenKind::Pipe, 11, 1),    // |
+            tok(TokenKind::IntLit, 13, 1),  // 1
+            tok(TokenKind::FatArrow, 15, 2), // =>
+            tok(TokenKind::IntLit, 18, 6),  // result
+            tok(TokenKind::Comma, 24, 1),
+            tok(TokenKind::Ident, 26, 1),   // _
+            tok(TokenKind::FatArrow, 28, 2), // =>
+            tok(TokenKind::Ident, 31, 5),   // other
+            tok(TokenKind::RBrace, 36, 1),
+            tok(TokenKind::Eof, 37, 0),
+        ];
+        let (arena, root, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected");
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprMatch);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Match { arms, .. } = expr_data {
+                assert_eq!(arms.len(), 2);
+                // First arm pattern should be PatOr
+                let pattern_node = arena.get(arms[0].pattern).unwrap();
+                assert_eq!(
+                    pattern_node.kind,
+                    NodeKind::PatOr,
+                    "expected PatOr for 0 | 1 pattern"
+                );
+                if let Some(PatternData::Or { alternatives }) = arena.pattern_data(arms[0].pattern) {
+                    assert_eq!(
+                        alternatives.len(),
+                        2,
+                        "expected 2 alternatives in or-pattern"
+                    );
+                    // Both alternatives should be PatLiteral
+                    for (i, &alt) in alternatives.iter().enumerate() {
+                        let alt_node = arena.get(alt).unwrap();
+                        assert_eq!(
+                            alt_node.kind,
+                            NodeKind::PatLiteral,
+                            "alternative {} should be PatLiteral",
+                            i
+                        );
+                    }
+                } else {
+                    panic!("expected Or pattern data");
+                }
+            } else {
+                panic!("expected ExprMatch");
+            }
+        }
+    }
+
+    #[test]
+    fn parse_pattern_match_or_three_variants() {
+        // Test: match x { A | B | C => 1, _ => 0 }
+        let tokens = vec![
+            tok(TokenKind::KwMatch, 0, 5),   // match
+            tok(TokenKind::Ident, 6, 1),     // x
+            tok(TokenKind::LBrace, 8, 1),
+            tok(TokenKind::Ident, 10, 1),    // A
+            tok(TokenKind::Pipe, 11, 1),     // |
+            tok(TokenKind::Ident, 13, 1),    // B
+            tok(TokenKind::Pipe, 14, 1),     // |
+            tok(TokenKind::Ident, 16, 1),    // C
+            tok(TokenKind::FatArrow, 18, 2), // =>
+            tok(TokenKind::IntLit, 21, 1),   // 1
+            tok(TokenKind::Comma, 22, 1),
+            tok(TokenKind::Ident, 24, 1),    // _
+            tok(TokenKind::FatArrow, 26, 2), // =>
+            tok(TokenKind::IntLit, 29, 1),   // 0
+            tok(TokenKind::RBrace, 30, 1),
+            tok(TokenKind::Eof, 31, 0),
+        ];
+        let (arena, root, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected for three variant or-pattern");
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprMatch);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Match { arms, .. } = expr_data {
+                assert_eq!(arms.len(), 2);
+                let pattern_node = arena.get(arms[0].pattern).unwrap();
+                assert_eq!(pattern_node.kind, NodeKind::PatOr);
+                if let Some(PatternData::Or { alternatives }) = arena.pattern_data(arms[0].pattern) {
+                    assert_eq!(alternatives.len(), 3, "expected 3 alternatives");
+                } else {
+                    panic!("expected Or pattern data");
+                }
+            } else {
+                panic!("expected ExprMatch");
+            }
+        }
+    }
+
+    #[test]
+    fn parse_pattern_match_or_with_payload_binders_same_name() {
+        // Test: match x { Ok(x) | Err(x) => body, _ => default }
+        let tokens = vec![
+            tok(TokenKind::KwMatch, 0, 5),   // match
+            tok(TokenKind::Ident, 6, 1),     // x
+            tok(TokenKind::LBrace, 8, 1),
+            tok(TokenKind::Ident, 10, 2),    // Ok
+            tok(TokenKind::LParen, 12, 1),   // (
+            tok(TokenKind::Ident, 13, 1),    // x
+            tok(TokenKind::RParen, 14, 1),   // )
+            tok(TokenKind::Pipe, 15, 1),     // |
+            tok(TokenKind::Ident, 17, 3),    // Err
+            tok(TokenKind::LParen, 20, 1),   // (
+            tok(TokenKind::Ident, 21, 1),    // x
+            tok(TokenKind::RParen, 22, 1),   // )
+            tok(TokenKind::FatArrow, 24, 2), // =>
+            tok(TokenKind::Ident, 27, 4),    // body
+            tok(TokenKind::Comma, 31, 1),
+            tok(TokenKind::Ident, 33, 1),    // _
+            tok(TokenKind::FatArrow, 35, 2), // =>
+            tok(TokenKind::Ident, 38, 7),    // default
+            tok(TokenKind::RBrace, 45, 1),
+            tok(TokenKind::Eof, 46, 0),
+        ];
+        let (arena, root, diags) = parse(tokens);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected for or-pattern with payloads");
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprMatch);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Match { arms, .. } = expr_data {
+                assert_eq!(arms.len(), 2);
+                let pattern_node = arena.get(arms[0].pattern).unwrap();
+                assert_eq!(
+                    pattern_node.kind,
+                    NodeKind::PatOr,
+                    "expected PatOr for Ok(x) | Err(x)"
+                );
+                if let Some(PatternData::Or { alternatives }) = arena.pattern_data(arms[0].pattern) {
+                    assert_eq!(alternatives.len(), 2);
+                    // Both should be PatEnumVariant
+                    for (i, &alt) in alternatives.iter().enumerate() {
+                        let alt_node = arena.get(alt).unwrap();
+                        assert_eq!(
+                            alt_node.kind,
+                            NodeKind::PatEnumVariant,
+                            "alternative {} should be PatEnumVariant",
+                            i
+                        );
+                        if let Some(PatternData::EnumVariant { args, .. }) =
+                            arena.pattern_data(alt)
+                        {
+                            assert_eq!(args.len(), 1, "alternative {} should have 1 arg", i);
+                        }
+                    }
+                } else {
+                    panic!("expected Or pattern data");
+                }
             } else {
                 panic!("expected ExprMatch");
             }

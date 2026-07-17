@@ -1,0 +1,12 @@
+// Issue #1001: or_pat_int_falls_through
+// Tests or-pattern matching with integer literals (no match, falls through to default)
+// Expected exit code: 20
+
+module OrPatIntFallsThrough = structure {
+  pub let entry : () -> u64 !{} @{} = fn(_ : ()) -> {
+    match 2u64 {
+      0u64 | 1u64 => 10u64
+      _ => 20u64
+    }
+  }
+}

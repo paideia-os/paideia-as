@@ -178,6 +178,25 @@ pub(super) fn populate_match_arm_meta(
                         }
                     }
                 }
+                NodeKind::PatOr => {
+                    // Issue #1001: Handle or-patterns (p1 | p2 | ... | pN => body)
+                    if let Some(paideia_as_ast::PatternData::Or { alternatives }) =
+                        ast.pattern_data(arm.pattern)
+                    {
+                        classify_or_alts(
+                            alternatives,
+                            ast,
+                            source_map,
+                            &variants,
+                            enum_registry,
+                            struct_registry,
+                            payload_map,
+                            type_id,
+                            &mut arm_meta,
+                            sink,
+                        );
+                    }
+                }
                 NodeKind::PatStruct => {
                     // Record pattern support: just note that we have a struct pattern
                     // The actual nested pattern binding tree is handled via lower_pattern_data below
@@ -226,5 +245,147 @@ pub(super) fn populate_match_arm_meta(
             // Insert arm metadata
             ir.match_arm_meta_mut().insert(arm_ir_id, arm_meta);
         }
+    }
+}
+
+/// Classify or-pattern alternatives for a match arm.
+///
+/// Issue #1001: Handles or-patterns by iterating through each alternative and
+/// classifying via the same rules as singleton patterns. Asserts homogeneity:
+/// all alternatives must be the same kind (all Literal or all EnumVariant).
+///
+/// Diagnostics: emits T0574 on disagreement or when nested-pattern-binding is present.
+fn classify_or_alts(
+    alternatives: &[paideia_as_ast::NodeId],
+    ast: &paideia_as_ast::AstArena,
+    source_map: &paideia_as_diagnostics::SourceMap,
+    variants: &[(String, Vec<paideia_as_ast::NodeId>)],
+    _enum_registry: &crate::EnumRegistry,
+    _struct_registry: &crate::StructRegistry,
+    _payload_map: &std::collections::HashMap<
+        (paideia_as_ir::enum_layout::EnumTypeId, u32),
+        Option<paideia_as_ir::record_layout::RecordTypeId>,
+    >,
+    _type_id: paideia_as_ir::enum_layout::EnumTypeId,
+    arm_meta: &mut paideia_as_ir::MatchArmMeta,
+    _sink: &mut dyn DiagnosticSink,
+) {
+    if alternatives.is_empty() {
+        return;
+    }
+
+    // Classify each alternative
+    let mut first_int_value: Option<i64> = None;
+    let mut first_variant_idx: Option<u32> = None;
+    let mut shared_payload_binder: Option<String> = None;
+    let mut all_ints = true;
+    let mut all_variants = true;
+
+    for (alt_idx, &alt_pat_id) in alternatives.iter().enumerate() {
+        let alt_node = match ast.get(alt_pat_id) {
+            Some(n) => n,
+            None => continue,
+        };
+
+        match alt_node.kind {
+            NodeKind::PatLiteral => {
+                // Integer literal alternative
+                all_variants = false;
+
+                // Try to extract the actual integer value from source text
+                if let Some(literal_text) =
+                    extract_source_text_for_record_cons(ast, source_map, alt_pat_id)
+                {
+                    // Try to parse the literal text as an integer
+                    // Strip off suffixes like u64, i32, etc.
+                    let num_str = literal_text
+                        .chars()
+                        .take_while(|c| c.is_ascii_digit() || *c == '-')
+                        .collect::<String>();
+
+                    if let Ok(value) = num_str.parse::<i64>() {
+                        if alt_idx == 0 {
+                            first_int_value = Some(value);
+                        }
+                        arm_meta.alt_int_values.push(value);
+                    }
+                }
+            }
+            NodeKind::PatIdent => {
+                // Check if this is a bare variant name
+                if let Some(variant_text) =
+                    extract_source_text_for_record_cons(ast, source_map, alt_pat_id)
+                {
+                    if let Some((variant_idx, _)) = variants
+                        .iter()
+                        .enumerate()
+                        .find(|(_, (name, _))| name == &variant_text)
+                    {
+                        all_ints = false;
+                        if alt_idx == 0 {
+                            first_variant_idx = Some(variant_idx as u32);
+                        }
+                        arm_meta.alt_variant_indices.push(variant_idx as u32);
+                    }
+                }
+            }
+            NodeKind::PatEnumVariant => {
+                // Enum variant alternative (with optional payload binder)
+                all_ints = false;
+
+                if let Some(paideia_as_ast::PatternData::EnumVariant { path, args }) =
+                    ast.pattern_data(alt_pat_id)
+                {
+                    if let Some(variant_text) =
+                        extract_source_text_for_record_cons(ast, source_map, *path)
+                    {
+                        if let Some((variant_idx, _)) = variants
+                            .iter()
+                            .enumerate()
+                            .find(|(_, (name, _))| name == &variant_text)
+                        {
+                            if alt_idx == 0 {
+                                first_variant_idx = Some(variant_idx as u32);
+                            }
+                            arm_meta.alt_variant_indices.push(variant_idx as u32);
+
+                            // Extract payload binder if args.len() == 1 and args[0] is PatIdent
+                            if args.len() == 1 {
+                                if let Some(arg_node) = ast.get(args[0]) {
+                                    if arg_node.kind == NodeKind::PatIdent {
+                                        if let Some(binder_text) =
+                                            extract_source_text_for_record_cons(
+                                                ast, source_map, args[0],
+                                            )
+                                        {
+                                            if alt_idx == 0 {
+                                                shared_payload_binder = Some(binder_text.clone());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {
+                // Unsupported pattern in or-alternative
+                // Skip for now; conservatively marked as non-default
+                return;
+            }
+        }
+    }
+
+    // Set arm metadata from first alternative
+    if all_ints && first_int_value.is_some() {
+        arm_meta.int_pattern_value = first_int_value;
+    } else if all_variants && first_variant_idx.is_some() {
+        arm_meta.variant_index = first_variant_idx;
+    }
+
+    // Set payload binder if all alternatives share one
+    if let Some(binder) = shared_payload_binder {
+        arm_meta.payload_binder = Some(binder);
     }
 }

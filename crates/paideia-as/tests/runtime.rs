@@ -116,4 +116,12 @@ mod runtime {
     mod guard_enum_wildcard_default_guarded_value;
     mod guard_pattern_binder_not_leaked_value;
     mod guard_wildcard_true_matches_value;
+    mod or_pat_int_first_value;
+    mod or_pat_int_second_value;
+    mod or_pat_int_falls_through_value;
+    mod or_pat_int_three_alts_value;
+    mod or_pat_enum_unit_first_value;
+    mod or_pat_enum_unit_second_value;
+    mod or_pat_enum_payload_ok_value;
+    mod or_pat_int_with_guard_value;
 }

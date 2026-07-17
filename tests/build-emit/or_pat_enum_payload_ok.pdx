@@ -1,0 +1,13 @@
+// Issue #1001: or_pat_enum_payload_ok
+// Tests or-pattern matching with enum payload variants
+// Expected exit code: 5
+
+module OrPatEnumPayloadOk = structure {
+  enum R { Ok(u64), Err(u64) }
+  pub let r : R = R::Ok(5u64)
+  pub let entry : () -> u64 !{} @{} = fn(_ : ()) -> {
+    match r {
+      Ok(x) | Err(x) => x
+    }
+  }
+}

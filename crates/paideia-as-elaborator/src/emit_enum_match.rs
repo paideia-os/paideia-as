@@ -1534,13 +1534,29 @@ impl EmitWalker {
             // so that the previous arm's jne correctly targets this arm's cmp, not its body.
             self.state.register_label(arm_label);
 
-            // Non-default arm: emit cmp rax, variant_index
-            if let Some(variant_index) = arm_meta.variant_index {
+            // #1001: multi-alt cascade for or-patterns.
+            let alts: Vec<u32> = if !arm_meta.alt_variant_indices.is_empty() {
+                arm_meta.alt_variant_indices.clone()
+            } else if let Some(v) = arm_meta.variant_index {
+                vec![v]
+            } else {
+                Vec::new()  // shouldn't happen for non-default arms
+            };
+
+            // Track if we need to register body_label for multi-alt
+            let mut body_label_to_register: Option<String> = None;
+
+            if alts.is_empty() {
+                // no discriminant check — fall through to guard/body (default arm case)
+            } else if alts.len() == 1 {
+                // SINGLE-ALT PATH: preserve exact original emission (single cmp/jne).
+                // This keeps identical byte-for-byte output for existing non-or fixtures.
+                let vi = alts[0];
                 let cmp_id = IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10)
                     .expect("cmp id");
                 let mut cmp_operands: SmallVec<[Operand; 3]> = SmallVec::new();
                 cmp_operands.push(Operand::Reg(abi::RAX)); // RAX
-                cmp_operands.push(Operand::Imm64(variant_index as i64));
+                cmp_operands.push(Operand::Imm64(vi as i64));
 
                 self.emit_inst(cmp_id, Instruction {
                     mnemonic: Mnemonic::Cmp,
@@ -1548,7 +1564,7 @@ impl EmitWalker {
                     encoding_hint: None,
                     byte_offset_in_text: None,
                     mode: self.current_mode(),
-                emission_order: 0,
+                    emission_order: 0,
                 });
 
                 // Emit jne to next arm or default
@@ -1566,8 +1582,70 @@ impl EmitWalker {
                     encoding_hint: None,
                     byte_offset_in_text: None,
                     mode: self.current_mode(),
-                emission_order: 0,
+                    emission_order: 0,
                 });
+            } else {
+                // MULTI-ALT PATH: emit N-1 cmp/je to body_label, then last cmp/jne to next_label.
+                let body_label = format!("match_arm_{}_{}_body", match_node_id.get(), idx);
+                let last_idx = alts.len() - 1;
+                for (a_idx, &vi) in alts.iter().enumerate() {
+                    // cmp rax, imm(vi) — IrNodeId: match_id*1000 + idx*100 + a_idx*2 + 0
+                    let cmp_id = IrNodeId::new(match_node_id.get() * 1000 + idx as u32 * 100 + a_idx as u32 * 2)
+                        .expect("multi-alt cmp id");
+                    let mut cmp_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                    cmp_operands.push(Operand::Reg(abi::RAX));
+                    cmp_operands.push(Operand::Imm64(vi as i64));
+                    self.emit_inst(cmp_id, Instruction {
+                        mnemonic: Mnemonic::Cmp,
+                        operands: cmp_operands,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode: self.current_mode(),
+                        emission_order: 0,
+                    });
+
+                    // if a_idx == last_idx: jne next_label — IrNodeId: match_id*1000 + idx*100 + a_idx*2 + 1
+                    // else: je body_label — IrNodeId: match_id*1000 + idx*100 + a_idx*2 + 1
+                    let jcc_id = IrNodeId::new(match_node_id.get() * 1000 + idx as u32 * 100 + a_idx as u32 * 2 + 1)
+                        .expect("multi-alt jcc id");
+                    let mut jcc_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+
+                    if a_idx == last_idx {
+                        jcc_operands.push(Operand::LabelRef {
+                            name: next_label.clone(),
+                            addend: 0,
+                        });
+                        self.emit_inst(jcc_id, Instruction {
+                            mnemonic: Mnemonic::Jcc(Cond::Ne),
+                            operands: jcc_operands,
+                            encoding_hint: None,
+                            byte_offset_in_text: None,
+                            mode: self.current_mode(),
+                            emission_order: 0,
+                        });
+                    } else {
+                        jcc_operands.push(Operand::LabelRef {
+                            name: body_label.clone(),
+                            addend: 0,
+                        });
+                        self.emit_inst(jcc_id, Instruction {
+                            mnemonic: Mnemonic::Jcc(Cond::Eq),
+                            operands: jcc_operands,
+                            encoding_hint: None,
+                            byte_offset_in_text: None,
+                            mode: self.current_mode(),
+                            emission_order: 0,
+                        });
+                    }
+                }
+                debug_assert!(alts.len() * 2 < 100, "or-pattern alt count exceeds IrNodeId slots");
+                // register body_label at current emission position
+                body_label_to_register = Some(body_label);
+            }
+
+            // Register body_label if needed (multi-alt case)
+            if let Some(body_label) = body_label_to_register {
+                self.state.register_label(body_label);
             }
 
             // Phase 17 m9-009: Nested pattern binding

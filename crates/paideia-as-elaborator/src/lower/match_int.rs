@@ -212,6 +212,62 @@ fn classify_match_integer(
                     return false;
                 }
             }
+            NodeKind::PatOr => {
+                // Issue #1001: or-pattern recognition for integer matches.
+                // For or-patterns, we need to manually populate alt_int_values by walking
+                // the alternatives, since populate_match_arm_meta is skipped for integer matches.
+                if let Some(paideia_as_ast::PatternData::Or { alternatives }) =
+                    ast.pattern_data(arm.pattern)
+                {
+                    let mut or_alt_values: Vec<i64> = Vec::new();
+                    for alt_node_id in alternatives {
+                        let alt_node = match ast.get(*alt_node_id) {
+                            Some(n) => n,
+                            None => continue,
+                        };
+
+                        if alt_node.kind == NodeKind::PatLiteral {
+                            // Extract the integer value from this alternative
+                            let span = alt_node.span;
+                            let file_id = span.file();
+                            let source = source_map.content(file_id);
+                            let start = span.byte_start() as usize;
+                            let end = start + span.byte_len() as usize;
+                            if end <= source.len() {
+                                let text = &source[start..end];
+                                let text_no_suffix = strip_integer_suffix(text);
+                                if let Ok(value) = text_no_suffix.parse::<i64>() {
+                                    or_alt_values.push(value);
+                                } else if let Ok(value) = text_no_suffix.parse::<u64>() {
+                                    or_alt_values.push(value as i64);
+                                } else {
+                                    // Non-integer literal in or-pattern
+                                    return false;
+                                }
+                            }
+                        } else {
+                            // Non-literal alternative in or-pattern
+                            return false;
+                        }
+                    }
+
+                    // If we successfully collected all alternative values, store them
+                    if !or_alt_values.is_empty() {
+                        let mut meta = ir.match_arm_meta_mut()
+                            .remove(arm_ir_id)
+                            .unwrap_or_default();
+                        meta.alt_int_values = or_alt_values.clone();
+                        if !or_alt_values.is_empty() {
+                            meta.int_pattern_value = Some(or_alt_values[0]);
+                        }
+                        ir.match_arm_meta_mut().insert(arm_ir_id, meta);
+                    } else {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            }
             _ => {
                 // Non-integer pattern in integer match
                 return false; // Skip classification
@@ -221,13 +277,26 @@ fn classify_match_integer(
 
     // Step 5: Only classify if we found at least one integer pattern or default arm
     // (We'll require a default arm, but allow integer-only arms if there's also a default)
-    let has_integer_patterns = arms.iter().enumerate().any(|(_arm_idx, arm)| {
-        if let Some(pattern_node) = ast.get(arm.pattern) {
-            matches!(pattern_node.kind, NodeKind::PatLiteral)
-        } else {
-            false
-        }
-    });
+    // Issue #1001: Also check for or-patterns that have been classified as integer or-patterns
+    let has_integer_patterns = {
+        let has_lit = arms.iter().any(|arm| {
+            if let Some(pattern_node) = ast.get(arm.pattern) {
+                matches!(pattern_node.kind, NodeKind::PatLiteral)
+            } else {
+                false
+            }
+        });
+
+        let has_or = arm_ir_ids.iter().any(|arm_ir_id| {
+            if let Some(meta) = ir.match_arm_meta().get(*arm_ir_id) {
+                !meta.alt_int_values.is_empty()
+            } else {
+                false
+            }
+        });
+
+        has_lit || has_or
+    };
 
     if !has_integer_patterns {
         return false;

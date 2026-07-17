@@ -40,7 +40,8 @@ fn build_and_walk_match(
                 pattern_binding: None,
                 int_pattern_value: None,
             guard: None,
-            },
+            alt_int_values: Vec::new(),
+            alt_variant_indices: Vec::new(),            },
         );
     }
 
@@ -321,7 +322,8 @@ fn match_missing_scrutinee_type_emits_diagnostic() {
             pattern_binding: None,
             int_pattern_value: None,
             guard: None,
-        },
+            alt_int_values: Vec::new(),
+            alt_variant_indices: Vec::new(),        },
     );
 
     // Deliberately do NOT register match_scrutinee_table entry
@@ -391,7 +393,8 @@ fn nested_record_simple_two_fields() {
             pattern_binding: Some(pattern),
             int_pattern_value: None,
             guard: None,
-        },
+            alt_int_values: Vec::new(),
+            alt_variant_indices: Vec::new(),        },
     );
 
     // Create record layout with field names
@@ -458,7 +461,8 @@ fn nested_enum_over_leaf() {
             pattern_binding: Some(pattern),
             int_pattern_value: None,
             guard: None,
-        },
+            alt_int_values: Vec::new(),
+            alt_variant_indices: Vec::new(),        },
     );
 
     let mut walker = EmitWalker::new();
@@ -504,7 +508,8 @@ fn nested_enum_over_record() {
             pattern_binding: Some(pattern),
             int_pattern_value: None,
             guard: None,
-        },
+            alt_int_values: Vec::new(),
+            alt_variant_indices: Vec::new(),        },
     );
 
     let rec_layout = RecordLayout::with_field_names(
@@ -569,7 +574,8 @@ fn nested_record_over_enum_over_record() {
             pattern_binding: Some(container_pattern),
             int_pattern_value: None,
             guard: None,
-        },
+            alt_int_values: Vec::new(),
+            alt_variant_indices: Vec::new(),        },
     );
 
     let point_layout = RecordLayout::with_field_names(
@@ -628,7 +634,8 @@ fn nested_wildcard_at_leaf() {
             pattern_binding: Some(pattern),
             int_pattern_value: None,
             guard: None,
-        },
+            alt_int_values: Vec::new(),
+            alt_variant_indices: Vec::new(),        },
     );
 
     let rec_layout = RecordLayout::with_field_names(
@@ -681,7 +688,8 @@ fn nested_record_four_simple_fields_no_exhaustion() {
             pattern_binding: Some(pattern),
             int_pattern_value: None,
             guard: None,
-        },
+            alt_int_values: Vec::new(),
+            alt_variant_indices: Vec::new(),        },
     );
 
     let rec_layout = RecordLayout::with_field_names(
@@ -777,7 +785,8 @@ fn nested_byte_exact_enum_over_record_offsets() {
             pattern_binding: Some(pattern),
             int_pattern_value: None,
             guard: None,
-        },
+            alt_int_values: Vec::new(),
+            alt_variant_indices: Vec::new(),        },
     );
 
     // Point layout: x at offset 0 (u8), y at offset 8 (u64)
@@ -852,7 +861,8 @@ fn nested_byte_exact_record_over_enum_offsets() {
             pattern_binding: Some(container_pattern),
             int_pattern_value: None,
             guard: None,
-        },
+            alt_int_values: Vec::new(),
+            alt_variant_indices: Vec::new(),        },
     );
 
     // Container has a field "field" that's an enum (size 16, aligned 8)
@@ -916,7 +926,8 @@ fn nested_multiple_sibling_bindings_widths() {
             pattern_binding: Some(pattern),
             int_pattern_value: None,
             guard: None,
-        },
+            alt_int_values: Vec::new(),
+            alt_variant_indices: Vec::new(),        },
     );
 
     let rec_layout = RecordLayout::with_field_names(
@@ -975,7 +986,8 @@ fn nested_missing_payload_layout_diagnostic() {
             pattern_binding: Some(pattern),
             int_pattern_value: None,
             guard: None,
-        },
+            alt_int_values: Vec::new(),
+            alt_variant_indices: Vec::new(),        },
     );
 
     let mut walker = EmitWalker::new();
@@ -1021,7 +1033,8 @@ fn nested_wildcard_at_multiple_levels() {
             pattern_binding: Some(container_pattern),
             int_pattern_value: None,
             guard: None,
-        },
+            alt_int_values: Vec::new(),
+            alt_variant_indices: Vec::new(),        },
     );
 
     let container_layout = RecordLayout::with_field_names(
@@ -1086,7 +1099,8 @@ fn nested_smoke_no_panic_on_deep_nesting() {
             pattern_binding: Some(level1),
             int_pattern_value: None,
             guard: None,
-        },
+            alt_int_values: Vec::new(),
+            alt_variant_indices: Vec::new(),        },
     );
 
     let a_layout = RecordLayout::with_field_names(
@@ -1153,7 +1167,8 @@ fn match_returning_small_enum_writes_rax_rdx_ir_level() {
             pattern_binding: None,
             int_pattern_value: None,
             guard: None,
-        },
+            alt_int_values: Vec::new(),
+            alt_variant_indices: Vec::new(),        },
     );
 
     // Match
@@ -1211,7 +1226,8 @@ fn nested_match_arm_body_is_match_ir_level() {
             pattern_binding: None,
             int_pattern_value: None,
             guard: None,
-        },
+            alt_int_values: Vec::new(),
+            alt_variant_indices: Vec::new(),        },
     );
 
     let inner_match = arena.alloc(IrKind::Match, span());
@@ -1237,7 +1253,8 @@ fn nested_match_arm_body_is_match_ir_level() {
             pattern_binding: None,
             int_pattern_value: None,
             guard: None,
-        },
+            alt_int_values: Vec::new(),
+            alt_variant_indices: Vec::new(),        },
     );
 
     // Outer match
@@ -1306,7 +1323,8 @@ fn match_returning_large_enum_writes_rdi_slot_ir_level() {
             pattern_binding: None,
             int_pattern_value: None,
             guard: None,
-        },
+            alt_int_values: Vec::new(),
+            alt_variant_indices: Vec::new(),        },
     );
 
     // Match

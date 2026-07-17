@@ -96,6 +96,12 @@ fn process_match_for_auto_dispatch(ir: &mut IrArena, match_node_id: IrNodeId) {
                 break;
             }
 
+            // Issue #1001: Skip if arm has or-pattern alternatives (multi-alt arms).
+            if !arm_meta.alt_int_values.is_empty() || !arm_meta.alt_variant_indices.is_empty() {
+                has_invalid_arm = true;
+                break;
+            }
+
             // Collect variant_index if present.
             if let Some(variant_idx) = arm_meta.variant_index {
                 variant_arms.push((variant_idx, arm_idx as u32));
@@ -103,7 +109,7 @@ fn process_match_for_auto_dispatch(ir: &mut IrArena, match_node_id: IrNodeId) {
         }
     }
 
-    // Bail if any arm has payload binder or nested pattern.
+    // Bail if any arm has payload binder, nested pattern, or or-pattern.
     if has_invalid_arm {
         return;
     }
