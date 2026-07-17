@@ -1,0 +1,33 @@
+// Issue #1171: Discriminating fixture for #1160's primitive-payload width fix
+// Tests that enum variants with various primitive-width payloads are tightly packed.
+// The fixture exercises the width table lookup in encode_enum_cons for u8, u16, u32.
+// If the width table is removed or width-blind encoding is restored, symbol sizes would be wrong.
+
+module EnumPrimitivePayloadWidths = structure {
+  enum Result8 { Ok(u8), Err }
+  enum Result16 { Ok(u16), Err }
+  enum Result32 { Ok(u32), Err }
+
+  // Create instances of each variant to exercise encode_enum_cons with tight-pack encoding
+  pub let r8 : Result8 = Result8::Ok(42u8)
+  pub let r16 : Result16 = Result16::Ok(1000u16)
+  pub let r32 : Result32 = Result32::Ok(100000u32)
+
+  // Function that extracts from u8 variant
+  pub let f8 : () -> u8 = fn () -> match r8 {
+    Ok(b) => { b }
+    Err => { 0u8 }
+  }
+
+  // Function that extracts from u16 variant
+  pub let f16 : () -> u16 = fn () -> match r16 {
+    Ok(h) => { h }
+    Err => { 0u16 }
+  }
+
+  // Function that extracts from u32 variant
+  pub let f32 : () -> u32 = fn () -> match r32 {
+    Ok(i) => { i }
+    Err => { 0u32 }
+  }
+}

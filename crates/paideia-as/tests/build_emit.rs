@@ -27,6 +27,7 @@ mod build_emit {
     pub mod enum_lit_call_arg_local_shadow;
     pub mod flat_lambda_binop_canaries;
     pub mod enum_primitive_payload_u32;
+    pub mod enum_primitive_payload_widths;
     pub mod enum_record_payload;
     pub mod enum_stackform_lea_rdi;
     pub mod func_scope_enum_let_orphan;
