@@ -4,6 +4,7 @@ members = [
     "crates/paideia-as",
     "crates/paideia-as-lexer",
     "crates/paideia-as-parser",
+    "crates/paideia-as-runtime",
     "crates/paideia-as-ast",
     "crates/paideia-as-types",
     "crates/paideia-as-effects",

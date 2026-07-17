@@ -1,0 +1,23 @@
+[package]
+name = "paideia-as-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+name = "paideia_as_runtime"
+
+[dependencies]
+# no_std + alloc only.
+smallvec = { workspace = true }
+static_assertions = { workspace = true }
+
+# NOTE: no paideia-as-ir or paideia-as-encoder deps. This crate is a
+# foundation layer that others depend on. Instruction types live here
+# (moved from ir); encoder stays dependent on ir to avoid circular deps.
+
+[dev-dependencies]
+iced-x86 = { workspace = true }
