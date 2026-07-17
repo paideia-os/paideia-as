@@ -10,6 +10,7 @@ use std::ops::Index;
 use crate::addr_of::AddrOfSideTable;
 use crate::binding_name::BindingNameTable;
 use crate::call_meta::CallSideTable;
+use crate::captures_table::CapturesTable;
 use crate::closure_frame_meta::ClosureFrameMetaTable;
 use crate::closure_meta::ClosureMetaTable;
 use crate::module_field_ref::ModuleFieldRefTable;
@@ -129,6 +130,9 @@ pub struct IrArena {
     /// Side-table: call site metadata indexed by App node ID.
     /// PA-r17-004: populated by pre-emit pass; consumed by emit_walker for indirect/direct dispatch.
     call_sites: CallSideTable,
+    /// Side-table: lambda capture analysis indexed by Lambda node ID.
+    /// Issue #994: populated by check_linearity pass; consumed by elaborator to decide ClosureCons vs Lambda.
+    captures: CapturesTable,
     /// Side-table: closure body Lambda metadata (mangled name, captures, env_size).
     /// Issue #1233: populated by elaborator; consumed by emit_walker for closure body emission.
     closure_meta: ClosureMetaTable,
@@ -179,6 +183,7 @@ impl IrArena {
             int_match_scrutinee: IntMatchScrutineeTable::new(),
             lambda_param_enum_types: LambdaParamEnumTypeTable::new(),
             call_sites: CallSideTable::new(),
+            captures: CapturesTable::new(),
             closure_meta: ClosureMetaTable::new(),
             closure_frame_meta: ClosureFrameMetaTable::new(),
         }
@@ -612,6 +617,18 @@ impl IrArena {
     /// Borrow the call sites side-table (mutable).
     pub fn call_sites_mut(&mut self) -> &mut CallSideTable {
         &mut self.call_sites
+    }
+
+    /// Borrow the captures side-table (read-only).
+    /// Issue #994: provides analyzed captures for lambda nodes.
+    #[must_use]
+    pub fn captures(&self) -> &CapturesTable {
+        &self.captures
+    }
+
+    /// Borrow the captures side-table (mutable).
+    pub fn captures_mut(&mut self) -> &mut CapturesTable {
+        &mut self.captures
     }
 
     /// Borrow the closure metadata side-table (read-only).

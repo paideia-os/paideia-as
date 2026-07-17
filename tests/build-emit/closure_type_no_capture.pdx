@@ -1,0 +1,9 @@
+#![allow(S0013)] // suppress "infinite loop" diagnostic
+
+module M {
+  // Test: closure type with no captures
+  // Expected: fat pair (env_ptr=0, code_ptr=addr) materialised on stack
+  let f: |u64| -> u64 = |x| x;
+
+  pub let result: u64 = 42;
+}

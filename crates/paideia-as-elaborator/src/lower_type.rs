@@ -144,6 +144,57 @@ pub fn lower_type_ast(
             Ok(types.intern(fn_type))
         }
 
+        TypeData::Closure {
+            params,
+            ret,
+            effects: eff_node,
+            capabilities: cap_node,
+        } => {
+            // Closure types lower identically to FnPtr in the type system.
+            // The discriminant (TypeClosure vs TypeFnPtr) signals runtime layout:
+            // - TypeFnPtr: 8-byte code pointer
+            // - TypeClosure: 16-byte fat pointer (env_ptr, code_ptr)
+            // The elaborator dispatch (check_lambda.rs) uses the AST discriminant
+            // to decide whether to emit FnPtr or ClosureCons IR node.
+
+            // Recursively lower each parameter type
+            let mut param_types = Vec::new();
+            for param_node in params {
+                let param_ty = lower_type_ast(
+                    ast, source_map, *param_node, types, effects, caps, registry, enum_registry,
+                )?;
+                param_types.push(param_ty);
+            }
+
+            // Lower return type
+            let ret_ty = lower_type_ast(
+                ast, source_map, *ret, types, effects, caps, registry, enum_registry,
+            )?;
+
+            // Lower effect row (if present)
+            let eff_row_id = if let Some(eff_node) = eff_node {
+                lower_effect_row(ast, source_map, *eff_node, effects)?
+            } else {
+                effects.empty()
+            };
+
+            // Lower capability set (if present)
+            let cap_set_id = if let Some(cap_node) = cap_node {
+                lower_cap_set(ast, source_map, *cap_node, caps)?
+            } else {
+                CapSetId::EMPTY
+            };
+
+            // Intern Type::Fn (same signature, distinct AST node kind)
+            let fn_type = paideia_as_types::Type::Fn {
+                params: param_types,
+                ret: ret_ty,
+                effects: eff_row_id,
+                caps: cap_set_id,
+            };
+            Ok(types.intern(fn_type))
+        }
+
         TypeData::Tuple { elements } => {
             let mut elem_types = Vec::new();
             for elem_node in elements {

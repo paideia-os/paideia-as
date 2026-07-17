@@ -371,4 +371,82 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         self.parse_type()
     }
 
+    /// Parse a closure type: `|T1, T2, ...| -> R !{...} @{...}`.
+    ///
+    /// Closure types are parameterized function types with implicit environment
+    /// capture. Syntax mirrors FnPtr but uses `|...|` instead of `(...)`.
+    pub(super) fn parse_type_closure(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
+        let lpipe_tok = self.expect(TokenKind::Pipe)?;
+        let span_start = lpipe_tok.span;
+
+        // Parse parameter list (or empty)
+        let mut params = Vec::new();
+        if !self.at(TokenKind::Pipe) {
+            loop {
+                let param_type = self.parse_type()?;
+                params.push(param_type);
+
+                if !self.at(TokenKind::Comma) {
+                    break;
+                }
+                self.bump(); // consume `,`
+            }
+        }
+
+        let rpipe_tok = self.expect(TokenKind::Pipe)?;
+        let mut span_end = rpipe_tok.span;
+
+        // Expect arrow
+        self.expect(TokenKind::Arrow)?;
+
+        // Parse return type
+        let ret = self.parse_type()?;
+        span_end = self.arena().get(ret).map(|nd| nd.span).unwrap_or(span_end);
+
+        // Parse optional effect set
+        let effects = if self.at(TokenKind::EffectOpen) {
+            Some(self.parse_effect_row()?)
+        } else {
+            None
+        };
+        if let Some(eff_id) = effects {
+            span_end = self
+                .arena()
+                .get(eff_id)
+                .map(|nd| nd.span)
+                .unwrap_or(span_end);
+        }
+
+        // Parse optional capability set
+        let capabilities = if self.at(TokenKind::CapOpen) {
+            Some(self.parse_cap_set()?)
+        } else {
+            None
+        };
+        if let Some(cap_id) = capabilities {
+            span_end = self
+                .arena()
+                .get(cap_id)
+                .map(|nd| nd.span)
+                .unwrap_or(span_end);
+        }
+
+        let span = Span::new(
+            span_start.file(),
+            span_start.byte_start(),
+            span_end.byte_start() + span_end.byte_len() - span_start.byte_start(),
+        );
+
+        Ok(self.arena_mut().alloc_type(
+            NodeKind::TypeClosure,
+            span,
+            TypeData::Closure {
+                params,
+                ret,
+                effects,
+                capabilities,
+            },
+        ))
+    }
+
 }

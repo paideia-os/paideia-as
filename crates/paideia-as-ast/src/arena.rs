@@ -158,11 +158,13 @@ pub enum NodeKind {
     /// Memory reference operand (`[addr]`).
     OperandMemoryRef,
 
-    // Types (§8 Type: TypeName | FnPtr | Tuple | LinearClass | EffectRowType)
+    // Types (§8 Type: TypeName | FnPtr | Closure | Tuple | LinearClass | EffectRowType)
     /// `TypeName` or `TypeName(args)`.
     TypeName,
     /// `(T1, T2, ...) -> T !{...} @{...}`.
     TypeFnPtr,
+    /// `|T1, T2| -> T !{...} @{...}` (closure type).
+    TypeClosure,
     /// `(T1, T2, ...)`.
     TypeTuple,
     /// `<LinClass> T` (linear/ordered/affine/unrestricted).

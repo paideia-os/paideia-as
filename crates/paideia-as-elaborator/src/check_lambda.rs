@@ -17,6 +17,12 @@ use crate::capture::{CaptureKind, CapturedBinding};
 /// multiple times"
 pub const S_ILLEGAL_CAPTURE: u16 = 907;
 
+/// Diagnostic code for fn-ptr type annotation on a lambda with free variables.
+///
+/// Error: "lambda captures free variables but is annotated as fn-ptr —
+/// did you mean to use closure type |T| -> R instead?"
+pub const T_FN_PTR_WITH_CAPTURES: u16 = 538;
+
 /// Construct a DiagnosticCode in the S category.
 fn s_code(n: u16) -> DiagnosticCode {
     DiagnosticCode::new(Category::S, Severity::Error, n).expect("valid S code")

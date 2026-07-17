@@ -36,6 +36,23 @@ pub enum TypeData {
         capabilities: Option<NodeId>,
     },
 
+    /// `|T1, T2| -> T !{...} @{...}`.
+    ///
+    /// Closure type. Parameter types, return type, optional effect set, and
+    /// optional capability set. Distinct from FnPtr in the type system but
+    /// lowered to a similar signature; the discriminant determines runtime
+    /// layout (16-B fat pointer vs 8-B code pointer).
+    Closure {
+        /// Parameter types.
+        params: Vec<NodeId>,
+        /// Return type.
+        ret: NodeId,
+        /// Optional effect row.
+        effects: Option<NodeId>,
+        /// Optional capability set.
+        capabilities: Option<NodeId>,
+    },
+
     /// `(T1, T2, ...)`.
     ///
     /// Tuple type.

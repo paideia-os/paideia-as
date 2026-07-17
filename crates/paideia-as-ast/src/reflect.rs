@@ -91,6 +91,8 @@ pub enum TermHead {
     TypeRecord,
     /// `(T1, T2, ...) -> T !{...} @{...}` (function-pointer type).
     TypeFnPtr,
+    /// `|T1, T2| -> T !{...} @{...}` (closure type).
+    TypeClosure,
 }
 
 /// A typed handle to an AST expression node.
@@ -175,6 +177,7 @@ impl<'a> Term<'a> {
                 NodeKind::TypePtr => TermHead::TypePtr,
                 NodeKind::TypeRecord => TermHead::TypeRecord,
                 NodeKind::TypeFnPtr => TermHead::TypeFnPtr,
+                NodeKind::TypeClosure => TermHead::TypeClosure,
                 _ => {
                     // Non-expression kinds: this term does not represent an expression.
                     // Return a placeholder; Phase 2 will add dedicated handling for
@@ -488,6 +491,27 @@ impl<'a> Term<'a> {
 
         // Handle TypeFnPtr
         if let Some(TypeData::FnPtr {
+            params,
+            ret,
+            effects,
+            capabilities,
+        }) = self.arena.type_data(self.id)
+        {
+            for &param in params {
+                result.push(Term::new(self.arena, param));
+            }
+            result.push(Term::new(self.arena, *ret));
+            if let Some(eff) = effects {
+                result.push(Term::new(self.arena, *eff));
+            }
+            if let Some(cap) = capabilities {
+                result.push(Term::new(self.arena, *cap));
+            }
+            return result;
+        }
+
+        // Handle TypeClosure
+        if let Some(TypeData::Closure {
             params,
             ret,
             effects,

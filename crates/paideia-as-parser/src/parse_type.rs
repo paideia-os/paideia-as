@@ -106,8 +106,9 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             }
         }
 
-        // Step 2: Handle pointer type prefix `*` or reference type prefix `&`/`&mut` or primary type forms
+        // Step 2: Handle pointer type prefix `*` or reference type prefix `&`/`&mut` or closure type `|...`
         match self.peek().map(|t| t.kind) {
+            Some(TokenKind::Pipe) => self.parse_type_closure(),
             Some(TokenKind::Star) => {
                 let star_tok = self.bump().unwrap();
                 if !self.is_type_start(self.peek()) {

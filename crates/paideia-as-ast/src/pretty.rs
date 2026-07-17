@@ -806,6 +806,22 @@ fn print_type_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 params_str, ret, effects, capabilities
             )
         }
+        TypeData::Closure {
+            params,
+            ret,
+            effects,
+            capabilities,
+        } => {
+            let params_str = params
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "Closure {{ params: [{}], ret: {}, effects: {:?}, capabilities: {:?} }}",
+                params_str, ret, effects, capabilities
+            )
+        }
         TypeData::Tuple { elements } => {
             let elem_str = elements
                 .iter()
