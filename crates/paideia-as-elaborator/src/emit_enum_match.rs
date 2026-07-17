@@ -1648,6 +1648,30 @@ impl EmitWalker {
                 self.state.register_label(body_label);
             }
 
+            // Issue #1002: Handle outer binder (bind-and-match)
+            // Must be done before pattern_binding so the discriminant is still in RAX
+            let should_pop_outer_binder_scope = if let Some(ref binder_name) = arm_meta.outer_binder {
+                if layout_size > 16 {
+                    // Stack form: emit T-code diagnostic (MVP forbids this)
+                    self.push_typed_diag(
+                        paideia_as_diagnostics::DiagnosticCode::new(
+                            paideia_as_diagnostics::Category::T,
+                            paideia_as_diagnostics::Severity::Error,
+                            1003,
+                        ).unwrap_or_else(|_| unreachable!()),
+                        "bind-and-match on stack-form enum not supported (MVP)".to_string(),
+                    );
+                    false
+                } else {
+                    // Register form: bind discriminant (RAX) to the binder name
+                    self.state.local_bindings.push_scope();
+                    self.state.local_bindings.insert(binder_name.clone(), abi::RAX);
+                    true
+                }
+            } else {
+                false
+            };
+
             // Phase 17 m9-009: Nested pattern binding
             // #1084 (follow-up): Split on layout.size for register vs stack form
             if let Some(ref pattern_binding) = arm_meta.pattern_binding {
@@ -1804,6 +1828,11 @@ impl EmitWalker {
 
             // Pop nested pattern scope if we pushed one
             if arm_meta.pattern_binding.is_some() {
+                self.state.local_bindings.pop_scope();
+            }
+
+            // Issue #1002: Pop outer binder scope if we pushed one
+            if should_pop_outer_binder_scope {
                 self.state.local_bindings.pop_scope();
             }
 

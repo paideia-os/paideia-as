@@ -147,15 +147,108 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         ))
     }
 
-    /// Parse a pattern for use in match arms, with support for or-patterns.
+    /// Parse a pattern for use in match arms, with support for or-patterns and bind-and-match.
     ///
-    /// Supports or-patterns: `p1 | p2 | ... | pN => body`.
-    /// Each alternative is parsed via parse_pattern_match_atom and wrapped
-    /// in PatOr if multiple alternatives are found.
+    /// Supports:
+    /// - Or-patterns: `p1 | p2 | ... | pN => body`.
+    /// - Bind-and-match: `x @ p1 | p2 | ... | pN => body`.
     fn parse_pattern_match(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
         let first = self.parse_pattern_match_atom()?;
 
-        // Check for `|` to form an or-pattern
+        // Bind-and-match: IDENT @ OrPattern
+        if self.at(TokenKind::At) {
+            // Validate that LHS is a bare ident
+            let first_node = self.arena().get(first);
+            let is_bare_ident = matches!(
+                first_node.map(|n| n.kind),
+                Some(NodeKind::PatIdent)
+            );
+            if !is_bare_ident {
+                return self.error_expected_match_pattern(); // P0100: can only bind to bare identifiers
+            }
+
+            // Extract the binding name
+            let name_ident = match self.arena().pattern_data(first) {
+                Some(PatternData::Ident { name, .. }) => *name,
+                _ => {
+                    // Node is PatIdent but data doesn't match - this should not happen
+                    return self.error_expected_match_pattern();
+                }
+            };
+
+            // Consume the @ token
+            self.expect(TokenKind::At)?;
+
+            // Parse the inner pattern (which may include or-patterns)
+            let inner_first = self.parse_pattern_match_atom()?;
+            let inner = if self.at(TokenKind::Pipe) {
+                // Inner or-pattern after @
+                let mut alternatives = vec![inner_first];
+                let span_start = self
+                    .arena()
+                    .get(inner_first)
+                    .map(|n| n.span)
+                    .unwrap_or_else(|| self.current_span());
+
+                while self.eat(TokenKind::Pipe) {
+                    let alt = self.parse_pattern_match_atom()?;
+                    alternatives.push(alt);
+                }
+
+                let span_end = self
+                    .arena()
+                    .get(*alternatives.last().unwrap())
+                    .map(|n| n.span)
+                    .unwrap_or(span_start);
+                let span = Span::new(
+                    span_start.file(),
+                    span_start.byte_start(),
+                    span_end.byte_start() + span_end.byte_len() - span_start.byte_start(),
+                );
+
+                self.arena_mut().alloc_pattern(
+                    NodeKind::PatOr,
+                    span,
+                    PatternData::Or { alternatives },
+                )
+            } else {
+                inner_first
+            };
+
+            // Reject nested bindings
+            if self.at(TokenKind::At) {
+                return self.error_expected_match_pattern(); // P0100: nested @ not allowed
+            }
+
+            // Compute spans
+            let span_start = self
+                .arena()
+                .get(first)
+                .map(|n| n.span)
+                .unwrap_or_else(|| self.current_span());
+            let span_end = self
+                .arena()
+                .get(inner)
+                .map(|n| n.span)
+                .unwrap_or(span_start);
+            let span = Span::new(
+                span_start.file(),
+                span_start.byte_start(),
+                span_end.byte_start() + span_end.byte_len() - span_start.byte_start(),
+            );
+
+            // Create and return the binding pattern
+            return Ok(self.arena_mut().alloc_pattern(
+                NodeKind::PatBinding,
+                span,
+                PatternData::Binding {
+                    name: name_ident,
+                    inner,
+                },
+            ));
+        }
+
+        // Not a binding pattern; handle or-patterns
         if self.at(TokenKind::Pipe) {
             let mut alternatives = vec![first];
             let span_start = self
@@ -1314,5 +1407,167 @@ mod tests {
                 panic!("expected ExprMatch");
             }
         }
+    }
+
+    // ── Helper for bind-and-match tests ─────────────────────────────────
+
+    fn parse_bind_test(
+        tokens: Vec<Token>,
+        source: &str,
+    ) -> (
+        AstArena,
+        Option<paideia_as_ast::NodeId>,
+        Vec<paideia_as_diagnostics::Diagnostic>,
+    ) {
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let root = {
+            let mut p = Parser::new(
+                &tokens,
+                source,
+                FileId::new(1).unwrap(),
+                &mut arena,
+                &mut sink,
+            );
+            p.parse_expr().ok()
+        };
+        let diags = sink.diagnostics().to_vec();
+        (arena, root, diags)
+    }
+
+    // ── Bind-and-match tests (#1002) ────────────────────────────────
+
+    #[test]
+    fn parse_pattern_bind_literal() {
+        // Test: match x { y @ 5 => y, _ => 0 }
+        let source = "match x { y @ 5 => y, _ => 0 }";
+        let tokens = vec![
+            tok(TokenKind::KwMatch, 0, 5),
+            tok(TokenKind::Ident, 6, 1),
+            tok(TokenKind::LBrace, 8, 1),
+            tok(TokenKind::Ident, 10, 1),
+            tok(TokenKind::At, 12, 1),
+            tok(TokenKind::IntLit, 14, 1),
+            tok(TokenKind::FatArrow, 16, 2),
+            tok(TokenKind::Ident, 19, 1),
+            tok(TokenKind::Comma, 20, 1),
+            tok(TokenKind::Ident, 22, 1),
+            tok(TokenKind::FatArrow, 24, 2),
+            tok(TokenKind::IntLit, 27, 1),
+            tok(TokenKind::RBrace, 29, 1),
+            tok(TokenKind::Eof, 30, 0),
+        ];
+        let (arena, root, diags) = parse_bind_test(tokens, source);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected for bind-and-match; got: {:?}", diags.iter().map(|d| d.code().number()).collect::<Vec<_>>());
+        let root = root.expect("parse should succeed");
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprMatch);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Match { arms, .. } = expr_data {
+                assert_eq!(arms.len(), 2);
+                let pattern_node = arena.get(arms[0].pattern).unwrap();
+                assert_eq!(pattern_node.kind, NodeKind::PatBinding, "expected PatBinding for y @ 5");
+            } else {
+                panic!("expected ExprMatch");
+            }
+        }
+    }
+
+    #[test]
+    fn parse_pattern_bind_or() {
+        // Test: match x { y @ A | B => 1, _ => 0 }
+        let source = "match x { y @ A | B => 1, _ => 0 }";
+        let tokens = vec![
+            tok(TokenKind::KwMatch, 0, 5),
+            tok(TokenKind::Ident, 6, 1),
+            tok(TokenKind::LBrace, 8, 1),
+            tok(TokenKind::Ident, 10, 1),
+            tok(TokenKind::At, 12, 1),
+            tok(TokenKind::Ident, 14, 1),
+            tok(TokenKind::Pipe, 16, 1),
+            tok(TokenKind::Ident, 18, 1),
+            tok(TokenKind::FatArrow, 20, 2),
+            tok(TokenKind::IntLit, 23, 1),
+            tok(TokenKind::Comma, 24, 1),
+            tok(TokenKind::Ident, 26, 1),
+            tok(TokenKind::FatArrow, 28, 2),
+            tok(TokenKind::IntLit, 31, 1),
+            tok(TokenKind::RBrace, 32, 1),
+            tok(TokenKind::Eof, 33, 0),
+        ];
+        let (arena, root, diags) = parse_bind_test(tokens, source);
+
+        assert_eq!(diags.len(), 0, "no diagnostics expected for bind-and-match with or");
+        let root = root.expect("parse should succeed");
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprMatch);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Match { arms, .. } = expr_data {
+                assert_eq!(arms.len(), 2);
+                let pattern_node = arena.get(arms[0].pattern).unwrap();
+                assert_eq!(pattern_node.kind, NodeKind::PatBinding);
+            } else {
+                panic!("expected ExprMatch");
+            }
+        }
+    }
+
+    #[test]
+    fn parse_pattern_bind_rejects_literal_lhs() {
+        // Test: match x { 5 @ y => body, _ => 0 } should fail (P0100)
+        let source = "match x { 5 @ y => body, _ => 0 }";
+        let tokens = vec![
+            tok(TokenKind::KwMatch, 0, 5),
+            tok(TokenKind::Ident, 6, 1),
+            tok(TokenKind::LBrace, 8, 1),
+            tok(TokenKind::IntLit, 10, 1),
+            tok(TokenKind::At, 11, 1),
+            tok(TokenKind::Ident, 12, 1),
+            tok(TokenKind::FatArrow, 14, 2),
+            tok(TokenKind::Ident, 17, 4),
+            tok(TokenKind::Comma, 21, 1),
+            tok(TokenKind::Ident, 23, 1),
+            tok(TokenKind::FatArrow, 25, 2),
+            tok(TokenKind::IntLit, 28, 1),
+            tok(TokenKind::RBrace, 29, 1),
+            tok(TokenKind::Eof, 30, 0),
+        ];
+        let (_arena, _root, diags) = parse_bind_test(tokens, source);
+
+        assert!(!diags.is_empty(), "should emit P0100 for literal on LHS of @");
+        let has_p0100 = diags.iter().any(|d| d.code().number() == 100);
+        assert!(has_p0100, "expected P0100 in diagnostics");
+    }
+
+    #[test]
+    fn parse_pattern_bind_rejects_nested() {
+        // Test: match x { y @ (z @ A) => body, _ => 0 } should fail (nested @ rejected)
+        let source = "match x { y @ (z @ A) => body, _ => 0 }";
+        let tokens = vec![
+            tok(TokenKind::KwMatch, 0, 5),
+            tok(TokenKind::Ident, 6, 1),
+            tok(TokenKind::LBrace, 8, 1),
+            tok(TokenKind::Ident, 10, 1),
+            tok(TokenKind::At, 11, 1),
+            tok(TokenKind::LParen, 12, 1),
+            tok(TokenKind::Ident, 13, 1),
+            tok(TokenKind::At, 14, 1),
+            tok(TokenKind::Ident, 15, 1),
+            tok(TokenKind::RParen, 16, 1),
+            tok(TokenKind::FatArrow, 18, 2),
+            tok(TokenKind::Ident, 21, 4),
+            tok(TokenKind::Comma, 25, 1),
+            tok(TokenKind::Ident, 27, 1),
+            tok(TokenKind::FatArrow, 29, 2),
+            tok(TokenKind::IntLit, 32, 1),
+            tok(TokenKind::RBrace, 33, 1),
+            tok(TokenKind::Eof, 34, 0),
+        ];
+        let (_arena, _root, diags) = parse_bind_test(tokens, source);
+
+        assert!(!diags.is_empty(), "should emit P0100 for nested @");
+        let has_p0100 = diags.iter().any(|d| d.code().number() == 100);
+        assert!(has_p0100, "expected P0100 in diagnostics for nested @");
     }
 }

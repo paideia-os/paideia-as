@@ -114,7 +114,63 @@ pub(super) fn populate_match_arm_meta(
 
             let mut arm_meta = paideia_as_ir::MatchArmMeta::default();
 
-            match pattern_node.kind {
+            // Issue #1002: Unwrap PatBinding transparently
+            // Extract binder name and check inner pattern before classification dispatch
+            let (actual_pattern_node, actual_pattern_id) = if pattern_node.kind == NodeKind::PatBinding {
+                // Extract binding pattern data
+                if let Some(paideia_as_ast::PatternData::Binding { name, inner }) = ast.pattern_data(arm.pattern) {
+                    // Extract binder name
+                    if let Some(binder_name) = extract_source_text_for_record_cons(ast, source_map, *name) {
+                        arm_meta.outer_binder = Some(binder_name);
+                    }
+
+                    // Check if inner pattern is EnumVariant with payload (MVP forbids this)
+                    let inner_node = match ast.get(*inner) {
+                        Some(n) => n,
+                        None => continue,
+                    };
+
+                    if inner_node.kind == NodeKind::PatEnumVariant {
+                        if let Some(paideia_as_ast::PatternData::EnumVariant { args, .. }) = ast.pattern_data(*inner) {
+                            if !args.is_empty() {
+                                // Emit T-code diagnostic: bind-and-match with enum payload not supported in MVP
+                                if let Ok(code) = DiagnosticCode::new(Category::T, Severity::Error, 1002) {
+                                    let diag = Diagnostic::error(code)
+                                        .message("bind-and-match with enum payload not supported (MVP)".to_string())
+                                        .with_span(pattern_node.span)
+                                        .finish();
+                                    let _ = sink.emit(diag);
+                                }
+                                continue;
+                            }
+                        }
+                    }
+
+                    // Issue #1002: For integer literal patterns, skip enum classification
+                    // and let populate_int_match_meta handle it
+                    if inner_node.kind == NodeKind::PatLiteral {
+                        // Skip enum classification but still process guards
+                        // Populate guard if present
+                        if let Some(guard_ast_id) = arm.guard {
+                            if let Some(&guard_ir_id) = ast_to_ir.get(&guard_ast_id) {
+                                arm_meta.guard = Some(guard_ir_id);
+                            }
+                        }
+                        // Insert arm metadata and continue to next arm
+                        ir.match_arm_meta_mut().insert(arm_ir_id, arm_meta);
+                        continue;
+                    }
+
+                    // Unwrap transparently: use inner pattern for further classification
+                    (inner_node, *inner)
+                } else {
+                    continue;
+                }
+            } else {
+                (pattern_node, arm.pattern)
+            };
+
+            match actual_pattern_node.kind {
                 NodeKind::PatWildcard => {
                     // Only mark as unconditional default when no guard.
                     // A guarded wildcard (_ if pred => ...) is conditional — must fall into
@@ -124,7 +180,7 @@ pub(super) fn populate_match_arm_meta(
                 NodeKind::PatIdent => {
                     // Extract pattern source text
                     if let Some(pattern_text) =
-                        extract_source_text_for_record_cons(ast, source_map, arm.pattern)
+                        extract_source_text_for_record_cons(ast, source_map, actual_pattern_id)
                     {
                         if pattern_text == "_" {
                             // #1000: mark as unconditional default only when no guard.
@@ -146,7 +202,7 @@ pub(super) fn populate_match_arm_meta(
                 NodeKind::PatEnumVariant => {
                     // Extract variant path and arguments
                     if let Some(paideia_as_ast::PatternData::EnumVariant { path, args }) =
-                        ast.pattern_data(arm.pattern)
+                        ast.pattern_data(actual_pattern_id)
                     {
                         // Get variant name from path source text
                         if let Some(variant_text) =
@@ -181,7 +237,7 @@ pub(super) fn populate_match_arm_meta(
                 NodeKind::PatOr => {
                     // Issue #1001: Handle or-patterns (p1 | p2 | ... | pN => body)
                     if let Some(paideia_as_ast::PatternData::Or { alternatives }) =
-                        ast.pattern_data(arm.pattern)
+                        ast.pattern_data(actual_pattern_id)
                     {
                         classify_or_alts(
                             alternatives,
@@ -201,12 +257,16 @@ pub(super) fn populate_match_arm_meta(
                     // Record pattern support: just note that we have a struct pattern
                     // The actual nested pattern binding tree is handled via lower_pattern_data below
                 }
+                NodeKind::PatLiteral => {
+                    // Integer/literal pattern matching - handled by populate_int_match_meta
+                    // Just skip here and let integer match classifier handle it
+                }
                 _ => {
                     // Emit T0556 diagnostic: unsupported match arm pattern kind
                     if let Ok(code) = DiagnosticCode::new(Category::T, Severity::Error, 556) {
                         let diag = Diagnostic::error(code)
                             .message("unsupported match arm pattern kind".to_string())
-                            .with_span(pattern_node.span)
+                            .with_span(actual_pattern_node.span)
                             .finish();
                         let _ = sink.emit(diag);
                     }
@@ -217,13 +277,13 @@ pub(super) fn populate_match_arm_meta(
             // Build the nested pattern binding tree using lower_pattern_data
             // Skip for bare variant names (PatIdent matching a variant with no payload)
             // to allow #1052's auto-detect to fire on real code
-            let should_lower_pattern = !(pattern_node.kind == NodeKind::PatIdent
+            let should_lower_pattern = !(actual_pattern_node.kind == NodeKind::PatIdent
                 && arm_meta.variant_index.is_some()
                 && arm_meta.payload_binder.is_none());
 
             if should_lower_pattern {
                 if let Some(pattern_binding) = lower_pattern_data(
-                    arm.pattern,
+                    actual_pattern_id,
                     ast,
                     source_map,
                     enum_registry,

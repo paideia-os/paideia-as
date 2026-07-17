@@ -1,0 +1,12 @@
+// Issue #1002: bind_int_falls_through
+// Tests bind-and-match when pattern doesn't match (falls through to default)
+// Expected exit code: 99
+
+module BindIntFallsThrough = structure {
+  pub let entry : () -> u64 !{} @{} = fn(_ : ()) -> {
+    match 7u64 {
+      x @ 5u64 => x
+      _ => 99u64
+    }
+  }
+}

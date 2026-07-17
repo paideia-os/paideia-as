@@ -83,6 +83,7 @@ fn classify_match_integer(
     match_ast_id: NodeId,
     match_ir_id: IrNodeId,
     binding_type_map: &HashMap<String, String>,
+    ast_to_ir: &HashMap<NodeId, IrNodeId>,
 ) -> bool {
     // Step 1: Skip if enum pipeline already claimed this match
     if ir.match_scrutinee_table().contains_key(match_ir_id) {
@@ -173,26 +174,34 @@ fn classify_match_integer(
                     // Strip the type suffix (u64, i32, etc.)
                     let text_no_suffix = strip_integer_suffix(text);
                     // Try to parse the number without suffix
-                    if let Ok(value) = text_no_suffix.parse::<i64>() {
-                        let mut meta = ir.match_arm_meta_mut()
-                            .remove(arm_ir_id)
-                            .unwrap_or_default();
-                        meta.int_pattern_value = Some(value);
-                        ir.match_arm_meta_mut().insert(arm_ir_id, meta);
+                    let parsed_value = if let Ok(value) = text_no_suffix.parse::<i64>() {
+                        Some(value)
                     } else if let Ok(value) = text_no_suffix.parse::<u64>() {
-                        let mut meta = ir.match_arm_meta_mut()
-                            .remove(arm_ir_id)
-                            .unwrap_or_default();
-                        meta.int_pattern_value = Some(value as i64);
-                        ir.match_arm_meta_mut().insert(arm_ir_id, meta);
+                        Some(value as i64)
+                    } else {
+                        None
+                    };
+
+                    if let Some(value) = parsed_value {
+                        if let Some(meta) = ir.match_arm_meta_mut().get_mut(arm_ir_id) {
+                            meta.int_pattern_value = Some(value);
+                        } else {
+                            let mut meta: paideia_as_ir::MatchArmMeta = Default::default();
+                            meta.int_pattern_value = Some(value);
+                            ir.match_arm_meta_mut().insert(arm_ir_id, meta);
+                        }
                     }
                 }
             }
             NodeKind::PatWildcard => {
                 // Wildcard pattern → default arm
-                let mut meta = ir.match_arm_meta_mut().remove(arm_ir_id).unwrap_or_default();
-                meta.is_default = true;
-                ir.match_arm_meta_mut().insert(arm_ir_id, meta);
+                if let Some(meta) = ir.match_arm_meta_mut().get_mut(arm_ir_id) {
+                    meta.is_default = true;
+                } else {
+                    let mut meta: paideia_as_ir::MatchArmMeta = Default::default();
+                    meta.is_default = true;
+                    ir.match_arm_meta_mut().insert(arm_ir_id, meta);
+                }
                 default_arm_count += 1;
             }
             NodeKind::PatIdent => {
@@ -200,9 +209,13 @@ fn classify_match_integer(
                 if let Some(text) = extract_source_text_for_record_cons(ast, source_map, arm.pattern)
                 {
                     if text == "_" {
-                        let mut meta = ir.match_arm_meta_mut().remove(arm_ir_id).unwrap_or_default();
-                        meta.is_default = true;
-                        ir.match_arm_meta_mut().insert(arm_ir_id, meta);
+                        if let Some(meta) = ir.match_arm_meta_mut().get_mut(arm_ir_id) {
+                            meta.is_default = true;
+                        } else {
+                            let mut meta: paideia_as_ir::MatchArmMeta = Default::default();
+                            meta.is_default = true;
+                            ir.match_arm_meta_mut().insert(arm_ir_id, meta);
+                        }
                         default_arm_count += 1;
                     } else {
                         // Named pattern in integer match (non-default) - skip classification
@@ -253,16 +266,142 @@ fn classify_match_integer(
 
                     // If we successfully collected all alternative values, store them
                     if !or_alt_values.is_empty() {
-                        let mut meta = ir.match_arm_meta_mut()
-                            .remove(arm_ir_id)
-                            .unwrap_or_default();
-                        meta.alt_int_values = or_alt_values.clone();
-                        if !or_alt_values.is_empty() {
-                            meta.int_pattern_value = Some(or_alt_values[0]);
+                        if let Some(meta) = ir.match_arm_meta_mut().get_mut(arm_ir_id) {
+                            meta.alt_int_values = or_alt_values.clone();
+                            if !or_alt_values.is_empty() {
+                                meta.int_pattern_value = Some(or_alt_values[0]);
+                            }
+                        } else {
+                            let mut meta: paideia_as_ir::MatchArmMeta = Default::default();
+                            meta.alt_int_values = or_alt_values.clone();
+                            if !or_alt_values.is_empty() {
+                                meta.int_pattern_value = Some(or_alt_values[0]);
+                            }
+                            ir.match_arm_meta_mut().insert(arm_ir_id, meta);
                         }
-                        ir.match_arm_meta_mut().insert(arm_ir_id, meta);
                     } else {
                         return false;
+                    }
+                } else {
+                    return false;
+                }
+            }
+            NodeKind::PatBinding => {
+                // Issue #1002: Unwrap PatBinding transparently for integer matches.
+                // Extract the binding name and inner pattern.
+                if let Some(paideia_as_ast::PatternData::Binding { name, inner }) = ast.pattern_data(arm.pattern) {
+                    // Set outer_binder from binding name
+                    if let Some(bn) = extract_source_text_for_record_cons(ast, source_map, *name) {
+                        if let Some(meta) = ir.match_arm_meta_mut().get_mut(arm_ir_id) {
+                            meta.outer_binder = Some(bn);
+                        } else {
+                            let mut meta: paideia_as_ir::MatchArmMeta = Default::default();
+                            meta.outer_binder = Some(bn);
+                            ir.match_arm_meta_mut().insert(arm_ir_id, meta);
+                        }
+                    }
+
+                    let inner_node = match ast.get(*inner) {
+                        Some(n) => n,
+                        None => return false,
+                    };
+
+                    // For now, only handle PatLiteral and PatOr inside PatBinding
+                    // Other patterns (PatIdent, PatWildcard) should fall through to default handling
+                    match inner_node.kind {
+                        NodeKind::PatLiteral => {
+                            // Extract integer value from inner pattern
+                            let span = inner_node.span;
+                            let file_id = span.file();
+                            let source = source_map.content(file_id);
+                            let start = span.byte_start() as usize;
+                            let end = start + span.byte_len() as usize;
+                            if end > source.len() {
+                                return false;
+                            }
+                            let text = &source[start..end];
+                            let text_no_suffix = strip_integer_suffix(text);
+                            let parsed_value = if let Ok(value) = text_no_suffix.parse::<i64>() {
+                                Some(value)
+                            } else if let Ok(value) = text_no_suffix.parse::<u64>() {
+                                Some(value as i64)
+                            } else {
+                                None
+                            };
+
+                            if let Some(value) = parsed_value {
+                                if let Some(meta) = ir.match_arm_meta_mut().get_mut(arm_ir_id) {
+                                    meta.int_pattern_value = Some(value);
+                                } else {
+                                    let mut meta: paideia_as_ir::MatchArmMeta = Default::default();
+                                    meta.int_pattern_value = Some(value);
+                                    ir.match_arm_meta_mut().insert(arm_ir_id, meta);
+                                }
+                            } else {
+                                return false;
+                            }
+                        }
+                        NodeKind::PatOr => {
+                            // Handle or-patterns inside PatBinding
+                            if let Some(paideia_as_ast::PatternData::Or { alternatives }) =
+                                ast.pattern_data(*inner)
+                            {
+                                let mut or_alt_values: Vec<i64> = Vec::new();
+                                for alt_node_id in alternatives {
+                                    let alt_node = match ast.get(*alt_node_id) {
+                                        Some(n) => n,
+                                        None => continue,
+                                    };
+
+                                    if alt_node.kind == NodeKind::PatLiteral {
+                                        let span = alt_node.span;
+                                        let file_id = span.file();
+                                        let source = source_map.content(file_id);
+                                        let start = span.byte_start() as usize;
+                                        let end = start + span.byte_len() as usize;
+                                        if end <= source.len() {
+                                            let text = &source[start..end];
+                                            let text_no_suffix = strip_integer_suffix(text);
+                                            if let Ok(value) = text_no_suffix.parse::<i64>() {
+                                                or_alt_values.push(value);
+                                            } else if let Ok(value) = text_no_suffix.parse::<u64>() {
+                                                or_alt_values.push(value as i64);
+                                            } else {
+                                                return false;
+                                            }
+                                        } else {
+                                            return false;
+                                        }
+                                    } else {
+                                        return false;
+                                    }
+                                }
+
+                                if !or_alt_values.is_empty() {
+                                    if let Some(meta) = ir.match_arm_meta_mut().get_mut(arm_ir_id) {
+                                        meta.alt_int_values = or_alt_values.clone();
+                                        if !or_alt_values.is_empty() {
+                                            meta.int_pattern_value = Some(or_alt_values[0]);
+                                        }
+                                    } else {
+                                        let mut meta: paideia_as_ir::MatchArmMeta = Default::default();
+                                        meta.alt_int_values = or_alt_values.clone();
+                                        if !or_alt_values.is_empty() {
+                                            meta.int_pattern_value = Some(or_alt_values[0]);
+                                        }
+                                        ir.match_arm_meta_mut().insert(arm_ir_id, meta);
+                                    }
+                                } else {
+                                    return false;
+                                }
+                            } else {
+                                return false;
+                            }
+                        }
+                        _ => {
+                            // For PatIdent (_), PatWildcard patterns inside PatBinding, skip classification
+                            return false;
+                        }
                     }
                 } else {
                     return false;
@@ -273,11 +412,31 @@ fn classify_match_integer(
                 return false; // Skip classification
             }
         }
+
+        // Issue #1002: populate the guard, regardless of which pattern-kind branch
+        // above ran. populate_match_arm_meta (lower/match_arm.rs) is the only other
+        // site that records `arm_meta.guard`, and it bails out before ever reaching
+        // its own guard-population step whenever the scrutinee doesn't resolve to a
+        // registered enum type — which is always true here, since this function only
+        // runs for integer scrutinees. Without this, `x @ 5u64 if x > 3u64 => ...`
+        // silently loses its guard and the arm always matches unconditionally.
+        if let Some(guard_ast_id) = arm.guard {
+            if let Some(&guard_ir_id) = ast_to_ir.get(&guard_ast_id) {
+                if let Some(meta) = ir.match_arm_meta_mut().get_mut(arm_ir_id) {
+                    meta.guard = Some(guard_ir_id);
+                } else {
+                    let mut meta: paideia_as_ir::MatchArmMeta = Default::default();
+                    meta.guard = Some(guard_ir_id);
+                    ir.match_arm_meta_mut().insert(arm_ir_id, meta);
+                }
+            }
+        }
     }
 
     // Step 5: Only classify if we found at least one integer pattern or default arm
     // (We'll require a default arm, but allow integer-only arms if there's also a default)
     // Issue #1001: Also check for or-patterns that have been classified as integer or-patterns
+    // Issue #1002: Also check for binding patterns that wrap integer patterns
     let has_integer_patterns = {
         let has_lit = arms.iter().any(|arm| {
             if let Some(pattern_node) = ast.get(arm.pattern) {
@@ -295,7 +454,27 @@ fn classify_match_integer(
             }
         });
 
-        has_lit || has_or
+        let has_binding = arms.iter().any(|arm| {
+            if let Some(pattern_node) = ast.get(arm.pattern) {
+                if pattern_node.kind == NodeKind::PatBinding {
+                    if let Some(paideia_as_ast::PatternData::Binding { inner, .. }) = ast.pattern_data(arm.pattern) {
+                        if let Some(inner_node) = ast.get(*inner) {
+                            matches!(inner_node.kind, NodeKind::PatLiteral | NodeKind::PatOr)
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        });
+
+        has_lit || has_or || has_binding
     };
 
     if !has_integer_patterns {
@@ -339,6 +518,7 @@ pub(super) fn populate_int_match_meta(
                             match_ast_id,
                             *match_ir_id,
                             &binding_type_map,
+                            ast_to_ir,
                         );
                     }
                 }

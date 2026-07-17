@@ -1,0 +1,12 @@
+// Issue #1002: bind_with_guard_false
+// Tests bind-and-match with guard that fails
+// Expected exit code: 42
+
+module BindWithGuardFalse = structure {
+  pub let entry : () -> u64 !{} @{} = fn(_ : ()) -> {
+    match 5u64 {
+      x @ 5u64 if x > 10u64 => x
+      _ => 42u64
+    }
+  }
+}

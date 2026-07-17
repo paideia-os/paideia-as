@@ -46,12 +46,27 @@ pub(super) fn lower_pattern_data(
 
     let pattern_node = ast.get(pat_id)?;
 
-    match pattern_node.kind {
+    // Issue #1002: Unwrap PatBinding transparently
+    let (actual_node, actual_pat_id) = if pattern_node.kind == NodeKind::PatBinding {
+        if let Some(paideia_as_ast::PatternData::Binding { inner, .. }) = ast.pattern_data(pat_id) {
+            if let Some(inner_node) = ast.get(*inner) {
+                (inner_node, *inner)
+            } else {
+                return None;
+            }
+        } else {
+            return None;
+        }
+    } else {
+        (pattern_node, pat_id)
+    };
+
+    match actual_node.kind {
         NodeKind::PatWildcard => Some(PatternBinding::Wildcard),
 
         NodeKind::PatIdent => {
             // Extract the identifier text
-            let text = extract_source_text_for_record_cons(ast, source_map, pat_id)?;
+            let text = extract_source_text_for_record_cons(ast, source_map, actual_pat_id)?;
             if text == "_" {
                 Some(PatternBinding::Wildcard)
             } else {
@@ -61,7 +76,7 @@ pub(super) fn lower_pattern_data(
 
         NodeKind::PatEnumVariant => {
             // Extract variant path and arguments
-            let (path_id, args) = match ast.pattern_data(pat_id) {
+            let (path_id, args) = match ast.pattern_data(actual_pat_id) {
                 Some(paideia_as_ast::PatternData::EnumVariant { path, args }) => (*path, args.clone()),
                 _ => return None,
             };
@@ -111,7 +126,7 @@ pub(super) fn lower_pattern_data(
 
         NodeKind::PatStruct => {
             // Extract struct path and fields
-            let (struct_path_id, fields) = match ast.pattern_data(pat_id) {
+            let (struct_path_id, fields) = match ast.pattern_data(actual_pat_id) {
                 Some(paideia_as_ast::PatternData::Struct { path, fields }) => (*path, fields.clone()),
                 _ => return None,
             };

@@ -1,0 +1,14 @@
+// Issue #1002: bind_variant_unit
+// Tests bind-and-match with enum unit variants
+// Expected exit code: 1
+
+module BindVariantUnit = structure {
+  enum Color { A, B, C }
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    let c : Color = Color::A
+    match c {
+      x @ A | B => 1u64
+      C => 0u64
+    }
+  }
+}

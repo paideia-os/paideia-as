@@ -704,6 +704,7 @@ mod tests {
             guard: None,
             alt_int_values: Vec::new(),
             alt_variant_indices: Vec::new(),
+            outer_binder: None,
         };
         assert_eq!(meta.variant_index, Some(3));
         assert!(meta.payload_binder.is_some());
@@ -961,6 +962,9 @@ pub struct MatchArmMeta {
     /// Variant indices for or-pattern alternatives (#1001).
     /// Used for enum-scrutinee or-patterns; empty if not applicable.
     pub alt_variant_indices: Vec<u32>,
+    /// Outer bind-and-match variable name (#1002).
+    /// Set when this arm has a pattern like `x @ <inner>`.
+    pub outer_binder: Option<String>,
 }
 
 impl Default for MatchArmMeta {
@@ -974,6 +978,7 @@ impl Default for MatchArmMeta {
             guard: None,
             alt_int_values: Vec::new(),
             alt_variant_indices: Vec::new(),
+            outer_binder: None,
         }
     }
 }

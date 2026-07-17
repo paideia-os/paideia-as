@@ -140,12 +140,24 @@ pub(super) fn populate_match_dispatch_meta(
 ///
 /// Returns Some(value) if the pattern is an integer literal, None otherwise.
 /// Uses the SourceMap to extract and parse the actual integer value from source.
+/// Issue #1002: Transparently unwrap PatBinding patterns.
 fn try_extract_integer_pattern(
     ast: &AstArena,
     pattern_id: NodeId,
     source_map: &SourceMap,
 ) -> Option<i64> {
-    let pattern_node = ast.get(pattern_id)?;
+    let mut current_pattern_id = pattern_id;
+
+    // Issue #1002: Unwrap PatBinding transparently
+    if let Some(pattern_node) = ast.get(current_pattern_id) {
+        if pattern_node.kind == NodeKind::PatBinding {
+            if let Some(paideia_as_ast::PatternData::Binding { inner, .. }) = ast.pattern_data(current_pattern_id) {
+                current_pattern_id = *inner;
+            }
+        }
+    }
+
+    let pattern_node = ast.get(current_pattern_id)?;
 
     // Check if it's a PatLiteral node (real pattern literal, not expression literal).
     if pattern_node.kind != NodeKind::PatLiteral {
@@ -153,7 +165,7 @@ fn try_extract_integer_pattern(
     }
 
     // Get the pattern data and verify it's a Literal pattern.
-    let pattern_data = ast.pattern_data(pattern_id)?;
+    let pattern_data = ast.pattern_data(current_pattern_id)?;
     if let paideia_as_ast::PatternData::Literal { lit } = pattern_data {
         // Use extract_integer_from_span to get the actual value from source text.
         extract_integer_from_span(ast, *lit, source_map)
@@ -167,22 +179,34 @@ fn try_extract_integer_pattern(
 /// Returns true if:
 /// 1. The pattern is a NodeKind::PatWildcard with PatternData::Wildcard, OR
 /// 2. The pattern is a NodeKind::PatIdent with identifier text "_"
+/// Issue #1002: Transparently unwrap PatBinding patterns.
 fn is_wildcard_pattern(ast: &AstArena, pattern_id: NodeId, source_map: &SourceMap) -> bool {
-    let pattern_node = match ast.get(pattern_id) {
+    let mut current_pattern_id = pattern_id;
+
+    // Issue #1002: Unwrap PatBinding transparently
+    if let Some(pattern_node) = ast.get(current_pattern_id) {
+        if pattern_node.kind == NodeKind::PatBinding {
+            if let Some(paideia_as_ast::PatternData::Binding { inner, .. }) = ast.pattern_data(current_pattern_id) {
+                current_pattern_id = *inner;
+            }
+        }
+    }
+
+    let pattern_node = match ast.get(current_pattern_id) {
         Some(n) => n,
         None => return false,
     };
 
     // Check if it's a PatWildcard node (real wildcard pattern).
     if pattern_node.kind == NodeKind::PatWildcard {
-        if let Some(paideia_as_ast::PatternData::Wildcard) = ast.pattern_data(pattern_id) {
+        if let Some(paideia_as_ast::PatternData::Wildcard) = ast.pattern_data(current_pattern_id) {
             return true;
         }
     }
 
     // Check if it's a PatIdent with identifier text "_"
     if pattern_node.kind == NodeKind::PatIdent {
-        if let Some(paideia_as_ast::PatternData::Ident { .. }) = ast.pattern_data(pattern_id) {
+        if let Some(paideia_as_ast::PatternData::Ident { .. }) = ast.pattern_data(current_pattern_id) {
             // Extract the identifier text from the pattern's span
             let span = pattern_node.span;
             let file_id = span.file();

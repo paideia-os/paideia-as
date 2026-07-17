@@ -3,7 +3,7 @@
 //! Emits cmp/jne cascade for match expressions over integer types.
 //! Provides `visit_int_match` as the counterpart to `visit_match` for enum scrutinees.
 
-use paideia_as_ir::instruction::{Cond, Instruction, Mnemonic, Operand};
+use paideia_as_ir::instruction::{Cond, Instruction, Mnemonic, Operand, RegId};
 use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi, IntMatchScrutinee, SymbolKind};
 use paideia_as_diagnostics::{DiagnosticCode, Category, Severity};
 
@@ -165,6 +165,16 @@ impl EmitWalker {
                         },
                     );
                 }
+            }
+            // Issue #1002: bind-and-match arm bodies are frequently bare variable
+            // references (`x`) or arithmetic over the bound variable (`x + x`,
+            // `x + 10u64`). These land in the IR as IrKind::Var / IrKind::App,
+            // which this dispatcher previously fell through on silently, leaving
+            // whatever the guard/scrutinee load happened to leave in RAX.
+            // Reuse the generic RHS-expression lowerer (already used for guards)
+            // to evaluate the body into RAX.
+            IrKind::Var | IrKind::App => {
+                let _ = self.emit_var_assign_expr_to_reg(arm_id, arena, abi::RAX, 0);
             }
             _ => {}
         }
@@ -359,6 +369,55 @@ impl EmitWalker {
                 self.state.register_label(body_label);
             }
 
+            // Issue #1002: Bind outer binder if present.
+            //
+            // The scrutinee is in RAX after pattern matching, but RAX is also the
+            // scratch register that guard evaluation and body evaluation both target
+            // (emit_var_assign_expr_to_reg / emit_guard_expression write their result
+            // into RAX). Aliasing the binder directly to RAX means a guard expression
+            // like `x > 3u64` clobbers RAX with its boolean result *before* the body
+            // gets a chance to read `x` back out — the bound value is lost even
+            // though the register table still claims `x` lives in RAX.
+            //
+            // Mirror the nested pattern-binder pool (lower_pattern_from_reg) instead:
+            // move the scrutinee into a free register from [RCX, R8, R10, R11],
+            // filtered against currently-live bindings, and bind the name to that
+            // register. Falls back to RAX only if the whole pool is somehow live.
+            let should_pop_binder_scope = if let Some(ref binder_name) = arm_meta.outer_binder {
+                self.state.local_bindings.push_scope();
+
+                const BINDER_POOL: [RegId; 4] = [abi::RCX, abi::R8, abi::R10, abi::R11];
+                let live = self.state.local_bindings.live_regs();
+                let bound_reg = BINDER_POOL
+                    .iter()
+                    .copied()
+                    .find(|r| !live.contains(r))
+                    .unwrap_or(abi::RAX);
+
+                if bound_reg != abi::RAX {
+                    let mov_id = self.alloc_synthetic_id();
+                    let mut operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                    operands.push(Operand::Reg(bound_reg));
+                    operands.push(Operand::Reg(abi::RAX));
+                    self.emit_inst(
+                        mov_id,
+                        Instruction {
+                            mnemonic: Mnemonic::Mov,
+                            operands,
+                            encoding_hint: None,
+                            byte_offset_in_text: None,
+                            mode: self.current_mode(),
+                            emission_order: 0,
+                        },
+                    );
+                }
+
+                self.state.local_bindings.insert(binder_name.clone(), bound_reg);
+                true
+            } else {
+                false
+            };
+
             // Emit guard if present (#1000)
             if let Some(guard_ir_id) = arm_meta.guard {
                 // Emit guard expression evaluation into RAX
@@ -419,6 +478,11 @@ impl EmitWalker {
                 mode: self.current_mode(),
                 emission_order: 0,
             });
+
+            // Issue #1002: Pop binder scope if we pushed one
+            if should_pop_binder_scope {
+                self.state.local_bindings.pop_scope();
+            }
         }
 
         // After loop: if !default_arm_registered, emit NOP anchor at default_label

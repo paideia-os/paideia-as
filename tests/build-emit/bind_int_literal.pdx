@@ -1,0 +1,12 @@
+// Issue #1002: bind_int_literal
+// Tests bind-and-match with integer literals
+// Expected exit code: 10
+
+module BindIntLiteral = structure {
+  pub let entry : () -> u64 !{} @{} = fn(_ : ()) -> {
+    match 5u64 {
+      x @ 5u64 => x + x
+      _ => 0u64
+    }
+  }
+}

@@ -2160,7 +2160,8 @@ fn emit_walker_match_single_arm_emits_instructions() {
             int_pattern_value: None,
             guard: None,
             alt_int_values: Vec::new(),
-            alt_variant_indices: Vec::new(),        },
+            alt_variant_indices: Vec::new(),
+            outer_binder: None,        },
     );
 
     // Walk the arena with layout registered.
@@ -2197,7 +2198,8 @@ fn emit_walker_match_multiple_arms_emits_dispatch_chain() {
             int_pattern_value: None,
             guard: None,
             alt_int_values: Vec::new(),
-            alt_variant_indices: Vec::new(),        },
+            alt_variant_indices: Vec::new(),
+            outer_binder: None,        },
     );
     arena.match_arm_meta_mut().insert(
         arm2_id,
@@ -2209,7 +2211,8 @@ fn emit_walker_match_multiple_arms_emits_dispatch_chain() {
             int_pattern_value: None,
             guard: None,
             alt_int_values: Vec::new(),
-            alt_variant_indices: Vec::new(),        },
+            alt_variant_indices: Vec::new(),
+            outer_binder: None,        },
     );
 
     // Walk the arena with layout registered.

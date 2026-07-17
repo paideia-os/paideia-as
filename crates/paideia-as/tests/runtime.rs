@@ -124,4 +124,10 @@ mod runtime {
     mod or_pat_enum_unit_second_value;
     mod or_pat_enum_payload_ok_value;
     mod or_pat_int_with_guard_value;
+    mod bind_int_literal_value;
+    mod bind_int_falls_through_value;
+    mod bind_or_pattern_value;
+    mod bind_with_guard_value;
+    mod bind_with_guard_false_value;
+    mod bind_variant_unit_value;
 }
