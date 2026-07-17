@@ -1,0 +1,11 @@
+// v0.18 #997: Runtime canary driver — Option<u64> None default
+// Expects exit code 99
+
+module OptionU64NoneDefault = structure {
+  enum OptionU64 { Some(u64), None }
+  pub let x : OptionU64 = OptionU64::None
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> match x {
+    Some(n) => n,
+    _       => 99u64,
+  }
+}

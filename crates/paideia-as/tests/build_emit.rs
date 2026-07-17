@@ -46,6 +46,10 @@ mod build_emit {
     pub mod match_arm_calls_in_body;
     pub mod match_arm_more_kinds;
     pub mod match_enum_pattern;
+    pub mod option_u64_some_extract;
+    pub mod option_u64_none_default;
+    pub mod result_u64_u64_ok_extract;
+    pub mod result_u64_u64_err_extract;
     pub mod module_let_no_text_emission;
     pub mod module_const_arg_call;
     pub mod module_field_read;

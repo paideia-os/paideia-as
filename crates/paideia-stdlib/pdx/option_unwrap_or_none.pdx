@@ -1,8 +1,14 @@
-// Phase 4 m11-001: Option<T> fixture — unwrap_or on None.
+// Phase 4 m11-001 (v0.18 #997): Option<T> fixture — unwrap_or on None.
 //
-// Phase 4 minimum: demonstrates unwrap_or behavior on None variant.
-// Parser does not yet support generic type params in definitions (m9 gate).
+// Demonstrates unwrap_or behavior on None variant.
+// Uses concrete OptionU64 monomorphization and free-function unwrap_or pending #997c.
 
-trait OptionUnwrapOr {
-  fn option_unwrap_or_none() -> i32;
+module OptionUnwrapOrNone = structure {
+  enum OptionU64 { Some(u64), None }
+  pub let option_u64_unwrap_or : (OptionU64, u64) -> u64 !{} @{} =
+    fn(opt : OptionU64, default : u64) -> match opt {
+      Some(x) => x,
+      _       => default,
+    }
+  pub let x : u64 = option_u64_unwrap_or(OptionU64::None, 99u64)
 }

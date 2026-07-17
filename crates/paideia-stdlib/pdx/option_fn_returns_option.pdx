@@ -1,0 +1,15 @@
+// Phase 4 m11-001 (v0.18 #997): Option<T> fixture — function returns Option.
+//
+// Demonstrates a function that returns an Option type.
+
+module OptionFnReturnsOption = structure {
+  enum OptionU64 { Some(u64), None }
+  pub let make_some : (u64) -> OptionU64 !{} @{} = fn(x : u64) -> OptionU64::Some(x)
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    let result : OptionU64 = make_some(42u64)
+    match result {
+      Some(n) => n,
+      None    => 0u64,
+    }
+  }
+}

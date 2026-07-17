@@ -1,0 +1,14 @@
+// Phase 4 m11-001 (v0.18 #997): Result<T, E> fixture — match Err extract.
+//
+// Demonstrates pattern matching to extract value from Err variant.
+
+module ResultMatchErrExtract = structure {
+  enum ResultU64U64 { Ok(u64), Err(u64) }
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    let r : ResultU64U64 = ResultU64U64::Err(7u64)
+    match r {
+      Ok(_)  => 0u64,
+      Err(e) => e,
+    }
+  }
+}

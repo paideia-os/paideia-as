@@ -1,0 +1,13 @@
+// v0.18 #997: Runtime canary driver — Option<u64> Some extract
+// Expects exit code 42
+
+module OptionU64SomeExtract = structure {
+  enum OptionU64 { Some(u64), None }
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    let x : OptionU64 = OptionU64::Some(42u64)
+    match x {
+      Some(n) => n,
+      None    => 0u64,
+    }
+  }
+}

@@ -1,0 +1,13 @@
+// v0.18 #997: Runtime canary driver — Result<u64, u64> Ok extract
+// Expects exit code 42
+
+module ResultU64U64OkExtract = structure {
+  enum ResultU64U64 { Ok(u64), Err(u64) }
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    let r : ResultU64U64 = ResultU64U64::Ok(42u64)
+    match r {
+      Ok(n)  => n,
+      Err(_) => 0u64,
+    }
+  }
+}

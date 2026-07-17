@@ -1,0 +1,18 @@
+// Phase 4 m11-001 (v0.18 #997): Option<T> concrete monomorphization for u64
+//
+// OptionU64 is a concrete instantiation of Option<T> specialized to T = u64.
+// Used by kernel code and stdlib fixtures until generic-enum monomorphization
+// lands (#997c).
+
+enum OptionU64 {
+  Some(u64),
+  None,
+}
+
+// unwrap_or free function: extracts the value or returns default
+// Free-function form pending impl<T> monomorphization (#997c).
+pub let option_u64_unwrap_or : (OptionU64, u64) -> u64 !{} @{} =
+  fn(opt : OptionU64, default : u64) -> match opt {
+    Some(x) => x,
+    None    => default,
+  }

@@ -40,6 +40,25 @@
 
 - **LetInfo (v0.19)** — `Copy` trait removed from `LetInfo` struct (in `paideia-as-ir`). The struct now carries an `Option<String>` field for `@link_section` support (issue #1015), which is not `Copy`. Dependent code must clone LetInfo instead of copying. Migrating: change patterns like `let info = table.get(id).unwrap().clone()` or adjust iterator patterns to use references.
 
+## v0.18.0 — STDLIB: Option<T> and Result<T,E>
+
+**In development:** Milestone PA-R18-004 (#997).
+
+Foundational stdlib types `Option<T>` and `Result<T,E>` now have concrete implementations in `crates/paideia-stdlib/pdx/`. Generic enum declarations (`enum Option<T> { Some(T), None }` and `enum Result<T, E> { Ok(T), Err(E) }`) establish the surface API. Hand-monomorphized aliases (`OptionU64`, `ResultU64U64`) provide kernel-testable implementations pending generic-enum monomorphization (issue #997c). Free-function `unwrap_or` implementations deliver the core fallback pattern. Four runtime canaries verify constructor + match-based extraction round-trips (expect codes: 42, 99, 42, 7).
+
+### Key changes
+
+- **Issue #997** — Option<T> and Result<T,E> in stdlib (PA-R18-004). Delivers:
+  - Generic `enum Option<T> { Some(T), None }` in `pdx/option.pdx` + documented method surface.
+  - Generic `enum Result<T, E> { Ok(T), Err(E) }` in `pdx/result.pdx` + method surface.
+  - Hand-monomorphized `enum OptionU64 { Some(u64), None }` in `pdx/option_u64.pdx` + free-function `option_u64_unwrap_or`.
+  - Hand-monomorphized `enum ResultU64U64 { Ok(u64), Err(u64) }` in `pdx/result_u64_u64.pdx` + free functions `result_u64_u64_unwrap_or_ok` / `result_u64_u64_unwrap_or_err`.
+  - 20 fixture files (12 modified, 8 new) for parse-cleanliness testing.
+  - 4 runtime canaries: `option_some_extract` (exit 42), `option_none_default` (exit 99), `result_ok_extract` (exit 42), `result_err_extract` (exit 7).
+  - Deferred combinators (map/and_then/map_err/ok_or) to issue #997b (blocked on closure primitives #995).
+  - Deferred impl<T> method blocks to issue #997c (blocked on monomorphization #994/#995).
+  - Deferred auto-prelude/use grammar to issue #997d (structural).
+
 ## v0.17.0 — CONTROL-FLOW: pure functions with if/match/while/loop
 
 **In development:** Milestone PA-R17-012 (#990).

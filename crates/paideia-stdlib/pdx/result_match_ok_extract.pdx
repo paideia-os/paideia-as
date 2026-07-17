@@ -1,9 +1,8 @@
-// Phase 4 m11-001 (v0.18 #997): Result<T, E> fixture — unwrap on Ok.
+// Phase 4 m11-001 (v0.18 #997): Result<T, E> fixture — match Ok extract.
 //
-// Demonstrates unwrap behavior on Ok variant.
-// Uses concrete ResultU64U64 monomorphization pending #997c.
+// Demonstrates pattern matching to extract value from Ok variant.
 
-module ResultUnwrapOk = structure {
+module ResultMatchOkExtract = structure {
   enum ResultU64U64 { Ok(u64), Err(u64) }
   pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
     let x : ResultU64U64 = ResultU64U64::Ok(42u64)

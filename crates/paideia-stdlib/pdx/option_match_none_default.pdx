@@ -1,0 +1,12 @@
+// Phase 4 m11-001 (v0.18 #997): Option<T> fixture — match None default.
+//
+// Demonstrates pattern matching to handle None with a default value.
+
+module OptionMatchNoneDefault = structure {
+  enum OptionU64 { Some(u64), None }
+  pub let x : OptionU64 = OptionU64::None
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> match x {
+    Some(n) => n,
+    _       => 99u64,
+  }
+}

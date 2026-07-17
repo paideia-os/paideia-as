@@ -1,0 +1,14 @@
+// Phase 4 m11-001 (v0.18 #997): Option<T> fixture — match Some extract.
+//
+// Demonstrates pattern matching to extract value from Some variant.
+
+module OptionMatchSomeExtract = structure {
+  enum OptionU64 { Some(u64), None }
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    let x : OptionU64 = OptionU64::Some(42u64)
+    match x {
+      Some(n) => n,
+      None    => 0u64,
+    }
+  }
+}

@@ -1,0 +1,15 @@
+// Phase 4 m11-001 (v0.18 #997): Option<T> fixture — match or-pattern.
+//
+// Demonstrates or-pattern matching on Option variants.
+// Exercises #1001 (or-patterns).
+
+module OptionMatchOrPattern = structure {
+  enum OptionU64 { Some(u64), None }
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    let x : OptionU64 = OptionU64::Some(2u64)
+    match x {
+      Some(1u64) | Some(2u64) => 1u64,
+      _                       => 0u64,
+    }
+  }
+}

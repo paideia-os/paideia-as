@@ -1,0 +1,26 @@
+// Phase 4 m11-001 (v0.18 #997): Result<T, E> concrete monomorphization for u64, u64
+//
+// ResultU64U64 is a concrete instantiation of Result<T, E> specialized to T = u64, E = u64.
+// Used by kernel code and stdlib fixtures until generic-enum monomorphization
+// lands (#997c).
+
+enum ResultU64U64 {
+  Ok(u64),
+  Err(u64),
+}
+
+// unwrap_or_ok free function: extracts Ok value or returns default
+// Free-function form pending impl<T, E> monomorphization (#997c).
+pub let result_u64_u64_unwrap_or_ok : (ResultU64U64, u64) -> u64 !{} @{} =
+  fn(res : ResultU64U64, default : u64) -> match res {
+    Ok(x) => x,
+    _     => default,
+  }
+
+// unwrap_or_err free function: extracts Err value or returns default
+// Free-function form pending impl<T, E> monomorphization (#997c).
+pub let result_u64_u64_unwrap_or_err : (ResultU64U64, u64) -> u64 !{} @{} =
+  fn(res : ResultU64U64, default : u64) -> match res {
+    Err(e) => e,
+    _      => default,
+  }

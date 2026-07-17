@@ -1,8 +1,9 @@
-// Phase 4 m11-001: Result<T, E> fixture — Err construction.
+// Phase 4 m11-001 (v0.18 #997): Result<T, E> fixture — Err construction.
 //
-// Phase 4 minimum: demonstrates enum-variant construction for Result<T, E>.
-// Parser does not yet support generic type params in definitions (m9 gate).
+// Demonstrates enum-variant construction for Result<T, E>.
+// Uses concrete ResultU64U64 monomorphization pending #997c.
 
-trait ResultErrConstruct {
-  fn result_err_construct() -> i32;
+module ResultErrConstruct = structure {
+  enum ResultU64U64 { Ok(u64), Err(u64) }
+  pub let x : ResultU64U64 = ResultU64U64::Err(7u64)
 }

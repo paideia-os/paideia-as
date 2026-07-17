@@ -12,6 +12,7 @@ mod runtime {
     pub mod harness;
     pub mod driver_template;
 
+    mod option_result;
     mod flat_lambda_binop_canaries;
     mod flat_lambda_binop_mul_var_var_value;
     mod flat_lambda_binop_div_var_var_value;

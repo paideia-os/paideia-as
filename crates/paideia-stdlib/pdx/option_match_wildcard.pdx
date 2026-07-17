@@ -1,0 +1,14 @@
+// Phase 4 m11-001 (v0.18 #997): Option<T> fixture — match wildcard pattern.
+//
+// Demonstrates wildcard pattern matching with options.
+
+module OptionMatchWildcard = structure {
+  enum OptionU64 { Some(u64), None }
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    let x : OptionU64 = OptionU64::Some(42u64)
+    match x {
+      Some(_) => 1u64,
+      None    => 0u64,
+    }
+  }
+}

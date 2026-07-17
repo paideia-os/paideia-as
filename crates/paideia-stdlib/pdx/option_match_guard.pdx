@@ -1,0 +1,15 @@
+// Phase 4 m11-001 (v0.18 #997): Option<T> fixture — match with guard.
+//
+// Demonstrates pattern matching with guard clauses on Option.
+
+module OptionMatchGuard = structure {
+  enum OptionU64 { Some(u64), None }
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> {
+    let x : OptionU64 = OptionU64::Some(42u64)
+    match x {
+      Some(n) if n == 42u64 => 1u64,
+      Some(_)               => 0u64,
+      None                  => 0u64,
+    }
+  }
+}

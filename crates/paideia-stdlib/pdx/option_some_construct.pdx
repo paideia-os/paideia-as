@@ -1,8 +1,9 @@
-// Phase 4 m11-001: Option<T> fixture — Some construction.
+// Phase 4 m11-001 (v0.18 #997): Option<T> fixture — Some construction.
 //
-// Phase 4 minimum: demonstrates enum-variant construction for Option<T>.
-// Parser does not yet support generic type params in definitions (m9 gate).
+// Demonstrates enum-variant construction for Option<T>.
+// Uses concrete OptionU64 monomorphization pending #997c.
 
-trait OptionFunctor {
-  fn option_some_construct() -> i32;
+module OptionSomeConstruct = structure {
+  enum OptionU64 { Some(u64), None }
+  pub let x : OptionU64 = OptionU64::Some(42u64)
 }
