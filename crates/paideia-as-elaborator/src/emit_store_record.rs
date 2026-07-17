@@ -648,48 +648,87 @@ impl EmitWalker {
                         return false;
                     }
                 };
-                // Try local binding first
-                if let Some(src_reg) = self.state.local_bindings.get(&name) {
-                    let inst = Instruction {
-                        mnemonic: Mnemonic::Mov,
-                        operands: {
-                            let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
-                            ops.push(Operand::Reg(dest));
-                            ops.push(Operand::Reg(src_reg));
-                            ops
-                        },
-                        encoding_hint: None,
-                        byte_offset_in_text: None,
-                        mode: self.current_mode(),
-                        emission_order: 0,
-                    };
-                    let inst_id = self.alloc_synthetic_id();
-                    self.emit_inst(inst_id, inst);
-                    true
-                } else {
-                    // Module object: load via RIP-relative
-                    let is_module_object = arena
-                        .symbols()
-                        .lookup_by_name(&name)
-                        .map(|s| matches!(s.kind, SymbolKind::Object))
-                        .unwrap_or(false);
-                    if is_module_object {
-                        let load_id = self.alloc_synthetic_id();
-                        self.emit_mem_read_via_rip_sym(
-                            load_id,
-                            dest,
-                            name.clone(),
-                            0,
-                            8,
-                            false,
-                        );
+                // Fix #995 follow-up (T0540 closure-capture gap): resolve via get_home
+                // so EnvSlot (closure capture, [R14+offset], #1233) and Closure
+                // (fat-pair pointer, #995) homes are handled here too, not just plain
+                // Reg. Previously this only checked `local_bindings.get()`, which by
+                // design returns None for EnvSlot/RegPair (see local_binding_table.rs
+                // doc comment on `get`), so any captured variable referenced inside a
+                // closure body's expression tree (e.g. `|x| x + c`) fell through to
+                // the "not a module object" branch and incorrectly fired T0540.
+                // Mirrors the BindingHome dispatch already used by
+                // resolve_var_operands (crates/paideia-as/src/resolve_var_operands.rs).
+                use crate::local_binding_table::BindingHome;
+                match self.state.local_bindings.get_home(&name) {
+                    Some(BindingHome::Reg(src_reg))
+                    | Some(BindingHome::RegPair(src_reg, _))
+                    | Some(BindingHome::Closure(src_reg)) => {
+                        let inst = Instruction {
+                            mnemonic: Mnemonic::Mov,
+                            operands: {
+                                let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                                ops.push(Operand::Reg(dest));
+                                ops.push(Operand::Reg(src_reg));
+                                ops
+                            },
+                            encoding_hint: None,
+                            byte_offset_in_text: None,
+                            mode: self.current_mode(),
+                            emission_order: 0,
+                        };
+                        let inst_id = self.alloc_synthetic_id();
+                        self.emit_inst(inst_id, inst);
                         true
-                    } else {
-                        self.push_typed_diag(
-                            t0540_code(),
-                            format!("expr Var {} not found in bindings; unsupported", name),
-                        );
-                        false
+                    }
+                    Some(BindingHome::EnvSlot(off)) => {
+                        // Closure capture: mov dest, [r14 + off].
+                        let inst = Instruction {
+                            mnemonic: Mnemonic::Mov,
+                            operands: {
+                                let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                                ops.push(Operand::Reg(dest));
+                                ops.push(Operand::MemSib {
+                                    base: abi::R14,
+                                    index: None,
+                                    scale: paideia_as_ir::instruction::Scale::X1,
+                                    disp: off,
+                                });
+                                ops
+                            },
+                            encoding_hint: None,
+                            byte_offset_in_text: None,
+                            mode: self.current_mode(),
+                            emission_order: 0,
+                        };
+                        let inst_id = self.alloc_synthetic_id();
+                        self.emit_inst(inst_id, inst);
+                        true
+                    }
+                    None => {
+                        // Module object: load via RIP-relative
+                        let is_module_object = arena
+                            .symbols()
+                            .lookup_by_name(&name)
+                            .map(|s| matches!(s.kind, SymbolKind::Object))
+                            .unwrap_or(false);
+                        if is_module_object {
+                            let load_id = self.alloc_synthetic_id();
+                            self.emit_mem_read_via_rip_sym(
+                                load_id,
+                                dest,
+                                name.clone(),
+                                0,
+                                8,
+                                false,
+                            );
+                            true
+                        } else {
+                            self.push_typed_diag(
+                                t0540_code(),
+                                format!("expr Var {} not found in bindings; unsupported", name),
+                            );
+                            false
+                        }
                     }
                 }
             }

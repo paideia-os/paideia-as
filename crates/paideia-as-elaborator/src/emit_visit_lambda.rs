@@ -165,6 +165,28 @@ impl EmitWalker {
         }
     }
 
+    /// #1233/#995 T0540 follow-up: register this lambda's closure captures (if
+    /// any) as `[R14 + offset]` (`EnvSlot`) bindings in `local_bindings`.
+    ///
+    /// Extracted so it can be re-invoked after every `local_bindings.clear()`
+    /// that this file performs for scoping reasons (App arm, Action arm — see
+    /// their surrounding comments for why the clear exists). Previously the
+    /// registration only ran once, at the very top of `visit_lambda`, and each
+    /// subsequent `clear()` + `register_nested_lambda_params()` pair silently
+    /// dropped the EnvSlot bindings it had just installed — so any closure
+    /// body referencing a captured variable (e.g. `|x| x + c`) saw `c` as
+    /// unresolved and incorrectly fired T0540 ("expr Var c not found in
+    /// bindings; unsupported") when lowered via `emit_var_assign_expr_to_reg`.
+    /// Captures are (re-)registered before parameter-shadowing rules apply
+    /// (params shadow captures if same name), matching the original ordering.
+    fn register_closure_captures(&mut self, lambda_node_id: IrNodeId, arena: &IrArena) {
+        if let Some(meta) = arena.closure_meta().get(lambda_node_id) {
+            for cap in &meta.captures {
+                self.state.local_bindings.insert_env(cap.name.clone(), cap.offset);
+            }
+        }
+    }
+
     /// Get the System V calling-convention register for parameter index.
     ///
     /// DEPRECATED: Use `param_index_to_reg_for_abi` instead for ABI-aware lookup.
@@ -231,11 +253,7 @@ impl EmitWalker {
         // #1233: Register captures in closure body lambdas (if this lambda is a closure body).
         // Captures are [R14 + offset] memory-based bindings, registered before parameter
         // shadowing rules are applied (params shadow captures if same name).
-        if let Some(meta) = arena.closure_meta().get(lambda_node_id) {
-            for cap in &meta.captures {
-                self.state.local_bindings.insert_env(cap.name.clone(), cap.offset);
-            }
-        }
+        self.register_closure_captures(lambda_node_id, arena);
 
         // #1233: Emit prologue (sub rsp, total_size) for lambdas with closure frame layout.
         // This reserves stack space for closure fat pairs + environment records.
@@ -424,6 +442,10 @@ impl EmitWalker {
                         // live push, producing an unmatched pop → SIGSEGV.
                         self.state.local_bindings.clear();
                         self.register_nested_lambda_params(lambda_node_id, arena, 0);
+                        // T0540 follow-up: the clear() above also wipes any EnvSlot
+                        // capture bindings registered at the top of visit_lambda —
+                        // restore them (see register_closure_captures doc comment).
+                        self.register_closure_captures(lambda_node_id, arena);
 
                         // #1139: Snapshot this lambda's local_bindings for resolve_var_operands.
                         self.state.per_lambda_bindings
@@ -922,6 +944,10 @@ impl EmitWalker {
                         // apply to every lambda shape.
                         self.state.local_bindings.clear();
                         self.register_nested_lambda_params(lambda_node_id, arena, 0);
+                        // T0540 follow-up: the clear() above also wipes any EnvSlot
+                        // capture bindings registered at the top of visit_lambda —
+                        // restore them (see register_closure_captures doc comment).
+                        self.register_closure_captures(lambda_node_id, arena);
 
                         // #1139: Snapshot this lambda's local_bindings after parameter registration.
                         // Used by resolve_var_operands to rewrite Var operands against the correct scope.
