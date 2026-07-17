@@ -168,6 +168,8 @@ fn closure_call_nested_invocation_diagnostic_rejects_t0575() {
     let input = build_emit_data("closure_type/closure_call_nested_invocation_diagnostic.pdx");
     let output = cargo_run(&["build", input.to_str().unwrap(), "--emit", "placeholder"]);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    // Note: T0575 not yet implemented, so this will likely fail or emit a different error.
-    // Once T0575 is implemented, this should verify the diagnostic appears.
+    assert!(
+        stderr.contains("T0575") || stderr.contains("575"),
+        "Expected T0575 diagnostic for nested closure invocation.\nStderr: {stderr}"
+    );
 }
