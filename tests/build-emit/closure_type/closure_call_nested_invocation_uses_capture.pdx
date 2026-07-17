@@ -1,0 +1,18 @@
+// Issue #1239 discriminating fixture: T0575 with actual capture usage.
+// The outer closure `f` captures `c` and reads it after the inner call.
+// This demonstrates the actual R14-clobber bug: `g(x)` loads the inner
+// closure's env-ptr into R14, destroying the outer closure's env-ptr.
+// The subsequent `z + c` would read [r14 + offset] after R14 was overwritten.
+// Compile-only; T0575 blocks the build (correct behavior).
+
+module ClosureCallNestedInvocationUsesCapture = structure {
+  pub let entry : () -> u64 = fn () -> {
+    let c : u64 = 100u64
+    let f : |u64| -> u64 = fn (x: u64) -> {
+      let g : |u64| -> u64 = fn (y: u64) -> y + 1u64
+      let z : u64 = g(x)
+      z + c
+    }
+    f(41u64)
+  }
+}

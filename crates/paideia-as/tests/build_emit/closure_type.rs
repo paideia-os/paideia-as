@@ -168,6 +168,24 @@ fn closure_call_nested_invocation_diagnostic_rejects_t0575() {
     let input = build_emit_data("closure_type/closure_call_nested_invocation_diagnostic.pdx");
     let output = cargo_run(&["build", input.to_str().unwrap(), "--emit", "placeholder"]);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    // Note: T0575 not yet implemented, so this will likely fail or emit a different error.
-    // Once T0575 is implemented, this should verify the diagnostic appears.
+    assert!(
+        stderr.contains("T0575"),
+        "expected T0575 diagnostic on nested closure invocation; stderr was:\n{}",
+        stderr
+    );
+    assert!(!output.status.success(), "expected build failure on T0575");
+}
+
+/// Negative: nested closure invocation with capture usage → T0575 (demonstrates the R14 clobber).
+#[test]
+fn closure_call_nested_invocation_uses_capture_diagnostic_rejects_t0575() {
+    let input = build_emit_data("closure_type/closure_call_nested_invocation_uses_capture.pdx");
+    let output = cargo_run(&["build", input.to_str().unwrap(), "--emit", "placeholder"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("T0575"),
+        "expected T0575 diagnostic on nested closure invocation with capture; stderr was:\n{}",
+        stderr
+    );
+    assert!(!output.status.success(), "expected build failure on T0575");
 }

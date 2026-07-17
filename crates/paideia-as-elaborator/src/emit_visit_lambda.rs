@@ -28,6 +28,13 @@ fn u1660_code() -> DiagnosticCode {
         .expect("U1660 is within valid U range")
 }
 
+/// Helper to construct T0575 diagnostic code.
+/// Issue #1239: nested closure invocation not yet supported.
+pub(crate) fn t0575_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::T, Severity::Error, 575)
+        .expect("T0575 is within valid T range")
+}
+
 impl EmitWalker {
     /// Get the register for parameter index under the specified calling convention.
     ///
@@ -249,6 +256,12 @@ impl EmitWalker {
         // This enables resolve_var_operands to rewrite Operand::Var { name } to Operand::Reg.
         // Outer lambda has param_index=0 (RDI), nested ones increment (RSI, RDX, RCX, R8, R9).
         self.register_nested_lambda_params(lambda_node_id, arena, 0);
+
+        // #1239: Gate rejected lambdas (T0575 nested closure invocations).
+        // Skip emission entirely for lambdas flagged by check_nested_closure_invocations.
+        if self.state.t0575_rejects.contains(&lambda_node_id.get()) {
+            return;
+        }
 
         // #1233: Register captures in closure body lambdas (if this lambda is a closure body).
         // Captures are [R14 + offset] memory-based bindings, registered before parameter

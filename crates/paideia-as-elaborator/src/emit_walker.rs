@@ -522,6 +522,11 @@ impl EmitWalker {
             }
         }
 
+        // #1239 Phase B: Pre-pass 3 to detect nested closure invocations (T0575).
+        // Scans each closure body lambda for invocations of inner closure-typed bindings,
+        // which would clobber R14 (the outer closure's env-ptr) with no preservation.
+        self.check_nested_closure_invocations(arena);
+
         // Iterate over all nodes, looking for Let, Lambda, and Unsafe nodes.
         for i in 1..=arena.len() as u32 {
             if let Some(node_id) = IrNodeId::new(i) {
@@ -1071,8 +1076,116 @@ impl EmitWalker {
         }
     }
 
+    /// #1239: Detect nested closure invocations (T0575).
+    ///
+    /// For each Lambda L that is a closure body (arena.closure_meta().get(L).is_some()),
+    /// walks L's body to find:
+    /// 1. Let bindings whose RHS is ClosureCons (first walk, collects binding names)
+    /// 2. App nodes whose callee is a Var/Placeholder matching those binding names (second walk, fires T0575)
+    ///
+    /// Stops at nested Lambda/Unsafe boundaries. Records rejected lambdas in t0575_rejects.
+    fn check_nested_closure_invocations(&mut self, arena: &IrArena) {
+        use crate::emit_visit_lambda::t0575_code;
 
+        // Helper: recursively collect Lets whose RHS is ClosureCons, stopping at Lambda/Unsafe.
+        fn collect_inner_closure_names(
+            id: IrNodeId,
+            arena: &IrArena,
+            names: &mut std::collections::HashSet<String>,
+        ) {
+            if let Some(n) = arena.get(id) {
+                match n.kind {
+                    IrKind::Let => {
+                        let children = arena.children(id);
+                        // stmt-form Let: [name_var, value, ty?]
+                        let rhs_idx = if children.len() > 1 { 1 } else { 0 };
+                        if let Some(&rhs_id) = children.get(rhs_idx) {
+                            if let Some(rhs_node) = arena.get(rhs_id) {
+                                if rhs_node.kind == IrKind::ClosureCons {
+                                    if let Some(binding_name) = arena.binding_names().get(id) {
+                                        names.insert(binding_name.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    IrKind::Lambda | IrKind::Unsafe => {
+                        // Stop at boundaries
+                        return;
+                    }
+                    _ => {}
+                }
+                for &child_id in arena.children(id) {
+                    collect_inner_closure_names(child_id, arena, names);
+                }
+            }
+        }
 
+        // Helper: recursively find App nodes whose callee is a Var/Placeholder in names.
+        fn find_nested_invocations(
+            id: IrNodeId,
+            arena: &IrArena,
+            inner_closure_names: &std::collections::HashSet<String>,
+            walker: &mut EmitWalker,
+        ) -> bool {
+            if let Some(n) = arena.get(id) {
+                match n.kind {
+                    IrKind::App => {
+                        let children = arena.children(id);
+                        if let Some(&callee_id) = children.first() {
+                            if let Some(callee_node) = arena.get(callee_id) {
+                                if matches!(callee_node.kind, IrKind::Var | IrKind::Placeholder) {
+                                    if let Some(callee_name) = arena.binding_names().get(callee_id) {
+                                        if inner_closure_names.contains(callee_name) {
+                                            // Fire T0575 on this App node
+                                            let diag = Diagnostic::error(t0575_code())
+                                                .message("nested closure invocation not yet supported")
+                                                .with_span(n.span.clone())
+                                                .finish();
+                                            walker.structured_diagnostics.push(diag);
+                                            return true; // Found a violation
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    IrKind::Lambda | IrKind::Unsafe => {
+                        // Stop at boundaries
+                        return false;
+                    }
+                    _ => {}
+                }
+                for &child_id in arena.children(id) {
+                    if find_nested_invocations(child_id, arena, inner_closure_names, walker) {
+                        return true;
+                    }
+                }
+            }
+            false
+        }
+
+        // Main loop: check each closure body lambda
+        for i in 1..=arena.len() as u32 {
+            if let Some(lambda_id) = IrNodeId::new(i) {
+                if let Some(lambda_node) = arena.get(lambda_id) {
+                    if lambda_node.kind == IrKind::Lambda && arena.closure_meta().get(lambda_id).is_some() {
+                        let lambda_children = arena.children(lambda_id);
+                        if let Some(&body_id) = lambda_children.first() {
+                            // First pass: collect closure binding names
+                            let mut inner_closure_names = std::collections::HashSet::new();
+                            collect_inner_closure_names(body_id, arena, &mut inner_closure_names);
+
+                            // Second pass: check for invocations
+                            if find_nested_invocations(body_id, arena, &inner_closure_names, self) {
+                                self.state.t0575_rejects.insert(lambda_id.get());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
 }
 

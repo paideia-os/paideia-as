@@ -1523,6 +1523,25 @@ code pointer) that can carry the captured bindings.
 since = "0.18.0"
 deprecated = false
 
+[diagnostic.T0575]
+severity = "error"
+category = "type"
+title = "Nested closure invocation not yet supported"
+brief = "closure body invokes another closure — outer env-ptr (R14) would be clobbered"
+description = """
+Issue #1239: A closure body contains an application of another closure-typed
+binding. The closure-call ABI loads the callee's environment pointer into R14
+via `mov r14, [r11 + 0]` at every call site (see emit_closure_call), which
+destroys the outer closure's own env-ptr with no save/restore. Any subsequent
+read of a captured binding in the outer closure would resolve against the
+inner closure's environment. Until R14 preservation across closure calls
+lands, this pattern is rejected statically. Workaround: hoist the inner
+closure to a top-level `fn` (no environment) or restructure so the inner call
+happens outside the outer closure's body.
+"""
+since = "0.18.0"
+deprecated = false
+
 [diagnostic.P0282]
 severity = "error"
 category = "parser"

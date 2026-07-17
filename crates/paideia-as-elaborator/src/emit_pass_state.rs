@@ -182,6 +182,11 @@ pub struct EmitPassState {
     /// during UnsafeWalker instruction insertion. Used by resolve_var_operands
     /// to look up the correct per_lambda_bindings snapshot for each instruction.
     pub(crate) instr_to_lambda: HashMap<IrNodeId, u32>,
+
+    /// #1239: Lambda IR node ids rejected for T0575 (nested closure invocation).
+    /// Populated by check_nested_closure_invocations pre-pass in emit_walker.
+    /// Used to gate visit_lambda emission for affected lambdas.
+    pub(crate) t0575_rejects: HashSet<u32>,
 }
 
 impl Default for EmitPassState {
@@ -216,6 +221,7 @@ impl Default for EmitPassState {
             next_synthetic_id: 2_000_000_000,
             per_lambda_bindings: Default::default(),
             instr_to_lambda: Default::default(),
+            t0575_rejects: Default::default(),
         }
     }
 }
