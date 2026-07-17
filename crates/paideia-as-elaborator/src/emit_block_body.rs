@@ -279,6 +279,12 @@ impl EmitWalker {
                                             let _ = self.emit_var_assign_expr_to_reg(rhs_id, arena, scratch_reg, 0);
                                         } else {
                                             // Real function call (callee is not an operator)
+                                            // #1230: Fail loud if an operator somehow bypassed filter.
+                                            debug_assert!(
+                                                !paideia_as_ir::is_operator(&meta.callee_name),
+                                                "operator {} fell through to function-call path at site P",
+                                                meta.callee_name
+                                            );
                                             // #1178: Check if return value is a register-form enum with payload.
                                             let pair_layout = Self::resolve_let_enum_layout(arena, child_id)
                                                 .filter(|l| l.passing_convention() == PassingConvention::RegisterPair

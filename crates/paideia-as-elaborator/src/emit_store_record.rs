@@ -996,14 +996,17 @@ impl EmitWalker {
                     };
 
                     // Emit the binary operation
-                    let operands = if matches!(meta.callee_name.as_str(), "<<" | ">>") {
-                        // Shift: dest, cl (implicit RCX)
-                        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
-                        ops.push(Operand::Reg(dest));
-                        ops.push(Operand::Reg(paideia_as_ir::abi::RCX));
-                        ops
-                    } else {
-                        // Non-shift: dest, arg1_dest
+                    // #1230: Fail loud if we somehow reach here with an unexpected operator.
+                    // At this point, only arithmetic operators (| & ^ + - *) should reach here;
+                    // shifts and comparisons returned early above.
+                    debug_assert!(
+                        matches!(meta.callee_name.as_str(), "|" | "&" | "^" | "+" | "-" | "*"),
+                        "operator {} unexpectedly reached line 999 operand selection site E",
+                        meta.callee_name
+                    );
+
+                    // Standard binary operands: dest, arg1_dest
+                    let operands = {
                         let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
                         ops.push(Operand::Reg(dest));
                         ops.push(Operand::Reg(arg1_dest));
@@ -1261,14 +1264,10 @@ impl EmitWalker {
     }
 }
 
-/// #1181: operator lexemes for dispatch in emit_var_assign_expr_to_reg
+/// #1181: operator lexemes for dispatch in emit_var_assign_expr_to_reg.
+/// Delegates to central registry in paideia-as-ir (#1230).
 pub(crate) fn is_operator_callee(s: &str) -> bool {
-    matches!(s,
-        "|" | "&" | "^" | "<<" | ">>" |
-        "+" | "-" | "*" | "/" | "%" |
-        "~" | "!" |
-        "<" | ">" | "<=" | ">=" | "==" | "!="
-    )
+    paideia_as_ir::is_operator(s)
 }
 
 /// #1196: authoritative operator-lexeme lookup for an App IR node.

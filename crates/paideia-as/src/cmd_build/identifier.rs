@@ -18,13 +18,9 @@ pub(super) fn is_valid_identifier(s: &str) -> bool {
 
 /// #1181: operator lexemes the pre-emit call_sites populator lets through
 /// so the elaborator can identify the operator by string at emit time.
+/// Delegates to central registry in paideia-as-ir (#1230).
 pub(super) fn is_known_operator(s: &str) -> bool {
-    matches!(s,
-        "|" | "&" | "^" | "<<" | ">>" |
-        "+" | "-" | "*" | "/" | "%" |
-        "~" | "!" |
-        "<" | ">" | "<=" | ">=" | "==" | "!="
-    )
+    paideia_as_ir::is_operator(s)
 }
 
 /// Parse an integer literal from text, supporting decimal, hex, binary, and octal formats.

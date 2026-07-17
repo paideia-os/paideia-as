@@ -595,7 +595,8 @@ impl EmitWalker {
 
                                 // #1181: operators are in call_sites but aren't real function calls.
                                 // Skip operator entries and fall through to legacy operator handling.
-                                if !matches!(name.as_str(), "|" | "&" | "^" | "<<" | ">>" | "+" | "-" | "*" | "/" | "%" | "~" | "!") {
+                                // #1230: Use central registry to avoid divergence.
+                                if !paideia_as_ir::is_operator(name.as_str()) {
 
                                 // (#995) Closure-call dispatch — check FIRST before scalar-local-binding path.
                                 // Closures are distinct from scalar function pointers: they require R14 load.

@@ -37,6 +37,7 @@ pub mod module_field_ref;
 pub mod modules;
 pub mod monomorphisation;
 mod node;
+pub mod operators;
 pub mod opt;
 pub mod pretty;
 pub mod record_layout;
@@ -91,6 +92,7 @@ pub use modules::{
 };
 pub use monomorphisation::{MonoKey, MonomorphisationTable, TypeId};
 pub use node::{EffectRowId, IrKind, IrNodeData, IrNodeId, LinClass};
+pub use operators::{BINARY_OPERATORS, KNOWN_OPERATORS, UNARY_OPERATORS, is_binary_op, is_operator, is_unary_op};
 pub use record_layout::{FieldAccessInfo, FieldAccessSideTable, FieldLayout, RecordLayout, RecordLayoutTable, RecordTypeId};
 pub use section_attr::{SectionAttr, SectionAttrTable};
 pub use string_literal::{StringLiteralInfo, StringLiteralTable};
