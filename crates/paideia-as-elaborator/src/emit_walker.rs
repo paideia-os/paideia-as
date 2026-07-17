@@ -5,14 +5,14 @@
 //! populates an InstructionSideTable + tracks per-function offsets.
 
 use paideia_as_diagnostics::{Diagnostic, DiagnosticCode};
-use paideia_as_ir::instruction::{InstrMode, Instruction};
+use paideia_as_ir::instruction::{InstrMode, Instruction, Mnemonic, Operand};
 #[cfg(test)]
-use paideia_as_ir::instruction::{Cond, IntWidth, Mnemonic, Operand};
+use paideia_as_ir::instruction::{Cond, IntWidth};
 #[cfg(test)]
 use paideia_as_ir::record_layout::{FieldLayout, RecordLayout, RecordTypeId};
 #[cfg(test)]
-use paideia_as_ir::{EnumLayout, EnumTypeId, abi};
-use paideia_as_ir::{DataSideTable, IrArena, IrKind, IrNodeId, Symbol, SymbolKind};
+use paideia_as_ir::{EnumLayout, EnumTypeId};
+use paideia_as_ir::{DataSideTable, IrArena, IrKind, IrNodeId, SmallVec, Symbol, SymbolKind, abi};
 
 pub use crate::cast_shape::{CastPlan, CastShape, cast_plan};
 pub use crate::emit_pass_state::{EmitPassState, LoopContext};
@@ -193,6 +193,45 @@ impl EmitWalker {
             .last()
             .copied()
             .unwrap_or(InstrMode::Mode64)
+    }
+
+    /// Emit epilogue (add rsp if needed) followed by ret.
+    /// #1233 Phase A: Looks up frame_size from closure_frame_meta for current_function.
+    /// If total_size > 0, emits `add rsp, total_size` before `ret`.
+    pub(crate) fn emit_ret(&mut self, ret_id: IrNodeId, arena: &IrArena) {
+        // Check if current function has frame layout
+        if let Some(lambda_id) = IrNodeId::new(self.state.current_function) {
+            if let Some(frame_layout) = arena.closure_frame_meta().get(lambda_id) {
+                if frame_layout.total_size > 0 {
+                    // Emit: add rsp, total_size
+                    let mut add_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                    add_operands.push(Operand::Reg(abi::RSP));
+                    add_operands.push(Operand::Imm64(frame_layout.total_size as i64));
+
+                    let add_inst = Instruction {
+                        mnemonic: Mnemonic::Add,
+                        operands: add_operands,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode: self.current_mode(),
+                        emission_order: 0,
+                    };
+                    let add_id = self.alloc_synthetic_id();
+                    self.emit_inst(add_id, add_inst);
+                }
+            }
+        }
+
+        // Emit: ret
+        let ret_inst = Instruction {
+            mnemonic: Mnemonic::Ret,
+            operands: SmallVec::new(),
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: self.current_mode(),
+            emission_order: 0,
+        };
+        self.emit_inst(ret_id, ret_inst);
     }
 
     /// Get the set of Lambda IR node IDs that emitted bytecode.
@@ -451,6 +490,23 @@ impl EmitWalker {
                             }
                         }
                         _ => {}
+                    }
+                }
+            }
+        }
+
+        // #1233 Phase A: Pre-pass to compute caller Lambda frame layouts for closures.
+        // Scans arena for ClosureCons descendants under each Lambda.
+        // For Phase A, this is a no-op (no ClosureCons nodes yet), but infrastructure is in place.
+        // When #994 adds ClosureCons IR nodes, this will compute (fat_off, env_off) slots.
+        for i in 1..=arena.len() as u32 {
+            if let Some(caller_lambda_id) = IrNodeId::new(i) {
+                if let Some(caller_node) = arena.get(caller_lambda_id) {
+                    if caller_node.kind == IrKind::Lambda {
+                        // Placeholder: When #994 lands ClosureCons nodes,
+                        // precompute_caller_frame will scan body for ClosureCons descendants
+                        // and populate closure_frame_meta. For now, this is skipped.
+                        // self.precompute_caller_frame(caller_lambda_id, arena);
                     }
                 }
             }

@@ -16,6 +16,8 @@ pub mod binding_name;
 pub mod borrow;
 pub mod call_meta;
 pub mod cast_meta;
+pub mod closure_frame_meta;
+pub mod closure_meta;
 pub mod constant_pool;
 pub mod data;
 pub mod effect_rewrite;
@@ -52,6 +54,8 @@ pub use binding_name::BindingNameTable;
 pub use borrow::{BorrowMeta, BorrowSideTable};
 pub use call_meta::{CallMeta, CallSideTable};
 pub use cast_meta::CastSideTable;
+pub use closure_frame_meta::{ClosureFrameMetaTable, FrameLayout};
+pub use closure_meta::{CaptureMeta, CaptureKind, ClosureMeta, ClosureMetaTable};
 pub use constant_pool::ConstantPoolTable;
 pub use data::{DataEntry, DataSideTable, RelocSpec, RelocWidth, SectionKind};
 pub use effect_rewrite::{

@@ -10,6 +10,7 @@
 //! - `flat`: HashMap<String, BindingEntry> — union of all bindings (for resolve_var_operands fallback)
 //!
 //! #1154: BindingEntry now supports optional payload_reg for register-form enum pair bindings.
+//! #1233: Extended with BindingHome::EnvSlot for R14-relative closure capture access.
 //!
 //! Push/pop explicit scope boundaries when entering/exiting block arms.
 //! Flat fallback resolves post-walk Var operands not found in current stack walk.
@@ -17,17 +18,31 @@
 use paideia_as_ir::instruction::RegId;
 use std::collections::{HashMap, HashSet};
 
-/// A local binding entry with optional pair-register support.
+/// Binding home location: register slot or R14-relative memory slot.
+///
+/// #1233: Captures in closure bodies reside at [r14 + offset] rather than in registers.
+/// This enum allows LocalBindingTable to track both register and memory-based bindings
+/// for resolution via resolve_var_operands.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum BindingHome {
+    /// Scalar binding in a single register.
+    Reg(RegId),
+    /// Enum binding: discriminant + payload register pair (#1154).
+    RegPair(RegId, RegId),
+    /// Closure capture: [R14 + offset] memory-relative binding (#1233).
+    EnvSlot(i32),
+}
+
+/// A local binding entry wrapping its home location.
 ///
 /// #1154: Register-form enum scrutinee bindings can carry both a discriminant register
 /// (reg) and an optional payload register (payload). Scalar bindings have payload=None.
+/// #1233: Extended to support EnvSlot (R14-relative) bindings.
 /// Public — needed by emit_enum_match.rs consumers.
 #[derive(Debug, Clone, Copy)]
 pub struct BindingEntry {
-    /// Primary register (discriminant for enums, sole register for scalars).
-    pub reg: RegId,
-    /// Optional payload register for register-form enum bindings.
-    pub payload: Option<RegId>,
+    /// Binding home: register(s) or R14-relative memory slot.
+    pub home: BindingHome,
 }
 
 /// Tracks local bindings within a function to their assigned scratch registers,
@@ -68,11 +83,10 @@ impl LocalBindingTable {
 
     /// Register a binding and its assigned scratch register in the top scope AND flat.
     /// PA10-005 §3.1: inserts into both top scope and flat union.
-    /// Constructs a BindingEntry with payload=None (scalar binding).
+    /// Constructs a BindingEntry with home=Reg(reg) (scalar binding).
     pub fn insert(&mut self, name: String, reg: RegId) {
         let entry = BindingEntry {
-            reg,
-            payload: None,
+            home: BindingHome::Reg(reg),
         };
         // Insert into top scope
         if let Some(top_scope) = self.scopes.last_mut() {
@@ -83,11 +97,10 @@ impl LocalBindingTable {
     }
 
     /// Register a pair binding (discriminant + payload) for register-form enums.
-    /// #1154: Constructs a BindingEntry with payload=Some(payload_reg).
+    /// #1154: Constructs a BindingEntry with home=RegPair(reg, payload).
     pub fn insert_pair(&mut self, name: String, reg: RegId, payload: RegId) {
         let entry = BindingEntry {
-            reg,
-            payload: Some(payload),
+            home: BindingHome::RegPair(reg, payload),
         };
         // Insert into top scope
         if let Some(top_scope) = self.scopes.last_mut() {
@@ -97,33 +110,55 @@ impl LocalBindingTable {
         self.flat.insert(name, entry);
     }
 
-    /// Look up a binding by walking scopes top-down; if none found, fall back to flat.
-    /// PA10-005 §3.1: scope walk with flat fallback for post-walk resolve_var_operands.
-    /// Returns the primary register (reg field of BindingEntry). External API unchanged.
+    /// Register a closure capture binding at [R14 + offset].
+    /// #1233: Constructs a BindingEntry with home=EnvSlot(offset).
+    pub fn insert_env(&mut self, name: String, offset: i32) {
+        let entry = BindingEntry {
+            home: BindingHome::EnvSlot(offset),
+        };
+        // Insert into top scope
+        if let Some(top_scope) = self.scopes.last_mut() {
+            top_scope.insert(name.clone(), entry);
+        }
+        // Insert into flat union
+        self.flat.insert(name, entry);
+    }
+
+    /// Look up a binding's home by walking scopes top-down; if none found, fall back to flat.
+    /// #1233: Returns the full BindingHome. Primary lookup for new code paths.
     #[must_use]
-    pub fn get(&self, name: &str) -> Option<RegId> {
+    pub fn get_home(&self, name: &str) -> Option<BindingHome> {
         // Walk scopes from top (most recent) to root
         for scope in self.scopes.iter().rev() {
             if let Some(entry) = scope.get(name) {
-                return Some(entry.reg);
+                return Some(entry.home);
             }
         }
         // Fallback to flat union if stack-walk yields None
-        self.flat.get(name).map(|entry| entry.reg)
+        self.flat.get(name).map(|entry| entry.home)
+    }
+
+    /// Look up a binding by walking scopes top-down; if none found, fall back to flat.
+    /// PA10-005 §3.1: scope walk with flat fallback for post-walk resolve_var_operands.
+    /// Returns the primary register (Reg variant only). External API preserved for backward-compat.
+    /// Returns None for EnvSlot or RegPair — use get_home() or get_pair() instead.
+    #[must_use]
+    pub fn get(&self, name: &str) -> Option<RegId> {
+        match self.get_home(name) {
+            Some(BindingHome::Reg(r)) => Some(r),
+            _ => None,
+        }
     }
 
     /// Look up a binding pair (reg, payload) by walking scopes top-down; if none found, fall back to flat.
-    /// #1154: Returns (primary_reg, optional_payload_reg). Mirrors the scope walk of get().
+    /// #1154: Returns (primary_reg, optional_payload_reg). Mirrors the scope walk of get_home().
     #[must_use]
     pub fn get_pair(&self, name: &str) -> Option<(RegId, Option<RegId>)> {
-        // Walk scopes from top (most recent) to root
-        for scope in self.scopes.iter().rev() {
-            if let Some(entry) = scope.get(name) {
-                return Some((entry.reg, entry.payload));
-            }
+        match self.get_home(name) {
+            Some(BindingHome::Reg(r)) => Some((r, None)),
+            Some(BindingHome::RegPair(r, p)) => Some((r, Some(p))),
+            _ => None,
         }
-        // Fallback to flat union if stack-walk yields None
-        self.flat.get(name).map(|entry| (entry.reg, entry.payload))
     }
 
     /// Push a new scope onto the stack (entering a nested block).
@@ -160,9 +195,14 @@ impl LocalBindingTable {
     }
 
     /// Iterate over all flat bindings (backward-compat surface for len/is_empty/iter).
-    /// Returns the primary register (reg field) for each binding.
+    /// Returns the primary register (reg field from BindingHome) for each binding.
+    /// Skips EnvSlot bindings. For RegPair, returns the discriminant only.
     pub fn iter(&self) -> impl Iterator<Item = (&String, RegId)> + '_ {
-        self.flat.iter().map(|(name, entry)| (name, entry.reg))
+        self.flat.iter().filter_map(|(name, entry)| match entry.home {
+            BindingHome::Reg(r) => Some((name, r)),
+            BindingHome::RegPair(r, _) => Some((name, r)),
+            BindingHome::EnvSlot(_) => None,
+        })
     }
 
     /// Return the number of registered bindings (flat count).
@@ -191,14 +231,23 @@ impl LocalBindingTable {
     /// a register that is already live for an enclosing pair-binding's
     /// discriminant/payload.
     /// Intended as an outer-entry snapshot for pattern lowering; do not call per-leaf.
+    /// Skips EnvSlot bindings (they don't consume registers).
     #[must_use]
     pub fn live_regs(&self) -> HashSet<RegId> {
         let mut s = HashSet::new();
         for scope in self.scopes.iter() {
             for e in scope.values() {
-                s.insert(e.reg);
-                if let Some(p) = e.payload {
-                    s.insert(p);
+                match e.home {
+                    BindingHome::Reg(r) => {
+                        s.insert(r);
+                    }
+                    BindingHome::RegPair(r, p) => {
+                        s.insert(r);
+                        s.insert(p);
+                    }
+                    BindingHome::EnvSlot(_) => {
+                        // Memory-based binding, no register consumed
+                    }
                 }
             }
         }
@@ -487,5 +536,82 @@ mod tests {
         assert!(live.contains(&abi::RDX));  // payload IS in live_regs
         assert!(live.contains(&abi::R8));
         assert_eq!(live.len(), 3);
+    }
+
+    /// #1233: insert_env and get_home for closure capture bindings.
+    #[test]
+    fn insert_env_and_get_home() {
+        let mut table = LocalBindingTable::new();
+        let offset = 16i32;
+
+        table.insert_env("cap0".to_string(), offset);
+        assert_eq!(table.get_home("cap0"), Some(BindingHome::EnvSlot(offset)));
+        // scalar get() returns None for EnvSlot
+        assert_eq!(table.get("cap0"), None);
+        // get_pair() also returns None for EnvSlot
+        assert_eq!(table.get_pair("cap0"), None);
+        assert!(table.contains("cap0"));
+    }
+
+    /// #1233: EnvSlot not included in iter() (memory-based, not register-based).
+    #[test]
+    fn iter_excludes_env_slots() {
+        let mut table = LocalBindingTable::new();
+        table.insert("scalar".to_string(), abi::RAX);
+        table.insert_env("capture".to_string(), 8);
+
+        let iter_regs: HashSet<RegId> = table.iter().map(|(_, r)| r).collect();
+        assert_eq!(iter_regs, HashSet::from([abi::RAX]));
+        // "capture" not in iter results
+    }
+
+    /// #1233: EnvSlot not included in live_regs() (doesn't consume register).
+    #[test]
+    fn live_regs_excludes_env_slots() {
+        let mut table = LocalBindingTable::new();
+        table.insert("x".to_string(), abi::RAX);
+        table.insert_env("cap0".to_string(), 0);
+        table.insert_env("cap1".to_string(), 8);
+
+        let live = table.live_regs();
+        assert_eq!(live, HashSet::from([abi::RAX]));
+        // Neither EnvSlot appears in live_regs
+    }
+
+    /// #1233: Closure capture can shadow parameter binding.
+    #[test]
+    fn env_slot_shadow_with_param() {
+        let mut table = LocalBindingTable::new();
+
+        // Root: parameter x → RAX
+        table.insert("x".to_string(), abi::RAX);
+        assert_eq!(table.get("x"), Some(abi::RAX));
+
+        // Nested (closure body): capture x at [r14 + 0]
+        table.push_scope();
+        table.insert_env("x".to_string(), 0);
+
+        // Lookup finds EnvSlot (shadows parameter)
+        assert_eq!(table.get_home("x"), Some(BindingHome::EnvSlot(0)));
+        assert_eq!(table.get("x"), None); // get() returns None for EnvSlot
+
+        // Pop back to root
+        table.pop_scope();
+        assert_eq!(table.get("x"), Some(abi::RAX)); // Parameter visible again
+    }
+
+    /// #1233: get_home returns full BindingHome for all variants.
+    #[test]
+    fn get_home_full_variant_coverage() {
+        let mut table = LocalBindingTable::new();
+
+        table.insert("scalar".to_string(), abi::RAX);
+        table.insert_pair("enum_x".to_string(), abi::RCX, abi::RDX);
+        table.insert_env("capture".to_string(), 16);
+
+        assert_eq!(table.get_home("scalar"), Some(BindingHome::Reg(abi::RAX)));
+        assert_eq!(table.get_home("enum_x"), Some(BindingHome::RegPair(abi::RCX, abi::RDX)));
+        assert_eq!(table.get_home("capture"), Some(BindingHome::EnvSlot(16)));
+        assert_eq!(table.get_home("unknown"), None);
     }
 }

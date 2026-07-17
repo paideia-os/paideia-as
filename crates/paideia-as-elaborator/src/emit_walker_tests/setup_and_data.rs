@@ -396,7 +396,7 @@ fn emit_cast_lambda_with_shape_narrowing_emits_single_mov_then_ret() {
     let lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [cast_id]);
 
     let mut walker = EmitWalker::new();
-    walker.emit_cast_lambda_with_shape(lambda_id, shape(8, 4, true, false));
+    walker.emit_cast_lambda_with_shape(lambda_id, shape(8, 4, true, false), &arena);
 
     let mov_id = IrNodeId::new(lambda_id.get() * 2).expect("mov instr id");
     let mov = walker
@@ -423,7 +423,7 @@ fn emit_cast_lambda_with_shape_same_width_emits_only_ret() {
     let lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [cast_id]);
 
     let mut walker = EmitWalker::new();
-    walker.emit_cast_lambda_with_shape(lambda_id, shape(8, 8, true, false));
+    walker.emit_cast_lambda_with_shape(lambda_id, shape(8, 8, true, false), &arena);
 
     // No conversion instruction at node*2.
     let conv_id = IrNodeId::new(lambda_id.get() * 2).expect("conv id");

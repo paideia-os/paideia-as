@@ -238,16 +238,7 @@ impl EmitWalker {
 
                             // Emit: ret
                             let ret_id = IrNodeId::new(lambda_node_id.get() * 2 + 1).expect("ret virtual id");
-                            let ret_inst = Instruction {
-                                mnemonic: Mnemonic::Ret,
-                                operands: SmallVec::new(),
-                                encoding_hint: None,
-                                byte_offset_in_text: None,
-                                mode: self.current_mode(),
-                                        emission_order: 0,
-        };
-
-                            self.emit_inst(ret_id, ret_inst);
+                            self.emit_ret(ret_id, arena);
                         }
                     }
                     // Case 1: Identity function `fn (x) -> x`
@@ -282,14 +273,7 @@ impl EmitWalker {
                             self.emit_module_field_read(main_id, abi::RAX, name_owned);
                             let ret_id = IrNodeId::new(lambda_node_id.get() * 2 + 1)
                                 .expect("ret virtual id");
-                            self.emit_inst(ret_id, Instruction {
-                                mnemonic: Mnemonic::Ret,
-                                operands: SmallVec::new(),
-                                encoding_hint: None,
-                                byte_offset_in_text: None,
-                                mode: self.current_mode(),
-                                emission_order: 0,
-                            });
+                            self.emit_ret(ret_id, arena);
                             return;
                         }
 
@@ -316,11 +300,7 @@ impl EmitWalker {
                                                 main_id, abi::RAX,
                                                 name.to_string(), offset, size, signed);
                                             let ret_id = IrNodeId::new(lambda_node_id.get()*2 + 1).unwrap();
-                                            self.emit_inst(ret_id, Instruction { mnemonic: Mnemonic::Ret,
-                                                operands: SmallVec::new(), encoding_hint: None,
-                                                byte_offset_in_text: None, mode: self.current_mode(),
-                                                emission_order: 0,
-});
+                                            self.emit_ret(ret_id, arena);
                                             return;
                                         }
                                     }
@@ -339,7 +319,7 @@ impl EmitWalker {
                         let main_id =
                             IrNodeId::new(lambda_node_id.get() * 3).expect("main instr virtual id");
                         self.record_lambda_entry(lambda_node_id, main_id);
-                        self.emit_bitnot_lambda(lambda_node_id);
+                        self.emit_bitnot_lambda(lambda_node_id, arena);
                     }
                     // Phase 7 m4-002: cast `fn (x) -> x as TYPE`.
                     // Cast has a single child (the operand). For the simple
@@ -353,7 +333,7 @@ impl EmitWalker {
                         let main_id =
                             IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
                         self.record_lambda_entry(lambda_node_id, main_id);
-                        self.emit_cast_lambda(lambda_node_id);
+                        self.emit_cast_lambda(lambda_node_id, arena);
                     }
                     // Case 2 & 3: Application `fn (x) -> x + ...` or `fn (x) -> ... + x`
                     // Phase 7 m1-001: Also handles inter-function calls `fn () -> foo()` or `fn (x) -> foo(x)`
@@ -653,7 +633,7 @@ impl EmitWalker {
                                                         lambda_node_id,
                                                         main_id,
                                                     );
-                                                    self.emit_shl_var_lambda(lambda_node_id);
+                                                    self.emit_shl_var_lambda(lambda_node_id, arena);
                                                 } else if lambda_node_id.get() > 50 && op == Some("+") {
                                                     if cfg!(debug_assertions) {
                                                         eprintln!(
@@ -668,19 +648,12 @@ impl EmitWalker {
                                                         lambda_node_id,
                                                         main_id,
                                                     );
-                                                    self.emit_double_lambda(lambda_node_id);
+                                                    self.emit_double_lambda(lambda_node_id, arena);
                                                 } else {
                                                     // #1196: Non-fast-path operator or small lambda; route through shared lowerer
                                                     let _ = self.emit_var_assign_expr_to_rax(body_id, arena);
                                                     let ret_id = self.alloc_synthetic_id();
-                                                    self.emit_inst(ret_id, Instruction {
-                                                        mnemonic: Mnemonic::Ret,
-                                                        operands: SmallVec::new(),
-                                                        encoding_hint: None,
-                                                        byte_offset_in_text: None,
-                                                        mode: self.current_mode(),
-                                                        emission_order: 0,
-                                                    });
+                                                    self.emit_ret(ret_id, arena);
                                                 }
                                             }
                                             // Case 3: x + literal or x << literal
@@ -712,6 +685,7 @@ impl EmitWalker {
                                                                 self.emit_shl_imm_lambda(
                                                                     lambda_node_id,
                                                                     value,
+                                                                    arena,
                                                                 );
                                                             }
                                                         }
@@ -737,6 +711,7 @@ impl EmitWalker {
                                                                 self.emit_add_imm_lambda(
                                                                     lambda_node_id,
                                                                     value,
+                                                                    arena,
                                                                 );
                                                             }
                                                         }
@@ -744,14 +719,7 @@ impl EmitWalker {
                                                             // #1196: Non-fast-path operator; route through shared lowerer
                                                             let _ = self.emit_var_assign_expr_to_rax(body_id, arena);
                                                             let ret_id = self.alloc_synthetic_id();
-                                                            self.emit_inst(ret_id, Instruction {
-                                                                mnemonic: Mnemonic::Ret,
-                                                                operands: SmallVec::new(),
-                                                                encoding_hint: None,
-                                                                byte_offset_in_text: None,
-                                                                mode: self.current_mode(),
-                                                                emission_order: 0,
-                                                            });
+                                                            self.emit_ret(ret_id, arena);
                                                         }
                                                     }
                                                 }
@@ -782,6 +750,7 @@ impl EmitWalker {
                                                             self.emit_shl_const_var_lambda(
                                                                 lambda_node_id,
                                                                 value,
+                                                                arena,
                                                             );
                                                         }
                                                         Some("+") => {
@@ -799,6 +768,7 @@ impl EmitWalker {
                                                                 self.emit_add_imm_lambda(
                                                                     lambda_node_id,
                                                                     value,
+                                                                    arena,
                                                                 );
                                                             }
                                                         }
@@ -806,14 +776,7 @@ impl EmitWalker {
                                                             // #1196: Non-fast-path operator; route through shared lowerer
                                                             let _ = self.emit_var_assign_expr_to_rax(body_id, arena);
                                                             let ret_id = self.alloc_synthetic_id();
-                                                            self.emit_inst(ret_id, Instruction {
-                                                                mnemonic: Mnemonic::Ret,
-                                                                operands: SmallVec::new(),
-                                                                encoding_hint: None,
-                                                                byte_offset_in_text: None,
-                                                                mode: self.current_mode(),
-                                                                emission_order: 0,
-                                                            });
+                                                            self.emit_ret(ret_id, arena);
                                                         }
                                                     }
                                                 }
@@ -829,14 +792,7 @@ impl EmitWalker {
                                                 // the shim consumes even on helper failure, so no symbol collision leaks out.
                                                 let _ = self.emit_var_assign_expr_to_rax(body_id, arena);
                                                 let ret_id = self.alloc_synthetic_id();
-                                                self.emit_inst(ret_id, Instruction {
-                                                    mnemonic: Mnemonic::Ret,
-                                                    operands: SmallVec::new(),
-                                                    encoding_hint: None,
-                                                    byte_offset_in_text: None,
-                                                    mode: self.current_mode(),
-                                                    emission_order: 0,
-                                                });
+                                                self.emit_ret(ret_id, arena);
                                             }
                                         }
                                     }
@@ -980,15 +936,7 @@ impl EmitWalker {
                         // Emit ret at a high ID so it sorts after all match instructions
                         let ret_id = IrNodeId::new(lambda_node_id.get() * 2 + 1)
                             .expect("ret virtual id for match-lambda");
-                        let ret_inst = Instruction {
-                            mnemonic: Mnemonic::Ret,
-                            operands: SmallVec::new(),
-                            encoding_hint: None,
-                            byte_offset_in_text: None,
-                            mode: self.current_mode(),
-                                    emission_order: 0,
-        };
-                        self.emit_inst(ret_id, ret_inst);
+                        self.emit_ret(ret_id, arena);
                     }
                     // #1116: Store-bodied lambda `fn (v: u64) -> counter = v`
                     // Pattern 5: module-level let mut assignment via lambda body
@@ -1014,15 +962,7 @@ impl EmitWalker {
                         // Emit ret at a high ID so it sorts after the store instruction.
                         let ret_id = IrNodeId::new(lambda_node_id.get() * 2 + 1)
                             .expect("ret virtual id for store-lambda");
-                        let ret_inst = Instruction {
-                            mnemonic: Mnemonic::Ret,
-                            operands: SmallVec::new(),
-                            encoding_hint: None,
-                            byte_offset_in_text: None,
-                            mode: self.current_mode(),
-                                    emission_order: 0,
-        };
-                        self.emit_inst(ret_id, ret_inst);
+                        self.emit_ret(ret_id, arena);
                     }
                     // #1224: Bare-tail enum-constructor body `fn(x: T) -> Enum::Variant(x)`.
                     // Previously fell into the catch-all → no record_lambda_entry, no ret.
@@ -1059,14 +999,7 @@ impl EmitWalker {
 
                         // Emit ret. .text order is governed by emission_order (#1141).
                         let ret_id = self.alloc_synthetic_id();
-                        self.emit_inst(ret_id, Instruction {
-                            mnemonic: Mnemonic::Ret,
-                            operands: SmallVec::new(),
-                            encoding_hint: None,
-                            byte_offset_in_text: None,
-                            mode: self.current_mode(),
-                            emission_order: 0,
-                        });
+                        self.emit_ret(ret_id, arena);
                     }
                     _ => {
                         // Other lambda shapes deferred to m1-004+

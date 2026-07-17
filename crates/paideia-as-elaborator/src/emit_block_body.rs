@@ -835,16 +835,8 @@ impl EmitWalker {
 
         // For now, emit a simple ret instruction at the end.
         // The final expression should be in RAX before this.
-        let ret_inst = Instruction {
-            mnemonic: Mnemonic::Ret,
-            operands: SmallVec::new(),
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: self.current_mode(),
-        emission_order: 0,
-        };
         let ret_id = IrNodeId::new(block_id.get() * 2).expect("ret virtual id");
-        self.emit_inst(ret_id, ret_inst);
+        self.emit_ret(ret_id, arena);
     }
 
     /// PA8-m2-001: Emit block body for branch arm (same as emit_block_body but WITHOUT final ret).

@@ -10,6 +10,8 @@ use std::ops::Index;
 use crate::addr_of::AddrOfSideTable;
 use crate::binding_name::BindingNameTable;
 use crate::call_meta::CallSideTable;
+use crate::closure_frame_meta::ClosureFrameMetaTable;
+use crate::closure_meta::ClosureMetaTable;
 use crate::module_field_ref::ModuleFieldRefTable;
 use crate::constant_pool::ConstantPoolTable;
 use crate::data::DataSideTable;
@@ -127,6 +129,12 @@ pub struct IrArena {
     /// Side-table: call site metadata indexed by App node ID.
     /// PA-r17-004: populated by pre-emit pass; consumed by emit_walker for indirect/direct dispatch.
     call_sites: CallSideTable,
+    /// Side-table: closure body Lambda metadata (mangled name, captures, env_size).
+    /// Issue #1233: populated by elaborator; consumed by emit_walker for closure body emission.
+    closure_meta: ClosureMetaTable,
+    /// Side-table: caller Lambda frame layout (total_size, ClosureCons slot assignments).
+    /// Issue #1233: populated by emit_walker pre-pass; consumed by prologue/epilogue + emit_closure_cons.
+    closure_frame_meta: ClosureFrameMetaTable,
 }
 
 impl IrArena {
@@ -171,6 +179,8 @@ impl IrArena {
             int_match_scrutinee: IntMatchScrutineeTable::new(),
             lambda_param_enum_types: LambdaParamEnumTypeTable::new(),
             call_sites: CallSideTable::new(),
+            closure_meta: ClosureMetaTable::new(),
+            closure_frame_meta: ClosureFrameMetaTable::new(),
         }
     }
 
@@ -602,6 +612,30 @@ impl IrArena {
     /// Borrow the call sites side-table (mutable).
     pub fn call_sites_mut(&mut self) -> &mut CallSideTable {
         &mut self.call_sites
+    }
+
+    /// Borrow the closure metadata side-table (read-only).
+    /// Issue #1233: provides ClosureMeta for closure body Lambda nodes.
+    #[must_use]
+    pub fn closure_meta(&self) -> &ClosureMetaTable {
+        &self.closure_meta
+    }
+
+    /// Borrow the closure metadata side-table (mutable).
+    pub fn closure_meta_mut(&mut self) -> &mut ClosureMetaTable {
+        &mut self.closure_meta
+    }
+
+    /// Borrow the closure frame layout side-table (read-only).
+    /// Issue #1233: provides FrameLayout for caller Lambda nodes containing ClosureCons nodes.
+    #[must_use]
+    pub fn closure_frame_meta(&self) -> &ClosureFrameMetaTable {
+        &self.closure_frame_meta
+    }
+
+    /// Borrow the closure frame layout side-table (mutable).
+    pub fn closure_frame_meta_mut(&mut self) -> &mut ClosureFrameMetaTable {
+        &mut self.closure_frame_meta
     }
 }
 

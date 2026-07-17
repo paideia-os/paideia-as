@@ -10,7 +10,7 @@
 //! - `emit_shl_var_lambda`     — `mov rax, rdi; mov rcx, rsi; shl rax, cl; ret`
 
 use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand};
-use paideia_as_ir::{IrNodeId, SmallVec, abi};
+use paideia_as_ir::{IrArena, IrNodeId, SmallVec, abi};
 
 use crate::emit_walker::EmitWalker;
 
@@ -19,7 +19,7 @@ impl EmitWalker {
     /// For small immediates (disp8, -128..127), this is 4 bytes (48 8d 47 NN for SysV, 48 8d 41 NN for MS).
     /// Larger immediates require disp32 (7 bytes).
     /// PA19-r19-006: Use ABI-aware register lookup to support MS x64 calling convention.
-    pub(crate) fn emit_add_imm_lambda(&mut self, lambda_node_id: IrNodeId, imm: i64) {
+    pub(crate) fn emit_add_imm_lambda(&mut self, lambda_node_id: IrNodeId, imm: i64, arena: &IrArena) {
         // Range validation before recording entry (defense-in-depth for #1167).
         let disp = if imm >= -128 && imm <= 127 {
             imm as i32
@@ -61,15 +61,7 @@ impl EmitWalker {
         // Ret: c3 (1 byte)
         // Emit ret as a separate instruction with node_id * 2 + 1 to sort right after
         let ret_id = IrNodeId::new(lambda_node_id.get() * 2 + 1).expect("ret virtual id");
-        let ret_inst = Instruction {
-            mnemonic: Mnemonic::Ret,
-            operands: SmallVec::new(),
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: self.current_mode(),
-                    emission_order: 0,
-        };
-        self.emit_inst(ret_id, ret_inst);
+        self.emit_ret(ret_id, arena);
     }
 
     /// Phase 8 m1-001d: Emit shift-left constant-by-variable lambda: `mov rax, const; mov rcx, rdi; shl rax, cl; ret`.
@@ -78,7 +70,7 @@ impl EmitWalker {
     /// The constant is moved into RAX, the variable shift count (in parameter register) is moved to RCX,
     /// then SHL is performed with CL as the count.
     /// Uses 4 instructions (~13 bytes).
-    pub(crate) fn emit_shl_const_var_lambda(&mut self, lambda_node_id: IrNodeId, const_val: i64) {
+    pub(crate) fn emit_shl_const_var_lambda(&mut self, lambda_node_id: IrNodeId, const_val: i64, arena: &IrArena) {
         let main_id = IrNodeId::new(lambda_node_id.get() * 4).expect("main instr virtual id");
         self.record_lambda_entry(lambda_node_id, main_id);
 
@@ -143,15 +135,7 @@ impl EmitWalker {
 
         // Ret: c3 (1 byte)
         let ret_id = IrNodeId::new(lambda_node_id.get() * 4 + 3).expect("ret virtual id");
-        let ret_inst = Instruction {
-            mnemonic: Mnemonic::Ret,
-            operands: SmallVec::new(),
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: self.current_mode(),
-                    emission_order: 0,
-        };
-        self.emit_inst(ret_id, ret_inst);
+        self.emit_ret(ret_id, arena);
     }
 
     /// Phase 8 m1-001d: Emit shift-left immediate lambda: `mov rax, rdi; shl rax, imm8; ret`.
@@ -161,7 +145,7 @@ impl EmitWalker {
     /// Uses 3 instructions: mov + shl + ret (~8 bytes).
     // PA8-m3-001 (generic Mov retained): the `mov rax, rdi` here is reg-to-reg
     // and not MovSized-encodable; the shift operand is an immediate to SHL, not MOV.
-    pub(crate) fn emit_shl_imm_lambda(&mut self, lambda_node_id: IrNodeId, shift_count: i64) {
+    pub(crate) fn emit_shl_imm_lambda(&mut self, lambda_node_id: IrNodeId, shift_count: i64, arena: &IrArena) {
         // Range validation before recording entry (defense-in-depth for #1167).
         let shift = if shift_count >= 0 && shift_count <= 63 {
             shift_count as u8
@@ -208,22 +192,14 @@ impl EmitWalker {
 
         // Ret: c3 (1 byte)
         let ret_id = IrNodeId::new(lambda_node_id.get() * 3 + 2).expect("ret virtual id");
-        let ret_inst = Instruction {
-            mnemonic: Mnemonic::Ret,
-            operands: SmallVec::new(),
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: self.current_mode(),
-                    emission_order: 0,
-        };
-        self.emit_inst(ret_id, ret_inst);
+        self.emit_ret(ret_id, arena);
     }
 
     /// Phase 8 m1-001d: Emit shift-left variable lambda: `mov rax, rdi; mov rcx, rsi; shl rax, cl; ret`.
     ///
     /// Handles `fn (x) -> x << y` where y is the second parameter (in RSI).
     /// Uses variable shift count in CL register. Uses 4 instructions (~12 bytes).
-    pub(crate) fn emit_shl_var_lambda(&mut self, lambda_node_id: IrNodeId) {
+    pub(crate) fn emit_shl_var_lambda(&mut self, lambda_node_id: IrNodeId, arena: &IrArena) {
         let main_id = IrNodeId::new(lambda_node_id.get() * 4).expect("main instr virtual id");
         self.record_lambda_entry(lambda_node_id, main_id);
 
@@ -281,14 +257,6 @@ impl EmitWalker {
 
         // Ret: c3 (1 byte)
         let ret_id = IrNodeId::new(lambda_node_id.get() * 4 + 3).expect("ret virtual id");
-        let ret_inst = Instruction {
-            mnemonic: Mnemonic::Ret,
-            operands: SmallVec::new(),
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: self.current_mode(),
-                    emission_order: 0,
-        };
-        self.emit_inst(ret_id, ret_inst);
+        self.emit_ret(ret_id, arena);
     }
 }

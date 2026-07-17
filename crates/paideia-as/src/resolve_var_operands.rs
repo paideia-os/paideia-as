@@ -10,8 +10,8 @@
 //! (emit T0531) from unresolved bindings (emit T0528).
 
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity};
-use paideia_as_elaborator::LocalBindingTable;
-use paideia_as_ir::{IrNodeId, Operand, SymbolTable, instruction::InstructionSideTable};
+use paideia_as_elaborator::{LocalBindingTable, local_binding_table::BindingHome};
+use paideia_as_ir::{IrNodeId, Operand, SymbolTable, Scale, instruction::InstructionSideTable, abi};
 use std::collections::HashMap;
 
 #[cfg(test)]
@@ -91,12 +91,30 @@ pub(crate) fn resolve_var_operands(
                 .and_then(|lambda_id| per_lambda_bindings.get(lambda_id))
                 .unwrap_or(bindings);
 
-            // Walk every operand in the instruction and resolve Var → Reg.
+            // Walk every operand in the instruction and resolve Var → Reg or Var → MemSib.
             for operand in inst.operands.iter_mut() {
                 if let Operand::Var { name } = operand {
-                    if let Some(reg) = effective_bindings.get(name) {
-                        // Found binding: rewrite Var → Reg.
-                        *operand = Operand::Reg(reg);
+                    // #1233: Use get_home to retrieve full BindingHome (supports EnvSlot for closure captures).
+                    if let Some(home) = effective_bindings.get_home(name) {
+                        match home {
+                            BindingHome::Reg(reg) => {
+                                // Scalar binding: rewrite Var → Reg.
+                                *operand = Operand::Reg(reg);
+                            }
+                            BindingHome::RegPair(reg, _) => {
+                                // Enum pair binding: use primary register only.
+                                *operand = Operand::Reg(reg);
+                            }
+                            BindingHome::EnvSlot(off) => {
+                                // Closure capture: rewrite Var → MemSib [R14 + offset].
+                                *operand = Operand::MemSib {
+                                    base: abi::R14,
+                                    index: None,
+                                    scale: Scale::X1,
+                                    disp: off,
+                                };
+                            }
+                        }
                     } else {
                         // PA10-005 §3.5: Binding not found in local table;
                         // check module SymbolTable for module-scoped symbol.

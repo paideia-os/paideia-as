@@ -54,15 +54,7 @@ impl EmitWalker {
         self.emit_inst(main_id, mov_inst);
 
         let ret_id = IrNodeId::new(lambda_node_id.get() * 2 + 1).expect("ret virtual id");
-        let ret_inst = Instruction {
-            mnemonic: Mnemonic::Ret,
-            operands: SmallVec::new(),
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: self.current_mode(),
-                    emission_order: 0,
-        };
-        self.emit_inst(ret_id, ret_inst);
+        self.emit_ret(ret_id, arena);
     }
 
     /// Emit bitwise-NOT lambda: `mov rax, rdi; not rax; ret` (7 bytes:
@@ -73,7 +65,7 @@ impl EmitWalker {
     ///
     /// Three instructions keyed on `node*3 + {0,1,2}` to keep them adjacent
     /// and correctly ordered in the instruction map.
-    pub(crate) fn emit_bitnot_lambda(&mut self, lambda_node_id: IrNodeId) {
+    pub(crate) fn emit_bitnot_lambda(&mut self, lambda_node_id: IrNodeId, arena: &IrArena) {
         let main_id = IrNodeId::new(lambda_node_id.get() * 3).expect("main instr virtual id");
         self.record_lambda_entry(lambda_node_id, main_id);
 
@@ -108,15 +100,7 @@ impl EmitWalker {
         self.emit_inst(not_id, not_inst);
 
         let ret_id = IrNodeId::new(lambda_node_id.get() * 3 + 2).expect("ret virtual id");
-        let ret_inst = Instruction {
-            mnemonic: Mnemonic::Ret,
-            operands: SmallVec::new(),
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: self.current_mode(),
-                    emission_order: 0,
-        };
-        self.emit_inst(ret_id, ret_inst);
+        self.emit_ret(ret_id, arena);
     }
 
     /// Emit cast lambda: a single width-conversion instruction then `ret`.
@@ -128,7 +112,7 @@ impl EmitWalker {
     /// IR-pipeline callers do not yet resolve the `CastSideTable` `TypeId`
     /// to a concrete `(width, signedness)`; the structural-cast call site
     /// therefore passes the canonical `i32 as i64` shape.
-    pub(crate) fn emit_cast_lambda(&mut self, lambda_node_id: IrNodeId) {
+    pub(crate) fn emit_cast_lambda(&mut self, lambda_node_id: IrNodeId, arena: &IrArena) {
         self.emit_cast_lambda_with_shape(
             lambda_node_id,
             CastShape {
@@ -137,6 +121,7 @@ impl EmitWalker {
                 src_signed: true,
                 dst_signed: true,
             },
+            arena,
         );
     }
 
@@ -149,6 +134,7 @@ impl EmitWalker {
         &mut self,
         lambda_node_id: IrNodeId,
         shape: CastShape,
+        arena: &IrArena,
     ) {
         let main_id = IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
         self.record_lambda_entry(lambda_node_id, main_id);
@@ -173,19 +159,11 @@ impl EmitWalker {
         }
 
         let ret_id = IrNodeId::new(lambda_node_id.get() * 2 + 1).expect("ret virtual id");
-        let ret_inst = Instruction {
-            mnemonic: Mnemonic::Ret,
-            operands: SmallVec::new(),
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: self.current_mode(),
-                    emission_order: 0,
-        };
-        self.emit_inst(ret_id, ret_inst);
+        self.emit_ret(ret_id, arena);
     }
 
     /// Emit double lambda: `lea rax, [rdi + rdi]; ret` (5 bytes).
-    pub(crate) fn emit_double_lambda(&mut self, lambda_node_id: IrNodeId) {
+    pub(crate) fn emit_double_lambda(&mut self, lambda_node_id: IrNodeId, arena: &IrArena) {
         let main_id = IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
         self.record_lambda_entry(lambda_node_id, main_id);
 
@@ -210,15 +188,7 @@ impl EmitWalker {
         self.emit_inst(main_id, lea_inst);
 
         let ret_id = IrNodeId::new(lambda_node_id.get() * 2 + 1).expect("ret virtual id");
-        let ret_inst = Instruction {
-            mnemonic: Mnemonic::Ret,
-            operands: SmallVec::new(),
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: self.current_mode(),
-                    emission_order: 0,
-        };
-        self.emit_inst(ret_id, ret_inst);
+        self.emit_ret(ret_id, arena);
     }
 
     /// PA-r17-004: Emit indirect call via a register holding a function
@@ -316,17 +286,7 @@ impl EmitWalker {
         );
 
         let ret_id = self.alloc_synthetic_id();
-        self.emit_inst(
-            ret_id,
-            Instruction {
-                mnemonic: Mnemonic::Ret,
-                operands: SmallVec::new(),
-                encoding_hint: None,
-                byte_offset_in_text: None,
-                mode: self.current_mode(),
-                emission_order: 0,
-},
-        );
+        self.emit_ret(ret_id, arena);
     }
 
     /// Emit indirect call via RIP-relative symbol: single `call [rip + sym + addend]` instruction.
@@ -414,17 +374,7 @@ impl EmitWalker {
         );
 
         let ret_id = first_id_opt.take().unwrap_or_else(|| self.alloc_synthetic_id());
-        self.emit_inst(
-            ret_id,
-            Instruction {
-                mnemonic: Mnemonic::Ret,
-                operands: SmallVec::new(),
-                encoding_hint: None,
-                byte_offset_in_text: None,
-                mode: self.current_mode(),
-                emission_order: 0,
-},
-        );
+        self.emit_ret(ret_id, arena);
     }
 
     /// PA-r17-004b: Emit indirect call via a memory location addressed by base + disp.
@@ -532,16 +482,6 @@ impl EmitWalker {
 
         // Step 4: Return
         let ret_id = self.alloc_synthetic_id();
-        self.emit_inst(
-            ret_id,
-            Instruction {
-                mnemonic: Mnemonic::Ret,
-                operands: SmallVec::new(),
-                encoding_hint: None,
-                byte_offset_in_text: None,
-                mode: self.current_mode(),
-                emission_order: 0,
-},
-        );
+        self.emit_ret(ret_id, arena);
     }
 }

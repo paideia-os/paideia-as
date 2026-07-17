@@ -850,17 +850,9 @@ impl EmitWalker {
     /// emit only the RET, not the full function-call sequence.
     ///
     /// Issue #1165: RET uses alloc_synthetic_id (identity-only post-#1140).
-    fn emit_ret_after_call(&mut self, _lambda_node_id: IrNodeId, _callee_abi: CallingConvention) {
+    fn emit_ret_after_call(&mut self, _lambda_node_id: IrNodeId, _callee_abi: CallingConvention, arena: &IrArena) {
         let ret_id = self.alloc_synthetic_id();
-        let ret_inst = Instruction {
-            mnemonic: Mnemonic::Ret,
-            operands: SmallVec::new(),
-            encoding_hint: None,
-            byte_offset_in_text: None,
-            mode: self.current_mode(),
-            emission_order: 0,
-        };
-        self.emit_inst(ret_id, ret_inst);
+        self.emit_ret(ret_id, arena);
     }
 
     /// Phase 7 m1-003: Emit inter-function call.
@@ -887,7 +879,7 @@ impl EmitWalker {
             .and_then(|s| s.abi)
             .unwrap_or(CallingConvention::Sysv);
         self.emit_call_args_and_call(lambda_node_id, target_name, arg_ids, arena, caller_abi);
-        self.emit_ret_after_call(lambda_node_id, callee_abi);
+        self.emit_ret_after_call(lambda_node_id, callee_abi, arena);
     }
 
     /// Phase 7 m4-003: Emit call statement (expression-statement form).
