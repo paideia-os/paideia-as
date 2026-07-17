@@ -1,0 +1,238 @@
+// v0.18 issue #1003 (pa-r18-010): hash-based command dispatch — miss test.
+// Expected exit code: 999
+//
+// This fixture demonstrates that a lookup miss (key absent from table)
+// correctly returns None, which triggers the dispatch_miss path.
+
+module PaR18HashDispatchMiss = structure {
+  // FNV-1a hashes computed by tests/common/fnv1a.rs
+  // ls    -> 0x08ad4d07b5541ae8
+  // pwd   -> 0x77ec5c1956938d44
+  // echo  -> 0x3000e56026044164
+  // exit  -> 0xe79e4d608e807965
+  // absent -> 0x1234567890abcdef (a key not in the table)
+
+  pub let mut hm_state  : [u64; 32] = uninit
+  pub let mut hm_keys   : [u64; 32] = uninit
+  pub let mut hm_values : [u64; 32] = uninit
+  pub let mut hm_len    : u64       = 0
+
+  enum OptionU64 { Some(u64), None }
+
+  let fibhash : (u64) -> u64 !{} @{} = fn(k: u64) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "Fibonacci hash fold into 5-bit index",
+    block: {
+      mov rax, rdi
+      shr rax, 33
+      xor rax, rdi
+      mov r11, 0x9E3779B97F4A7C15
+      imul rax, r11
+      shr rax, 59
+      ret
+    }
+  }
+
+  let hashmap_u64_put : (u64, u64) -> u64 !{} @{} = fn(k: u64, v: u64) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "HashMapU64U64 put with linear probing",
+    block: {
+      push rsi
+      push rdi
+      call fibhash
+      pop rdi
+      pop rsi
+
+      mov r12, rax
+      xor r13, r13
+
+      put_probe_loop:
+      mov r14, r12
+      add r14, r13
+      and r14, 0x1f
+
+      lea r15, [rip + hm_state]
+      mov r8, [r15 + r14*8]
+
+      cmp r8, 0
+      je put_insert
+
+      cmp r8, 1
+      jne put_probe_next
+
+      lea r15, [rip + hm_keys]
+      mov r8, [r15 + r14*8]
+      cmp r8, rdi
+      je put_replace
+
+      put_probe_next:
+      inc r13
+      cmp r13, 32
+      jl put_probe_loop
+
+      mov rax, 0
+      jmp put_done
+
+      put_insert:
+      lea r15, [rip + hm_state]
+      mov [r15 + r14*8], 1
+      lea r15, [rip + hm_keys]
+      mov [r15 + r14*8], rdi
+      lea r15, [rip + hm_values]
+      mov [r15 + r14*8], rsi
+
+      lea r15, [rip + hm_len]
+      mov r8, [r15]
+      inc r8
+      mov [r15], r8
+
+      mov rax, 1
+      jmp put_done
+
+      put_replace:
+      lea r15, [rip + hm_values]
+      mov [r15 + r14*8], rsi
+      mov rax, 1
+
+      put_done:
+      ret
+    }
+  }
+
+  let hashmap_u64_get : (u64) -> OptionU64 !{} @{} = fn(k: u64) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "HashMapU64U64 get with linear probing",
+    block: {
+      push rdi
+      call fibhash
+      pop rdi
+
+      mov r12, rax
+      xor r13, r13
+
+      get_probe_loop:
+      mov r14, r12
+      add r14, r13
+      and r14, 0x1f
+
+      lea r15, [rip + hm_state]
+      mov r8, [r15 + r14*8]
+
+      cmp r8, 0
+      je get_not_found
+
+      cmp r8, 1
+      jne get_probe_next
+
+      lea r15, [rip + hm_keys]
+      mov r8, [r15 + r14*8]
+      cmp r8, rdi
+      je get_found
+
+      get_probe_next:
+      inc r13
+      cmp r13, 32
+      jl get_probe_loop
+
+      get_not_found:
+      mov rax, 1
+      xor rdx, rdx
+      jmp get_done
+
+      get_found:
+      lea r15, [rip + hm_values]
+      mov rdx, [r15 + r14*8]
+      xor rax, rax
+
+      get_done:
+      ret
+    }
+  }
+
+  // Handler functions — each returns a constant value via rax.
+  let handle_ls : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "ls command handler",
+    block: {
+      mov rax, 1
+      ret
+    }
+  }
+
+  let handle_pwd : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "pwd command handler",
+    block: {
+      mov rax, 2
+      ret
+    }
+  }
+
+  let handle_echo : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "echo command handler",
+    block: {
+      mov rax, 3
+      ret
+    }
+  }
+
+  let handle_exit : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "exit command handler",
+    block: {
+      mov rax, 4
+      ret
+    }
+  }
+
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "Hash dispatch entry point",
+    block: {
+      // Populate hashmap: hash(name) -> &handler
+      mov rdi, 0x08ad4d07b5541ae8
+      lea rsi, [rip + handle_ls]
+      call hashmap_u64_put
+
+      mov rdi, 0x77ec5c1956938d44
+      lea rsi, [rip + handle_pwd]
+      call hashmap_u64_put
+
+      mov rdi, 0x3000e56026044164
+      lea rsi, [rip + handle_echo]
+      call hashmap_u64_put
+
+      mov rdi, 0xe79e4d608e807965
+      lea rsi, [rip + handle_exit]
+      call hashmap_u64_put
+
+      // Look up a key that is NOT in the table
+      mov rdi, 0x1234567890abcdef
+      call hashmap_u64_get
+
+      // rax = discriminant (0=Some, 1=None); rdx = handler address
+      cmp rax, 0
+      jne dispatch_miss
+
+      // Should not reach here for miss test
+      xor rdi, rdi
+      call rdx
+      jmp dispatch_done
+
+      dispatch_miss:
+      mov rax, 200
+
+      dispatch_done:
+      ret
+    }
+  }
+}

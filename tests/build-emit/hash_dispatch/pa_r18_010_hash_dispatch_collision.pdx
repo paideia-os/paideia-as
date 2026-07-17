@@ -1,0 +1,210 @@
+// v0.18 issue #1003 (pa-r18-010): hash-based command dispatch — collision test.
+// Expected exit code: 20
+//
+// This fixture demonstrates linear probing when two command names hash to the
+// same 5-bit slot. The cd command is inserted first at slot 16; mkdir probes
+// and lands at slot 17. On lookup, mkdir is found at slot 17, verifying that
+// linear probing works correctly under fn-ptr values.
+//
+// cd and mkdir both hash to slot 16 with 5-bit fibhash:
+//   cd    -> 0x08a25207b54a1be2 -> slot 16
+//   mkdir -> 0xb8eaa574819a7ff8 -> slot 16
+
+module PaR18HashDispatchCollision = structure {
+  pub let mut hm_state  : [u64; 32] = uninit
+  pub let mut hm_keys   : [u64; 32] = uninit
+  pub let mut hm_values : [u64; 32] = uninit
+  pub let mut hm_len    : u64       = 0
+
+  enum OptionU64 { Some(u64), None }
+
+  let fibhash : (u64) -> u64 !{} @{} = fn(k: u64) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "Fibonacci hash fold into 5-bit index",
+    block: {
+      mov rax, rdi
+      shr rax, 33
+      xor rax, rdi
+      mov r11, 0x9E3779B97F4A7C15
+      imul rax, r11
+      shr rax, 59
+      ret
+    }
+  }
+
+  let hashmap_u64_put : (u64, u64) -> u64 !{} @{} = fn(k: u64, v: u64) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "HashMapU64U64 put with linear probing",
+    block: {
+      push rsi
+      push rdi
+      call fibhash
+      pop rdi
+      pop rsi
+
+      mov r12, rax
+      xor r13, r13
+
+      put_probe_loop:
+      mov r14, r12
+      add r14, r13
+      and r14, 0x1f
+
+      lea r15, [rip + hm_state]
+      mov r8, [r15 + r14*8]
+
+      cmp r8, 0
+      je put_insert
+
+      cmp r8, 1
+      jne put_probe_next
+
+      lea r15, [rip + hm_keys]
+      mov r8, [r15 + r14*8]
+      cmp r8, rdi
+      je put_replace
+
+      put_probe_next:
+      inc r13
+      cmp r13, 32
+      jl put_probe_loop
+
+      mov rax, 0
+      jmp put_done
+
+      put_insert:
+      lea r15, [rip + hm_state]
+      mov [r15 + r14*8], 1
+      lea r15, [rip + hm_keys]
+      mov [r15 + r14*8], rdi
+      lea r15, [rip + hm_values]
+      mov [r15 + r14*8], rsi
+
+      lea r15, [rip + hm_len]
+      mov r8, [r15]
+      inc r8
+      mov [r15], r8
+
+      mov rax, 1
+      jmp put_done
+
+      put_replace:
+      lea r15, [rip + hm_values]
+      mov [r15 + r14*8], rsi
+      mov rax, 1
+
+      put_done:
+      ret
+    }
+  }
+
+  let hashmap_u64_get : (u64) -> OptionU64 !{} @{} = fn(k: u64) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "HashMapU64U64 get with linear probing",
+    block: {
+      push rdi
+      call fibhash
+      pop rdi
+
+      mov r12, rax
+      xor r13, r13
+
+      get_probe_loop:
+      mov r14, r12
+      add r14, r13
+      and r14, 0x1f
+
+      lea r15, [rip + hm_state]
+      mov r8, [r15 + r14*8]
+
+      cmp r8, 0
+      je get_not_found
+
+      cmp r8, 1
+      jne get_probe_next
+
+      lea r15, [rip + hm_keys]
+      mov r8, [r15 + r14*8]
+      cmp r8, rdi
+      je get_found
+
+      get_probe_next:
+      inc r13
+      cmp r13, 32
+      jl get_probe_loop
+
+      get_not_found:
+      mov rax, 1
+      xor rdx, rdx
+      jmp get_done
+
+      get_found:
+      lea r15, [rip + hm_values]
+      mov rdx, [r15 + r14*8]
+      xor rax, rax
+
+      get_done:
+      ret
+    }
+  }
+
+  // Handler functions
+  let handle_cd : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cd command handler",
+    block: {
+      mov rax, 10
+      ret
+    }
+  }
+
+  let handle_mkdir : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "mkdir command handler",
+    block: {
+      mov rax, 20
+      ret
+    }
+  }
+
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "Hash dispatch entry point with colliding keys",
+    block: {
+      // Insert cd first at slot 16
+      mov rdi, 0x08a25207b54a1be2
+      lea rsi, [rip + handle_cd]
+      call hashmap_u64_put
+
+      // Insert mkdir, which probes to slot 17 due to collision
+      mov rdi, 0xb8eaa574819a7ff8
+      lea rsi, [rip + handle_mkdir]
+      call hashmap_u64_put
+
+      // Look up mkdir by hash (should be at slot 17 due to probing)
+      mov rdi, 0xb8eaa574819a7ff8
+      call hashmap_u64_get
+
+      // rax = discriminant (0=Some, 1=None); rdx = handler address
+      cmp rax, 0
+      jne dispatch_miss
+
+      // Success: call the handler for mkdir
+      xor rdi, rdi
+      call rdx
+      jmp dispatch_done
+
+      dispatch_miss:
+      mov rax, 999
+
+      dispatch_done:
+      ret
+    }
+  }
+}

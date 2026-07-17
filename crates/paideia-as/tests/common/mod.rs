@@ -18,4 +18,5 @@
 pub mod elf;
 pub mod expected;
 pub mod fixture;
+pub mod fnv1a;
 pub mod harness;

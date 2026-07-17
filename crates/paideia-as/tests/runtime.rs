@@ -134,4 +134,5 @@ mod runtime {
     mod command_dispatch_shell;
     mod closure_type;
     mod hashmap;
+    mod hash_dispatch;
 }

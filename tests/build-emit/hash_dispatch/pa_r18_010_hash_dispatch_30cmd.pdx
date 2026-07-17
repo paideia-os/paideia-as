@@ -1,0 +1,570 @@
+// v0.18 issue #1003 (pa-r18-010): hash-based command dispatch — 30-command scaffold.
+// Expected exit code: 14
+//
+// This fixture demonstrates that hash-based command dispatch scales beyond
+// the density-contract threshold for @jump_table fallback. 30 command handlers
+// are registered in the hash table, and we dispatch on cmd14 (which should
+// return 14).
+//
+// To avoid too many collisions, this fixture uses [u64; 64] storage with
+// 6-bit masking instead of [u64; 32] with 5-bit masking.
+
+module PaR18HashDispatch30cmd = structure {
+  pub let mut hm_state  : [u64; 64] = uninit
+  pub let mut hm_keys   : [u64; 64] = uninit
+  pub let mut hm_values : [u64; 64] = uninit
+  pub let mut hm_len    : u64       = 0
+
+  enum OptionU64 { Some(u64), None }
+
+  let fibhash : (u64) -> u64 !{} @{} = fn(k: u64) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "Fibonacci hash fold into 6-bit index",
+    block: {
+      mov rax, rdi
+      shr rax, 33
+      xor rax, rdi
+      mov r11, 0x9E3779B97F4A7C15
+      imul rax, r11
+      shr rax, 58
+      ret
+    }
+  }
+
+  let hashmap_u64_put : (u64, u64) -> u64 !{} @{} = fn(k: u64, v: u64) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "HashMapU64U64 put with linear probing (6-bit)",
+    block: {
+      push rsi
+      push rdi
+      call fibhash
+      pop rdi
+      pop rsi
+
+      mov r12, rax
+      xor r13, r13
+
+      put_probe_loop:
+      mov r14, r12
+      add r14, r13
+      and r14, 0x3f
+
+      lea r15, [rip + hm_state]
+      mov r8, [r15 + r14*8]
+
+      cmp r8, 0
+      je put_insert
+
+      cmp r8, 1
+      jne put_probe_next
+
+      lea r15, [rip + hm_keys]
+      mov r8, [r15 + r14*8]
+      cmp r8, rdi
+      je put_replace
+
+      put_probe_next:
+      inc r13
+      cmp r13, 64
+      jl put_probe_loop
+
+      mov rax, 0
+      jmp put_done
+
+      put_insert:
+      lea r15, [rip + hm_state]
+      mov [r15 + r14*8], 1
+      lea r15, [rip + hm_keys]
+      mov [r15 + r14*8], rdi
+      lea r15, [rip + hm_values]
+      mov [r15 + r14*8], rsi
+
+      lea r15, [rip + hm_len]
+      mov r8, [r15]
+      inc r8
+      mov [r15], r8
+
+      mov rax, 1
+      jmp put_done
+
+      put_replace:
+      lea r15, [rip + hm_values]
+      mov [r15 + r14*8], rsi
+      mov rax, 1
+
+      put_done:
+      ret
+    }
+  }
+
+  let hashmap_u64_get : (u64) -> OptionU64 !{} @{} = fn(k: u64) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "HashMapU64U64 get with linear probing (6-bit)",
+    block: {
+      push rdi
+      call fibhash
+      pop rdi
+
+      mov r12, rax
+      xor r13, r13
+
+      get_probe_loop:
+      mov r14, r12
+      add r14, r13
+      and r14, 0x3f
+
+      lea r15, [rip + hm_state]
+      mov r8, [r15 + r14*8]
+
+      cmp r8, 0
+      je get_not_found
+
+      cmp r8, 1
+      jne get_probe_next
+
+      lea r15, [rip + hm_keys]
+      mov r8, [r15 + r14*8]
+      cmp r8, rdi
+      je get_found
+
+      get_probe_next:
+      inc r13
+      cmp r13, 64
+      jl get_probe_loop
+
+      get_not_found:
+      mov rax, 1
+      xor rdx, rdx
+      jmp get_done
+
+      get_found:
+      lea r15, [rip + hm_values]
+      mov rdx, [r15 + r14*8]
+      xor rax, rax
+
+      get_done:
+      ret
+    }
+  }
+
+
+  let handle_cmd0 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd0 command handler",
+    block: {
+      mov rax, 0
+      ret
+    }
+  }
+
+  let handle_cmd1 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd1 command handler",
+    block: {
+      mov rax, 1
+      ret
+    }
+  }
+
+  let handle_cmd2 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd2 command handler",
+    block: {
+      mov rax, 2
+      ret
+    }
+  }
+
+  let handle_cmd3 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd3 command handler",
+    block: {
+      mov rax, 3
+      ret
+    }
+  }
+
+  let handle_cmd4 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd4 command handler",
+    block: {
+      mov rax, 4
+      ret
+    }
+  }
+
+  let handle_cmd5 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd5 command handler",
+    block: {
+      mov rax, 5
+      ret
+    }
+  }
+
+  let handle_cmd6 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd6 command handler",
+    block: {
+      mov rax, 6
+      ret
+    }
+  }
+
+  let handle_cmd7 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd7 command handler",
+    block: {
+      mov rax, 7
+      ret
+    }
+  }
+
+  let handle_cmd8 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd8 command handler",
+    block: {
+      mov rax, 8
+      ret
+    }
+  }
+
+  let handle_cmd9 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd9 command handler",
+    block: {
+      mov rax, 9
+      ret
+    }
+  }
+
+  let handle_cmd10 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd10 command handler",
+    block: {
+      mov rax, 10
+      ret
+    }
+  }
+
+  let handle_cmd11 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd11 command handler",
+    block: {
+      mov rax, 11
+      ret
+    }
+  }
+
+  let handle_cmd12 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd12 command handler",
+    block: {
+      mov rax, 12
+      ret
+    }
+  }
+
+  let handle_cmd13 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd13 command handler",
+    block: {
+      mov rax, 13
+      ret
+    }
+  }
+
+  let handle_cmd14 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd14 command handler",
+    block: {
+      mov rax, 14
+      ret
+    }
+  }
+
+  let handle_cmd15 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd15 command handler",
+    block: {
+      mov rax, 15
+      ret
+    }
+  }
+
+  let handle_cmd16 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd16 command handler",
+    block: {
+      mov rax, 16
+      ret
+    }
+  }
+
+  let handle_cmd17 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd17 command handler",
+    block: {
+      mov rax, 17
+      ret
+    }
+  }
+
+  let handle_cmd18 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd18 command handler",
+    block: {
+      mov rax, 18
+      ret
+    }
+  }
+
+  let handle_cmd19 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd19 command handler",
+    block: {
+      mov rax, 19
+      ret
+    }
+  }
+
+  let handle_cmd20 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd20 command handler",
+    block: {
+      mov rax, 20
+      ret
+    }
+  }
+
+  let handle_cmd21 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd21 command handler",
+    block: {
+      mov rax, 21
+      ret
+    }
+  }
+
+  let handle_cmd22 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd22 command handler",
+    block: {
+      mov rax, 22
+      ret
+    }
+  }
+
+  let handle_cmd23 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd23 command handler",
+    block: {
+      mov rax, 23
+      ret
+    }
+  }
+
+  let handle_cmd24 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd24 command handler",
+    block: {
+      mov rax, 24
+      ret
+    }
+  }
+
+  let handle_cmd25 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd25 command handler",
+    block: {
+      mov rax, 25
+      ret
+    }
+  }
+
+  let handle_cmd26 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd26 command handler",
+    block: {
+      mov rax, 26
+      ret
+    }
+  }
+
+  let handle_cmd27 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd27 command handler",
+    block: {
+      mov rax, 27
+      ret
+    }
+  }
+
+  let handle_cmd28 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd28 command handler",
+    block: {
+      mov rax, 28
+      ret
+    }
+  }
+
+  let handle_cmd29 : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "cmd29 command handler",
+    block: {
+      mov rax, 29
+      ret
+    }
+  }
+
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "Hash dispatch entry point for 30 commands",
+    block: {
+      mov rdi, 0x1de21a9123d4fb41
+      lea rsi, [rip + handle_cmd0]
+      call hashmap_u64_put
+      mov rdi, 0x1de2199123d4f98e
+      lea rsi, [rip + handle_cmd1]
+      call hashmap_u64_put
+      mov rdi, 0x1de2189123d4f7db
+      lea rsi, [rip + handle_cmd2]
+      call hashmap_u64_put
+      mov rdi, 0x1de2179123d4f628
+      lea rsi, [rip + handle_cmd3]
+      call hashmap_u64_put
+      mov rdi, 0x1de21e9123d5020d
+      lea rsi, [rip + handle_cmd4]
+      call hashmap_u64_put
+      mov rdi, 0x1de21d9123d5005a
+      lea rsi, [rip + handle_cmd5]
+      call hashmap_u64_put
+      mov rdi, 0x1de21c9123d4fea7
+      lea rsi, [rip + handle_cmd6]
+      call hashmap_u64_put
+      mov rdi, 0x1de21b9123d4fcf4
+      lea rsi, [rip + handle_cmd7]
+      call hashmap_u64_put
+      mov rdi, 0x1de2129123d4eda9
+      lea rsi, [rip + handle_cmd8]
+      call hashmap_u64_put
+      mov rdi, 0x1de2119123d4ebf6
+      lea rsi, [rip + handle_cmd9]
+      call hashmap_u64_put
+      mov rdi, 0x9c2b2f9fe2e45dda
+      lea rsi, [rip + handle_cmd10]
+      call hashmap_u64_put
+      mov rdi, 0x9c2b309fe2e45f8d
+      lea rsi, [rip + handle_cmd11]
+      call hashmap_u64_put
+      mov rdi, 0x9c2b2d9fe2e45a74
+      lea rsi, [rip + handle_cmd12]
+      call hashmap_u64_put
+      mov rdi, 0x9c2b2e9fe2e45c27
+      lea rsi, [rip + handle_cmd13]
+      call hashmap_u64_put
+      mov rdi, 0x9c2b2b9fe2e4570e
+      lea rsi, [rip + handle_cmd14]
+      call hashmap_u64_put
+      mov rdi, 0x9c2b2c9fe2e458c1
+      lea rsi, [rip + handle_cmd15]
+      call hashmap_u64_put
+      mov rdi, 0x9c2b299fe2e453a8
+      lea rsi, [rip + handle_cmd16]
+      call hashmap_u64_put
+      mov rdi, 0x9c2b2a9fe2e4555b
+      lea rsi, [rip + handle_cmd17]
+      call hashmap_u64_put
+      mov rdi, 0x9c2b279fe2e45042
+      lea rsi, [rip + handle_cmd18]
+      call hashmap_u64_put
+      mov rdi, 0x9c2b289fe2e451f5
+      lea rsi, [rip + handle_cmd19]
+      call hashmap_u64_put
+      mov rdi, 0x9c27a99fe2e14451
+      lea rsi, [rip + handle_cmd20]
+      call hashmap_u64_put
+      mov rdi, 0x9c27a89fe2e1429e
+      lea rsi, [rip + handle_cmd21]
+      call hashmap_u64_put
+      mov rdi, 0x9c27a79fe2e140eb
+      lea rsi, [rip + handle_cmd22]
+      call hashmap_u64_put
+      mov rdi, 0x9c27a69fe2e13f38
+      lea rsi, [rip + handle_cmd23]
+      call hashmap_u64_put
+      mov rdi, 0x9c27ad9fe2e14b1d
+      lea rsi, [rip + handle_cmd24]
+      call hashmap_u64_put
+      mov rdi, 0x9c27ac9fe2e1496a
+      lea rsi, [rip + handle_cmd25]
+      call hashmap_u64_put
+      mov rdi, 0x9c27ab9fe2e147b7
+      lea rsi, [rip + handle_cmd26]
+      call hashmap_u64_put
+      mov rdi, 0x9c27aa9fe2e14604
+      lea rsi, [rip + handle_cmd27]
+      call hashmap_u64_put
+      mov rdi, 0x9c27a19fe2e136b9
+      lea rsi, [rip + handle_cmd28]
+      call hashmap_u64_put
+      mov rdi, 0x9c27a09fe2e13506
+      lea rsi, [rip + handle_cmd29]
+      call hashmap_u64_put
+
+      // Look up cmd14 by hash
+      mov rdi, 0x9c2b2b9fe2e4570e
+      call hashmap_u64_get
+
+      // rax = discriminant (0=Some, 1=None); rdx = handler address
+      cmp rax, 0
+      jne dispatch_miss
+
+      // Success: call the handler for cmd14
+      xor rdi, rdi
+      call rdx
+      jmp dispatch_done
+
+      dispatch_miss:
+      mov rax, 999
+
+      dispatch_done:
+      ret
+    }
+  }
+}
