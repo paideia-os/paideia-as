@@ -111,6 +111,9 @@ impl EffectRowId {
 ///   Each arm is its own subtree containing pattern and body expressions.
 /// - **Branch**: if-then-else conditional. Children = [condition, then_body, else_body (optional)].
 ///   The then-body and else-body have separate scopes for linearity/effect-row tracking.
+/// - **ClosureCons**: allocate + initialize a closure. Children: [captured_binding_0, captured_binding_1, ...].
+///   Side-table: ClosureMetaTable records closure body symbol + captures.
+///   Side-table: ClosureFrameMetaTable records stack slot assignments for fat pair + env.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 #[repr(u8)]
 #[non_exhaustive]
@@ -227,6 +230,11 @@ pub enum IrKind {
     /// Issue #1012: compile-time literal producing inline bytes in .rodata.
     /// Side-table entry in literal_bytes records the raw byte vector.
     InlineBytes,
+    /// Closure construction: allocate + initialize a closure with fat pointer + env record.
+    /// Children: [captured_binding_0, captured_binding_1, ...] (values to capture).
+    /// Side-table entry in ClosureMetaTable records the closure body's symbol and captures.
+    /// Side-table entry in ClosureFrameMetaTable records stack slot assignments for fat pair + env.
+    ClosureCons,
 }
 
 /// Per-node IR storage.

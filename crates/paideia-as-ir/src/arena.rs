@@ -771,4 +771,128 @@ mod tests {
         // Phase-1 AC budget: ≤ 48 bytes. Side-table keeps IrNodeData clean.
         assert!(std::mem::size_of::<IrNodeData>() <= 48);
     }
+
+    #[test]
+    fn closure_cons_node_kind_and_children() {
+        let mut a = IrArena::new();
+        let capture1 = a.alloc(IrKind::Var, span());
+        let capture2 = a.alloc(IrKind::Var, span());
+        let closure_cons_id = a.alloc_with_children(IrKind::ClosureCons, span(), [capture1, capture2]);
+
+        let node = a.get(closure_cons_id).unwrap();
+        assert_eq!(node.kind, IrKind::ClosureCons);
+
+        let children = a.children(closure_cons_id);
+        assert_eq!(children.len(), 2);
+        assert_eq!(children[0], capture1);
+        assert_eq!(children[1], capture2);
+    }
+
+    #[test]
+    fn closure_meta_populate_and_read() {
+        use crate::closure_meta::{CaptureMeta, CaptureKind, ClosureMeta};
+
+        let mut a = IrArena::new();
+        let lambda_id = IrNodeId::new(42).unwrap();
+
+        let meta = ClosureMeta {
+            mangled_name: "closure_test_42".to_string(),
+            captures: vec![
+                CaptureMeta {
+                    name: "x".to_string(),
+                    offset: 0,
+                    kind: CaptureKind::Consume,
+                },
+                CaptureMeta {
+                    name: "y".to_string(),
+                    offset: 8,
+                    kind: CaptureKind::Reference,
+                },
+            ],
+            env_size: 16,
+        };
+
+        a.closure_meta_mut().insert(lambda_id, meta.clone());
+
+        let retrieved = a.closure_meta().get(lambda_id);
+        assert!(retrieved.is_some());
+        let m = retrieved.unwrap();
+        assert_eq!(m.mangled_name, "closure_test_42");
+        assert_eq!(m.captures.len(), 2);
+        assert_eq!(m.captures[0].name, "x");
+        assert_eq!(m.captures[1].name, "y");
+        assert_eq!(m.env_size, 16);
+    }
+
+    #[test]
+    fn closure_meta_empty_entry_returns_none() {
+        let a = IrArena::new();
+        let lambda_id = IrNodeId::new(999).unwrap();
+        assert!(a.closure_meta().get(lambda_id).is_none());
+    }
+
+    #[test]
+    fn closure_frame_meta_populate_and_read() {
+        use crate::closure_frame_meta::FrameLayout;
+
+        let mut a = IrArena::new();
+        let caller_lambda_id = IrNodeId::new(100).unwrap();
+
+        let mut layout = FrameLayout::new();
+        layout.total_size = 64;
+        let cc_id = IrNodeId::new(10).unwrap();
+        layout.assign_slot(cc_id, 0, 16);
+
+        a.closure_frame_meta_mut().insert(caller_lambda_id, layout);
+
+        let retrieved = a.closure_frame_meta().get(caller_lambda_id);
+        assert!(retrieved.is_some());
+        let layout_ref = retrieved.unwrap();
+        assert_eq!(layout_ref.total_size, 64);
+        assert_eq!(layout_ref.fat_offset(cc_id), Some(0));
+        assert_eq!(layout_ref.env_offset(cc_id), Some(16));
+    }
+
+    #[test]
+    fn closure_frame_meta_empty_entry_returns_none() {
+        let a = IrArena::new();
+        let lambda_id = IrNodeId::new(888).unwrap();
+        assert!(a.closure_frame_meta().get(lambda_id).is_none());
+    }
+
+    #[test]
+    fn closure_frame_meta_mutable_access() {
+        use crate::closure_frame_meta::FrameLayout;
+
+        let mut a = IrArena::new();
+        let caller_lambda_id = IrNodeId::new(200).unwrap();
+
+        let layout = FrameLayout::new();
+        a.closure_frame_meta_mut().insert(caller_lambda_id, layout);
+
+        {
+            let layout_mut = a.closure_frame_meta_mut().get_mut(caller_lambda_id);
+            assert!(layout_mut.is_some());
+            let lm = layout_mut.unwrap();
+            lm.total_size = 32;
+            let cc_id = IrNodeId::new(20).unwrap();
+            lm.assign_slot(cc_id, 0, 16);
+        }
+
+        let layout_final = a.closure_frame_meta().get(caller_lambda_id).unwrap();
+        assert_eq!(layout_final.total_size, 32);
+        assert_eq!(layout_final.get_slot(IrNodeId::new(20).unwrap()), Some((0, 16)));
+    }
+
+    #[test]
+    fn closure_cons_with_no_captures() {
+        let mut a = IrArena::new();
+        let closure_cons_id = a.alloc(IrKind::ClosureCons, span());
+
+        let node = a.get(closure_cons_id).unwrap();
+        assert_eq!(node.kind, IrKind::ClosureCons);
+
+        let children = a.children(closure_cons_id);
+        assert!(children.is_empty());
+    }
 }
