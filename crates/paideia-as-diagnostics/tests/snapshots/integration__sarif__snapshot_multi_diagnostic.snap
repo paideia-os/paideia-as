@@ -1840,6 +1840,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "Issue #1239: A closure body contains an application of another closure-typed\nbinding. The closure-call ABI loads the callee's environment pointer into R14\nvia `mov r14, [r11 + 0]` at every call site (see emit_closure_call), which\ndestroys the outer closure's own env-ptr with no save/restore. Any subsequent\nread of a captured binding in the outer closure would resolve against the\ninner closure's environment. Until R14 preservation across closure calls\nlands, this pattern is rejected statically. Workaround: hoist the inner\nclosure to a top-level `fn` (no environment) or restructure so the inner call\nhappens outside the outer closure's body.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0575",
+              "id": "T0575",
+              "name": "Nested closure invocation not yet supported",
+              "shortDescription": {
+                "text": "closure body invokes another closure — outer env-ptr (R14) would be clobbered"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "A binding declared as Linear or Ordered in the substructural lattice must be used exactly once. This binding was never used. A Linear binding represents a unique resource that must be consumed; Ordered adds ordering constraints. Check that the binding is referenced exactly once in its scope."
               },
               "helpUri": "https://paideia-os.org/diagnostics/S0900",
