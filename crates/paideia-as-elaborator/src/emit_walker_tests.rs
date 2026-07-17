@@ -24,3 +24,6 @@ mod match_nested;
 
 #[path = "emit_walker_tests/scope_guard.rs"]
 mod scope_guard;
+
+#[path = "emit_walker_tests/closure_primitives.rs"]
+mod closure_primitives;

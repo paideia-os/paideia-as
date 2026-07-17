@@ -203,6 +203,38 @@ impl EmitWalker {
         // This enables resolve_var_operands to rewrite Operand::Var { name } to Operand::Reg.
         // Outer lambda has param_index=0 (RDI), nested ones increment (RSI, RDX, RCX, R8, R9).
         self.register_nested_lambda_params(lambda_node_id, arena, 0);
+
+        // #1233: Register captures in closure body lambdas (if this lambda is a closure body).
+        // Captures are [R14 + offset] memory-based bindings, registered before parameter
+        // shadowing rules are applied (params shadow captures if same name).
+        if let Some(meta) = arena.closure_meta().get(lambda_node_id) {
+            for cap in &meta.captures {
+                self.state.local_bindings.insert_env(cap.name.clone(), cap.offset);
+            }
+        }
+
+        // #1233: Emit prologue (sub rsp, total_size) for lambdas with closure frame layout.
+        // This reserves stack space for closure fat pairs + environment records.
+        if let Some(frame_layout) = arena.closure_frame_meta().get(lambda_node_id) {
+            if frame_layout.total_size > 0 {
+                // Emit: sub rsp, total_size
+                let mut sub_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+                sub_operands.push(Operand::Reg(abi::RSP));
+                sub_operands.push(Operand::Imm64(frame_layout.total_size as i64));
+
+                let sub_inst = Instruction {
+                    mnemonic: Mnemonic::Sub,
+                    operands: sub_operands,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                };
+                let prologue_id = self.alloc_synthetic_id();
+                self.emit_inst(prologue_id, sub_inst);
+            }
+        }
+
         // Get the body (Lambda has exactly one child).
         let children = arena.children(lambda_node_id);
         if let Some(&body_id) = children.first() {

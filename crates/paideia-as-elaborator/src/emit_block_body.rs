@@ -486,6 +486,13 @@ impl EmitWalker {
                                         self.state.mark_enum_cons_handled(rhs_id.get());
                                     }
                                 }
+                                // Part E: #1233 — Handle ClosureCons RHS (closure literal)
+                                else if rhs_node.kind == IrKind::ClosureCons {
+                                    // `let f = <closure>` — emit fat pointer to stack
+                                    self.emit_closure_cons(rhs_id, arena);
+                                    // Bind LHS to RAX (which holds the fat-pointer address)
+                                    self.state.local_bindings.insert(binding_name.clone(), scratch_reg);
+                                }
                                 // Part C: #1209/#1207 hardening — convert catch-all to typed diagnostic
                                 else {
                                     self.state
@@ -1192,6 +1199,13 @@ impl EmitWalker {
                                         );
                                         self.state.mark_enum_cons_handled(rhs_id.get());
                                     }
+                                }
+                                // Part E: #1233 — Handle ClosureCons RHS (closure literal)
+                                else if rhs_node.kind == IrKind::ClosureCons {
+                                    // `let f = <closure>` — emit fat pointer to stack
+                                    self.emit_closure_cons(rhs_id, arena);
+                                    // Bind LHS to RAX (which holds the fat-pointer address)
+                                    self.state.local_bindings.insert(binding_name.clone(), scratch_reg);
                                 }
                                 // Part C: #1209/#1207 hardening — convert catch-all to typed diagnostic
                                 else {

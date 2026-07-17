@@ -484,4 +484,191 @@ impl EmitWalker {
         let ret_id = self.alloc_synthetic_id();
         self.emit_ret(ret_id, arena);
     }
+
+    /// #1233: Emit ClosureCons IR node — materialize fat pointer on caller's frame.
+    ///
+    /// Materializes a 16-byte fat pointer [env_ptr:8 | code_ptr:8] at the designated
+    /// stack offset for this closure. Returns the fat pointer address in RAX for binding.
+    ///
+    /// For zero-capture closures: env_ptr = 0 (stored as imm64 0).
+    /// For multi-capture closures: captures are precomputed on the frame by the caller.
+    ///
+    /// # Byte sequence
+    ///
+    /// Zero-capture:
+    ///   mov qword [rsp + fat_off + 0], 0          (env_ptr = 0)
+    ///   lea r11, [rip + closure_<mangled>]        (code_ptr via reloc)
+    ///   mov [rsp + fat_off + 8], r11
+    ///   lea rax, [rsp + fat_off]                  (return fat-pointer address)
+    ///
+    /// Multi-capture:
+    ///   lea r11, [rsp + env_off]                  (env_ptr = &captures[0])
+    ///   mov [rsp + fat_off + 0], r11
+    ///   lea r11, [rip + closure_<mangled>]        (code_ptr via reloc)
+    ///   mov [rsp + fat_off + 8], r11
+    ///   lea rax, [rsp + fat_off]                  (return fat-pointer address)
+    pub(crate) fn emit_closure_cons(&mut self, cc_id: IrNodeId, arena: &IrArena) {
+        // Look up closure body Lambda and its metadata
+        let cc_children = arena.children(cc_id);
+        let lambda_id = match cc_children.first().copied() {
+            Some(id) => id,
+            None => return,
+        };
+
+        let closure_meta = match arena.closure_meta().get(lambda_id) {
+            Some(meta) => meta,
+            None => return,
+        };
+
+        // Look up frame layout for current function
+        let current_lambda_id = match IrNodeId::new(self.state.current_function) {
+            Some(id) => id,
+            None => return,
+        };
+
+        let frame_layout = match arena.closure_frame_meta().get(current_lambda_id) {
+            Some(layout) => layout,
+            None => return,
+        };
+
+        let (fat_off, env_off) = match frame_layout.get_slot(cc_id) {
+            Some((f, e)) => (f as i32, e as i32),
+            None => return,
+        };
+
+        // Determine if this is a zero-capture closure
+        let has_captures = !closure_meta.captures.is_empty();
+
+        if has_captures {
+            // Multi-capture: lea r11, [rsp + env_off]
+            let env_lea_id = self.alloc_synthetic_id();
+            let mut env_lea_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            env_lea_ops.push(Operand::Reg(abi::R11));
+            env_lea_ops.push(Operand::MemSib {
+                base: abi::RSP,
+                index: None,
+                scale: paideia_as_ir::Scale::X1,
+                disp: env_off,
+            });
+            self.emit_inst(
+                env_lea_id,
+                Instruction {
+                    mnemonic: Mnemonic::Lea,
+                    operands: env_lea_ops,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                },
+            );
+
+            // mov [rsp + fat_off + 0], r11
+            let env_mov_id = self.alloc_synthetic_id();
+            let mut env_mov_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            env_mov_ops.push(Operand::MemSib {
+                base: abi::RSP,
+                index: None,
+                scale: paideia_as_ir::Scale::X1,
+                disp: fat_off,
+            });
+            env_mov_ops.push(Operand::Reg(abi::R11));
+            self.emit_inst(
+                env_mov_id,
+                Instruction {
+                    mnemonic: Mnemonic::Mov,
+                    operands: env_mov_ops,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                },
+            );
+        } else {
+            // Zero-capture: mov qword [rsp + fat_off + 0], 0
+            let zero_mov_id = self.alloc_synthetic_id();
+            let mut zero_mov_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            zero_mov_ops.push(Operand::MemSib {
+                base: abi::RSP,
+                index: None,
+                scale: paideia_as_ir::Scale::X1,
+                disp: fat_off,
+            });
+            zero_mov_ops.push(Operand::Imm64(0));
+            self.emit_inst(
+                zero_mov_id,
+                Instruction {
+                    mnemonic: Mnemonic::Mov,
+                    operands: zero_mov_ops,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                },
+            );
+        }
+
+        // lea r11, [rip + closure_<mangled>]
+        let code_lea_id = self.alloc_synthetic_id();
+        let mut code_lea_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+        code_lea_ops.push(Operand::Reg(abi::R11));
+        code_lea_ops.push(Operand::MemRipRelSym {
+            name: closure_meta.mangled_name.clone(),
+            addend: 0,
+        });
+        self.emit_inst(
+            code_lea_id,
+            Instruction {
+                mnemonic: Mnemonic::Lea,
+                operands: code_lea_ops,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+                emission_order: 0,
+            },
+        );
+
+        // mov [rsp + fat_off + 8], r11
+        let code_mov_id = self.alloc_synthetic_id();
+        let mut code_mov_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+        code_mov_ops.push(Operand::MemSib {
+            base: abi::RSP,
+            index: None,
+            scale: paideia_as_ir::Scale::X1,
+            disp: fat_off + 8,
+        });
+        code_mov_ops.push(Operand::Reg(abi::R11));
+        self.emit_inst(
+            code_mov_id,
+            Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: code_mov_ops,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+                emission_order: 0,
+            },
+        );
+
+        // lea rax, [rsp + fat_off]
+        let ret_lea_id = self.alloc_synthetic_id();
+        let mut ret_lea_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+        ret_lea_ops.push(Operand::Reg(abi::RAX));
+        ret_lea_ops.push(Operand::MemSib {
+            base: abi::RSP,
+            index: None,
+            scale: paideia_as_ir::Scale::X1,
+            disp: fat_off,
+        });
+        self.emit_inst(
+            ret_lea_id,
+            Instruction {
+                mnemonic: Mnemonic::Lea,
+                operands: ret_lea_ops,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+                emission_order: 0,
+            },
+        );
+    }
 }

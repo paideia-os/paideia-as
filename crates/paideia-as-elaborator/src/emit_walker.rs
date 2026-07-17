@@ -495,18 +495,18 @@ impl EmitWalker {
             }
         }
 
-        // #1233 Phase A: Pre-pass to compute caller Lambda frame layouts for closures.
-        // Scans arena for ClosureCons descendants under each Lambda.
-        // For Phase A, this is a no-op (no ClosureCons nodes yet), but infrastructure is in place.
-        // When #994 adds ClosureCons IR nodes, this will compute (fat_off, env_off) slots.
+        // #1233 Phase B: Pre-pass 1 to register closure body Lambda symbols.
+        // Scans arena for ClosureCons nodes and extracts their body Lambda children,
+        // registering them with mangled names like `closure_<parent>_<lambda_id>`.
+        self.register_closure_body_symbols(arena);
+
+        // #1233 Phase B: Pre-pass 2 to compute caller Lambda frame layouts for closures.
+        // Scans arena for ClosureCons descendants under each Lambda, assigns (fat_off, env_off) slots.
         for i in 1..=arena.len() as u32 {
             if let Some(caller_lambda_id) = IrNodeId::new(i) {
                 if let Some(caller_node) = arena.get(caller_lambda_id) {
                     if caller_node.kind == IrKind::Lambda {
-                        // Placeholder: When #994 lands ClosureCons nodes,
-                        // precompute_caller_frame will scan body for ClosureCons descendants
-                        // and populate closure_frame_meta. For now, this is skipped.
-                        // self.precompute_caller_frame(caller_lambda_id, arena);
+                        self.precompute_caller_frame(caller_lambda_id, arena);
                     }
                 }
             }
@@ -920,6 +920,157 @@ impl EmitWalker {
                 .with_span(span)
                 .finish();
             self.structured_diagnostics.push(diag);
+        }
+    }
+
+    /// #1233 Phase B: Register closure body Lambda symbols in the arena's symbol table.
+    ///
+    /// Scans all ClosureCons nodes in the arena and extracts their body Lambda children.
+    /// Each closure body Lambda is registered with a mangled symbol name:
+    /// `closure_<parent_binding_name>_<lambda_id>`.
+    ///
+    /// Closure body symbols are registered as Function kind with Local visibility.
+    /// The symbol's ir_node field points to the Lambda node ID, enabling offset
+    /// lookup through function_offsets in the downstream ELF builder.
+    fn register_closure_body_symbols(&mut self, arena: &mut IrArena) {
+        // Scan all nodes looking for ClosureCons instances
+        for i in 1..=arena.len() as u32 {
+            if let Some(cc_id) = IrNodeId::new(i) {
+                if let Some(cc_node) = arena.get(cc_id) {
+                    if cc_node.kind == IrKind::ClosureCons {
+                        // Extract the closure body Lambda (first child of ClosureCons)
+                        let cc_children = arena.children(cc_id);
+                        if let Some(&lambda_id) = cc_children.first() {
+                            if let Some(lambda_node) = arena.get(lambda_id) {
+                                if lambda_node.kind == IrKind::Lambda {
+                                    // Find the parent Let binding name for the mangled symbol.
+                                    // Walk up the arena to find the ClosureCons's parent Let.
+                                    let mut parent_name = String::from("anon");
+
+                                    // ClosureCons is the RHS of a Let; we need to find that Let.
+                                    // Since the arena is flat (no parent pointers), we search for a Let
+                                    // whose first child is cc_id.
+                                    for j in 1..=arena.len() as u32 {
+                                        if let Some(candidate_let_id) = IrNodeId::new(j) {
+                                            if let Some(candidate_node) = arena.get(candidate_let_id) {
+                                                if candidate_node.kind == IrKind::Let {
+                                                    let let_children = arena.children(candidate_let_id);
+                                                    // Let structure: [RHS, ...] (first child is RHS)
+                                                    if let_children.first().map_or(false, |&c| c == cc_id) {
+                                                        parent_name = arena
+                                                            .binding_names()
+                                                            .get(candidate_let_id)
+                                                            .map(|s| s.to_string())
+                                                            .unwrap_or_else(|| {
+                                                                format!("_let_{}", candidate_let_id.get())
+                                                            });
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Construct mangled symbol name
+                                    let mangled_name = format!("closure_{}_{}", parent_name, lambda_id.get());
+
+                                    // Create and insert symbol for the closure body Lambda
+                                    let sym = Symbol::new_with_visibility(
+                                        mangled_name,
+                                        SymbolKind::Function,
+                                        lambda_id,
+                                        paideia_as_ir::Visibility::Local,
+                                    );
+                                    arena.symbols_mut().insert(sym);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// #1233 Phase B: Precompute frame layout for a caller Lambda containing ClosureCons nodes.
+    ///
+    /// Recursively scans the caller's body for all ClosureCons descendants and assigns
+    /// non-overlapping stack slots (fat_ptr + env_record) for each. Populates
+    /// closure_frame_meta_mut() with the computed layout.
+    ///
+    /// Frame layout is 16-byte aligned per SysV calling convention requirements.
+    /// Slot assignments are computed from rsp (not rbp; paideia-as uses rsp-relative addressing).
+    fn precompute_caller_frame(&mut self, caller_lambda_id: IrNodeId, arena: &mut IrArena) {
+        // Scan caller body for ClosureCons descendants
+        let caller_children = arena.children(caller_lambda_id);
+        if caller_children.is_empty() {
+            return; // No body, no closures
+        }
+
+        let body_id = caller_children[0];
+        let mut frame_layout = paideia_as_ir::FrameLayout::new();
+        let mut current_offset: u64 = 0;
+
+        // Recursively collect all ClosureCons nodes in the caller body
+        fn collect_closure_cons_nodes(
+            id: IrNodeId,
+            arena: &IrArena,
+            nodes: &mut Vec<IrNodeId>,
+        ) {
+            if let Some(n) = arena.get(id) {
+                match n.kind {
+                    IrKind::ClosureCons => {
+                        nodes.push(id);
+                    }
+                    IrKind::Lambda | IrKind::Unsafe => {
+                        // Stop at Lambda/Unsafe boundaries
+                        return;
+                    }
+                    _ => {}
+                }
+                for &child_id in arena.children(id) {
+                    collect_closure_cons_nodes(child_id, arena, nodes);
+                }
+            }
+        }
+
+        let mut closure_cons_nodes = Vec::new();
+        collect_closure_cons_nodes(body_id, arena, &mut closure_cons_nodes);
+
+        // Assign slots for each ClosureCons node
+        for cc_id in closure_cons_nodes {
+            if let Some(cc_node) = arena.get(cc_id) {
+                if cc_node.kind == IrKind::ClosureCons {
+                    // Get the closure meta to determine env size
+                    let cc_children = arena.children(cc_id);
+                    let env_size = if let Some(&lambda_id) = cc_children.first() {
+                        arena
+                            .closure_meta()
+                            .get(lambda_id)
+                            .map(|meta| meta.env_size)
+                            .unwrap_or(0)
+                    } else {
+                        0
+                    };
+
+                    // Fat pair is always 16 bytes (env_ptr:8 + code_ptr:8)
+                    let fat_size = 16u64;
+
+                    // Assign slots: fat pair at current_offset, env record follows
+                    let fat_offset = current_offset;
+                    let env_offset = current_offset + fat_size;
+
+                    frame_layout.assign_slot(cc_id, fat_offset, env_offset);
+
+                    // Advance for next closure
+                    current_offset = env_offset + env_size;
+                }
+            }
+        }
+
+        // Round total size up to 16-byte alignment (SysV requirement)
+        if current_offset > 0 {
+            frame_layout.total_size = ((current_offset + 15) / 16) * 16;
+            arena.closure_frame_meta_mut().insert(caller_lambda_id, frame_layout);
         }
     }
 
