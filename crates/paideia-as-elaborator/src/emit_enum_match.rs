@@ -1482,7 +1482,20 @@ impl EmitWalker {
 
             // If default arm, skip comparisons and emit body directly
             if arm_meta.is_default {
-                self.state.register_label(default_label.clone());
+                // #1241: Route default_label through label_to_instr; register_label captured a
+                // pre-Unsafe-body estimated_offset that drifts once UnsafeWalker prepends
+                // deferred bodies at encode time. Mirrors #1120's fix for end_label.
+                let default_nop_id = IrNodeId::new(match_node_id.get() * 100 + 996)
+                    .expect("default anchor NOP virtual id");
+                self.emit_inst(default_nop_id, Instruction {
+                    mnemonic: Mnemonic::Nop,
+                    operands: SmallVec::new(),
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                });
+                self.state.insert_label(default_label.clone(), default_nop_id);
                 default_arm_registered = true;
                 if let Some(arm_node) = arena.get(arm_id) {
                     match arm_node.kind {
@@ -1532,7 +1545,20 @@ impl EmitWalker {
 
             // #1199: Register arm label at the START of the discriminator check (before cmp)
             // so that the previous arm's jne correctly targets this arm's cmp, not its body.
-            self.state.register_label(arm_label);
+            // #1241: Route arm_label through label_to_instr; register_label captured a
+            // pre-Unsafe-body estimated_offset that drifts once UnsafeWalker prepends
+            // deferred bodies at encode time. Mirrors #1120's fix for end_label.
+            let arm_nop_id = IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10 + 8)
+                .expect("arm anchor NOP virtual id");
+            self.emit_inst(arm_nop_id, Instruction {
+                mnemonic: Mnemonic::Nop,
+                operands: SmallVec::new(),
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+                emission_order: 0,
+            });
+            self.state.insert_label(arm_label, arm_nop_id);
 
             // #1001: multi-alt cascade for or-patterns.
             let alts: Vec<u32> = if !arm_meta.alt_variant_indices.is_empty() {
@@ -1645,7 +1671,20 @@ impl EmitWalker {
 
             // Register body_label if needed (multi-alt case)
             if let Some(body_label) = body_label_to_register {
-                self.state.register_label(body_label);
+                // #1241: Route body_label through label_to_instr; register_label captured a
+                // pre-Unsafe-body estimated_offset that drifts once UnsafeWalker prepends
+                // deferred bodies at encode time. Mirrors #1120's fix for end_label.
+                let body_nop_id = IrNodeId::new(match_node_id.get() * 1000 + idx as u32 * 100 + 98)
+                    .expect("body anchor NOP virtual id");
+                self.emit_inst(body_nop_id, Instruction {
+                    mnemonic: Mnemonic::Nop,
+                    operands: SmallVec::new(),
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                });
+                self.state.insert_label(body_label, body_nop_id);
             }
 
             // Issue #1002: Handle outer binder (bind-and-match)
@@ -2573,6 +2612,176 @@ mod tests {
             nop_offset,
             buf.len()
         );
+    }
+
+    #[test]
+    fn arm_label_resolves_via_label_to_instr_cmp_jne() {
+        // #1241: Verify arm_label resolves via label_to_instr NOP anchor (not walker-time offset)
+        let mut arena = IrArena::new();
+
+        let scrutinee_id = arena.alloc(IrKind::Var, span());
+        let arm_body_id = arena.alloc(IrKind::Literal, span());
+        let arm_id = arena.alloc_with_children(IrKind::Action, span(), [arm_body_id]);
+        let match_id = arena.alloc_with_children(IrKind::Match, span(), [scrutinee_id, arm_id]);
+
+        arena.match_scrutinee_table_mut().insert(match_id, EnumTypeId(0));
+        // density_ok = false forces cmp/jne cascade
+        arena.match_dispatch_meta_mut().insert(
+            match_id,
+            MatchDispatchMeta {
+                jump_table: true,
+                min_arm: 0,
+                range: 100,
+                covered_arms: 1,
+                density_ok: false, // Force cmp/jne cascade
+            },
+        );
+        arena.match_jump_table_arm_values_mut().insert(match_id, vec![(0, 0)]);
+
+        let mut arm_meta = paideia_as_ir::MatchArmMeta::default();
+        arm_meta.is_default = false;
+        arm_meta.variant_index = Some(0);
+        arena.match_arm_meta_mut().insert(arm_id, arm_meta);
+        arena.literal_values_mut().insert(arm_body_id, 0x5678i64);
+
+        let mut walker = EmitWalker::new();
+        walker.state.insert_enum_layout(EnumTypeId(0), paideia_as_ir::EnumLayout::new(0));
+
+        walker.visit_match(match_id, &arena, None, TailContext::Discard);
+
+        let arm_label = format!("match_arm_{}_{}", match_id.get(), 0);
+        // #1241: arm_label must be in label_to_instr, not labels
+        assert!(walker.state().label_to_instr.contains_key(&arm_label),
+            "#1241: cmp/jne arm_label must use label_to_instr");
+        assert!(!walker.state().labels.contains_key(&arm_label),
+            "#1241: cmp/jne arm_label should not be in labels (walker-time offsets)");
+
+        // #1241: Verify the NOP anchor's byte offset via real encoding
+        let mut table = walker.state().instructions().clone();
+        let mut buf = Vec::new();
+        let result = paideia_as_emitter_pe::emit_text_from_instructions(&mut table, &mut buf)
+            .expect("encode should succeed");
+
+        let &arm_nop_id = walker.state().label_to_instr().get(&arm_label)
+            .expect("#1241: arm_label must resolve via label_to_instr");
+        let &arm_nop_offset = result.offset_map.get(&arm_nop_id)
+            .expect("#1241: arm NOP anchor must have an offset_map entry");
+
+        // Verify the NOP is at the start of the arm's dispatch sequence
+        assert!(arm_nop_offset < 100, "#1241: arm_label NOP should be early in .text");
+    }
+
+    #[test]
+    fn default_label_resolves_via_label_to_instr_cmp_jne_inline_default() {
+        // #1241: Verify default_label (in-loop) resolves via label_to_instr NOP anchor
+        let mut arena = IrArena::new();
+
+        let scrutinee_id = arena.alloc(IrKind::Var, span());
+        let arm_body_id = arena.alloc(IrKind::Literal, span());
+        let arm_id = arena.alloc_with_children(IrKind::Action, span(), [arm_body_id]);
+        let match_id = arena.alloc_with_children(IrKind::Match, span(), [scrutinee_id, arm_id]);
+
+        arena.match_scrutinee_table_mut().insert(match_id, EnumTypeId(0));
+        arena.match_dispatch_meta_mut().insert(
+            match_id,
+            MatchDispatchMeta {
+                jump_table: true,
+                min_arm: 0,
+                range: 100,
+                covered_arms: 1,
+                density_ok: false,
+            },
+        );
+        arena.match_jump_table_arm_values_mut().insert(match_id, vec![(0, 0)]);
+
+        // Create a default arm (is_default = true)
+        let mut arm_meta = paideia_as_ir::MatchArmMeta::default();
+        arm_meta.is_default = true;
+        arena.match_arm_meta_mut().insert(arm_id, arm_meta);
+        arena.literal_values_mut().insert(arm_body_id, 0xABCDi64);
+
+        let mut walker = EmitWalker::new();
+        walker.state.insert_enum_layout(EnumTypeId(0), paideia_as_ir::EnumLayout::new(0));
+
+        walker.visit_match(match_id, &arena, None, TailContext::Discard);
+
+        let default_label = format!("match_default_{}", match_id.get());
+        // #1241: default_label must be in label_to_instr, not labels
+        assert!(walker.state().label_to_instr.contains_key(&default_label),
+            "#1241: cmp/jne default_label must use label_to_instr");
+        assert!(!walker.state().labels.contains_key(&default_label),
+            "#1241: cmp/jne default_label should not be in labels (walker-time offsets)");
+
+        // Verify encoding succeeds
+        let mut table = walker.state().instructions().clone();
+        let mut buf = Vec::new();
+        let result = paideia_as_emitter_pe::emit_text_from_instructions(&mut table, &mut buf)
+            .expect("encode should succeed");
+
+        let &default_nop_id = walker.state().label_to_instr().get(&default_label)
+            .expect("#1241: default_label must resolve via label_to_instr");
+        let &default_nop_offset = result.offset_map.get(&default_nop_id)
+            .expect("#1241: default NOP anchor must have an offset_map entry");
+
+        // Default label should be present and have a valid offset
+        assert!(default_nop_offset < buf.len() as u64, "#1241: default_label NOP must be within .text");
+    }
+
+    #[test]
+    fn body_label_resolves_via_label_to_instr_cmp_jne_multi_alt() {
+        // #1241: Verify body_label (multi-alt or-pattern) resolves via label_to_instr NOP anchor
+        let mut arena = IrArena::new();
+
+        let scrutinee_id = arena.alloc(IrKind::Var, span());
+        let arm_body_id = arena.alloc(IrKind::Literal, span());
+        let arm_id = arena.alloc_with_children(IrKind::Action, span(), [arm_body_id]);
+        let match_id = arena.alloc_with_children(IrKind::Match, span(), [scrutinee_id, arm_id]);
+
+        arena.match_scrutinee_table_mut().insert(match_id, EnumTypeId(0));
+        arena.match_dispatch_meta_mut().insert(
+            match_id,
+            MatchDispatchMeta {
+                jump_table: true,
+                min_arm: 0,
+                range: 100,
+                covered_arms: 1,
+                density_ok: false,
+            },
+        );
+        arena.match_jump_table_arm_values_mut().insert(match_id, vec![(0, 0), (1, 0)]);
+
+        // Create a multi-alt arm (or-pattern)
+        let mut arm_meta = paideia_as_ir::MatchArmMeta::default();
+        arm_meta.is_default = false;
+        arm_meta.alt_variant_indices = vec![0, 1]; // Two alternatives
+        arena.match_arm_meta_mut().insert(arm_id, arm_meta);
+        arena.literal_values_mut().insert(arm_body_id, 0xFEDCi64);
+
+        let mut walker = EmitWalker::new();
+        walker.state.insert_enum_layout(EnumTypeId(0), paideia_as_ir::EnumLayout::new(0));
+
+        walker.visit_match(match_id, &arena, None, TailContext::Discard);
+
+        let body_label = format!("match_arm_{}_{}_body", match_id.get(), 0);
+        // #1241: body_label must be in label_to_instr, not labels
+        assert!(walker.state().label_to_instr.contains_key(&body_label),
+            "#1241: cmp/jne body_label must use label_to_instr");
+        assert!(!walker.state().labels.contains_key(&body_label),
+            "#1241: cmp/jne body_label should not be in labels (walker-time offsets)");
+
+        // Verify encoding succeeds
+        let mut table = walker.state().instructions().clone();
+        let mut buf = Vec::new();
+        let result = paideia_as_emitter_pe::emit_text_from_instructions(&mut table, &mut buf)
+            .expect("encode should succeed");
+
+        let &body_nop_id = walker.state().label_to_instr().get(&body_label)
+            .expect("#1241: body_label must resolve via label_to_instr");
+        let &body_nop_offset = result.offset_map.get(&body_nop_id)
+            .expect("#1241: body NOP anchor must have an offset_map entry");
+
+        // Body label should be present and have a valid offset
+        assert!(body_nop_offset < buf.len() as u64, "#1241: body_label NOP must be within .text");
     }
 }
 

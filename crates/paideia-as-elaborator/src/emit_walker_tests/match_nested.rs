@@ -246,10 +246,13 @@ fn match_labels_registered_correctly() {
     let default_label = format!("match_default_{}", match_id);
     let end_label = format!("match_end_{}", match_id);
 
-    // arm_0_label and default_label use register_label (walker-time estimated_offset)
-    assert!(walker.state().labels.contains_key(&arm_0_label));
-    assert!(walker.state().labels.contains_key(&default_label));
-    // #1120: end_label uses label_to_instr (post-sort resolution via NOP anchor)
+    // #1241: all cascade-path labels now use label_to_instr (post-sort resolution via NOP anchor)
+    // instead of register_label (which captured walker-time estimated_offset that drifts with Unsafe bodies).
+    // Mirrors #1120's fix for end_label to all arm/default labels.
+    assert!(walker.state().label_to_instr.contains_key(&arm_0_label),
+        "#1241: arm_0_label must be registered via label_to_instr for post-sort resolution");
+    assert!(walker.state().label_to_instr.contains_key(&default_label),
+        "#1241: default_label must be registered via label_to_instr for post-sort resolution");
     assert!(walker.state().label_to_instr.contains_key(&end_label),
         "#1120: end_label must be registered via label_to_instr for post-sort resolution");
 }

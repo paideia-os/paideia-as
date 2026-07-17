@@ -243,7 +243,20 @@ impl EmitWalker {
 
             // If default arm, skip comparisons and emit body directly
             if arm_meta.is_default {
-                self.state.register_label(default_label.clone());
+                // #1241: Route default_label through label_to_instr; register_label captured a
+                // pre-Unsafe-body estimated_offset that drifts once UnsafeWalker prepends
+                // deferred bodies at encode time. Mirrors #1120's fix for end_label.
+                let default_nop_id = IrNodeId::new(match_node_id.get() * 100 + 996)
+                    .expect("default anchor NOP virtual id");
+                self.emit_inst(default_nop_id, Instruction {
+                    mnemonic: Mnemonic::Nop,
+                    operands: SmallVec::new(),
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                });
+                self.state.insert_label(default_label.clone(), default_nop_id);
                 default_arm_registered = true;
                 // Emit arm body based on its IR kind
                 if let Some(arm_node) = arena.get(arm_id) {
@@ -253,7 +266,20 @@ impl EmitWalker {
             }
 
             // #1199: Register arm label at the START of the discriminator check
-            self.state.register_label(arm_label);
+            // #1241: Route arm_label through label_to_instr; register_label captured a
+            // pre-Unsafe-body estimated_offset that drifts once UnsafeWalker prepends
+            // deferred bodies at encode time. Mirrors #1120's fix for end_label.
+            let arm_nop_id = IrNodeId::new(match_node_id.get() * 100 + idx as u32 * 10 + 8)
+                .expect("arm anchor NOP virtual id");
+            self.emit_inst(arm_nop_id, Instruction {
+                mnemonic: Mnemonic::Nop,
+                operands: SmallVec::new(),
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+                emission_order: 0,
+            });
+            self.state.insert_label(arm_label, arm_nop_id);
 
             // #1001: multi-alt cascade for or-patterns.
             let alts: Vec<i64> = if !arm_meta.alt_int_values.is_empty() {
@@ -366,7 +392,20 @@ impl EmitWalker {
 
             // Register body_label if needed (multi-alt case)
             if let Some(body_label) = body_label_to_register {
-                self.state.register_label(body_label);
+                // #1241: Route body_label through label_to_instr; register_label captured a
+                // pre-Unsafe-body estimated_offset that drifts once UnsafeWalker prepends
+                // deferred bodies at encode time. Mirrors #1120's fix for end_label.
+                let body_nop_id = IrNodeId::new(match_node_id.get() * 1000 + idx as u32 * 100 + 98)
+                    .expect("body anchor NOP virtual id");
+                self.emit_inst(body_nop_id, Instruction {
+                    mnemonic: Mnemonic::Nop,
+                    operands: SmallVec::new(),
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode: self.current_mode(),
+                    emission_order: 0,
+                });
+                self.state.insert_label(body_label, body_nop_id);
             }
 
             // Issue #1002: Bind outer binder if present.
@@ -486,12 +525,14 @@ impl EmitWalker {
         }
 
         // After loop: if !default_arm_registered, emit NOP anchor at default_label
+        // #1241: Use insert_label with the NOP anchor id instead of register_label,
+        // which would capture a post-NOP estimated_offset (off-by-one).
         if !default_arm_registered {
-            let nop_id = IrNodeId::new(match_node_id.get() * 100 + 997)
-                .expect("nop id");
+            let default_nop_id = IrNodeId::new(match_node_id.get() * 100 + 997)
+                .expect("default nop id");
             let nop_operands: SmallVec<[Operand; 3]> = SmallVec::new();
 
-            self.emit_inst(nop_id, Instruction {
+            self.emit_inst(default_nop_id, Instruction {
                 mnemonic: Mnemonic::Nop,
                 operands: nop_operands,
                 encoding_hint: None,
@@ -500,10 +541,12 @@ impl EmitWalker {
                 emission_order: 0,
             });
 
-            self.state.register_label(default_label);
+            self.state.insert_label(default_label, default_nop_id);
         }
 
         // End: NOP anchor at end_label
+        // #1241: Use insert_label with the NOP anchor id instead of register_label,
+        // which would capture a post-NOP estimated_offset (off-by-one).
         let end_nop_id = IrNodeId::new(match_node_id.get() * 100 + 999)
             .expect("end nop id");
         let end_nop_operands: SmallVec<[Operand; 3]> = SmallVec::new();
@@ -517,6 +560,6 @@ impl EmitWalker {
             emission_order: 0,
         });
 
-        self.state.register_label(end_label);
+        self.state.insert_label(end_label, end_nop_id);
     }
 }
