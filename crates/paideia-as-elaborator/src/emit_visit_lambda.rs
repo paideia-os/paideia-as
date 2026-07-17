@@ -28,13 +28,6 @@ fn u1660_code() -> DiagnosticCode {
         .expect("U1660 is within valid U range")
 }
 
-/// Helper to construct T0575 diagnostic code.
-/// Issue #1239: nested closure invocation not yet supported.
-fn t0575_code() -> DiagnosticCode {
-    DiagnosticCode::new(Category::T, Severity::Error, 575)
-        .expect("T0575 is within valid T range")
-}
-
 impl EmitWalker {
     /// Get the register for parameter index under the specified calling convention.
     ///
@@ -192,126 +185,6 @@ impl EmitWalker {
                 self.state.local_bindings.insert_env(cap.name.clone(), cap.offset);
             }
         }
-    }
-
-    /// Issue #1239: Check if this lambda is a closure whose body contains
-    /// a nested closure invocation (a closure calling another closure).
-    /// If found, fires T0575 diagnostic and returns true; otherwise returns false.
-    ///
-    /// Nested closure invocation is problematic because the outer closure's
-    /// environment pointer (R14) would be clobbered by the inner closure call's
-    /// `mov r14, [inner_closure + 0]` instruction.
-    ///
-    /// Note: We don't rely on closure_meta to determine if this lambda is a closure,
-    /// because closure_meta might only track captured variables (which could be none).
-    /// Instead, we optimistically walk all lambda bodies for nested closure calls,
-    /// since firing T0575 (even if the lambda isn't ultimately a closure) prevents
-    /// code generation that would be wrong anyway.
-    fn check_nested_closure_invocation(
-        &mut self,
-        _lambda_node_id: IrNodeId,
-        body_id: IrNodeId,
-        arena: &IrArena,
-    ) -> bool {
-        // Recursively walk the body looking for nested closure invocations.
-        // We pass body_id so that search_action_for_closure_binding can find
-        // ClosureCons bindings in the body's let statements.
-        self.walk_for_nested_closure_call(body_id, body_id, arena)
-    }
-
-    /// Recursively walk IR to find an App node that calls a closure.
-    /// Returns true if found (and fires T0575), false otherwise.
-    ///
-    /// A closure call is detected when:
-    /// 1. We find an App node whose callee is a Var
-    /// 2. That Var's name corresponds to a ClosureCons binding (checked via local_bindings or in the action_body)
-    ///
-    /// action_body_id: The root Action node containing let bindings, used to search for ClosureCons bindings
-    fn walk_for_nested_closure_call(&mut self, node_id: IrNodeId, action_body_id: IrNodeId, arena: &IrArena) -> bool {
-        if let Some(node) = arena.get(node_id) {
-            match node.kind {
-                IrKind::App => {
-                    // App structure: [callee, arg0, arg1, ...]
-                    let children = arena.children(node_id);
-                    if let Some(&callee_id) = children.first() {
-                        if let Some(callee_node) = arena.get(callee_id) {
-                            // The callee can be Var or Placeholder (both can be function/closure references)
-                            if matches!(callee_node.kind, IrKind::Var | IrKind::Placeholder) {
-                                // Try to extract the callee name from binding_names
-                                if let Some(callee_name) = arena.binding_names().get(callee_id) {
-                                    // Check two ways: (1) direct local_bindings lookup (for already-registered closures),
-                                    // and (2) walk Action nodes to find ClosureCons bindings that haven't been emitted yet
-                                    use crate::local_binding_table::BindingHome;
-                                    let is_closure =
-                                        self.state.local_bindings.get_home(callee_name).is_some_and(|h| matches!(h, BindingHome::Closure(_))) ||
-                                        self.search_action_for_closure_binding(action_body_id, callee_name, arena);
-
-                                    if is_closure {
-                                        // Found a nested closure invocation!
-                                        self.push_typed_diag(
-                                            t0575_code(),
-                                            format!(
-                                                "nested closure invocation not yet supported — \
-                                                 outer closure's env-ptr (R14) would be clobbered by inner call"
-                                            ),
-                                        );
-                                        return true;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    // Continue walking children of this App
-                    let children = arena.children(node_id);
-                    for &child_id in children {
-                        if self.walk_for_nested_closure_call(child_id, action_body_id, arena) {
-                            return true;
-                        }
-                    }
-                }
-                _ => {
-                    // Walk all children
-                    let children = arena.children(node_id);
-                    for &child_id in children {
-                        if self.walk_for_nested_closure_call(child_id, action_body_id, arena) {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-        false
-    }
-
-    /// Recursively search for a Let binding whose RHS is a ClosureCons with the given name
-    fn search_action_for_closure_binding(&self, node_id: IrNodeId, binding_name: &str, arena: &IrArena) -> bool {
-        if let Some(node) = arena.get(node_id) {
-            if node.kind == IrKind::Action {
-                // Search the Action's children for Let bindings
-                let children = arena.children(node_id);
-                for &child_id in children {
-                    if let Some(child_node) = arena.get(child_id) {
-                        if child_node.kind == IrKind::Let {
-                            // Let structure: [value, ...]
-                            let let_children = arena.children(child_id);
-                            if let Some(&rhs_id) = let_children.first() {
-                                if let Some(rhs_node) = arena.get(rhs_id) {
-                                    if rhs_node.kind == IrKind::ClosureCons {
-                                        // Check if this binding has the name we're looking for
-                                        if let Some(name) = arena.binding_names().get(child_id) {
-                                            if name == binding_name {
-                                                return true;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        false
     }
 
     /// Get the System V calling-convention register for parameter index.
@@ -573,12 +446,6 @@ impl EmitWalker {
                         // capture bindings registered at the top of visit_lambda —
                         // restore them (see register_closure_captures doc comment).
                         self.register_closure_captures(lambda_node_id, arena);
-
-                        // Issue #1239: Check for nested closure invocations in closure bodies.
-                        // If detected, T0575 is fired and we return early to block code emission.
-                        if self.check_nested_closure_invocation(lambda_node_id, body_id, arena) {
-                            return;
-                        }
 
                         // #1139: Snapshot this lambda's local_bindings for resolve_var_operands.
                         self.state.per_lambda_bindings
@@ -1082,12 +949,6 @@ impl EmitWalker {
                         // capture bindings registered at the top of visit_lambda —
                         // restore them (see register_closure_captures doc comment).
                         self.register_closure_captures(lambda_node_id, arena);
-
-                        // Issue #1239: Check for nested closure invocations in closure bodies.
-                        // If detected, T0575 is fired and we return early to block code emission.
-                        if self.check_nested_closure_invocation(lambda_node_id, body_id, arena) {
-                            return;
-                        }
 
                         // #1139: Snapshot this lambda's local_bindings after parameter registration.
                         // Used by resolve_var_operands to rewrite Var operands against the correct scope.

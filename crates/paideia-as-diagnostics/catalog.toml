@@ -1523,26 +1523,6 @@ code pointer) that can carry the captured bindings.
 since = "0.18.0"
 deprecated = false
 
-[diagnostic.T0575]
-severity = "error"
-category = "type"
-title = "Nested closure invocation not yet supported"
-brief = "closure body calls another closure — env-ptr (R14) would be clobbered"
-description = """
-Issue #1239 / #995: A closure's body contains a call to another closure.
-The outer closure's environment pointer is stored in R14 for the duration of
-its execution. When the inner closure call executes, it loads its own environment
-pointer via `mov r14, [closure_ptr + 0]`, clobbering the outer closure's R14.
-When control returns from the inner call, the outer closure's environment is lost,
-causing incorrect code execution.
-
-Nested closure invocations require saving and restoring R14 across the inner call,
-which is not yet implemented. Restructure your code to avoid nested closure calls,
-or defer this closure to module scope.
-"""
-since = "0.25.0"
-deprecated = false
-
 [diagnostic.P0282]
 severity = "error"
 category = "parser"
