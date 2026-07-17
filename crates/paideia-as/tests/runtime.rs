@@ -102,4 +102,11 @@ mod runtime {
     mod unit_var_module_let_matches_b_value;
     mod unit_var_module_let_matches_c_value;
     mod unit_var_multiple_bindings_value;
+    mod cmp_lt_true_value;
+    mod cmp_lt_false_value;
+    mod cmp_gt_true_value;
+    mod cmp_le_eq_true_value;
+    mod cmp_ge_eq_true_value;
+    mod cmp_eq_true_value;
+    mod cmp_ne_true_value;
 }

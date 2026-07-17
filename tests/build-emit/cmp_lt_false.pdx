@@ -1,0 +1,9 @@
+// #1229: comparison operator < (false case: 3 < 1)
+// Expected exit code: 0
+
+module CmpLtFalse = structure {
+  pub let entry : () -> u64 !{} @{} = fn(_ : ()) -> {
+    let x : u64 = 3u64 < 1u64
+    x
+  }
+}

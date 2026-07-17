@@ -1,0 +1,9 @@
+// #1229: comparison operator <= (true case with equality: 3 <= 3)
+// Expected exit code: 1
+
+module CmpLeEqTrue = structure {
+  pub let entry : () -> u64 !{} @{} = fn(_ : ()) -> {
+    let x : u64 = 3u64 <= 3u64
+    x
+  }
+}

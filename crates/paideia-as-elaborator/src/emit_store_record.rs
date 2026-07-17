@@ -5,7 +5,7 @@
 //! (Phase 6 m3-004 cap-mint record constructor for the 4-field all-u64
 //! capability descriptor shape).
 
-use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand, RegId};
+use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand, RegId, Cond};
 use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi};
 use paideia_as_ir::symbol::SymbolKind;
 use paideia_as_diagnostics::{DiagnosticCode, Category, Severity};
@@ -880,6 +880,73 @@ impl EmitWalker {
 
                             return true; // Already emitted all instructions
                         }
+                        "<" | ">" | "<=" | ">=" | "==" | "!=" => {
+                            // #1229: comparison operator → cmp/setcc/movzx sequence.
+                            // Result: 0 or 1 in dest register. Signed variants (MVP).
+                            let cond = match meta.callee_name.as_str() {
+                                "<"  => Cond::Lt,
+                                ">"  => Cond::Gt,
+                                "<=" => Cond::Le,
+                                ">=" => Cond::Ge,
+                                "==" => Cond::Eq,
+                                "!=" => Cond::Ne,
+                                _    => unreachable!(),
+                            };
+
+                            // Pre-allocate IDs to avoid borrow checker issues
+                            let cmp_id = self.alloc_synthetic_id();
+                            let setcc_id = self.alloc_synthetic_id();
+                            let movzx_id = self.alloc_synthetic_id();
+
+                            // 1. cmp dest, arg1_dest
+                            let cmp_inst = Instruction {
+                                mnemonic: Mnemonic::Cmp,
+                                operands: {
+                                    let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                                    ops.push(Operand::Reg(dest));
+                                    ops.push(Operand::Reg(arg1_dest));
+                                    ops
+                                },
+                                encoding_hint: None,
+                                byte_offset_in_text: None,
+                                mode: self.current_mode(),
+                                emission_order: 0,
+                            };
+                            self.emit_inst(cmp_id, cmp_inst);
+
+                            // 2. setcc dest (low 8)
+                            let setcc_inst = Instruction {
+                                mnemonic: Mnemonic::Setcc(cond),
+                                operands: {
+                                    let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                                    ops.push(Operand::Reg(dest));
+                                    ops
+                                },
+                                encoding_hint: None,
+                                byte_offset_in_text: None,
+                                mode: self.current_mode(),
+                                emission_order: 0,
+                            };
+                            self.emit_inst(setcc_id, setcc_inst);
+
+                            // 3. movzx dest, dest.low8 (zero-extend to 64-bit)
+                            let movzx_inst = Instruction {
+                                mnemonic: Mnemonic::Movzx,
+                                operands: {
+                                    let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                                    ops.push(Operand::Reg(dest));
+                                    ops.push(Operand::Reg(dest));
+                                    ops
+                                },
+                                encoding_hint: None,
+                                byte_offset_in_text: None,
+                                mode: self.current_mode(),
+                                emission_order: 0,
+                            };
+                            self.emit_inst(movzx_id, movzx_inst);
+
+                            return true;
+                        }
                         other => {
                             self.push_typed_diag(
                                 t0540_code(),
@@ -1160,7 +1227,8 @@ pub(crate) fn is_operator_callee(s: &str) -> bool {
     matches!(s,
         "|" | "&" | "^" | "<<" | ">>" |
         "+" | "-" | "*" | "/" | "%" |
-        "~" | "!"
+        "~" | "!" |
+        "<" | ">" | "<=" | ">=" | "==" | "!="
     )
 }
 

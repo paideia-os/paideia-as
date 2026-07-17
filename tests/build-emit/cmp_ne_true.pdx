@@ -1,0 +1,9 @@
+// #1229: comparison operator != (true case: 1 != 2)
+// Expected exit code: 1
+
+module CmpNeTrue = structure {
+  pub let entry : () -> u64 !{} @{} = fn(_ : ()) -> {
+    let x : u64 = 1u64 != 2u64
+    x
+  }
+}
