@@ -28,6 +28,7 @@ mod build_emit {
     pub mod flat_lambda_binop_canaries;
     pub mod enum_primitive_payload_u32;
     pub mod enum_record_payload;
+    pub mod enum_stackform_lea_rdi;
     pub mod func_scope_enum_let_orphan;
     pub mod func_scope_enum_let_no_weak_symbol;
     pub mod field_access_call;

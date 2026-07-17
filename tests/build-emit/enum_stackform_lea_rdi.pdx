@@ -1,0 +1,15 @@
+// Issue #1177: Coverage for #1153's stack-form LEA rdi
+// Tests that stack-form enums (size > 16 bytes) correctly emit lea rdi for module symbol loading.
+// The fixture exercises the code path in emit_scrutinee_load that emits:
+//   lea rdi, [rip+symbol]
+// when layout.size > 16 for an enum loaded from a module-level Object symbol.
+
+module EnumStackformLeaRdi = structure {
+  struct Point { x: u64, y: u64, z: u64 }
+  enum Result { Ok(Point), Err }
+  pub let r : Result = Result::Ok(Point { x: 1u64, y: 2u64, z: 3u64 })
+  pub let f : () -> u64 = fn () -> match r {
+    Ok(p) => { p.x }
+    Err => { 0u64 }
+  }
+}
