@@ -28,4 +28,5 @@ mod milestone {
     pub mod pa_r17_1074_t0535_record_field;
     pub mod pa_r17_1075_t0535_return_type;
     pub mod pa_r17_1076_t0535_effect_cap_row;
+    pub mod pa_r18_1234_recordcons_data_borrow;
 }

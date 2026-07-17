@@ -400,7 +400,7 @@ fn record_non_fn_borrow_target_emits_t0536() {
   pub let data : u64 = 42
 
   struct BadVTable {
-    read: &data
+    read: (u64) -> u64
   }
 
   pub let vt : BadVTable = BadVTable { read: &data }
@@ -424,17 +424,19 @@ fn record_non_fn_borrow_target_emits_t0536() {
     cmd.env("NO_COLOR", "1");
     let out = cmd.output().expect("paideia-as build");
 
-    // Build should fail with T0536 diagnostic
+    // Build should fail with T0535 diagnostic (type mismatch)
     assert!(
         !out.status.success(),
-        "build should fail for non-function borrow target"
+        "build should fail for incompatible field type assignment"
     );
 
-    // Verify T0536 diagnostic fires for data symbol address-of
+    // Verify T0535 diagnostic fires: function-ptr field rejects data symbol target
+    // (Post-#1234: data symbols are accepted by RecordCons fields, but type checking
+    // rejects the assignment of a data-symbol pointer to a function-pointer field.)
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        stderr.contains("T0536"),
-        "Expected T0536 diagnostic for data symbol address-of, got: {}",
+        stderr.contains("T0535"),
+        "Expected T0535 diagnostic for fn-ptr/data-symbol mismatch, got: {}",
         stderr
     );
 

@@ -11,10 +11,21 @@ use paideia_as_ir::IrNodeId;
 
 use super::identifier::is_valid_identifier;
 
+/// Policy governing which resolved SymbolKinds are accepted as address-of targets.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub(super) enum AddrOfPolicy {
+    /// Top-level `let x = &sym` — LHS declared as fn-ptr; reject non-Function with T0536.
+    FunctionOnly,
+    /// RecordCons field `S { f: &sym, … }` — LHS field type may be `*T` or fn-ptr; accept
+    /// Function or Object. Undefined names still fall through to the cross-file path.
+    FunctionOrObject,
+}
+
 /// PA-R17-003 / #988: Extract variable name from a Borrow operand.
 ///
 /// Given a Borrow node's operand (expected to be a Var), extract the identifier text
-/// from the source span, validate it, and check if it refers to a function symbol.
+/// from the source span, validate it, and check if it refers to a symbol matching the
+/// provided policy (FunctionOnly or FunctionOrObject).
 /// Returns `Some(var_name)` on success, or `None` if validation fails (with diagnostic
 /// emitted to sink).
 pub(super) fn extract_var_name_from_operand(
@@ -22,6 +33,7 @@ pub(super) fn extract_var_name_from_operand(
     lowering: &paideia_as_elaborator::LoweringResult,
     source_map: &SourceMap,
     file: paideia_as_diagnostics::FileId,
+    policy: AddrOfPolicy,
     sink: &mut VecSink,
 ) -> Option<String> {
     let operand_node = lowering.ir.get(operand_id)?;
@@ -53,12 +65,25 @@ pub(super) fn extract_var_name_from_operand(
     let sym_kind = lowering.ir.symbols().lookup_by_name(&var_name).map(|s| s.kind);
 
     if let Some(sym_kind) = sym_kind {
-        // Found locally. Check that symbol is a function.
-        if sym_kind != paideia_as_ir::SymbolKind::Function {
+        // Found locally. Check that symbol matches the policy.
+        let ok = match policy {
+            AddrOfPolicy::FunctionOnly => sym_kind == paideia_as_ir::SymbolKind::Function,
+            AddrOfPolicy::FunctionOrObject => {
+                matches!(sym_kind, paideia_as_ir::SymbolKind::Function | paideia_as_ir::SymbolKind::Object)
+            }
+        };
+        if !ok {
             let diag = Diagnostic::error(
                 DiagnosticCode::new(Category::T, Severity::Error, 536).expect("T0536 is valid"),
             )
-            .message("address-of target is not a function; data-symbol addr-of not supported in v0.17")
+            .message(match policy {
+                AddrOfPolicy::FunctionOnly => {
+                    "address-of target is not a function; data-symbol addr-of not supported in v0.17".to_string()
+                }
+                AddrOfPolicy::FunctionOrObject => {
+                    format!("address-of target must be a function or object; got {:?}", sym_kind)
+                }
+            })
             .with_span(operand_node.span)
             .finish();
             let _ = sink.emit(diag);

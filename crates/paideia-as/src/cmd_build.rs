@@ -1389,6 +1389,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                                             &lowering,
                                             &source_map,
                                             file,
+                                            addr_of::AddrOfPolicy::FunctionOnly,
                                             &mut sink,
                                         ) {
                                             // #988 v2: Push (let_id, rhs_id, var_name, None) for T0535 checking
@@ -1421,6 +1422,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                                                         &lowering,
                                                         &source_map,
                                                         file,
+                                                        addr_of::AddrOfPolicy::FunctionOrObject,
                                                         &mut sink,
                                                     ) {
                                                         // Push (let_id, borrow_id, var_name, Some((rc_ir_id, field_idx0))) for record field

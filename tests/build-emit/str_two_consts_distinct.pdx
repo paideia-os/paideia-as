@@ -1,0 +1,14 @@
+// Issue #1234 fixture 5: Multiple Str constants with distinct data-symbol targets
+// Verifies that multiple RecordCons fields can independently target different data symbols.
+
+struct Str {
+  ptr: *u8,
+  len: u64,
+}
+
+module StrTwoConstsDist = structure {
+  pub let data1 : [u8; 5] = "hello"
+  pub let data2 : [u8; 5] = "world"
+  pub let str1 : Str = Str { ptr: &data1, len: 5u64 }
+  pub let str2 : Str = Str { ptr: &data2, len: 5u64 }
+}

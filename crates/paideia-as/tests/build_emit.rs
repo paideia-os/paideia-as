@@ -104,6 +104,7 @@ mod build_emit {
     pub mod rep_movsq;
     pub mod rep_stosb;
     pub mod rep_stosq;
+    pub mod record_borrow_data_symbol;
     pub mod scanner_routing_parity;
     pub mod semi_sparse_jump_table;
     pub mod smoke;

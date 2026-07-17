@@ -1,0 +1,12 @@
+// Issue #1234 fixture 1: RecordCons Borrow field targeting data symbol
+// Verifies that module-level Str constants can be constructed with &hello_bytes data-symbol target.
+
+struct Str {
+  ptr: *u8,
+  len: u64,
+}
+
+module StrHelloConst = structure {
+  pub let hello_bytes : [u8; 6] = "hello\0"
+  pub let hello_str : Str = Str { ptr: &hello_bytes, len: 5u64 }
+}
