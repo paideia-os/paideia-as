@@ -1,0 +1,10 @@
+// v0.18 #998: Parse-only API shape — substring extraction.
+//
+// Trait signature documenting str_substring API.
+// Implementation deferred: blocked on #998e (struct-by-value return).
+
+struct Str { ptr: *u8, len: u64 }
+
+trait StrSubstring {
+  fn str_substring(s: *Str, from: u64, to: u64) -> Str;
+}

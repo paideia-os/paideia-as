@@ -1,0 +1,11 @@
+// v0.18 #998: Parse-only API shape — split string at index.
+//
+// Trait signature documenting str_split_at API.
+// Implementation deferred: blocked on tuple return (no T in v0.18).
+// For now, return unit type as placeholder.
+
+struct Str { ptr: *u8, len: u64 }
+
+trait StrSplitAt {
+  fn str_split_at(s: *Str, at: u64) -> ();
+}

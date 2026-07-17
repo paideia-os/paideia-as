@@ -1,0 +1,10 @@
+// v0.18 #998: Parse-only API shape — string equality.
+//
+// Trait signature documenting str_eq API.
+// Implementation deferred: blocked on #998b (deref), #998c (loop), #998d (struct-by-value args).
+
+struct Str { ptr: *u8, len: u64 }
+
+trait StrEq {
+  fn str_eq(a: *Str, b: *Str) -> u64;
+}

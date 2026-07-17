@@ -1,11 +1,11 @@
-// Phase 4 m11-003: Fixture — str_starts_with_false
+// v0.18 #998: Modified stub — str_starts_with_false.
 //
 // Verify that str_starts_with returns false when a Str does not start with a prefix.
-// Phase-4-m11-003 minimum: parse-only; full elaborator-side execution
-// gates on m1 walker work.
+// Phase-4-m11-003 minimum: parse-only. Updated to align on Str { ptr: *u8, len: u64 } (v0.18 #998).
+// Implementation blocked on #998b (deref), #998c (loop).
 
 struct Str {
-  data: *u8,
+  ptr: *u8,
   len: u64,
 }
 

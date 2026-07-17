@@ -40,11 +40,11 @@
 
 - **LetInfo (v0.19)** — `Copy` trait removed from `LetInfo` struct (in `paideia-as-ir`). The struct now carries an `Option<String>` field for `@link_section` support (issue #1015), which is not `Copy`. Dependent code must clone LetInfo instead of copying. Migrating: change patterns like `let info = table.get(id).unwrap().clone()` or adjust iterator patterns to use references.
 
-## v0.18.0 — STDLIB: Option<T> and Result<T,E>
+## v0.18.0 — STDLIB: Option<T>, Result<T,E>, and Str types
 
-**In development:** Milestone PA-R18-004 (#997).
+**In development:** Milestones PA-R18-004 (#997) and PA-R18-005 (#998, downgraded scope due to #998a).
 
-Foundational stdlib types `Option<T>` and `Result<T,E>` now have concrete implementations in `crates/paideia-stdlib/pdx/`. Generic enum declarations (`enum Option<T> { Some(T), None }` and `enum Result<T, E> { Ok(T), Err(E) }`) establish the surface API. Hand-monomorphized aliases (`OptionU64`, `ResultU64U64`) provide kernel-testable implementations pending generic-enum monomorphization (issue #997c). Free-function `unwrap_or` implementations deliver the core fallback pattern. Four runtime canaries verify constructor + match-based extraction round-trips (expect codes: 42, 99, 42, 7).
+Foundational stdlib types `Option<T>`, `Result<T,E>`, and `Str` now have concrete implementations in `crates/paideia-stdlib/pdx/`. Generic enum declarations establish the surface API for Option/Result; hand-monomorphized aliases (`OptionU64`, `ResultU64U64`) provide kernel-testable implementations. The `Str { ptr: *u8, len: u64 }` type enables string operations via pointer parameters (module-level constants deferred due to issue #998a, a gap in data-symbol Borrow elaboration). Four Option/Result canaries verify constructor + match-based extraction round-trips.
 
 ### Key changes
 
@@ -58,6 +58,15 @@ Foundational stdlib types `Option<T>` and `Result<T,E>` now have concrete implem
   - Deferred combinators (map/and_then/map_err/ok_or) to issue #997b (blocked on closure primitives #995).
   - Deferred impl<T> method blocks to issue #997c (blocked on monomorphization #994/#995).
   - Deferred auto-prelude/use grammar to issue #997d (structural).
+
+- **Issue #998** — Str type + field accessors in stdlib (PA-R18-005, DOWNGRADED SCOPE). Scope reduced due to #998a (RecordCons Borrow field targeting data symbols not yet supported). Delivers:
+  - Canonical `struct Str { ptr: *u8, len: u64 }` in `pdx/str.pdx` (16-byte record).
+  - Field-read accessors: `fn(s: *Str) -> u64` (str_len) and `fn(s: *Str) -> *u8` (str_ptr) via FieldAccess(Deref(Var)).
+  - 7 parse-clean fixtures (2 ptr-form accessors + 4 parse-only API shapes + 1 type definition).
+  - 5 modified fixture stubs aligned to Str { ptr, len } naming.
+  - Deferred module-level Str constants to #998a (data-symbol Borrow gap).
+  - Deferred unsafe-asm `str_byte_at` to #998a (requires module constants).
+  - Deferred string comparison, hashing, substring, split to issues #998b–e (blocked on deref/loop/by-value args/by-value return).
 
 ## v0.17.0 — CONTROL-FLOW: pure functions with if/match/while/loop
 

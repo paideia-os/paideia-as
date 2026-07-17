@@ -1,0 +1,10 @@
+// v0.18 #998: Parse-only API shape — string hash.
+//
+// Trait signature documenting str_hash API.
+// Implementation deferred: blocked on #998b (deref), #998c (loop).
+
+struct Str { ptr: *u8, len: u64 }
+
+trait StrHash {
+  fn str_hash(s: *Str) -> u64;
+}

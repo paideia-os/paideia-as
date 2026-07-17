@@ -1,0 +1,16 @@
+// v0.18 #998 (pa-r18-005): Str — borrowed byte slice (DOWNGRADED SCOPE).
+//
+// Canonical type definition and documented API surface.
+// Downgraded scope due to #998a (RecordCons Borrow field targeting data symbols).
+// Module-level Str constants deferred; available: ptr-form field accessors only.
+
+struct Str { ptr: *u8, len: u64 }
+
+// Documented API (downgraded):
+//   fn str_len(s: *Str) -> u64                             // ptr-form accessor
+//   fn str_ptr(s: *Str) -> *u8                             // ptr-form accessor
+//   fn str_eq(a: *Str, b: *Str) -> u64                     // parse-only (deferred #998b/#998c)
+//   fn str_hash(s: *Str) -> u64                            // parse-only (deferred #998b/#998c)
+//   fn str_byte_at(s: *Str, i: u64) -> u8                  // deferred pending module constants (#998a)
+//   fn str_substring(s: *Str, from: u64, to: u64) -> Str   // deferred: #998e (by-val return)
+//   fn str_split_at(s: *Str, at: u64) -> (Str, Str)        // deferred: tuple return

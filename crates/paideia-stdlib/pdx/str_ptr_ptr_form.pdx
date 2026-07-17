@@ -1,0 +1,11 @@
+// v0.18 #998: Parse-only fixture — ptr field read via pointer parameter.
+//
+// Demonstrates: function parameter type *Str, field read of .ptr from [RDI + 0].
+// No module constants needed; pure function definition.
+
+module StrPtrPtrForm = structure {
+  struct Str { ptr: *u8, len: u64 }
+  pub let str_ptr : (*Str) -> *u8 !{} @{} = fn(s: *Str) -> {
+    (*s).ptr
+  }
+}
