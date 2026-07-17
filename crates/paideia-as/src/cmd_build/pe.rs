@@ -56,7 +56,15 @@ pub(super) fn build_pe_object(
     let emit_result = match emit_text_from_instructions(arena.instructions_mut(), &mut text_bytes) {
         Ok(result) => result,
         Err(e) => {
-            if let Some(failed_node_id) = find_failing_instruction(arena.instructions()) {
+            use paideia_as_emitter_pe::TextEmitterError;
+
+            // Prefer the node from EncodeErrorAt if available; fall back to find_failing_instruction
+            let failed_node_id = match &e {
+                TextEmitterError::EncodeErrorAt { node, .. } => Some(*node),
+                _ => find_failing_instruction(arena.instructions()),
+            };
+
+            if let Some(failed_node_id) = failed_node_id {
                 let msg = format!("encoder failed on IR node {}: {}", failed_node_id.get(), e);
                 let span = Some(Span::new(file, 0, 1));
                 if encoder_warn {

@@ -1,0 +1,19 @@
+module PreexistingLabelsRegression = structure {
+  let mut hm_state: [u64; 32] = uninit
+  pub let init: () -> () !{} @{} = fn() -> unsafe {
+    effects: {}, capabilities: {},
+    justification: "init",
+    block: {
+      lea rax, hm_state
+      mov rcx, 32
+      clear_loop:
+      cmp rcx, 0
+      jz clear_done
+      dec rcx
+      jmp clear_loop
+      clear_done:
+      mov r9, 0
+      mov [rax], r9
+    }
+  }
+}

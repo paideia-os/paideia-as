@@ -14,13 +14,23 @@ use std::collections::HashMap;
 /// Error type for text section emission.
 #[derive(Debug, Clone)]
 pub enum TextEmitterError {
-    /// Instruction encoding failed.
+    /// Instruction encoding failed at a specific IR node.
+    EncodeErrorAt {
+        /// The IR node ID where the encoding error occurred.
+        node: IrNodeId,
+        /// Error message describing the encoding failure.
+        message: String,
+    },
+    /// Instruction encoding failed (legacy fallback without node tracking).
     EncodeError(String),
 }
 
 impl std::fmt::Display for TextEmitterError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            TextEmitterError::EncodeErrorAt { node, message } => {
+                write!(f, "encoding error at node {}: {}", node.get(), message)
+            }
             TextEmitterError::EncodeError(msg) => write!(f, "encoding error: {}", msg),
         }
     }
@@ -94,7 +104,10 @@ pub fn emit_text_from_instructions(
         // Get the immutable instruction for encoding
         let instruction = table.get(node_id).unwrap();
         let encode_output = encode_instruction(instruction, &mut buf, &mut stats)
-            .map_err(|e| TextEmitterError::EncodeError(format!("{:?}", e)))?;
+            .map_err(|e| TextEmitterError::EncodeErrorAt {
+                node: node_id,
+                message: format!("{:?}", e),
+            })?;
 
         // Phase-5-m4-004: Collect relocation sites from this instruction.
         // Each RelocSite has a byte_offset relative to the instruction's start.

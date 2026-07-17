@@ -1,0 +1,9 @@
+module MovMemImmRipRelSym = structure {
+  let mut hm_len: u64 = 0
+  pub let f: () -> () !{} @{} = fn() -> unsafe {
+    effects: {}, capabilities: {}, justification: "mov [rip + hm_len], 42",
+    block: {
+      mov [rip + hm_len], 42
+    }
+  }
+}

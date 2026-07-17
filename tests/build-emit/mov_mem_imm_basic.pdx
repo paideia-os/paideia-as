@@ -1,0 +1,9 @@
+module MovMemImmBasic = structure {
+  pub let f: () -> () !{} @{} = fn() -> unsafe {
+    effects: {}, capabilities: {}, justification: "mov [rax], 42",
+    block: {
+      mov rax, 0
+      mov [rax], 42
+    }
+  }
+}

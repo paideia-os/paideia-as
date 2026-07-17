@@ -1,0 +1,10 @@
+module MovMemImmNegSxt = structure {
+  pub let f: () -> () !{} @{} = fn() -> unsafe {
+    effects: {}, capabilities: {}, justification: "mov [base + idx*1 + disp], imm large positive",
+    block: {
+      mov rax, 0
+      mov rcx, 16
+      mov [rax + rcx*1 + 8], 2147483647
+    }
+  }
+}

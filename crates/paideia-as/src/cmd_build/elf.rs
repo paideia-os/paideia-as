@@ -61,8 +61,15 @@ pub(super) fn build_elf_object(
                 // Phase-6-m1-004: Find the instruction that failed and extract IR node info.
                 // Phase 8 m1-004: Emit typed diagnostic B1705/B1706 and return BuildError::Failed.
                 use super::diagnostics::{encoder_error, encoder_warn as encoder_warn_diag, span_of, find_failing_instruction};
+                use paideia_as_emitter_pe::TextEmitterError;
 
-                if let Some(failed_node_id) = find_failing_instruction(instruction_table) {
+                // Prefer the node from EncodeErrorAt if available; fall back to find_failing_instruction
+                let failed_node_id = match &e {
+                    TextEmitterError::EncodeErrorAt { node, .. } => Some(*node),
+                    _ => find_failing_instruction(instruction_table),
+                };
+
+                if let Some(failed_node_id) = failed_node_id {
                     let msg = format!("encoder failed on IR node {}: {}", failed_node_id.get(), e);
                     let span = span_of(arena, failed_node_id).or_else(|| Some(Span::new(file, 0, 1)));
 

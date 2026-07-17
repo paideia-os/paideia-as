@@ -2036,6 +2036,80 @@ fn encode_mov(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
             );
             Ok(EncodeOutput::new())
         }
+        // Fix #1240: mov [base + disp], imm64 (no index, just base + displacement)
+        [
+            Operand::MemSib {
+                base,
+                index: None,
+                scale: Scale::X1,
+                disp,
+            },
+            Operand::Imm64(imm),
+        ] => {
+            // mov [base + disp], imm — W64 form with sign-extended i32 immediate
+            let base_reg = reg64_from(*base)?;
+            let disp32 = *disp;
+            if *imm < i32::MIN as i64 || *imm > i32::MAX as i64 {
+                return Err(EncodeError::Unsupported(
+                    "mov_q [mem], imm64 requires imm ∈ i32 sign-ext range; use movabs r11, imm64 + mov [mem], r11",
+                ));
+            }
+            mov_mem_base_disp_imm32_sxt(buf, base_reg, disp32, *imm as i32);
+            Ok(EncodeOutput::new())
+        }
+        // Fix #1240: mov [base + index*scale + disp], imm64 (SIB with index + displacement)
+        [
+            Operand::MemSib {
+                base,
+                index: Some(idx),
+                scale,
+                disp,
+            },
+            Operand::Imm64(imm),
+        ] => {
+            // mov [base + index*scale + disp], imm — W64 form with sign-extended i32 immediate
+            let base_reg = reg64_from(*base)?;
+            let index_reg = reg64_from(*idx)?;
+            let scale_bits = match scale {
+                Scale::X1 => 0,
+                Scale::X2 => 1,
+                Scale::X4 => 2,
+                Scale::X8 => 3,
+            };
+            let disp32 = *disp;
+            if *imm < i32::MIN as i64 || *imm > i32::MAX as i64 {
+                return Err(EncodeError::Unsupported(
+                    "mov_q [mem], imm64 requires imm ∈ i32 sign-ext range; use movabs r11, imm64 + mov [mem], r11",
+                ));
+            }
+            mov_mem_sib_disp_imm32_sxt(buf, base_reg, index_reg, scale_bits, disp32, *imm as i32);
+            Ok(EncodeOutput::new())
+        }
+        // Fix #1240: mov [rip + sym], imm64 (RIP-relative memory with symbol)
+        [Operand::MemRipRelSym { name, addend }, Operand::Imm64(imm)] => {
+            // mov [rip + sym], imm — W64 form via RIP-relative addressing
+            // Emits: 48 C7 05 <disp32_placeholder> <imm32>
+            if *imm < i32::MIN as i64 || *imm > i32::MAX as i64 {
+                return Err(EncodeError::Unsupported(
+                    "mov_q [mem], imm64 requires imm ∈ i32 sign-ext range; use movabs r11, imm64 + mov [mem], r11",
+                ));
+            }
+            // REX.W prefix (0x48), opcode (0xC7), ModR/M with rip-relative form (0x05)
+            buf.bytes.push(0x48);
+            buf.bytes.push(0xC7);
+            buf.bytes.push(0x05);
+            buf.bytes.extend(imm.to_le_bytes()[0..4].iter());
+            buf.bytes.extend([0, 0, 0, 0]); // placeholder disp32
+
+            let mut output = EncodeOutput::new();
+            output.add_reloc(RelocSite {
+                byte_offset: 3, // disp32 starts at byte +3 (instruction-local)
+                symbol: name.clone(),
+                kind: RelocKind::PcRel32,
+                addend: addend.wrapping_add(PC32_FIELD_BIAS),
+            });
+            Ok(output)
+        }
         // PA-R16-007: mov reg, [disp32] and related absolute-address forms
         [Operand::Reg(dest), Operand::MemDisp { disp }] => {
             // mov reg, [disp32] — delegate to absolute-form encoder
@@ -2163,7 +2237,7 @@ fn encode_mov(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
             unreachable!("Operand::Var reached encoder — resolve_var_operands pass was skipped")
         }
         _ => Err(EncodeError::Unsupported(
-            "mov form not in phase-3-m2-002 minimum",
+            "unsupported mov operand shape; check operand types and addressing modes",
         )),
     }
 }
