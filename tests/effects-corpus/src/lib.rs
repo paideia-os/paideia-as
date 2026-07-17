@@ -55,7 +55,7 @@ pub fn codes_for(path: &Path) -> Result<BTreeSet<String>, String> {
 /// Parse effect-system codes from stderr output of `paideia-as build`.
 ///
 /// Looks for patterns like `F1100`, `F1101`, ..., `F1106` (F-codes)
-/// and `T0510` (T-code). Extracts all matches in order of appearance.
+/// and `T0510`, `T0556` (T-codes). Extracts all matches in order of appearance.
 fn parse_codes_from_stderr(stderr: &str) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     let bytes = stderr.as_bytes();

@@ -1217,8 +1217,8 @@ deprecated = false
 severity = "error"
 category = "type"
 title = "Unsupported match scrutinee kind"
-brief = "match scrutinee must be a Var reference"
-description = "Issue #1084 (PA-r17-009b): The scrutinee (value being matched) must be a Var that resolves to either a module-level Object symbol or a local binding. Other expressions (like literals, function calls, or complex expressions) are not yet supported as match scrutinees in the current emit pass. Extract the value into a local variable and use that variable as the scrutinee."
+brief = "match scrutinee must be a Var binding — bind the value to a `let` first"
+description = "Issue #1084 (PA-r17-009b): The scrutinee (value being matched) must be a Var that resolves to either a module-level Object symbol or a local binding. Other expressions (like literals, function calls, or complex expressions) are not yet supported as match scrutinees in the current emit pass. Extract the value into a local variable and use that variable as the scrutinee (e.g., `let x = f(y); match x { ... }`)."
 since = "0.17.0"
 deprecated = false
 

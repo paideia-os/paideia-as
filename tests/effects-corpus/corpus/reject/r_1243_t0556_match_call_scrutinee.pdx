@@ -1,0 +1,16 @@
+// Issue #1243 — match with call expression as scrutinee fires T0556 (unsupported scrutinee kind)
+// instead of U1650. The user should bind the call result to a let first.
+// Expected error: T0556
+
+module R1243T0556MatchCallScrutinee = structure {
+  enum Result { Ok(u64), Err(u64) }
+
+  pub let make_result : () -> Result !{} @{} = fn(_ : ()) -> Result::Ok(42u64)
+
+  pub let test_match_call_scrutinee : () -> u64 !{} @{} = fn(_ : ()) -> {
+    match make_result() {
+      Ok(v) => v,
+      Err(_) => 0u64
+    }
+  }
+}

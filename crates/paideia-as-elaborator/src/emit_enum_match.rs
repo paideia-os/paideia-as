@@ -1065,6 +1065,23 @@ impl EmitWalker {
             return;
         }
 
+        // Early check: if scrutinee is not a Var, fire T0556
+        if let Some(scrutinee_node) = arena.get(scrutinee_id) {
+            if scrutinee_node.kind != IrKind::Var {
+                self.push_typed_diag(
+                    t0556_code(),
+                    format!(
+                        "match scrutinee must be a Var binding — bind the value to a `let` first (e.g., `let x = {}; match x {{ ... }}`)",
+                        match scrutinee_node.kind {
+                            IrKind::App => "f(y)",
+                            _ => "expr",
+                        }
+                    ),
+                );
+                return;
+            }
+        }
+
         // Read enum type from scrutinee table
         let enum_type_id = match arena.match_scrutinee_table().get(match_node_id) {
             Some(tid) => *tid,
@@ -1383,7 +1400,7 @@ impl EmitWalker {
             }
         }
 
-        let _scrutinee_id = children[0];
+        let scrutinee_id = children[0];
         let arm_ids: Vec<IrNodeId> = children[1..].to_vec();
 
         if arm_ids.is_empty() {
@@ -1392,6 +1409,23 @@ impl EmitWalker {
                 match_node_id.get()
             ));
             return;
+        }
+
+        // Early check: if scrutinee is not a Var, fire T0556
+        if let Some(scrutinee_node) = arena.get(scrutinee_id) {
+            if scrutinee_node.kind != IrKind::Var {
+                self.push_typed_diag(
+                    t0556_code(),
+                    format!(
+                        "match scrutinee must be a Var binding — bind the value to a `let` first (e.g., `let x = {}; match x {{ ... }}`)",
+                        match scrutinee_node.kind {
+                            IrKind::App => "f(y)",
+                            _ => "expr",
+                        }
+                    ),
+                );
+                return;
+            }
         }
 
         // Read enum type from scrutinee table
@@ -1421,7 +1455,7 @@ impl EmitWalker {
         let layout_payload_size = layout.payload_size;
 
         // #1084: Emit scrutinee load from module symbol or local binding
-        self.emit_scrutinee_load(match_node_id, _scrutinee_id, &layout, arena);
+        self.emit_scrutinee_load(match_node_id, scrutinee_id, &layout, arena);
 
         // Emit discriminant load for stack form
         if layout_size > 16 {
