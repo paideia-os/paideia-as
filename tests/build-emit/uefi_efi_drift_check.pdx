@@ -1,0 +1,16 @@
+// Issue #1122: Option C end-to-end .efi drift detection
+//
+// This minimal fixture outputs a PE/COFF UEFI binary. The Rust test
+// verifies end-to-end correctness by:
+// 1. Compiling this fixture to PE/COFF format
+// 2. Extracting OFF_* constants from paideia-stdlib::uefi
+// 3. Reading the compiled binary and verifying header fields match
+//    the constants at the specified offsets
+//
+// This is more robust than Option A (hardcoded offsets) because it
+// verifies the library constants are correct.
+
+module UefiEfiDriftCheck = structure {
+  // UEFI entry point (required for PE/COFF validity)
+  pub let efi_main : (u64, u64) -> u64 = fn(image : u64, sys : u64) -> image @abi("ms")
+}

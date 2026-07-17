@@ -1936,6 +1936,7 @@ dependencies = [
  "paideia-as-test",
  "paideia-as-types",
  "paideia-fmt",
+ "regex",
  "serde_json",
  "similar",
  "smallvec",
