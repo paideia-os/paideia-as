@@ -107,6 +107,8 @@ pub(super) fn is_rip_identifier(
 /// - GPR (rax–r15): 0–15 (standard x86_64)
 /// - Control registers (cr0–cr8): 16–24 (compact encoding for m2-005 bridge)
 /// - Debug registers (dr0–dr7): 25–32 (compact encoding for m2-005 bridge)
+/// - Extended low-byte registers (spl, bpl, sil, dil): 33–36
+/// - YMM vector registers (ymm0–ymm15): 37–52 (AVX2 baseline per issue #1004)
 ///
 /// Phase 7 m2-001 (PA7C-m2-001): Sub-registers (32-bit, 16-bit, 8-bit) are supported
 /// and resolve to the same RegId as their 64-bit form. For example, "eax", "ax", and "al"
@@ -115,6 +117,10 @@ pub(super) fn is_rip_identifier(
 ///
 /// The bridge in m2-005 will interpret values >= 16 as special registers and
 /// extract the control/debug register index accordingly.
+///
+/// Phase R18 PA-R18-011 (issue #1004): YMM register band 37–52 introduced for AVX2 substrate.
+/// YMM registers are used in raw-asm unsafe blocks; elaborator width contract returns None
+/// (consistent with control/debug registers), deferring width-checking to a future safe-mode pass.
 #[must_use]
 pub(super) fn register_name_to_regid(name: &str) -> Option<RegId> {
     match name {
@@ -214,6 +220,24 @@ pub(super) fn register_name_to_regid(name: &str) -> Option<RegId> {
         "dr5" => Some(RegId(30)),
         "dr6" => Some(RegId(31)),
         "dr7" => Some(RegId(32)),
+
+        // YMM vector registers (compact encoding: 37 + index) — Phase R18 issue #1004
+        "ymm0" => Some(RegId(37)),
+        "ymm1" => Some(RegId(38)),
+        "ymm2" => Some(RegId(39)),
+        "ymm3" => Some(RegId(40)),
+        "ymm4" => Some(RegId(41)),
+        "ymm5" => Some(RegId(42)),
+        "ymm6" => Some(RegId(43)),
+        "ymm7" => Some(RegId(44)),
+        "ymm8" => Some(RegId(45)),
+        "ymm9" => Some(RegId(46)),
+        "ymm10" => Some(RegId(47)),
+        "ymm11" => Some(RegId(48)),
+        "ymm12" => Some(RegId(49)),
+        "ymm13" => Some(RegId(50)),
+        "ymm14" => Some(RegId(51)),
+        "ymm15" => Some(RegId(52)),
 
         // Special register: RIP (Instruction Pointer) for RIP-relative addressing
         // PA10-006j: Must be recognized as a register to allow fallback to parse_address_to_sib

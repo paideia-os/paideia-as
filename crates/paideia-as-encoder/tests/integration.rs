@@ -21,5 +21,6 @@ mod control_flow;
 mod lock_prefix;
 mod memory_ops;
 mod mov;
+mod simd;
 mod system;
 mod test_flags;

@@ -537,6 +537,25 @@ pub enum Mnemonic {
         /// Operand width selecting the encoded form (W64 only).
         width: IntWidth,
     },
+    /// Bitwise XOR (256-bit vector): `vpxor ymm dst, ymm src1, ymm src2` (PA-R18-011, #1004).
+    /// Encoding: VEX.256 66 0F EF /r per Intel SDM Vol 2B VPXOR.
+    /// Three operands (dst, src1, src2).
+    Vpxor,
+    /// Byte-wise equal comparison (256-bit vector): `vpcmpeqb ymm dst, ymm src1, ymm src2` (PA-R18-011, #1004).
+    /// Encoding: VEX.256 66 0F 74 /r per Intel SDM Vol 2B VPCMPEQB.
+    /// Three operands (dst, src1, src2).
+    Vpcmpeqb,
+    /// Move mask from register (256-bit vector): `vpmovmskb r32 dst, ymm src` (PA-R18-011, #1004).
+    /// Encoding: VEX.256 66 0F D7 /r per Intel SDM Vol 2B VPMOVMSKB.
+    /// Two operands (dst r32, src ymm).
+    Vpmovmskb,
+    /// Move (unaligned) to/from vector register (256-bit): `vmovdqu ymm dst, ymm/[mem]` or `vmovdqu [mem], ymm` (PA-R18-011, #1004).
+    /// Encoding: VEX.256 F3 0F 6F/7F /r per Intel SDM Vol 2B VMOVDQU.
+    /// Two operands (dst {ymm|mem}, src {mem|ymm}).
+    Vmovdqu {
+        /// True for store form ([mem] ← ymm), false for load form (ymm ← [mem] or ymm ← ymm).
+        is_store: bool,
+    },
 }
 
 /// Integer operand width for width-threaded immediate moves.
@@ -948,7 +967,12 @@ impl Mnemonic {
             | Mnemonic::LockXadd { .. }
             | Mnemonic::LockAdd { .. }
             | Mnemonic::LockSub { .. }
-            | Mnemonic::Movnti { .. } => 2,
+            | Mnemonic::Movnti { .. }
+            | Mnemonic::Vpmovmskb
+            | Mnemonic::Vmovdqu { .. } => 2,
+
+            // Three-operand instructions (Phase R18 PA-R18-011 issue #1004)
+            Mnemonic::Vpxor | Mnemonic::Vpcmpeqb => 3,
 
             // Zero-operand instructions (continued)
             Mnemonic::Mfence => 0,
@@ -1233,6 +1257,14 @@ impl Mnemonic {
             // Phase R16 PA-R16-007 (issue #1060): lock inc to memory, 9 bytes upper bound
             // (LOCK + REX + FF + ModR/M + SIB + disp32 worst-case for absolute form)
             Mnemonic::LockInc { .. } => 9,
+
+            // Phase R18 PA-R18-011 (issue #1004): AVX2 VEX-prefixed mnemonics
+            // 2-byte or 3-byte VEX prefix (3 bytes worst case) + 2-byte opcode + ModR/M = 6 bytes min
+            // Add SIB (1) + disp32 (4) for memory forms → 11 bytes max, conservative upper bound
+            Mnemonic::Vpxor => 7,
+            Mnemonic::Vpcmpeqb => 7,
+            Mnemonic::Vpmovmskb => 7,
+            Mnemonic::Vmovdqu { .. } => 11,
         }
     }
 }

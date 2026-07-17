@@ -177,7 +177,12 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         | Mnemonic::Prefetcht1
         | Mnemonic::Prefetcht2
         // Phase R16 PA-R16-007 (issue #973): pause spinloop hint
-        | Mnemonic::Pause => InstructionClass::Other,
+        | Mnemonic::Pause
+        // Phase R18 PA-R18-011 (issue #1004): AVX2 SIMD mnemonics are register ALU ops
+        | Mnemonic::Vpxor
+        | Mnemonic::Vpcmpeqb
+        | Mnemonic::Vpmovmskb
+        | Mnemonic::Vmovdqu { .. } => InstructionClass::Other,
     }
 }
 

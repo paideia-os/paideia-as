@@ -10,6 +10,7 @@ pub mod encode;
 pub mod encode_and_or_xor;
 pub mod encode_imul;
 pub mod encode_instruction;
+pub mod encode_vex;
 pub use dispatch::{DispatchKind, classify};
 pub use encode::*;
 pub use encode_instruction::{

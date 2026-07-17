@@ -449,6 +449,11 @@ fn encode_instruction_impl(
         Mnemonic::Dec => encode_dec(inst, buf),
         // Phase R14 PA-R14-003 (issue #946): non-temporal store movnti [mem], r32/r64
         Mnemonic::Movnti { width } => encode_movnti(inst, buf, *width),
+        // Phase R18 PA-R18-011 (issue #1004): AVX2 VEX-prefixed mnemonics
+        Mnemonic::Vpxor => encode_vpxor(inst, buf),
+        Mnemonic::Vpcmpeqb => encode_vpcmpeqb(inst, buf),
+        Mnemonic::Vpmovmskb => encode_vpmovmskb(inst, buf),
+        Mnemonic::Vmovdqu { is_store } => encode_vmovdqu(inst, buf, *is_store),
     }
 }
 
@@ -4106,6 +4111,70 @@ fn encode_invlpg_inst(
         }
         _ => Err(EncodeError::OperandShape {
             mnemonic: Mnemonic::Invlpg,
+        }),
+    }
+}
+
+/// Phase R18 PA-R18-011 (issue #1004): Encode Vpxor ymm dst, ymm src1, ymm src2.
+/// Expects [Reg(dst), Reg(src1), Reg(src2)], all YMM registers (RegId 37-52).
+fn encode_vpxor(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::Reg(dst), Operand::Reg(src1), Operand::Reg(src2)] => {
+            crate::encode_vex::encode_vpxor_reg_reg_reg(buf, dst.0, src1.0, src2.0);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Vpxor,
+        }),
+    }
+}
+
+/// Phase R18 PA-R18-011 (issue #1004): Encode Vpcmpeqb ymm dst, ymm src1, ymm src2.
+fn encode_vpcmpeqb(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::Reg(dst), Operand::Reg(src1), Operand::Reg(src2)] => {
+            crate::encode_vex::encode_vpcmpeqb_reg_reg_reg(buf, dst.0, src1.0, src2.0);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Vpcmpeqb,
+        }),
+    }
+}
+
+/// Phase R18 PA-R18-011 (issue #1004): Encode Vpmovmskb r32 dst, ymm src.
+fn encode_vpmovmskb(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::Reg(dst), Operand::Reg(src)] => {
+            crate::encode_vex::encode_vpmovmskb_reg32_ymm(buf, dst.0, src.0);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Vpmovmskb,
+        }),
+    }
+}
+
+/// Phase R18 PA-R18-011 (issue #1004): Encode Vmovdqu ymm/[mem] dst, ymm/[mem] src.
+fn encode_vmovdqu(inst: &Instruction, buf: &mut CodeBuffer, is_store: bool) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        // vmovdqu ymm dst, ymm src (register-to-register)
+        [Operand::Reg(dst), Operand::Reg(src)] => {
+            crate::encode_vex::encode_vmovdqu_ymm_ymm(buf, dst.0, src.0);
+            Ok(EncodeOutput::new())
+        }
+        // vmovdqu ymm dst, [mem] src (load form, is_store=false)
+        [Operand::Reg(dst), Operand::MemSib { base, index: None, scale: Scale::X1, disp }] if !is_store => {
+            crate::encode_vex::encode_vmovdqu_ymm_mem(buf, dst.0, base.0, *disp);
+            Ok(EncodeOutput::new())
+        }
+        // vmovdqu [mem] dst, ymm src (store form, is_store=true)
+        [Operand::MemSib { base, index: None, scale: Scale::X1, disp }, Operand::Reg(src)] if is_store => {
+            crate::encode_vex::encode_vmovdqu_mem_ymm(buf, base.0, *disp, src.0);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Vmovdqu { is_store },
         }),
     }
 }
