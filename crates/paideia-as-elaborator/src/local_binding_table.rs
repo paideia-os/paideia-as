@@ -23,6 +23,8 @@ use std::collections::{HashMap, HashSet};
 /// #1233: Captures in closure bodies reside at [r14 + offset] rather than in registers.
 /// This enum allows LocalBindingTable to track both register and memory-based bindings
 /// for resolution via resolve_var_operands.
+/// #995: Closure bindings (fat pointers) reside in a register but are distinct from
+/// scalar bindings for dispatch purposes.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum BindingHome {
     /// Scalar binding in a single register.
@@ -31,6 +33,8 @@ pub enum BindingHome {
     RegPair(RegId, RegId),
     /// Closure capture: [R14 + offset] memory-relative binding (#1233).
     EnvSlot(i32),
+    /// Closure binding: fat pointer (env_ptr|code_ptr pair) in a register (#995).
+    Closure(RegId),
 }
 
 /// A local binding entry wrapping its home location.
@@ -124,6 +128,21 @@ impl LocalBindingTable {
         self.flat.insert(name, entry);
     }
 
+    /// Register a closure binding (fat pointer) in a register.
+    /// #995: Constructs a BindingEntry with home=Closure(reg).
+    /// The register holds a pointer to a 16-byte [env_ptr:8 | code_ptr:8] fat pair.
+    pub fn insert_closure(&mut self, name: String, reg: RegId) {
+        let entry = BindingEntry {
+            home: BindingHome::Closure(reg),
+        };
+        // Insert into top scope
+        if let Some(top_scope) = self.scopes.last_mut() {
+            top_scope.insert(name.clone(), entry);
+        }
+        // Insert into flat union
+        self.flat.insert(name, entry);
+    }
+
     /// Look up a binding's home by walking scopes top-down; if none found, fall back to flat.
     /// #1233: Returns the full BindingHome. Primary lookup for new code paths.
     #[must_use]
@@ -197,11 +216,13 @@ impl LocalBindingTable {
     /// Iterate over all flat bindings (backward-compat surface for len/is_empty/iter).
     /// Returns the primary register (reg field from BindingHome) for each binding.
     /// Skips EnvSlot bindings. For RegPair, returns the discriminant only.
+    /// #995: Includes Closure bindings (returns the fat-pair register).
     pub fn iter(&self) -> impl Iterator<Item = (&String, RegId)> + '_ {
         self.flat.iter().filter_map(|(name, entry)| match entry.home {
             BindingHome::Reg(r) => Some((name, r)),
             BindingHome::RegPair(r, _) => Some((name, r)),
             BindingHome::EnvSlot(_) => None,
+            BindingHome::Closure(r) => Some((name, r)),
         })
     }
 
@@ -232,6 +253,7 @@ impl LocalBindingTable {
     /// discriminant/payload.
     /// Intended as an outer-entry snapshot for pattern lowering; do not call per-leaf.
     /// Skips EnvSlot bindings (they don't consume registers).
+    /// #995: Includes Closure bindings (fat pointer addresses held in registers).
     #[must_use]
     pub fn live_regs(&self) -> HashSet<RegId> {
         let mut s = HashSet::new();
@@ -247,6 +269,10 @@ impl LocalBindingTable {
                     }
                     BindingHome::EnvSlot(_) => {
                         // Memory-based binding, no register consumed
+                    }
+                    BindingHome::Closure(r) => {
+                        // Closure fat-pair address in register
+                        s.insert(r);
                     }
                 }
             }
@@ -613,5 +639,59 @@ mod tests {
         assert_eq!(table.get_home("enum_x"), Some(BindingHome::RegPair(abi::RCX, abi::RDX)));
         assert_eq!(table.get_home("capture"), Some(BindingHome::EnvSlot(16)));
         assert_eq!(table.get_home("unknown"), None);
+    }
+
+    /// #995: insert_closure and get_home for closure-binding fat pointers.
+    #[test]
+    fn insert_closure_and_get_home() {
+        let mut table = LocalBindingTable::new();
+        let reg = abi::RCX;
+
+        table.insert_closure("f".to_string(), reg);
+        assert_eq!(table.get_home("f"), Some(BindingHome::Closure(reg)));
+        // scalar get() returns None for Closure
+        assert_eq!(table.get("f"), None);
+        assert!(table.contains("f"));
+    }
+
+    /// #995: Closure not included in get() but appears in iter() and live_regs().
+    #[test]
+    fn closure_live_regs_and_iter() {
+        let mut table = LocalBindingTable::new();
+
+        table.insert("scalar_x".to_string(), abi::RAX);
+        table.insert_closure("f".to_string(), abi::RCX);
+
+        // Closure binding in live_regs
+        let live = table.live_regs();
+        assert!(live.contains(&abi::RAX));
+        assert!(live.contains(&abi::RCX));
+        assert_eq!(live.len(), 2);
+
+        // Closure binding in iter()
+        let iter_regs: HashSet<RegId> = table.iter().map(|(_, r)| r).collect();
+        assert_eq!(iter_regs, HashSet::from([abi::RAX, abi::RCX]));
+    }
+
+    /// #995: Closure shadow with local binding.
+    #[test]
+    fn closure_shadow_with_scalar() {
+        let mut table = LocalBindingTable::new();
+
+        // Root: scalar x → RAX
+        table.insert("x".to_string(), abi::RAX);
+        assert_eq!(table.get("x"), Some(abi::RAX));
+
+        // Nested: closure x → RCX (shadow)
+        table.push_scope();
+        table.insert_closure("x".to_string(), abi::RCX);
+
+        // Lookup finds Closure (shadows scalar)
+        assert_eq!(table.get_home("x"), Some(BindingHome::Closure(abi::RCX)));
+        assert_eq!(table.get("x"), None); // get() returns None for Closure
+
+        // Pop back to root
+        table.pop_scope();
+        assert_eq!(table.get("x"), Some(abi::RAX)); // Scalar visible again
     }
 }

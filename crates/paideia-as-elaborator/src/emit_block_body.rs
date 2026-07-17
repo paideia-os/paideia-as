@@ -494,7 +494,8 @@ impl EmitWalker {
                                     // assigned scratch register is something else, move it over
                                     // (mirrors the analogous fixup in the Match-RHS arm above).
                                     self.emit_closure_cons(rhs_id, arena);
-                                    self.state.local_bindings.insert(binding_name.clone(), scratch_reg);
+                                    // #995: Register as Closure binding (not scalar) for proper dispatch.
+                                    self.state.local_bindings.insert_closure(binding_name.clone(), scratch_reg);
                                     if scratch_reg != abi::RAX {
                                         let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
                                         ops.push(Operand::Reg(scratch_reg));
@@ -808,7 +809,17 @@ impl EmitWalker {
                                         if let Some(target_name) = arena.binding_names().get(callee_id) {
                                             let lambda_id = IrNodeId::new(self.state.current_function)
                                                 .expect("current_function set by walker");
-                                            if i == block_children.len() - 1 {
+
+                                            // #995: Check for closure-typed binding BEFORE scalar function pointer.
+                                            use crate::local_binding_table::BindingHome;
+                                            if let Some(BindingHome::Closure(closure_reg)) = self.state.local_bindings.get_home(target_name) {
+                                                // Closure call in statement position
+                                                if cfg!(debug_assertions) {
+                                                    eprintln!("[emit_block_body] App (closure statement call) at index {}", i);
+                                                }
+                                                self.emit_closure_call(lambda_id, closure_reg, &app_children[1..], arena);
+                                                // Statement-position closure call: no explicit ret (handled by tail logic)
+                                            } else if i == block_children.len() - 1 {
                                                 if cfg!(debug_assertions) {
                                                     eprintln!("[emit_block_body] App (tail call) at index {}", i);
                                                 }
@@ -1228,7 +1239,8 @@ impl EmitWalker {
                                     // assigned scratch register is something else, move it over
                                     // (mirrors the analogous fixup in the Match-RHS arm above).
                                     self.emit_closure_cons(rhs_id, arena);
-                                    self.state.local_bindings.insert(binding_name.clone(), scratch_reg);
+                                    // #995: Register as Closure binding (not scalar) for proper dispatch.
+                                    self.state.local_bindings.insert_closure(binding_name.clone(), scratch_reg);
                                     if scratch_reg != abi::RAX {
                                         let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
                                         ops.push(Operand::Reg(scratch_reg));
@@ -1387,7 +1399,17 @@ impl EmitWalker {
                                         if let Some(target_name) = arena.binding_names().get(callee_id) {
                                             let lambda_id = IrNodeId::new(self.state.current_function)
                                                 .expect("current_function set by walker");
-                                            if i == block_children.len() - 1 {
+
+                                            // #995: Check for closure-typed binding BEFORE scalar function pointer.
+                                            use crate::local_binding_table::BindingHome;
+                                            if let Some(BindingHome::Closure(closure_reg)) = self.state.local_bindings.get_home(target_name) {
+                                                // Closure call in arm context
+                                                if cfg!(debug_assertions) {
+                                                    eprintln!("[emit_block_body_arm] App (closure call) at index {}", i);
+                                                }
+                                                self.emit_closure_call(lambda_id, closure_reg, &app_children[1..], arena);
+                                                // Arm-position closure call: no explicit ret (handled by outer block)
+                                            } else if i == block_children.len() - 1 {
                                                 if cfg!(debug_assertions) {
                                                     eprintln!("[emit_block_body_arm] App (tail call) at index {}", i);
                                                 }

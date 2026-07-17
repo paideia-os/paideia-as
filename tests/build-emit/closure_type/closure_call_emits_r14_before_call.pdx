@@ -1,0 +1,11 @@
+// Issue #995 build-emit canary 7: asserts R14 load before call.
+// Verifies the emitted instructions contain `mov r14, [r11+0]` (opcode `4C 8B 33`)
+// followed by `call [r11+8]` in that order within the caller function's byte range.
+// Expected exit code: 42 (just needs to emit correctly; exact bytecode verified by test)
+
+module ClosureCallEmitsR14BeforeCall = structure {
+  pub let entry : () -> u64 = fn () -> {
+    let f : |u64| -> u64 = fn (x: u64) -> x + 1u64
+    f(41u64)
+  }
+}

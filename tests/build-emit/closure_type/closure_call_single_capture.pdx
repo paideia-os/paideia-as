@@ -1,0 +1,13 @@
+// Issue #995 runtime canary 2: single-capture closure invocation.
+// `let c = 37; let f = fn (x: u64) -> x + c; f(5)` returns 42.
+// Verifies caller writes capture to [rsp+env_off], emit_closure_cons stores
+// env_ptr = &captures[0], R14 gets that pointer at call, body reads [r14+0] to recover c.
+// Expected exit code: 42
+
+module ClosureCallSingleCapture = structure {
+  pub let entry : () -> u64 = fn () -> {
+    let c : u64 = 37u64
+    let f : |u64| -> u64 = fn (x: u64) -> x + c
+    f(5u64)
+  }
+}

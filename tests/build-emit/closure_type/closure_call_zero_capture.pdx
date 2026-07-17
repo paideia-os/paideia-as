@@ -1,0 +1,12 @@
+// Issue #995 runtime canary 1: zero-capture closure invocation.
+// `let f = fn (x: u64) -> x + 1; f(41)` returns 42.
+// Verifies the invocation sequence executes end-to-end; verifies R14 = 0
+// is harmless for zero-capture bodies.
+// Expected exit code: 42
+
+module ClosureCallZeroCapture = structure {
+  pub let entry : () -> u64 = fn () -> {
+    let f : |u64| -> u64 = fn (x: u64) -> x + 1u64
+    f(41u64)
+  }
+}

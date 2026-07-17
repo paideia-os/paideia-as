@@ -1,0 +1,14 @@
+// Issue #995 build-emit canary 10: T0575 diagnostic on nested closure invocation.
+// Verify T0575 fires when a closure body itself contains a closure-typed call.
+// This is compile-only; no runtime execution (T0575 blocks the build).
+// Expected: T0575 diagnostic emitted.
+
+module ClosureCallNestedInvocationDiagnostic = structure {
+  pub let entry : () -> u64 = fn () -> {
+    let f : |u64| -> u64 = fn (x: u64) -> {
+      let g : |u64| -> u64 = fn (y: u64) -> y + 1u64
+      g(x)
+    }
+    f(41u64)
+  }
+}

@@ -575,6 +575,18 @@ impl EmitWalker {
                                 // Skip operator entries and fall through to legacy operator handling.
                                 if !matches!(name.as_str(), "|" | "&" | "^" | "<<" | ">>" | "+" | "-" | "*" | "/" | "%" | "~" | "!") {
 
+                                // (#995) Closure-call dispatch — check FIRST before scalar-local-binding path.
+                                // Closures are distinct from scalar function pointers: they require R14 load.
+                                use crate::local_binding_table::BindingHome;
+                                if let Some(BindingHome::Closure(closure_reg)) = self.state.local_bindings.get_home(name) {
+                                    self.emit_closure_call(
+                                        lambda_node_id, closure_reg, &app_children[1..], arena,
+                                    );
+                                    let ret_id = self.alloc_synthetic_id();
+                                    self.emit_ret(ret_id, arena);
+                                    return;
+                                }
+
                                 // (1) Local-binding lookup — lexical scope shadows module scope.
                                 if let Some(callee_reg) = self.state.local_bindings.get(name) {
                                     self.emit_indirect_call_via_reg(

@@ -1,0 +1,11 @@
+// Issue #995 runtime canary 4: multi-arg zero-capture closure invocation.
+// `let f = fn (x: u64, y: u64) -> x + y; f(20, 22)` returns 42.
+// Verifies R14 load doesn't clobber RDI/RSI arg regs.
+// Expected exit code: 42
+
+module ClosureCallTwoArgsZeroCapture = structure {
+  pub let entry : () -> u64 = fn () -> {
+    let f : |u64, u64| -> u64 = fn (x: u64, y: u64) -> x + y
+    f(20u64, 22u64)
+  }
+}

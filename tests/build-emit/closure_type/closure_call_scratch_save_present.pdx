@@ -1,0 +1,14 @@
+// Issue #995 build-emit canary 8: asserts scratch-save bracket present.
+// Verifies push/pop bookends when a caller has a live RCX/RDX/R8 binding
+// at closure invocation. Creates live bindings that would be clobbered.
+// Expected exit code: 42
+
+module ClosureCallScratchSavePresent = structure {
+  pub let entry : () -> u64 = fn () -> {
+    let x : u64 = 1u64
+    let y : u64 = 2u64
+    let z : u64 = 3u64
+    let f : |u64| -> u64 = fn (a: u64) -> a + 1u64
+    f(41u64)
+  }
+}

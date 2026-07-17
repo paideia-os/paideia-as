@@ -1,0 +1,13 @@
+// Issue #995 runtime canary 5: multi-arg multi-capture closure invocation.
+// `let base = 40; let f = fn (x: u64, y: u64) -> base + x - y; f(3, 1)` returns 42.
+// Verifies the caller's env write and R14 load coexist with 2-arg marshalling;
+// verifies binding-in-arg-reg no-op path.
+// Expected exit code: 42
+
+module ClosureCallMultiargWithCapture = structure {
+  pub let entry : () -> u64 = fn () -> {
+    let base : u64 = 40u64
+    let f : |u64, u64| -> u64 = fn (x: u64, y: u64) -> base + x - y
+    f(3u64, 1u64)
+  }
+}

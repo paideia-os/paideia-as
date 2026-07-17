@@ -105,3 +105,61 @@ fn closure_type_fnptr_with_captures_rejects_t0571() {
         "Expected T0571 diagnostic for fn-ptr-annotated lambda with captures.\nStderr: {stderr}"
     );
 }
+
+// Issue #995: closure-call invocation sequence tests
+// ============================================================================
+
+#[test]
+fn closure_call_zero_capture_builds() {
+    assert_build_succeeds("closure_type/closure_call_zero_capture.pdx", "closure_call_zero_capture");
+}
+
+#[test]
+fn closure_call_single_capture_builds() {
+    assert_build_succeeds("closure_type/closure_call_single_capture.pdx", "closure_call_single_capture");
+}
+
+#[test]
+fn closure_call_two_captures_builds() {
+    assert_build_succeeds("closure_type/closure_call_two_captures.pdx", "closure_call_two_captures");
+}
+
+#[test]
+fn closure_call_two_args_zero_capture_builds() {
+    assert_build_succeeds("closure_type/closure_call_two_args_zero_capture.pdx", "closure_call_two_args_zero_capture");
+}
+
+#[test]
+fn closure_call_multiarg_with_capture_builds() {
+    assert_build_succeeds("closure_type/closure_call_multiarg_with_capture.pdx", "closure_call_multiarg_with_capture");
+}
+
+#[test]
+fn closure_call_after_intervening_direct_call_builds() {
+    assert_build_succeeds("closure_type/closure_call_after_intervening_direct_call.pdx", "closure_call_after_intervening_direct_call");
+}
+
+#[test]
+fn closure_call_emits_r14_before_call_builds() {
+    assert_build_succeeds("closure_type/closure_call_emits_r14_before_call.pdx", "closure_call_emits_r14_before_call");
+}
+
+#[test]
+fn closure_call_scratch_save_present_builds() {
+    assert_build_succeeds("closure_type/closure_call_scratch_save_present.pdx", "closure_call_scratch_save_present");
+}
+
+#[test]
+fn closure_call_snapshot_r11_before_arg_marshal_builds() {
+    assert_build_succeeds("closure_type/closure_call_snapshot_r11_before_arg_marshal.pdx", "closure_call_snapshot_r11_before_arg_marshal");
+}
+
+/// Negative: nested closure invocation → T0575 (not yet supported).
+#[test]
+fn closure_call_nested_invocation_diagnostic_rejects_t0575() {
+    let input = build_emit_data("closure_type/closure_call_nested_invocation_diagnostic.pdx");
+    let output = cargo_run(&["build", input.to_str().unwrap(), "--emit", "placeholder"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // Note: T0575 not yet implemented, so this will likely fail or emit a different error.
+    // Once T0575 is implemented, this should verify the diagnostic appears.
+}

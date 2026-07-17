@@ -1,0 +1,13 @@
+// Issue #995 runtime canary 3: two-capture closure invocation.
+// `let a = 10; let b = 32; let f = fn (x: u64) -> a + b; f(0)` returns 42.
+// Verifies symbol-sorted env layout places a at [r14+0], b at [r14+8].
+// Expected exit code: 42
+
+module ClosureCallTwoCaptures = structure {
+  pub let entry : () -> u64 = fn () -> {
+    let a : u64 = 10u64
+    let b : u64 = 32u64
+    let f : |u64| -> u64 = fn (x: u64) -> a + b
+    f(0u64)
+  }
+}

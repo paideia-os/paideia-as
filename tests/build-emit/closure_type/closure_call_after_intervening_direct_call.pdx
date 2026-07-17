@@ -1,0 +1,15 @@
+// Issue #995 runtime canary 6: closure survives intervening direct call.
+// Constructs closure, invokes direct-call function that clobbers scratch,
+// then invokes closure. Verifies the closure binding survives the intervening
+// call via scratch-save discipline (Closure(reg) in live_regs).
+// Expected exit code: 42
+
+module ClosureCallAfterInterveningDirectCall = structure {
+  pub let helper : (u64) -> u64 = fn (x: u64) -> x + 100u64
+
+  pub let entry : () -> u64 = fn () -> {
+    let f : |u64| -> u64 = fn (x: u64) -> x + 1u64
+    let sink : u64 = helper(7u64)
+    f(41u64)
+  }
+}

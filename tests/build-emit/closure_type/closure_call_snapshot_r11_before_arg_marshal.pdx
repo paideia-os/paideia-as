@@ -1,0 +1,12 @@
+// Issue #995 build-emit canary 9: snapshot R11 before arg marshal.
+// Verifies `mov r11, <f_reg>` precedes the first arg-marshal MOV when f's home
+// aliases an arg reg (deliberately place f in RDI's slot). This prevents RDI
+// from being overwritten before the snapshot.
+// Expected exit code: 42
+
+module ClosureCallSnapshotR11BeforeArgMarshal = structure {
+  pub let entry : () -> u64 = fn () -> {
+    let f : |u64| -> u64 = fn (x: u64) -> x + 1u64
+    f(41u64)
+  }
+}

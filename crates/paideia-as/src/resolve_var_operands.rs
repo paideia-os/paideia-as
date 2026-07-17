@@ -114,6 +114,10 @@ pub(crate) fn resolve_var_operands(
                                     disp: off,
                                 };
                             }
+                            BindingHome::Closure(reg) => {
+                                // #995: Closure binding: treat fat-pair address as scalar pointer.
+                                *operand = Operand::Reg(reg);
+                            }
                         }
                     } else {
                         // PA10-005 §3.5: Binding not found in local table;
