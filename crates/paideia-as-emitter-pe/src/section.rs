@@ -593,7 +593,7 @@ impl SectionTable {
     /// This converts section-relative offsets to RVAs and groups them appropriately.
     /// Call this AFTER finalize() so that section RVAs are correctly set.
     pub fn build_reloc_section(&self) -> super::reloc::RelocSection {
-        use super::reloc::{RelocSection, Relocation, IMAGE_REL_BASED_DIR64};
+        use super::reloc::{RelocSection, Relocation};
 
         let mut reloc_section = RelocSection::new();
 
