@@ -1506,6 +1506,23 @@ pattern. Ensure all arm patterns use the same width as the scrutinee
 since = "0.20.0"
 deprecated = false
 
+[diagnostic.T0571]
+severity = "error"
+category = "type"
+title = "Function-pointer annotation on a lambda that captures free variables"
+brief = "lambda captures free variables but is annotated as fn-ptr"
+description = """
+Issue #994: a lambda literal assigned to a binding annotated with a plain
+function-pointer type (`fn(T) -> R`) actually references one or more free
+variables from its enclosing scope. A bare function pointer is an 8-byte
+code address with no room to store a captured environment, so this
+combination cannot be represented. Use closure-type syntax instead
+(`|T| -> R`), which lowers to a 16-byte fat pointer (environment pointer +
+code pointer) that can carry the captured bindings.
+"""
+since = "0.18.0"
+deprecated = false
+
 [diagnostic.P0282]
 severity = "error"
 category = "parser"

@@ -105,6 +105,36 @@ impl EmitFormat {
     }
 }
 
+/// Issue #994: find the arena's true outermost node — the one node that is
+/// not listed as a child of any other node.
+///
+/// `lower_ast_to_ir` mirrors the AST's own node-allocation order 1-1, and
+/// this parser allocates a construct's children before the construct itself
+/// (bottom-up), so the enclosing Module ends up as one of the *last*
+/// IDs, not `IrNodeId::new(1)`. Returns `None` only for a degenerate arena
+/// where no such node exists (e.g. empty, or every node is referenced —
+/// which would indicate a cycle and should not occur for a real program).
+fn find_outermost_root(ir: &paideia_as_ir::IrArena) -> Option<IrNodeId> {
+    let len = ir.len() as u32;
+    if len == 0 {
+        return None;
+    }
+    let mut is_child = vec![false; (len + 1) as usize];
+    for i in 1..=len {
+        if let Some(id) = IrNodeId::new(i) {
+            for &child in ir.children(id) {
+                let idx = child.get() as usize;
+                if idx < is_child.len() {
+                    is_child[idx] = true;
+                }
+            }
+        }
+    }
+    // Prefer the highest-numbered unreferenced node: the outermost wrapper
+    // is constructed last under this parser's bottom-up allocation order.
+    (1..=len).rev().find(|&i| !is_child[i as usize]).and_then(IrNodeId::new)
+}
+
 /// Resolve a target triplet to an emit format.
 fn resolve_target(target: Target) -> EmitFormat {
     match target {
@@ -609,6 +639,73 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                 let mut linearity_walker = LinearityWalker::new();
                 walk(&mut linearity_walker, &lowering.ir, ir_root_id, &mut ctx);
             }
+
+            // Issue #994 piece 1: populate the CapturesTable that piece 2's
+            // closure-vs-fnptr dispatch depends on.
+            //
+            // The walk above starts from `IrNodeId::new(1)`, which per the
+            // (stale) comment above is assumed to be the enclosing Module.
+            // It is not: this lowering's node-allocation order mirrors the
+            // AST's, and the AST allocates a construct's children before the
+            // construct itself (bottom-up), so the real Module root ends up
+            // as one of the *last*-allocated nodes, not the first. Node 1 is
+            // typically a leaf (e.g. the module-name Ident) with no children,
+            // so the walk above never reaches any real Lambda body — it just
+            // is never given the chance to notice, because none of its
+            // diagnostics (S0900 etc.) are exercised end-to-end against real
+            // compiled source in the existing corpus (only via hand-built
+            // arenas / synthetic scenarios in unit tests).
+            //
+            // Correcting `ir_root_id` itself would also change which S0900-
+            // family diagnostics fire across the *entire* existing fixture
+            // corpus — a much larger, unrelated blast radius than #994's
+            // scope. Instead, run a second, throwaway-sink walk from the
+            // *real* root purely to populate the CapturesTable; it produces
+            // no user-visible diagnostics of its own (any diagnostics the
+            // walker would emit are captured by `discard_sink` and dropped).
+            if let Some(real_root_id) = find_outermost_root(&lowering.ir) {
+                let mut discard_sink = VecSink::new();
+                let mut capture_ctx = paideia_as_ir::WalkerCtx::new(&source_map, &mut discard_sink);
+                let mut capture_walker = LinearityWalker::new();
+                walk(&mut capture_walker, &lowering.ir, real_root_id, &mut capture_ctx);
+
+                // Drain the walker's per-lambda capture analysis into the IR
+                // arena's CapturesTable side-table. The IrWalker trait only
+                // exposes an immutable &IrArena to post_visit, so
+                // LinearityWalker cannot populate arena.captures_mut()
+                // in-place during the walk itself; instead it accumulates
+                // results internally and we drain them here.
+                for (lambda_raw_id, captured_bindings) in capture_walker.into_analyzed_captures() {
+                    if let Some(lambda_id) = IrNodeId::new(lambda_raw_id) {
+                        let analyzed: Vec<paideia_as_ir::AnalyzedCapture> = captured_bindings
+                            .iter()
+                            .map(|c| paideia_as_ir::AnalyzedCapture {
+                                symbol: c.symbol,
+                                kind: match c.kind {
+                                    paideia_as_elaborator::CaptureKind::Reference => 0,
+                                    paideia_as_elaborator::CaptureKind::Value => 1,
+                                    paideia_as_elaborator::CaptureKind::Consume => 2,
+                                },
+                            })
+                            .collect();
+                        lowering.ir.captures_mut().insert(lambda_id, analyzed);
+                    }
+                }
+            }
+
+            // Issue #994 piece 2: convert function-local closure-typed lets
+            // (`let f: |T| -> R = |x| ...;`) from a bare Lambda RHS into a
+            // ClosureCons-wrapped Lambda, and fire T0538 for fn-ptr-typed
+            // lambdas that actually capture free variables. Must run after
+            // the capture-table drain above (needs arena.captures()) and
+            // before EmitWalker::walk (register_closure_body_symbols /
+            // precompute_caller_frame assume ClosureCons nodes already exist).
+            paideia_as_elaborator::convert_closure_lets(
+                &arena,
+                &mut lowering.ir,
+                &lowering.ast_to_ir,
+                &mut walker_sink,
+            );
 
             {
                 let mut ctx = paideia_as_ir::WalkerCtx::new(&source_map, &mut walker_sink);

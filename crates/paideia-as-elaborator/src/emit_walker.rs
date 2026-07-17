@@ -167,6 +167,16 @@ impl EmitWalker {
         self.state.instr_to_lambda.insert(node_id, self.state.current_function);
         self.state.instructions.insert(node_id, inst);
         // PA8-m1-002c: Capture first instruction of pending lambda before offset advances.
+        // NOTE (#994): this is an unconditional overwrite, not entry/or_insert — at
+        // least one existing body-shape path (Match, exercised by
+        // caller_app_pair_arg_value) relies on a *later* arm+consume cycle for the
+        // same lambda id winning over an earlier one. Closures avoid needing a
+        // competing semantics here: the closure-frame prologue (visit_lambda,
+        // emit_visit_lambda.rs) guards each body-shape arm's own
+        // `pending_first_instr_lambda` (re-)arming so it only fires when this
+        // lambda has no `lambda_first_instr` entry yet, letting the prologue's
+        // claim (the function's true entry point) stick without changing this
+        // shared, order-sensitive mechanism's semantics for every other caller.
         if let Some(lid) = self.state.pending_first_instr_lambda.take() {
             self.state.lambda_first_instr.insert(lid, node_id);
             self.state.mark_lambda_emitted(lid);
@@ -940,39 +950,26 @@ impl EmitWalker {
                     if cc_node.kind == IrKind::ClosureCons {
                         // Extract the closure body Lambda (first child of ClosureCons)
                         let cc_children = arena.children(cc_id);
-                        if let Some(&lambda_id) = cc_children.first() {
+        if let Some(&lambda_id) = cc_children.first() {
                             if let Some(lambda_node) = arena.get(lambda_id) {
                                 if lambda_node.kind == IrKind::Lambda {
-                                    // Find the parent Let binding name for the mangled symbol.
-                                    // Walk up the arena to find the ClosureCons's parent Let.
-                                    let mut parent_name = String::from("anon");
-
-                                    // ClosureCons is the RHS of a Let; we need to find that Let.
-                                    // Since the arena is flat (no parent pointers), we search for a Let
-                                    // whose first child is cc_id.
-                                    for j in 1..=arena.len() as u32 {
-                                        if let Some(candidate_let_id) = IrNodeId::new(j) {
-                                            if let Some(candidate_node) = arena.get(candidate_let_id) {
-                                                if candidate_node.kind == IrKind::Let {
-                                                    let let_children = arena.children(candidate_let_id);
-                                                    // Let structure: [RHS, ...] (first child is RHS)
-                                                    if let_children.first().map_or(false, |&c| c == cc_id) {
-                                                        parent_name = arena
-                                                            .binding_names()
-                                                            .get(candidate_let_id)
-                                                            .map(|s| s.to_string())
-                                                            .unwrap_or_else(|| {
-                                                                format!("_let_{}", candidate_let_id.get())
-                                                            });
-                                                        break;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    // Construct mangled symbol name
-                                    let mangled_name = format!("closure_{}_{}", parent_name, lambda_id.get());
+                                    // Issue #994: read the mangled name from ClosureMetaTable — the
+                                    // single source of truth populated by the elaborator's
+                                    // closure-dispatch pass (closure_dispatch::convert_closure_lets),
+                                    // which runs before EmitWalker::walk. `emit_closure_cons` also
+                                    // reads `mangled_name` from this same table for its `lea [rip +
+                                    // name]` relocation target, so defining the ELF symbol under any
+                                    // independently-recomputed name here would silently desync from
+                                    // that relocation and produce an unresolved reference at link
+                                    // time. Fall back to a stable id-derived name only if closure_meta
+                                    // was never populated for this lambda (should not happen for any
+                                    // ClosureCons produced by the dispatch pass, but keeps this pass
+                                    // total rather than silently skipping symbol registration).
+                                    let mangled_name = arena
+                                        .closure_meta()
+                                        .get(lambda_id)
+                                        .map(|meta| meta.mangled_name.clone())
+                                        .unwrap_or_else(|| format!("closure_anon_{}", lambda_id.get()));
 
                                     // Create and insert symbol for the closure body Lambda
                                     let sym = Symbol::new_with_visibility(

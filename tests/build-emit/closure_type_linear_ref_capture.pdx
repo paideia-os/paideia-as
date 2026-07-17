@@ -1,0 +1,19 @@
+// Issue #994: closure type capturing a `linear`-classed outer local.
+// Verifies that a Linear binding can be captured by a closure without
+// tripping S0907 (illegal capture) as long as the *use* stays a single
+// reference — `check_lambda::check_lambda` only rejects Consume-kind
+// captures of a Linear/Ordered binding when the closure itself is not
+// Linear/Affine (i.e. could be called more than once, which would consume
+// the binding more than once). This lambda has no other reference to `x`
+// besides the one inside its body, so `analyze_captures`'s use-count delta
+// is exactly 1 (matching the shape check_lambda accepts).
+// Expected: build succeeds; `entry` returns 42.
+
+module ClosureTypeLinearRefCapture = structure {
+  pub let entry : () -> u64 = fn () -> {
+    let x : linear u64 = 7
+    let f : |u64| -> u64 = fn (y: u64) -> x
+    let r : u64 = 42
+    r
+  }
+}

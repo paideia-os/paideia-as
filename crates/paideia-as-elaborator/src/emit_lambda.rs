@@ -539,6 +539,42 @@ impl EmitWalker {
         // Determine if this is a zero-capture closure
         let has_captures = !closure_meta.captures.is_empty();
 
+        // Issue #994: write each captured value into its env slot BEFORE
+        // constructing the env/fat pointer, so a subsequent read through the
+        // fat pointer (env_ptr[k]) observes the value captured at
+        // ClosureCons-construction time. Captures are read from wherever the
+        // CALLER currently holds them; only register-resident sources are
+        // supported for phase-1 (a capture whose current binding is not a
+        // scalar register — e.g. re-capturing an outer closure's own
+        // env-slot capture — is silently skipped; legalizing that path is
+        // deferred to the closure-call work in #995).
+        for cap in &closure_meta.captures {
+            if let Some(crate::local_binding_table::BindingHome::Reg(src_reg)) =
+                self.state.local_bindings.get_home(&cap.name)
+            {
+                let store_id = self.alloc_synthetic_id();
+                let mut store_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                store_ops.push(Operand::MemSib {
+                    base: abi::RSP,
+                    index: None,
+                    scale: paideia_as_ir::Scale::X1,
+                    disp: env_off + cap.offset,
+                });
+                store_ops.push(Operand::Reg(src_reg));
+                self.emit_inst(
+                    store_id,
+                    Instruction {
+                        mnemonic: Mnemonic::Mov,
+                        operands: store_ops,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode: self.current_mode(),
+                        emission_order: 0,
+                    },
+                );
+            }
+        }
+
         if has_captures {
             // Multi-capture: lea r11, [rsp + env_off]
             let env_lea_id = self.alloc_synthetic_id();
@@ -597,7 +633,12 @@ impl EmitWalker {
             self.emit_inst(
                 zero_mov_id,
                 Instruction {
-                    mnemonic: Mnemonic::Mov,
+                    // Issue #994: plain Mnemonic::Mov has no [MemSib, Imm64] store
+                    // form in the encoder (encode_mov only covers [MemSib, Reg] /
+                    // [Reg, MemSib]); the immediate-to-memory store lives in
+                    // encode_mov_sized, reachable only via MovSized. Without this,
+                    // every zero-capture closure fails to build with B1705.
+                    mnemonic: Mnemonic::MovSized { width: paideia_as_ir::instruction::IntWidth::W64 },
                     operands: zero_mov_ops,
                     encoding_hint: None,
                     byte_offset_in_text: None,

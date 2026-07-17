@@ -1,0 +1,17 @@
+// Issue #994 runtime canary: zero-capture closure construction.
+// `f` has no free variables (env_size = 0), so ClosureCons takes the
+// zero-capture path (env_ptr = 0 written via the MovSized [mem],imm64 form —
+// #994 fixed a B1705 encoder gap here, since plain Mnemonic::Mov has no
+// [MemSib, Imm64] store form). `f` is constructed but never invoked (call-
+// through-fat-pointer is #995); this verifies elaboration + emission succeed
+// end-to-end (build, link, run) and that constructing the closure doesn't
+// disturb the surrounding computation.
+// Expected exit code: 42
+
+module ClosureNoCapture = structure {
+  pub let entry : () -> u64 = fn () -> {
+    let f : |u64| -> u64 = fn (y: u64) -> y
+    let r : u64 = 42
+    r
+  }
+}

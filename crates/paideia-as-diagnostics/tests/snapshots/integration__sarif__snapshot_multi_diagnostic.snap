@@ -1826,6 +1826,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "Issue #994: a lambda literal assigned to a binding annotated with a plain\nfunction-pointer type (`fn(T) -> R`) actually references one or more free\nvariables from its enclosing scope. A bare function pointer is an 8-byte\ncode address with no room to store a captured environment, so this\ncombination cannot be represented. Use closure-type syntax instead\n(`|T| -> R`), which lowers to a 16-byte fat pointer (environment pointer +\ncode pointer) that can carry the captured bindings.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0571",
+              "id": "T0571",
+              "name": "Function-pointer annotation on a lambda that captures free variables",
+              "shortDescription": {
+                "text": "lambda captures free variables but is annotated as fn-ptr"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "A binding declared as Linear or Ordered in the substructural lattice must be used exactly once. This binding was never used. A Linear binding represents a unique resource that must be consumed; Ordered adds ordering constraints. Check that the binding is referenced exactly once in its scope."
               },
               "helpUri": "https://paideia-os.org/diagnostics/S0900",

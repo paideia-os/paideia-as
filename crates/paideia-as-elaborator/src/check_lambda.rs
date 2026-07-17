@@ -21,7 +21,13 @@ pub const S_ILLEGAL_CAPTURE: u16 = 907;
 ///
 /// Error: "lambda captures free variables but is annotated as fn-ptr —
 /// did you mean to use closure type |T| -> R instead?"
-pub const T_FN_PTR_WITH_CAPTURES: u16 = 538;
+///
+/// Issue #994: originally assigned 538, which collides with the
+/// already-shipped T0538 ("record literal duplicate field", issue #1092 —
+/// see `catalog.toml`). 571 is the first genuinely free T-code (568/569/570
+/// are taken by `lower_type.rs`'s missing-type-data / unknown-type-name /
+/// unimplemented-variant diagnostics).
+pub const T_FN_PTR_WITH_CAPTURES: u16 = 571;
 
 /// Construct a DiagnosticCode in the S category.
 fn s_code(n: u16) -> DiagnosticCode {

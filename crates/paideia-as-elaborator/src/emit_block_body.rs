@@ -488,10 +488,30 @@ impl EmitWalker {
                                 }
                                 // Part E: #1233 — Handle ClosureCons RHS (closure literal)
                                 else if rhs_node.kind == IrKind::ClosureCons {
-                                    // `let f = <closure>` — emit fat pointer to stack
+                                    // `let f = <closure>` — emit fat pointer to stack.
+                                    // emit_closure_cons always leaves the fat-pointer address
+                                    // in RAX (`lea rax, [rsp + fat_off]`); if this binding's
+                                    // assigned scratch register is something else, move it over
+                                    // (mirrors the analogous fixup in the Match-RHS arm above).
                                     self.emit_closure_cons(rhs_id, arena);
-                                    // Bind LHS to RAX (which holds the fat-pointer address)
                                     self.state.local_bindings.insert(binding_name.clone(), scratch_reg);
+                                    if scratch_reg != abi::RAX {
+                                        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                                        ops.push(Operand::Reg(scratch_reg));
+                                        ops.push(Operand::Reg(abi::RAX));
+                                        self.emit_inst(
+                                            IrNodeId::new(1_330_000 + child_id.get())
+                                                .expect("let-closure-cons materialize id"),
+                                            Instruction {
+                                                mnemonic: Mnemonic::Mov,
+                                                operands: ops,
+                                                encoding_hint: None,
+                                                byte_offset_in_text: None,
+                                                mode: self.current_mode(),
+                                                emission_order: 0,
+                                            },
+                                        );
+                                    }
                                 }
                                 // Part C: #1209/#1207 hardening — convert catch-all to typed diagnostic
                                 else {
@@ -1202,10 +1222,30 @@ impl EmitWalker {
                                 }
                                 // Part E: #1233 — Handle ClosureCons RHS (closure literal)
                                 else if rhs_node.kind == IrKind::ClosureCons {
-                                    // `let f = <closure>` — emit fat pointer to stack
+                                    // `let f = <closure>` — emit fat pointer to stack.
+                                    // emit_closure_cons always leaves the fat-pointer address
+                                    // in RAX (`lea rax, [rsp + fat_off]`); if this binding's
+                                    // assigned scratch register is something else, move it over
+                                    // (mirrors the analogous fixup in the Match-RHS arm above).
                                     self.emit_closure_cons(rhs_id, arena);
-                                    // Bind LHS to RAX (which holds the fat-pointer address)
                                     self.state.local_bindings.insert(binding_name.clone(), scratch_reg);
+                                    if scratch_reg != abi::RAX {
+                                        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                                        ops.push(Operand::Reg(scratch_reg));
+                                        ops.push(Operand::Reg(abi::RAX));
+                                        self.emit_inst(
+                                            IrNodeId::new(1_330_000 + child_id.get())
+                                                .expect("let-closure-cons materialize id"),
+                                            Instruction {
+                                                mnemonic: Mnemonic::Mov,
+                                                operands: ops,
+                                                encoding_hint: None,
+                                                byte_offset_in_text: None,
+                                                mode: self.current_mode(),
+                                                emission_order: 0,
+                                            },
+                                        );
+                                    }
                                 }
                                 // Part C: #1209/#1207 hardening — convert catch-all to typed diagnostic
                                 else {

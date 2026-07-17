@@ -1,0 +1,18 @@
+// Issue #994 runtime canary: single-capture closure construction.
+// `f` captures `x` by value into its environment slot. Verifies the
+// capture-value write (mov [rsp + env_off], <src>) added to emit_closure_cons
+// and the env-pointer materialisation (lea r11, [rsp + env_off]) — the
+// latter exercises the encode_lea SIB-escape fix (#994): `lea` into an
+// RSP-based operand previously mis-encoded because the ModR/M r/m=100
+// escape (which signals "SIB byte follows") was never emitted, desyncing
+// every subsequent instruction's byte boundary.
+// Expected exit code: 50 (x=7, x+43=50 — proves x's own register survives
+// the closure construction sequence uncorrupted).
+
+module ClosureValueCapture = structure {
+  pub let entry : () -> u64 = fn () -> {
+    let x : u64 = 7
+    let f : |u64| -> u64 = fn (y: u64) -> x
+    x + 43u64
+  }
+}

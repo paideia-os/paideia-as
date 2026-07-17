@@ -183,6 +183,30 @@ impl EmitWalker {
         Self::param_index_to_reg_for_abi(CallingConvention::Sysv, param_index)
     }
 
+    /// Issue #994: arm `pending_first_instr_lambda` for a body-shape dispatch arm,
+    /// UNLESS this lambda already has a recorded `lambda_first_instr` entry.
+    ///
+    /// Every body-shape arm (Action/App/Match/EnumCons) arms the pending-first-
+    /// instruction shim so its own first `emit_inst` call claims
+    /// `lambda_first_instr[L]`. `emit_inst`'s consumption of that shim is an
+    /// unconditional overwrite (see its doc comment) — deliberately, since at
+    /// least one existing path relies on a later arm+consume cycle winning over
+    /// an earlier one for the very same lambda id. Closures introduce a case
+    /// where an EARLIER claim (the closure-frame `sub rsp` prologue emitted
+    /// before body-shape dispatch even starts, in `visit_lambda`) must NOT be
+    /// clobbered by this later, generic re-arming: skipping past the prologue
+    /// would leave the ELF symbol starting after the stack reservation,
+    /// corrupting the caller's frame the first time a closure's fat pointer is
+    /// written there. Gating the re-arm on "no entry yet" preserves the
+    /// existing last-write-wins behaviour for every lambda that has no
+    /// prologue (the overwhelming majority) while letting a prologue's claim
+    /// stick for the few that do.
+    fn arm_pending_first_instr_unless_claimed(&mut self, lambda_node_id: IrNodeId) {
+        if !self.state.lambda_first_instr().contains_key(&lambda_node_id.get()) {
+            self.state.pending_first_instr_lambda = Some(lambda_node_id.get());
+        }
+    }
+
     /// Emit instructions for Lambda body lowering (m1-003).
     ///
     /// Handles three cases:
@@ -217,6 +241,21 @@ impl EmitWalker {
         // This reserves stack space for closure fat pairs + environment records.
         if let Some(frame_layout) = arena.closure_frame_meta().get(lambda_node_id) {
             if frame_layout.total_size > 0 {
+                // Issue #994: arm the pending-first-instr shim so this `sub rsp` lands
+                // as lambda_first_instr[L] — it is the true first instruction of this
+                // function. This is the first `pending_first_instr_lambda` arming for
+                // this lambda visit, so it always fires (nothing has claimed
+                // `lambda_first_instr[L]` yet). Every body-shape arm below
+                // (Action/App/Match/EnumCons) re-arms the same shim via
+                // `arm_pending_first_instr_unless_claimed`, which is a no-op once this
+                // entry exists — letting this prologue's claim stick. Without this, the
+                // ELF symbol for this function starts AFTER the `sub rsp` (control never
+                // executes it on entry), so the closure's fat pointer / captures get
+                // written below the actual stack pointer into the caller's
+                // return-address region — corrupting the stack the moment this function
+                // returns.
+                self.state.pending_first_instr_lambda = Some(lambda_node_id.get());
+
                 // Emit: sub rsp, total_size
                 let mut sub_operands: SmallVec<[Operand; 3]> = SmallVec::new();
                 sub_operands.push(Operand::Reg(abi::RSP));
@@ -375,7 +414,7 @@ impl EmitWalker {
                         // CALL) — claims lambda_first_instr[L]. Without this, emit_call_args_and_call's
                         // scratch-save pushes (allocated after `first_id` but emitted BEFORE it)
                         // fall into the preceding function's ELF symbol range.
-                        self.state.pending_first_instr_lambda = Some(lambda_node_id.get());
+                        self.arm_pending_first_instr_unless_claimed(lambda_node_id);
                         self.state.mark_lambda_emitted(lambda_node_id.get());
 
                         // #1190 (scoping): Clear + re-register mirrors the Action arm at
@@ -843,7 +882,7 @@ impl EmitWalker {
 
                         // Arm the shim: the next emit_inst captures this lambda's first instruction
                         // into lambda_first_instr.
-                        self.state.pending_first_instr_lambda = Some(lambda_node_id.get());
+                        self.arm_pending_first_instr_unless_claimed(lambda_node_id);
                         self.state.mark_lambda_emitted(lambda_node_id.get());
 
                         // Adversarial-verify of #1094 (aee6935): the original fix deleted the
@@ -925,7 +964,7 @@ impl EmitWalker {
 
                         // Arm the shim: the next emit_inst captures this lambda's first instruction
                         // into lambda_first_instr.
-                        self.state.pending_first_instr_lambda = Some(lambda_node_id.get());
+                        self.arm_pending_first_instr_unless_claimed(lambda_node_id);
                         self.state.mark_lambda_emitted(lambda_node_id.get());
 
                         // Derive TailContext from match return type.
@@ -1012,7 +1051,7 @@ impl EmitWalker {
                         // Arm the pending-first-instr shim so emit_enum_cons_inner's first
                         // emit_inst call is captured as lambda_first_instr[L]. Mirrors App
                         // (line 338) / Match (line 912) / Action (line 830).
-                        self.state.pending_first_instr_lambda = Some(lambda_node_id.get());
+                        self.arm_pending_first_instr_unless_claimed(lambda_node_id);
                         self.state.mark_lambda_emitted(lambda_node_id.get());
 
                         // #1139 discipline: snapshot per-lambda bindings for resolve_var_operands.

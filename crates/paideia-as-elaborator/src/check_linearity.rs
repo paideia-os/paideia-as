@@ -219,6 +219,13 @@ pub struct LinearityWalker {
     /// LinearityCtx snapshot for that arm. Used in post_visit to check for
     /// affine bindings consumed across multiple arms (S0904).
     match_arm_snapshots: Vec<Vec<LinearityCtx>>,
+    /// Issue #994: accumulated capture analysis results, keyed by the lambda's
+    /// IrNodeId (numeric). Populated in `post_visit(Lambda)` after
+    /// `analyze_captures` runs; drained by the caller (cmd_build.rs) into
+    /// the IR arena's `CapturesTable` after the walk completes (the `IrWalker`
+    /// trait only exposes an immutable `&IrArena` to `post_visit`, so the
+    /// side-table cannot be populated in-place during the walk itself).
+    analyzed_captures: HashMap<u32, Vec<crate::capture::CapturedBinding>>,
 }
 
 impl LinearityWalker {
@@ -230,7 +237,18 @@ impl LinearityWalker {
             ordered_log: OrderedLog::new(),
             lambda_snapshots: Vec::new(),
             match_arm_snapshots: Vec::new(),
+            analyzed_captures: HashMap::new(),
         }
+    }
+
+    /// Issue #994: consume the accumulated capture-analysis results.
+    ///
+    /// Called after the walk completes. The caller is responsible for
+    /// converting each `CapturedBinding` into the IR-level `AnalyzedCapture`
+    /// shape and inserting it into the arena's `CapturesTable`.
+    #[must_use]
+    pub fn into_analyzed_captures(self) -> HashMap<u32, Vec<crate::capture::CapturedBinding>> {
+        self.analyzed_captures
     }
 
     /// Take a snapshot of the innermost scope's bindings.
@@ -435,7 +453,7 @@ impl IrWalker for LinearityWalker {
 
     fn post_visit(
         &mut self,
-        _id: IrNodeId,
+        id: IrNodeId,
         node: &IrNodeData,
         _arena: &IrArena,
         ctx: &mut WalkerCtx<'_>,
@@ -455,6 +473,11 @@ impl IrWalker for LinearityWalker {
                 // which outer bindings were used (captured) inside the lambda body.
                 let outer_current = self.linearity_ctx.innermost().clone();
                 let captures = analyze_captures(&outer_snapshot, &outer_current);
+
+                // Issue #994: record the analyzed captures for this lambda, keyed by its
+                // IrNodeId. Consumed after the walk by cmd_build.rs, which converts each
+                // CapturedBinding into the IR-level CapturesTable's AnalyzedCapture shape.
+                self.analyzed_captures.insert(id.get(), captures.clone());
 
                 // Validate captures against the lambda's linearity class.
                 let capture_diags =
@@ -1069,6 +1092,46 @@ mod tests {
             s0907_diags.is_empty(),
             "no S0907 expected for Unrestricted capture"
         );
+    }
+
+    /// Issue #994 (piece 1): `analyze_captures`'s result must actually be
+    /// recorded against the lambda's IrNodeId, and be retrievable via
+    /// `into_analyzed_captures()` after the walk. Without this wiring, the
+    /// elaborator's closure-vs-fnptr dispatch (piece 2) has no capture data
+    /// to consult.
+    #[test]
+    fn post_visit_lambda_records_captures_keyed_by_lambda_id() {
+        let mut walker = LinearityWalker::new();
+        let sm = paideia_as_diagnostics::SourceMap::new();
+        let mut sink = paideia_as_diagnostics::VecSink::new();
+        let mut ctx = WalkerCtx::new(&sm, &mut sink);
+        let mut arena = paideia_as_ir::IrArena::new();
+        let s = span(300);
+
+        // Create a Module (outer scope)
+        let module_id = arena.alloc(IrKind::Module, s);
+        let module_data = arena[module_id];
+        walker.pre_visit(module_id, &module_data, &arena, &mut ctx);
+
+        // Create a Let in the outer scope (id=2, class=Unrestricted)
+        let outer_let_id = arena.alloc(IrKind::Let, s);
+        let mut outer_let_data = arena[outer_let_id];
+        outer_let_data.lin_class = LinClass::Unrestricted;
+        walker.pre_visit(outer_let_id, &outer_let_data, &arena, &mut ctx);
+
+        // Create a Lambda (id=3) that captures the outer binding (symbol 2).
+        let lambda_id = arena.alloc(IrKind::Lambda, s);
+        let lambda_data = arena[lambda_id];
+        walker.pre_visit(lambda_id, &lambda_data, &arena, &mut ctx);
+        walker.linearity_ctx.use_(2);
+        walker.post_visit(lambda_id, &lambda_data, &arena, &mut ctx);
+
+        let captures = walker.into_analyzed_captures();
+        let lambda_captures = captures
+            .get(&lambda_id.get())
+            .expect("post_visit(Lambda) should record an entry for this lambda's id");
+        assert_eq!(lambda_captures.len(), 1, "exactly one capture expected");
+        assert_eq!(lambda_captures[0].symbol, 2, "captured symbol should be the outer Let's id");
     }
 
     #[test]

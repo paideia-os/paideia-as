@@ -15,6 +15,7 @@ mod build_emit {
     pub mod call_sym;
     pub mod call_with_unresolvable_var_pos0;
     pub mod cap_smoke;
+    pub mod closure_type;
     pub mod control_flow_corpus;
     pub mod cross_module_field_write_u64;
     pub mod discarded_call_middle_of_block;

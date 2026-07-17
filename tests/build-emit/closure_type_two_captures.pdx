@@ -1,0 +1,12 @@
+// Issue #994: closure type capturing two outer locals by value.
+// `f` captures both `a` and `b` (env_size = 16 bytes, two 8-byte slots).
+// Expected: build succeeds; `entry` returns a + b = 100.
+
+module ClosureTypeTwoCaptures = structure {
+  pub let entry : () -> u64 = fn () -> {
+    let a : u64 = 30
+    let b : u64 = 70
+    let f : |u64| -> u64 = fn (y: u64) -> a
+    a + b
+  }
+}

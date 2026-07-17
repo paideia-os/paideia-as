@@ -1,0 +1,13 @@
+// Issue #994 (negative): `f` is annotated as a plain function pointer
+// (`fn(u64) -> u64`, `TypeData::FnPtr`) but its body captures the free
+// variable `x` from the enclosing scope. A bare code pointer has nowhere to
+// store an environment, so this should have used closure-type syntax
+// (`|u64| -> u64`) instead. Expected: T0571.
+
+module ClosureTypeFnptrWithCaptures = structure {
+  pub let entry : () -> u64 = fn () -> {
+    let x : u64 = 7
+    let f : (u64) -> u64 = fn (y: u64) -> x
+    42u64
+  }
+}

@@ -13,6 +13,7 @@ pub mod cap_walker;
 pub mod capture;
 pub mod check_bounds;
 pub mod check_coherence;
+pub mod closure_dispatch;
 pub mod check_expr;
 pub mod check_fn_ptr_sig;
 pub mod check_handler;
@@ -99,7 +100,8 @@ pub use check_bounds::{
 pub use check_expr::{InferOutcome, check_annotation, infer_node};
 pub use check_fn_ptr_sig::{T_FN_PTR_SIG_MISMATCH, check_fn_ptr_assignment};
 pub use check_handler::{F_HANDLER_MISMATCH, HandlerImpl, check_handler, check_resume};
-pub use check_lambda::{S_ILLEGAL_CAPTURE, check_lambda};
+pub use check_lambda::{S_ILLEGAL_CAPTURE, T_FN_PTR_WITH_CAPTURES, check_lambda};
+pub use closure_dispatch::convert_closure_lets;
 pub use check_linearity::{
     LinearityWalker, S_NEVER_USED, S_OVERUSED, validate_scope, walk_expr_for_scope,
 };

@@ -1,9 +1,12 @@
-#![allow(S0013)] // suppress "infinite loop" diagnostic
+// Issue #994: closure type with no captures.
+// Expected: fat pair (env_ptr=0, code_ptr=addr) materialised on stack.
+// Module-level closure-typed lets have no enclosing frame to capture from
+// (nothing at module scope ever goes out of scope), so this degenerates to
+// a plain code pointer at emit time — this fixture only exercises the
+// grammar + type-lowering surface (parses, lowers, emits successfully).
 
-module M {
-  // Test: closure type with no captures
-  // Expected: fat pair (env_ptr=0, code_ptr=addr) materialised on stack
-  let f: |u64| -> u64 = |x| x;
+module ClosureTypeNoCapture = structure {
+  let f : |u64| -> u64 = |x| x
 
-  pub let result: u64 = 42;
+  pub let result : u64 = 42
 }

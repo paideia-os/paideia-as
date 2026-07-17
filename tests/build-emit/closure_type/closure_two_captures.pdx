@@ -1,0 +1,14 @@
+// Issue #994 runtime canary: two-capture closure construction.
+// `f` captures both `a` and `b` into adjacent 8-byte environment slots
+// (offsets 0 and 8), exercising `ClosureFrameMetaTable`'s frame-layout
+// arithmetic for env_size > 8.
+// Expected exit code: 100 (a=30, b=70, a+b=100).
+
+module ClosureTwoCaptures = structure {
+  pub let entry : () -> u64 = fn () -> {
+    let a : u64 = 30
+    let b : u64 = 70
+    let f : |u64| -> u64 = fn (y: u64) -> a
+    a + b
+  }
+}

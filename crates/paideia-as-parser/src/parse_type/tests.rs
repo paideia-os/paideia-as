@@ -223,6 +223,150 @@ fn parse_fn_ptr_full() {
     }
 }
 
+// ── Closure type (`|T1, T2| -> R !{E} @{C}`) — issue #994 ──────────────────
+
+#[test]
+fn parse_closure_basic() {
+    // `|u64| -> u64` → Pipe Ident Pipe Arrow Ident Eof
+    let tokens = vec![
+        tok(TokenKind::Pipe, 0),
+        tok(TokenKind::Ident, 1), // u64
+        tok(TokenKind::Pipe, 4),
+        tok(TokenKind::Arrow, 6),
+        tok(TokenKind::Ident, 9), // u64
+        tok(TokenKind::Eof, 12),
+    ];
+    let (arena, result, diags) = parse_t(tokens);
+
+    assert_eq!(diags.len(), 0);
+    assert!(result.is_ok());
+    let ty_id = result.unwrap();
+    let ty_node = arena.get(ty_id).unwrap();
+    assert_eq!(ty_node.kind, NodeKind::TypeClosure);
+    if let Some(TypeData::Closure {
+        params,
+        effects,
+        capabilities,
+        ..
+    }) = arena.type_data(ty_id)
+    {
+        assert_eq!(params.len(), 1);
+        assert!(effects.is_none());
+        assert!(capabilities.is_none());
+    } else {
+        panic!("expected TypeClosure");
+    }
+}
+
+#[test]
+fn parse_closure_two_params() {
+    // `|u64, u64| -> u64` → Pipe Ident Comma Ident Pipe Arrow Ident Eof
+    let tokens = vec![
+        tok(TokenKind::Pipe, 0),
+        tok(TokenKind::Ident, 1), // u64
+        tok(TokenKind::Comma, 4),
+        tok(TokenKind::Ident, 6), // u64
+        tok(TokenKind::Pipe, 9),
+        tok(TokenKind::Arrow, 11),
+        tok(TokenKind::Ident, 14), // u64
+        tok(TokenKind::Eof, 17),
+    ];
+    let (arena, result, diags) = parse_t(tokens);
+
+    assert_eq!(diags.len(), 0);
+    assert!(result.is_ok());
+    let ty_id = result.unwrap();
+    if let Some(TypeData::Closure { params, .. }) = arena.type_data(ty_id) {
+        assert_eq!(params.len(), 2);
+    } else {
+        panic!("expected TypeClosure with 2 params");
+    }
+}
+
+#[test]
+fn parse_closure_with_effects() {
+    // `|u64| -> u64 !{io}`
+    let tokens = vec![
+        tok(TokenKind::Pipe, 0),
+        tok(TokenKind::Ident, 1), // u64
+        tok(TokenKind::Pipe, 4),
+        tok(TokenKind::Arrow, 6),
+        tok(TokenKind::Ident, 9), // u64
+        tok(TokenKind::EffectOpen, 13),
+        tok(TokenKind::Ident, 15), // io
+        tok(TokenKind::RBrace, 17),
+        tok(TokenKind::Eof, 18),
+    ];
+    let (arena, result, diags) = parse_t(tokens);
+
+    assert_eq!(diags.len(), 0);
+    assert!(result.is_ok());
+    let ty_id = result.unwrap();
+    if let Some(TypeData::Closure { effects, .. }) = arena.type_data(ty_id) {
+        assert!(effects.is_some());
+    } else {
+        panic!("expected TypeClosure with effects");
+    }
+}
+
+#[test]
+fn parse_closure_with_capabilities() {
+    // `|u64| -> u64 @{cap}`
+    let tokens = vec![
+        tok(TokenKind::Pipe, 0),
+        tok(TokenKind::Ident, 1), // u64
+        tok(TokenKind::Pipe, 4),
+        tok(TokenKind::Arrow, 6),
+        tok(TokenKind::Ident, 9), // u64
+        tok(TokenKind::CapOpen, 13),
+        tok(TokenKind::Ident, 15), // cap
+        tok(TokenKind::RBrace, 18),
+        tok(TokenKind::Eof, 19),
+    ];
+    let (arena, result, diags) = parse_t(tokens);
+
+    assert_eq!(diags.len(), 0);
+    assert!(result.is_ok());
+    let ty_id = result.unwrap();
+    if let Some(TypeData::Closure { capabilities, .. }) = arena.type_data(ty_id) {
+        assert!(capabilities.is_some());
+    } else {
+        panic!("expected TypeClosure with capabilities");
+    }
+}
+
+/// Zero-parameter closure type `|| -> R`, exercised via hand-built tokens
+/// (this test constructs two adjacent `Pipe` tokens directly, bypassing the
+/// lexer). This is a KNOWN GAP: the real lexer scans adjacent `||` characters
+/// as a single `TokenKind::OrOr` (logical-or) token (see
+/// `paideia-as-lexer/src/scan_op.rs`), so `parse_type_unquantified`'s
+/// `Some(TokenKind::Pipe) => self.parse_type_closure()` dispatch never fires
+/// for a real `|| -> R` source string — it would need its own `OrOr`
+/// look-ahead branch to split the token, which is out of scope for #994 and
+/// tracked as a follow-up. This test only verifies `parse_type_closure`'s own
+/// empty-parameter-list logic is correct, independent of that lexer gap.
+#[test]
+fn parse_closure_zero_params_via_hand_built_tokens() {
+    // `|| -> u64` → Pipe Pipe Arrow Ident Eof
+    let tokens = vec![
+        tok(TokenKind::Pipe, 0),
+        tok(TokenKind::Pipe, 1),
+        tok(TokenKind::Arrow, 3),
+        tok(TokenKind::Ident, 6), // u64
+        tok(TokenKind::Eof, 9),
+    ];
+    let (arena, result, diags) = parse_t(tokens);
+
+    assert_eq!(diags.len(), 0);
+    assert!(result.is_ok());
+    let ty_id = result.unwrap();
+    if let Some(TypeData::Closure { params, .. }) = arena.type_data(ty_id) {
+        assert_eq!(params.len(), 0);
+    } else {
+        panic!("expected TypeClosure with 0 params");
+    }
+}
+
 #[test]
 fn parse_linear_class_keyword() {
     // `linear T` → KwLinear Ident Eof

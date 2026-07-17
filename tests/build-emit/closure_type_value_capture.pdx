@@ -1,0 +1,16 @@
+// Issue #994: closure type capturing a single outer local by value.
+// `f` captures `x`; the closure itself is never invoked (call-through-fat-
+// pointer lands in #995), so this exercises elaboration + emission of the
+// ClosureCons construction path (frame layout, env-slot write, fat pointer)
+// without depending on closure invocation.
+// Expected: build succeeds; `entry` returns x + 43 = 50 (proves the capture
+// write into the closure's environment slot does not corrupt x's own
+// register in the surrounding computation).
+
+module ClosureTypeValueCapture = structure {
+  pub let entry : () -> u64 = fn () -> {
+    let x : u64 = 7
+    let f : |u64| -> u64 = fn (y: u64) -> x
+    x + 43u64
+  }
+}

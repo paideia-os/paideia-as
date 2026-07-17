@@ -1,0 +1,9 @@
+// Issue #994 (negative): closure type declares 2 parameters, but the lambda
+// literal assigned to it only declares 1. Expected: T0535 (arity mismatch).
+
+module ClosureTypeArityMismatch = structure {
+  pub let entry : () -> u64 = fn () -> {
+    let f : |u64, u64| -> u64 = fn (y: u64) -> y
+    42u64
+  }
+}

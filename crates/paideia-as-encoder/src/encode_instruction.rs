@@ -3211,22 +3211,28 @@ fn encode_lea(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
             // lea r64, [base + disp]
             // LEA uses MOV encoding but with different semantics
             // lea r64, [rbp + disp] → 48 8D /r [ModR/M] [disp]
+            //
+            // Issue #994: this used to hand-roll the ModR/M byte directly
+            // (`0x40 | (dest<<3) | base`), which is wrong whenever base's
+            // low 3 bits are 100 (RSP or R12) — that r/m encoding is the
+            // architectural *SIB-byte-follows* escape, not "register
+            // indirect with r/m=100", so the CPU (and any correct
+            // disassembler) consumes the next byte — meant to be the
+            // displacement — as the SIB byte instead, corrupting this
+            // instruction and desyncing every later instruction's byte
+            // alignment. `lea r11, [rsp + env_off]` (closure env-pointer
+            // materialisation) hit exactly this case. `emit_mem_base_disp`
+            // is the shared, correct helper other opcodes already use for
+            // the identical [base + disp] addressing form (it emits the
+            // required 0x24-style SIB escape for RSP/R12); route through it
+            // instead of duplicating (and mis-duplicating) the encoding here.
             let dest_id = reg64_from(*dest)? as u8;
             let base_id = reg64_from(*base)? as u8;
             let rex_byte = rex(true, (dest_id >> 3) != 0, false, (base_id >> 3) != 0);
 
             buf.bytes.push(rex_byte);
             buf.bytes.push(0x8D); // LEA opcode
-
-            if (-128..=127).contains(disp) {
-                // Use mod=01, disp8
-                buf.bytes.push(0x40 | ((dest_id & 7) << 3) | (base_id & 7));
-                buf.bytes.push(*disp as u8);
-            } else {
-                // Use mod=10, disp32
-                buf.bytes.push(0x80 | ((dest_id & 7) << 3) | (base_id & 7));
-                buf.bytes.extend(disp.to_le_bytes());
-            }
+            emit_mem_base_disp(buf, dest_id & 7, base_id, *disp);
             Ok(EncodeOutput::new())
         }
         [
