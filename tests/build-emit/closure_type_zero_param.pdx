@@ -1,0 +1,10 @@
+// Issue #1236: zero-parameter closure type `|| -> R` unparseable due to OrOr token merging.
+// Expected: parse and elaborate clean, with zero-parameter closure type properly recognized.
+// The lexer scans adjacent `||` as a single OrOr token, so the parser must split it at
+// type-start positions where a closure type is expected.
+
+module ClosureTypeZeroParam = structure {
+  pub let f : || -> u64 = || 42u64
+
+  pub let result : u64 = f()
+}

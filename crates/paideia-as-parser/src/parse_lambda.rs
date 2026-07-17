@@ -203,6 +203,50 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         ))
     }
 
+    /// Parse a zero-parameter lambda from `||` (OrOr token).
+    ///
+    /// When the lexer scans `||`, it produces a single `OrOr` token (logical-or operator).
+    /// At expr-start positions, we need to recognize this as a zero-parameter lambda `|| body`
+    /// and parse it as such.
+    ///
+    /// This method is called when we see `OrOr` at an expr-start position and handles
+    /// it as if it were two separate `Pipe` tokens: one opening, one closing (empty params).
+    pub(crate) fn parse_lambda_pipe_from_oror(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
+        let oror_tok = self.bump().expect("caller ensured OrOr token is present");
+        let open_bar_span = oror_tok.span;
+
+        // OrOr represents || (two pipes), so we've already seen the opening pipe.
+        // The closing pipe is implicit (part of OrOr).
+        // Zero parameters → parse body directly.
+        let params = Vec::new();
+
+        // Parse body expression
+        let body = self.parse_expr()?;
+
+        // Compute span
+        let body_span = self
+            .arena()
+            .get(body)
+            .map(|nd| nd.span)
+            .unwrap_or(open_bar_span);
+        let lambda_span = Span::new(
+            open_bar_span.file(),
+            open_bar_span.byte_start(),
+            body_span.byte_start() + body_span.byte_len() - open_bar_span.byte_start(),
+        );
+
+        Ok(self.arena_mut().alloc_expr(
+            NodeKind::ExprLambda,
+            lambda_span,
+            ExprData::Lambda {
+                generic_params: Vec::new(),
+                params,
+                body,
+                pipe_form: true,
+            },
+        ))
+    }
+
     /// Parse a single pattern (atomic form for lambda parameters).
     ///
     /// For phase-1, only supports Ident patterns (including wildcard `_`).

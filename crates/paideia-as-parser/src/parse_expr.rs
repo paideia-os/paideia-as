@@ -85,6 +85,11 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                     // by ensuring we can parse it successfully
                     return self.parse_lambda_pipe();
                 }
+                paideia_as_lexer::TokenKind::OrOr => {
+                    // Zero-parameter lambda: || body (issue #1236)
+                    // OrOr at expr-start is a zero-parameter lambda, not a logical-or operator
+                    return self.parse_lambda_pipe_from_oror();
+                }
                 paideia_as_lexer::TokenKind::KwAction => {
                     // Action block: action !{...}? @{...}? { stmts }
                     return self.parse_action();

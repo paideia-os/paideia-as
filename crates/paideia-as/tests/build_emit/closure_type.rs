@@ -8,6 +8,9 @@
 //!   (piece 3) end to end.
 //! - `closure_type_linear_ref_capture`: a `linear`-classed capture, positive
 //!   (must not fire S0907).
+//! - `closure_type_zero_param` (issue #1236): zero-parameter closure type
+//!   `|| -> R`, which requires the parser to split `OrOr` tokens at type-start
+//!   positions where closure types are expected.
 //! - `closure_type_arity_mismatch` (negative): closure type / lambda literal
 //!   parameter-count mismatch — expects T0535.
 //! - `closure_type_fnptr_with_captures` (negative): plain fn-ptr annotation
@@ -80,6 +83,11 @@ fn closure_type_linear_ref_capture_builds() {
         "closure_type_linear_ref_capture.pdx",
         "closure_type_linear_ref_capture",
     );
+}
+
+#[test]
+fn closure_type_zero_param_builds() {
+    assert_build_succeeds("closure_type_zero_param.pdx", "closure_type_zero_param");
 }
 
 /// Negative: closure type declares 2 params, lambda literal has 1 → T0535.

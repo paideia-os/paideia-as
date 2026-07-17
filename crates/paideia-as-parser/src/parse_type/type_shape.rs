@@ -449,4 +449,74 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         ))
     }
 
+    /// Parse a zero-parameter closure type from `||` (OrOr token).
+    ///
+    /// When the lexer scans `||`, it produces a single `OrOr` token (logical-or operator).
+    /// At type-start positions, we need to recognize this as a zero-parameter closure type
+    /// `|| -> R` and parse it as such.
+    ///
+    /// This method is called when we see `OrOr` at a type-start position and handles
+    /// it as if it were two separate `Pipe` tokens: one opening, one closing (empty params).
+    pub(super) fn parse_type_closure_from_oror(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
+        let oror_tok = self.bump().expect("caller ensured OrOr token is present");
+        let span_start = oror_tok.span;
+
+        // OrOr represents || (two pipes), so we've already seen the opening pipe.
+        // The closing pipe is implicit (part of OrOr).
+        // Zero parameters → expect Arrow directly.
+        let params = Vec::new();
+
+        // Expect arrow
+        self.expect(TokenKind::Arrow)?;
+
+        // Parse return type
+        let ret = self.parse_type()?;
+        let mut span_end = self.arena().get(ret).map(|nd| nd.span).unwrap_or(span_start);
+
+        // Parse optional effect set
+        let effects = if self.at(TokenKind::EffectOpen) {
+            Some(self.parse_effect_row()?)
+        } else {
+            None
+        };
+        if let Some(eff_id) = effects {
+            span_end = self
+                .arena()
+                .get(eff_id)
+                .map(|nd| nd.span)
+                .unwrap_or(span_end);
+        }
+
+        // Parse optional capability set
+        let capabilities = if self.at(TokenKind::CapOpen) {
+            Some(self.parse_cap_set()?)
+        } else {
+            None
+        };
+        if let Some(cap_id) = capabilities {
+            span_end = self
+                .arena()
+                .get(cap_id)
+                .map(|nd| nd.span)
+                .unwrap_or(span_end);
+        }
+
+        let span = Span::new(
+            span_start.file(),
+            span_start.byte_start(),
+            span_end.byte_start() + span_end.byte_len() - span_start.byte_start(),
+        );
+
+        Ok(self.arena_mut().alloc_type(
+            NodeKind::TypeClosure,
+            span,
+            TypeData::Closure {
+                params,
+                ret,
+                effects,
+                capabilities,
+            },
+        ))
+    }
+
 }
