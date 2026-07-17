@@ -83,6 +83,7 @@ fn mov_reg_imm_mnemonic(reg_name: &str) -> Mnemonic {
     let mut sink = VecSink::new();
     let record_layouts = HashMap::new();
     let local_bindings = LocalBindingTable::new();
+    let mut next_emission_order = 1u32;
     let (_unsafe_labels, _label_to_instr, _first_instrs, _diags) = UnsafeWalker::run(
         &mut ir,
         &ast,
@@ -95,6 +96,7 @@ fn mov_reg_imm_mnemonic(reg_name: &str) -> Mnemonic {
         &HashSet::new(),
         &HashMap::new(),
         &mut HashMap::new(),
+        &mut next_emission_order,
     );
 
     assert_eq!(
@@ -198,6 +200,7 @@ fn test_lgdt_memory_operand() {
     let mut sink = VecSink::new();
     let record_layouts = HashMap::new();
     let local_bindings = LocalBindingTable::new();
+    let mut next_emission_order = 1u32;
     let (_unsafe_labels, _label_to_instr, _first_instrs, _diags) = UnsafeWalker::run(
         &mut ir,
         &ast,
@@ -210,6 +213,7 @@ fn test_lgdt_memory_operand() {
         &HashSet::new(),
         &HashMap::new(),
         &mut HashMap::new(),
+        &mut next_emission_order,
     );
 
     // Check that no errors were emitted (in a real test with proper AST nodes, this would work)
@@ -262,6 +266,7 @@ fn test_unknown_mnemonic_foozle() {
     let mut sink = VecSink::new();
     let record_layouts = HashMap::new();
     let local_bindings = LocalBindingTable::new();
+    let mut next_emission_order = 1u32;
     let (_unsafe_labels, _label_to_instr, _first_instrs, _diags) = UnsafeWalker::run(
         &mut ir,
         &ast,
@@ -274,6 +279,7 @@ fn test_unknown_mnemonic_foozle() {
         &HashSet::new(),
         &HashMap::new(),
         &mut HashMap::new(),
+        &mut next_emission_order,
     );
 
     // Check that a U1605 diagnostic was emitted
@@ -345,6 +351,7 @@ fn test_malformed_operand_incomplete_memory() {
     let mut sink = VecSink::new();
     let record_layouts = HashMap::new();
     let local_bindings = LocalBindingTable::new();
+    let mut next_emission_order = 1u32;
     let (_unsafe_labels, _label_to_instr, _first_instrs, _diags) = UnsafeWalker::run(
         &mut ir,
         &ast,
@@ -357,6 +364,7 @@ fn test_malformed_operand_incomplete_memory() {
         &HashSet::new(),
         &HashMap::new(),
         &mut HashMap::new(),
+        &mut next_emission_order,
     );
 
     // Check that a U1606 diagnostic was emitted
@@ -452,6 +460,7 @@ fn parse_instruction_with_imm(
     let mut sink = VecSink::new();
     let record_layouts = HashMap::new();
     let local_bindings = LocalBindingTable::new();
+    let mut next_emission_order = 1u32;
     let (_unsafe_labels, _label_to_instr, _first_instrs, _diags) = UnsafeWalker::run(
         &mut ir,
         &ast,
@@ -464,6 +473,7 @@ fn parse_instruction_with_imm(
         &HashSet::new(),
         &HashMap::new(),
         &mut HashMap::new(),
+        &mut next_emission_order,
     );
 
     assert_eq!(
@@ -634,6 +644,7 @@ fn parse_ljmp_instruction(
     let mut sink = VecSink::new();
     let record_layouts = HashMap::new();
     let local_bindings = LocalBindingTable::new();
+    let mut next_emission_order = 1u32;
     let (_unsafe_labels, _label_to_instr, _first_instrs, _diags) = UnsafeWalker::run(
         &mut ir,
         &ast,
@@ -646,6 +657,7 @@ fn parse_ljmp_instruction(
         &HashSet::new(),
         &HashMap::new(),
         &mut HashMap::new(),
+        &mut next_emission_order,
     );
 
     assert_eq!(
@@ -791,6 +803,7 @@ fn test_lgdt_rip_relative_symbol() {
     let mut sink = VecSink::new();
     let record_layouts = HashMap::new();
     let local_bindings = LocalBindingTable::new();
+    let mut next_emission_order = 1u32;
     let (_unsafe_labels, _label_to_instr, _first_instrs, _diags) = UnsafeWalker::run(
         &mut ir,
         &ast,
@@ -803,6 +816,7 @@ fn test_lgdt_rip_relative_symbol() {
         &HashSet::new(),
         &HashMap::new(),
         &mut HashMap::new(),
+        &mut next_emission_order,
     );
 
     // Verify the instruction was elaborated
@@ -929,6 +943,7 @@ fn parse_branch_instruction_with_label(
 
     // Manually run the label collection and instruction processing
     // For now, we use the standard UnsafeWalker which does this internally
+    let mut next_emission_order = 1u32;
     let (_unsafe_labels, _label_to_instr, _first_instrs, _diags) = UnsafeWalker::run(
         &mut ir,
         &ast,
@@ -941,6 +956,7 @@ fn parse_branch_instruction_with_label(
         &HashSet::new(),
         &HashMap::new(),
         &mut HashMap::new(),
+        &mut next_emission_order,
     );
 
     // Note: This test needs the actual unsafe walker to process labels correctly
@@ -1013,6 +1029,7 @@ fn test_local_label_backward_jump() {
     let mut sink = VecSink::new();
     let record_layouts = HashMap::new();
     let local_bindings = LocalBindingTable::new();
+    let mut next_emission_order = 1u32;
 
     let (_unsafe_labels, _label_to_instr, _first_instrs, _diags) = UnsafeWalker::run(
         &mut ir,
@@ -1026,6 +1043,7 @@ fn test_local_label_backward_jump() {
         &HashSet::new(),
         &HashMap::new(),
         &mut HashMap::new(),
+        &mut next_emission_order,
     );
 
     // Verify instruction was parsed
@@ -1101,6 +1119,7 @@ fn test_local_label_forward_jump() {
     let mut sink = VecSink::new();
     let record_layouts = HashMap::new();
     let local_bindings = LocalBindingTable::new();
+    let mut next_emission_order = 1u32;
 
     let (_unsafe_labels, _label_to_instr, _first_instrs, _diags) = UnsafeWalker::run(
         &mut ir,
@@ -1114,6 +1133,7 @@ fn test_local_label_forward_jump() {
         &HashSet::new(),
         &HashMap::new(),
         &mut HashMap::new(),
+        &mut next_emission_order,
     );
 
     // Verify instruction was parsed
@@ -1187,6 +1207,7 @@ fn test_undefined_label_as_symbol_ref() {
     let mut sink = VecSink::new();
     let record_layouts = HashMap::new();
     let local_bindings = LocalBindingTable::new();
+    let mut next_emission_order = 1u32;
 
     let (_labels, _label_to_instr, _first_instrs, _diags) = UnsafeWalker::run(
         &mut ir,
@@ -1200,6 +1221,7 @@ fn test_undefined_label_as_symbol_ref() {
         &HashSet::new(),
         &HashMap::new(),
         &mut HashMap::new(),
+        &mut next_emission_order,
     );
 
     // For an undefined label with jmp, the label should be parsed as SymbolRef

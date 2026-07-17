@@ -570,6 +570,20 @@ impl EmitPassState {
         &self.instr_to_lambda
     }
 
+    /// Mutable access to the emission order counter.
+    /// Issue #1244: Used by UnsafeWalker to thread shared counter for interleaving
+    /// raw asm and call statements at their true source positions.
+    pub fn next_emission_order_mut(&mut self) -> &mut u32 {
+        &mut self.next_emission_order
+    }
+
+    /// Extract both instr_to_lambda and next_emission_order mutable references.
+    /// Issue #1244: Used by UnsafeWalker to avoid borrow-checker conflicts when
+    /// both fields are needed simultaneously for the same function call.
+    pub fn unsafe_walker_refs(&mut self) -> (&mut HashMap<IrNodeId, u32>, &mut u32) {
+        (&mut self.instr_to_lambda, &mut self.next_emission_order)
+    }
+
     /// Check if a specific CPU feature is enabled.
     #[must_use]
     pub fn has_feature(&self, feat: CpuFeature) -> bool {

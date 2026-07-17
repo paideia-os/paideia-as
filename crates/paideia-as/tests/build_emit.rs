@@ -120,7 +120,11 @@ mod build_emit {
     pub mod two_let_with_4arg_call_saves_rcx;
     pub mod two_let_with_ms_call_saves_rcx;
     pub mod unsafe_call_stmt_diagnostic;
+    pub mod unsafe_call_stmt_order_call_before_ret;
+    pub mod unsafe_call_stmt_order_call_between_asm;
+    pub mod unsafe_call_stmt_order_multi_calls;
     pub mod unsafe_field_write_no_redundant_load;
+    pub mod unsafe_pure_asm_order_regression;
     pub mod unsafe_sibling_scope_leak_probe;
     pub mod unsafe_sibling_scope_leak_probe_reversed;
     pub mod unsafe_stmt_kinds_diagnostic;

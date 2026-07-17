@@ -1,0 +1,14 @@
+module UnsafeCallStmtOrderCallBetweenAsm = structure {
+  let nop_fn : () -> () !{} @{} = fn(_: ()) -> ()
+
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {}, capabilities: {}, justification: "call between asm",
+    block: {
+      mov rax, 0;
+      nop_fn();
+      lea rbx, [rip + entry];
+      mov rax, 1;
+      ret
+    }
+  }
+}

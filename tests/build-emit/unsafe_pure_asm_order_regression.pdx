@@ -1,0 +1,10 @@
+module UnsafePureAsmOrderRegression = structure {
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {}, capabilities: {}, justification: "pure asm order",
+    block: {
+      mov rax, 0x5544332211223344;
+      lea rbx, [rip + entry];
+      ret
+    }
+  }
+}

@@ -1,0 +1,19 @@
+module UnsafeCallStmtOrderMultiCalls = structure {
+  let identity : () -> u64 !{} @{} = fn(_: ()) -> 1u64
+
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {}, capabilities: {}, justification: "multiple calls",
+    block: {
+      xor rax, rax;
+      identity();
+      mov rbx, 1;
+      identity();
+      mov rcx, 2;
+      identity();
+      mov rdx, 3;
+      identity();
+      mov rax, 4;
+      ret
+    }
+  }
+}

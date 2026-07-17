@@ -899,6 +899,8 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
             let local_bindings = emit_walker.state().local_bindings().clone();
             let enabled_features = emit_walker.state().enabled_features().clone();
             let unsafe_body_to_lambda = emit_walker.state().unsafe_body_to_lambda().clone();
+            // Issue #1244: Extract mutable references before call to avoid borrow conflicts
+            let (instr_to_lambda_ref, emission_order_ref) = emit_walker.state_mut().unsafe_walker_refs();
             let (unsafe_labels, label_to_instr, first_instrs, unsafe_diags) = UnsafeWalker::run(
                 &mut lowering.ir,
                 &arena,
@@ -910,7 +912,8 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                 root_mode,
                 &enabled_features,
                 &unsafe_body_to_lambda,
-                emit_walker.state_mut().instr_to_lambda_mut(),
+                instr_to_lambda_ref,
+                emission_order_ref,
             );
 
             // Register collected unsafe block labels with emit_walker state

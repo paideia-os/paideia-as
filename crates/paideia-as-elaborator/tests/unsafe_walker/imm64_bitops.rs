@@ -105,6 +105,7 @@ fn elaborate_bitop_with_imm64(
     let mut sink = VecSink::new();
     let record_layouts = HashMap::new();
     let local_bindings = LocalBindingTable::new();
+    let mut next_emission_order = 1u32;
     let (_unsafe_labels, _label_to_instr, _first_instrs, mut diags) = UnsafeWalker::run(
         &mut ir,
         &ast,
@@ -117,6 +118,7 @@ fn elaborate_bitop_with_imm64(
         &HashSet::new(),
         &HashMap::new(),
         &mut HashMap::new(),
+        &mut next_emission_order,
     );
 
     // Also collect diagnostics from the sink itself

@@ -556,6 +556,7 @@ impl UnsafeWalker {
         enabled_features: &HashSet<CpuFeature>,
         unsafe_body_to_lambda: &HashMap<u32, u32>,
         instr_to_lambda: &mut HashMap<IrNodeId, u32>,
+        next_emission_order: &mut u32,
     ) -> (
         HashMap<String, u32>,
         HashMap<String, paideia_as_ir::IrNodeId>,
@@ -684,6 +685,7 @@ impl UnsafeWalker {
                                                 == NodeKind::StmtInstruction
                                             {
                                                 // Process this instruction statement.
+                                                // Issue #1244: Pass next_emission_order to thread counter
                                                 let instr_ir_node = Self::process_instruction_stmt(
                                                     arena,
                                                     ast,
@@ -698,6 +700,7 @@ impl UnsafeWalker {
                                                     enabled_features,
                                                     owning_lambda_id,
                                                     instr_to_lambda,
+                                                    next_emission_order,
                                                 );
 
                                                 // Track first instruction of this unsafe block
@@ -787,6 +790,9 @@ impl UnsafeWalker {
     /// into the arena's side-table. Emits diagnostics on error. Also validates
     /// label references against the collected labels map (Phase 6 m4-002) and
     /// CPU feature requirements (PA-r16-004-backtrack-a #1033).
+    ///
+    /// Issue #1244: Thread next_emission_order counter to ensure raw asm statements
+    /// interleave with call statements at their true source positions.
     fn process_instruction_stmt(
         arena: &mut IrArena,
         ast: &AstArena,
@@ -801,6 +807,7 @@ impl UnsafeWalker {
         enabled_features: &HashSet<CpuFeature>,
         owning_lambda_id: Option<u32>,
         instr_to_lambda: &mut HashMap<IrNodeId, u32>,
+        next_emission_order: &mut u32,
     ) -> Option<paideia_as_ir::IrNodeId> {
         // Get the statement data.
         let stmt_data = match ast.stmt_data(stmt_id) {
@@ -1134,13 +1141,18 @@ impl UnsafeWalker {
                     }
                 } else {
                     // No expansion needed; use the allocated node
+                    let emission_order = {
+                        let order = *next_emission_order;
+                        *next_emission_order += 1;
+                        order
+                    };
                     let inst = Instruction {
                         mnemonic,
                         operands: parsed_operands,
                         encoding_hint: None,
                         byte_offset_in_text: None,
                         mode: instr_mode,
-                        emission_order: 0,
+                        emission_order,
                     };
                     arena.instructions_mut().insert(ir_node_id, inst);
                     // #1139: Record which lambda owns this instruction.
@@ -1151,13 +1163,18 @@ impl UnsafeWalker {
                 }
             } else {
                 // Shouldn't reach here due to pattern guard, but fallback to normal path
+                let emission_order = {
+                    let order = *next_emission_order;
+                    *next_emission_order += 1;
+                    order
+                };
                 let inst = Instruction {
                     mnemonic,
                     operands: parsed_operands,
                     encoding_hint: None,
                     byte_offset_in_text: None,
                     mode: instr_mode,
-                    emission_order: 0,
+                    emission_order,
                 };
                 arena.instructions_mut().insert(ir_node_id, inst);
                 // #1139: Record which lambda owns this instruction.
@@ -1168,13 +1185,18 @@ impl UnsafeWalker {
             }
         } else {
             // Normal path: not a bitwise op or doesn't need expansion
+            let emission_order = {
+                let order = *next_emission_order;
+                *next_emission_order += 1;
+                order
+            };
             let inst = Instruction {
                 mnemonic,
                 operands: parsed_operands,
                 encoding_hint: None,
                 byte_offset_in_text: None,
                 mode: instr_mode,
-                emission_order: 0,
+                emission_order,
             };
             arena.instructions_mut().insert(ir_node_id, inst);
             // #1139: Record which lambda owns this instruction.

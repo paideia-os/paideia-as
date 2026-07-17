@@ -1,0 +1,12 @@
+module UnsafeCallStmtOrderCallBeforeRet = structure {
+  let identity : () -> u64 !{} @{} = fn(_: ()) -> 1u64
+
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {}, capabilities: {}, justification: "call before ret",
+    block: {
+      identity();
+      mov rax, 1;
+      ret
+    }
+  }
+}

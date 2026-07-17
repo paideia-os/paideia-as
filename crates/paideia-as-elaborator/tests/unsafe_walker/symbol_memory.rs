@@ -119,6 +119,7 @@ fn mov_symbol_memory_operand(source: &str, ast: &mut AstArena, memref_operand: N
     let mut sink = VecSink::new();
     let record_layouts = HashMap::new();
     let local_bindings = LocalBindingTable::new();
+    let mut next_emission_order = 1u32;
     let (_unsafe_labels, _label_to_instr, _first_instrs, _diags) = UnsafeWalker::run(
         &mut ir,
         &ast,
@@ -131,6 +132,7 @@ fn mov_symbol_memory_operand(source: &str, ast: &mut AstArena, memref_operand: N
         &HashSet::new(),
         &HashMap::new(),
         &mut HashMap::new(),
+        &mut next_emission_order,
     );
 
     assert_eq!(
