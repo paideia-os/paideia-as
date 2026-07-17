@@ -813,12 +813,14 @@ impl EmitWalker {
                                             // #995: Check for closure-typed binding BEFORE scalar function pointer.
                                             use crate::local_binding_table::BindingHome;
                                             if let Some(BindingHome::Closure(closure_reg)) = self.state.local_bindings.get_home(target_name) {
-                                                // Closure call in statement position
+                                                // Closure call - handle both tail and statement positions
                                                 if cfg!(debug_assertions) {
-                                                    eprintln!("[emit_block_body] App (closure statement call) at index {}", i);
+                                                    eprintln!("[emit_block_body] App (closure {} call) at index {}",
+                                                        if i == block_children.len() - 1 { "tail" } else { "statement" }, i);
                                                 }
                                                 self.emit_closure_call(lambda_id, closure_reg, &app_children[1..], arena);
-                                                // Statement-position closure call: no explicit ret (handled by tail logic)
+                                                // Tail-position closure returns the value in RAX
+                                                // Statement-position closure discards the result
                                             } else if i == block_children.len() - 1 {
                                                 if cfg!(debug_assertions) {
                                                     eprintln!("[emit_block_body] App (tail call) at index {}", i);
@@ -1403,12 +1405,14 @@ impl EmitWalker {
                                             // #995: Check for closure-typed binding BEFORE scalar function pointer.
                                             use crate::local_binding_table::BindingHome;
                                             if let Some(BindingHome::Closure(closure_reg)) = self.state.local_bindings.get_home(target_name) {
-                                                // Closure call in arm context
+                                                // Closure call - handle both tail and statement positions in arm
                                                 if cfg!(debug_assertions) {
-                                                    eprintln!("[emit_block_body_arm] App (closure call) at index {}", i);
+                                                    eprintln!("[emit_block_body_arm] App (closure {} call) at index {}",
+                                                        if i == block_children.len() - 1 { "tail" } else { "statement" }, i);
                                                 }
                                                 self.emit_closure_call(lambda_id, closure_reg, &app_children[1..], arena);
-                                                // Arm-position closure call: no explicit ret (handled by outer block)
+                                                // Tail-position closure in arm returns value for outer block
+                                                // Statement-position closure discards result
                                             } else if i == block_children.len() - 1 {
                                                 if cfg!(debug_assertions) {
                                                     eprintln!("[emit_block_body_arm] App (tail call) at index {}", i);
