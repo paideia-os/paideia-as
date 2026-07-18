@@ -1448,7 +1448,7 @@ mod tests {
 
     #[test]
     fn mnemonic_size_fits_in_four_bytes() {
-        use core::mem::size_of;
+        use std::mem::size_of;
         // Mnemonic includes Jcc(Cond) (1 byte tag + 1 byte data) and
         // MovCr/MovDr/In/Out with bool or u8 payloads. Max size is 4 bytes.
         assert!(size_of::<Mnemonic>() <= 4);

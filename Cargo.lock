@@ -2108,7 +2108,6 @@ name = "paideia-as-runtime"
 version = "0.16.0"
 dependencies = [
  "iced-x86",
- "paideia-as-encoder",
  "smallvec",
  "static_assertions",
 ]
