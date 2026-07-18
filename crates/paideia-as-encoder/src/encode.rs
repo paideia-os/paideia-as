@@ -4422,17 +4422,21 @@ pub fn encode_syscall(buf: &mut CodeBuffer) {
 /// Encode control register MOV instruction: `mov cr_idx, gpr` or `mov gpr, cr_idx`.
 ///
 /// Both forms use the two-byte opcode 0F 22 (write to CR) or 0F 20 (read from CR).
-/// CR8 requires REX.R=1 to extend the reg field (cr_idx >= 8).
+/// REX.R is required if cr_idx >= 8 to extend the reg field (for CR8).
+/// REX.B is required if gpr_idx >= 8 to extend the r/m field (for r8-r15).
 ///
 /// # Instructions
 /// - `mov cr0, rax`: `0F 22 C0` (3 bytes)
 /// - `mov cr3, rax`: `0F 22 D8` (3 bytes, cr_idx=3 in reg field)
 /// - `mov cr4, rax`: `0F 22 E0` (3 bytes, cr_idx=4 in reg field)
 /// - `mov cr8, rax`: `44 0F 22 C0` (4 bytes, REX.R=1 for extended cr_idx)
+/// - `mov cr3, r14`: `41 0F 22 DE` (4 bytes, REX.B=1 for r14 in r/m field)
+/// - `mov cr0, r8`: `41 0F 22 C0` (4 bytes, REX.B=1 for r8)
 /// - `mov rax, cr0`: `0F 20 C0` (3 bytes)
 /// - `mov rax, cr3`: `0F 20 D8` (3 bytes)
 /// - `mov rax, cr4`: `0F 20 E0` (3 bytes)
 /// - `mov rax, cr8`: `44 0F 20 C0` (4 bytes, REX.R=1)
+/// - `mov r14, cr3`: `41 0F 20 DE` (4 bytes, REX.B=1 for r14 in r/m field)
 ///
 /// # Arguments
 /// - `buf`: code buffer to append instruction to
@@ -4440,9 +4444,16 @@ pub fn encode_syscall(buf: &mut CodeBuffer) {
 /// - `cr_idx`: control register index (0-4 or 8; phase-5 supports CR0..CR4 + CR8 only)
 /// - `gpr_idx`: general-purpose register index (0-15)
 pub fn encode_mov_cr(buf: &mut CodeBuffer, write: bool, cr_idx: u8, gpr_idx: u8) {
-    // Emit REX.R if cr_idx >= 8 (extends the reg field to support CR8)
+    // Compute REX prefix: REX.R for cr_idx >= 8, REX.B for gpr_idx >= 8
+    let mut rex = 0;
     if cr_idx >= 8 {
-        buf.bytes.push(0x44); // REX with R=1
+        rex |= 0x04; // REX.R
+    }
+    if gpr_idx >= 8 {
+        rex |= 0x01; // REX.B
+    }
+    if rex != 0 {
+        buf.bytes.push(0x40 | rex);
     }
 
     // Emit two-byte opcode
@@ -6353,6 +6364,157 @@ mod tests {
         let mut buf = CodeBuffer::new();
         encode_mov_cr(&mut buf, false, 8, 0);
         assert_eq!(buf.as_slice(), &[0x44, 0x0F, 0x20, 0xC0]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    // Write (mov cr_idx, r8-r15) tests: verify REX.B prefix for high GPRs
+    // Regression test for issue #1246: mov cr3, r14 should emit REX.B
+
+    #[test]
+    fn encode_mov_cr0_r8_emits_410f22c0() {
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, true, 0, 8); // write=true, cr_idx=0, gpr_idx=8 (r8)
+        // R8 requires REX.B=1: 0x41, then 0x0F 0x22, then 0xC0 (reg=0, r/m=0 with B extension)
+        assert_eq!(buf.as_slice(), &[0x41, 0x0F, 0x22, 0xC0]);
+    }
+
+    #[test]
+    fn encode_mov_cr0_r8_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, true, 0, 8);
+        assert_eq!(buf.as_slice(), &[0x41, 0x0F, 0x22, 0xC0]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    #[test]
+    fn encode_mov_cr3_r14_emits_410f22de() {
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, true, 3, 14); // write=true, cr_idx=3, gpr_idx=14 (r14)
+        // This is the bug case from issue #1246: should have REX.B for r14
+        // 0x41 (REX.B), 0x0F 0x22 (opcode), 0xDE (mod=11, reg=3, r/m=6 [6 + 8 from B = 14])
+        assert_eq!(buf.as_slice(), &[0x41, 0x0F, 0x22, 0xDE]);
+    }
+
+    #[test]
+    fn encode_mov_cr3_r14_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, true, 3, 14);
+        assert_eq!(buf.as_slice(), &[0x41, 0x0F, 0x22, 0xDE]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    #[test]
+    fn encode_mov_cr4_r15_emits_410f22e7() {
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, true, 4, 15); // write=true, cr_idx=4, gpr_idx=15 (r15)
+        // R15 requires REX.B=1: 0x41, then 0x0F 0x22, then 0xE7 (mod=11, reg=4, r/m=7 [7 + 8 from B = 15])
+        assert_eq!(buf.as_slice(), &[0x41, 0x0F, 0x22, 0xE7]);
+    }
+
+    #[test]
+    fn encode_mov_cr4_r15_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, true, 4, 15);
+        assert_eq!(buf.as_slice(), &[0x41, 0x0F, 0x22, 0xE7]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    // Regression tests: ensure low GPRs still work without REX.B
+
+    #[test]
+    fn encode_mov_cr3_rax_still_emits_0f22d8_no_rex() {
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, true, 3, 0); // write=true, cr_idx=3, gpr_idx=0 (rax)
+        // Should not have REX prefix (no REX.B, no REX.R)
+        assert_eq!(buf.as_slice(), &[0x0F, 0x22, 0xD8]);
+    }
+
+    #[test]
+    fn encode_mov_cr3_rsi_still_emits_0f22de_no_rex() {
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, true, 3, 6); // write=true, cr_idx=3, gpr_idx=6 (rsi)
+        // Should not have REX prefix; modrm = 0xD8 + 6 = 0xDE, but no REX.B
+        // This was the alias target of the bug (r14 -> rsi)
+        assert_eq!(buf.as_slice(), &[0x0F, 0x22, 0xDE]);
+    }
+
+    // Read (mov r8-r15, cr_idx) tests: verify REX.B prefix for high GPRs
+
+    #[test]
+    fn encode_mov_r8_cr0_emits_410f20c0() {
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, false, 0, 8); // write=false, cr_idx=0, gpr_idx=8 (r8)
+        // R8 requires REX.B=1: 0x41, then 0x0F 0x20, then 0xC0
+        assert_eq!(buf.as_slice(), &[0x41, 0x0F, 0x20, 0xC0]);
+    }
+
+    #[test]
+    fn encode_mov_r8_cr0_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, false, 0, 8);
+        assert_eq!(buf.as_slice(), &[0x41, 0x0F, 0x20, 0xC0]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    #[test]
+    fn encode_mov_r14_cr3_emits_410f20de() {
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, false, 3, 14); // write=false, cr_idx=3, gpr_idx=14 (r14)
+        // R14 requires REX.B=1: 0x41, then 0x0F 0x20, then 0xDE
+        assert_eq!(buf.as_slice(), &[0x41, 0x0F, 0x20, 0xDE]);
+    }
+
+    #[test]
+    fn encode_mov_r14_cr3_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, false, 3, 14);
+        assert_eq!(buf.as_slice(), &[0x41, 0x0F, 0x20, 0xDE]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
+    }
+
+    #[test]
+    fn encode_mov_r15_cr4_emits_410f20e7() {
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, false, 4, 15); // write=false, cr_idx=4, gpr_idx=15 (r15)
+        // R15 requires REX.B=1: 0x41, then 0x0F 0x20, then 0xE7
+        assert_eq!(buf.as_slice(), &[0x41, 0x0F, 0x20, 0xE7]);
+    }
+
+    #[test]
+    fn encode_mov_r15_cr4_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        encode_mov_cr(&mut buf, false, 4, 15);
+        assert_eq!(buf.as_slice(), &[0x41, 0x0F, 0x20, 0xE7]);
 
         let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
         let instr = decoder.decode();
