@@ -17,6 +17,9 @@ pub use paideia_as_encoder::CodeBuffer;
 pub use paideia_as_runtime::Instruction;
 pub use paideia_as_runtime::Mnemonic;
 pub use paideia_as_runtime::Operand;
+pub use paideia_as_runtime::{
+    resolve_symbols, DuplicateLabel, LabelMap, ResolveError, ResolvePolicy, SymbolTable,
+};
 
 use paideia_as_encoder::{encode_instruction, EncodeError, EncodeStats};
 

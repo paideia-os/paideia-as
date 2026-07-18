@@ -806,6 +806,17 @@ pub enum Operand {
         /// Scale factor for index.
         scale: Scale,
     },
+    /// Absolute-address indexed memory: [disp + index*scale], no base, no RIP.
+    /// Produced by `resolve_symbols` from `MemSymIndexed`. Encoder emits FF/4
+    /// ModRM with SIB, base=0b101 (no base), no relocation.
+    MemDispIndexed {
+        /// Absolute displacement offset.
+        disp: i32,
+        /// Index register (cannot be RSP).
+        index: RegId,
+        /// Scale factor for index.
+        scale: Scale,
+    },
 }
 
 /// x86_64 register identifier.
@@ -1087,13 +1098,16 @@ impl Mnemonic {
             // Conditional set byte: 4 bytes (REX + 0F + 9X + ModR/M)
             Mnemonic::Setcc(_) => 4,
 
-            // Unconditional jump: 5 bytes (rel32) or 7-8 bytes (MemSymIndexed with SIB)
+            // Unconditional jump: 5 bytes (rel32) or 7-8 bytes (MemSymIndexed/MemDispIndexed with SIB)
             Mnemonic::Jmp => {
-                // PA-R15-009a: check if operand is MemSymIndexed; if so, return 7-8 bytes based on index register
+                // PA-R15-009a: check if operand is MemSymIndexed or MemDispIndexed; if so, return 7-8 bytes based on index register
                 if _operands.len() == 1 {
-                    if let Operand::MemSymIndexed { index, .. } = &_operands[0] {
-                        // 7 bytes if index < R8, 8 bytes if index >= R8 (REX.X)
-                        return if index.0 < 8 { 7 } else { 8 };
+                    match &_operands[0] {
+                        Operand::MemSymIndexed { index, .. } | Operand::MemDispIndexed { index, .. } => {
+                            // 7 bytes if index < R8, 8 bytes if index >= R8 (REX.X)
+                            return if index.0 < 8 { 7 } else { 8 };
+                        }
+                        _ => {}
                     }
                 }
                 5 // default for Imm64 or LabelRef

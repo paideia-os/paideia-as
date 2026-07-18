@@ -3173,6 +3173,20 @@ fn encode_jmp(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
             });
             Ok(output)
         }
+        [Operand::MemDispIndexed { disp, index, scale }] => {
+            // PA-R20-006: jmp [disp + index*scale] with absolute addressing (resolved form).
+            // Emitted by resolve_symbols from MemSymIndexed after address resolution.
+            // Emit FF 24 SIB disp32 (absolute form, not RIP-relative), no relocation.
+            let scale_bits = match scale {
+                Scale::X1 => 0,
+                Scale::X2 => 1,
+                Scale::X4 => 2,
+                Scale::X8 => 3,
+            };
+            let index_reg = reg64_from(*index)?;
+            let _ = jmp_mem_sib_no_base_indexed(buf, index_reg, scale_bits, *disp)?;
+            Ok(EncodeOutput::new())
+        }
         _ => Err(EncodeError::Unsupported(
             "jmp form not in phase-3-m2-002 minimum",
         )),

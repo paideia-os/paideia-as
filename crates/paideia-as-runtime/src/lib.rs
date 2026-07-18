@@ -9,10 +9,16 @@
 extern crate alloc;
 
 pub mod instruction;
+pub mod label_map;
 pub mod node_id;
+pub mod resolve;
+pub mod symbol_table;
 
 pub use instruction::{
     Cond, CpuFeature, EncodingHint, InstrMode, Instruction, IntWidth, Mnemonic,
     Operand, RegId, Scale, SegPrefix, SegReg,
 };
+pub use label_map::{DuplicateLabel, LabelMap};
 pub use node_id::IrNodeId;
+pub use resolve::{resolve_symbols, ResolveError, ResolvePolicy};
+pub use symbol_table::SymbolTable;
