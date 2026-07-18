@@ -19,3 +19,5 @@ smallvec = { workspace = true }
 insta = { workspace = true }
 syn = { workspace = true }
 quote = { workspace = true }
+paideia-pq-sign = { path = "../paideia-pq-sign" }
+rand_core = { workspace = true, features = ["getrandom"] }

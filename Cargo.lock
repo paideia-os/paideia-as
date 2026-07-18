@@ -2028,7 +2028,9 @@ dependencies = [
  "insta",
  "paideia-as-encoder",
  "paideia-as-runtime",
+ "paideia-pq-sign",
  "quote",
+ "rand_core 0.6.4",
  "smallvec",
  "syn",
 ]
