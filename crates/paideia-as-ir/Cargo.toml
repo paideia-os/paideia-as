@@ -12,7 +12,6 @@ name = "paideia_as_ir"
 
 [dependencies]
 paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
-paideia-as-runtime = { path = "../paideia-as-runtime" }
 serde = { workspace = true }
 static_assertions = { workspace = true }
 smallvec = { workspace = true }

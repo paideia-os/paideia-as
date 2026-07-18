@@ -1933,7 +1933,6 @@ dependencies = [
  "paideia-as-ir",
  "paideia-as-lexer",
  "paideia-as-parser",
- "paideia-as-runtime",
  "paideia-as-test",
  "paideia-as-types",
  "paideia-fmt",
@@ -2067,7 +2066,6 @@ name = "paideia-as-ir"
 version = "0.16.0"
 dependencies = [
  "paideia-as-diagnostics",
- "paideia-as-runtime",
  "proptest",
  "serde",
  "smallvec",
@@ -2101,15 +2099,6 @@ dependencies = [
  "paideia-as-ir",
  "paideia-as-lexer",
  "tempfile",
-]
-
-[[package]]
-name = "paideia-as-runtime"
-version = "0.16.0"
-dependencies = [
- "iced-x86",
- "smallvec",
- "static_assertions",
 ]
 
 [[package]]
