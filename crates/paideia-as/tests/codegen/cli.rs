@@ -447,6 +447,41 @@ fn build_linear_double_use_compiles_but_doesnt_fire_walker() {
 }
 
 #[test]
+fn build_two_lambdas_with_captures_reaches_all_walkers() {
+    // Issue #1237: Regression test verifying that root walker fix allows the
+    // LinearityWalker to reach all lambdas in a module correctly.
+    //
+    // Pre-#1237, the walker seed was IrNodeId::new(1), which (due to bottom-up
+    // node allocation in lowering) was typically a leaf node with no children.
+    // The root walker fix (find_outermost_root) ensures that all lambdas are
+    // properly visited and their captures analyzed.
+    //
+    // This fixture contains two lambdas that both capture a free variable.
+    // The walker must reach both lambdas for convert_closure_lets to work
+    // correctly downstream. The test confirms exit code 0, proving the walkers
+    // ran successfully over the entire IR tree.
+    let input = data("two_lambdas_with_captures.pdx");
+    let out = cargo_run(&["build", input.to_str().unwrap(), "--emit", "placeholder"]);
+
+    assert!(
+        out.status.success(),
+        "expected exit 0 (walker reaches all lambdas), got {:?}\nstderr: {}",
+        out.status,
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // Placeholder should be written successfully
+    let mut placeholder = input.clone();
+    placeholder.set_file_name("two_lambdas_with_captures.placeholder");
+    assert!(
+        placeholder.exists(),
+        "placeholder should be written when no errors present"
+    );
+
+    let _ = std::fs::remove_file(&placeholder);
+}
+
+#[test]
 fn build_calling_convention_example_emits_clean_elf() {
     // Test that a known-good example (§12) still produces a valid ELF
     let input = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

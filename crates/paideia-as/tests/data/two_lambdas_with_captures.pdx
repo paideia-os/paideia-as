@@ -1,0 +1,5 @@
+module TwoLambdasWithCaptures = structure {
+  let x = 42;
+  let f1 : (u64) -> u64 = fn (a : u64) -> a + x;
+  let f2 : (u64) -> u64 = fn (b : u64) -> b + x
+}
