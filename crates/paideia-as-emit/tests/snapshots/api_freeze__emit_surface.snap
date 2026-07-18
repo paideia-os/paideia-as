@@ -1,0 +1,27 @@
+---
+source: crates/paideia-as-emit/tests/api_freeze.rs
+expression: surface
+---
+enum EmitError
+  attrs:
+    # [derive (Clone , Debug , PartialEq , Eq)]
+    # [non_exhaustive]
+  variants:
+    InvalidOperand
+    OperandCount { expected: usize, got: usize, mnemonic: Mnemonic }
+    OperandShape { mnemonic: Mnemonic }
+    UnresolvedRelocation
+    Unsupported
+
+fn emit_instruction
+  sig: fn emit_instruction (buf : & mut CodeBuffer , ins : Instruction ,) -> Result < () , EmitError >
+
+pub use paideia_as_encoder :: CodeBuffer ;
+
+pub use paideia_as_runtime :: { resolve_symbols , DuplicateLabel , LabelMap , ResolveError , ResolvePolicy , SymbolTable , } ;
+
+pub use paideia_as_runtime :: Instruction ;
+
+pub use paideia_as_runtime :: Mnemonic ;
+
+pub use paideia_as_runtime :: Operand ;

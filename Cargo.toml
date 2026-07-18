@@ -87,6 +87,8 @@ toml = "0.8"
 chumsky = "0.10"
 logos = "0.15"
 unicode-ident = "1"
+syn = { version = "2", features = ["full", "parsing", "extra-traits"] }
+quote = "1"
 
 # LSP
 tower-lsp = "0.20"

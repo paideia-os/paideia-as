@@ -16,3 +16,6 @@ paideia-as-runtime = { path = "../paideia-as-runtime" }
 [dev-dependencies]
 iced-x86 = { workspace = true }
 smallvec = { workspace = true }
+insta = { workspace = true }
+syn = { workspace = true }
+quote = { workspace = true }

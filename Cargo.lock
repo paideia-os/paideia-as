@@ -2025,9 +2025,12 @@ name = "paideia-as-emit"
 version = "0.16.0"
 dependencies = [
  "iced-x86",
+ "insta",
  "paideia-as-encoder",
  "paideia-as-runtime",
+ "quote",
  "smallvec",
+ "syn",
 ]
 
 [[package]]
@@ -2118,10 +2121,13 @@ name = "paideia-as-runtime"
 version = "0.16.0"
 dependencies = [
  "iced-x86",
+ "insta",
  "paideia-as-encoder",
  "paideia-as-ir",
+ "quote",
  "smallvec",
  "static_assertions",
+ "syn",
 ]
 
 [[package]]

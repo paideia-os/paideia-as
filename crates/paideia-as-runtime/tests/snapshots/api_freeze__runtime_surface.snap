@@ -1,0 +1,284 @@
+---
+source: crates/paideia-as-runtime/tests/api_freeze.rs
+expression: surface
+---
+enum Cond
+  attrs:
+    # [derive (Clone , Copy , Debug , Eq , PartialEq , Hash)]
+  variants:
+    Above
+    AboveOrEqual
+    Below
+    BelowOrEqual
+    Eq
+    Ge
+    Gt
+    Le
+    Lt
+    Ne
+    NonZero
+    NotOverflow
+    NotParity
+    NotSign
+    Overflow
+    Parity
+    Sign
+    Zero
+
+enum CpuFeature
+  attrs:
+    # [derive (Copy , Clone , Debug , PartialEq , Eq , Hash)]
+  variants:
+    Avx
+    Avx512F
+    Bmi1
+    Cet
+    Cx16
+    Popcnt
+    Sse42
+    Xsave
+    Xsaveopt
+
+enum InstrMode
+  attrs:
+    # [derive (Clone , Copy , Debug , Default , Eq , PartialEq , Hash)]
+  variants:
+    Mode32
+    Mode64
+
+enum IntWidth
+  attrs:
+    # [derive (Clone , Copy , Debug , Eq , PartialEq , Hash)]
+  variants:
+    W16
+    W32
+    W64
+    W8
+
+enum Mnemonic
+  attrs:
+    # [derive (Clone , Copy , Debug , Eq , PartialEq , Hash)]
+  variants:
+    Adc { width: IntWidth }
+    Add
+    And
+    Bsf { width: IntWidth }
+    Bsr { width: IntWidth }
+    Bswap
+    Bswap32
+    Bt { width: IntWidth }
+    Btc { width: IntWidth }
+    Btr { width: IntWidth }
+    Bts { width: IntWidth }
+    Call
+    Cld
+    Clflush
+    Clflushopt
+    Cli
+    Cmp
+    Cpuid
+    Crc32 { width: IntWidth }
+    Dec
+    Div
+    Endbr32
+    Endbr64
+    FarJmp
+    Fxrstor
+    Fxsave
+    Hlt
+    Idiv
+    Imul
+    In { width: u8 }
+    Inc
+    Int
+    Int3
+    Invd
+    Invlpg
+    Iret
+    Iretq
+    Jcc(Cond)
+    Jmp
+    Lea
+    Lfence
+    Lgdt
+    Lidt
+    LockAdd { width: IntWidth }
+    LockAnd { width: IntWidth }
+    LockBtc { width: IntWidth }
+    LockBtr { width: IntWidth }
+    LockBts { width: IntWidth }
+    LockCmpxchg
+    LockCmpxchg16b
+    LockCmpxchg32
+    LockInc { width: IntWidth }
+    LockOr { width: IntWidth }
+    LockSub { width: IntWidth }
+    LockXadd { width: IntWidth }
+    LockXor { width: IntWidth }
+    Ltr
+    Mfence
+    Mov
+    MovCr { write: bool }
+    MovDr { write: bool }
+    MovSized { width: IntWidth }
+    Movnti { width: IntWidth }
+    Movsx
+    Movzx
+    Nop
+    Not
+    Or
+    Out { width: u8 }
+    Pause
+    Pop
+    Popcnt { width: IntWidth }
+    Popfq
+    Prefetchnta
+    Prefetcht0
+    Prefetcht1
+    Prefetcht2
+    Push
+    Pushfq
+    Rdmsr
+    Rdtsc
+    RepMovsb
+    RepMovsq
+    RepStosb
+    RepStosq
+    Ret
+    Rol { width: IntWidth }
+    Ror { width: IntWidth }
+    Sar
+    Sbb { width: IntWidth }
+    Setcc(Cond)
+    Sfence
+    Shl
+    Shr
+    Std
+    Sti
+    Sub
+    Swapgs
+    Syscall
+    Sysret
+    Test
+    Tzcnt { width: IntWidth }
+    Ud2
+    Vmovdqu { is_store: bool }
+    Vpcmpeqb
+    Vpmovmskb
+    Vpxor
+    Wbinvd
+    Wrmsr
+    Xchg
+    Xor
+    Xrstor
+    Xsaveopt
+
+enum Operand
+  attrs:
+    # [derive (Clone , Debug , Eq , PartialEq , Hash)]
+  variants:
+    Imm64(i64)
+    LabelRef { addend: i32, name: String }
+    MemDisp { disp: i32 }
+    MemDispIndexed { disp: i32, index: RegId, scale: Scale }
+    MemRipRel { disp: i32 }
+    MemRipRelSym { addend: i32, name: String }
+    MemSeg { inner: Box < Operand >, seg: SegPrefix }
+    MemSib { base: RegId, disp: i32, index: Option < RegId >, scale: Scale }
+    MemSymIndexed { addend: i32, index: RegId, name: String, scale: Scale }
+    Reg(RegId)
+    SegReg(SegReg)
+    SymbolRef { addend: i32, name: String }
+    Var { name: String }
+
+enum ResolveError
+  attrs:
+    # [derive (Clone , Debug , PartialEq , Eq)]
+    # [non_exhaustive]
+  variants:
+    NotEncodableForMnemonic { instr_index: usize, mnemonic: Mnemonic }
+    OutOfRange { instr_index: usize, required_form: & 'static str, resolved: u64 }
+    UnknownLabel { instr_index: usize, name: String, operand_index: usize }
+    UnknownSymbol { instr_index: usize, name: String, operand_index: usize }
+
+enum ResolvePolicy
+  attrs:
+    # [derive (Clone , Copy , Debug)]
+    # [non_exhaustive]
+  variants:
+    AbsoluteImm64
+
+enum Scale
+  attrs:
+    # [derive (Clone , Copy , Debug , Eq , PartialEq , Hash)]
+  variants:
+    X1
+    X2
+    X4
+    X8
+
+enum SegPrefix
+  attrs:
+    # [derive (Clone , Copy , Debug , Eq , PartialEq , Hash)]
+  variants:
+    Fs
+    Gs
+
+enum SegReg
+  attrs:
+    # [derive (Clone , Copy , Debug , Eq , PartialEq , Hash)]
+  variants:
+    Cs
+    Ds
+    Es
+    Fs
+    Gs
+    Ss
+
+fn resolve_symbols
+  sig: fn resolve_symbols (instructions : & mut [Instruction] , symbols : & SymbolTable , labels : & LabelMap , _policy : ResolvePolicy ,) -> Result < () , ResolveError >
+
+struct DuplicateLabel
+  attrs:
+    # [derive (Debug , Clone , PartialEq , Eq)]
+  fields: { name: String }
+
+struct EncodingHint
+  attrs:
+    # [derive (Clone , Copy , Debug , Eq , PartialEq , Hash)]
+  fields: { opcode: u16, operand_size: u8 }
+
+struct Instruction
+  attrs:
+    # [derive (Clone , Debug , PartialEq , Eq)]
+  fields: { byte_offset_in_text: Option < u32 >, emission_order: u32, encoding_hint: Option < EncodingHint >, mnemonic: Mnemonic, mode: InstrMode, operands: SmallVec < [Operand ; 3] > }
+
+struct IrNodeId
+  attrs:
+    # [derive (Copy , Clone , Eq , PartialEq , Hash , Ord , PartialOrd , Debug)]
+  fields: (NonZeroU32)
+
+struct LabelMap
+  attrs:
+    # [derive (Default , Debug , Clone)]
+  fields: { entries: BTreeMap < String , usize > }
+
+struct RegId
+  attrs:
+    # [derive (Clone , Copy , Debug , Eq , PartialEq , Hash)]
+  fields: (u8)
+
+struct SymbolTable
+  attrs:
+    # [derive (Default , Debug , Clone)]
+  fields: { entries: BTreeMap < String , u64 > }
+
+pub use instruction :: { Cond , CpuFeature , EncodingHint , InstrMode , Instruction , IntWidth , Mnemonic , Operand , RegId , Scale , SegPrefix , SegReg , } ;
+
+pub use label_map :: { DuplicateLabel , LabelMap } ;
+
+pub use node_id :: IrNodeId ;
+
+pub use resolve :: { resolve_symbols , ResolveError , ResolvePolicy } ;
+
+pub use symbol_table :: SymbolTable ;

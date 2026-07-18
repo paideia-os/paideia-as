@@ -17,3 +17,6 @@ static_assertions = { workspace = true }
 paideia-as-encoder = { path = "../paideia-as-encoder" }
 paideia-as-ir = { path = "../paideia-as-ir" }
 iced-x86 = { workspace = true }
+insta = { workspace = true }
+syn = { workspace = true }
+quote = { workspace = true }
