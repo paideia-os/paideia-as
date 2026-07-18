@@ -73,7 +73,7 @@ pub use enum_layout::{
 };
 pub use handler_value::{HandlerInfo, HandlerSideTable, pretty_handler};
 pub use instruction::{
-    Cond, EncodingHint, InstrMode, Instruction, InstructionSideTable, IntWidth, Mnemonic, Operand,
+    Cond, CpuFeature, EncodingHint, InstrMode, Instruction, InstructionSideTable, IntWidth, Mnemonic, Operand,
     RegId, Scale, SegPrefix, SegReg,
 };
 pub use int_match::{IntMatchScrutinee, IntMatchScrutineeTable};

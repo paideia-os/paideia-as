@@ -26,6 +26,7 @@ similar = { workspace = true }
 
 paideia-as-lexer = { path = "../paideia-as-lexer" }
 paideia-as-parser = { path = "../paideia-as-parser" }
+paideia-as-runtime = { path = "../paideia-as-runtime" }
 paideia-as-ast = { path = "../paideia-as-ast" }
 paideia-as-doc = { path = "../paideia-as-doc" }
 paideia-as-elaborator = { path = "../paideia-as-elaborator" }

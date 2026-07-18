@@ -11,6 +11,7 @@ repository.workspace = true
 name = "paideia_as_ir"
 
 [dependencies]
+paideia-as-runtime = { path = "../paideia-as-runtime" }
 paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
 serde = { workspace = true }
 static_assertions = { workspace = true }
