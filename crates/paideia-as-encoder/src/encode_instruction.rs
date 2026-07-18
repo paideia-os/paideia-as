@@ -3713,11 +3713,11 @@ fn encode_mov_cr_inst(
                 (second_reg.0, first_reg.0)
             };
 
-            // Validate CR index: phase-5 supports CR0..CR4 + CR8 only
+            // Validate CR index: CR0, CR2, CR3, CR4, CR8 supported.
             match cr_idx {
-                0 | 3 | 4 | 8 => {}
+                0 | 2 | 3 | 4 | 8 => {}
                 _ => {
-                    return Err(EncodeError::Unsupported("CR index not in phase-5 minimum"));
+                    return Err(EncodeError::Unsupported("CR index not supported"));
                 }
             }
 
@@ -5597,21 +5597,28 @@ mod tests {
     }
 
     #[test]
-    fn encode_instruction_mov_cr2_write_fails_validation() {
+    fn encode_instruction_mov_cr2_rax_round_trips() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
         let mut buf = CodeBuffer::new();
         let inst = Instruction {
             mnemonic: Mnemonic::MovCr { write: true },
-            operands: smallvec::smallvec![Operand::Reg(RegId(2)), Operand::Reg(RegId(0))], // mov cr2, rax (not supported)
+            operands: smallvec::smallvec![Operand::Reg(RegId(2)), Operand::Reg(RegId(0))], // mov cr2, rax
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
-        
+
         emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
-        let result = encode_instruction(&inst, &mut buf, &mut stats);
-        assert!(result.is_err(), "CR2 should not be supported in phase-5");
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0x0F, 0x22, 0xD0]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
     }
 
     // Read (mov rax, cr_idx) tests via encode_instruction dispatcher
@@ -5716,21 +5723,28 @@ mod tests {
     }
 
     #[test]
-    fn encode_instruction_mov_rax_cr2_fails_validation() {
+    fn encode_instruction_mov_rax_cr2_round_trips() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
         let mut buf = CodeBuffer::new();
         let inst = Instruction {
             mnemonic: Mnemonic::MovCr { write: false },
-            operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(2))], // mov rax, cr2 (not supported)
+            operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Reg(RegId(2))], // mov rax, cr2
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
-        
+
         emission_order: 0,
         };
 
         let mut stats = EncodeStats::new();
-        let result = encode_instruction(&inst, &mut buf, &mut stats);
-        assert!(result.is_err(), "CR2 should not be supported in phase-5");
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+
+        assert_eq!(buf.as_slice(), &[0x0F, 0x20, 0xD0]);
+
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Mov);
     }
 
     // ── Phase-5 m2-007: descriptor-table load (lgdt/lidt) ────────
