@@ -11,6 +11,7 @@ members = [
     "crates/paideia-as-runtime",
     "crates/paideia-as-ir",
     "crates/paideia-as-encoder",
+    "crates/paideia-as-emit",
     "crates/paideia-as-emitter-elf",
     "crates/paideia-as-emitter-pax",
     "crates/paideia-as-emitter-pe",

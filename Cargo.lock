@@ -2021,6 +2021,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "paideia-as-emit"
+version = "0.16.0"
+dependencies = [
+ "iced-x86",
+ "paideia-as-encoder",
+ "paideia-as-runtime",
+ "smallvec",
+]
+
+[[package]]
 name = "paideia-as-emitter-elf"
 version = "0.16.0"
 dependencies = [
