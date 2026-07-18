@@ -1,5 +1,48 @@
 # Changelog
 
+## v0.20.0 — SELF-HOST: runtime library + API freeze (released)
+
+Self-hosting foundation release. Eight planned issues closed. Delivers stable public API for runtime library (`paideia-as-runtime` + `paideia-as-emit`) used by JIT/WASM/eventual self-hosting consumers. Includes design audit identifying self-hosting blockers ranked by effort, enabling v0.21+ planning.
+
+### Key changes
+
+- **Issue #1019** — Extract `paideia-as-runtime` crate (PA-R20-001). No_std compatible runtime library (~3k LoC) with stable Instruction + IrNodeId types. Re-exports from `paideia-as-ir` maintain backward compatibility; no source-site edits required for existing code. 8 runtime integration tests + 2 AC-lock canaries verify type identity and import paths. Unblocks WASM/JIT consumers; paves path to self-hosting.
+
+- **Issue #1020** — Stable `emit_instruction(&mut CodeBuffer, Instruction)` public API (PA-R20-002). New `paideia-as-emit` crate with entry point for runtime JIT code emission. Non-exhaustive `EmitError` enum for extensibility. Pre-flight checks reject unresolved relocations and Var operands. Buffer rollback on error maintains "unchanged on Err" contract. 17 comprehensive test cases cover success, error, and discipline paths.
+
+- **Issue #1023** — WASM i32.add dynamic-emit example (PA-R20-003). First end-to-end proof the v0.20 SELF-HOST substrate works for downstream consumers. Runnable example lowers WASM i32.add opcode to x86_64 bytes via public paideia-as-emit API. 266-LOC fixture demonstrates full decode-lower-emit pipeline.
+
+- **Issue #1024** — `resolve_symbols` operand-level rewrite API (PA-R20-004). Second stable public entry point on paideia-as-runtime. Rewrites every reloc-producing operand in Instruction slice to forms emit_instruction accepts (no SymbolRef, LabelRef, MemRipRelSym, MemSymIndexed remain). New module `paideia-as-runtime/src/resolve.rs` + SymbolTable, LabelMap types. 12 test cases verify single/batch rewrite + error paths.
+
+- **Issue #1025** — `sign_runtime_buffer` PQ signing wrapper (PA-R20-005). Thin wrapper for paideia-stdlib's post-quantum signing APIs. Accepts runtime buffer + key material, returns signed PAX blob. Pre-flight checks validate buffer format. Deferred full key-wrapping to follow-up.
+
+- **Issue #1026** — API-freeze test suite (PA-R20-006). Land paideia-as-runtime and paideia-as-emit API freeze tests via syn parsing + insta snapshots. Freeze captures stable public surface of both crates and enforces breaking-change discipline through snapshot diffs in PR review. ~700 LOC across two test modules + 4 canaries verify surface stability.
+
+- **Issue #1027** — v0.20 self-hosting audit (PA-R20-008). 751-LOC design document enumerating gaps between Rust-hosted paideia-as v0.20 and eventual `.pdx` self-hosted compiler. Assesses 23 workspace crates component-by-component. Identifies three tiers of blockers: (A) 8 language features (~6–12 months), (B) 5 stdlib libraries (~3–6 months), (C) 4 syscall surfaces (~1–2 months). Ranks five hard blockers: monomorphization, runtime evaluator, file I/O, serde, BLAKE3. Surfaces 13 gaps deferred to v0.21 (pa-r21-XXX issues). Refreshes Phase 4-m13 planning; reflects true v0.20 codebase (~145k LoC Rust vs m13-quoted ~93k).
+
+- **Issue #1028** — v0.20 integration + release notes (PA-R20-010). Milestone-close hygiene: CHANGELOG entry, workspace version bump (v0.16 → v0.20), release notes. Verifies 5101 workspace tests green. Closes v0.20 SELF-HOST milestone.
+
+### Non-milestone follow-ups landed this cycle
+
+- **Issue #1237** — Root-walker seeding simplification.
+- **Issue #1122** — Option C to end-to-end .efi drift detection.
+- **Issue #1234** — RecordCons Borrow accepts data-symbol targets.
+- **Issue #1113** — PE cross-section relocation resolution.
+- **Issue #1171** — Primitive-payload width discriminator.
+- **Issue #1177** — Stack-form LEA regressions.
+- **Issue #1238** — emit_closure_cons capture handling.
+- **Issue #1236** — Parser: OrOr split for zero-parameter closures.
+- **Issue #1243** — T0556 diagnostic snapshot promotion.
+- **Issue #1244** — Unsafe-block raw asm + call statement ordering.
+- **Issue #1228** — BulkMemOps stdlib lowering recipes + encoding.
+- **Issue #1230** — Central operator registry.
+
+### Breaking changes
+
+None. v0.20 adds public API surface (`paideia-as-runtime`, `paideia-as-emit`) without breaking existing consumers. Re-exports from `paideia-as-ir` maintain backward compatibility.
+
+---
+
 ## v0.19.0 — UEFI-ABI (unreleased)
 
 ### Key changes
