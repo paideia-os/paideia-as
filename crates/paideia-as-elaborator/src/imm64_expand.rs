@@ -40,7 +40,18 @@ pub fn needs_expansion(imm: i64) -> bool {
 ///   <op>   dst, r11
 /// ```
 ///
-/// Returns the IrNodeId of the movabs head (labels alias to it).
+/// Returns `(mov_id, op_id)`: the IrNodeId of the movabs head (labels alias
+/// to it) and the IrNodeId of the trailing bitwise op. Both are assigned
+/// real, monotonically-increasing `emission_order` values pulled from
+/// `next_emission_order` — the same counter the normal (non-expanded)
+/// instruction path uses. Without this, both synthesized instructions
+/// would default to `emission_order: 0`, which sorts them BEFORE every
+/// properly-ordered instruction in the enclosing function (including its
+/// prologue) when `emit_text_from_instructions` sorts by
+/// `(emission_order, node_id)` — silently relocating them to before the
+/// function's entry symbol, where they never execute (found via #593
+/// fd_cloexec sub-test B: the CLOEXEC bit-test `and` never ran).
+///
 /// Returns None if dst is r11 (caller should emit diagnostic U1615).
 ///
 /// # Panics
@@ -53,7 +64,8 @@ pub fn expand_bitop_imm64(
     dst: RegId,
     imm: i64,
     mode: InstrMode,
-) -> Option<IrNodeId> {
+    next_emission_order: &mut u32,
+) -> Option<(IrNodeId, IrNodeId)> {
     // Collision guard: if dst is r11, expansion is impossible.
     if dst == abi::R11 {
         return None;
@@ -61,6 +73,8 @@ pub fn expand_bitop_imm64(
 
     // Allocate node for movabs r11, imm64
     let mov_id = arena.alloc(paideia_as_ir::IrKind::Placeholder, stmt_span);
+    let mov_order = *next_emission_order;
+    *next_emission_order += 1;
 
     // Build and insert the movabs instruction
     let mut mov_operands: SmallVec<[Operand; 3]> = SmallVec::new();
@@ -72,12 +86,14 @@ pub fn expand_bitop_imm64(
         encoding_hint: None,
         byte_offset_in_text: None,
         mode,
-                emission_order: 0,
+                emission_order: mov_order,
         };
     arena.instructions_mut().insert(mov_id, mov_inst);
 
     // Allocate node for <op> dst, r11
     let op_id = arena.alloc(paideia_as_ir::IrKind::Placeholder, stmt_span);
+    let op_order = *next_emission_order;
+    *next_emission_order += 1;
 
     // Build and insert the bitwise operation instruction
     let mut op_operands: SmallVec<[Operand; 3]> = SmallVec::new();
@@ -89,12 +105,13 @@ pub fn expand_bitop_imm64(
         encoding_hint: None,
         byte_offset_in_text: None,
         mode,
-                emission_order: 0,
+                emission_order: op_order,
         };
     arena.instructions_mut().insert(op_id, op_inst);
 
-    // Return the head (movabs) for label aliasing
-    Some(mov_id)
+    // Return both node ids: mov_id is the head (labels alias to it), op_id
+    // is needed by the caller so it can also be registered in instr_to_lambda.
+    Some((mov_id, op_id))
 }
 
 /// Emit a diagnostic for r11 collision.

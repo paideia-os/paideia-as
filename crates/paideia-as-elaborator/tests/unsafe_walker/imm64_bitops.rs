@@ -261,6 +261,7 @@ fn or_r11_imm64_collision_guard_returns_none() {
     // When dst == r11, expand_bitop_imm64 should return None
     let mut arena = IrArena::new();
     let span = test_span();
+    let mut next_emission_order: u32 = 1;
 
     let result = paideia_as_elaborator::imm64_expand::expand_bitop_imm64(
         &mut arena,
@@ -269,6 +270,7 @@ fn or_r11_imm64_collision_guard_returns_none() {
         RegId(11),
         0xFFFFFFFF00000000u64 as i64,
         InstrMode::Mode64,
+        &mut next_emission_order,
     );
 
     assert!(result.is_none(), "expand_bitop_imm64 should return None for dst=r11");

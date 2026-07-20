@@ -1128,9 +1128,18 @@ impl UnsafeWalker {
             if let [Operand::Reg(dst), Operand::Imm64(imm)] = parsed_operands.as_slice() {
                 if crate::imm64_expand::needs_expansion(*imm) {
                     // Attempt expansion
-                    match crate::imm64_expand::expand_bitop_imm64(arena, stmt_span, mnemonic, *dst, *imm, instr_mode) {
-                        Some(mov_id) => {
-                            // Expansion succeeded; use the movabs head for label aliasing
+                    match crate::imm64_expand::expand_bitop_imm64(arena, stmt_span, mnemonic, *dst, *imm, instr_mode, next_emission_order) {
+                        Some((mov_id, op_id)) => {
+                            // Expansion succeeded. Both synthesized instructions
+                            // (movabs + the bitwise op) already carry real
+                            // emission_order values assigned from the shared
+                            // counter (see imm64_expand.rs). Register both with
+                            // the owning lambda, matching the normal path below.
+                            if let Some(lambda_id) = owning_lambda_id {
+                                instr_to_lambda.insert(mov_id, lambda_id);
+                                instr_to_lambda.insert(op_id, lambda_id);
+                            }
+                            // Use the movabs head for label aliasing.
                             mov_id
                         }
                         None => {
