@@ -1,0 +1,14 @@
+module NarrowStoreRegSource = structure {
+  let fn_narrow_stores : () -> () !{mem} @{boot} = fn(_: ()) -> unsafe {
+    effects: { mem },
+    capabilities: { boot },
+    justification: "#1251 regression: store-direction width retarget for mov [mem], reg",
+    block: {
+      mov [rdi], edx;       // W32 store — expect: 89 17
+      mov [rdi], dx;        // W16 store — expect: 66 89 17
+      mov [rdi], dl;        // W8  store — expect: 88 17
+      mov [rdi], rdx;       // W64 unchanged — expect: 48 89 17
+      ret
+    }
+  }
+}

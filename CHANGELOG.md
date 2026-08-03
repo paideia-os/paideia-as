@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.20.1 — unsafe_walker store-direction retarget fix
+
+### Critical bug fixes
+
+- **Issue #1251** — `unsafe_walker` `Mnemonic::Mov` retarget dispatch was missing the store direction. The elaborator recovered destination width for `mov reg, imm` (#827) and `mov reg, [mem]` (#930), but had no equivalent branch for `mov [mem], reg`. Every narrow-suffix store (`mov [rax], ecx`, `mov [rdi], dx`, `mov [rsi], dl`) silently collapsed to a 64-bit REX.W store, ignoring the source register's declared width. The encoder's narrow-store path (pa-r17-006 / #984) was already in place; only the elaborator retarget branch was missing. **Fix:** add `is_store` matching `[MemSib, Reg]`, reading width from the source register (operand position 1) instead of the destination. Byte-exact regression test locks all three widths (W8/W16/W32) plus a W64-unchanged guard.
+
+  Latent downstream hazards in paideia-os cleared by this fix:
+  - `src/kernel/core/syscall/dispatch.pdx` (`wait4` `wstatus` store) — 8 bytes written to a 4-byte user slot (see paideia-os #668, #672).
+  - `src/kernel/core/syscall/handlers/sys_exit.pdx`, `sys_wait.pdx` — `state` / `exit_status` u32 field stores.
+  - `src/kernel/core/apic/eoi.pdx`, `ioapic.pdx` — LAPIC/IOAPIC MMIO stores per SDM Vol.3A §10.4.1 (see paideia-os #646).
+
+  Scope note: `[MemRipRelSym, Reg]` bare-symbol stores tracked as follow-up (mirrors is_load which also doesn't cover MemRipRelSym).
+
+---
+
 ## v0.20.0 — SELF-HOST: runtime library + API freeze (released)
 
 Self-hosting foundation release. Eight planned issues closed. Delivers stable public API for runtime library (`paideia-as-runtime` + `paideia-as-emit`) used by JIT/WASM/eventual self-hosting consumers. Includes design audit identifying self-hosting blockers ranked by effort, enabling v0.21+ planning.

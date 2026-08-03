@@ -65,6 +65,7 @@ mod build_emit {
     pub mod module_let_mut_assign_negatives;
     pub mod module_let_mut_assign_via_lambda;
     pub mod mov_mem_imm;
+    pub mod narrow_store_reg_source;
     pub mod nested_module_qualification_read;
     pub mod nested_module_qualification_write;
     pub mod multi_arg_var_call;

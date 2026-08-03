@@ -1101,14 +1101,22 @@ impl UnsafeWalker {
         // PA13-001 (#930): Also retarget narrow-width load forms `[Reg, MemSib]` where the
         // destination register is al/cl/dl/bl/ah/ch/dh/bh/r8b–r15b (W8), ax–di/r8w–r15w (W16),
         // or eax–edi/r8d–r15d (W32). Width is inferred from the destination register name.
+        //
+        // #1251: Also retarget narrow-width store forms `[MemSib, Reg]` where the source
+        // register is al/cl/dl/bl/ah/ch/dh/bh/r8b–r15b (W8), ax–di/r8w–r15w (W16),
+        // or eax–edi/r8d–r15d (W32). Width is inferred from the source register name (operand 1).
         let mnemonic = if matches!(mnemonic, Mnemonic::Mov) {
             let is_imm = matches!(parsed_operands.as_slice(), [Operand::Reg(_), Operand::Imm64(_)]);
             let is_load = matches!(parsed_operands.as_slice(), [Operand::Reg(_), Operand::MemSib { .. }]);
+            let is_store = matches!(parsed_operands.as_slice(), [Operand::MemSib { .. }, Operand::Reg(_)]);
 
-            if is_imm || is_load {
+            // Width-carrying operand index: dst for imm/load, src for store.
+            let width_op_idx = if is_store { 1 } else { 0 };
+
+            if is_imm || is_load || is_store {
                 operand_ids
-                    .first()
-                    .and_then(|&dst_id| get_register_name(ast, dst_id, source_map))
+                    .get(width_op_idx)
+                    .and_then(|&id| get_register_name(ast, id, source_map))
                     .and_then(|name| register_name_width(&name))
                     .filter(|w| matches!(w, IntWidth::W8 | IntWidth::W16 | IntWidth::W32))
                     .map_or(mnemonic, |width| Mnemonic::MovSized { width })
