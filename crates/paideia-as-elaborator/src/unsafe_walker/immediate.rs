@@ -94,7 +94,56 @@ pub(crate) fn extract_integer_from_span(
         return Some(val as i64);
     }
 
+    // #1248 (partial): char literal `'c'` and byte literal `b'c'`. Both were
+    // silently dropped to 0 by the caller's `.unwrap_or(0)` (later fix at the
+    // caller). Escape sequences follow paideia-as-lexer/src/scan_char.rs.
+    if let Some(value) = parse_char_or_byte_literal(text) {
+        return Some(value);
+    }
+
     None
+}
+
+/// Decode a `'x'` or `b'x'` literal (with escape support) to its integer value.
+/// Returns None on malformed input; caller decides whether that's a diagnostic
+/// or a fall-through.
+fn parse_char_or_byte_literal(text: &str) -> Option<i64> {
+    // Strip optional `b` prefix (byte literal), then require `'…'` wrapper.
+    let inner = text.strip_prefix('b').unwrap_or(text);
+    let inner = inner.strip_prefix('\'')?.strip_suffix('\'')?;
+    if inner.is_empty() {
+        return None;
+    }
+
+    // Non-escape single char.
+    if !inner.starts_with('\\') {
+        let ch = inner.chars().next()?;
+        // Reject multi-char literals like `'ab'`.
+        if inner.chars().count() != 1 {
+            return None;
+        }
+        return Some(ch as i64);
+    }
+
+    // Escape sequences. Match paideia-as-lexer/src/scan_char.rs.
+    let bytes = inner.as_bytes();
+    if bytes.len() < 2 {
+        return None;
+    }
+    match bytes[1] {
+        b'n' if bytes.len() == 2 => Some(0x0a),
+        b'r' if bytes.len() == 2 => Some(0x0d),
+        b't' if bytes.len() == 2 => Some(0x09),
+        b'\\' if bytes.len() == 2 => Some(0x5c),
+        b'\'' if bytes.len() == 2 => Some(0x27),
+        b'"' if bytes.len() == 2 => Some(0x22),
+        b'0' if bytes.len() == 2 => Some(0x00),
+        b'x' if bytes.len() == 4 => {
+            let hex = &inner[2..4];
+            u8::from_str_radix(hex, 16).ok().map(i64::from)
+        }
+        _ => None,
+    }
 }
 
 /// Helper to extract an integer literal value from an ExprLiteral node.
