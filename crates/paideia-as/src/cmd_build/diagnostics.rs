@@ -144,10 +144,20 @@ pub(super) fn symbol_layout_invalid(message: &str) -> Diagnostic {
 }
 
 /// Build a typed B1704 function-symbol-no-offset diagnostic.
-pub(super) fn function_symbol_no_offset(name: &str, ir_node: u32) -> Diagnostic {
-    // Phase 8 m1-003: B1704 fires when a function symbol has no recorded offset.
+///
+/// #1261: dropped the `ir_node N` suffix (meaningless outside the
+/// compiler's memory) and reframed as an ICE with a bug-report URL —
+/// this only fires when the encoder failed to record an offset it was
+/// supposed to, which is always an internal invariant violation.
+pub(super) fn function_symbol_no_offset(name: &str, _ir_node: u32) -> Diagnostic {
     let code = DiagnosticCode::from_str("B1704").expect("B1704 is a valid code");
-    let msg = format!("function symbol '{}' (ir_node {}) has no recorded offset", name, ir_node);
+    let msg = format!(
+        "internal compiler error: no byte-offset recorded for function symbol \
+         `{}` — the object will link with st_value=0 and st_size=0. \
+         please file a bug at https://github.com/paideia-os/paideia-as/issues \
+         with the offending .pdx source.",
+        name
+    );
     Diagnostic::warning(code).message(&msg).finish()
 }
 

@@ -46,6 +46,7 @@ fn abi_pdx_parses_cleanly() {
         .arg("paideia-as")
         .arg("--")
         .arg("check")
+        .arg("-q")
         .arg(&abi_pdx_path);
 
     // Disable colored output for cleaner test logs.
