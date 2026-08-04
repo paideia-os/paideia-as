@@ -85,6 +85,53 @@ impl<'a> HumanRenderer<'a> {
             self.render_span_block(&mut output, secondary.span, false, Some(&secondary.label));
         }
 
+        // #1255: emit-site's specific message. When the catalog brief was
+        // used as the header, the emitter's constructed message (with
+        // actual names, values, or reasons) is otherwise lost. Show it as
+        // a note line beneath the caret, but only when it differs from
+        // the header — no point duplicating.
+        if let Some(cat) = self.catalog
+            && cat.lookup_code(diagnostic.code()).is_some()
+        {
+            let msg = diagnostic.message();
+            if !msg.is_empty() && msg != header {
+                output.push_str("   |\n");
+                output.push_str(&format!(
+                    "   = {} {}\n",
+                    self.paint("\x1b[1;36m", "note:"),
+                    msg
+                ));
+            }
+        }
+
+        // #1256: SuggestedFix payload + catalog suggested_fix. rustc-shape
+        // help lines beneath the diagnostic block. Skip when both are
+        // missing to avoid noise.
+        for fix in diagnostic.suggestions() {
+            output.push_str("   |\n");
+            output.push_str(&format!(
+                "   = {} {}\n",
+                self.paint("\x1b[1;34m", "help:"),
+                fix.description
+            ));
+            if !fix.replacement.is_empty() {
+                output.push_str(&format!("     suggested replacement: `{}`\n", fix.replacement));
+            }
+        }
+        if let Some(cat) = self.catalog
+            && let Some(entry) = cat.lookup_code(diagnostic.code())
+            && let Some(help) = entry.suggested_fix.as_deref()
+            && !help.is_empty()
+            && diagnostic.suggestions().is_empty()
+        {
+            output.push_str("   |\n");
+            output.push_str(&format!(
+                "   = {} {}\n",
+                self.paint("\x1b[1;34m", "help:"),
+                help
+            ));
+        }
+
         output
     }
 
