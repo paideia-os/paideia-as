@@ -186,6 +186,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
     let mut lex_sink = VecSink::new();
     let mut lexer = Lexer::new(file, &source);
     let tokens = lexer.collect_tokens(&mut lex_sink);
+    let lex_errored = lex_sink.error_count() > 0;
     for d in lex_sink.into_diagnostics() {
         let _ = sink.emit(d);
     }
@@ -193,6 +194,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
     // Parse.
     let mut arena = AstArena::new();
     let root_id;
+    let parse_errored;
     {
         let mut parser_sink = VecSink::new();
         let mut p = Parser::new(
@@ -204,13 +206,19 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
         )
         .with_source_dir(input.parent().map(|p| p.to_path_buf()));
         root_id = p.parse_source_file().ok();
+        parse_errored = parser_sink.error_count() > 0;
         for d in parser_sink.into_diagnostics() {
             let _ = sink.emit(d);
         }
     }
 
     // Validate file-to-module mapping (after parse, before lower).
-    if let Some(root) = root_id {
+    // #1264: skip when the lexer or parser already errored — M0305 runs on
+    // a broken tree and produces cascade noise that hides the real error.
+    if let Some(root) = root_id
+        && !parse_errored
+        && !lex_errored
+    {
         let mut file_module_diags = Vec::new();
         validate_file_module_mapping(
             input,
