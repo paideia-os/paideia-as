@@ -38,6 +38,7 @@ mod build_emit {
     pub mod field_read_u32;
     pub mod field_write_u32;
     pub mod guid_inline_bytes;
+    pub mod imm64_bitop_ordering;
     pub mod imm64_top_bit;
     pub mod include_bytes_probe;
     pub mod include_str_probe;
