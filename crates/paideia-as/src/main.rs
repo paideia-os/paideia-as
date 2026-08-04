@@ -58,7 +58,7 @@ fn main() -> ExitCode {
             encoder_warn,
             sarif,
         } => cmd_build::run(&input, output.as_deref(), emit.as_deref(), target, optimize, encoder_warn, sarif.as_deref()),
-        Cmd::Check { input, dump_ir, sarif } => cmd_check::run(&input, dump_ir, sarif.as_deref()),
+        Cmd::Check { input, dump_ir, sarif, quiet } => cmd_check::run(&input, dump_ir, sarif.as_deref(), quiet),
         Cmd::Lint { .. } => {
             eprintln!("paideia-as lint: not yet implemented");
             ExitCode::from(2)

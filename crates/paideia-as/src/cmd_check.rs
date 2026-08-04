@@ -30,7 +30,7 @@ use paideia_as_parser::Parser;
 use crate::cmd_common;
 
 /// Run `paideia-as check <input> [--sarif <PATH>]`.
-pub fn run(input: &Path, dump_ir: bool, sarif: Option<&Path>) -> ExitCode {
+pub fn run(input: &Path, dump_ir: bool, sarif: Option<&Path>, quiet: bool) -> ExitCode {
     let bytes = match fs::read(input) {
         Ok(b) => b,
         Err(e) => {
@@ -52,7 +52,7 @@ pub fn run(input: &Path, dump_ir: bool, sarif: Option<&Path>) -> ExitCode {
         Ok(s) => s,
         Err(diag) => {
             let _ = sink.emit(*diag);
-            return finish(&source_map, catalog, sink, sarif);
+            return finish(&source_map, catalog, sink, sarif, quiet);
         }
     };
 
@@ -100,7 +100,7 @@ pub fn run(input: &Path, dump_ir: bool, sarif: Option<&Path>) -> ExitCode {
         let _ = out.write_all(dump.as_bytes());
     }
 
-    finish(&source_map, catalog, sink, sarif)
+    finish(&source_map, catalog, sink, sarif, quiet)
 }
 
 /// Render human diagnostics to stderr, write SARIF if requested, return exit code.
@@ -109,6 +109,7 @@ fn finish(
     catalog: &Catalog,
     sink: VecSink,
     sarif: Option<&Path>,
+    quiet: bool,
 ) -> ExitCode {
     let diagnostics = sink.into_diagnostics();
 
@@ -125,9 +126,21 @@ fn finish(
         let _ = cmd_common::write_sarif(source_map, catalog, &diagnostics, path);
     }
 
-    let has_error = diagnostics.iter().any(|d| d.severity() == Severity::Error);
+    let error_count = diagnostics.iter().filter(|d| d.severity() == Severity::Error).count();
+    let warning_count = diagnostics.iter().filter(|d| d.severity() == Severity::Warning).count();
 
-    if has_error {
+    // #1265: default summary so users can tell success from silent no-op.
+    if !quiet {
+        eprintln!(
+            "checked 1 file, {} error{}, {} warning{}",
+            error_count,
+            if error_count == 1 { "" } else { "s" },
+            warning_count,
+            if warning_count == 1 { "" } else { "s" },
+        );
+    }
+
+    if error_count > 0 {
         ExitCode::from(1)
     } else {
         ExitCode::SUCCESS

@@ -94,6 +94,11 @@ pub enum Cmd {
         /// Write SARIF 2.1.0 diagnostic output to the specified file.
         #[arg(long = "sarif", value_name = "PATH")]
         sarif: Option<PathBuf>,
+        /// Suppress the success summary line (`checked 1 file, 0 errors, ...`).
+        /// #1265: default is to print a summary so users can tell success
+        /// from a silent no-op; scripts that don't want it pass `-q`.
+        #[arg(short = 'q', long)]
+        quiet: bool,
     },
     /// Run linearity / effect / opt-pass linters.
     #[command(hide = true)]
