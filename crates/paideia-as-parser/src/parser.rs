@@ -215,6 +215,24 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                      rename it (e.g. `{}_` or a namespaced form like `fn_{}` )",
                     kw_text, kw_text, kw_text
                 )
+            } else if actual == TokenKind::Eof
+                && matches!(kind, TokenKind::RBrace | TokenKind::RParen | TokenKind::RBracket)
+            {
+                // #1262: expected close-delimiter, reached EOF. The zero-width
+                // Eof span points at column 1 of a blank line — an empty caret.
+                // Reword to name the missing delimiter explicitly so the user
+                // isn't looking at an unlabeled arrow.
+                let want = match kind {
+                    TokenKind::RBrace => "`}`",
+                    TokenKind::RParen => "`)`",
+                    TokenKind::RBracket => "`]`",
+                    _ => unreachable!(),
+                };
+                format!(
+                    "unclosed delimiter — reached end of input while looking for {}; \
+                     an opening delimiter earlier in the file has no matching close",
+                    want
+                )
             } else {
                 format!(
                     "expected {}, found {}",
@@ -223,9 +241,20 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 )
             };
 
+            // #1262: for the EOF close-delim case, anchor at the end of the
+            // last real token instead of a phantom zero-width span at EOF —
+            // that gives the caret something visible to point at.
+            let anchor = if actual == TokenKind::Eof
+                && matches!(kind, TokenKind::RBrace | TokenKind::RParen | TokenKind::RBracket)
+            {
+                self.cursor.previous_span()
+            } else {
+                span
+            };
+
             let diag = Diagnostic::error(p_code(100))
                 .message(msg)
-                .with_span(span)
+                .with_span(anchor)
                 .finish();
             let _ = self.sink.emit(diag);
             Err(ParseError)
