@@ -29,7 +29,7 @@ pub enum PassingConvention {
 
 /// A stable type identifier for enums (would come from the type system in later phases).
 /// For now, this is a simple wrapper around a u32.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 pub struct EnumTypeId(pub u32);
 
 /// Metadata for an enum construction operation.

@@ -17,7 +17,7 @@ use crate::node::IrNodeId;
 
 /// A stable type identifier for records (would come from the type system in later phases).
 /// For now, this is a simple wrapper around a u32.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 pub struct RecordTypeId(pub u32);
 
 /// Layout information for a single field within a record.

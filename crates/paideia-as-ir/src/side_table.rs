@@ -22,23 +22,31 @@
 //!   primitive stays serde-free; named tables opt in per-declaration.
 //! * `Debug` and `Clone` derived because every existing table derives them.
 
-use std::collections::HashMap;
-use std::collections::hash_map::Iter;
-use std::hash::Hash;
+// #1253: use BTreeMap (deterministic key-ordered iteration) instead of HashMap
+// (RandomState-permuted iteration). Root cause of paideia-os #669 kernel-link
+// nondeterminism: DataSideTable iteration order was permuted across builds,
+// which permuted .rodata/.data/.bss offsets and downstream reloc entries,
+// producing a fresh kernel.elf hash per build. BTreeMap requires K: Ord (all
+// current keys are IrNodeId / NonZeroU32 newtypes and derive Ord trivially).
+use std::collections::BTreeMap;
+use std::collections::btree_map::Iter;
 
 /// Generic, sparse `K -> V` map used by every `IrNodeId`-keyed side-table.
+///
+/// Backed by [`BTreeMap`] for deterministic key-ordered iteration.
+/// See #1253 for the emission-boundary hazard this defends against.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(transparent)]
 pub struct SparseSideTable<K, V>
 where
-    K: Eq + Hash,
+    K: Ord,
 {
-    entries: HashMap<K, V>,
+    entries: BTreeMap<K, V>,
 }
 
 impl<K, V> Default for SparseSideTable<K, V>
 where
-    K: Eq + Hash,
+    K: Ord,
 {
     fn default() -> Self {
         Self::new()
@@ -47,18 +55,20 @@ where
 
 impl<K, V> SparseSideTable<K, V>
 where
-    K: Eq + Hash,
+    K: Ord,
 {
     /// Construct an empty side-table.
     #[must_use]
     pub fn new() -> Self {
-        Self { entries: HashMap::new() }
+        Self { entries: BTreeMap::new() }
     }
 
     /// Construct an empty side-table with pre-allocated capacity.
     #[must_use]
     pub fn with_capacity(capacity: usize) -> Self {
-        Self { entries: HashMap::with_capacity(capacity) }
+        // BTreeMap has no with_capacity — parameter kept for API compat.
+        let _ = capacity;
+        Self { entries: BTreeMap::new() }
     }
 
     /// Insert `value` at `key`. Returns any previous value at `key`.
@@ -96,22 +106,25 @@ where
         self.entries.is_empty()
     }
 
-    /// Iterate `(&K, &V)` pairs in an unspecified order.
+    /// Iterate `(&K, &V)` pairs in **ascending key order** (BTreeMap-backed).
+    /// #1253: this deterministic order is load-bearing at the byte-emission
+    /// boundary (`cmd_build/elf.rs`) — do not swap the backing store back to
+    /// a hash map without also inserting an explicit sort at every consumer.
     pub fn iter(&self) -> Iter<'_, K, V> {
         self.entries.iter()
     }
 
     /// Direct access to the underlying map. Prefer the wrapper methods; this
-    /// exists as an escape hatch for callers that need `HashMap` semantics
-    /// the wrapper doesn't expose (e.g. entry API for atomic upsert).
-    pub fn entries(&self) -> &HashMap<K, V> {
+    /// exists as an escape hatch for callers that need `BTreeMap` semantics
+    /// the wrapper doesn't expose (e.g. `range()`, `entry` API).
+    pub fn entries(&self) -> &BTreeMap<K, V> {
         &self.entries
     }
 }
 
 impl<K, V> SparseSideTable<K, V>
 where
-    K: Eq + Hash,
+    K: Ord,
 {
     /// Clear all entries. Kept in a separate `impl` block so it doesn't
     /// perturb the mechanical grep of the old named-table APIs.
@@ -232,14 +245,14 @@ macro_rules! impl_named_side_table {
                 self.inner.is_empty()
             }
 
-            /// Iterate `(&K, &V)` pairs in an unspecified order.
-            pub fn iter(&self) -> ::std::collections::hash_map::Iter<'_, $key, $val> {
+            /// Iterate `(&K, &V)` pairs in **ascending key order** (BTreeMap-backed, #1253).
+            pub fn iter(&self) -> ::std::collections::btree_map::Iter<'_, $key, $val> {
                 self.inner.iter()
             }
 
             /// Direct access to the underlying map. Escape hatch for callers
-            /// that need `HashMap` semantics the wrapper doesn't expose.
-            pub fn entries(&self) -> &::std::collections::HashMap<$key, $val> {
+            /// that need `BTreeMap` semantics the wrapper doesn't expose.
+            pub fn entries(&self) -> &::std::collections::BTreeMap<$key, $val> {
                 self.inner.entries()
             }
 
