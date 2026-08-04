@@ -232,10 +232,23 @@ impl<'a> Lexer<'a> {
                 }
             }
 
-            // Try byte string `b"…"` or raw byte string `br"…"` / `rb"…"`.
+            // Try byte string `b"…"` or raw byte string `br"…"` / `br#"…"#`.
+            // #1252: plain identifiers starting with `br` (e.g. `bri_default`,
+            // `breq`) must NOT be misrouted into the string scanner. Only match
+            // `b"…"` (2nd char is `"`) or `br"…"` / `br#"…"#` (2nd is `r` AND
+            // 3rd is `"` or `#`). Any other 2nd-char falls through to the
+            // identifier scanner.
             if byte == b'b' && cursor_usize + 1 < self.content.len() {
                 let next_byte = self.content.as_bytes()[cursor_usize + 1];
-                if next_byte == b'"' || next_byte == b'r' {
+                let is_string_prefix = if next_byte == b'"' {
+                    true
+                } else if next_byte == b'r' && cursor_usize + 2 < self.content.len() {
+                    let third = self.content.as_bytes()[cursor_usize + 2];
+                    third == b'"' || third == b'#'
+                } else {
+                    false
+                };
+                if is_string_prefix {
                     let string_scan = scan_string(self.file, self.content, self.cursor);
                     if let Some(diag) = string_scan.diagnostic
                         && sink.emit(*diag).is_err()
