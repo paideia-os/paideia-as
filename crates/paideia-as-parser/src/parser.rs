@@ -202,12 +202,29 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         } else {
             let actual = self.cursor.current_kind();
             let span = self.cursor.current_span();
-            let diag = Diagnostic::error(p_code(100))
-                .message(format!(
+
+            // #1263: when the user tried to use a reserved keyword where an
+            // identifier is expected (e.g. `let loop = 42`), spell that out
+            // and hint at the workaround. The bare "found `loop`" was
+            // confusing — it didn't say *why* `loop` couldn't work.
+            let msg = if kind == TokenKind::Ident
+                && let Some(kw_text) = keyword_source_text(actual)
+            {
+                format!(
+                    "`{}` is a reserved keyword and cannot be used as an identifier — \
+                     rename it (e.g. `{}_` or a namespaced form like `fn_{}` )",
+                    kw_text, kw_text, kw_text
+                )
+            } else {
+                format!(
                     "expected {}, found {}",
                     debug_kind(kind),
                     debug_kind(actual)
-                ))
+                )
+            };
+
+            let diag = Diagnostic::error(p_code(100))
+                .message(msg)
                 .with_span(span)
                 .finish();
             let _ = self.sink.emit(diag);
@@ -314,6 +331,74 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 /// the `DiagnosticCode`.
 fn p_code(n: u16) -> DiagnosticCode {
     DiagnosticCode::new(Category::P, Severity::Error, n).expect("valid P code")
+}
+
+/// #1263: if `kind` is a reserved keyword variant, return its source
+/// spelling (without backticks). Non-keyword variants return None.
+/// Used by `expect(Ident)` to enhance the P0100 diagnostic when a user
+/// tries to write a keyword where an identifier is required.
+fn keyword_source_text(kind: TokenKind) -> Option<&'static str> {
+    use TokenKind::*;
+    match kind {
+        KwLet => Some("let"),
+        KwFn => Some("fn"),
+        KwModule => Some("module"),
+        KwSignature => Some("signature"),
+        KwStructure => Some("structure"),
+        KwFunctor => Some("functor"),
+        KwEffect => Some("effect"),
+        KwCapability => Some("capability"),
+        KwExtern => Some("extern"),
+        KwImport => Some("import"),
+        KwExport => Some("export"),
+        KwPub => Some("pub"),
+        KwIf => Some("if"),
+        KwElse => Some("else"),
+        KwMatch => Some("match"),
+        KwWhen => Some("when"),
+        KwDo => Some("do"),
+        KwWith => Some("with"),
+        KwLoop => Some("loop"),
+        KwWhile => Some("while"),
+        KwFor => Some("for"),
+        KwBreak => Some("break"),
+        KwContinue => Some("continue"),
+        KwReturn => Some("return"),
+        KwYield => Some("yield"),
+        KwAction => Some("action"),
+        KwType => Some("type"),
+        KwEnum => Some("enum"),
+        KwStruct => Some("struct"),
+        KwTrait => Some("trait"),
+        KwWhere => Some("where"),
+        KwForall => Some("forall"),
+        KwOrdered => Some("ordered"),
+        KwLinear => Some("linear"),
+        KwAffine => Some("affine"),
+        KwUnrestricted => Some("unrestricted"),
+        KwPerform => Some("perform"),
+        KwResume => Some("resume"),
+        KwFinally => Some("finally"),
+        KwUnsafe => Some("unsafe"),
+        KwMove => Some("move"),
+        KwBorrow => Some("borrow"),
+        KwConsume => Some("consume"),
+        KwDrop => Some("drop"),
+        KwOwn => Some("own"),
+        KwTrue => Some("true"),
+        KwFalse => Some("false"),
+        KwNull => Some("null"),
+        KwSelfType => Some("Self"),
+        KwSelfValue => Some("self"),
+        KwSizeof => Some("sizeof"),
+        KwAlignof => Some("alignof"),
+        KwOffsetof => Some("offsetof"),
+        KwAsm => Some("asm"),
+        KwIn => Some("in"),
+        KwAs => Some("as"),
+        KwUse => Some("use"),
+        _ => None,
+    }
 }
 
 /// Human-readable label for a TokenKind. Used in P0100 error messages.
