@@ -23,7 +23,20 @@
 //! instructions appear without the typed surface in between (custom-assembler.md §9.1).
 
 use paideia_as_ast::{ExprData, NodeId, NodeKind, StmtData};
-use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
+use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span, SuggestedFix};
+
+/// #1259: canonical shape of an unsafe block. Used as a SuggestedFix
+/// on the two P0151/P0152 error paths so first-time authors see the
+/// four required fields immediately, not a bare "expected `:`" line.
+fn unsafe_shape_hint(span: Span) -> SuggestedFix {
+    SuggestedFix {
+        span,
+        replacement: String::new(),
+        description: "an unsafe block requires four named fields; \
+                      minimal shape: `unsafe { effects: {}, capabilities: {}, \
+                      justification: \"...\", block: { <asm> } }`".to_string(),
+    }
+}
 use paideia_as_lexer::TokenKind;
 
 use crate::parser::{ParseError, Parser};
@@ -102,11 +115,13 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
             // Expect an identifier for the field name
             if !self.at(TokenKind::Ident) {
+                let span = self.peek().map(|t| t.span).unwrap_or(span_start);
                 let code =
                     DiagnosticCode::new(Category::P, Severity::Error, 151).expect("valid P code");
                 let diag = Diagnostic::error(code)
                     .message("expected field name (effects, capabilities, justification, or block)")
-                    .with_span(self.peek().map(|t| t.span).unwrap_or(span_start))
+                    .with_span(span)
+                    .with_suggestion(unsafe_shape_hint(span))
                     .finish();
                 self.emit_diagnostic(diag);
                 return Err(ParseError);
@@ -117,11 +132,18 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
             // Expect colon
             if !self.eat(TokenKind::Colon) {
+                let span = self.peek().map(|t| t.span).unwrap_or(field_name_start);
                 let code =
                     DiagnosticCode::new(Category::P, Severity::Error, 152).expect("valid P code");
+                // #1259: distinguish "you typed a raw asm mnemonic instead of a field"
+                // from "you forgot the colon" — both fail here, but the first is the
+                // common newcomer trap. Point at the consumed ident, not the peeked
+                // next token, so the caret lands on the offending word.
                 let diag = Diagnostic::error(code)
-                    .message("expected `:` after field name")
-                    .with_span(self.peek().map(|t| t.span).unwrap_or(field_name_start))
+                    .message("expected `:` after field name — inside an `unsafe { }` block, \
+                              the body is a record of four named fields, not raw statements")
+                    .with_span(span)
+                    .with_suggestion(unsafe_shape_hint(field_name_start))
                     .finish();
                 self.emit_diagnostic(diag);
                 return Err(ParseError);
