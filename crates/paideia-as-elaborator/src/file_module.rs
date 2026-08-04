@@ -159,6 +159,17 @@ pub fn expected_module_name(stem: &str) -> String {
         return String::new();
     }
 
+    // #1258: if the stem already looks like PascalCase (no separator, starts
+    // with uppercase, no leading digits), pass it through unchanged. The old
+    // logic lowercased the tail of every segment, which turned idiomatic
+    // names like `MatchOk` into `Matchok` — rejecting the very shape the
+    // check is supposed to encourage.
+    let no_separator = !stem.contains(['_', '-']);
+    let starts_upper = stem.chars().next().is_some_and(char::is_uppercase);
+    if no_separator && starts_upper {
+        return stem.to_string();
+    }
+
     let segments: Vec<&str> = stem.split(['_', '-']).collect();
 
     segments
@@ -199,6 +210,17 @@ mod tests {
     fn pascal_case_transform_handles_hyphens() {
         assert_eq!(expected_module_name("kebab-case"), "KebabCase");
         assert_eq!(expected_module_name("hello-world"), "HelloWorld");
+    }
+
+    /// #1258: existing PascalCase stems pass through unchanged.
+    #[test]
+    fn pascal_case_stem_is_preserved() {
+        assert_eq!(expected_module_name("MatchOk"), "MatchOk");
+        assert_eq!(expected_module_name("HTTPServer"), "HTTPServer");
+        assert_eq!(expected_module_name("BootStub"), "BootStub");
+        // A single-word capitalized stem (e.g. "Hello") is trivially both
+        // PascalCase and the output of the segment loop; assert stability.
+        assert_eq!(expected_module_name("Hello"), "Hello");
     }
 
     /// Test 3: PascalCase with mixed delimiters.
