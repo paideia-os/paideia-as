@@ -238,6 +238,10 @@ pub enum Mnemonic {
         /// Operand width selecting the encoded form.
         width: IntWidth,
     },
+    /// Compare with explicit operand width (Phase-N #1248).
+    /// Distinct from `Cmp` (which is width-implicit 64-bit) so `cmp al, 0` emits
+    /// the 8-bit 3C ib / 80 F8 ib forms rather than the 64-bit 48 83 F8 ib form.
+    CmpSized { width: IntWidth },
     /// Shift left (logical). Operands: dst, shift_count.
     /// Phase 8 m1-001d: emits `shl r64, imm8` or `shl r64, cl`.
     Shl,
@@ -967,6 +971,7 @@ impl Mnemonic {
             | Mnemonic::LockOr { .. }
             | Mnemonic::LockXor { .. }
             | Mnemonic::Cmp
+            | Mnemonic::CmpSized { .. }
             | Mnemonic::Test
             | Mnemonic::Lea
             | Mnemonic::Movzx
@@ -1134,6 +1139,10 @@ impl Mnemonic {
 
             // Two-operand arithmetic/logic: 10 bytes
             Mnemonic::Add | Mnemonic::Sub | Mnemonic::Adc { .. } | Mnemonic::Sbb { .. } | Mnemonic::Cmp | Mnemonic::Test => 10,
+
+            // Width-threaded compare: size depends on the operand width.
+            // W8=2 (3C ib for AL, 80 F8 ib for R8B), W16=4, W32=4, W64=10.
+            Mnemonic::CmpSized { width } => width.estimated_size(),
 
             // Population count: 9 bytes (F3 + REX + 0F + B8 + ModR/M + disp32 max)
             Mnemonic::Popcnt { .. } => 9,

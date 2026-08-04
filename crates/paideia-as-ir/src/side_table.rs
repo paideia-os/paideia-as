@@ -268,7 +268,10 @@ macro_rules! impl_named_side_table {
 mod tests {
     use super::*;
 
-    #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+    // Drive-by: #1253 (SparseSideTable BTreeMap-backed) requires Ord on the
+    // key. This test's TestKey wasn't updated when that migration landed,
+    // so the whole side_table test module fails to compile.
+    #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
     struct TestKey(u32);
 
     #[test]

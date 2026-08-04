@@ -1,5 +1,6 @@
 ---
 source: crates/paideia-as-runtime/tests/api_freeze.rs
+assertion_line: 305
 expression: surface
 ---
 enum Cond
@@ -76,6 +77,7 @@ enum Mnemonic
     Clflushopt
     Cli
     Cmp
+    CmpSized { width: IntWidth }
     Cpuid
     Crc32 { width: IntWidth }
     Dec

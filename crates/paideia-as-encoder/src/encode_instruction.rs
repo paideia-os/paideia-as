@@ -330,6 +330,7 @@ fn encode_instruction_impl(
         Mnemonic::Btr { width } => encode_btr(inst, buf, *width),
         Mnemonic::Btc { width } => encode_btc(inst, buf, *width),
         Mnemonic::Cmp => encode_cmp(inst, buf),
+        Mnemonic::CmpSized { width } => encode_cmp_sized(inst, width, buf),
         Mnemonic::Test => encode_test(inst, buf),
         Mnemonic::Jcc(cond) => encode_jcc(*cond, inst, buf, stats),
         Mnemonic::Setcc(cond) => encode_setcc(*cond, inst, buf),
@@ -3007,6 +3008,79 @@ fn encode_cmp(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
     }
 }
 
+fn encode_cmp_sized(
+    inst: &Instruction,
+    width: &IntWidth,
+    buf: &mut CodeBuffer,
+) -> Result<EncodeOutput, EncodeError> {
+    match width {
+        IntWidth::W8 => {
+            match inst.operands.as_slice() {
+                [Operand::Reg(dest), Operand::Imm64(imm)] => {
+                    let dest_reg_id = dest.0;
+                    let imm_i64 = *imm;
+
+                    // Check if immediate is in i8 range
+                    if !(-128..=127).contains(&imm_i64) {
+                        return Err(EncodeError::Unsupported(
+                            "cmp_b imm must fit in signed byte; use a smaller value or load into reg first",
+                        ));
+                    }
+
+                    let imm_i8 = imm_i64 as i8;
+
+                    // Special short form for RAX (reg 0) and imm8
+                    if dest_reg_id == 0 {
+                        // cmp al, imm8 → 3C ib (2 bytes, AL-implicit short form)
+                        buf.bytes.push(0x3C);
+                        buf.bytes.push(imm_i8 as u8);
+                    } else {
+                        // cmp r8, imm8 → [REX.B] 80 /7 ib
+                        let reg_id = dest_reg_id & 7;
+                        if (dest_reg_id >> 3) != 0 {
+                            // r8b-r15b: REX.B (0x41)
+                            buf.bytes.push(0x41);
+                        }
+                        buf.bytes.push(0x80);
+                        buf.bytes.push(0xF8 | reg_id);
+                        buf.bytes.push(imm_i8 as u8);
+                    }
+                    Ok(EncodeOutput::new())
+                }
+                [Operand::Reg(dest), Operand::Reg(src)] => {
+                    let dest_id = dest.0;
+                    let src_id = src.0;
+
+                    // cmp r8, r8 → [REX.B/R] 38 /r
+                    let dest_reg = dest_id & 7;
+                    let src_reg = src_id & 7;
+                    let rex_b = (dest_id >> 3) != 0;
+                    let rex_r = (src_id >> 3) != 0;
+
+                    if rex_b || rex_r {
+                        buf.bytes.push(0x40 | if rex_r { 0x04 } else { 0 } | if rex_b { 0x01 } else { 0 });
+                    }
+                    buf.bytes.push(0x38);
+                    buf.bytes.push(0xC0 | ((src_reg) << 3) | dest_reg);
+                    Ok(EncodeOutput::new())
+                }
+                _ => Err(EncodeError::Unsupported(
+                    "cmp_b shape not yet supported",
+                )),
+            }
+        }
+        IntWidth::W16 | IntWidth::W32 => {
+            Err(EncodeError::Unsupported(
+                "cmp_w and cmp_d not yet supported (use generic cmp for now)",
+            ))
+        }
+        IntWidth::W64 => {
+            // Fall back to regular 64-bit cmp encoding
+            encode_cmp(inst, buf)
+        }
+    }
+}
+
 fn encode_test(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
     // Phase 7 m1-001: test r64, r64 for condition testing.
     // Operands: [register, register] for "test rdi, rdi" shape.
@@ -4380,6 +4454,89 @@ mod tests {
             buf.as_slice(),
             &[0x48, 0xB8, 0x2A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
         );
+    }
+
+    #[test]
+    fn encode_cmpsized_al_imm8_short_form() {
+        // Mnemonic::CmpSized { W8 } with [Reg(RAX), Imm64(0)] → 3C 00 (AL-implicit short form).
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::CmpSized {
+                width: IntWidth::W8,
+            },
+            operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Imm64(0)],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+
+        emission_order: 0,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x3C, 0x00]);
+    }
+
+    #[test]
+    fn encode_cmpsized_bl_imm8_modrm_form() {
+        // Mnemonic::CmpSized { W8 } with [Reg(RBX), Imm64(0)] → 80 FB 00 (ModR/M form for BL).
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::CmpSized {
+                width: IntWidth::W8,
+            },
+            operands: smallvec::smallvec![Operand::Reg(RegId(3)), Operand::Imm64(0)],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+
+        emission_order: 0,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x80, 0xFB, 0x00]);
+    }
+
+    #[test]
+    fn encode_cmpsized_r10b_imm8_with_rex() {
+        // Mnemonic::CmpSized { W8 } with [Reg(R10), Imm64(5)] → 41 80 FA 05 (REX.B + ModR/M form for R10B).
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::CmpSized {
+                width: IntWidth::W8,
+            },
+            operands: smallvec::smallvec![Operand::Reg(RegId(10)), Operand::Imm64(5)],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+
+        emission_order: 0,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x41, 0x80, 0xFA, 0x05]);
+    }
+
+    #[test]
+    fn encode_cmp_rax_zero_still_emits_64bit() {
+        // Regression test: existing Mnemonic::Cmp with [Reg(RAX), Imm64(0)] must still produce
+        // the 64-bit form: 48 83 F8 00 (not the 8-bit 3C 00).
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Cmp,
+            operands: smallvec::smallvec![Operand::Reg(RegId(0)), Operand::Imm64(0)],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+
+        emission_order: 0,
+        };
+
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x48, 0x83, 0xF8, 0x00]);
     }
 
     #[test]

@@ -822,7 +822,7 @@ impl UnsafeWalker {
         let mnemonic_str = ast.mnemonic_str(*mnemonic_id);
 
         // Resolve the mnemonic to a Mnemonic enum variant.
-        let mnemonic = match resolve_mnemonic(mnemonic_str) {
+        let mut mnemonic = match resolve_mnemonic(mnemonic_str) {
             Some(m) => m,
             None => {
                 // U1605: Unknown mnemonic
@@ -985,6 +985,26 @@ impl UnsafeWalker {
                     let _ = sink.emit(diag.clone());
                     diags.push(diag);
                     return None;
+                }
+            }
+        }
+
+        // Phase-N #1248: Convert Cmp to CmpSized for 8-bit register operands.
+        // Check if this is a Cmp instruction with first operand being an 8-bit register.
+        // If so, emit CmpSized { width: W8 } instead of Cmp.
+        if mnemonic == Mnemonic::Cmp && !parsed_operands.is_empty() {
+            if let Operand::Reg(_dest_reg_id) = &parsed_operands[0] {
+                // Determine if the destination is an 8-bit register
+                // We need to get the register name from the AST to check its width
+                if let Some(&first_operand_id) = operand_ids.first() {
+                    if let Some(reg_name) = get_register_name(ast, first_operand_id, source_map) {
+                        if let Some(width) = register_name_width(&reg_name) {
+                            if width == IntWidth::W8 {
+                                // Convert to CmpSized with W8 width
+                                mnemonic = Mnemonic::CmpSized { width: IntWidth::W8 };
+                            }
+                        }
+                    }
                 }
             }
         }
