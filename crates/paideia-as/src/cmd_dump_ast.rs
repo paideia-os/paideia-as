@@ -30,13 +30,13 @@ pub fn run(input: &Path) -> ExitCode {
     let source = match SourceText::from_bytes(file, &bytes) {
         Ok(s) => s,
         Err(diag) => {
-            let renderer = HumanRenderer::new(&source_map, true);
+            let renderer = HumanRenderer::new(&source_map, crate::color::should_use_color());
             eprint!("{}", renderer.render(&diag));
             return ExitCode::from(1);
         }
     };
 
-    let mut sink = HumanSink::new(std::io::stderr(), HumanRenderer::new(&source_map, true));
+    let mut sink = HumanSink::new(std::io::stderr(), HumanRenderer::new(&source_map, crate::color::should_use_color()));
 
     // Lex.
     let mut lex_sink = VecSink::new();

@@ -33,7 +33,7 @@ pub(super) fn finish_build_error(
 
     // Render human diagnostics to stderr (drive-by for symmetry).
     let stderr = std::io::stderr();
-    let renderer = HumanRenderer::with_catalog(source_map, true, catalog);
+    let renderer = HumanRenderer::with_catalog(source_map, crate::color::should_use_color(), catalog);
     let mut human = HumanSink::new(stderr.lock(), renderer);
     for d in &diagnostics {
         let _ = human.emit(d.clone());

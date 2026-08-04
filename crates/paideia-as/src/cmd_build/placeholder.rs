@@ -23,7 +23,7 @@ pub(super) fn finish_placeholder(
 
     // Human render to stderr.
     let stderr = std::io::stderr();
-    let renderer = HumanRenderer::with_catalog(source_map, /*color*/ true, catalog);
+    let renderer = HumanRenderer::with_catalog(source_map, crate::color::should_use_color(), catalog);
     let mut human = HumanSink::new(stderr.lock(), renderer);
     for d in &diagnostics {
         let _ = human.emit(d.clone());
