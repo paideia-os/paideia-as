@@ -3226,6 +3226,22 @@ fn encode_jmp(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
             });
             Ok(output)
         }
+        [Operand::SymbolRef { name, addend }] => {
+            // paideia-os#1271: cross-module `jmp <symbol>` — mirrors encode_call's
+            // SymbolRef arm but with opcode E9 (near jmp rel32) instead of E8.
+            // Emits placeholder disp32 + RelocSite::Plt32 for link-time resolution.
+            let _ = inst.byte_offset_in_text; // unused; translator owns the math
+            buf.bytes.push(0xE9); // jmp rel32 opcode
+            buf.bytes.extend([0, 0, 0, 0]); // placeholder disp32
+            let mut output = EncodeOutput::new();
+            output.add_reloc(RelocSite {
+                byte_offset: 1, // rel32 starts at byte +1 of the instruction
+                symbol: name.clone(),
+                kind: RelocKind::Plt32,
+                addend: addend.wrapping_add(PC32_FIELD_BIAS),
+            });
+            Ok(output)
+        }
         [Operand::MemSymIndexed { name, addend, index, scale }] => {
             // PA-R15-009a: jmp [sym + index*scale] with absolute addressing.
             // Emit FF 24 SIB disp32 (absolute form, not RIP-relative).
