@@ -116,6 +116,29 @@ Given a match with captured symbol `SYM`, the rendered replacement is a four-lin
 
 `{SUBSYS}` comes from `--subsys` (default `SUBSYS_BOOT`).
 
+### LEVEL literal mapping (paideia-os canonical)
+
+The `--level` / `--fail-level` defaults track paideia-os's
+`src/kernel/core/klog/level.pdx`:
+
+| Literal | Symbol         | Emitted for            | Below `KLOG_COMPILE_LEVEL=3`? |
+|---------|----------------|------------------------|-------------------------------|
+| 0       | `LEVEL_PANIC`  | (reserved)             | yes (emitted)                 |
+| **1**   | **`LEVEL_ERROR`** | **fail/err witnesses (`--fail-level`)** | **yes (emitted)** |
+| 2       | `LEVEL_WARN`   | (reserved)             | yes (emitted)                 |
+| **3**   | **`LEVEL_INFO`**  | **default (`--level`)** | **yes (emitted; boundary)** |
+| 4       | `LEVEL_DEBUG`  | (reserved; opt-in bump)| no (dropped)                  |
+| 5       | `LEVEL_TRACE`  | (reserved; opt-in bump)| no (dropped)                  |
+
+`klog_emit_core` gates emission with `cmp rdi, KLOG_COMPILE_LEVEL; ja emit_skip`
+(paideia-os `src/kernel/core/klog/emit.pdx`), so a literal `> 3` is silently
+dropped at compile-time-configured gating. The v0.20.1 delivery (#1272)
+defaulted `--fail-level` to `5`, which meant every `*_fail_msg` / `*_err_msg`
+call the tool emitted was filtered out before it could reach the ring buffer.
+paideia-os inline-fixed 84 such sites at commit 463b16f; `paideia-as#1274`
+corrects the tool default to `1` (LEVEL_ERROR) so downstream migrations of
+any target land emit-visible on the first pass.
+
 The tool never emits a trailing newline: the source range being replaced ended at the `;` of the `call uart_puts;` line, and the newline (if any) that followed remains part of the surrounding buffer.
 
 ### Splice discipline
@@ -130,7 +153,7 @@ paideia-as-klog-migrate <FILE> [OPTIONS]
 Options:
   --level N              Level literal for non-fail messages    [default: 3]
   --subsys SYM           Symbol name for the SUBSYS argument    [default: SUBSYS_BOOT]
-  --fail-level N         Level literal for fail messages        [default: 5]
+  --fail-level N         Level literal for fail messages        [default: 1]
   --fail-pattern REGEX   Regex against msg symbol name          [default: (?i)(fail|err)]
   --in-place             Write migrated source back to FILE
   --check                Exit 1 if FILE would change; 0 clean
@@ -183,8 +206,8 @@ Layered from smallest to largest:
    - Pattern immediately after a comment on the previous line — 1 match, indent preserved.
 
 3. **Render** (`tools/klog-migrate/src/render.rs`):
-   - Default level → `mov rdi, 3;`.
-   - Fail-pattern hit (`some_fail_msg`) → `mov rdi, 5;`.
+   - Default level → `mov rdi, 3;` (LEVEL_INFO).
+   - Fail-pattern hit (`some_fail_msg`) → `mov rdi, 1;` (LEVEL_ERROR, #1274).
    - Fail-pattern miss (`_err_msg` with case-sensitive pattern) → default level.
    - Custom subsys → `lea rsi, [rip + SUBSYS_INT_];`.
    - Indent preserved: 6-space, tab, mixed.
@@ -208,6 +231,9 @@ Layered from smallest to largest:
    - `no_semi_lea.pdx` / `no_semi_lea.expected.pdx` (#1273): `;` after `]` omitted.
    - `no_semi_call.pdx` / `no_semi_call.expected.pdx` (#1273): `;` after `uart_puts` omitted.
    - `no_semi_both.pdx` / `no_semi_both.expected.pdx` (#1273): both `;` omitted.
+   - `level_error_fail.pdx` / `level_error_fail.expected.pdx` (#1274): mixed `*_ok_msg` + `*_fail_msg` — pins `mov rdi, 1;` for the fail branch and `mov rdi, 3;` for the ok branch.
+   - `level_error_err.pdx` / `level_error_err.expected.pdx` (#1274): all `*_err_msg` — pins `mov rdi, 1;` and the `(?i)(fail|err)` pattern's `err` arm.
+   - `level_info_ok.pdx` / `level_info_ok.expected.pdx` (#1274): all `*_ok_msg` — pins `mov rdi, 3;` and confirms the fail-pattern does not spuriously fire.
 
 ## Non-goals (v0.20)
 
@@ -215,6 +241,8 @@ Layered from smallest to largest:
 - **New rodata declaration**: the tool never emits `.pdx` `let` items. Callers who need brand-new tag symbols declare them by hand (rare; msg symbols already exist for every witness).
 - **Higher-arity klog wrappers**: v0.20 targets `klog_s1` only. `klog_s1_x1` / `_x2` / `_x3` / `_x4` migrations (which fold `uart_put_hex` sequences) are deferred to v0.21; the token-scan module is designed so each new pattern is one additional `PatternKind` variant + one render function.
 - **AST-level rewriter**: paideia-as parses `unsafe { block: { ... } }` payloads as opaque `IrKind::RawInstruction` / `IrKind::Unsafe` node sequences (Phase 7 m2-001), so the AST does not carry per-instruction navigation a rewriter would benefit from. When self-hosting adds an assembly-block AST (Tier 2), this tool becomes the reference for the AST-level pass.
+
+- **Per-site opt-out annotation** ([#1275](https://github.com/paideia-os/paideia-as/issues/1275)): the scanner has no way to skip an individual `lea rdi, [rip + SYM]; call uart_puts;` site that the author intentionally kept raw (e.g. wire-fingerprint contiguity in `kernel_main.pdx:5864, 8033`, where `klog_s1`'s synthesised trailing `\n` would break a two-line `"UART RX: abc"` matcher). Current workflow: hand-audit `--check` diffs before `--in-place`, revert intentional-raw hits post-migration. A `// klog-migrate: skip` line-preceding pragma (mirroring `rustfmt::skip`) is the planned resolution.
 
 ## Extension model
 

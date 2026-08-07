@@ -250,3 +250,80 @@ fn no_semi_both_is_idempotent() {
     let src = fixture("no_semi_both.expected.pdx");
     bin().arg(&src).arg("--check").assert().code(0);
 }
+
+// ---- LEVEL_ERROR / LEVEL_INFO fixtures (paideia-as#1274) ---------------
+//
+// The v0.20.1 delivery defaulted `--fail-level` to `5`, which is
+// `LEVEL_TRACE` in paideia-os's `src/kernel/core/klog/level.pdx`. Because
+// `klog_emit_core` gates emission with
+// `cmp rdi, KLOG_COMPILE_LEVEL=3; ja emit_skip`, every `*_fail_msg` /
+// `*_err_msg` witness the tool emitted was silently dropped. paideia-os
+// inline-fixed 84 sites at 463b16f; these three fixtures pin the fix
+// upstream so a fresh migration on any target emits `LEVEL_ERROR=1`.
+
+#[test]
+fn level_error_fail_fixture_emits_level_1() {
+    let src = fixture("level_error_fail.pdx");
+    let expected = read(&fixture("level_error_fail.expected.pdx"));
+    let out = bin().arg(&src).output().unwrap();
+    assert!(out.status.success(), "status: {:?}", out.status);
+    let got = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(got, expected, "level_error_fail: stdout != expected");
+    // Belt-and-braces: assert LEVEL_ERROR=1 is emitted and LEVEL_TRACE=5
+    // absolutely is NOT (guards against a regression that flips the default
+    // back and passes only the golden diff).
+    assert!(got.contains("mov rdi, 1;"), "no LEVEL_ERROR=1 emitted");
+    assert!(
+        !got.contains("mov rdi, 5;"),
+        "LEVEL_TRACE=5 emitted for fail_msg — would be dropped by KLOG_COMPILE_LEVEL=3 gate"
+    );
+}
+
+#[test]
+fn level_error_err_fixture_emits_level_1() {
+    let src = fixture("level_error_err.pdx");
+    let expected = read(&fixture("level_error_err.expected.pdx"));
+    let out = bin().arg(&src).output().unwrap();
+    assert!(out.status.success(), "status: {:?}", out.status);
+    let got = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(got, expected, "level_error_err: stdout != expected");
+    assert!(got.contains("mov rdi, 1;"), "no LEVEL_ERROR=1 emitted for err_msg");
+    assert!(
+        !got.contains("mov rdi, 5;"),
+        "LEVEL_TRACE=5 emitted for err_msg — would be dropped by KLOG_COMPILE_LEVEL=3 gate"
+    );
+}
+
+#[test]
+fn level_info_ok_fixture_emits_level_3() {
+    let src = fixture("level_info_ok.pdx");
+    let expected = read(&fixture("level_info_ok.expected.pdx"));
+    let out = bin().arg(&src).output().unwrap();
+    assert!(out.status.success(), "status: {:?}", out.status);
+    let got = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(got, expected, "level_info_ok: stdout != expected");
+    // No fail/err symbols in this fixture → every rewrite uses LEVEL_INFO=3.
+    assert!(got.contains("mov rdi, 3;"), "no LEVEL_INFO=3 emitted");
+    assert!(
+        !got.contains("mov rdi, 1;"),
+        "LEVEL_ERROR=1 leaked into ok-only fixture — fail_pattern matched incorrectly"
+    );
+}
+
+#[test]
+fn level_error_fail_is_idempotent() {
+    let src = fixture("level_error_fail.expected.pdx");
+    bin().arg(&src).arg("--check").assert().code(0);
+}
+
+#[test]
+fn level_error_err_is_idempotent() {
+    let src = fixture("level_error_err.expected.pdx");
+    bin().arg(&src).arg("--check").assert().code(0);
+}
+
+#[test]
+fn level_info_ok_is_idempotent() {
+    let src = fixture("level_info_ok.expected.pdx");
+    bin().arg(&src).arg("--check").assert().code(0);
+}

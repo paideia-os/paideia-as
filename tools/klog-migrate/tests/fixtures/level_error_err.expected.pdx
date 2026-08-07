@@ -1,0 +1,23 @@
+module LevelErrorErr = structure {
+  pub let boot : () -> () @{sysreg, mem} =
+    fn () -> unsafe {
+      effects: { sysreg, mem },
+      capabilities: {},
+      justification: "paideia-as#1274: *_err_msg is symmetric with *_fail_msg — the (?i)(fail|err) default pattern matches both, and both must emit LEVEL_ERROR=1.",
+      block: {
+        mov rdi, 1;
+        lea rsi, [rip + SUBSYS_BOOT];
+        lea rdx, [rip + apic_err_msg];
+        call klog_s1;
+        mov rdi, 1;
+        lea rsi, [rip + SUBSYS_BOOT];
+        lea rdx, [rip + wsl_err_msg];
+        call klog_s1;
+        mov rdi, 1;
+        lea rsi, [rip + SUBSYS_BOOT];
+        lea rdx, [rip + acpi_parse_err_msg];
+        call klog_s1;
+        ret;
+      }
+    }
+}

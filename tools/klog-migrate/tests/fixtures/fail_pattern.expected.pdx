@@ -9,7 +9,7 @@ module Fail = structure {
         lea rsi, [rip + SUBSYS_BOOT];
         lea rdx, [rip + tsc_ok_msg];
         call klog_s1;
-        mov rdi, 5;
+        mov rdi, 1;
         lea rsi, [rip + SUBSYS_BOOT];
         lea rdx, [rip + logp_hex_fail_msg];
         call klog_s1;

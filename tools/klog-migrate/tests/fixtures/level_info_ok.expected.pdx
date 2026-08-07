@@ -1,0 +1,23 @@
+module LevelInfoOk = structure {
+  pub let boot : () -> () @{sysreg, mem} =
+    fn () -> unsafe {
+      effects: { sysreg, mem },
+      capabilities: {},
+      justification: "paideia-as#1274: pure *_ok_msg / *_msg witnesses stay at LEVEL_INFO=3 (below KLOG_COMPILE_LEVEL=3's `ja` gate boundary → emitted).",
+      block: {
+        mov rdi, 3;
+        lea rsi, [rip + SUBSYS_BOOT];
+        lea rdx, [rip + banner_msg];
+        call klog_s1;
+        mov rdi, 3;
+        lea rsi, [rip + SUBSYS_BOOT];
+        lea rdx, [rip + apic_ok_msg];
+        call klog_s1;
+        mov rdi, 3;
+        lea rsi, [rip + SUBSYS_BOOT];
+        lea rdx, [rip + idt_ok_msg];
+        call klog_s1;
+        ret;
+      }
+    }
+}

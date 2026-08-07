@@ -30,8 +30,8 @@ struct Cli {
     #[arg(long, default_value = "SUBSYS_BOOT")]
     subsys: String,
 
-    /// Level literal for messages whose symbol matches --fail-pattern [default: 5].
-    #[arg(long, default_value_t = 5)]
+    /// Level literal for messages whose symbol matches --fail-pattern [default: 1 = LEVEL_ERROR].
+    #[arg(long, default_value_t = 1)]
     fail_level: u32,
 
     /// Regex tested against msg symbol name; a hit uses --fail-level.

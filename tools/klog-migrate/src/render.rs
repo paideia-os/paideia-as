@@ -12,7 +12,16 @@ use regex::Regex;
 pub struct RenderOpts {
     /// Level literal used for non-fail messages (default: 3 = LEVEL_INFO).
     pub level: u32,
-    /// Level literal used when `fail_pattern` matches (default: 5 = LEVEL_ERROR).
+    /// Level literal used when `fail_pattern` matches (default: 1 = LEVEL_ERROR).
+    ///
+    /// Historical note (paideia-as#1274 / paideia-os#704): the v0.20.1 delivery
+    /// defaulted this to `5`, which corresponds to `LEVEL_TRACE` in
+    /// paideia-os's `src/kernel/core/klog/level.pdx`. Because
+    /// `KLOG_COMPILE_LEVEL=3` and `klog_emit_core` filters with
+    /// `cmp rdi, KLOG_COMPILE_LEVEL; ja emit_skip`, every `*_fail_msg` /
+    /// `*_err_msg` witness the tool emitted was silently dropped. paideia-os
+    /// inline-fixed 84 sites at 463b16f; this default aligns future runs
+    /// with paideia-os's actual `LEVEL_ERROR = 1`.
     pub fail_level: u32,
     /// Symbol name for the SUBSYS argument (default: "SUBSYS_BOOT").
     pub subsys: String,
@@ -31,7 +40,7 @@ impl RenderOpts {
     pub fn defaults() -> Self {
         Self {
             level: 3,
-            fail_level: 5,
+            fail_level: 1,
             subsys: "SUBSYS_BOOT".to_owned(),
             fail_pattern: Regex::new(r"(?i)(fail|err)").expect("default fail-pattern is valid"),
         }
@@ -127,17 +136,21 @@ mod tests {
 
     #[test]
     fn fail_pattern_elevates_level() {
+        // paideia-as#1274 / paideia-os#704: fail_level must be 1 (LEVEL_ERROR),
+        // not 5 (LEVEL_TRACE), or the message is silently dropped by
+        // klog_emit_core's `cmp rdi, KLOG_COMPILE_LEVEL=3; ja skip` gate.
         let src = "      lea rdi, [rip + logp_hex_fail_msg];\n      call uart_puts;\n";
         let reps = render_all(src, &RenderOpts::defaults());
-        assert!(reps[0].new_text.contains("mov rdi, 5;"));
+        assert!(reps[0].new_text.contains("mov rdi, 1;"));
         assert!(reps[0].new_text.contains("lea rdx, [rip + logp_hex_fail_msg];"));
     }
 
     #[test]
     fn err_pattern_elevates_level() {
+        // paideia-as#1274 / paideia-os#704: LEVEL_ERROR = 1, not 5.
         let src = "      lea rdi, [rip + wsl_err_msg];\n      call uart_puts;\n";
         let reps = render_all(src, &RenderOpts::defaults());
-        assert!(reps[0].new_text.contains("mov rdi, 5;"));
+        assert!(reps[0].new_text.contains("mov rdi, 1;"));
     }
 
     #[test]

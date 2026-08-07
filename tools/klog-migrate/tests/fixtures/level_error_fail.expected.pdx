@@ -1,0 +1,23 @@
+module LevelErrorFail = structure {
+  pub let boot : () -> () @{sysreg, mem} =
+    fn () -> unsafe {
+      effects: { sysreg, mem },
+      capabilities: {},
+      justification: "paideia-as#1274: *_fail_msg must emit LEVEL_ERROR=1, not LEVEL_TRACE=5 (which klog_emit_core's cmp rdi, KLOG_COMPILE_LEVEL=3; ja skip drops).",
+      block: {
+        mov rdi, 3;
+        lea rsi, [rip + SUBSYS_BOOT];
+        lea rdx, [rip + gdt_ok_msg];
+        call klog_s1;
+        mov rdi, 1;
+        lea rsi, [rip + SUBSYS_BOOT];
+        lea rdx, [rip + gdt_load_fail_msg];
+        call klog_s1;
+        mov rdi, 1;
+        lea rsi, [rip + SUBSYS_BOOT];
+        lea rdx, [rip + tss_setup_fail_msg];
+        call klog_s1;
+        ret;
+      }
+    }
+}
