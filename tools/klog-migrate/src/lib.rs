@@ -7,11 +7,14 @@
 //! # Overview
 //!
 //! Consumes a `.pdx` source file, tokenises it with `paideia_as_lexer`, and
-//! rewrites every occurrence of the 12-token pattern
+//! rewrites every occurrence of the pattern
 //!
 //! ```text
 //! lea rdi, [rip + <MSG>]; call uart_puts;
 //! ```
+//!
+//! Both `;` terminators are optional (`.pdx` accepts newline-terminated
+//! statements too) — see `scan::try_match_at` and paideia-as#1273.
 //!
 //! into the structured-log 4-instruction block
 //!

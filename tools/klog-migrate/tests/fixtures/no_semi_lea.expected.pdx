@@ -1,0 +1,15 @@
+module Boot = structure {
+  pub let kernel_main : () -> () @{sysreg, mem} =
+    fn () -> unsafe {
+      effects: { sysreg, mem },
+      capabilities: {},
+      justification: "witness OK marker via klog (no `;` after `]`)",
+      block: {
+        mov rdi, 3;
+        lea rsi, [rip + SUBSYS_BOOT];
+        lea rdx, [rip + banner_msg];
+        call klog_s1;
+        ret;
+      }
+    }
+}

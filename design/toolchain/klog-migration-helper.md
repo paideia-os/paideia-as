@@ -46,7 +46,7 @@ Both are impossible under a tokenizer-driven rewriter: the paideia-as lexer stri
 paideia_as_lexer::Lexer::collect_tokens()      // strips trivia + strings
   │
   ▼
-scan_pattern(tokens) → Vec<Match>              // 11-token window walk
+scan_pattern(tokens) → Vec<Match>              // 10..=12-token variable-width walk
   │
   ▼
 Match::render(source, opts) → Replacement      // byte-range + new_text
@@ -60,26 +60,44 @@ migrated .pdx source
 
 ### Target pattern
 
-11 tokens, in order, with any trivia (whitespace/comment) between adjacent tokens:
+10 mandatory tokens (positions 0–7, 9–10) plus 2 optional semicolons (8, 11),
+in order, with any trivia (whitespace/comment) between adjacent tokens:
 
-| # | Kind      | Text (case-sensitive) |
-|---|-----------|-----------------------|
-| 0 | `Ident`   | `lea`                 |
-| 1 | `Ident`   | `rdi`                 |
-| 2 | `Comma`   | —                     |
-| 3 | `LBracket`| `[`                   |
-| 4 | `Ident`   | `rip`                 |
-| 5 | `Plus`    | `+`                   |
-| 6 | `Ident`   | *(msg-symbol, captured)* |
-| 7 | `RBracket`| `]`                   |
-| 8 | `Semicolon`| `;`                  |
-| 9 | `Ident`   | `call`                |
-|10 | `Ident`   | `uart_puts`           |
-|11 | `Semicolon`| `;`                  |
+| # | Kind      | Text (case-sensitive)     | Required |
+|---|-----------|---------------------------|----------|
+| 0 | `Ident`   | `lea`                     | yes      |
+| 1 | `Ident`   | `rdi`                     | yes      |
+| 2 | `Comma`   | —                         | yes      |
+| 3 | `LBracket`| `[`                       | yes      |
+| 4 | `Ident`   | `rip`                     | yes      |
+| 5 | `Plus`    | `+`                       | yes      |
+| 6 | `Ident`   | *(msg-symbol, captured)*  | yes      |
+| 7 | `RBracket`| `]`                       | yes      |
+| 8 | `Semicolon`| `;`                      | **no** (#1273) |
+| 9 | `Ident`   | `call`                    | yes      |
+|10 | `Ident`   | `uart_puts`               | yes      |
+|11 | `Semicolon`| `;`                      | **no** (#1273) |
 
-12 tokens total. The captured msg-symbol from position 6 becomes the tag pointer in the rewrite.
+Between 10 and 12 tokens total. The captured msg-symbol from position 6
+becomes the tag pointer in the rewrite.
 
-Match extent: `tokens[0].span.byte_start()` .. `tokens[11].span.byte_end()`. This range does **not** include the trailing newline; the tool re-inserts newlines and per-line indentation in the rendered replacement.
+The two `Semicolon` positions are **optional** because `.pdx` accepts
+newline-terminated statements alongside semicolon-terminated ones, and real
+kernel sources (paideia-os/src/kernel/boot/kernel_main.pdx) mix both styles
+freely. `#1273` fixed the original hard-required semicolons: they had been
+silently skipping 54 valid migration targets in kernel_main.pdx. Fixtures
+`no_semi_lea.pdx`, `no_semi_call.pdx`, `no_semi_both.pdx` (each with a
+`.expected.pdx` peer) pin the three semicolon-optional variants.
+
+Match extent: `tokens[0].span.byte_start()` .. last-consumed-token
+`.span.byte_end()`. When both semicolons are present, the last token is
+position 11 (`;`); when only the trailing one is elided, it is position 10
+(`uart_puts`); when only the middle one is elided, it is position 11 (`;`);
+when both are elided, it is position 10 again. This range does **not**
+include the trailing newline; the tool re-inserts newlines, per-line
+indentation, and normalises the output to the semicolon-terminated form in
+the rendered replacement (so a semicolon-optional site becomes
+semicolon-terminated after migration).
 
 ### Rewrite rendering
 
@@ -138,7 +156,7 @@ Options:
 
 ### Warnings
 
-The rewritten byte range (`tokens[0].byte_start()` .. `tokens[11].byte_end()`) covers the entire two-line pattern including any `//` trailing comment that sits **between** the two matched lines. Comments in that gap are silently absorbed by the rewrite. The tool detects this by scanning the replaced substring for `//` or `/*` and, for each hit, emits a stderr line of the form
+The rewritten byte range (`tokens[0].byte_start()` .. last-consumed-token `.byte_end()`) covers the entire two-line pattern including any `//` trailing comment that sits **between** the two matched lines. Comments in that gap are silently absorbed by the rewrite. The tool detects this by scanning the replaced substring for `//` or `/*` and, for each hit, emits a stderr line of the form
 
 ```
 paideia-as-klog-migrate: <FILE>:<LINE>: dropped trailing comment while migrating `<MSG_SYM>` — review by hand
@@ -150,42 +168,46 @@ The migration still completes; the warning is advisory. Callers that treat any w
 
 Layered from smallest to largest:
 
-1. **Unit** (`crates/klog-migrate/src/scan.rs`):
+1. **Unit** (`tools/klog-migrate/src/scan.rs`):
    - Empty token stream → no matches.
    - Isolated `lea rdi, [rip + foo];` (no following call) → no matches.
    - Isolated `call uart_puts;` (no preceding lea) → no matches.
-   - Exactly the 12-token pattern → 1 match with captured symbol.
-   - Two adjacent patterns → 2 matches with correct spans.
+   - The full 12-token pattern → 1 match with captured symbol.
+   - The 10-token semicolon-optional pattern (both `;` elided) → 1 match (#1273).
+   - The 11-token variants (either `;` elided) → 1 match each (#1273).
+   - Two adjacent patterns, mixed-terminator styles → 2 matches (#1273).
 
-2. **Comment / string safety** (`crates/klog-migrate/src/scan.rs`):
+2. **Comment / string safety** (`tools/klog-migrate/src/scan.rs`):
    - `// lea rdi, [rip + foo]; call uart_puts;` — 0 matches.
    - `justification: "call uart_puts here"` — 0 matches.
    - Pattern immediately after a comment on the previous line — 1 match, indent preserved.
 
-3. **Render** (`crates/klog-migrate/src/render.rs`):
+3. **Render** (`tools/klog-migrate/src/render.rs`):
    - Default level → `mov rdi, 3;`.
    - Fail-pattern hit (`some_fail_msg`) → `mov rdi, 5;`.
    - Fail-pattern miss (`_err_msg` with case-sensitive pattern) → default level.
    - Custom subsys → `lea rsi, [rip + SUBSYS_INT_];`.
    - Indent preserved: 6-space, tab, mixed.
 
-4. **Splice** (`crates/klog-migrate/src/splice.rs`):
+4. **Splice** (`tools/klog-migrate/src/splice.rs`):
    - Single match, byte-exact substitution.
    - Two matches in same file, right-to-left ordering verified.
    - Overlapping matches → error.
 
-5. **CLI** (`crates/klog-migrate/tests/cli.rs`, `assert_cmd`):
+5. **CLI** (`tools/klog-migrate/tests/cli.rs`, `assert_cmd`):
    - Stdout mode: default → migrated to stdout, source unchanged.
    - `--in-place`: file overwritten, second run is a no-op.
    - `--check`: exit 1 if would change, 0 if idempotent.
    - `--diff`: unified diff visible on stderr, primary output unaffected.
 
 6. **Golden `.pdx` corpus** (`tools/klog-migrate/tests/fixtures/`):
-   - `basic.pdx` / `basic.expected.pdx`: single-line pattern.
-   - `same_line.pdx` / `same_line.expected.pdx`: `lea ...; call uart_puts;` on one source line.
+   - `basic.pdx` / `basic.expected.pdx`: canonical two-line pattern.
    - `fail_pattern.pdx` / `fail_pattern.expected.pdx`: mixed OK / FAIL symbols.
-   - `comment_safe.pdx` / `comment_safe.expected.pdx`: pattern inside `//` — no rewrite.
-   - `string_safe.pdx` / `string_safe.expected.pdx`: pattern inside `justification:` string — no rewrite.
+   - `comment_safe.pdx`: pattern inside `//` — no rewrite (round-trip: input == output).
+   - `trailing_comment.pdx`: rewrite absorbs a trailing `//` on the `lea` line — stderr warning fires.
+   - `no_semi_lea.pdx` / `no_semi_lea.expected.pdx` (#1273): `;` after `]` omitted.
+   - `no_semi_call.pdx` / `no_semi_call.expected.pdx` (#1273): `;` after `uart_puts` omitted.
+   - `no_semi_both.pdx` / `no_semi_both.expected.pdx` (#1273): both `;` omitted.
 
 ## Non-goals (v0.20)
 
@@ -199,7 +221,7 @@ Layered from smallest to largest:
 Adding a new pattern:
 
 ```rust
-// crates/klog-migrate/src/patterns.rs
+// tools/klog-migrate/src/patterns.rs
 pub enum PatternKind {
     UartPutsToKlogS1,           // v0.20
     UartPutHexToKlogS1X1,       // v0.21 (planned)

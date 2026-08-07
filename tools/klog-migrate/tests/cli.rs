@@ -192,3 +192,61 @@ fn in_place_and_check_are_mutually_exclusive() {
         .assert()
         .failure(); // clap rejects at parse time; not exit code 0.
 }
+
+// ---- semicolon-optional fixtures (paideia-as#1273) ----------------------
+//
+// paideia-os#717 / paideia-as#1272 shipped a scanner that required both `;`
+// tokens (positions 8 and 11). Real `.pdx` sources like
+// paideia-os/src/kernel/boot/kernel_main.pdx mix the semicolon and
+// newline-terminated styles freely (54 valid sites silently skipped on the
+// v0.20.1 build). The following three fixtures pin the fix.
+
+#[test]
+fn no_semi_lea_fixture_migrates() {
+    let src = fixture("no_semi_lea.pdx");
+    let expected = read(&fixture("no_semi_lea.expected.pdx"));
+    let out = bin().arg(&src).output().unwrap();
+    assert!(out.status.success(), "status: {:?}", out.status);
+    let got = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(got, expected, "no_semi_lea: stdout != expected");
+}
+
+#[test]
+fn no_semi_lea_is_idempotent() {
+    // The expected file has no direct-UART pattern left; a second run
+    // must be a no-op (--check exits 0).
+    let src = fixture("no_semi_lea.expected.pdx");
+    bin().arg(&src).arg("--check").assert().code(0);
+}
+
+#[test]
+fn no_semi_call_fixture_migrates() {
+    let src = fixture("no_semi_call.pdx");
+    let expected = read(&fixture("no_semi_call.expected.pdx"));
+    let out = bin().arg(&src).output().unwrap();
+    assert!(out.status.success(), "status: {:?}", out.status);
+    let got = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(got, expected, "no_semi_call: stdout != expected");
+}
+
+#[test]
+fn no_semi_call_is_idempotent() {
+    let src = fixture("no_semi_call.expected.pdx");
+    bin().arg(&src).arg("--check").assert().code(0);
+}
+
+#[test]
+fn no_semi_both_fixture_migrates() {
+    let src = fixture("no_semi_both.pdx");
+    let expected = read(&fixture("no_semi_both.expected.pdx"));
+    let out = bin().arg(&src).output().unwrap();
+    assert!(out.status.success(), "status: {:?}", out.status);
+    let got = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(got, expected, "no_semi_both: stdout != expected");
+}
+
+#[test]
+fn no_semi_both_is_idempotent() {
+    let src = fixture("no_semi_both.expected.pdx");
+    bin().arg(&src).arg("--check").assert().code(0);
+}

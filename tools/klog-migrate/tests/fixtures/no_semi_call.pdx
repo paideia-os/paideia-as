@@ -1,0 +1,12 @@
+module Boot = structure {
+  pub let kernel_main : () -> () @{sysreg, mem} =
+    fn () -> unsafe {
+      effects: { sysreg, mem },
+      capabilities: {},
+      justification: "witness OK marker via klog (no `;` after `uart_puts`)",
+      block: {
+        lea rdi, [rip + banner_msg]; call uart_puts
+        ret;
+      }
+    }
+}
