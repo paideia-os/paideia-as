@@ -16,6 +16,14 @@ pub(super) struct LetSymbolAttrs {
     pub ring: Option<(u32, u32)>,
     pub link_section: Option<String>,
     pub abi: Option<CallingConvention>,
+    /// `@no_frame` opt-out for the default SysV frame prologue/epilogue
+    /// (paideia-as#1276, unblocks paideia-os#716). Bare flag — no arguments.
+    ///
+    /// Phase-1 landing (parser + AST/IR plumbing): the flag is captured here and
+    /// propagated to [`paideia_as_ast::ItemData::Let::no_frame`] / IR `LetInfo::no_frame`,
+    /// but the elaborator emit pass still ignores it. Non-function placement is not
+    /// yet diagnosed (deferred to the phase that wires the emit change).
+    pub no_frame: bool,
 }
 
 impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
@@ -24,6 +32,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         let mut ring: Option<(u32, u32)> = None;
         let mut link_section: Option<String> = None;
         let mut abi: Option<CallingConvention> = None;
+        let mut no_frame: bool = false;
         let mut seen_attrs = HashSet::new();
 
         // Loop to accept attributes in any order
@@ -78,12 +87,19 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 "abi" => {
                     abi = Some(self.parse_abi_attr()?);
                 }
+                "no_frame" => {
+                    // paideia-as#1276 (phase 1): bare flag, no arguments.
+                    // Recognized here so the elaborator can consult it at emit time
+                    // in a later phase. Placement validation (must-be-function) lands
+                    // with the emit change; phase 1 keeps the attribute inert.
+                    no_frame = true;
+                }
                 _ => {
                     // P0250: unknown symbol attribute
                     let code = DiagnosticCode::new(Category::P, Severity::Error, 250)
                         .expect("valid P0250 code");
                     let diag = Diagnostic::error(code)
-                        .message(format!("unknown symbol attribute '@{}' (only 'align', 'ring', 'link_section', and 'abi' supported)", attr_name))
+                        .message(format!("unknown symbol attribute '@{}' (only 'align', 'ring', 'link_section', 'abi', and 'no_frame' supported)", attr_name))
                         .with_span(attr_name_tok.span)
                         .finish();
                     self.emit_diagnostic(diag);
@@ -92,7 +108,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             }
         }
 
-        Ok(LetSymbolAttrs { align, ring, link_section, abi })
+        Ok(LetSymbolAttrs { align, ring, link_section, abi, no_frame })
     }
 
     /// Parse `@align(N)` where N is a power-of-two integer literal.
@@ -613,8 +629,8 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         // Parse value expression
         let value = self.parse_expr()?;
 
-        // Parse optional symbol attributes (@align, @ring, @link_section, or @abi)
-        let LetSymbolAttrs { align, ring, link_section, abi } = self.parse_optional_symbol_attributes()?;
+        // Parse optional symbol attributes (@align, @ring, @link_section, @abi, or @no_frame)
+        let LetSymbolAttrs { align, ring, link_section, abi, no_frame } = self.parse_optional_symbol_attributes()?;
 
         // Consume optional `;`
         self.eat(TokenKind::Semicolon);
@@ -645,6 +661,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 ring,
                 link_section,
                 abi,
+                no_frame,
                 doc: None,
             },
         );
@@ -1054,6 +1071,80 @@ mod tests {
             }
         } else {
             panic!("expected NodeKind::Let");
+        }
+    }
+
+    /// paideia-as#1276 phase 1: `@no_frame` bare-flag attribute parses and populates
+    /// `ItemData::Let::no_frame = true`. The attribute is inert this landing — no emit
+    /// change — but it must round-trip through the parser so paideia-os can annotate
+    /// hand-crafted trampolines in phase 2 without waiting on the elaborator.
+    ///
+    /// Lambda body shape mirrors the sibling `abi_*_parses` tests: `fn(params) -> body_expr`
+    /// (bare-expression body). Only the attribute state is under test here.
+    #[test]
+    fn parse_no_frame_attribute() {
+        let source = r#"pub let foo : (u64) -> u64 = fn(x: u64) -> x @no_frame"#;
+        let (arena, result, diags) = parse_let_in_module(source);
+
+        assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
+        assert!(result.is_ok(), "expected successful parse");
+
+        let root = result.unwrap();
+        let node = arena.get(root).unwrap();
+        assert!(matches!(node.kind, paideia_as_ast::NodeKind::Let), "expected NodeKind::Let");
+        match arena.item_data(root) {
+            Some(paideia_as_ast::ItemData::Let { no_frame, public, .. }) => {
+                assert!(*no_frame, "@no_frame should set ItemData::Let::no_frame = true");
+                assert!(*public, "`pub let` should preserve public=true alongside @no_frame");
+            }
+            _ => panic!("expected ItemData::Let"),
+        }
+    }
+
+    /// paideia-as#1276 phase 1: absence of `@no_frame` leaves the flag at its
+    /// `false` default — the emit path stays walkable-by-default and existing
+    /// bindings inherit no unintended opt-out.
+    #[test]
+    fn no_frame_absent_by_default() {
+        let source = r#"pub let foo : (u64) -> u64 = fn(x: u64) -> x"#;
+        let (arena, result, diags) = parse_let_in_module(source);
+
+        assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
+        assert!(result.is_ok(), "expected successful parse");
+
+        let root = result.unwrap();
+        let node = arena.get(root).unwrap();
+        assert!(matches!(node.kind, paideia_as_ast::NodeKind::Let), "expected NodeKind::Let");
+        match arena.item_data(root) {
+            Some(paideia_as_ast::ItemData::Let { no_frame, .. }) => {
+                assert!(
+                    !*no_frame,
+                    "no_frame must default to false when the attribute is omitted"
+                );
+            }
+            _ => panic!("expected ItemData::Let"),
+        }
+    }
+
+    /// paideia-as#1276 phase 1: `@no_frame` composes cleanly with the other four
+    /// symbol attributes (`@align`, `@link_section`, `@abi`) in a single trailing
+    /// attribute run, in any order. Guards against a future refactor that
+    /// accidentally short-circuits the attribute loop once `no_frame` is seen.
+    #[test]
+    fn no_frame_composes_with_other_attributes() {
+        let source = r#"pub let foo : (u64) -> u64 = fn(x: u64) -> x @no_frame @abi("sysv")"#;
+        let (arena, result, diags) = parse_let_in_module(source);
+
+        assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
+        assert!(result.is_ok(), "expected successful parse");
+
+        let root = result.unwrap();
+        match arena.item_data(root) {
+            Some(paideia_as_ast::ItemData::Let { no_frame, abi, .. }) => {
+                assert!(*no_frame, "@no_frame flag set");
+                assert_eq!(*abi, Some(paideia_as_ast::CallingConvention::Sysv));
+            }
+            _ => panic!("expected ItemData::Let"),
         }
     }
 }

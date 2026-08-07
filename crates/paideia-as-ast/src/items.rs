@@ -193,7 +193,7 @@ pub enum ItemData {
         doc: Option<NodeId>,
     },
 
-    /// Let binding: `let [mut] Name <T> (: Type)? = Expr @align(N)? @ring(slots=M, slot_size=K)? @link_section("name")? @abi("ms"|"sysv")?`
+    /// Let binding: `let [mut] Name <T> (: Type)? = Expr @align(N)? @ring(slots=M, slot_size=K)? @link_section("name")? @abi("ms"|"sysv")? @no_frame?`
     Let {
         /// Whether this binding is public (`pub let`).
         public: bool,
@@ -221,6 +221,17 @@ pub enum ItemData {
         /// When `Some(cc)`, specifies the calling convention for function-shaped bindings.
         /// `None` means paideia default (unannotated), not explicitly `Sysv`.
         abi: Option<CallingConvention>,
+        /// Frame-prologue opt-out directive `@no_frame` (paideia-as#1276, unblocks paideia-os#716).
+        /// When `true`, the emitter is instructed to skip the default SysV prologue/epilogue
+        /// (`push rbp; mov rbp, rsp` / `leave; ret`) for function-shaped bindings — used for
+        /// hand-crafted trampolines, ISR entries, syscall stubs, and any function that
+        /// manipulates `rsp` directly. Only meaningful on lambda-shaped Lets; the annotation
+        /// is inert on non-function bindings until later phases add a P02xx placement check.
+        ///
+        /// Phase-1 landing (parser + AST/IR plumbing): the flag is parsed and propagated into
+        /// [`crate::items::ItemData::Let`] and eventually into IR `LetInfo::no_frame`, but
+        /// the elaborator emit pass still ignores it — no prologue/epilogue emission changes.
+        no_frame: bool,
         /// Optional documentation comment.
         doc: Option<NodeId>,
     },
@@ -342,6 +353,7 @@ mod tests {
             ring: None,
             link_section: None,
             abi: None,
+            no_frame: false,
             doc: None,
         };
         match item {
@@ -356,6 +368,7 @@ mod tests {
                 ring: r,
                 link_section: ls,
                 abi,
+                no_frame: nf,
                 doc: d,
             } => {
                 assert!(!mut_flag);
@@ -367,6 +380,7 @@ mod tests {
                 assert_eq!(r, None);
                 assert_eq!(ls, None);
                 assert_eq!(abi, None);
+                assert!(!nf);
                 assert!(d.is_none());
             }
             _ => panic!("expected Let variant"),

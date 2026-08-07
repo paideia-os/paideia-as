@@ -332,6 +332,11 @@ fn refine_ir_kind(node: &paideia_as_ast::NodeData, ast: &AstArena, ast_id: NodeI
 /// This pass scans the AST for Let nodes with ABI annotations and populates the
 /// corresponding let_meta entries in the IR arena. This enables the elaborator's
 /// emit_walker to look up calling conventions for lambda bindings during type lowering.
+///
+/// paideia-as#1276 phase 1 (unblocks paideia-os#716): also propagates the `@no_frame`
+/// flag from `ItemData::Let` into `LetInfo::no_frame` so a later phase can consult
+/// it from `emit_visit_lambda` / `emit_walker::emit_ret`. Inert this landing —
+/// nothing downstream reads the flag yet.
 fn populate_let_meta(
     ast: &paideia_as_ast::AstArena,
     ir: &mut paideia_as_ir::IrArena,
@@ -344,7 +349,7 @@ fn populate_let_meta(
         if let Some(ast_id) = NodeId::new((i + 1) as u32) {
             if let Some(node) = ast.get(ast_id) {
                 if node.kind == paideia_as_ast::NodeKind::Let {
-                    if let Some(ItemData::Let { abi, value: value_id, .. }) = ast.item_data(ast_id) {
+                    if let Some(ItemData::Let { abi, no_frame, value: value_id, .. }) = ast.item_data(ast_id) {
                         // Convert AST CallingConvention to IR CallingConvention
                         let ir_abi = abi.map(|cc| {
                             use paideia_as_ast::CallingConvention as AstCC;
@@ -353,6 +358,25 @@ fn populate_let_meta(
                                 AstCC::Sysv => CallingConvention::Sysv,
                             }
                         });
+
+                        // paideia-as#1276 phase 1: propagate @no_frame flag when the RHS
+                        // is a Lambda. Read-modify-write to preserve any fields other
+                        // passes (populate_let_meta_ty, cmd_build's seeding pass) may
+                        // have already written for this binding.
+                        if *no_frame {
+                            if let Some(value_node) = ast.get(*value_id) {
+                                if value_node.kind == paideia_as_ast::NodeKind::ExprLambda {
+                                    if let Some(let_ir_id) = ast_to_ir.get(&ast_id) {
+                                        let mut let_info = ir.let_meta_mut()
+                                            .get(*let_ir_id)
+                                            .cloned()
+                                            .unwrap_or_else(LetInfo::immutable);
+                                        let_info.no_frame = true;
+                                        ir.let_meta_mut().insert(*let_ir_id, let_info);
+                                    }
+                                }
+                            }
+                        }
 
                         // If there's an ABI annotation, look up the RHS (value) in AST
                         if let Some(ir_abi_val) = ir_abi {
@@ -373,6 +397,7 @@ fn populate_let_meta(
                                                     ring: None,
                                                     link_section: None,
                                                     abi: None,
+                                                    no_frame: false,
                                                     enum_type_id: None,
                                                 });
                                             let_info.abi = Some(ir_abi_val);

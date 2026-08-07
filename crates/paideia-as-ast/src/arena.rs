@@ -760,6 +760,7 @@ mod tests {
                 ring: None,
                 link_section: None,
                 abi: None,
+                no_frame: false,
                 doc: None,
             },
         );

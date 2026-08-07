@@ -48,6 +48,11 @@ pub enum CallingConvention {
 /// Phase 19 PA19-r19-001: `abi` carries the calling convention directive `@abi("ms"|"sysv")`
 /// for function-shaped bindings. `None` means paideia default (unannotated), not explicitly `Sysv`.
 ///
+/// paideia-as#1276 (phase 1, unblocks paideia-os#716): `no_frame` carries the
+/// `@no_frame` opt-out for the default SysV frame prologue/epilogue emission at
+/// function entry / return. `false` (the default) preserves today's behavior and
+/// keeps the compiler walkable-by-default once the emit change lands in a later phase.
+///
 /// NOTE: Copy trait removed in v0.19 due to Option<String> field in link_section.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LetInfo {
@@ -68,6 +73,14 @@ pub struct LetInfo {
     /// When `Some(cc)`, specifies the calling convention for function-shaped bindings.
     /// `None` means paideia default (unannotated), not explicitly `Sysv`.
     pub abi: Option<CallingConvention>,
+    /// Frame-prologue opt-out directive `@no_frame` (paideia-as#1276, unblocks paideia-os#716).
+    /// When `true`, the emitter is instructed to skip the default SysV prologue/epilogue
+    /// (`push rbp; mov rbp, rsp` / `leave; ret`) for function-shaped bindings.
+    ///
+    /// Phase-1 landing (parser + AST/IR plumbing): the flag is captured and propagated
+    /// from AST → IR, but the elaborator emit pass ignores it. Phase 3 will consult
+    /// this field in `emit_visit_lambda` / `emit_walker::emit_ret`.
+    pub no_frame: bool,
     /// Optional enum type ID if the binding is annotated with an enum type (#1222).
     /// When `Some(eid)`, the binding's declared type is an enum variant of that type.
     pub enum_type_id: Option<EnumTypeId>,
@@ -84,6 +97,7 @@ impl LetInfo {
             ring: None,
             link_section: None,
             abi: None,
+            no_frame: false,
             enum_type_id: None,
         }
     }
@@ -98,6 +112,7 @@ impl LetInfo {
             ring: None,
             link_section: None,
             abi: None,
+            no_frame: false,
             enum_type_id: None,
         }
     }
@@ -108,7 +123,7 @@ impl LetInfo {
     /// is known, enabling width-threaded integer-literal emission.
     #[must_use]
     pub fn with_type(mutable: bool, ty: Option<TypeId>) -> Self {
-        Self { mutable, ty, align: None, ring: None, link_section: None, abi: None, enum_type_id: None }
+        Self { mutable, ty, align: None, ring: None, link_section: None, abi: None, no_frame: false, enum_type_id: None }
     }
 
     /// Construct a LetInfo with explicit mutability, type, and alignment.
@@ -117,7 +132,7 @@ impl LetInfo {
     /// and optional alignment directive are known.
     #[must_use]
     pub fn with_align(mutable: bool, ty: Option<TypeId>, align: Option<u32>) -> Self {
-        Self { mutable, ty, align, ring: None, link_section: None, abi: None, enum_type_id: None }
+        Self { mutable, ty, align, ring: None, link_section: None, abi: None, no_frame: false, enum_type_id: None }
     }
 
     /// Construct a LetInfo with explicit mutability, type, alignment, and ring.
@@ -126,7 +141,7 @@ impl LetInfo {
     /// optional alignment directive, and optional ring buffer directive are known.
     #[must_use]
     pub fn with_ring(mutable: bool, ty: Option<TypeId>, align: Option<u32>, ring: Option<(u32, u32)>) -> Self {
-        Self { mutable, ty, align, ring, link_section: None, abi: None, enum_type_id: None }
+        Self { mutable, ty, align, ring, link_section: None, abi: None, no_frame: false, enum_type_id: None }
     }
 
     /// Construct a LetInfo with explicit mutability, type, alignment, ring, and link_section.
@@ -136,7 +151,7 @@ impl LetInfo {
     /// directive are known.
     #[must_use]
     pub fn with_link_section(mutable: bool, ty: Option<TypeId>, align: Option<u32>, ring: Option<(u32, u32)>, link_section: Option<String>) -> Self {
-        Self { mutable, ty, align, ring, link_section, abi: None, enum_type_id: None }
+        Self { mutable, ty, align, ring, link_section, abi: None, no_frame: false, enum_type_id: None }
     }
 
     /// Construct a LetInfo with explicit mutability, type, alignment, ring, link_section, and abi.
@@ -146,7 +161,7 @@ impl LetInfo {
     /// directive, and optional calling convention directive are known.
     #[must_use]
     pub fn with_abi(mutable: bool, ty: Option<TypeId>, align: Option<u32>, ring: Option<(u32, u32)>, link_section: Option<String>, abi: Option<CallingConvention>) -> Self {
-        Self { mutable, ty, align, ring, link_section, abi, enum_type_id: None }
+        Self { mutable, ty, align, ring, link_section, abi, no_frame: false, enum_type_id: None }
     }
 }
 

@@ -158,10 +158,11 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
             ring,
             link_section,
             abi,
+            no_frame,
             doc,
         } => {
             format!(
-                "Let {{ public: {}, mutable: {}, name: {}, generic_params: [{}], ty: {:?}, value: {}, align: {:?}, ring: {:?}, link_section: {:?}, abi: {:?}, doc: {:?} }}",
+                "Let {{ public: {}, mutable: {}, name: {}, generic_params: [{}], ty: {:?}, value: {}, align: {:?}, ring: {:?}, link_section: {:?}, abi: {:?}, no_frame: {}, doc: {:?} }}",
                 public,
                 mutable,
                 name,
@@ -176,6 +177,7 @@ fn print_item_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
                 ring,
                 link_section,
                 abi,
+                no_frame,
                 doc
             )
         }
@@ -1022,6 +1024,7 @@ mod tests {
                 ring: None,
                 link_section: None,
                 abi: None,
+                no_frame: false,
                 doc: None,
             },
         );

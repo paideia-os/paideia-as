@@ -1023,6 +1023,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                             ring,
                             link_section,
                             abi,
+                            no_frame,
                             ..
                         }) = arena.item_data(ast_id)
                         {
@@ -1041,6 +1042,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
 
                                     // Phase 19 PA19-r19-010: Seed let_meta with mutability, alignment, ring, link_section, and abi
                                     // Phase 19 PA19-r19-001: Convert AST CallingConvention to IR CallingConvention
+                                    // paideia-as#1276 phase 1: also seed no_frame (inert this landing; consulted from emit in a later phase)
                                     let ir_abi = abi.map(|cc| match cc {
                                         paideia_as_ast::CallingConvention::Ms => paideia_as_ir::CallingConvention::Ms,
                                         paideia_as_ast::CallingConvention::Sysv => paideia_as_ir::CallingConvention::Sysv,
@@ -1056,6 +1058,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                                         info.ring = *ring;
                                         info.link_section = link_section.clone();
                                         info.abi = ir_abi;
+                                        info.no_frame = *no_frame;
                                         lowering.ir.let_meta_mut().insert(ir_id, info);
                                     }
                                 }
