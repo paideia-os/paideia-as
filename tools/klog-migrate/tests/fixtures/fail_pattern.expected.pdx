@@ -1,0 +1,19 @@
+module Fail = structure {
+  pub let boot : () -> () @{sysreg, mem} =
+    fn () -> unsafe {
+      effects: { sysreg, mem },
+      capabilities: {},
+      justification: "mixed OK / FAIL witnesses",
+      block: {
+        mov rdi, 3;
+        lea rsi, [rip + SUBSYS_BOOT];
+        lea rdx, [rip + tsc_ok_msg];
+        call klog_s1;
+        mov rdi, 5;
+        lea rsi, [rip + SUBSYS_BOOT];
+        lea rdx, [rip + logp_hex_fail_msg];
+        call klog_s1;
+        ret;
+      }
+    }
+}

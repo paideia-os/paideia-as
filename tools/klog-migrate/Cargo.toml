@@ -1,0 +1,28 @@
+[package]
+name = "klog-migrate"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+description = "Tokenizer-driven .pdx rewriter for direct-UART → klog_s1 migration (paideia-as#1272, paideia-os#717)"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "paideia-as-klog-migrate"
+path = "src/bin/paideia-as-klog-migrate.rs"
+
+[dependencies]
+paideia-as-lexer      = { path = "../../crates/paideia-as-lexer" }
+paideia-as-diagnostics = { path = "../../crates/paideia-as-diagnostics" }
+clap = { workspace = true, features = ["derive"] }
+regex = { workspace = true }
+similar = { workspace = true }
+
+[dev-dependencies]
+assert_cmd = { workspace = true }
+tempfile = { workspace = true }

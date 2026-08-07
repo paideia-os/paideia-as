@@ -1534,6 +1534,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "klog-migrate"
+version = "0.0.1"
+dependencies = [
+ "assert_cmd",
+ "clap",
+ "paideia-as-diagnostics",
+ "paideia-as-lexer",
+ "regex",
+ "similar",
+ "tempfile",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Tooling
+
+- **Issue #1272** — New workspace member `tools/klog-migrate` (bin `paideia-as-klog-migrate`): a tokenizer-driven `.pdx` rewriter that replaces the direct-UART fingerprint (`lea rdi, [rip + <MSG>]; call uart_puts;`) with the structured `klog_s1(LEVEL, SUBSYS, MSG)` 4-instruction block. Uses `paideia_as_lexer` to identify the 12-token pattern, so matches inside `//` comments or string literals are impossible by construction. Preserves per-line indentation, reuses existing NUL-terminated msg symbols as tag pointers (no new `.pdx` rodata emitted), and elevates fail/err messages to `LEVEL_ERROR` via a configurable regex. Supports `--check`, `--diff`, `--in-place`, `--level`, `--subsys`, `--fail-level`, `--fail-pattern`. Warns on stderr when a rewrite consumes a trailing `//` comment between the two matched instructions. 28 unit + 14 CLI tests. Cross-repo unblock for [paideia-os#704](https://github.com/paideia-os/paideia-os/issues/704) (mirrors [paideia-os#717](https://github.com/paideia-os/paideia-os/issues/717)). Dry-run against real `kernel_main.pdx` reports 140 rewritable sites out of 198 total `call uart_puts` occurrences (the remainder are bare `call uart_puts` calls without a preceding `lea rdi, [rip + SYM]`, correctly left alone). Design doc: `design/toolchain/klog-migration-helper.md`.
+
 ## v0.20.1 — unsafe_walker store-direction retarget fix
 
 ### Critical bug fixes

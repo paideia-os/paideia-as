@@ -53,6 +53,7 @@ members = [
     "tests/cross-build",
     "tests/self-hosting",
     "tools/ddc",
+    "tools/klog-migrate",
     "tools/pax-introspect",
 ]
 

@@ -1,0 +1,13 @@
+module Trailing = structure {
+  pub let boot : () -> () @{sysreg, mem} =
+    fn () -> unsafe {
+      effects: { sysreg, mem },
+      capabilities: {},
+      justification: "witness with a trailing comment on the lea line",
+      block: {
+        lea rdi, [rip + banner_msg];   // R14B-M3-008 (#496)
+        call uart_puts;
+        ret;
+      }
+    }
+}

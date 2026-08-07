@@ -1,0 +1,15 @@
+module Fail = structure {
+  pub let boot : () -> () @{sysreg, mem} =
+    fn () -> unsafe {
+      effects: { sysreg, mem },
+      capabilities: {},
+      justification: "mixed OK / FAIL witnesses",
+      block: {
+        lea rdi, [rip + tsc_ok_msg];
+        call uart_puts;
+        lea rdi, [rip + logp_hex_fail_msg];
+        call uart_puts;
+        ret;
+      }
+    }
+}

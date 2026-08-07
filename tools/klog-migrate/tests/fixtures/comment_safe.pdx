@@ -1,0 +1,14 @@
+module Safe = structure {
+  pub let noop : () -> () @{} =
+    fn () -> unsafe {
+      effects: {},
+      capabilities: {},
+      justification: "documentation-only witness; no direct-UART call",
+      block: {
+        // Historical pattern (documentation only):
+        //   lea rdi, [rip + banner_msg]; call uart_puts;
+        // Do not migrate this file.
+        ret;
+      }
+    }
+}
