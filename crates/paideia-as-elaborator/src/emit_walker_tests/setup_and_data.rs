@@ -198,8 +198,14 @@ fn emit_walker_lambda_bitnot_emits_mov_rax_rdi_not_rax_ret() {
     let bitnot_id = arena.alloc_with_children(IrKind::BitNot, span(), [var_id]);
     let lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [bitnot_id]);
 
-    // Walk the arena.
+    // paideia-as#1276 phase 3: this unit test constructs a bare Lambda
+    // (no wrapping Let→Lambda pair to propagate @no_frame), so the walker
+    // would otherwise emit the default SysV frame-pointer prologue/epilogue
+    // around the body and inflate the virtual-ID / estimated_offset math
+    // this test locks. Mark the lambda as no-frame explicitly to keep the
+    // test focused on the bitnot lowering shape.
     let mut walker = EmitWalker::new();
+    walker.state_mut().mark_lambda_no_frame(lambda_id.get());
     walker.walk(&mut arena);
 
     // The 3-instruction bitnot emitter keys on lambda*3 + {0,1,2}.
@@ -259,7 +265,11 @@ fn emit_walker_lambda_cast_emits_movsx_rax_edi_ret() {
     let cast_id = arena.alloc_with_children(IrKind::Cast, span(), [var_id]);
     let lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [cast_id]);
 
+    // paideia-as#1276 phase 3: bare Lambda (no Let wrapper) — opt out of the
+    // default frame-pointer emission so the test's virtual-ID and
+    // estimated_offset assertions still apply.
     let mut walker = EmitWalker::new();
+    walker.state_mut().mark_lambda_no_frame(lambda_id.get());
     walker.walk(&mut arena);
 
     // The 2-instruction cast emitter keys on lambda*2 + {0,1}.
@@ -465,8 +475,11 @@ fn emit_walker_lambda_double_emits_lea_rdi_rdi_ret() {
     }
     let lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [app_id]);
 
-    // Walk the arena.
+    // paideia-as#1276 phase 3: bare Lambda (no Let wrapper) — opt out of
+    // the default frame-pointer emission so this test's virtual-ID /
+    // estimated_offset assertions still apply.
     let mut walker = EmitWalker::new();
+    walker.state_mut().mark_lambda_no_frame(lambda_id.get());
     walker.walk(&mut arena);
 
     // Verify instructions were emitted for the lambda (lea + ret).
@@ -541,8 +554,11 @@ fn emit_walker_lambda_add_one_emits_lea_rdi_1_ret() {
     // Allocate Lambda with App as body.
     let lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [app_id]);
 
-    // Walk the arena.
+    // paideia-as#1276 phase 3: bare Lambda (no Let wrapper) — opt out of
+    // the default frame-pointer emission so this test's virtual-ID /
+    // estimated_offset assertions still apply.
     let mut walker = EmitWalker::new();
+    walker.state_mut().mark_lambda_no_frame(lambda_id.get());
     walker.walk(&mut arena);
 
     // Verify instructions were emitted for the lambda (lea + ret).

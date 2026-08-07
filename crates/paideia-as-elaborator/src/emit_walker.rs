@@ -160,6 +160,69 @@ impl EmitWalker {
     /// cannot handle the instruction, size is 0 — callers must ensure
     /// their instructions actually encode.
     pub(crate) fn emit_inst(&mut self, node_id: IrNodeId, mut inst: Instruction) {
+        // paideia-as#1276 phase 3: lazy frame-prologue injection.
+        // If `visit_lambda` armed `pending_frame_prologue` for the current
+        // function, inject `push rbp; mov rbp, rsp` BEFORE this instruction
+        // — that way (a) the prologue sorts first in this function's
+        // .text bytes, (b) its `push rbp` claims `lambda_first_instr[L]`
+        // so the ELF symbol starts AT the prologue (not after), and (c)
+        // lambdas whose body-shape arm never calls `emit_inst` produce
+        // zero bytes and continue to flag B1704, preserving the pre-#1276
+        // diagnostic contract.
+        //
+        // Take the arm BEFORE the recursive calls so those calls don't
+        // re-enter this branch and blow the stack.
+        if self.state.current_function != 0
+            && self.state.take_pending_frame_prologue(self.state.current_function)
+        {
+            self.state.mark_frame_prologue_emitted(self.state.current_function);
+            let fn_id = self.state.current_function;
+
+            // Emit: push rbp
+            let mut push_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+            push_operands.push(Operand::Reg(abi::RBP));
+            let push_inst = Instruction {
+                mnemonic: Mnemonic::Push,
+                operands: push_operands,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+                emission_order: 0,
+            };
+            let push_id = self.alloc_synthetic_id();
+            self.emit_inst(push_id, push_inst);
+
+            // Emit: mov rbp, rsp
+            let mut mov_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+            mov_operands.push(Operand::Reg(abi::RBP));
+            mov_operands.push(Operand::Reg(abi::RSP));
+            let mov_inst = Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: mov_operands,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+                emission_order: 0,
+            };
+            let mov_id = self.alloc_synthetic_id();
+            self.emit_inst(mov_id, mov_inst);
+
+            // Claim `lambda_first_instr[fn_id]` for `push rbp` — the ELF
+            // symbol for this function starts at the frame prologue, not at
+            // the body's first instruction. `record_lambda_entry` on the
+            // body-shape arms (Var/BitNot/Cast/Literal) uses `.or_insert`
+            // and may have already recorded a body-instruction id; the
+            // App/Action/Match/EnumCons/Store arms arm
+            // `pending_first_instr_lambda` and the recursive `emit_inst` for
+            // `push rbp` above would have consumed it. Either way, force the
+            // entry to `push_id` so the resulting ELF symbol's address
+            // matches the first executed byte of the function. Anything else
+            // means control jumps INTO the function past `push rbp`,
+            // leaving `pop rbp` in the epilogue to pull off the caller's
+            // frame instead.
+            self.state.lambda_first_instr.insert(fn_id, push_id);
+        }
+
         let bytes = paideia_as_encoder::estimated_bytes(&inst);
         inst.emission_order = self.state.next_emission_order;
         self.state.next_emission_order += 1;
@@ -205,9 +268,31 @@ impl EmitWalker {
             .unwrap_or(InstrMode::Mode64)
     }
 
-    /// Emit epilogue (add rsp if needed) followed by ret.
-    /// #1233 Phase A: Looks up frame_size from closure_frame_meta for current_function.
-    /// If total_size > 0, emits `add rsp, total_size` before `ret`.
+    /// Emit epilogue (add rsp if needed, frame-pointer restore if applicable)
+    /// followed by ret.
+    ///
+    /// #1233 Phase A: Looks up frame_size from closure_frame_meta for
+    /// current_function. If total_size > 0, emits `add rsp, total_size`
+    /// before `ret`.
+    ///
+    /// paideia-as#1276 phase 3: Also emits the default SysV frame-pointer
+    /// epilogue `mov rsp, rbp; pop rbp` before `ret`, mirroring the
+    /// `push rbp; mov rbp, rsp` prologue that `visit_lambda` emits at
+    /// function entry. Suppressed when `current_function`'s Lambda binding
+    /// was annotated `@no_frame`.
+    ///
+    /// Emission order — enforced by insertion order (each `emit_inst` bumps
+    /// `emission_order`):
+    ///   1. `add rsp, N`     (closure-frame teardown; existing)
+    ///   2. `mov rsp, rbp`   (frame-pointer restore; unless @no_frame)
+    ///   3. `pop rbp`        (frame-pointer restore; unless @no_frame)
+    ///   4. `ret`
+    ///
+    /// The `add rsp, N` + `mov rsp, rbp` pair is redundant (the mov
+    /// overwrites rsp), but harmless: the add's estimated_bytes are
+    /// accounted for and the resulting bytes are equivalent. Keeping the
+    /// add preserves byte-exactness for @no_frame closure tests where
+    /// only the add fires.
     pub(crate) fn emit_ret(&mut self, ret_id: IrNodeId, arena: &IrArena) {
         // Check if current function has frame layout
         if let Some(lambda_id) = IrNodeId::new(self.state.current_function) {
@@ -230,6 +315,52 @@ impl EmitWalker {
                     self.emit_inst(add_id, add_inst);
                 }
             }
+        }
+
+        // paideia-as#1276 phase 3: frame-pointer epilogue for non-@no_frame
+        // functions whose prologue actually fired. Matches the lazy
+        // `push rbp; mov rbp, rsp` prologue injected by `emit_inst` on the
+        // first body instruction. Skip when:
+        //   * `current_function == 0` (called outside any Lambda scope — a
+        //     caller bug; emitting nothing extra is the safe recovery),
+        //   * the lambda opted out via `@no_frame`, OR
+        //   * the prologue never actually fired (body-shape arm produced no
+        //     instructions, `pending_frame_prologue` is still armed). Emitting
+        //     `mov rsp, rbp; pop rbp` without a matching prologue would pop
+        //     off the caller's frame — silently corrupting whatever value
+        //     was above the return address.
+        if self.state.current_function != 0
+            && !self.state.is_lambda_no_frame(self.state.current_function)
+            && self.state.was_frame_prologue_emitted(self.state.current_function)
+        {
+            // Emit: mov rsp, rbp
+            let mut mov_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+            mov_operands.push(Operand::Reg(abi::RSP));
+            mov_operands.push(Operand::Reg(abi::RBP));
+            let mov_inst = Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: mov_operands,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+                emission_order: 0,
+            };
+            let mov_id = self.alloc_synthetic_id();
+            self.emit_inst(mov_id, mov_inst);
+
+            // Emit: pop rbp
+            let mut pop_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+            pop_operands.push(Operand::Reg(abi::RBP));
+            let pop_inst = Instruction {
+                mnemonic: Mnemonic::Pop,
+                operands: pop_operands,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+                emission_order: 0,
+            };
+            let pop_id = self.alloc_synthetic_id();
+            self.emit_inst(pop_id, pop_inst);
         }
 
         // Emit: ret
@@ -315,6 +446,33 @@ impl EmitWalker {
         // If set_root_mode() was not called, default to Mode64.
         if self.state.mode_stack.is_empty() {
             self.state.mode_stack.push(InstrMode::Mode64);
+        }
+
+        // paideia-as#1276 phase 3 pre-pass: propagate `LetInfo::no_frame`
+        // from each Let→Lambda binding into the walker's
+        // `lambda_no_frame` set BEFORE the main flat-walker loop visits
+        // Lambdas. Node ids in the arena are allocated child-first, so a
+        // Lambda's id is smaller than its wrapping Let's — without this
+        // pre-pass the Lambda visit would fire before the Let-handler mark
+        // and `is_lambda_no_frame` would return `false`, causing the
+        // frame prologue to arm on annotated functions too.
+        for i in 1..=arena.len() as u32 {
+            let Some(node_id) = IrNodeId::new(i) else { continue };
+            let Some(node) = arena.get(node_id) else { continue };
+            if node.kind != IrKind::Let {
+                continue;
+            }
+            let Some(no_frame) = arena.let_meta().get(node_id).map(|m| m.no_frame) else {
+                continue;
+            };
+            if !no_frame {
+                continue;
+            }
+            let Some(&rhs_id) = arena.children(node_id).first() else { continue };
+            let Some(rhs_node) = arena.get(rhs_id) else { continue };
+            if rhs_node.kind == IrKind::Lambda {
+                self.state.mark_lambda_no_frame(rhs_id.get());
+            }
         }
 
         // Fix B (#1085): Pre-pass to prevent Match double-emission.
@@ -606,6 +764,21 @@ impl EmitWalker {
                                 if rhs_kind == IrKind::Lambda {
                                     if let Some(cc) = abi {
                                         self.state.insert_lambda_abi(rhs_id.get(), cc);
+                                    }
+                                    // paideia-as#1276 phase 3: record the `@no_frame` opt-out
+                                    // for this Lambda binding so `visit_lambda` / `emit_ret`
+                                    // suppress the default SysV frame-pointer
+                                    // prologue/epilogue. The flag lives on the Let's
+                                    // `LetInfo::no_frame` (populated by phase-1 lower.rs's
+                                    // `populate_let_meta`); mirror it into the emit-state
+                                    // set keyed by the Lambda's IR node id — the same key
+                                    // `visit_lambda` and `emit_ret` see (`current_function`).
+                                    let no_frame = arena.let_meta()
+                                        .get(node_id)
+                                        .map(|meta| meta.no_frame)
+                                        .unwrap_or(false);
+                                    if no_frame {
+                                        self.state.mark_lambda_no_frame(rhs_id.get());
                                     }
                                 }
 

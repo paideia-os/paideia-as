@@ -84,10 +84,11 @@ fn build_emit_pa8_call_st_value() {
     }
 
     // 2. Verify that we have distinct, contiguous symbols with appropriate sizes.
-    // The old defect would cause all to be (0, 0). Now we should see:
-    // - identity at 0, size 4
-    // - bitwise_not at 4, size 7
-    // - another at 11, size 4
+    // paideia-as#1276 phase 3: each function grows by 8 bytes (prologue 4 +
+    // epilogue 4):
+    //   - identity   at 0,  size 12 (was 4)
+    //   - bitwise_not at 12, size 15 (was 7)
+    //   - another    at 27, size 12 (was 4)
     assert!(func_symbols[0].2 > 0, "identity should have size > 0");
     assert!(func_symbols[1].2 > 0, "bitwise_not should have size > 0");
     assert!(func_symbols[2].2 > 0, "another should have size > 0");
@@ -100,12 +101,12 @@ fn build_emit_pa8_call_st_value() {
         "identity st_value should be 0 (offset_map ground truth)"
     );
     assert_eq!(
-        func_symbols[1].1, 4,
-        "bitwise_not st_value should be 4 (offset_map ground truth)"
+        func_symbols[1].1, 12,
+        "bitwise_not st_value should be 12 (offset_map ground truth; paideia-as#1276 shifted +8)"
     );
     assert_eq!(
-        func_symbols[2].1, 11,
-        "another st_value should be 11 (offset_map ground truth)"
+        func_symbols[2].1, 27,
+        "another st_value should be 27 (offset_map ground truth; paideia-as#1276 shifted +16)"
     );
 
     let _ = std::fs::remove_dir_all(&temp_dir);

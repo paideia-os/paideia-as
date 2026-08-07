@@ -84,35 +84,51 @@ fn build_and_assert(fixture_name: &str, symbol_name: &str, expected_bytes: &[u8]
     let _ = std::fs::remove_file(&tmp);
 }
 
-/// (f)(x): `mov r11, rdi; mov rdi, rsi; call r11; ret`
+// paideia-as#1276 phase 3: fixtures don't carry `@no_frame`, so each
+// symbol below now gets the 4-byte prologue `55 48 89 E5` at head and the
+// 4-byte epilogue `48 89 EC 5D` immediately before the terminal `ret`.
+
+/// (f)(x): `push rbp; mov rbp,rsp; mov r11, rdi; mov rdi, rsi; call r11; mov rsp,rbp; pop rbp; ret`
 #[test]
 fn indirect_call_identity() {
     build_and_assert(
         "indirect_call_identity.pdx",
         "call_it",
-        &[0x49, 0x89, 0xFB, 0x48, 0x89, 0xF7, 0x41, 0xFF, 0xD3, 0xC3],
+        &[
+            0x55, 0x48, 0x89, 0xE5,                     // push rbp; mov rbp, rsp
+            0x49, 0x89, 0xFB, 0x48, 0x89, 0xF7,         // mov r11, rdi; mov rdi, rsi
+            0x41, 0xFF, 0xD3,                           // call r11
+            0x48, 0x89, 0xEC, 0x5D, 0xC3,               // mov rsp,rbp; pop rbp; ret
+        ],
     );
 }
 
-/// (f)(a, b): `mov r11, rdi; mov rdi, rsi; mov rsi, rdx; call r11; ret`
+/// (f)(a, b): `push rbp; mov rbp,rsp; mov r11, rdi; mov rdi, rsi; mov rsi, rdx; call r11; epilogue; ret`
 #[test]
 fn indirect_call_two_arg() {
     build_and_assert(
         "indirect_call_two_arg.pdx",
         "call_it",
         &[
-            0x49, 0x89, 0xFB, 0x48, 0x89, 0xF7, 0x48, 0x89, 0xD6, 0x41, 0xFF, 0xD3, 0xC3,
+            0x55, 0x48, 0x89, 0xE5,                     // push rbp; mov rbp, rsp
+            0x49, 0x89, 0xFB, 0x48, 0x89, 0xF7,         // mov r11, rdi; mov rdi, rsi
+            0x48, 0x89, 0xD6, 0x41, 0xFF, 0xD3,         // mov rsi, rdx; call r11
+            0x48, 0x89, 0xEC, 0x5D, 0xC3,               // mov rsp,rbp; pop rbp; ret
         ],
     );
 }
 
-/// (f)(): `mov r11, rdi; call r11; ret`
+/// (f)(): `push rbp; mov rbp,rsp; mov r11, rdi; call r11; epilogue; ret`
 #[test]
 fn indirect_call_zero_arg() {
     build_and_assert(
         "indirect_call_zero_arg.pdx",
         "call_it",
-        &[0x49, 0x89, 0xFB, 0x41, 0xFF, 0xD3, 0xC3],
+        &[
+            0x55, 0x48, 0x89, 0xE5,                     // push rbp; mov rbp, rsp
+            0x49, 0x89, 0xFB, 0x41, 0xFF, 0xD3,         // mov r11, rdi; call r11
+            0x48, 0x89, 0xEC, 0x5D, 0xC3,               // mov rsp,rbp; pop rbp; ret
+        ],
     );
 }
 

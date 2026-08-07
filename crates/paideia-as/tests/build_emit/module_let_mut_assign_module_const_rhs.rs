@@ -65,33 +65,28 @@ fn budget_reset_emits_load_store_ret_sequence() {
 
     let actual = budget_reset_bytes.expect("budget_reset symbol must exist");
 
-    // Expected: mov rax, [rip+BUDGET_DEFAULT] (7 bytes: 48 8b 05 ?? ?? ?? ??)
-    //         + mov [rip+current_budget], rax (7 bytes: 48 89 05 ?? ?? ?? ??)
-    //         + ret (1 byte: c3)
-    // Total: 15 bytes exactly
+    // paideia-as#1276 phase 3: 4-byte prologue + 7-byte load + 7-byte store +
+    // 4-byte epilogue + 1-byte ret = 23 bytes. Load starts at offset 4, store at 11,
+    // epilogue at 18, ret at 22.
     assert_eq!(
         actual.len(),
-        15,
-        "budget_reset must be exactly 15 bytes (load; store; ret), got {}",
+        23,
+        "budget_reset must be exactly 23 bytes (prologue + load + store + epilogue + ret), got {}",
         actual.len()
     );
 
-    // Check for RIP-relative load at offset 0: 48 8b 05 (mov rax, [rip+disp32])
-    assert_eq!(
-        &actual[0..3],
-        &[0x48, 0x8b, 0x05],
-        "budget_reset must start with RIP-relative load bytes [48 8b 05] for BUDGET_DEFAULT"
-    );
-
-    // Check for RIP-relative store at offset 7: 48 89 05 (mov [rip+disp32], rax)
-    assert_eq!(
-        &actual[7..10],
-        &[0x48, 0x89, 0x05],
-        "budget_reset must have RIP-relative store bytes [48 89 05] at offset 7 for current_budget"
-    );
-
-    // Check for RET opcode (0xc3) at byte 14
-    assert_eq!(actual[14], 0xc3, "Last byte must be ret (0xc3)");
+    // Prologue at [0..4]: 55 48 89 E5 (push rbp; mov rbp, rsp)
+    assert_eq!(&actual[0..4], &[0x55, 0x48, 0x89, 0xE5],
+        "budget_reset must start with frame prologue [55 48 89 E5]");
+    // Load at [4..11]: 48 8b 05 ?? ?? ?? ??
+    assert_eq!(&actual[4..7], &[0x48, 0x8b, 0x05],
+        "budget_reset must have RIP-relative load bytes [48 8b 05] at offset 4 for BUDGET_DEFAULT");
+    // Store at [11..18]: 48 89 05 ?? ?? ?? ??
+    assert_eq!(&actual[11..14], &[0x48, 0x89, 0x05],
+        "budget_reset must have RIP-relative store bytes [48 89 05] at offset 11 for current_budget");
+    // Epilogue + ret at [18..23]
+    assert_eq!(&actual[18..23], &[0x48, 0x89, 0xEC, 0x5D, 0xC3],
+        "budget_reset must end with epilogue+ret [48 89 EC 5D C3]");
 
     eprintln!("budget_reset bytes: {:02X?}", actual);
 }
@@ -147,11 +142,12 @@ fn budget_reset_has_two_relocations() {
         }
     }
 
-    // Check load relocation at budget_reset_off + 3 → BUDGET_DEFAULT
-    let load_reloc_key = (budget_reset_off + 3, "BUDGET_DEFAULT".to_string());
+    // paideia-as#1276 phase 3: 4-byte prologue shifted the load's disp32
+    // slot from +3 to +7 (prologue + 3 bytes of mov head).
+    let load_reloc_key = (budget_reset_off + 7, "BUDGET_DEFAULT".to_string());
     let load_reloc = relocs_found
         .get(&load_reloc_key)
-        .expect("Must have R_X86_64_PC32 relocation at budget_reset+3 targeting BUDGET_DEFAULT");
+        .expect("Must have R_X86_64_PC32 relocation at budget_reset+7 targeting BUDGET_DEFAULT");
 
     assert_eq!(
         load_reloc.kind(),
@@ -169,11 +165,12 @@ fn budget_reset_has_two_relocations() {
         "Load relocation must have addend -4"
     );
 
-    // Check store relocation at budget_reset_off + 10 → current_budget
-    let store_reloc_key = (budget_reset_off + 10, "current_budget".to_string());
+    // paideia-as#1276 phase 3: store's disp32 slot shifts from +10 to +14
+    // (+4 for prologue).
+    let store_reloc_key = (budget_reset_off + 14, "current_budget".to_string());
     let store_reloc = relocs_found
         .get(&store_reloc_key)
-        .expect("Must have R_X86_64_PC32 relocation at budget_reset+10 targeting current_budget");
+        .expect("Must have R_X86_64_PC32 relocation at budget_reset+14 targeting current_budget");
 
     assert_eq!(
         store_reloc.kind(),

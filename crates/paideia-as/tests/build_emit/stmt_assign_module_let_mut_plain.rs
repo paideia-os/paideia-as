@@ -59,35 +59,33 @@ fn bump_emits_mov_rip_sym_and_ret() {
         bump_offset, actual
     );
 
-    // Adversarial-verify of #1094: tightened from a weak `>= 8` lower bound to an
-    // exact byte count. Post-#1161, final Var expressions are moved to RAX for return,
-    // so the expected shape is `mov [rip+counter], rdi` (7 bytes) + `mov rax, rdi` (3 bytes) + `ret` (1 byte) = 11 bytes.
-    // A loose `>= 8` bound would not have caught a double-emitted Store (e.g. two
-    // copies of the 7-byte mov), which is exactly the class of regression this
-    // fixture exists to guard against (see dispatch_store's now-removed dead
-    // mark_store_emitted() call).
+    // Adversarial-verify of #1094 + paideia-as#1276 phase 3:
+    //   4-byte prologue (55 48 89 E5)
+    //   7-byte store (48 89 3d ?? ?? ?? ??)
+    //   3-byte `mov rax, rdi` (48 89 f8)
+    //   4-byte epilogue (48 89 EC 5D)
+    //   1-byte ret (C3)
+    // = 19 bytes exact. A loose `>= 8` bound would not have caught a double-
+    // emitted Store, which is exactly the class of regression this fixture
+    // guards against.
     assert_eq!(
         actual.len(),
-        11,
-        "bump must be exactly 11 bytes (mov [rip+counter], rdi; mov rax, rdi; ret) — got {} bytes: {:02X?}; \
-         a longer length suggests the Store was emitted more than once",
+        19,
+        "bump must be exactly 19 bytes (prologue + mov [rip+counter], rdi + mov rax, rdi + epilogue + ret) \
+         — got {} bytes: {:02X?}; a longer length suggests the Store was emitted more than once",
         actual.len(),
         actual
     );
 
-    // Check mnemonic prefix for first instruction: 48 89 3d (mov [rip+disp32], rdi)
-    assert_eq!(actual[0], 0x48, "First byte must be REX.W");
-    assert_eq!(actual[1], 0x89, "Second byte must be mov opcode");
-    assert_eq!(actual[2], 0x3d, "Third byte must be ModR/M for [rip+disp32]");
-
-    // Post-#1161: The function must end in ret (0xc3) at exactly offset 10 — after the
-    // mov rax, rdi (3 bytes at offset 7-9). Not folded into, or displaced by, a sibling
-    // function's bytes (see #1140).
-    assert_eq!(
-        actual[10], 0xc3,
-        "bump's 11th byte (offset 10) must be ret (0xc3); got {:02X}",
-        actual[10]
-    );
+    // Prologue at [0..4]: 55 48 89 E5
+    assert_eq!(&actual[..4], &[0x55, 0x48, 0x89, 0xE5], "bytes 0..4 must be push rbp; mov rbp,rsp");
+    // Store at [4..11]: 48 89 3d ?? ?? ?? ??
+    assert_eq!(actual[4], 0x48, "Byte 4 must be REX.W of store");
+    assert_eq!(actual[5], 0x89, "Byte 5 must be mov opcode");
+    assert_eq!(actual[6], 0x3d, "Byte 6 must be ModR/M for [rip+disp32]");
+    // Epilogue + ret at [14..19]: 48 89 EC 5D C3
+    assert_eq!(&actual[14..19], &[0x48, 0x89, 0xEC, 0x5D, 0xC3],
+        "bytes 14..19 must be mov rsp,rbp; pop rbp; ret");
 }
 
 /// Test that counter symbol exists in .data section with correct properties.
@@ -170,7 +168,10 @@ fn bump_relocation_at_correct_offset() {
     }
 
     let bump_off = bump_offset.expect("bump symbol must exist");
-    let reloc_offset = bump_off + 3; // disp32 position in mov instruction
+    // paideia-as#1276 phase 3: 4-byte frame prologue precedes the mov, so
+    // the disp32 slot is now at prologue(4) + mov head (3) = +7 relative to
+    // the function symbol (was +3 pre-#1276).
+    let reloc_offset = bump_off + 7;
 
     // .text must be large enough that the disp32 field (4 bytes starting at
     // the relocation offset) fits entirely inside it

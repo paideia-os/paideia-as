@@ -1255,8 +1255,11 @@ fn emit_walker_pa7_001_empty_body_returns_nothing() {
     // Lambda(Action) with empty body
     let lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [block_id]);
 
-    // Walk the arena.
+    // paideia-as#1276 phase 3: bare Lambda (no Let wrapper) — opt out of
+    // the default frame-pointer emission so the test's estimated_offset
+    // assertion (=1 for bare `ret`) still holds.
     let mut walker = EmitWalker::new();
+    walker.state_mut().mark_lambda_no_frame(lambda_id.get());
     walker.walk(&mut arena);
 
     // Verify lambda was emitted.
@@ -1322,8 +1325,12 @@ fn emit_walker_pa7_002_zero_arg_function_call() {
         is_intrinsic: false,
     });
 
-    // Walk the arena.
+    // paideia-as#1276 phase 3: bare Lambdas (no Let wrappers) — opt out of
+    // the default frame-pointer emission on both so the aggregate
+    // estimated_offset assertion at the end of this test still holds.
     let mut walker = EmitWalker::new();
+    walker.state_mut().mark_lambda_no_frame(lambda_a_id.get());
+    walker.state_mut().mark_lambda_no_frame(lambda_b_id.get());
     walker.walk(&mut arena);
 
     // Verify lambda_b was emitted.
@@ -1805,8 +1812,11 @@ fn emit_walker_function_call_3_args() {
         is_intrinsic: false,
     });
 
-    // Walk the arena
+    // paideia-as#1276 phase 3: bare Lambda (no Let wrapper) — opt out of the
+    // default frame-pointer emission so this test's estimated_offset counting
+    // still holds.
     let mut walker = EmitWalker::new();
+    walker.state_mut().mark_lambda_no_frame(lambda_id.get());
     walker.walk(&mut arena);
 
     // Verify instruction count: 3 MOVs + CALL + RET = 5 instructions emitted
@@ -1860,8 +1870,9 @@ fn emit_walker_function_call_4_args() {
         is_intrinsic: false,
     });
 
-    // Walk the arena
+    // paideia-as#1276 phase 3: opt out of frame prologue/epilogue.
     let mut walker = EmitWalker::new();
+    walker.state_mut().mark_lambda_no_frame(lambda_id.get());
     walker.walk(&mut arena);
 
     // Verify offset: 4*7 (movs) + 5 (call) + 1 (ret) = 34 bytes
@@ -1909,8 +1920,9 @@ fn emit_walker_function_call_5_args() {
         is_intrinsic: false,
     });
 
-    // Walk the arena
+    // paideia-as#1276 phase 3: opt out of frame prologue/epilogue.
     let mut walker = EmitWalker::new();
+    walker.state_mut().mark_lambda_no_frame(lambda_id.get());
     walker.walk(&mut arena);
 
     // Verify offset: 5*7 (movs) + 5 (call) + 1 (ret) = 41 bytes
@@ -1962,8 +1974,9 @@ fn emit_walker_function_call_6_args() {
         is_intrinsic: false,
     });
 
-    // Walk the arena
+    // paideia-as#1276 phase 3: opt out of frame prologue/epilogue.
     let mut walker = EmitWalker::new();
+    walker.state_mut().mark_lambda_no_frame(lambda_id.get());
     walker.walk(&mut arena);
 
     // Verify offset: 6*7 (movs) + 5 (call) + 1 (ret) = 48 bytes

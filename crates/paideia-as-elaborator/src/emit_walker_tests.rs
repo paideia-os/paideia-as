@@ -27,3 +27,6 @@ mod scope_guard;
 
 #[path = "emit_walker_tests/closure_primitives.rs"]
 mod closure_primitives;
+
+#[path = "emit_walker_tests/frame_prologue.rs"]
+mod frame_prologue;

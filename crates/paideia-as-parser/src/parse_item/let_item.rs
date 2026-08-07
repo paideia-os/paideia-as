@@ -632,6 +632,37 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         // Parse optional symbol attributes (@align, @ring, @link_section, @abi, or @no_frame)
         let LetSymbolAttrs { align, ring, link_section, abi, no_frame } = self.parse_optional_symbol_attributes()?;
 
+        // paideia-as#1276 phase 3: `@no_frame` is a function-only attribute — it
+        // toggles the SysV frame-pointer prologue/epilogue that the elaborator
+        // emits around `fn (...)` lambdas. Applying it to a non-function
+        // binding (`pub let CONST : u64 = 42 @no_frame`) is a category error:
+        // there is no lambda / no ret / no prologue to suppress. Reject at
+        // parse time via P0250 so downstream phases can trust that any
+        // `LetInfo::no_frame == true` corresponds to a Lambda RHS.
+        if no_frame {
+            let value_kind = self
+                .arena()
+                .get(value)
+                .map(|n| n.kind);
+            if value_kind != Some(NodeKind::ExprLambda) {
+                let value_span = self
+                    .arena()
+                    .get(value)
+                    .map(|n| n.span)
+                    .unwrap_or(span_start);
+                let code = DiagnosticCode::new(Category::P, Severity::Error, 250)
+                    .expect("valid P0250 code");
+                let diag = Diagnostic::error(code)
+                    .message(
+                        "@no_frame is a function-only attribute; it toggles the SysV frame-pointer prologue/epilogue and cannot be applied to a non-function binding"
+                    )
+                    .with_span(value_span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                return Err(ParseError);
+            }
+        }
+
         // Consume optional `;`
         self.eat(TokenKind::Semicolon);
 
@@ -1146,6 +1177,38 @@ mod tests {
             }
             _ => panic!("expected ItemData::Let"),
         }
+    }
+
+    /// paideia-as#1276 phase 3: `@no_frame` on a non-function binding is a
+    /// category error — the attribute toggles the SysV frame-pointer
+    /// prologue/epilogue emitted around function bodies, and there is no
+    /// prologue/epilogue to suppress for e.g. `pub let CONST : u64 = 42`.
+    /// The parser rejects such placement with P0250 so the elaborator can
+    /// trust that `LetInfo::no_frame == true` implies a Lambda RHS.
+    #[test]
+    fn no_frame_on_non_fn_binding_errors() {
+        // Literal RHS — must be diagnosed.
+        let source = r#"pub let CONST : u64 = 42 @no_frame"#;
+        let (_arena, result, diags) = parse_let_in_module(source);
+
+        assert!(
+            result.is_err(),
+            "@no_frame on a non-function binding must be a parse error, got Ok"
+        );
+        assert!(
+            !diags.is_empty(),
+            "expected at least one diagnostic for @no_frame on non-fn binding, got none"
+        );
+        let has_p0250 = diags.iter().any(|d| {
+            let code = d.code();
+            code.category() == paideia_as_diagnostics::Category::P
+                && code.number() == 250
+        });
+        assert!(
+            has_p0250,
+            "expected P0250 diagnostic for @no_frame on non-fn binding, got: {:?}",
+            diags
+        );
     }
 }
 

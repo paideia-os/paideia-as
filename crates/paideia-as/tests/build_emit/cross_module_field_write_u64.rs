@@ -92,12 +92,17 @@ fn cross_module_field_write_u64_emits_rip_rel_store() {
     let f_bytes = crate::common::elf::symbol_bytes(&bytes, "f")
         .expect("symbol 'f' should exist in .text");
 
-    // Assert f's exact byte sequence: 48 89 3d (mov [rip+disp32], rsi) + 4 bytes disp + c3 (ret)
-    // Total: 8 bytes (7 for mov + 1 for ret)
-    let expected_f = vec![0x48u8, 0x89, 0x3d, 0x00, 0x00, 0x00, 0x00, 0xc3];
+    // paideia-as#1276 phase 3: 4-byte prologue (55 48 89 E5) + 7-byte store +
+    // 4-byte epilogue (48 89 EC 5D) + 1-byte ret = 16 bytes.
+    let expected_f = vec![
+        0x55u8, 0x48, 0x89, 0xE5,               // push rbp; mov rbp, rsp
+        0x48, 0x89, 0x3d, 0x00, 0x00, 0x00, 0x00, // mov [rip+disp32], rsi
+        0x48, 0x89, 0xEC, 0x5D,                 // mov rsp, rbp; pop rbp
+        0xc3,                                    // ret
+    ];
     assert_eq!(
         f_bytes, expected_f,
-        "f should emit exactly [mov [rip+disp32], rsi; ret], got: {:02X?}",
+        "f should emit exactly [prologue; mov [rip+disp32], rsi; epilogue; ret], got: {:02X?}",
         f_bytes
     );
 
@@ -110,10 +115,11 @@ fn cross_module_field_write_u64_emits_rip_rel_store() {
         text
     );
 
-    // Assert .text is exactly 8 bytes (function f, no padding or orphan instructions)
+    // Assert .text is exactly 16 bytes (function f with prologue+epilogue, no
+    // orphan instructions).
     assert_eq!(
-        text.len(), 8,
-        ".text should be exactly 8 bytes (one function f with no orphan bytes before/after), got {} bytes: {:02X?}",
+        text.len(), 16,
+        ".text should be exactly 16 bytes (one function f with prologue+epilogue, no orphan bytes), got {} bytes: {:02X?}",
         text.len(), text
     );
 

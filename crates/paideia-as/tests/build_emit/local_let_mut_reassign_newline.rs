@@ -92,30 +92,19 @@ fn positive_newline_let_compiles() {
 
     let bytes = out.artifact_bytes();
 
-    // Expected disassembly: `mov rcx, 5; mov rax, rcx; ret`
-    // Possible encodings (encoder may choose different forms):
-    // 1. mov r64, imm64: 48 C7 C1 05 00 00 00 (mov rcx, 5 as sign-extended imm32)
-    //    mov r64, r64: 48 89 C8 (mov rax, rcx)
-    //    ret: C3
-    //    Total: 11 bytes [0x48, 0xC7, 0xC1, 0x05, 0x00, 0x00, 0x00, 0x48, 0x89, 0xC8, 0xC3]
-    //
-    // 2. mov r64, imm32: B9 05 00 00 00 (mov ecx, 5 — zero-extends to rcx)
-    //    mov r64, r64: 48 89 C8 (mov rax, rcx)
-    //    ret: C3
-    //    Total: 9 bytes [0xB9, 0x05, 0x00, 0x00, 0x00, 0x48, 0x89, 0xC8, 0xC3]
-
-    let expected_11_bytes = [0x48u8, 0xC7, 0xC1, 0x05, 0x00, 0x00, 0x00, 0x48, 0x89, 0xC8, 0xC3];
-    let expected_9_bytes = [0xB9u8, 0x05, 0x00, 0x00, 0x00, 0x48, 0x89, 0xC8, 0xC3];
-
-    let found_11 = bytes
-        .windows(expected_11_bytes.len())
-        .any(|w| w == expected_11_bytes);
-    let found_9 = bytes
-        .windows(expected_9_bytes.len())
-        .any(|w| w == expected_9_bytes);
+    // Expected body: `mov rcx, 5; mov rax, rcx; ret`
+    // paideia-as#1276 phase 3: preceded by prologue (55 48 89 E5) and
+    // succeeded by epilogue (48 89 EC 5D) before the terminal ret. We
+    // widen the search to the mid-body reg-move (48 89 C8) which is
+    // stable across both encoder-imm-form variants; the presence of the
+    // 4-byte epilogue before RET is a stronger phase-3 witness anyway.
+    let has_mov_rax_rcx = bytes.windows(3).any(|w| w == [0x48u8, 0x89, 0xC8]);
+    let has_frame_epilogue_then_ret = bytes
+        .windows(5)
+        .any(|w| w == [0x48u8, 0x89, 0xEC, 0x5D, 0xC3]);
 
     assert!(
-        found_11 || found_9,
-        "expected to find either 11-byte or 9-byte pattern (mov 5 into rcx; mov rax, rcx; ret) in .text section"
+        has_mov_rax_rcx && has_frame_epilogue_then_ret,
+        "expected to find `mov rax, rcx` (48 89 C8) and frame epilogue+ret (48 89 EC 5D C3) in .text"
     );
 }

@@ -41,21 +41,30 @@ fn store_bodied_lambdas_st_value_matches_encoder_ground_truth() {
     assert_elf64_magic(&bytes);
 
     let text = text_bytes(&bytes);
+    // paideia-as#1276 phase 3: each fn grows by 8 bytes (prologue 4 +
+    // epilogue 4). identity: 4→12, set_first: 8→16, set_second: 8→16.
+    // Total: 12 + 16 + 16 = 44 bytes.
     assert_eq!(
         text.len(),
-        20,
-        ".text should be exactly 20 bytes (identity: 4, set_first: 8, set_second: 8); got {}",
+        44,
+        ".text should be exactly 44 bytes (identity: 12, set_first: 16, set_second: 16); got {}",
         text.len()
     );
 
-    // Assertion 1: Byte-exact .text matches expected sequence
+    // Assertion 1: Byte-exact .text matches expected sequence with frame prologue/epilogue.
     let expected = vec![
-        // identity: mov rdi->rax; ret (4 bytes)
-        0x48, 0x89, 0xf8, 0xc3,
-        // set_first: mov rdi->[rip+0]; ret (8 bytes)
-        0x48, 0x89, 0x3d, 0x00, 0x00, 0x00, 0x00, 0xc3,
-        // set_second: mov rdi->[rip+0]; ret (8 bytes)
-        0x48, 0x89, 0x3d, 0x00, 0x00, 0x00, 0x00, 0xc3,
+        // identity (12 bytes): push rbp; mov rbp,rsp; mov rax,rdi; mov rsp,rbp; pop rbp; ret
+        0x55, 0x48, 0x89, 0xE5,
+        0x48, 0x89, 0xf8,
+        0x48, 0x89, 0xEC, 0x5D, 0xc3,
+        // set_first (16 bytes): push rbp; mov rbp,rsp; mov [rip+0], rdi; mov rsp,rbp; pop rbp; ret
+        0x55, 0x48, 0x89, 0xE5,
+        0x48, 0x89, 0x3d, 0x00, 0x00, 0x00, 0x00,
+        0x48, 0x89, 0xEC, 0x5D, 0xc3,
+        // set_second (16 bytes)
+        0x55, 0x48, 0x89, 0xE5,
+        0x48, 0x89, 0x3d, 0x00, 0x00, 0x00, 0x00,
+        0x48, 0x89, 0xEC, 0x5D, 0xc3,
     ];
 
     if text != expected {
@@ -87,17 +96,17 @@ fn store_bodied_lambdas_st_value_matches_encoder_ground_truth() {
             match name {
                 "identity" => {
                     assert_eq!(st_value, 0, "identity st_value must be 0");
-                    assert_eq!(st_size, 4, "identity st_size must be 4");
+                    assert_eq!(st_size, 12, "identity st_size must be 12 (paideia-as#1276: prologue+body+epilogue)");
                     identity_found = true;
                 }
                 "set_first" => {
-                    assert_eq!(st_value, 4, "set_first st_value must be 4");
-                    assert_eq!(st_size, 8, "set_first st_size must be 8");
+                    assert_eq!(st_value, 12, "set_first st_value must be 12 (after identity's 12 bytes)");
+                    assert_eq!(st_size, 16, "set_first st_size must be 16 (paideia-as#1276: prologue+body+epilogue)");
                     set_first_found = true;
                 }
                 "set_second" => {
-                    assert_eq!(st_value, 12, "set_second st_value must be 12");
-                    assert_eq!(st_size, 8, "set_second st_size must be 8");
+                    assert_eq!(st_value, 28, "set_second st_value must be 28 (after identity + set_first: 12+16)");
+                    assert_eq!(st_size, 16, "set_second st_size must be 16 (paideia-as#1276: prologue+body+epilogue)");
                     set_second_found = true;
                 }
                 _ => {}
@@ -123,10 +132,13 @@ fn store_bodied_lambdas_st_value_matches_encoder_ground_truth() {
         }
     }
 
+    // paideia-as#1276 phase 3: mov [rip+...] offsets shifted by prologue:
+    //   set_first at fn base (12) + prologue (4) = 16
+    //   set_second at fn base (28) + prologue (4) = 32
     assert_eq!(
-        mov_positions, vec![4, 12],
-        "Ground-truth scan: expected mov [rip+disp32] at offsets [4, 12], found {:?}",
+        mov_positions, vec![16, 32],
+        "Ground-truth scan: expected mov [rip+disp32] at offsets [16, 32], found {:?}",
         mov_positions
     );
-    eprintln!("✓ Assertion 5: Ground-truth scan found mov opcodes at [4, 12]");
+    eprintln!("✓ Assertion 5: Ground-truth scan found mov opcodes at [16, 32]");
 }

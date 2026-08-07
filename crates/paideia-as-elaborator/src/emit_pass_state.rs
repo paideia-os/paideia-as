@@ -187,6 +187,46 @@ pub struct EmitPassState {
     /// Populated by check_nested_closure_invocations pre-pass in emit_walker.
     /// Used to gate visit_lambda emission for affected lambdas.
     pub(crate) t0575_rejects: HashSet<u32>,
+
+    /// paideia-as#1276 phase 3: Lambda IR node ids whose bound Let carries
+    /// the `@no_frame` symbol attribute (`LetInfo::no_frame == true`).
+    /// Populated by `walk_inner`'s Let handler when a Let→Lambda binding is
+    /// seen. Consumed by:
+    ///   * `visit_lambda` — suppresses arming of `pending_frame_prologue`
+    ///     for annotated functions.
+    ///   * `emit_ret`     — suppresses the `mov rsp, rbp; pop rbp` epilogue
+    ///     before `ret`.
+    /// Membership is opt-OUT: absence from this set means the function gets
+    /// the default SysV frame pointer prologue/epilogue.
+    pub(crate) lambda_no_frame: HashSet<u32>,
+
+    /// paideia-as#1276 phase 3: Lambda IR node ids whose frame-pointer
+    /// prologue (`push rbp; mov rbp, rsp`) is pending — to be injected
+    /// lazily on the first `emit_inst` call whose `current_function` matches
+    /// one of these ids.
+    ///
+    /// Deferring the prologue until the first real body instruction
+    /// preserves the pre-#1276 invariant that lambdas whose body-shape arm
+    /// bails out (e.g. `fn(x) -> x + 200` where `+200` is out of range for
+    /// `add r64, imm8` and the App arm silently skips emission) emit
+    /// zero .text bytes and get flagged with B1704
+    /// (function_symbol_no_offset). If we emitted the prologue eagerly at
+    /// the top of `visit_lambda`, such bailouts would leave two dangling
+    /// prologue instructions with no matching ret in the function's byte
+    /// range, and B1704 would stop firing (turning a silent broken-o
+    /// regression into a diagnostic-free green build).
+    pub(crate) pending_frame_prologue: HashSet<u32>,
+
+    /// paideia-as#1276 phase 3: Lambda IR node ids for which the
+    /// frame-pointer prologue was actually emitted (i.e. `pending_frame_prologue`
+    /// consumption fired at least once). Consulted by `emit_ret` to decide
+    /// whether to emit the matching `mov rsp, rbp; pop rbp` epilogue.
+    ///
+    /// This must be independent of `lambda_no_frame` because the lazy
+    /// prologue path can skip emission for a non-@no_frame lambda whose
+    /// body-shape arm produced no instructions; the epilogue must skip too
+    /// so we don't leave a bare `pop rbp` in front of a body-less function.
+    pub(crate) emitted_frame_prologue: HashSet<u32>,
 }
 
 impl Default for EmitPassState {
@@ -222,6 +262,9 @@ impl Default for EmitPassState {
             per_lambda_bindings: Default::default(),
             instr_to_lambda: Default::default(),
             t0575_rejects: Default::default(),
+            lambda_no_frame: Default::default(),
+            pending_frame_prologue: Default::default(),
+            emitted_frame_prologue: Default::default(),
         }
     }
 }
@@ -347,6 +390,59 @@ impl EmitPassState {
     #[must_use]
     pub fn lambda_abi_option(&self, lambda_id: u32) -> Option<CallingConvention> {
         self.lambda_abis.get(&lambda_id).copied()
+    }
+
+    // ── Frame-pointer opt-out tracking (paideia-as#1276 phase 3) ─────────
+
+    /// Mark this lambda as opting out of the default SysV frame-pointer
+    /// prologue/epilogue.
+    ///
+    /// Called from `walk_inner`'s Let handler whenever a Let→Lambda binding
+    /// carries `LetInfo::no_frame == true` (surface form: `@no_frame`).
+    /// Membership causes `visit_lambda` to skip the `push rbp; mov rbp, rsp`
+    /// prologue and `emit_ret` to skip the `mov rsp, rbp; pop rbp` epilogue.
+    pub fn mark_lambda_no_frame(&mut self, lambda_id: u32) {
+        self.lambda_no_frame.insert(lambda_id);
+    }
+
+    /// True if this lambda opted out of the default frame-pointer
+    /// prologue/epilogue via `@no_frame`.
+    #[must_use]
+    pub fn is_lambda_no_frame(&self, lambda_id: u32) -> bool {
+        self.lambda_no_frame.contains(&lambda_id)
+    }
+
+    /// Arm the deferred frame-pointer prologue for this lambda. The
+    /// `push rbp; mov rbp, rsp` pair is not emitted here; it fires lazily
+    /// inside `emit_inst` on the first instruction whose `current_function`
+    /// matches — preserving the pre-#1276 zero-bytes → B1704 diagnostic
+    /// path for lambdas whose body-shape arm bails out without emitting.
+    pub fn arm_pending_frame_prologue(&mut self, lambda_id: u32) {
+        self.pending_frame_prologue.insert(lambda_id);
+    }
+
+    /// Consume the pending frame-prologue arm for this lambda, if any.
+    /// Returns `true` iff the arm was set (and has been cleared as a side
+    /// effect). Callers that see `true` are responsible for actually
+    /// emitting the prologue instructions and then calling
+    /// `mark_frame_prologue_emitted` so `emit_ret` knows to emit the
+    /// matching epilogue.
+    pub fn take_pending_frame_prologue(&mut self, lambda_id: u32) -> bool {
+        self.pending_frame_prologue.remove(&lambda_id)
+    }
+
+    /// Record that this lambda's frame-pointer prologue was actually
+    /// emitted. Consulted by `emit_ret` to decide whether the matching
+    /// `mov rsp, rbp; pop rbp` epilogue must precede `ret`.
+    pub fn mark_frame_prologue_emitted(&mut self, lambda_id: u32) {
+        self.emitted_frame_prologue.insert(lambda_id);
+    }
+
+    /// True if a frame-pointer prologue was actually emitted for this
+    /// lambda (as opposed to armed-then-never-fired).
+    #[must_use]
+    pub fn was_frame_prologue_emitted(&self, lambda_id: u32) -> bool {
+        self.emitted_frame_prologue.contains(&lambda_id)
     }
 
     // ── Match emission tracking (PA-r17-013) ─────────────────────────────

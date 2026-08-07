@@ -68,22 +68,26 @@ fn call_site_emits_mov_rip_sym_for_constant() {
         call_site_offset, actual
     );
 
-    // Expected: mov rsi, [rip+SHIFT] (7 bytes: 48 8b 35 ?? ?? ?? ??)
-    //         + call take2 (5 bytes: e8 ?? ?? ?? ??)
-    //         + ret (1 byte: c3)
-    // Total: 13 bytes exactly
+    // paideia-as#1276 phase 3: prologue (4B) + load (7B) + call (5B) +
+    // epilogue (4B) + ret (1B) = 21 bytes. Load starts at offset 4.
     assert_eq!(
         actual.len(),
-        13,
-        "call_site must be exactly 13 bytes (mov [rip+SHIFT]; call take2; ret), got {}",
+        21,
+        "call_site must be exactly 21 bytes (prologue + mov [rip+SHIFT] + call take2 + epilogue + ret), got {}",
         actual.len()
     );
 
-    // Check for RIP-relative load at offset 0: 48 8b 35 (mov rsi, [rip+disp32])
+    // Prologue at [0..4]
     assert_eq!(
-        &actual[0..3],
+        &actual[0..4],
+        &[0x55, 0x48, 0x89, 0xE5],
+        "call_site must start with frame prologue [55 48 89 E5]"
+    );
+    // RIP-relative load at [4..7]
+    assert_eq!(
+        &actual[4..7],
         &[0x48, 0x8b, 0x35],
-        "call_site must start with RIP-relative load bytes [48 8b 35] for the constant"
+        "call_site must have RIP-relative load bytes [48 8b 35] after prologue for the constant"
     );
 
     // Check for CALL opcode (0xe8)

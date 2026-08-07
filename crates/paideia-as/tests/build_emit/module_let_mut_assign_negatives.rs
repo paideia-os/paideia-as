@@ -92,18 +92,20 @@ fn module_let_mut_assign_shadowed_lhs_compiles() {
     let out = run_build(input);
     out.assert_ok();
 
-    // Expected disassembly: `mov %rdi,%rdi; ret`
-    // In bytes: `48 89 ff c3`
-    // - 48: REX.W prefix
-    // - 89: mov r/m64, r64
-    // - ff: RDI (register encoding)
-    // - c3: ret
-    let expected_pattern = [0x48u8, 0x89, 0xff, 0xc3];
+    // Expected body: `mov %rdi,%rdi` (48 89 ff) followed by ret.
+    // paideia-as#1276 phase 3: the ret is preceded by the 4-byte epilogue
+    // (48 89 EC 5D). The tightest witness is the full 8-byte trailer
+    // `48 89 ff 48 89 EC 5D C3` which reserves both the self-move and the
+    // frame teardown before ret.
+    let expected_pattern = [
+        0x48u8, 0x89, 0xff,               // mov rdi, rdi (self-move)
+        0x48, 0x89, 0xEC, 0x5D, 0xC3,     // mov rsp, rbp; pop rbp; ret
+    ];
 
     let bytes = out.artifact_bytes();
     assert!(
         bytes.windows(expected_pattern.len()).any(|w| w == expected_pattern),
-        "expected to find pattern (mov %rdi,%rdi; ret) in .text section, got {} bytes",
+        "expected to find pattern (mov %rdi,%rdi; epilogue; ret) in .text section, got {} bytes",
         bytes.len()
     );
 }

@@ -92,21 +92,30 @@ fn module_field_read_tail_emits_rip_rel_load_rax() {
     let f_bytes = crate::common::elf::symbol_bytes(&bytes, "f")
         .expect("symbol 'f' should exist in .text");
 
+    // paideia-as#1276 phase 3: 4-byte prologue (55 48 89 E5) at head,
+    // 4-byte epilogue (48 89 EC 5D) before the ret, so the function grew
+    // from 8 → 16 bytes. Load starts at offset 4, ret is at offset 15.
     assert_eq!(
         f_bytes.len(),
-        8,
-        "f must be exactly 8 bytes (load + ret); got {} bytes: {:02X?}",
+        16,
+        "f must be exactly 16 bytes (prologue + load + epilogue + ret); got {} bytes: {:02X?}",
         f_bytes.len(),
         f_bytes
     );
     assert_eq!(
-        &f_bytes[..3],
+        &f_bytes[..4],
+        &[0x55u8, 0x48, 0x89, 0xE5],
+        "f must begin with 55 48 89 E5 (push rbp; mov rbp, rsp); got {:02X?}",
+        f_bytes
+    );
+    assert_eq!(
+        &f_bytes[4..7],
         &[0x48u8, 0x8b, 0x05],
-        "f must begin with 48 8b 05 (mov rax, [rip+disp32]); got {:02X?}",
+        "f must have 48 8b 05 (mov rax, [rip+disp32]) after prologue; got {:02X?}",
         f_bytes
     );
     assert_eq!(
-        f_bytes[7], 0xC3,
+        f_bytes[15], 0xC3,
         "f must end with C3 (ret); got {:02X?}",
         f_bytes
     );
@@ -226,24 +235,32 @@ fn module_field_read_let_rhs_emits_load_into_rcx_and_return() {
     let g_bytes = crate::common::elf::symbol_bytes(&bytes, "g")
         .expect("symbol 'g' should exist in .text");
 
+    // paideia-as#1276 phase 3: prologue (4B) + body (7B: load) + rax-set (3B) + epilogue (4B) + ret (1B) = 19 bytes.
     assert_eq!(
         g_bytes.len(),
-        11,
-        "g must be exactly 11 bytes; got {} bytes: {:02X?}",
+        19,
+        "g must be exactly 19 bytes (prologue + load + rax-set + epilogue + ret); got {} bytes: {:02X?}",
         g_bytes.len(),
         g_bytes
     );
     assert_eq!(
-        &g_bytes[..3],
+        &g_bytes[..4],
+        &[0x55u8, 0x48, 0x89, 0xE5],
+        "g must begin with 55 48 89 E5 (push rbp; mov rbp, rsp); got {:02X?}",
+        g_bytes
+    );
+    assert_eq!(
+        &g_bytes[4..7],
         &[0x48u8, 0x8b, 0x0d],
-        "g must begin with 48 8b 0d (mov rcx, [rip+disp32]); got {:02X?}",
+        "g must have 48 8b 0d (mov rcx, [rip+disp32]) after prologue; got {:02X?}",
         g_bytes
     );
+    // mov rax, rcx at [11..14], then epilogue+ret at [14..19].
     assert_eq!(
-        &g_bytes[7..11],
-        &[0x48u8, 0x89, 0xc8, 0xc3],
-        "g bytes [7..11) must be 48 89 c8 c3 (mov rax, rcx; ret); got {:02X?}",
-        &g_bytes[7..11]
+        &g_bytes[11..19],
+        &[0x48u8, 0x89, 0xc8, 0x48, 0x89, 0xEC, 0x5D, 0xC3],
+        "g bytes [11..19) must be 48 89 c8 (mov rax, rcx); 48 89 EC 5D (epilogue); C3 (ret); got {:02X?}",
+        &g_bytes[11..19]
     );
 
     let _ = std::fs::remove_file(&tmp);
@@ -456,17 +473,20 @@ fn module_field_write_then_read_tail_emits_write_then_load_and_ret() {
     let f_bytes = crate::common::elf::symbol_bytes(&bytes, "f")
         .expect("symbol 'f' should exist in .text");
 
+    // paideia-as#1276 phase 3: prologue (4B) + store (7B) + load (7B) + epilogue (4B) + ret (1B) = 23 bytes.
     assert_eq!(
-        f_bytes.len(), 15,
-        "f must be exactly 15 bytes (store + load + ret); got {} bytes: {:02X?}",
+        f_bytes.len(), 23,
+        "f must be exactly 23 bytes (prologue + store + load + epilogue + ret); got {} bytes: {:02X?}",
         f_bytes.len(), f_bytes
     );
-    assert_eq!(&f_bytes[..3], &[0x48u8, 0x89, 0x3d],
-        "f[..3] must be 48 89 3d; got {:02X?}", f_bytes);
-    assert_eq!(&f_bytes[7..10], &[0x48u8, 0x8b, 0x05],
-        "f[7..10] must be 48 8b 05; got {:02X?}", f_bytes);
-    assert_eq!(f_bytes[14], 0xC3,
-        "f[14] must be C3; got {:02X?}", f_bytes);
+    assert_eq!(&f_bytes[..4], &[0x55u8, 0x48, 0x89, 0xE5],
+        "f[..4] must be 55 48 89 E5 (push rbp; mov rbp, rsp); got {:02X?}", f_bytes);
+    assert_eq!(&f_bytes[4..7], &[0x48u8, 0x89, 0x3d],
+        "f[4..7] must be 48 89 3d (mov [rip+disp32], rdi); got {:02X?}", f_bytes);
+    assert_eq!(&f_bytes[11..14], &[0x48u8, 0x8b, 0x05],
+        "f[11..14] must be 48 8b 05 (mov rax, [rip+disp32]); got {:02X?}", f_bytes);
+    assert_eq!(&f_bytes[18..23], &[0x48u8, 0x89, 0xEC, 0x5D, 0xC3],
+        "f[18..23] must be 48 89 EC 5D C3 (mov rsp,rbp; pop rbp; ret); got {:02X?}", f_bytes);
 
     let _ = std::fs::remove_file(&tmp);
 }

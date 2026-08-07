@@ -37,11 +37,24 @@ fn caller_bytes_start_with_mov_when_unsafe_wraps_safe_call_with_args() {
     let caller = elf::symbol_bytes(&bytes, "caller").expect("caller in .text");
     assert!(!caller.is_empty(), "caller symbol must have non-zero size");
 
-    // Gap 1 witness: first byte must be MOV (REX.W prefix)
+    // Gap 1 witness: first byte must be `push rbp` (0x55) from the
+    // paideia-as#1276 phase 3 frame-pointer prologue; the arg-MOV(s) sit
+    // immediately after `push rbp; mov rbp, rsp` (`55 48 89 E5`). The
+    // pre-#1276 form was "first byte is REX.W (0x48)"; that is now the
+    // SECOND byte (the REX prefix of `mov rbp, rsp`).
     assert_eq!(
         caller.first().copied(),
+        Some(0x55),
+        "caller must start with `push rbp` (frame-pointer prologue)"
+    );
+    // Additional witness: MOV byte (REX.W = 0x48) must appear right after
+    // the 1-byte push, and there must be at least one MOV before CALL —
+    // this preserves the byte-order invariant the original test was
+    // checking (arg MOVs sort before CALL).
+    assert_eq!(
+        caller.get(1).copied(),
         Some(0x48),
-        "caller must start with REX.W MOV, not CALL/RET"
+        "byte after `push rbp` must be REX.W of `mov rbp, rsp`"
     );
 
     // Gap 1 witness: CALL opcode (0xE8) must exist after at least 7 bytes of MOV
@@ -74,11 +87,18 @@ fn entry_bytes_place_mov_before_ff15_on_fnptr_indirect_call() {
     let entry = elf::symbol_bytes(&bytes, "entry").expect("entry in .text");
     assert!(!entry.is_empty(), "entry symbol must have non-zero size");
 
-    // Gap 2 witness: first byte must be MOV (REX.W prefix)
+    // Gap 2 witness: first byte must be `push rbp` (0x55) from the
+    // paideia-as#1276 phase 3 frame-pointer prologue. Pre-#1276 form
+    // was REX.W (0x48); that is now byte 1 (the REX of `mov rbp, rsp`).
     assert_eq!(
         entry.first().copied(),
+        Some(0x55),
+        "entry must start with `push rbp` (frame-pointer prologue)"
+    );
+    assert_eq!(
+        entry.get(1).copied(),
         Some(0x48),
-        "entry must start with REX.W MOV prefix"
+        "byte after `push rbp` must be REX.W of `mov rbp, rsp`"
     );
 
     // Gap 2 witness: FF 15 (indirect CALL via RIP-relative) must exist

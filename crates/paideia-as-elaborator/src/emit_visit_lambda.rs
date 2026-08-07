@@ -268,24 +268,53 @@ impl EmitWalker {
         // shadowing rules are applied (params shadow captures if same name).
         self.register_closure_captures(lambda_node_id, arena);
 
+        // paideia-as#1276 phase 3 (unblocks paideia-os#716): ARM (do not emit)
+        // the default SysV frame-pointer prologue `push rbp; mov rbp, rsp`
+        // unless this Lambda's Let binding carried `@no_frame`. Suppressed for
+        // Unsafe-bodied lambdas — the user's raw asm owns its own `ret` (there
+        // is no elaborator-owned exit site to insert a matching `pop rbp`
+        // before, so blindly pushing rbp would leave a stray value on the
+        // stack for the user's ret to fetch as the return address).
+        //
+        // The actual emission is deferred to `emit_inst` — see
+        // `pending_frame_prologue` in EmitPassState for the rationale
+        // (preserves the zero-bytes → B1704 diagnostic path when a body-shape
+        // arm bails out without emitting). When the first body instruction
+        // fires, `emit_inst` sees the arm, injects `push rbp; mov rbp, rsp`
+        // ahead of it (claiming `lambda_first_instr[L]`), then continues with
+        // the original instruction. `emit_ret` reads `emitted_frame_prologue`
+        // to decide whether to emit the matching `mov rsp, rbp; pop rbp`
+        // epilogue.
+        let body_is_unsafe = arena
+            .children(lambda_node_id)
+            .first()
+            .and_then(|&body_id| arena.get(body_id))
+            .map(|body_node| body_node.kind == IrKind::Unsafe)
+            .unwrap_or(false);
+        if !body_is_unsafe && !self.state.is_lambda_no_frame(lambda_node_id.get()) {
+            self.state.arm_pending_frame_prologue(lambda_node_id.get());
+        }
+
         // #1233: Emit prologue (sub rsp, total_size) for lambdas with closure frame layout.
         // This reserves stack space for closure fat pairs + environment records.
         if let Some(frame_layout) = arena.closure_frame_meta().get(lambda_node_id) {
             if frame_layout.total_size > 0 {
                 // Issue #994: arm the pending-first-instr shim so this `sub rsp` lands
                 // as lambda_first_instr[L] — it is the true first instruction of this
-                // function. This is the first `pending_first_instr_lambda` arming for
-                // this lambda visit, so it always fires (nothing has claimed
-                // `lambda_first_instr[L]` yet). Every body-shape arm below
-                // (Action/App/Match/EnumCons) re-arms the same shim via
-                // `arm_pending_first_instr_unless_claimed`, which is a no-op once this
-                // entry exists — letting this prologue's claim stick. Without this, the
-                // ELF symbol for this function starts AFTER the `sub rsp` (control never
-                // executes it on entry), so the closure's fat pointer / captures get
-                // written below the actual stack pointer into the caller's
-                // return-address region — corrupting the stack the moment this function
-                // returns.
-                self.state.pending_first_instr_lambda = Some(lambda_node_id.get());
+                // function IF NO frame-pointer prologue was emitted just above. Every
+                // body-shape arm below (Action/App/Match/EnumCons) re-arms the same
+                // shim via `arm_pending_first_instr_unless_claimed`, which is a no-op
+                // once this entry exists — letting this prologue's claim stick.
+                //
+                // paideia-as#1276 phase 3: downgraded from unconditional-overwrite
+                // (`= Some(...)`) to `unless_claimed`. When the frame-pointer
+                // prologue above fired, its `push rbp` already claimed
+                // `lambda_first_instr[L]`; a re-arm here would overwrite it with
+                // this `sub rsp` id, so the ELF symbol would start AFTER `push
+                // rbp` — control would skip the frame push on entry, `mov rsp,rbp`
+                // in the epilogue would restore rsp to the CALLER's frame, and
+                // `pop rbp; ret` would corrupt both rbp and the return address.
+                self.arm_pending_first_instr_unless_claimed(lambda_node_id);
 
                 // Emit: sub rsp, total_size
                 let mut sub_operands: SmallVec<[Operand; 3]> = SmallVec::new();

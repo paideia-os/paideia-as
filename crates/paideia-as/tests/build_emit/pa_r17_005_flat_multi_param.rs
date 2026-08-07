@@ -69,8 +69,38 @@ fn extract_symbol_bytes(file: &object::File<'_>, symbol_name: &str) -> Option<Ve
     None
 }
 
+/// paideia-as#1276 phase 3: default SysV frame prologue.
+/// `55 48 89 E5` = `push rbp; mov rbp, rsp`.
+const FRAME_PROLOGUE: &[u8] = &[0x55, 0x48, 0x89, 0xE5];
+
+/// paideia-as#1276 phase 3: default SysV frame epilogue (excludes the terminal
+/// `ret` which callers still supply as the last body byte).
+/// `48 89 EC 5D` = `mov rsp, rbp; pop rbp`.
+const FRAME_EPILOGUE: &[u8] = &[0x48, 0x89, 0xEC, 0x5D];
+
+/// Wrap a body byte-sequence with the default SysV prologue/epilogue.
+///
+/// Fixtures in this test suite are not annotated `@no_frame`, so the
+/// elaborator emits `push rbp; mov rbp, rsp` at entry and `mov rsp, rbp;
+/// pop rbp` before the terminal `ret`.
+fn wrap_frame(body_with_ret: &[u8]) -> Vec<u8> {
+    let (body, ret) = body_with_ret.split_at(body_with_ret.len() - 1);
+    assert_eq!(ret, [0xC3], "wrap_frame expects sequence to terminate in `ret`");
+    let mut out = Vec::with_capacity(FRAME_PROLOGUE.len() + body.len() + FRAME_EPILOGUE.len() + 1);
+    out.extend_from_slice(FRAME_PROLOGUE);
+    out.extend_from_slice(body);
+    out.extend_from_slice(FRAME_EPILOGUE);
+    out.extend_from_slice(ret);
+    out
+}
+
 /// Test helper: build a fixture, extract symbol bytes, and assert.
-fn test_flat_lambda(fixture_name: &str, symbol_name: &str, expected_bytes: &[u8]) {
+///
+/// `body_bytes_with_ret` is the pre-#1276 raw body (ending in `ret`);
+/// this helper wraps them with the phase-3 frame prologue/epilogue.
+fn test_flat_lambda(fixture_name: &str, symbol_name: &str, body_bytes_with_ret: &[u8]) {
+    let expected_bytes: Vec<u8> = wrap_frame(body_bytes_with_ret);
+    let expected_bytes: &[u8] = &expected_bytes;
     let input = build_emit_data(fixture_name);
     let tmp = std::env::temp_dir().join(format!("paideia_as_{}_emit.o", fixture_name));
     let _ = std::fs::remove_file(&tmp);

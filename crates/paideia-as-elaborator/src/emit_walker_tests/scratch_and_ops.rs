@@ -25,10 +25,13 @@ fn pa7c_m2_002_let_literal_assigns_first_scratch_reg() {
     let action_id = arena.alloc_with_children(IrKind::Action, span(), [let_id]);
 
     // Create a lambda with the action as its body
-    let _lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [action_id]);
+    let lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [action_id]);
 
-    // Walk the arena
+    // paideia-as#1276 phase 3: opt out of frame prologue/epilogue so the
+    // Mov count below stays at 1 (with the wrapper, we'd also count the
+    // 2 prologue/epilogue movs).
     let mut walker = EmitWalker::new();
+    walker.state_mut().mark_lambda_no_frame(lambda_id.get());
     walker.walk(&mut arena);
 
     // Verify scratch_assignment[0] == RCX (abi::RCX) — excludes RAX which is clobbered by function calls

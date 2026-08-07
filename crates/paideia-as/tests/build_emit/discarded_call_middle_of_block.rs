@@ -65,14 +65,19 @@ fn discarded_call_at_tail_ends_with_call_ret() {
 
     let bytes = out.artifact_bytes();
 
-    // Assertion: there should be a CALL followed immediately (within 1 byte) by RET.
-    let has_call_followed_by_ret = bytes.windows(6).any(|w| {
-        w[0] == 0xE8 && w[5] == 0xC3
+    // paideia-as#1276 phase 3: tail-call function still returns with a RET,
+    // but the RET is now preceded by the 4-byte frame epilogue
+    // (48 89 EC 5D = mov rsp,rbp; pop rbp). So the byte-sequence after the
+    // 5-byte CALL (E8 + 4-byte disp) is 48 89 EC 5D C3 — a 10-byte window.
+    let has_call_then_epilogue_then_ret = bytes.windows(10).any(|w| {
+        w[0] == 0xE8
+            && w[5] == 0x48 && w[6] == 0x89 && w[7] == 0xEC && w[8] == 0x5D
+            && w[9] == 0xC3
     });
 
     assert!(
-        has_call_followed_by_ret,
-        "expected a CALL instruction followed immediately by RET in .text section"
+        has_call_then_epilogue_then_ret,
+        "expected CALL followed by frame epilogue (48 89 EC 5D) then RET in .text section"
     );
 }
 

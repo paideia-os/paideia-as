@@ -55,11 +55,37 @@ use object::{Object, ObjectSection};
 use std::path::PathBuf;
 use std::process::Command;
 
-/// Canonical bitwise-NOT lambda body: `mov rax,rdi ; not rax ; ret`.
-const BITNOT: &[&str] = &["mov rax,rdi", "not rax", "ret"];
+/// paideia-as#1276 phase 3: default SysV frame-pointer prologue
+/// wrapper — `push rbp ; mov rbp,rsp` before every function body,
+/// `mov rsp,rbp ; pop rbp` immediately before the terminal `ret`.
+/// Fixtures in this suite don't carry `@no_frame` so they all get
+/// the wrapper.
+const PROLOGUE: &[&str] = &["push rbp", "mov rbp,rsp"];
+const EPILOGUE: &[&str] = &["mov rsp,rbp", "pop rbp"];
 
-/// Canonical cast lambda body: `movsxd rax,edi ; ret`.
-const CAST: &[&str] = &["movsxd rax,edi", "ret"];
+/// Canonical bitwise-NOT lambda body wrapped in the default SysV frame:
+/// `push rbp ; mov rbp,rsp ; mov rax,rdi ; not rax ; mov rsp,rbp ; pop rbp ; ret`.
+const BITNOT: &[&str] = &[
+    "push rbp", "mov rbp,rsp",
+    "mov rax,rdi", "not rax",
+    "mov rsp,rbp", "pop rbp", "ret",
+];
+
+/// Canonical cast lambda body wrapped in the default SysV frame:
+/// `push rbp ; mov rbp,rsp ; movsxd rax,edi ; mov rsp,rbp ; pop rbp ; ret`.
+const CAST: &[&str] = &[
+    "push rbp", "mov rbp,rsp",
+    "movsxd rax,edi",
+    "mov rsp,rbp", "pop rbp", "ret",
+];
+
+// Silence unused-const warnings on the wrapper aliases — they exist as
+// documentation of the phase-3 wrapper structure even when the flattened
+// BITNOT/CAST arrays inline the same bytes.
+#[allow(dead_code)]
+const _PROLOGUE_DOC_ALIAS: &[&str] = PROLOGUE;
+#[allow(dead_code)]
+const _EPILOGUE_DOC_ALIAS: &[&str] = EPILOGUE;
 
 /// Generic 64-bit immediate move for `let x : T = 42` through the build CLI.
 /// NOTE: #1131 changes this behavior - module-level let bindings with no functions

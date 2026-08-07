@@ -74,17 +74,27 @@ use paideia_as_ir::{Instruction, Operand, RegId};
 // Tier A: `build` CLI round-trip (mirrors PA7C-m4-004 exactly).
 // ===========================================================================
 
-/// Canonical cast lowering through the `build` CLI: every `x as T` still
-/// lowers to `movsxd rax,edi` (the IR pipeline passes the canonical i32->i64
-/// shape; see the m3-002 note above).
-const CAST_BUILD: &[&str] = &["movsxd rax,edi", "ret"];
+/// paideia-as#1276 phase 3: fixtures don't carry `@no_frame` so every
+/// canonical body below is wrapped by the default SysV frame prologue/epilogue:
+///   push rbp ; mov rbp,rsp ; <body> ; mov rsp,rbp ; pop rbp ; ret
+///
+/// Canonical cast lowering through the `build` CLI: `x as T` -> `movsxd rax,edi`.
+const CAST_BUILD: &[&str] = &[
+    "push rbp", "mov rbp,rsp",
+    "movsxd rax,edi",
+    "mov rsp,rbp", "pop rbp", "ret",
+];
 
 /// A `build`-compiled block-body `let`/tail-binding function emits the Let
 /// statement via emit_block_body (Fix #1152: Let RHS children at index 1 for
 /// statement-level typed lets). Narrow-width lets use MovSized when typer is
 /// active; u64 and untyped use generic Mov. Post-#1161: scratch register is RCX
 /// (not RAX, to avoid clobbering by function calls), then final Var is moved to RAX.
-const BLOCK_LET_BUILD: &[&str] = &["mov rcx,7", "mov rax,rcx", "ret"];
+const BLOCK_LET_BUILD: &[&str] = &[
+    "push rbp", "mov rbp,rsp",
+    "mov rcx,7", "mov rax,rcx",
+    "mov rsp,rbp", "pop rbp", "ret",
+];
 
 /// Hand-rolled Tier-A fixture table: `(basename, source, expected_disasm)`.
 ///

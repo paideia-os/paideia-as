@@ -57,24 +57,32 @@ fn set_counter_emits_mov_rip_sym_and_ret() {
 
     let actual = set_counter_bytes.expect("set_counter symbol must exist");
 
-    // Expected: mov [rip+counter], rdi (7 bytes: 48 89 3d ?? ?? ?? ??) + ret (1 byte: c3)
-    // Total: 8 bytes
+    // paideia-as#1276 phase 3: 4-byte prologue (55 48 89 E5) at head + 7-byte
+    // mov + 4-byte epilogue (48 89 EC 5D) + 1-byte ret = 16 bytes.
+    // The mov starts at offset 4; ret is at offset 15.
     assert_eq!(
         actual.len(),
-        8,
-        "set_counter must be exactly 8 bytes (mov [rip+counter], rdi; ret)"
+        16,
+        "set_counter must be exactly 16 bytes (prologue + mov [rip+counter], rdi + epilogue + ret)"
     );
 
-    // Check mnemonic prefix: 48 89 3d (mov [rip+disp32], rdi)
-    assert_eq!(actual[0], 0x48, "First byte must be REX.W");
-    assert_eq!(actual[1], 0x89, "Second byte must be mov opcode");
-    assert_eq!(actual[2], 0x3d, "Third byte must be ModR/M for [rip+disp32]");
+    // Prologue prefix: 55 48 89 E5 (push rbp; mov rbp, rsp)
+    assert_eq!(actual[0], 0x55, "Byte 0 must be `push rbp` (0x55)");
+    assert_eq!(actual[1], 0x48, "Byte 1 must be REX.W (prefix of mov rbp,rsp)");
+    assert_eq!(actual[2], 0x89, "Byte 2 must be MOV opcode");
+    assert_eq!(actual[3], 0xE5, "Byte 3 must be ModR/M for mov rbp,rsp");
 
-    // Bytes 3-6 are disp32 (will be filled by linker for PC-relative relocation)
-    // We don't assert their value; the linker will populate them.
+    // Store instruction at byte 4-10: 48 89 3d (mov [rip+disp32], rdi) + disp32
+    assert_eq!(actual[4], 0x48, "Byte 4 must be REX.W of store");
+    assert_eq!(actual[5], 0x89, "Byte 5 must be mov opcode");
+    assert_eq!(actual[6], 0x3d, "Byte 6 must be ModR/M for [rip+disp32], rdi");
 
-    // Check ret instruction at byte 7
-    assert_eq!(actual[7], 0xc3, "Last byte must be ret (0xc3)");
+    // Bytes 7-10 are disp32 (linker-filled). Epilogue at 11-14, ret at 15.
+    assert_eq!(actual[11], 0x48, "Byte 11 must be REX.W of `mov rsp, rbp`");
+    assert_eq!(actual[12], 0x89, "Byte 12 must be MOV opcode");
+    assert_eq!(actual[13], 0xEC, "Byte 13 must be ModR/M for `mov rsp, rbp`");
+    assert_eq!(actual[14], 0x5D, "Byte 14 must be `pop rbp`");
+    assert_eq!(actual[15], 0xc3, "Byte 15 must be `ret`");
 
     eprintln!(
         "set_counter bytes (at offset {}): {:02X?}",
@@ -185,7 +193,10 @@ fn set_counter_relocation_at_correct_offset() {
     }
 
     let set_counter_off = set_counter_offset.expect("set_counter symbol must exist");
-    let reloc_offset = set_counter_off + 3; // disp32 position in mov instruction
+    // paideia-as#1276 phase 3: 4-byte frame prologue precedes the mov, so
+    // the disp32 slot is now at prologue(4) + mov head (3) = +7 relative to
+    // the function symbol (was +3 pre-#1276).
+    let reloc_offset = set_counter_off + 7;
 
     // .text must be large enough that the disp32 field (4 bytes starting at
     // the relocation offset) fits entirely inside it -- this is the actual

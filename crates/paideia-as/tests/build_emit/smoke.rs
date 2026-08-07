@@ -69,9 +69,19 @@ fn uart_smoke_text_bytes_match_expected() {
 
 /// Phase 5 m6-005: Test byte-identical code emission for functions in 02_functions.pdx.
 ///
-/// - `add_one(x)`: returns x + 1, expected bytecode: `48 8d 47 01 c3` (5 bytes)
-/// - `identity(x)`: returns x, expected bytecode: `48 89 f8 c3` (4 bytes)
-/// - `double(x)`: returns x + x, expected bytecode: `48 8d 04 3f c3` (5 bytes)
+/// paideia-as#1276 phase 3: bytes updated for the default SysV frame-pointer
+/// prologue/epilogue (`push rbp; mov rbp, rsp; ...; mov rsp, rbp; pop rbp;
+/// ret`). Fixtures don't carry `@no_frame` so they get the default emission.
+///
+/// - `add_one(x)`: returns x + 1, expected bytecode:
+///   `55 48 89 E5 48 8D 47 01 48 89 EC 5D C3` (13 bytes)
+///   push rbp; mov rbp,rsp; lea rax,[rdi+1]; mov rsp,rbp; pop rbp; ret
+/// - `identity(x)`: returns x, expected bytecode:
+///   `55 48 89 E5 48 89 F8 48 89 EC 5D C3` (12 bytes)
+///   push rbp; mov rbp,rsp; mov rax,rdi; mov rsp,rbp; pop rbp; ret
+/// - `double(x)`: returns x + x, expected bytecode:
+///   `55 48 89 E5 48 8D 04 3F 48 89 EC 5D C3` (13 bytes)
+///   push rbp; mov rbp,rsp; lea rax,[rdi+rdi]; mov rsp,rbp; pop rbp; ret
 #[test]
 fn add_one_byte_identical() {
     let input = build_emit("../../examples/02_functions.pdx");
@@ -105,9 +115,22 @@ fn add_one_byte_identical() {
         }
     }
 
-    let expected_add_one = vec![0x48, 0x8d, 0x47, 0x01, 0xc3];
-    let expected_identity = vec![0x48, 0x89, 0xf8, 0xc3];
-    let expected_double = vec![0x48, 0x8d, 0x04, 0x3f, 0xc3];
+    // paideia-as#1276 phase 3: prologue `55 48 89 E5` + body + epilogue `48 89 EC 5D` + `C3`.
+    let expected_add_one = vec![
+        0x55, 0x48, 0x89, 0xE5,             // push rbp; mov rbp, rsp
+        0x48, 0x8D, 0x47, 0x01,             // lea rax, [rdi + 1]
+        0x48, 0x89, 0xEC, 0x5D, 0xC3,       // mov rsp, rbp; pop rbp; ret
+    ];
+    let expected_identity = vec![
+        0x55, 0x48, 0x89, 0xE5,             // push rbp; mov rbp, rsp
+        0x48, 0x89, 0xF8,                   // mov rax, rdi
+        0x48, 0x89, 0xEC, 0x5D, 0xC3,       // mov rsp, rbp; pop rbp; ret
+    ];
+    let expected_double = vec![
+        0x55, 0x48, 0x89, 0xE5,             // push rbp; mov rbp, rsp
+        0x48, 0x8D, 0x04, 0x3F,             // lea rax, [rdi + rdi]
+        0x48, 0x89, 0xEC, 0x5D, 0xC3,       // mov rsp, rbp; pop rbp; ret
+    ];
 
     let check_function = |name: &str, expected: &[u8]| {
         if let Some(actual) = symbol_bytes.get(name) {

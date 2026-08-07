@@ -36,18 +36,26 @@ fn multi_fn_store_dispatch_ordering_text_and_symbols() {
     assert_elf64_magic(&bytes);
 
     let text = text_bytes(&bytes);
+    // paideia-as#1276 phase 3: each fn grows 8 → 16 bytes (prologue 4 +
+    // epilogue 4). Total .text: 32 bytes.
     assert_eq!(
-        text.len(), 16,
-        ".text should be exactly 16 bytes (f3: 8, g3: 8); got {}",
+        text.len(), 32,
+        ".text should be exactly 32 bytes (f3: 16, g3: 16); got {}",
         text.len()
     );
 
-    // Verify exact bytecode sequence
-    // f3: mov rdi, [rip+0]; ret
-    // g3: mov rsi, [rip+0]; ret
+    // Verify exact bytecode sequence with frame prologue/epilogue.
+    // f3: push rbp; mov rbp,rsp; mov rdi, [rip+0]; mov rsp,rbp; pop rbp; ret
+    // g3: push rbp; mov rbp,rsp; mov rsi, [rip+0]; mov rsp,rbp; pop rbp; ret
     let expected = vec![
-        0x48, 0x89, 0x3d, 0x00, 0x00, 0x00, 0x00, 0xc3, // f3: mov rdi, [rip+0]; ret
-        0x48, 0x89, 0x35, 0x00, 0x00, 0x00, 0x00, 0xc3, // g3: mov rsi, [rip+0]; ret
+        // f3 (16 bytes)
+        0x55, 0x48, 0x89, 0xE5,                         // push rbp; mov rbp, rsp
+        0x48, 0x89, 0x3d, 0x00, 0x00, 0x00, 0x00,       // mov [rip+0], rdi
+        0x48, 0x89, 0xEC, 0x5D, 0xc3,                   // mov rsp,rbp; pop rbp; ret
+        // g3 (16 bytes)
+        0x55, 0x48, 0x89, 0xE5,                         // push rbp; mov rbp, rsp
+        0x48, 0x89, 0x35, 0x00, 0x00, 0x00, 0x00,       // mov [rip+0], rsi
+        0x48, 0x89, 0xEC, 0x5D, 0xc3,                   // mov rsp,rbp; pop rbp; ret
     ];
 
     if text != expected {
@@ -70,12 +78,12 @@ fn multi_fn_store_dispatch_ordering_text_and_symbols() {
             match name {
                 "f3" => {
                     assert_eq!(symbol.address(), 0, "f3 should start at offset 0");
-                    assert_eq!(symbol.size(), 8, "f3 should be 8 bytes");
+                    assert_eq!(symbol.size(), 16, "f3 should be 16 bytes (paideia-as#1276 phase 3: prologue+body+epilogue)");
                     f3_found = true;
                 }
                 "g3" => {
-                    assert_eq!(symbol.address(), 8, "g3 should start at offset 8");
-                    assert_eq!(symbol.size(), 8, "g3 should be 8 bytes");
+                    assert_eq!(symbol.address(), 16, "g3 should start at offset 16 (after f3's 16 bytes)");
+                    assert_eq!(symbol.size(), 16, "g3 should be 16 bytes (paideia-as#1276 phase 3: prologue+body+epilogue)");
                     g3_found = true;
                 }
                 _ => {}
@@ -96,5 +104,9 @@ fn multi_fn_store_dispatch_ordering_text_and_symbols() {
 
     assert_eq!(relocations.len(), 2, "Should have exactly 2 relocations");
     let offsets: Vec<u64> = relocations.iter().map(|(o, _)| *o).collect();
-    assert_eq!(offsets, vec![3, 11], "#1143: reloc r_offsets must be instruction-local, within .text bounds");
+    // paideia-as#1276 phase 3: each disp32 slot shifts by +4 (prologue) plus
+    // the prior fn's added 8 bytes for the second reloc.
+    // f3 disp32: prologue(4) + mov head (3) = 7
+    // g3 disp32: g3 base (16) + prologue (4) + mov head (3) = 23
+    assert_eq!(offsets, vec![7, 23], "#1143: reloc r_offsets must be instruction-local, within .text bounds");
 }

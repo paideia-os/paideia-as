@@ -121,12 +121,12 @@ fn field_write_u32_emits_correct_bytes() {
         text_bytes
     );
 
-    // Verify total instruction byte count: B8 + imm32 (5 bytes) + 89 05 + imm32 (6 bytes) + C3 (1 byte) = 12 bytes total
-    // Allow some margin for padding/alignment, but check that we're not getting the W64 versions
-    // W32: B8 + 4 bytes + 89 05 + 4 bytes + C3 = 12 bytes
-    // W64 (WRONG): 48 B8 + 8 bytes + 48 89 05 + 4 bytes + C3 = 17-18 bytes
+    // Verify total instruction byte count: B8 + imm32 (5 bytes) + 89 05 + imm32 (6 bytes) + C3 (1 byte) = 12 bytes body
+    // paideia-as#1276 phase 3: add 4-byte prologue + 4-byte epilogue = 20 bytes total for W32.
+    // W64 (WRONG) would be 4 + 17 + 4 = 25 bytes.
+    // Bound < 23 keeps the W32-vs-W64 discrimination the original test intended.
     assert!(
-        text_bytes.len() < 15,
+        text_bytes.len() < 23,
         "text section seems too large ({}); expected W32 encoding (~12 bytes) but got something closer to W64 encoding (~17 bytes): {:02X?}",
         text_bytes.len(),
         text_bytes

@@ -103,7 +103,33 @@ impl EmitFixture {
     }
 
     /// Allocate a `Lambda` whose body is `body`.
+    ///
+    /// paideia-as#1276 phase 3: eagerly marks the lambda as `@no_frame`
+    /// on the walker's emit state so unit tests that construct a bare
+    /// Lambda (without the surrounding Let→Lambda pair) don't get the
+    /// default SysV frame-pointer prologue/epilogue emitted around their
+    /// body. Unit tests here are stub-shaped and inspect specific
+    /// virtual instruction IDs; the frame wrapper would push those IDs
+    /// off and inflate `estimated_offset` by 8 bytes. Real-world code
+    /// always wraps lambdas in a Let, and the Let handler pipes
+    /// `LetInfo::no_frame` into the same set via `mark_lambda_no_frame`,
+    /// so the wrapper still fires end-to-end.
     pub(crate) fn lambda(&mut self, body: IrNodeId) -> IrNodeId {
+        let id = self.arena
+            .alloc_with_children(IrKind::Lambda, span(), [body]);
+        self.walker.state_mut().mark_lambda_no_frame(id.get());
+        id
+    }
+
+    /// Allocate a `Lambda` whose body is `body`, WITHOUT opting out of
+    /// the SysV frame prologue/epilogue.
+    ///
+    /// paideia-as#1276 phase 3: use in tests that specifically want to
+    /// exercise the default frame-pointer emission — the resulting
+    /// function body will be wrapped by `push rbp; mov rbp, rsp; ...;
+    /// mov rsp, rbp; pop rbp; ret`, and `estimated_offset` will include
+    /// the 8 extra bytes (4 prologue + 4 epilogue).
+    pub(crate) fn lambda_with_frame(&mut self, body: IrNodeId) -> IrNodeId {
         self.arena
             .alloc_with_children(IrKind::Lambda, span(), [body])
     }
