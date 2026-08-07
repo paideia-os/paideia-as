@@ -18,9 +18,28 @@
 //!
 //! Both are matched greedily when present, but neither is required. Real
 //! `.pdx` sources mix all four variants freely (see paideia-os#717 / #1273).
+//!
+//! ## Opt-out annotation (#1275)
+//!
+//! A site may be marked as intentionally-preserved raw `uart_puts` by
+//! adding a `// klog-migrate: skip` comment anywhere on a line that
+//! contains part of the matched pattern (the `lea` line, the `call
+//! uart_puts` line, or any intermediate line). The scanner still emits a
+//! [`Match`] for such sites but sets `Match::skip` to
+//! `Some(SkipReason::Annotation)`, and downstream stages (the migrator in
+//! [`crate::migrate`]) exclude annotated sites from rewriting while still
+//! surfacing them in operator reports.
+//!
+//! Rationale: `kernel_main.pdx` at paideia-os HEAD keeps two
+//! `uart_rx_smoke_prefix_msg` sites raw (klog's synthetic `\n` would split
+//! the two-line "UART RX: abc" wire fingerprint). Without an opt-out,
+//! every dry-run reports these as noise.
+
+use std::sync::OnceLock;
 
 use paideia_as_diagnostics::{FileId, Span};
 use paideia_as_lexer::{Lexer, SourceText, Token, TokenKind};
+use regex::Regex;
 
 /// A single successful pattern match.
 ///
@@ -29,6 +48,11 @@ use paideia_as_lexer::{Lexer, SourceText, Token, TokenKind};
 /// present; otherwise ending at the last consumed token — the `uart_puts`
 /// identifier or the preceding `;` after `]`). `msg_symbol` is the captured
 /// identifier at position 6, e.g. `banner_msg`.
+///
+/// `skip` is `Some(SkipReason::Annotation)` when the site carries a
+/// `// klog-migrate: skip` opt-out on one of its lines (#1275). Skipped
+/// matches still appear in the vector — downstream stages surface them in
+/// operator reports — but the migrator does not rewrite them.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Match {
     /// Byte offset of the first character of `lea` in the source.
@@ -37,6 +61,24 @@ pub struct Match {
     pub byte_end: usize,
     /// The captured msg symbol name, verbatim.
     pub msg_symbol: String,
+    /// Reason this site is skipped from rewriting, if any. `None` means
+    /// the site is a normal rewrite target.
+    pub skip: Option<SkipReason>,
+}
+
+/// Why a matched site is excluded from rewriting.
+///
+/// Currently only [`SkipReason::Annotation`] exists (`// klog-migrate: skip`).
+/// New reasons (e.g. a whole-file directive, a token-window heuristic) are
+/// additive — construction sites remain forward-compatible via the
+/// `#[non_exhaustive]` marker.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum SkipReason {
+    /// The site carries a `// klog-migrate: skip` opt-out on one of its
+    /// pattern-covered lines (#1275). Case-insensitive; whitespace between
+    /// `klog-migrate`, `:`, and `skip` is permitted.
+    Annotation,
 }
 
 /// Scan a source buffer for every direct-UART pattern.
@@ -148,14 +190,57 @@ fn try_match_at(
         cursor += 1;
     }
 
+    let skip = if has_skip_annotation(source, byte_start, byte_end) {
+        Some(SkipReason::Annotation)
+    } else {
+        None
+    };
+
     Some((
         Match {
             byte_start,
             byte_end,
             msg_symbol,
+            skip,
         },
         cursor - start,
     ))
+}
+
+/// Scan the source region covering every line that the match touches for a
+/// `// klog-migrate: skip` opt-out marker (#1275).
+///
+/// The check window expands the match's `byte_start..byte_end` outward to
+/// the surrounding line boundaries so a marker anywhere on the `lea` line,
+/// the `call uart_puts` line, or any intermediate line is honored. The
+/// window is guaranteed to contain no string literals (the lexer already
+/// admitted the enclosed tokens as real code), so a raw regex scan cannot
+/// pick up a false positive from inside a string.
+///
+/// Case-insensitive. Whitespace between `klog-migrate`, `:`, and `skip` is
+/// permitted so authors can space the marker naturally
+/// (`// klog-migrate : skip`, `// KLOG-MIGRATE:SKIP`).
+fn has_skip_annotation(source: &str, byte_start: usize, byte_end: usize) -> bool {
+    let line_start = source[..byte_start].rfind('\n').map_or(0, |n| n + 1);
+    let line_end = source[byte_end..]
+        .find('\n')
+        .map_or(source.len(), |n| byte_end + n);
+    let window = &source[line_start..line_end];
+    skip_regex().is_match(window)
+}
+
+/// Cached compilation of the `// klog-migrate: skip` opt-out regex.
+///
+/// The regex matches `klog-migrate`, optional whitespace, `:`, optional
+/// whitespace, then `skip`, case-insensitively. It does not require the
+/// leading `//` because a comment marker embedded in a wider comment
+/// (`// #1275 klog-migrate: skip`) must also fire.
+fn skip_regex() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)klog-migrate\s*:\s*skip")
+            .expect("static regex is well-formed")
+    })
 }
 
 fn kind_eq(tok: &Token, kind: TokenKind) -> Option<()> {
@@ -348,5 +433,111 @@ mod tests {
         assert_eq!(ms[0].msg_symbol, "a_msg");
         assert_eq!(ms[1].msg_symbol, "b_msg");
         assert!(ms[0].byte_end <= ms[1].byte_start);
+    }
+
+    // ---- opt-out annotation (paideia-as#1275) --------------------------
+
+    #[test]
+    fn unannotated_match_has_no_skip_reason() {
+        // Baseline: an ordinary match carries `skip: None` so downstream
+        // rewriting proceeds as before the #1275 feature landed.
+        let src = "      lea rdi, [rip + banner_msg];\n      call uart_puts;\n";
+        let ms = one(src);
+        assert_eq!(ms.len(), 1);
+        assert!(ms[0].skip.is_none(), "expected None, got {:?}", ms[0].skip);
+    }
+
+    #[test]
+    fn annotation_on_lea_line_marks_skip() {
+        // Marker sits after the `;` on the `lea` line — same line, valid site.
+        let src = "      lea rdi, [rip + banner_msg]; // klog-migrate: skip\n\
+                   \x20     call uart_puts;\n";
+        let ms = one(src);
+        assert_eq!(ms.len(), 1);
+        assert_eq!(ms[0].skip, Some(SkipReason::Annotation));
+        // The captured symbol is still correct — the skip decision does not
+        // affect the underlying match data.
+        assert_eq!(ms[0].msg_symbol, "banner_msg");
+    }
+
+    #[test]
+    fn annotation_on_call_line_marks_skip() {
+        let src = "      lea rdi, [rip + banner_msg];\n\
+                   \x20     call uart_puts; // klog-migrate: skip\n";
+        let ms = one(src);
+        assert_eq!(ms.len(), 1);
+        assert_eq!(ms[0].skip, Some(SkipReason::Annotation));
+    }
+
+    #[test]
+    fn annotation_between_lea_and_call_marks_skip() {
+        // Marker on a bare intermediate line (three lines total).
+        let src = "      lea rdi, [rip + banner_msg];\n\
+                   \x20     // klog-migrate: skip — reason\n\
+                   \x20     call uart_puts;\n";
+        let ms = one(src);
+        assert_eq!(ms.len(), 1);
+        assert_eq!(ms[0].skip, Some(SkipReason::Annotation));
+    }
+
+    #[test]
+    fn annotation_is_case_insensitive() {
+        // Upper-case, mixed-case, tight-spacing variants all fire.
+        for marker in [
+            "// KLOG-MIGRATE: SKIP",
+            "// KLOG-migrate:skip",
+            "// Klog-Migrate : Skip",
+            "// klog-migrate:  skip",
+        ] {
+            let src = format!(
+                "      lea rdi, [rip + banner_msg]; {marker}\n\
+                 \x20     call uart_puts;\n"
+            );
+            let ms = one(&src);
+            assert_eq!(ms.len(), 1, "marker {marker:?} did not match");
+            assert_eq!(
+                ms[0].skip,
+                Some(SkipReason::Annotation),
+                "marker {marker:?} did not trigger skip"
+            );
+        }
+    }
+
+    #[test]
+    fn annotation_on_previous_line_does_not_skip() {
+        // A marker on the line BEFORE `lea` is out of scope — the check
+        // window covers only lines the pattern actually touches.
+        let src = "      // klog-migrate: skip\n\
+                   \x20     lea rdi, [rip + banner_msg];\n\
+                   \x20     call uart_puts;\n";
+        let ms = one(src);
+        assert_eq!(ms.len(), 1);
+        assert_eq!(
+            ms[0].skip, None,
+            "annotation on the preceding line must not skip the match"
+        );
+    }
+
+    #[test]
+    fn annotation_on_following_line_does_not_skip() {
+        // Same reasoning as previous line — marker on the line AFTER `call
+        // uart_puts` is out of scope. Callers who want to skip must place
+        // the marker on one of the match's own lines.
+        let src = "      lea rdi, [rip + banner_msg];\n\
+                   \x20     call uart_puts;\n\
+                   \x20     // klog-migrate: skip\n";
+        let ms = one(src);
+        assert_eq!(ms.len(), 1);
+        assert_eq!(ms[0].skip, None);
+    }
+
+    #[test]
+    fn annotation_embedded_in_longer_comment_still_skips() {
+        // Author style: additional context around the marker.
+        let src = "      lea rdi, [rip + banner_msg]; // #1275 klog-migrate: skip — wire fingerprint\n\
+                   \x20     call uart_puts;\n";
+        let ms = one(src);
+        assert_eq!(ms.len(), 1);
+        assert_eq!(ms[0].skip, Some(SkipReason::Annotation));
     }
 }

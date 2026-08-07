@@ -1,0 +1,13 @@
+module SkipLea = structure {
+  pub let boot : () -> () @{sysreg, mem} =
+    fn () -> unsafe {
+      effects: { sysreg, mem },
+      capabilities: {},
+      justification: "witness with skip annotation on the lea line (#1275)",
+      block: {
+        lea rdi, [rip + uart_rx_smoke_prefix_msg]; // klog-migrate: skip — wire fingerprint contiguity
+        call uart_puts;
+        ret;
+      }
+    }
+}

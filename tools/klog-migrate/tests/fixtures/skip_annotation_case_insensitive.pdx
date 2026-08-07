@@ -1,0 +1,13 @@
+module SkipCase = structure {
+  pub let boot : () -> () @{sysreg, mem} =
+    fn () -> unsafe {
+      effects: { sysreg, mem },
+      capabilities: {},
+      justification: "witness with an all-caps skip annotation (#1275)",
+      block: {
+        lea rdi, [rip + uart_rx_smoke_prefix_msg]; // KLOG-MIGRATE: SKIP
+        call uart_puts;
+        ret;
+      }
+    }
+}

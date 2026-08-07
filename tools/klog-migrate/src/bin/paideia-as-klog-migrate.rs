@@ -80,16 +80,19 @@ fn main() -> ExitCode {
         fail_pattern: fail_regex,
     };
 
-    let (migrated, hits, warnings) = match migrate(&source, &opts) {
+    let report = match migrate(&source, &opts) {
         Ok(t) => t,
         Err(e) => {
             eprintln!("paideia-as-klog-migrate: migration failed: {e}");
             return ExitCode::from(2);
         }
     };
+    let migrated = &report.source;
+    let hits = report.rewritten;
+    let skipped = report.skipped_by_annotation;
 
     // Surface any migration warnings before the primary-mode output.
-    for w in &warnings {
+    for w in &report.warnings {
         match w {
             klog_migrate::Warning::TrailingCommentDropped { line, msg_symbol } => {
                 eprintln!(
@@ -102,8 +105,20 @@ fn main() -> ExitCode {
         }
     }
 
-    if cli.diff && migrated != source {
-        let diff = TextDiff::from_lines(&source, &migrated);
+    // Advisory report of skipped-by-annotation sites (#1275). Emitted in
+    // every mode so operators see intentionally-preserved raw uart_puts
+    // sites without having to grep for them.
+    if skipped > 0 {
+        eprintln!(
+            "paideia-as-klog-migrate: {} skipped {} site{} by `// klog-migrate: skip` annotation",
+            cli.file.display(),
+            skipped,
+            if skipped == 1 { "" } else { "s" }
+        );
+    }
+
+    if cli.diff && migrated != &source {
+        let diff = TextDiff::from_lines(&source, migrated);
         let out = diff
             .unified_diff()
             .context_radius(3)
@@ -116,7 +131,7 @@ fn main() -> ExitCode {
     }
 
     if cli.check {
-        if migrated == source {
+        if migrated == &source {
             eprintln!("paideia-as-klog-migrate: {} is clean", cli.file.display());
             return ExitCode::SUCCESS;
         } else {
@@ -131,11 +146,11 @@ fn main() -> ExitCode {
     }
 
     if cli.in_place {
-        if migrated == source {
+        if migrated == &source {
             eprintln!("paideia-as-klog-migrate: {} unchanged", cli.file.display());
             return ExitCode::SUCCESS;
         }
-        if let Err(e) = std::fs::write(&cli.file, &migrated) {
+        if let Err(e) = std::fs::write(&cli.file, migrated) {
             eprintln!(
                 "paideia-as-klog-migrate: write {}: {e}",
                 cli.file.display()

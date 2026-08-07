@@ -327,3 +327,162 @@ fn level_info_ok_is_idempotent() {
     let src = fixture("level_info_ok.expected.pdx");
     bin().arg(&src).arg("--check").assert().code(0);
 }
+
+// ---- opt-out annotation fixtures (paideia-as#1275) ---------------------
+//
+// #1275: an author can mark an individual `lea rdi, [rip + SYM]; call
+// uart_puts;` site as intentionally-preserved raw by adding a
+// `// klog-migrate: skip` comment anywhere on one of the pattern's lines.
+// Rationale surfaced by paideia-os#704 verify at kernel_main.pdx L5867 /
+// L8068: klog_s1 appends its own `\n`, which splits the two-line "UART RX:
+// abc" wire fingerprint. Prior to #1275, every dry-run reported these
+// intentional-raw sites as noise.
+//
+// The four fixtures pin the four annotation positions the scanner honors:
+// on the `lea` line, on the `call uart_puts` line, on an intermediate
+// line between the two, and case-insensitive spelling. In every case the
+// expected output is byte-identical to input (no rewrite), the CLI stderr
+// carries a "skipped 1 site" advisory, and `--check` exits 0 (the file is
+// considered clean because nothing would be rewritten).
+
+fn assert_skip_annotation_fixture(name: &str) {
+    let src = fixture(&format!("{name}.pdx"));
+    let expected = read(&fixture(&format!("{name}.expected.pdx")));
+    let before = read(&src);
+    // The whole point of #1275 is byte-identical round-trip.
+    assert_eq!(
+        before, expected,
+        "{name}: input and expected must be byte-identical (skip annotation is a no-rewrite)"
+    );
+
+    let out = bin().arg(&src).output().unwrap();
+    assert!(out.status.success(), "{name}: status: {:?}", out.status);
+    let got_stdout = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(got_stdout, expected, "{name}: stdout != expected");
+
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(
+        stderr.contains("skipped 1 site by `// klog-migrate: skip` annotation"),
+        "{name}: no skipped-by-annotation advisory in stderr:\n{stderr}"
+    );
+
+    // --check must exit 0 because no rewrite would happen.
+    bin().arg(&src).arg("--check").assert().code(0);
+
+    // No warning should fire — a skipped site cannot drop a trailing
+    // comment because it is not rewritten.
+    assert!(
+        !stderr.contains("dropped trailing comment"),
+        "{name}: skipped site spuriously emitted comment-drop warning:\n{stderr}"
+    );
+}
+
+#[test]
+fn skip_annotation_on_lea_line_is_honored() {
+    assert_skip_annotation_fixture("skip_annotation_lea");
+}
+
+#[test]
+fn skip_annotation_on_call_line_is_honored() {
+    assert_skip_annotation_fixture("skip_annotation_call");
+}
+
+#[test]
+fn skip_annotation_between_lea_and_call_is_honored() {
+    assert_skip_annotation_fixture("skip_annotation_between");
+}
+
+#[test]
+fn skip_annotation_case_insensitive_is_honored() {
+    assert_skip_annotation_fixture("skip_annotation_case_insensitive");
+}
+
+#[test]
+fn skip_annotation_stderr_names_the_file() {
+    // The advisory must contain the file path so operators can distinguish
+    // per-file skips when batching.
+    let src = fixture("skip_annotation_lea.pdx");
+    let out = bin().arg(&src).output().unwrap();
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(
+        stderr.contains("skip_annotation_lea.pdx"),
+        "advisory missing file path:\n{stderr}"
+    );
+}
+
+#[test]
+fn skip_annotation_in_place_is_no_op() {
+    // A file whose ONLY hits are annotated must not be touched by
+    // --in-place (write skipped, stderr reports unchanged).
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("skip_annotation_lea.pdx");
+    let original = read(&fixture("skip_annotation_lea.pdx"));
+    fs::write(&path, &original).unwrap();
+
+    bin().arg(&path).arg("--in-place").assert().success();
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        original,
+        "--in-place modified a fully-annotated file"
+    );
+}
+
+#[test]
+fn skip_annotation_mixes_with_rewritable_hits() {
+    // Two sites, one annotated + one plain — the tool must rewrite the
+    // plain one and leave the annotated one alone, and stderr must
+    // account for both.
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("mixed.pdx");
+    let src = "\
+module Mixed = structure {
+  pub let boot : () -> () @{sysreg, mem} =
+    fn () -> unsafe {
+      effects: { sysreg, mem },
+      capabilities: {},
+      justification: \"one annotated + one plain\",
+      block: {
+        lea rdi, [rip + uart_rx_smoke_prefix_msg]; // klog-migrate: skip
+        call uart_puts;
+        lea rdi, [rip + banner_msg];
+        call uart_puts;
+        ret;
+      }
+    }
+}
+";
+    fs::write(&path, src).unwrap();
+
+    let out = bin().arg(&path).output().unwrap();
+    assert!(out.status.success());
+    let got = String::from_utf8(out.stdout).unwrap();
+    // Annotated site preserved verbatim: both the annotated `lea` line and
+    // its `call uart_puts;` companion must survive as raw source.
+    assert!(
+        got.contains("lea rdi, [rip + uart_rx_smoke_prefix_msg]; // klog-migrate: skip"),
+        "annotated site was rewritten:\n{got}"
+    );
+    // Exactly one `call uart_puts;` must remain in the output — the
+    // annotated one. The plain site's `call uart_puts;` must be gone
+    // (replaced by `call klog_s1;`).
+    let uart_puts_count = got.matches("call uart_puts;").count();
+    assert_eq!(
+        uart_puts_count, 1,
+        "expected 1 preserved raw `call uart_puts;`, got {uart_puts_count}:\n{got}"
+    );
+    // Plain site rewritten.
+    assert!(
+        got.contains("lea rdx, [rip + banner_msg];"),
+        "plain site not rewritten:\n{got}"
+    );
+    assert!(got.contains("call klog_s1;"), "no klog_s1 emitted:\n{got}");
+
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(
+        stderr.contains("skipped 1 site by `// klog-migrate: skip` annotation"),
+        "no skip advisory in stderr:\n{stderr}"
+    );
+
+    // --check must fail (exit 1): one plain site would be rewritten.
+    bin().arg(&path).arg("--check").assert().code(1);
+}

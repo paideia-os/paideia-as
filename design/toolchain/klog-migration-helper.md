@@ -187,6 +187,63 @@ paideia-as-klog-migrate: <FILE>:<LINE>: dropped trailing comment while migrating
 
 The migration still completes; the warning is advisory. Callers that treat any warning as fatal can grep stderr for `dropped trailing comment`.
 
+## Opt-out annotation (#1275)
+
+A pattern site the author intentionally keeps as raw `uart_puts` can be marked with a `// klog-migrate: skip` comment on any line that the pattern touches (the `lea` line, the `call uart_puts` line, or any line in between). Skipped sites are still surfaced in the operator report but are not rewritten.
+
+### Syntax
+
+```
+      lea rdi, [rip + SYM]; // klog-migrate: skip — <reason>
+      call uart_puts;
+```
+
+or
+
+```
+      lea rdi, [rip + SYM];
+      call uart_puts; // klog-migrate: skip — <reason>
+```
+
+or
+
+```
+      lea rdi, [rip + SYM];
+      // klog-migrate: skip — <reason>
+      call uart_puts;
+```
+
+The marker regex is `(?i)klog-migrate\s*:\s*skip`:
+
+- **Case-insensitive** — `KLOG-MIGRATE: SKIP` and `klog-migrate:skip` both fire.
+- **Whitespace-tolerant** around the `:` — `klog-migrate : skip` and `klog-migrate:skip` both fire.
+- **Embeddable** in a wider comment — `// #1275 klog-migrate: skip — wire fingerprint` fires.
+- The leading `//` is not part of the regex; a block-comment (`/* klog-migrate: skip */`) would also fire in principle, though line comments are the idiomatic form.
+
+### Scoping rule
+
+The check window is the byte range from the start of the line containing the match's first token (`lea`) to the end of the line containing the match's last token (`;` after `uart_puts`, or `uart_puts` itself in the semicolon-optional variant). A marker on the line **before** `lea` or the line **after** `call uart_puts;` is out of scope and does not skip the match. This keeps the annotation tightly coupled to the site it targets and avoids surprises when multiple pattern sites cluster within a few lines.
+
+### CLI behavior
+
+Skipped sites are counted in a separate stderr advisory:
+
+```
+paideia-as-klog-migrate: <FILE> skipped <N> site<s> by `// klog-migrate: skip` annotation
+```
+
+The advisory fires in every mode (default, `--in-place`, `--check`, `--diff`). Because a skipped site is not rewritten, `--check` treats it as clean (exit 0) — an operator running `--check` on a file whose only remaining hits are annotated will see a clean report, matching the intent that annotation acts as an explicit "reviewed and kept as-is" signal.
+
+`--in-place` on a file whose only hits are annotated exits 0 without touching the file (the migrated buffer equals the source).
+
+### Rationale
+
+Surfaced by paideia-os#704 verify: `kernel_main.pdx` at HEAD keeps two `uart_rx_smoke_prefix_msg` sites raw because `klog_s1` appends its own trailing `\n`, which would split the two-line `"UART RX: abc"` wire fingerprint. Prior to #1275, every dry-run reported these intentional-raw sites as noise. The annotation makes the intent local to the source and removes the noise from the review loop.
+
+### Interaction with the `--fail-pattern`
+
+The skip check runs after the pattern match but before the `--fail-pattern` classification — annotation short-circuits every downstream decision. A site with a `_fail_msg` symbol AND a skip marker is still skipped; the marker wins.
+
 ## Test surface
 
 Layered from smallest to largest:
@@ -234,6 +291,10 @@ Layered from smallest to largest:
    - `level_error_fail.pdx` / `level_error_fail.expected.pdx` (#1274): mixed `*_ok_msg` + `*_fail_msg` — pins `mov rdi, 1;` for the fail branch and `mov rdi, 3;` for the ok branch.
    - `level_error_err.pdx` / `level_error_err.expected.pdx` (#1274): all `*_err_msg` — pins `mov rdi, 1;` and the `(?i)(fail|err)` pattern's `err` arm.
    - `level_info_ok.pdx` / `level_info_ok.expected.pdx` (#1274): all `*_ok_msg` — pins `mov rdi, 3;` and confirms the fail-pattern does not spuriously fire.
+   - `skip_annotation_lea.pdx` / `skip_annotation_lea.expected.pdx` (#1275): marker on the `lea` line — byte-identical round-trip, stderr reports 1 skip.
+   - `skip_annotation_call.pdx` / `skip_annotation_call.expected.pdx` (#1275): marker on the `call uart_puts` line — same discipline.
+   - `skip_annotation_between.pdx` / `skip_annotation_between.expected.pdx` (#1275): marker on the intermediate line between `lea` and `call`.
+   - `skip_annotation_case_insensitive.pdx` / `skip_annotation_case_insensitive.expected.pdx` (#1275): `// KLOG-MIGRATE: SKIP` (all-caps) — pins the case-insensitive regex arm.
 
 ## Non-goals (v0.20)
 
@@ -242,7 +303,7 @@ Layered from smallest to largest:
 - **Higher-arity klog wrappers**: v0.20 targets `klog_s1` only. `klog_s1_x1` / `_x2` / `_x3` / `_x4` migrations (which fold `uart_put_hex` sequences) are deferred to v0.21; the token-scan module is designed so each new pattern is one additional `PatternKind` variant + one render function.
 - **AST-level rewriter**: paideia-as parses `unsafe { block: { ... } }` payloads as opaque `IrKind::RawInstruction` / `IrKind::Unsafe` node sequences (Phase 7 m2-001), so the AST does not carry per-instruction navigation a rewriter would benefit from. When self-hosting adds an assembly-block AST (Tier 2), this tool becomes the reference for the AST-level pass.
 
-- **Per-site opt-out annotation** ([#1275](https://github.com/paideia-os/paideia-as/issues/1275)): the scanner has no way to skip an individual `lea rdi, [rip + SYM]; call uart_puts;` site that the author intentionally kept raw (e.g. wire-fingerprint contiguity in `kernel_main.pdx:5864, 8033`, where `klog_s1`'s synthesised trailing `\n` would break a two-line `"UART RX: abc"` matcher). Current workflow: hand-audit `--check` diffs before `--in-place`, revert intentional-raw hits post-migration. A `// klog-migrate: skip` line-preceding pragma (mirroring `rustfmt::skip`) is the planned resolution.
+- **Per-site opt-out annotation** — resolved by [#1275](https://github.com/paideia-os/paideia-as/issues/1275) below.
 
 ## Extension model
 

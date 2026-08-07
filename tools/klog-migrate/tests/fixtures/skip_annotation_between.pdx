@@ -1,0 +1,14 @@
+module SkipBetween = structure {
+  pub let boot : () -> () @{sysreg, mem} =
+    fn () -> unsafe {
+      effects: { sysreg, mem },
+      capabilities: {},
+      justification: "witness with skip annotation between lea and call (#1275)",
+      block: {
+        lea rdi, [rip + uart_rx_smoke_prefix_msg];
+        // klog-migrate: skip — deliberately raw for two-line wire pattern
+        call uart_puts;
+        ret;
+      }
+    }
+}

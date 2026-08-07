@@ -1,0 +1,13 @@
+module SkipCall = structure {
+  pub let boot : () -> () @{sysreg, mem} =
+    fn () -> unsafe {
+      effects: { sysreg, mem },
+      capabilities: {},
+      justification: "witness with skip annotation on the call line (#1275)",
+      block: {
+        lea rdi, [rip + uart_rx_smoke_prefix_msg];
+        call uart_puts; // klog-migrate: skip — klog would append \n and split fingerprint
+        ret;
+      }
+    }
+}
