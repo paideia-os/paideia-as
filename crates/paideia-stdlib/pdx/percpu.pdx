@@ -1,16 +1,41 @@
 // PA-R15-010: Per-CPU counter idiom.
+// PA-R18-M2-003 (paideia-os#767): read_u64 / write_u64 / cmpxchg64 accessors.
 //
-// Trait PerCpuOps declares percpu_inc / percpu_add for atomic increment /
-// add-by-N on a counter located at a fixed offset in the GS segment (the
-// per-CPU control-block base). Lowering to `lock inc gs:[disp32]` (or
-// `lock add gs:[disp32], N`) deferred to codegen.
+// Trait PerCpuOps declares the per-CPU control-block accessor family for
+// paideia-os R18.M2 (per-CPU state via GS segment base):
+//
+//   - percpu_inc  / percpu_add : atomic inc / add on a per-CPU counter
+//                                (compile-time-literal offset; Literal recipe).
+//   - read_u64                 : load u64 from per-CPU CB at runtime offset
+//                                (SysVRegs recipe: RDI=off, RAX=return).
+//   - write_u64                : store u64 into per-CPU CB at runtime offset
+//                                (SysVRegs recipe: RDI=off, RSI=val).
+//   - cmpxchg64                : atomic compare-and-swap u64 in per-CPU CB
+//                                (SysVRegs recipe: RDI=off, RSI=expected,
+//                                 RDX=new, RAX=return = observed old value).
+//
+// The inc/add methods bake the offset into `[gs:disp32]` at compile time
+// (Literal convention) and require an integer-literal offset argument.
+// The read/write/cmpxchg methods take the offset in RDI and emit
+// `[gs:rdi + 0]` addressing (SysVRegs convention) — the offset flows
+// through as a runtime value so scheduler code can index the CB via a
+// derived offset when needed.
 //
 // Effect: !{Atomic, RawMem}. Capability: @{paideia.raw_mem}.
+// (read_u64 is !{RawMem} only — no atomic on a plain aligned qword load
+//  under x86-64's memory model; kernel writers who need acquire semantics
+//  should use an mfence-fenced sequence, or cmpxchg64 for RMW.)
 //
 // The gs-relative offset argument is the offset of the counter within the
-// per-CPU control block. Consumers pass the linker-resolved symbol offset.
+// per-CPU control block (paideia-os PERCPU_OFF_* constants in
+// src/kernel/core/smp/percpu.pdx). Consumers pass either a linker-resolved
+// symbol offset (Literal recipes) or a computed runtime value (SysVRegs
+// recipes).
 
 trait PerCpuOps {
   fn percpu_inc(counter_gs_offset: u64) -> () !{Atomic, RawMem} @{paideia.raw_mem};
   fn percpu_add(counter_gs_offset: u64, val: u64) -> () !{Atomic, RawMem} @{paideia.raw_mem};
+  fn read_u64(counter_gs_offset: u64) -> u64 !{RawMem} @{paideia.raw_mem};
+  fn write_u64(counter_gs_offset: u64, val: u64) -> () !{RawMem} @{paideia.raw_mem};
+  fn cmpxchg64(counter_gs_offset: u64, expected: u64, new: u64) -> u64 !{Atomic, RawMem} @{paideia.raw_mem};
 }
