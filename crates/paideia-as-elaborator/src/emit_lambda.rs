@@ -20,9 +20,12 @@ impl EmitWalker {
     ///
     /// PA-r17-004: resolve the referenced parameter's register via
     /// binding_names (populated by cmd_build pre-pass) + local_bindings
-    /// (populated by register_nested_lambda_params). Fall back to RDI
-    /// when the name is not resolvable (single-param convention +
-    /// in-crate unit tests that skip the cmd_build pre-pass).
+    /// (populated by register_nested_lambda_params).
+    ///
+    /// v0.21-001 (#1277): fall back through `param_index_to_reg_for_abi`
+    /// so MS x64 identity lambdas emit `mov rax, rcx` when name resolution
+    /// misses (was: unconditional RDI fallback, which produced SysV bytes
+    /// under `@abi("ms")`).
     pub(crate) fn emit_identity_lambda(
         &mut self,
         lambda_node_id: IrNodeId,
@@ -32,10 +35,12 @@ impl EmitWalker {
         let main_id = IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
         self.record_lambda_entry(lambda_node_id, main_id);
 
+        let cc = self.state.lambda_abi(lambda_node_id.get());
         let src_reg = arena
             .binding_names()
             .get(body_id)
             .and_then(|name| self.state.local_bindings.get(name))
+            .or_else(|| Self::param_index_to_reg_for_abi(cc, 0))
             .unwrap_or(abi::RDI);
 
         let mut mov_operands: SmallVec<[Operand; 3]> = SmallVec::new();
@@ -57,21 +62,26 @@ impl EmitWalker {
         self.emit_ret(ret_id, arena);
     }
 
-    /// Emit bitwise-NOT lambda: `mov rax, rdi; not rax; ret` (7 bytes:
-    /// `48 89 f8` / `48 f7 d0` / `c3`).
+    /// Emit bitwise-NOT lambda: `mov rax, <src_reg>; not rax; ret` (7 bytes).
     ///
-    /// Phase 7 m4-001: lowers `fn (x) -> ~x`. The operand arrives in RDI;
-    /// we move it into RAX, complement it in place, and return.
+    /// Phase 7 m4-001: lowers `fn (x) -> ~x`. The operand arrives in the
+    /// ABI-selected arg-0 register (RDI for SysV, RCX for MS x64); we move
+    /// it into RAX, complement it in place, and return.
     ///
     /// Three instructions keyed on `node*3 + {0,1,2}` to keep them adjacent
     /// and correctly ordered in the instruction map.
+    ///
+    /// v0.21-001 (#1277): ABI-aware source register selection.
     pub(crate) fn emit_bitnot_lambda(&mut self, lambda_node_id: IrNodeId, arena: &IrArena) {
         let main_id = IrNodeId::new(lambda_node_id.get() * 3).expect("main instr virtual id");
         self.record_lambda_entry(lambda_node_id, main_id);
 
+        let cc = self.state.lambda_abi(lambda_node_id.get());
+        let src = Self::param_index_to_reg_for_abi(cc, 0).unwrap_or(abi::RDI);
+
         let mut mov_operands: SmallVec<[Operand; 3]> = SmallVec::new();
         mov_operands.push(Operand::Reg(abi::RAX));
-        mov_operands.push(Operand::Reg(abi::RDI));
+        mov_operands.push(Operand::Reg(src));
 
         let mov_inst = Instruction {
             mnemonic: Mnemonic::Mov,
@@ -140,7 +150,10 @@ impl EmitWalker {
         self.record_lambda_entry(lambda_node_id, main_id);
 
         let dst = abi::RAX;
-        let src = abi::RDI;
+        // v0.21-001 (#1277): source is arg-0 for the lambda's ABI
+        // (RDI for SysV, RCX for MS x64).
+        let cc = self.state.lambda_abi(lambda_node_id.get());
+        let src = Self::param_index_to_reg_for_abi(cc, 0).unwrap_or(abi::RDI);
 
         let plan = cast_plan(shape);
         if let Some((mnemonic, hint, _size)) = plan.instruction() {
@@ -162,16 +175,21 @@ impl EmitWalker {
         self.emit_ret(ret_id, arena);
     }
 
-    /// Emit double lambda: `lea rax, [rdi + rdi]; ret` (5 bytes).
+    /// Emit double lambda: `lea rax, [<src> + <src>]; ret` (5 bytes).
+    ///
+    /// v0.21-001 (#1277): ABI-aware source register (RDI for SysV, RCX for MS x64).
     pub(crate) fn emit_double_lambda(&mut self, lambda_node_id: IrNodeId, arena: &IrArena) {
         let main_id = IrNodeId::new(lambda_node_id.get() * 2).expect("main instr virtual id");
         self.record_lambda_entry(lambda_node_id, main_id);
 
+        let cc = self.state.lambda_abi(lambda_node_id.get());
+        let src = Self::param_index_to_reg_for_abi(cc, 0).unwrap_or(abi::RDI);
+
         let mut lea_operands: SmallVec<[Operand; 3]> = SmallVec::new();
         lea_operands.push(Operand::Reg(abi::RAX));
         lea_operands.push(Operand::MemSib {
-            base: abi::RDI,
-            index: Some(abi::RDI),
+            base: src,
+            index: Some(src),
             scale: paideia_as_ir::instruction::Scale::X1,
             disp: 0,
         });

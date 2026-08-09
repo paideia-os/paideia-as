@@ -1179,116 +1179,49 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
         }
     }
 
-    // Phase 19 PA19-r19-001: U1620 narrowed gate pass (PA19-r19-006).
-    // Check all Let bindings with @abi("ms") directive that ARE lambda-shaped.
-    // Emit U1620 only for unsupported MS x64 shapes:
-    // - 5+ formal parameters (MS x64 only supports 4 register args)
-    // - Body shape not in {Path, Literal, Infix(+, ...)}
+    // v0.21-001 (#1277, closes #1011): U1620 gate — MS x64 emit path.
+    //
+    // Historical: PA19-r19-006 narrowed this gate to only pass Path / Literal /
+    // Infix(+, ident, literal) bodies with ≤4 params. That narrowing was
+    // defensive at r19 close because several body-shape lowerings hardcoded
+    // SysV RDI as the parameter source register (emit_bitnot_lambda,
+    // emit_cast_lambda_with_shape, emit_double_lambda, emit_shl_*_lambda).
+    //
+    // v0.21-001 opens the callee-side of the MS x64 ABI:
+    // - The hardcoded-RDI arms now route through `param_index_to_reg_for_abi`
+    //   (see emit_arith_lambda.rs / emit_lambda.rs).
+    // - The generic Var-expr lowerer (emit_var_assign_expr_to_reg) resolves
+    //   parameter registers via local_bindings, which
+    //   `register_nested_lambda_params` populates with MS_ARG_REGS when
+    //   `@abi("ms")` is set.
+    // - Args 5+ live above the shadow space; the callee-side `param_index_
+    //   to_reg_for_abi` returns None for idx≥4, so `register_nested_lambda_
+    //   params` silently skips them. A body reference to one fires T0540
+    //   ("Var … not found in bindings") — a cleaner diagnostic than a blanket
+    //   U1620 up-front rejection, and correct for the common case (`efi_main`
+    //   only reads image_handle in RCX and ignores rest).
+    //
+    // The only remaining U1620 case is deliberately empty: every AST shape
+    // reaches a lowering arm, and shape-specific diagnostics fire from the
+    // elaborator when they can't complete. Leave the pass in place as an
+    // anchor for future narrow rejections (e.g. XMM float args, aggregate
+    // return by-hidden-pointer) rather than deleting the site.
     {
+        let _ = &sink; // reserved for future narrow rejections
         for i in 0..arena.len() {
             if let Some(ast_id) = paideia_as_ast::NodeId::new((i + 1) as u32) {
                 if let Some(node) = arena.get(ast_id) {
                     if node.kind == paideia_as_ast::NodeKind::Let {
                         if let Some(paideia_as_ast::ItemData::Let {
                             abi: Some(paideia_as_ast::CallingConvention::Ms),
-                            value: value_id,
+                            value: _,
                             ..
                         }) = arena.item_data(ast_id)
                         {
-                            // Check if the value is a lambda (ExprLambda)
-                            if let Some(value_node) = arena.get(*value_id) {
-                                if value_node.kind == paideia_as_ast::NodeKind::ExprLambda {
-                                    let mut should_emit_u1620 = false;
-                                    let mut error_message = String::new();
-
-                                    // Access Lambda expression data
-                                    if let Some(expr_data) = arena.expr_data(*value_id) {
-                                        if let paideia_as_ast::ExprData::Lambda { params, body, .. } = expr_data {
-                                            // Check formal parameter count (MS x64 only supports 4 register args)
-                                            if params.len() > 4 {
-                                                should_emit_u1620 = true;
-                                                error_message = format!(
-                                                    "MS x64 calling convention does not support {} parameters (max 4 in registers); \
-                                                     overflow to stack not yet emittable",
-                                                    params.len()
-                                                );
-                                            } else {
-                                                // Check the lambda body shape
-                                                // Supported shapes for MVP:
-                                                // - Path (identity: fn (x) -> x)
-                                                // - Literal (literal return: fn () -> 42)
-                                                // - Infix (binary op: fn (x) -> x + 1, x * 2, etc.)
-                                                // All other shapes fire U1620.
-                                                if let Some(body_node) = arena.get(*body) {
-                                                    match body_node.kind {
-                                                        paideia_as_ast::NodeKind::ExprPath => {
-                                                            // Identity: fn (x) -> x ✓
-                                                        }
-                                                        paideia_as_ast::NodeKind::ExprLiteral => {
-                                                            // Literal: fn () -> 42 ✓
-                                                        }
-                                                        paideia_as_ast::NodeKind::ExprInfix => {
-                                                            // MS x64 narrowing: only addition with (ident, literal) operands supported.
-                                                            // Pattern: fn (x) -> x + 1
-                                                            // Reject all other patterns: x * x, x + y, 1 + x, etc.
-                                                            if let Some(infix_data) = arena.expr_data(*body) {
-                                                                if let paideia_as_ast::ExprData::Infix { op, lhs, rhs } = infix_data {
-                                                                    // Check operator is addition
-                                                                    let op_name = if let Some(op_node) = arena.get(*op) {
-                                                                        let op_span = op_node.span;
-                                                                        let start = op_span.byte_start() as usize;
-                                                                        let len = op_span.byte_len() as usize;
-                                                                        if start + len <= source_map.content(file).len() {
-                                                                            source_map.content(file)[start..start + len].to_string()
-                                                                        } else {
-                                                                            String::new()
-                                                                        }
-                                                                    } else {
-                                                                        String::new()
-                                                                    };
-
-                                                                    // Check LHS is a Path (ident reference)
-                                                                    let lhs_ok = arena.get(*lhs).map(|n| n.kind == paideia_as_ast::NodeKind::ExprPath).unwrap_or(false);
-                                                                    // Check RHS is a Literal (integer literal)
-                                                                    let rhs_ok = arena.get(*rhs).map(|n| n.kind == paideia_as_ast::NodeKind::ExprLiteral).unwrap_or(false);
-
-                                                                    // Only allow: + with (Path, Literal)
-                                                                    if op_name != "+" || !lhs_ok || !rhs_ok {
-                                                                        should_emit_u1620 = true;
-                                                                        error_message = format!(
-                                                                            "MS x64 body shape not yet emittable (only `x + literal` supported, got `{} {} {}`)",
-                                                                            if lhs_ok { "ident" } else { "non-ident" },
-                                                                            if op_name == "+" { "+" } else { &op_name },
-                                                                            if rhs_ok { "literal" } else { "non-literal" }
-                                                                        );
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                        _ => {
-                                                            should_emit_u1620 = true;
-                                                            error_message = "MS x64 body shape not yet emittable (only identity/binary/literal returns supported)".to_string();
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    if should_emit_u1620 {
-                                        let code = paideia_as_diagnostics::DiagnosticCode::new(
-                                            paideia_as_diagnostics::Category::U,
-                                            paideia_as_diagnostics::Severity::Error,
-                                            1620,
-                                        ).expect("valid U1620 code");
-                                        let diag = paideia_as_diagnostics::Diagnostic::error(code)
-                                            .message(error_message)
-                                            .with_span(value_node.span)
-                                            .finish();
-                                        let _ = sink.emit(diag);
-                                    }
-                                }
-                            }
+                            // No shape rejections at this pass. All previously-U1620'd
+                            // shapes now route through the elaborator's ABI-aware
+                            // lowering. Downstream diagnostics (T0540, T0521) fire
+                            // for genuinely-unsupported patterns (stack-arg reads).
                         }
                     }
                 }

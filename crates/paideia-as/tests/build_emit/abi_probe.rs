@@ -91,24 +91,86 @@ fn abi_ms_literal_return_lambda_compiles() {
     }
 }
 
+/// v0.21-001 (#1277, closes #1011): 5-arg MS x64 identity fn now emits.
+/// Fixture: `fn(a,b,c,d,e) -> a` returns arg[0], which lives in RCX under MS x64.
+/// Args b/c/d are register-passed (RDX/R8/R9) but unused; arg e is stack-passed
+/// (above shadow space) but unused — silently unregistered by
+/// register_nested_lambda_params. The body reduces to `mov rax, rcx; ret`.
+///
+/// Previously (r19): U1620 rejected any @abi("ms") lambda with >4 params.
 #[test]
-fn abi_ms_five_arg_lambda_still_emits_u1620() {
+fn abi_ms_five_arg_lambda_compiles_and_uses_rcx() {
     let out = run_build(build_emit("abi_ms_five_arg_probe.pdx"));
-    out.assert_diag("U1620");
-    let stderr_lc = out.stderr.to_lowercase();
+    out.assert_ok();
     assert!(
-        stderr_lc.contains("parameter") || out.stderr.contains("5"),
-        "U1620 message should mention parameters or count: {}", out.stderr
+        !out.stderr_contains("U1620"),
+        "5-arg MS x64 identity should NOT emit U1620 (v0.21-001); stderr:\n{}",
+        out.stderr
     );
+    let bytes = out.artifact_bytes();
+    elf::assert_elf64_magic(&bytes);
+
+    if let Some(func_bytes) = elf::symbol_bytes(&bytes, "my_5arg") {
+        // Look for mov rax, rcx (48 89 C8) — MS x64 identity from arg[0].
+        let has_ms_identity = func_bytes
+            .windows(3)
+            .any(|w| w[0] == 0x48 && w[1] == 0x89 && w[2] == 0xC8);
+        assert!(
+            has_ms_identity,
+            "Expected MS x64 identity `mov rax, rcx` (48 89 C8) in my_5arg: {}",
+            func_bytes.iter().take(32).map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(" ")
+        );
+        // Must NOT contain SysV identity `mov rax, rdi` (48 89 F8).
+        let has_sysv_identity = func_bytes
+            .windows(3)
+            .any(|w| w[0] == 0x48 && w[1] == 0x89 && w[2] == 0xF8);
+        assert!(
+            !has_sysv_identity,
+            "5-arg MS lambda must NOT emit SysV `mov rax, rdi` (48 89 F8) in my_5arg"
+        );
+    } else {
+        panic!("my_5arg symbol not found in ELF");
+    }
 }
 
+/// v0.21-001 (#1277, closes #1011): `x * x` (multiplication) body now emits
+/// under @abi("ms"). Previously U1620 rejected any non-{Path, Literal,
+/// Infix(+, ident, literal)} body; now the shared BinOp lowerer
+/// (emit_var_assign_expr_to_rax) resolves the parameter register through
+/// local_bindings, which is ABI-populated. For MS x64, `x` lives in RCX,
+/// so the load is `mov rax, rcx` (48 89 C8) not `mov rax, rdi` (48 89 F8).
 #[test]
-fn abi_ms_complex_body_still_emits_u1620() {
+fn abi_ms_complex_body_compiles_and_uses_rcx() {
     let out = run_build(build_emit("abi_ms_complex_body_probe.pdx"));
-    out.assert_diag("U1620");
-    let stderr_lc = out.stderr.to_lowercase();
+    out.assert_ok();
     assert!(
-        stderr_lc.contains("body") || stderr_lc.contains("shape"),
-        "U1620 message should mention body shape: {}", out.stderr
+        !out.stderr_contains("U1620"),
+        "MS x64 `x * x` body should NOT emit U1620 (v0.21-001); stderr:\n{}",
+        out.stderr
     );
+    let bytes = out.artifact_bytes();
+    elf::assert_elf64_magic(&bytes);
+
+    if let Some(func_bytes) = elf::symbol_bytes(&bytes, "my_complex") {
+        // Body reads `x` (in RCX under MS) into RAX; must contain 48 89 C8.
+        let has_load_from_rcx = func_bytes
+            .windows(3)
+            .any(|w| w[0] == 0x48 && w[1] == 0x89 && w[2] == 0xC8);
+        // Must NOT contain load from RDI (48 89 F8) — that would be SysV.
+        let has_load_from_rdi = func_bytes
+            .windows(3)
+            .any(|w| w[0] == 0x48 && w[1] == 0x89 && w[2] == 0xF8);
+        assert!(
+            has_load_from_rcx,
+            "MS x64 complex body must load `x` from RCX (48 89 C8): {}",
+            func_bytes.iter().take(32).map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(" ")
+        );
+        assert!(
+            !has_load_from_rdi,
+            "MS x64 complex body must NOT load `x` from RDI (SysV): {}",
+            func_bytes.iter().take(32).map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(" ")
+        );
+    } else {
+        panic!("my_complex symbol not found in ELF");
+    }
 }

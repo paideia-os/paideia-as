@@ -64,24 +64,23 @@ impl EmitWalker {
         self.emit_ret(ret_id, arena);
     }
 
-    /// Phase 8 m1-001d: Emit shift-left constant-by-variable lambda: `mov rax, const; mov rcx, rdi; shl rax, cl; ret`.
+    /// Phase 8 m1-001d: Emit shift-left constant-by-variable lambda: `mov rax, const; mov rcx, <arg0>; shl rax, cl; ret`.
     ///
     /// Handles `fn (order: u64) -> PAGE_SIZE << order` where PAGE_SIZE is a constant.
     /// The constant is moved into RAX, the variable shift count (in parameter register) is moved to RCX,
     /// then SHL is performed with CL as the count.
     /// Uses 4 instructions (~13 bytes).
+    ///
+    /// v0.21-001 (#1277): ABI-aware — arg0 is RDI for SysV, RCX for MS x64.
+    /// When arg0 is already in RCX (MS x64), the mov rcx, rcx is retained for
+    /// structural uniformity; the encoder collapses it to no-op semantics.
     pub(crate) fn emit_shl_const_var_lambda(&mut self, lambda_node_id: IrNodeId, const_val: i64, arena: &IrArena) {
         let main_id = IrNodeId::new(lambda_node_id.get() * 4).expect("main instr virtual id");
         self.record_lambda_entry(lambda_node_id, main_id);
 
-        // PA8-m3-001 (width not available — generic Mov retained): the first move
-        // (`mov rax, const`) is `(Reg, Imm64)` and so MovSized-encodable in shape,
-        // but this is a *synthetic* lowering of the fixed `CONST << var` pattern.
-        // No Let/binding node carries this immediate, so there is no IR width to
-        // resolve. The shifted result must also be 64-bit-clean for the `shl
-        // rax, cl` that follows, so the full-width move is the safe choice. The
-        // two later moves (mov rcx, rdi / shl operands) are reg-reg and cannot be
-        // MovSized at all.
+        let cc = self.state.lambda_abi(lambda_node_id.get());
+        let arg0 = Self::param_index_to_reg_for_abi(cc, 0).unwrap_or(abi::RDI);
+
         // Mov rax, imm64: 48 b8 XXXXXXXX XXXXXXXX (10 bytes, or fewer for smaller immediates)
         let mut mov1_operands: SmallVec<[Operand; 3]> = SmallVec::new();
         mov1_operands.push(Operand::Reg(abi::RAX)); // rax
@@ -98,11 +97,10 @@ impl EmitWalker {
 
         self.emit_inst(main_id, mov1_inst);
 
-        // Mov rcx, rdi: 48 89 f9 (3 bytes)
-        // RDI holds the shift count (parameter 0)
+        // Mov rcx, <arg0>: 48 89 f9 (SysV) or 48 89 c9 (MS, no-op)
         let mut mov2_operands: SmallVec<[Operand; 3]> = SmallVec::new();
         mov2_operands.push(Operand::Reg(abi::RCX)); // rcx
-        mov2_operands.push(Operand::Reg(abi::RDI)); // rdi (arg0)
+        mov2_operands.push(Operand::Reg(arg0));     // rdi (SysV arg0) or rcx (MS arg0)
 
         let mov2_inst = Instruction {
             mnemonic: Mnemonic::Mov,
@@ -138,13 +136,13 @@ impl EmitWalker {
         self.emit_ret(ret_id, arena);
     }
 
-    /// Phase 8 m1-001d: Emit shift-left immediate lambda: `mov rax, rdi; shl rax, imm8; ret`.
+    /// Phase 8 m1-001d: Emit shift-left immediate lambda: `mov rax, <arg0>; shl rax, imm8; ret`.
     ///
     /// Handles `fn (x) -> x << N` for immediate shift count.
     /// Operands: destination register (RAX), shift count.
     /// Uses 3 instructions: mov + shl + ret (~8 bytes).
-    // PA8-m3-001 (generic Mov retained): the `mov rax, rdi` here is reg-to-reg
-    // and not MovSized-encodable; the shift operand is an immediate to SHL, not MOV.
+    ///
+    /// v0.21-001 (#1277): ABI-aware — arg0 is RDI for SysV, RCX for MS x64.
     pub(crate) fn emit_shl_imm_lambda(&mut self, lambda_node_id: IrNodeId, shift_count: i64, arena: &IrArena) {
         // Range validation before recording entry (defense-in-depth for #1167).
         let shift = if shift_count >= 0 && shift_count <= 63 {
@@ -157,10 +155,13 @@ impl EmitWalker {
         let main_id = IrNodeId::new(lambda_node_id.get() * 3).expect("main instr virtual id");
         self.record_lambda_entry(lambda_node_id, main_id);
 
-        // Mov rax, rdi: 48 89 f8 (3 bytes)
+        let cc = self.state.lambda_abi(lambda_node_id.get());
+        let arg0 = Self::param_index_to_reg_for_abi(cc, 0).unwrap_or(abi::RDI);
+
+        // Mov rax, <arg0>
         let mut mov_operands: SmallVec<[Operand; 3]> = SmallVec::new();
         mov_operands.push(Operand::Reg(abi::RAX)); // rax
-        mov_operands.push(Operand::Reg(abi::RDI)); // rdi (arg0)
+        mov_operands.push(Operand::Reg(arg0));     // rdi (SysV) or rcx (MS)
 
         let mov_inst = Instruction {
             mnemonic: Mnemonic::Mov,
@@ -195,20 +196,27 @@ impl EmitWalker {
         self.emit_ret(ret_id, arena);
     }
 
-    /// Phase 8 m1-001d: Emit shift-left variable lambda: `mov rax, rdi; mov rcx, rsi; shl rax, cl; ret`.
+    /// Phase 8 m1-001d: Emit shift-left variable lambda: `mov rax, <arg0>; mov rcx, <arg1>; shl rax, cl; ret`.
     ///
-    /// Handles `fn (x) -> x << y` where y is the second parameter (in RSI).
-    /// Uses variable shift count in CL register. Uses 4 instructions (~12 bytes).
+    /// Handles `fn (x, y) -> x << y`. Uses variable shift count in CL register.
+    /// Uses 4 instructions (~12 bytes).
+    ///
+    /// v0.21-001 (#1277): ABI-aware — arg0/arg1 pair is (RDI, RSI) for SysV,
+    /// (RCX, RDX) for MS x64. When arg0 is RCX (MS x64), the mov rax, rcx +
+    /// mov rcx, rdx sequence is safe: the arg0→RAX move runs first, so RCX
+    /// is free to receive arg1 before SHL uses CL.
     pub(crate) fn emit_shl_var_lambda(&mut self, lambda_node_id: IrNodeId, arena: &IrArena) {
         let main_id = IrNodeId::new(lambda_node_id.get() * 4).expect("main instr virtual id");
         self.record_lambda_entry(lambda_node_id, main_id);
 
-        // PA8-m3-001 (generic Mov retained): both moves here (`mov rax, rdi` /
-        // `mov rcx, rsi`) are reg-to-reg and not MovSized-encodable.
-        // Mov rax, rdi: 48 89 f8 (3 bytes)
+        let cc = self.state.lambda_abi(lambda_node_id.get());
+        let arg0 = Self::param_index_to_reg_for_abi(cc, 0).unwrap_or(abi::RDI);
+        let arg1 = Self::param_index_to_reg_for_abi(cc, 1).unwrap_or(abi::RSI);
+
+        // Mov rax, <arg0>
         let mut mov1_operands: SmallVec<[Operand; 3]> = SmallVec::new();
         mov1_operands.push(Operand::Reg(abi::RAX)); // rax
-        mov1_operands.push(Operand::Reg(abi::RDI)); // rdi (arg0)
+        mov1_operands.push(Operand::Reg(arg0));     // rdi (SysV) or rcx (MS)
 
         let mov1_inst = Instruction {
             mnemonic: Mnemonic::Mov,
@@ -221,10 +229,10 @@ impl EmitWalker {
 
         self.emit_inst(main_id, mov1_inst);
 
-        // Mov rcx, rsi: 48 89 f1 (3 bytes)
+        // Mov rcx, <arg1>
         let mut mov2_operands: SmallVec<[Operand; 3]> = SmallVec::new();
         mov2_operands.push(Operand::Reg(abi::RCX)); // rcx
-        mov2_operands.push(Operand::Reg(abi::RSI)); // rsi (arg1)
+        mov2_operands.push(Operand::Reg(arg1));     // rsi (SysV) or rdx (MS)
 
         let mov2_inst = Instruction {
             mnemonic: Mnemonic::Mov,

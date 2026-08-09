@@ -1,0 +1,19 @@
+// v0.21-001 (#1277, closes #1011): MS x64 ABI shadow-space + 5-arg regression.
+//
+// UEFI-shaped extern-callable function accepting 5 integer args. Under MS x64:
+//   arg[0] → RCX, arg[1] → RDX, arg[2] → R8, arg[3] → R9
+//   arg[4] → stack at [rsp + 8 + 32] (above return addr + 32-byte shadow space)
+//
+// This fixture returns arg[0] (RCX), verifying:
+//   - callee-side parameter mapping to MS x64 register set,
+//   - lambda body compiles without U1620 for >4 formal parameters,
+//   - the stack-passed arg[4] does not force a compilation failure when
+//     the body does not reference it.
+//
+// The caller-side test that exercises the 32-byte shadow-space bump lives in
+// crates/paideia-as/tests/build_emit/two_let_with_ms_call_saves_rcx.rs.
+
+module MsX64Shadow = structure {
+  pub let uefi_5arg : (u64, u64, u64, u64, u64) -> u64 =
+    fn(image : u64, sys : u64, arg2 : u64, arg3 : u64, extra : u64) -> image @abi("ms")
+}

@@ -114,6 +114,7 @@ mod build_emit {
     pub mod stmt_assign_local_let_mut;
     pub mod stmt_assign_local_let_mut_unrelated_store;
     pub mod stmt_assign_module_let_mut_plain;
+    pub mod ms_x64_shadow;
     pub mod stmt_let_with_call_rhs;
     pub mod sysv_bridge_bump;
     pub mod target_triplet;
