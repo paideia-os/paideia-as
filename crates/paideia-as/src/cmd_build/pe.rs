@@ -12,7 +12,7 @@ use paideia_as_emitter_pe::{
     COFF_FILE_HEADER_SIZE, CoffFileHeader, DOS_HEADER_SIZE, DosHeader, NT_SIGNATURE,
     OPTIONAL_HEADER_PE32PLUS_SIZE, OptionalHeaderPe32Plus, NamedSectionError, Section, SectionTable as PeSectionTable,
 };
-use paideia_as_encoder::EncodeStats;
+use paideia_as_encoder::{EncodeStats, RelocKind};
 use paideia_as_ir::{IrNodeId, SectionKind};
 
 use crate::det;
@@ -175,6 +175,13 @@ pub(super) fn build_pe_object(
     // This enables DWARF .debug_line reconstruction with post-rewrite offsets.
     let _offset_map = emit_result.offset_map;
 
+    // Issue #1291 (cross-repo:paideia-as-fix): Preserve the encoder's text→data
+    // relocation sites so we can patch the .text disp32 fields after finalize().
+    // Symmetric with cmd_build/elf.rs (lines 366-378) which feeds the same
+    // reloc_sites into ElfWriter::add_relocation. In PE we produce a
+    // self-contained image (no linker), so we resolve in-place below.
+    let text_reloc_sites = emit_result.reloc_sites;
+
     // Reserve space for .reloc section if we have relocations
     let has_relocations = !sections.relocations.is_empty();
     if has_relocations {
@@ -253,6 +260,80 @@ pub(super) fn build_pe_object(
                 let reloc_end = reloc_sec.header.virtual_address + content_len;
                 if reloc_end > opt.size_of_image {
                     opt.size_of_image = reloc_end;
+                }
+            }
+        }
+    }
+
+    // Issue #1291: Resolve text→data (and text→text within the image) RIP-relative
+    // relocation sites emitted by the encoder for shapes like
+    //   mov [rip + global], reg    → 48 89 05 <disp32_placeholder>
+    //   mov reg, [rip + global]    → 48 8B 05 <disp32_placeholder>
+    //   lea reg, [rip + symbol]    → 48 8D 05 <disp32_placeholder>
+    //   call symbol                → E8       <disp32_placeholder>
+    //
+    // The encoder emits each site with `addend` already biased by
+    // PC32_FIELD_BIAS (-4), so the correct in-place patch is:
+    //     disp32 = target_rva + site.addend - field_rva
+    // which equals `target_va - (field_va + 4)`, i.e. `target - RIP_after_instr`.
+    //
+    // Only PcRel32 / Plt32 are patched here — both are 4-byte RIP-relative fields
+    // and, in a self-contained EFI image where .text and .data share image_base,
+    // are invariant under base-relocation (so no `.reloc` entry is required).
+    // Abs32 / Abs64 sites would additionally need `.reloc` base-relocation slots;
+    // they are deferred to a follow-up (no encoder shapes in the current corpus
+    // emit them in text at present).
+    //
+    // Sites whose target symbol is not resolvable from `data_symbol_offsets`
+    // (e.g. intra-.text function calls, whose function symbols the PE emit path
+    // does not yet track) are silently skipped — matches pre-fix behaviour and
+    // avoids regressing shapes this fix does not claim to cover.
+    if !text_reloc_sites.is_empty() {
+        if let Some(text_idx) = sections.find_section_by_name(".text") {
+            let text_rva = sections.sections[text_idx].header.virtual_address;
+
+            // Two-pass to avoid overlapping borrows on `sections.sections`:
+            // first collect (byte_offset, disp32) patches, then apply them.
+            let mut patches: Vec<(usize, i32)> = Vec::new();
+            for site in &text_reloc_sites {
+                match site.kind {
+                    RelocKind::PcRel32 | RelocKind::Plt32 => {
+                        if let Some((target_section_idx, target_offset)) =
+                            data_symbol_offsets.get(&site.symbol)
+                        {
+                            if *target_section_idx < sections.sections.len() {
+                                let target_rva = sections.sections[*target_section_idx]
+                                    .header
+                                    .virtual_address
+                                    + *target_offset as u32;
+                                let field_rva = text_rva.wrapping_add(site.byte_offset);
+                                let disp = (target_rva as i64)
+                                    - (field_rva as i64)
+                                    + (site.addend as i64);
+                                // disp must fit i32 (RIP-rel disp32).
+                                // Silently drop if out of range — the emitted 0 placeholder
+                                // will manifest as an obvious runtime jump/store into .text,
+                                // and a future validating pass can turn this into a diagnostic.
+                                if disp >= i32::MIN as i64 && disp <= i32::MAX as i64 {
+                                    patches.push((site.byte_offset as usize, disp as i32));
+                                }
+                            }
+                        }
+                        // Unresolved target: leave placeholder (see note above).
+                    }
+                    RelocKind::Abs32 | RelocKind::Abs64 => {
+                        // Deferred (would require .reloc base-relocation entries).
+                    }
+                }
+            }
+
+            if !patches.is_empty() {
+                let text_content = &mut sections.sections[text_idx].content;
+                for (field_off, disp32) in patches {
+                    let end = field_off + 4;
+                    if end <= text_content.len() {
+                        text_content[field_off..end].copy_from_slice(&disp32.to_le_bytes());
+                    }
                 }
             }
         }

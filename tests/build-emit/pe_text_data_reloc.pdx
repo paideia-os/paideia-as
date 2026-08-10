@@ -1,0 +1,30 @@
+// tests/build-emit/pe_text_data_reloc_1291.pdx — regression for issue #1291
+//
+// The PE emit path previously discarded encoder-emitted text→data RIP-relative
+// relocation sites, leaving the disp32 field of `mov [rip + global], reg` as
+// the encoder's 4-byte placeholder (00 00 00 00). This fixture forces two
+// such sites via an @abi("ms") + @no_frame function that latches its two
+// arguments into .data globals — the exact shape paideia-os uefi_stub.pdx
+// uses for _efi_image_handle / _efi_system_table.
+//
+// The paired test (crates/paideia-as/tests/build_emit/uefi_stub.rs::
+// pe_text_data_rip_rel_stores_are_patched_1291) asserts the disp32 fields
+// are non-zero and resolve to the .data slot RVAs.
+
+module PeTextDataReloc = structure {
+  pub let mut slot_a : u64 = 0
+  pub let mut slot_b : u64 = 0
+
+  pub let latch : (u64, u64) -> u64 !{sysreg, mem} @{} =
+    fn (a: u64, b: u64) -> unsafe {
+      effects: { sysreg, mem },
+      capabilities: {},
+      justification: "Issue #1291 regression: mov [rip + slot_*], reg exercises the encoder text→data RIP-relative relocation-site path that the PE emitter must resolve in-place.",
+      block: {
+        mov [rip + slot_a], rcx;
+        mov [rip + slot_b], rdx;
+        mov rax, 0;
+        ret
+      }
+    } @abi("ms") @no_frame
+}

@@ -674,3 +674,136 @@ fn uefi_efi_drift_detects_via_constants() {
         );
     }
 }
+
+/// Issue #1291: PE emitter must patch text→data RIP-relative disp32 fields.
+///
+/// Regression for the cross-repo backtrack from paideia-os #783 (R19-M1-001).
+/// Prior to the fix, `cmd_build/pe.rs` bound `emit_result.offset_map` to
+/// `_offset_map` and dropped `emit_result.reloc_sites` entirely, so any
+/// `mov [rip + global], reg` reached the emitted image with a placeholder
+/// disp32 (`00 00 00 00`) — the store then clobbered .text at runtime
+/// instead of landing in the intended .data slot.
+///
+/// Fixture: tests/build-emit/pe_text_data_reloc.pdx — an @abi("ms") +
+/// @no_frame function that stores its two arguments into two .data globals,
+/// mirroring the paideia-os uefi_stub shape.
+///
+/// This test asserts:
+///   1. The .text section contains exactly two `mov [rip+disp32], reg` sites.
+///   2. Both disp32 fields are non-zero (regression against the drop-on-floor
+///      pre-fix behaviour).
+///   3. Each disp32, when interpreted as RIP-relative, resolves to a byte
+///      inside the .data section (RVA range check) — proves the target is
+///      correct, not merely non-zero.
+#[test]
+fn pe_text_data_rip_rel_stores_are_patched_1291() {
+    use object::ObjectSection;
+
+    let fixture_path = {
+        let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        p.push("../../tests/build-emit/pe_text_data_reloc.pdx");
+        p
+    };
+
+    let out_file = PathBuf::from("/tmp/pe_text_data_reloc_1291.efi");
+    let _ = fs::remove_file(&out_file);
+
+    let out = cargo_run(&[
+        "build",
+        fixture_path.to_str().unwrap(),
+        "--emit",
+        "pe-coff",
+        "-o",
+        out_file.to_str().unwrap(),
+    ]);
+
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "fixture must build cleanly; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let bytes = fs::read(&out_file).expect("read PE output");
+    let file = object::File::parse(&bytes[..]).expect("parse PE");
+
+    let mut text_data = Vec::new();
+    let mut text_vaddr: u64 = 0;
+    let mut data_vaddr: u64 = 0;
+    let mut data_size: u64 = 0;
+    for section in file.sections() {
+        match section.name().unwrap_or("") {
+            ".text" => {
+                text_vaddr = section.address();
+                text_data = section.data().expect("read .text").to_vec();
+            }
+            ".data" => {
+                data_vaddr = section.address();
+                data_size = section.size();
+            }
+            _ => {}
+        }
+    }
+    assert!(!text_data.is_empty(), ".text must be non-empty");
+    assert!(data_size > 0, ".data must be non-empty");
+
+    // Find `mov [rip+disp32], reg` sites. Encoding for the two store shapes
+    // used by the fixture is 48 89 0d ?? ?? ?? ?? (mov [rip+d32], rcx) and
+    // 48 89 15 ?? ?? ?? ?? (mov [rip+d32], rdx). ModR/M byte low three bits
+    // are 5 (RIP-relative), reg field is (rcx=1 → 0x0d, rdx=2 → 0x15).
+    let mut sites: Vec<(usize, u8, i32)> = Vec::new(); // (instr_off, modrm, disp32)
+    let mut i = 0;
+    while i + 7 <= text_data.len() {
+        if text_data[i] == 0x48 && text_data[i + 1] == 0x89 {
+            let modrm = text_data[i + 2];
+            // mod=00, rm=5 (rip-rel) → low 3 bits of ModR/M are 5, high 2 bits 00
+            if modrm & 0xC7 == 0x05 {
+                let disp = i32::from_le_bytes([
+                    text_data[i + 3],
+                    text_data[i + 4],
+                    text_data[i + 5],
+                    text_data[i + 6],
+                ]);
+                sites.push((i, modrm, disp));
+                i += 7;
+                continue;
+            }
+        }
+        i += 1;
+    }
+
+    assert_eq!(
+        sites.len(),
+        2,
+        "expected exactly two `mov [rip+disp32], reg` sites in .text, found {}: {:?}",
+        sites.len(),
+        sites
+    );
+
+    for (instr_off, modrm, disp) in &sites {
+        // Pre-fix regression assertion: disp32 must not be the placeholder.
+        assert_ne!(
+            *disp, 0,
+            "issue #1291: disp32 at .text+0x{:x} (modrm=0x{:02x}) is the encoder placeholder — \
+             text→data reloc site was dropped",
+            instr_off,
+            modrm
+        );
+
+        // Semantic assertion: RIP-after-instr + disp32 must land inside .data.
+        // Field starts at instr+3; the instruction is 7 bytes total; RIP after
+        // fetch is text_vaddr + instr_off + 7.
+        let rip_after = text_vaddr + *instr_off as u64 + 7;
+        let target = rip_after.wrapping_add(*disp as i64 as u64);
+        assert!(
+            target >= data_vaddr && target < data_vaddr + data_size,
+            "issue #1291: mov [rip+0x{:x}] at .text+0x{:x} resolves to VA 0x{:x}; \
+             expected inside .data [0x{:x}, 0x{:x})",
+            disp,
+            instr_off,
+            target,
+            data_vaddr,
+            data_vaddr + data_size
+        );
+    }
+}
