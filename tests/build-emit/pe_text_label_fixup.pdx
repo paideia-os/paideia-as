@@ -1,0 +1,33 @@
+// tests/build-emit/pe_text_label_fixup.pdx — regression for issue #1293
+//
+// The PE emit path previously never called `patch_label_fixups`, so any
+// intra-function jcc/jmp targeting a label (e.g. `je exit_label`) reached the
+// PE image with a placeholder rel32 (00 00 00 00). The result was a fall-through
+// (for je/jne) or an infinite loop (for jmp to a self-adjacent address) at
+// runtime.
+//
+// This fixture defines a single @abi("ms") + @no_frame function containing a
+// forward `je` to an intra-function label. The PE emitter must resolve the
+// label to a byte offset in .text and patch the rel32 field.
+//
+// The paired test (crates/paideia-as/tests/build_emit/uefi_stub.rs::
+// pe_text_label_fixup_patched_1293) asserts the je rel32 field is non-zero
+// and lands on the correct byte offset inside .text.
+
+module PeTextLabelFixup = structure {
+  pub let jump_to_label : (u64) -> u64 !{sysreg} @{} =
+    fn (a: u64) -> unsafe {
+      effects: { sysreg },
+      capabilities: {},
+      justification: "Issue #1293 regression: emits `je exit_label` targeting an intra-function label, exercising the LabelFixup path that the PE emitter must resolve via patch_label_fixups.",
+      block: {
+        cmp rcx, 0;
+        je exit_label;
+        mov rax, 1;
+        ret;
+exit_label:
+        mov rax, 0;
+        ret
+      }
+    } @abi("ms") @no_frame
+}

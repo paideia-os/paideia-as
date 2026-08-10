@@ -807,3 +807,260 @@ fn pe_text_data_rip_rel_stores_are_patched_1291() {
         );
     }
 }
+
+/// Issue #1292: PE emitter must patch text→text direct-call disp32 fields.
+///
+/// Regression for the cross-repo backtrack from paideia-os R19-M3+. Before the
+/// fix, `cmd_build/pe.rs` walked `emit_result.reloc_sites` looking only in
+/// `data_symbol_offsets`; intra-module `call symbol` sites (whose targets are
+/// functions in the same .text section) went unresolved and reached the image
+/// as `E8 00 00 00 00` — a silent fall-through into the next byte after the
+/// CALL, not a jump into the intended callee.
+///
+/// Fixture: tests/build-emit/pe_text_text_direct_call.pdx — two @abi("ms") +
+/// @no_frame functions in the same module, `caller` invoking `callee` via a
+/// direct CALL.
+///
+/// This test asserts:
+///   1. The .text section contains an `E8 disp32` site (direct call).
+///   2. `disp32` is non-zero (regression against the drop-on-floor pre-fix
+///      behaviour).
+///   3. `disp32` resolves to a byte inside .text, and specifically to a byte
+///      that could plausibly be `callee`'s first instruction (proves the target
+///      is a real function entry, not a random misresolution).
+#[test]
+fn pe_text_text_direct_call_patched_1292() {
+    use object::ObjectSection;
+
+    let fixture_path = {
+        let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        p.push("../../tests/build-emit/pe_text_text_direct_call.pdx");
+        p
+    };
+
+    let out_file = PathBuf::from("/tmp/pe_text_text_direct_call_1292.efi");
+    let _ = fs::remove_file(&out_file);
+
+    let out = cargo_run(&[
+        "build",
+        fixture_path.to_str().unwrap(),
+        "--emit",
+        "pe-coff",
+        "-o",
+        out_file.to_str().unwrap(),
+    ]);
+
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "fixture must build cleanly; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let bytes = fs::read(&out_file).expect("read PE output");
+    let file = object::File::parse(&bytes[..]).expect("parse PE");
+
+    let mut text_data = Vec::new();
+    let mut text_size: u64 = 0;
+    for section in file.sections() {
+        if section.name().unwrap_or("") == ".text" {
+            text_data = section.data().expect("read .text").to_vec();
+            text_size = section.size();
+        }
+    }
+    assert!(!text_data.is_empty(), ".text must be non-empty");
+
+    // Find all `E8 disp32` sites (direct near-call rel32). Encoding is
+    // `E8 dd dd dd dd` (5 bytes total). We collect them all so the assertion
+    // is order-independent.
+    let mut call_sites: Vec<(usize, i32)> = Vec::new(); // (instr_off, disp32)
+    let mut i = 0;
+    while i + 5 <= text_data.len() {
+        if text_data[i] == 0xE8 {
+            let disp = i32::from_le_bytes([
+                text_data[i + 1],
+                text_data[i + 2],
+                text_data[i + 3],
+                text_data[i + 4],
+            ]);
+            call_sites.push((i, disp));
+            i += 5;
+            continue;
+        }
+        i += 1;
+    }
+
+    assert!(
+        !call_sites.is_empty(),
+        "expected at least one `E8 disp32` direct-call site in .text; \
+         bytes: {:02x?}",
+        text_data
+    );
+
+    for (instr_off, disp) in &call_sites {
+        // Pre-fix regression assertion: disp32 must not be the placeholder.
+        assert_ne!(
+            *disp, 0,
+            "issue #1292: E8 disp32 at .text+0x{:x} is the encoder placeholder — \
+             text→text reloc site was dropped (`call symbol` fell through)",
+            instr_off
+        );
+
+        // Semantic assertion: RIP-after-instr + disp32 must land inside .text
+        // (a direct call to an intra-module function).
+        // Field starts at instr+1; the instruction is 5 bytes total; RIP after
+        // fetch is instr_off + 5 (all relative to .text start).
+        let rip_after = *instr_off as i64 + 5;
+        let target = rip_after + *disp as i64;
+        assert!(
+            target >= 0 && (target as u64) < text_size,
+            "issue #1292: `call disp32=0x{:x}` at .text+0x{:x} resolves to \
+             offset 0x{:x} in .text (size 0x{:x}); expected inside .text bounds",
+            disp,
+            instr_off,
+            target,
+            text_size
+        );
+
+        // Sanity: target must be at the start of a plausible instruction
+        // (not the middle of the calling function). For our fixture the
+        // callee is a leaf `mov rax, rcx; ret` shape starting with REX.W
+        // prefix 0x48; assert the target byte is 0x48 (the callee's first
+        // instruction) OR the target lands on E8/EB/C3 (any well-formed
+        // opcode boundary the emitter is likely to produce). This guards
+        // against a partially-wrong disp32 that happens to be non-zero but
+        // points into an operand slot.
+        let target_byte = text_data[target as usize];
+        assert!(
+            matches!(target_byte, 0x48 | 0x4C | 0xE8 | 0xEB | 0xC3 | 0x0F),
+            "issue #1292: `call` at .text+0x{:x} resolves to .text+0x{:x} \
+             whose first byte is 0x{:02x}; expected a plausible instruction \
+             opcode boundary (0x48/0x4C REX.W, 0xE8 CALL, 0xEB JMP, 0xC3 RET, \
+             or 0x0F two-byte opcode)",
+            instr_off,
+            target,
+            target_byte
+        );
+    }
+}
+
+/// Issue #1293: PE emitter must patch intra-function label fixups.
+///
+/// Regression for the cross-repo backtrack from paideia-os R19-M3+. Before the
+/// fix, `cmd_build/pe.rs` never called `patch_label_fixups`; any Jcc/Jmp with
+/// a label target (`je exit_label`, `jmp .loop`, …) reached the image with a
+/// placeholder rel32 (`00 00 00 00`). The je/jne then fell through (rel32=0
+/// means "jump to next instruction") and jmp became a self-successor.
+///
+/// Fixture: tests/build-emit/pe_text_label_fixup.pdx — a single @abi("ms") +
+/// @no_frame function with a forward `je exit_label` and a matching
+/// `exit_label:` further down in the same unsafe block.
+///
+/// This test asserts:
+///   1. The .text section contains a `0F 84 rel32` site (JE rel32).
+///   2. `rel32` is non-zero (regression against the pre-fix drop-on-floor).
+///   3. `rel32` resolves to a byte offset inside .text (intra-function).
+///   4. The target byte is a plausible instruction-boundary opcode (guards
+///      against a partial patch that lands mid-instruction).
+#[test]
+fn pe_text_label_fixup_patched_1293() {
+    use object::ObjectSection;
+
+    let fixture_path = {
+        let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        p.push("../../tests/build-emit/pe_text_label_fixup.pdx");
+        p
+    };
+
+    let out_file = PathBuf::from("/tmp/pe_text_label_fixup_1293.efi");
+    let _ = fs::remove_file(&out_file);
+
+    let out = cargo_run(&[
+        "build",
+        fixture_path.to_str().unwrap(),
+        "--emit",
+        "pe-coff",
+        "-o",
+        out_file.to_str().unwrap(),
+    ]);
+
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "fixture must build cleanly; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let bytes = fs::read(&out_file).expect("read PE output");
+    let file = object::File::parse(&bytes[..]).expect("parse PE");
+
+    let mut text_data = Vec::new();
+    let mut text_size: u64 = 0;
+    for section in file.sections() {
+        if section.name().unwrap_or("") == ".text" {
+            text_data = section.data().expect("read .text").to_vec();
+            text_size = section.size();
+        }
+    }
+    assert!(!text_data.is_empty(), ".text must be non-empty");
+
+    // Find all `0F 8x rel32` sites (near Jcc with rel32 displacement).
+    // Encoding is `0F 8x dd dd dd dd` (6 bytes total). 0x84 is JE.
+    let mut jcc_sites: Vec<(usize, u8, i32)> = Vec::new(); // (instr_off, cond, rel32)
+    let mut i = 0;
+    while i + 6 <= text_data.len() {
+        if text_data[i] == 0x0F && (text_data[i + 1] & 0xF0) == 0x80 {
+            let disp = i32::from_le_bytes([
+                text_data[i + 2],
+                text_data[i + 3],
+                text_data[i + 4],
+                text_data[i + 5],
+            ]);
+            jcc_sites.push((i, text_data[i + 1], disp));
+            i += 6;
+            continue;
+        }
+        i += 1;
+    }
+
+    assert!(
+        !jcc_sites.is_empty(),
+        "expected at least one `0F 8x rel32` Jcc site in .text; bytes: {:02x?}",
+        text_data
+    );
+
+    for (instr_off, cond, disp) in &jcc_sites {
+        // Pre-fix regression assertion: rel32 must not be the placeholder.
+        assert_ne!(
+            *disp, 0,
+            "issue #1293: `0F {:02x} rel32` at .text+0x{:x} is the encoder \
+             placeholder — LabelFixup was never patched (Jcc fell through)",
+            cond, instr_off
+        );
+
+        // Semantic assertion: RIP-after-instr + rel32 must land inside .text.
+        // Field starts at instr+2; instruction is 6 bytes total; RIP after
+        // fetch is instr_off + 6.
+        let rip_after = *instr_off as i64 + 6;
+        let target = rip_after + *disp as i64;
+        assert!(
+            target >= 0 && (target as u64) < text_size,
+            "issue #1293: `0F {:02x} rel32=0x{:x}` at .text+0x{:x} resolves \
+             to offset 0x{:x} in .text (size 0x{:x}); expected inside .text",
+            cond, disp, instr_off, target, text_size
+        );
+
+        // Sanity: target must land on a plausible opcode boundary. For the
+        // fixture, exit_label is `mov rax, 0` = `48 c7 c0 00 00 00 00` — first
+        // byte 0x48 (REX.W).
+        let target_byte = text_data[target as usize];
+        assert!(
+            matches!(target_byte, 0x48 | 0x4C | 0xE8 | 0xEB | 0xC3 | 0x0F | 0xB8..=0xBF),
+            "issue #1293: Jcc at .text+0x{:x} resolves to .text+0x{:x} whose \
+             first byte is 0x{:02x}; expected a plausible instruction opcode \
+             boundary (0x48/0x4C REX.W, 0xE8 CALL, 0xEB JMP, 0xC3 RET, \
+             0x0F two-byte, 0xB8-BF MOV imm)",
+            instr_off, target, target_byte
+        );
+    }
+}

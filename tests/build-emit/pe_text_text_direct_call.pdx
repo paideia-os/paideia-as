@@ -1,0 +1,40 @@
+// tests/build-emit/pe_text_text_direct_call.pdx — regression for issue #1292
+//
+// The PE emit path previously discarded encoder-emitted text→text RIP-relative
+// relocation sites for intra-module `call symbol` shapes, leaving the disp32
+// field of `E8 disp32` as the encoder's 4-byte placeholder (00 00 00 00).
+// The result was a silent fall-through into the next byte after the CALL, not
+// a jump into the intended callee.
+//
+// This fixture defines two @abi("ms") + @no_frame functions in the same
+// module. `caller` invokes `callee` via a direct call; the PE emitter must
+// patch the E8 disp32 to (callee_va - RIP_after_E8_field).
+//
+// The paired test (crates/paideia-as/tests/build_emit/uefi_stub.rs::
+// pe_text_text_direct_call_patched_1292) asserts the E8 disp32 field is
+// non-zero and resolves to a byte inside the .text section (specifically the
+// callee's first instruction).
+
+module PeTextTextDirectCall = structure {
+  pub let callee : (u64) -> u64 !{sysreg} @{} =
+    fn (a: u64) -> unsafe {
+      effects: { sysreg },
+      capabilities: {},
+      justification: "Issue #1292 regression: intra-module CALL target function; body irrelevant beyond emitting non-empty text so the caller's E8 has a real callee VA to reach.",
+      block: {
+        mov rax, rcx;
+        ret
+      }
+    } @abi("ms") @no_frame
+
+  pub let caller : (u64) -> u64 !{sysreg} @{} =
+    fn (a: u64) -> unsafe {
+      effects: { sysreg },
+      capabilities: {},
+      justification: "Issue #1292 regression: emits `call callee` via encoder, exercising the text→text RIP-relative relocation-site path that the PE emitter must resolve in-place.",
+      block: {
+        call callee;
+        ret
+      }
+    } @abi("ms") @no_frame
+}

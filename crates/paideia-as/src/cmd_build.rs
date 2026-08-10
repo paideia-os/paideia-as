@@ -2188,7 +2188,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
             let result = if preview {
                 Ok(None)
             } else {
-                build_pe_object(&mut lowering.ir, &source_map, file, encoder_warn, &mut sink).map(Some)
+                build_pe_object(&mut lowering.ir, &emit_walker, &source_map, file, encoder_warn, &mut sink).map(Some)
             };
             match result {
                 Ok(bytes) => finish_pe(&source_map, catalog, sink, bytes, input, output, sarif),

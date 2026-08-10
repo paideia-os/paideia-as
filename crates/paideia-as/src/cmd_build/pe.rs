@@ -13,12 +13,13 @@ use paideia_as_emitter_pe::{
     OPTIONAL_HEADER_PE32PLUS_SIZE, OptionalHeaderPe32Plus, NamedSectionError, Section, SectionTable as PeSectionTable,
 };
 use paideia_as_encoder::{EncodeStats, RelocKind};
-use paideia_as_ir::{IrNodeId, SectionKind};
+use paideia_as_ir::{IrNodeId, SectionKind, SymbolKind};
 
 use crate::det;
 use crate::cmd_common;
 
 use super::BuildError;
+use super::fixup::patch_label_fixups;
 
 /// Build the phase-4-m2-001 PE/COFF object body. Constructs a PE/COFF with
 /// .text section populated from InstructionSideTable.
@@ -26,6 +27,7 @@ use super::BuildError;
 /// Phase 8 m1-004: Routes errors through DiagnosticSink as typed diagnostics.
 pub(super) fn build_pe_object(
     arena: &mut paideia_as_ir::IrArena,
+    emit_walker: &paideia_as_elaborator::EmitWalker,
     _source_map: &SourceMap,
     file: paideia_as_diagnostics::FileId,
     encoder_warn: bool,
@@ -95,6 +97,47 @@ pub(super) fn build_pe_object(
             }
         }
     };
+
+    // Issue #1293 (cross-repo:paideia-as-fix): Patch intra-function label fixups
+    // (je / jmp / other Jcc targeting labels within the same function). Symmetric
+    // with cmd_build/elf.rs (~line 108-137): resolve every label name emitted by
+    // register_label / label_to_instr to a byte offset in .text via offset_map,
+    // then patch the rel32 field in place. Without this, `je some_label` reached
+    // the PE image as `0F 84 00 00 00 00`, silently falling through.
+    //
+    // Run BEFORE add_text() so we can mutate text_bytes directly; the resulting
+    // buffer is what we hand to the section. Order relative to #1291 patches is
+    // irrelevant — label fixups and text→data reloc sites touch disjoint bytes.
+    {
+        use std::collections::HashMap as StdHashMap;
+        let label_to_instr = emit_walker.state().label_to_instr();
+        let direct_labels = emit_walker.state().labels();
+        let offset_map = &emit_result.offset_map;
+        let mut resolved_labels: StdHashMap<String, u32> = StdHashMap::new();
+
+        // First, add direct labels populated by register_label during emit.
+        for (label_name, offset) in direct_labels {
+            resolved_labels.insert(label_name.clone(), *offset);
+        }
+        // Then, add labels resolved via label_to_instr → offset_map.
+        for (label_name, instr_id) in label_to_instr {
+            if let Some(&byte_offset_u64) = offset_map.get(instr_id) {
+                resolved_labels.insert(label_name.clone(), byte_offset_u64 as u32);
+            }
+        }
+
+        let strict_mode = true;
+        patch_label_fixups(
+            &mut text_bytes,
+            &emit_result.label_fixups,
+            &resolved_labels,
+            strict_mode,
+            sink,
+            arena,
+            arena.instructions(),
+            file,
+        )?;
+    }
 
     // If no instructions were encoded, use a minimal placeholder (ret instruction: 0xC3)
     if text_bytes.is_empty() {
@@ -168,6 +211,29 @@ pub(super) fn build_pe_object(
                 reloc.width,
                 reloc.addend,
             ));
+        }
+    }
+
+    // Issue #1292 (cross-repo:paideia-as-fix): Build a symbol_name → byte_offset
+    // map for functions emitted into .text, mirroring the ELF path (elf.rs:242-250
+    // + 260-316). Used below to resolve intra-module direct-call reloc sites
+    // (`call symbol` → `E8 disp32`) whose targets live in the same .text section.
+    // Without this, the reloc walk only matched data symbols and silently left
+    // `E8 00 00 00 00` in place, producing a fall-through at runtime.
+    let mut function_offsets: std::collections::HashMap<String, u64> =
+        std::collections::HashMap::new();
+    {
+        let lambda_first_instr = emit_walker.state().lambda_first_instr();
+        for symbol in arena.symbols().iter() {
+            if !matches!(symbol.kind, SymbolKind::Function) {
+                continue;
+            }
+            let lambda_id = symbol.ir_node.get();
+            if let Some(first_instr) = lambda_first_instr.get(&lambda_id) {
+                if let Some(&byte_off) = emit_result.offset_map.get(first_instr) {
+                    function_offsets.insert(symbol.name.clone(), byte_off);
+                }
+            }
         }
     }
 
@@ -265,12 +331,12 @@ pub(super) fn build_pe_object(
         }
     }
 
-    // Issue #1291: Resolve text→data (and text→text within the image) RIP-relative
+    // Issues #1291 + #1292: Resolve text→data and text→text RIP-relative
     // relocation sites emitted by the encoder for shapes like
-    //   mov [rip + global], reg    → 48 89 05 <disp32_placeholder>
-    //   mov reg, [rip + global]    → 48 8B 05 <disp32_placeholder>
-    //   lea reg, [rip + symbol]    → 48 8D 05 <disp32_placeholder>
-    //   call symbol                → E8       <disp32_placeholder>
+    //   mov [rip + global], reg    → 48 89 05 <disp32_placeholder>  (text→data)
+    //   mov reg, [rip + global]    → 48 8B 05 <disp32_placeholder>  (text→data)
+    //   lea reg, [rip + symbol]    → 48 8D 05 <disp32_placeholder>  (text→data)
+    //   call symbol                → E8       <disp32_placeholder>  (text→text, #1292)
     //
     // The encoder emits each site with `addend` already biased by
     // PC32_FIELD_BIAS (-4), so the correct in-place patch is:
@@ -284,10 +350,10 @@ pub(super) fn build_pe_object(
     // they are deferred to a follow-up (no encoder shapes in the current corpus
     // emit them in text at present).
     //
-    // Sites whose target symbol is not resolvable from `data_symbol_offsets`
-    // (e.g. intra-.text function calls, whose function symbols the PE emit path
-    // does not yet track) are silently skipped — matches pre-fix behaviour and
-    // avoids regressing shapes this fix does not claim to cover.
+    // Sites whose target symbol resolves to neither a data symbol nor a function
+    // symbol emitted into this .text (e.g. a call into a not-yet-linked module)
+    // are silently skipped — matches pre-fix behaviour and avoids regressing
+    // shapes this fix does not claim to cover.
     if !text_reloc_sites.is_empty() {
         if let Some(text_idx) = sections.find_section_by_name(".text") {
             let text_rva = sections.sections[text_idx].header.virtual_address;
@@ -298,25 +364,44 @@ pub(super) fn build_pe_object(
             for site in &text_reloc_sites {
                 match site.kind {
                     RelocKind::PcRel32 | RelocKind::Plt32 => {
-                        if let Some((target_section_idx, target_offset)) =
-                            data_symbol_offsets.get(&site.symbol)
+                        // Resolve target RVA. Try data symbols first (text→data,
+                        // #1291); fall back to function symbols in .text itself
+                        // (text→text direct call, #1292). Both cases feed the
+                        // same disp32 = target_rva - field_rva + addend formula.
+                        let target_rva_opt: Option<u32> = if let Some(
+                            (target_section_idx, target_offset),
+                        ) = data_symbol_offsets.get(&site.symbol)
                         {
                             if *target_section_idx < sections.sections.len() {
-                                let target_rva = sections.sections[*target_section_idx]
-                                    .header
-                                    .virtual_address
-                                    + *target_offset as u32;
-                                let field_rva = text_rva.wrapping_add(site.byte_offset);
-                                let disp = (target_rva as i64)
-                                    - (field_rva as i64)
-                                    + (site.addend as i64);
-                                // disp must fit i32 (RIP-rel disp32).
-                                // Silently drop if out of range — the emitted 0 placeholder
-                                // will manifest as an obvious runtime jump/store into .text,
-                                // and a future validating pass can turn this into a diagnostic.
-                                if disp >= i32::MIN as i64 && disp <= i32::MAX as i64 {
-                                    patches.push((site.byte_offset as usize, disp as i32));
-                                }
+                                Some(
+                                    sections.sections[*target_section_idx]
+                                        .header
+                                        .virtual_address
+                                        + *target_offset as u32,
+                                )
+                            } else {
+                                None
+                            }
+                        } else if let Some(fn_byte_off) =
+                            function_offsets.get(&site.symbol)
+                        {
+                            // text→text: target lives in .text at fn_byte_off.
+                            Some(text_rva.wrapping_add(*fn_byte_off as u32))
+                        } else {
+                            None
+                        };
+
+                        if let Some(target_rva) = target_rva_opt {
+                            let field_rva = text_rva.wrapping_add(site.byte_offset);
+                            let disp = (target_rva as i64)
+                                - (field_rva as i64)
+                                + (site.addend as i64);
+                            // disp must fit i32 (RIP-rel disp32).
+                            // Silently drop if out of range — the emitted 0 placeholder
+                            // will manifest as an obvious runtime jump/store into .text,
+                            // and a future validating pass can turn this into a diagnostic.
+                            if disp >= i32::MIN as i64 && disp <= i32::MAX as i64 {
+                                patches.push((site.byte_offset as usize, disp as i32));
                             }
                         }
                         // Unresolved target: leave placeholder (see note above).
