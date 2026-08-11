@@ -1009,22 +1009,51 @@ impl UnsafeWalker {
             }
         }
 
-        // Phase-N #1248: Convert Cmp to CmpSized for 8-bit register operands.
-        // Check if this is a Cmp instruction with first operand being an 8-bit register.
-        // If so, emit CmpSized { width: W8 } instead of Cmp.
-        if mnemonic == Mnemonic::Cmp && !parsed_operands.is_empty() {
-            if let Operand::Reg(_dest_reg_id) = &parsed_operands[0] {
-                // Determine if the destination is an 8-bit register
-                // We need to get the register name from the AST to check its width
-                if let Some(&first_operand_id) = operand_ids.first() {
-                    if let Some(reg_name) = get_register_name(ast, first_operand_id, source_map) {
-                        if let Some(width) = register_name_width(&reg_name) {
-                            if width == IntWidth::W8 {
-                                // Convert to CmpSized with W8 width
-                                mnemonic = Mnemonic::CmpSized { width: IntWidth::W8 };
-                            }
-                        }
-                    }
+        // Phase-N #1248 + #1254 completion: Convert Cmp to CmpSized when a
+        // width-carrying sub-register appears in the operand shape.
+        //
+        // Register-name-to-RegId collapses sub-register spellings onto the
+        // 64-bit RegId (al/ax/eax/rax all → RegId(0)); the generic Cmp
+        // encoder then always emits the 64-bit REX.W form. Recover the
+        // narrow width from the register *name* and retarget to
+        // Mnemonic::CmpSized { width } so `cmp al, imm` / `cmp ax, imm` /
+        // `cmp eax, imm` (and their reg-reg / [mem],reg peers) reach the
+        // dedicated narrow encoder.
+        //
+        // Supported shapes (matching the encoder's cmp support):
+        //   [Reg, Imm64]  — width from operand 0
+        //   [Reg, Reg]    — width from operand 0
+        //   [MemSib, Reg] — width from operand 1 (store form)
+        // Peephole cmp→test rewrite (peephole.rs:265) deliberately does
+        // NOT match CmpSized — the rewrite widens to REX.W Test and would
+        // reintroduce the same class of miscompile; a sibling TestSized
+        // variant is a separate follow-up.
+        if mnemonic == Mnemonic::Cmp {
+            let is_reg_imm = matches!(
+                parsed_operands.as_slice(),
+                [Operand::Reg(_), Operand::Imm64(_)],
+            );
+            let is_reg_reg = matches!(
+                parsed_operands.as_slice(),
+                [Operand::Reg(_), Operand::Reg(_)],
+            );
+            let is_mem_reg = matches!(
+                parsed_operands.as_slice(),
+                [Operand::MemSib { .. }, Operand::Reg(_)],
+            );
+
+            // Width-carrying operand index: dst for reg-imm / reg-reg,
+            // src for the store shape.
+            let width_op_idx = if is_mem_reg { 1 } else { 0 };
+
+            if is_reg_imm || is_reg_reg || is_mem_reg {
+                if let Some(width) = operand_ids
+                    .get(width_op_idx)
+                    .and_then(|&id| get_register_name(ast, id, source_map))
+                    .and_then(|name| register_name_width(&name))
+                    .filter(|w| matches!(w, IntWidth::W8 | IntWidth::W16 | IntWidth::W32))
+                {
+                    mnemonic = Mnemonic::CmpSized { width };
                 }
             }
         }

@@ -4,6 +4,7 @@
 
 mod adc_reg_imm;
 mod adc_sbb;
+mod cmp_narrow;
 mod dec_r64;
 mod imul_real;
 mod imul_three_op;

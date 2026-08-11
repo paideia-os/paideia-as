@@ -3041,72 +3041,309 @@ fn encode_cmp_sized(
     width: &IntWidth,
     buf: &mut CodeBuffer,
 ) -> Result<EncodeOutput, EncodeError> {
-    match width {
-        IntWidth::W8 => {
-            match inst.operands.as_slice() {
-                [Operand::Reg(dest), Operand::Imm64(imm)] => {
-                    let dest_reg_id = dest.0;
-                    let imm_i64 = *imm;
-
-                    // Check if immediate is in i8 range
-                    if !(-128..=127).contains(&imm_i64) {
-                        return Err(EncodeError::Unsupported(
-                            "cmp_b imm must fit in signed byte; use a smaller value or load into reg first",
-                        ));
-                    }
-
-                    let imm_i8 = imm_i64 as i8;
-
-                    // Special short form for RAX (reg 0) and imm8
-                    if dest_reg_id == 0 {
-                        // cmp al, imm8 → 3C ib (2 bytes, AL-implicit short form)
-                        buf.bytes.push(0x3C);
-                        buf.bytes.push(imm_i8 as u8);
-                    } else {
-                        // cmp r8, imm8 → [REX.B] 80 /7 ib
-                        let reg_id = dest_reg_id & 7;
-                        if (dest_reg_id >> 3) != 0 {
-                            // r8b-r15b: REX.B (0x41)
-                            buf.bytes.push(0x41);
-                        }
-                        buf.bytes.push(0x80);
-                        buf.bytes.push(0xF8 | reg_id);
-                        buf.bytes.push(imm_i8 as u8);
-                    }
-                    Ok(EncodeOutput::new())
-                }
-                [Operand::Reg(dest), Operand::Reg(src)] => {
-                    let dest_id = dest.0;
-                    let src_id = src.0;
-
-                    // cmp r8, r8 → [REX.B/R] 38 /r
-                    let dest_reg = dest_id & 7;
-                    let src_reg = src_id & 7;
-                    let rex_b = (dest_id >> 3) != 0;
-                    let rex_r = (src_id >> 3) != 0;
-
-                    if rex_b || rex_r {
-                        buf.bytes.push(0x40 | if rex_r { 0x04 } else { 0 } | if rex_b { 0x01 } else { 0 });
-                    }
-                    buf.bytes.push(0x38);
-                    buf.bytes.push(0xC0 | ((src_reg) << 3) | dest_reg);
-                    Ok(EncodeOutput::new())
-                }
-                _ => Err(EncodeError::Unsupported(
-                    "cmp_b shape not yet supported",
-                )),
-            }
-        }
-        IntWidth::W16 | IntWidth::W32 => {
-            Err(EncodeError::Unsupported(
-                "cmp_w and cmp_d not yet supported (use generic cmp for now)",
-            ))
-        }
-        IntWidth::W64 => {
-            // Fall back to regular 64-bit cmp encoding
-            encode_cmp(inst, buf)
-        }
+    // W64 shape is byte-identical to the generic Cmp encoder; delegate.
+    if matches!(width, IntWidth::W64) {
+        return encode_cmp(inst, buf);
     }
+    match (width, inst.operands.as_slice()) {
+        // ── cmp reg, imm (all narrow widths) ─────────────────────────
+        (IntWidth::W8, [Operand::Reg(dest), Operand::Imm64(imm)]) => {
+            encode_cmp_reg8_imm(buf, dest.0, *imm)
+        }
+        (IntWidth::W16, [Operand::Reg(dest), Operand::Imm64(imm)]) => {
+            encode_cmp_reg16_imm(buf, dest.0, *imm)
+        }
+        (IntWidth::W32, [Operand::Reg(dest), Operand::Imm64(imm)]) => {
+            encode_cmp_reg32_imm(buf, dest.0, *imm)
+        }
+        // ── cmp reg, reg (all narrow widths) ─────────────────────────
+        (IntWidth::W8, [Operand::Reg(dest), Operand::Reg(src)]) => {
+            encode_cmp_reg8_reg8(buf, dest.0, src.0)
+        }
+        (IntWidth::W16, [Operand::Reg(dest), Operand::Reg(src)]) => {
+            encode_cmp_reg16_reg16(buf, dest.0, src.0)
+        }
+        (IntWidth::W32, [Operand::Reg(dest), Operand::Reg(src)]) => {
+            encode_cmp_reg32_reg32(buf, dest.0, src.0)
+        }
+        // ── cmp [base + disp], reg (store shape, all narrow widths) ──
+        (
+            IntWidth::W8,
+            [
+                Operand::MemSib {
+                    base,
+                    index: None,
+                    scale: Scale::X1,
+                    disp,
+                },
+                Operand::Reg(src),
+            ],
+        ) => encode_cmp_mem_reg8(buf, base.0, *disp, src.0),
+        (
+            IntWidth::W16,
+            [
+                Operand::MemSib {
+                    base,
+                    index: None,
+                    scale: Scale::X1,
+                    disp,
+                },
+                Operand::Reg(src),
+            ],
+        ) => encode_cmp_mem_reg16(buf, base.0, *disp, src.0),
+        (
+            IntWidth::W32,
+            [
+                Operand::MemSib {
+                    base,
+                    index: None,
+                    scale: Scale::X1,
+                    disp,
+                },
+                Operand::Reg(src),
+            ],
+        ) => encode_cmp_mem_reg32(buf, base.0, *disp, src.0),
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::CmpSized { width: *width },
+        }),
+    }
+}
+
+/// #1254: `cmp reg8, imm8` — [REX.B] 80 /7 ib, with AL short form 3C ib.
+///
+/// AL short form (2 bytes): 3C ib for `cmp al, imm8`.
+/// General form: (REX for r8b–r15b) 80 F8+r ib.
+/// Non-REX access to spl/bpl/sil/dil (RegId 4..=7 as W8) is not yet supported —
+/// callers must emit REX prefix which flips the operand meaning; this is a
+/// documented future extension (see comment in walker retarget).
+fn encode_cmp_reg8_imm(
+    buf: &mut CodeBuffer,
+    dest_reg_id: u8,
+    imm_i64: i64,
+) -> Result<EncodeOutput, EncodeError> {
+    if !(-128..=127).contains(&imm_i64) {
+        return Err(EncodeError::Unsupported(
+            "cmp_b imm must fit in signed byte; use a smaller value or load into reg first",
+        ));
+    }
+    let imm_i8 = imm_i64 as i8;
+    if dest_reg_id == 0 {
+        // cmp al, imm8 → 3C ib
+        buf.bytes.push(0x3C);
+        buf.bytes.push(imm_i8 as u8);
+    } else {
+        let reg_id = dest_reg_id & 7;
+        if (dest_reg_id >> 3) != 0 {
+            buf.bytes.push(0x41); // REX.B for r8b–r15b
+        }
+        buf.bytes.push(0x80);
+        buf.bytes.push(0xF8 | reg_id);
+        buf.bytes.push(imm_i8 as u8);
+    }
+    Ok(EncodeOutput::new())
+}
+
+/// #1254: `cmp reg16, imm{8sxt,16}` — 66 prefix + [REX] path.
+///
+/// AX short form: 66 3D iw for `cmp ax, imm16`.
+/// imm8 sign-extension short form: 66 [REX] 83 /7 ib when imm fits i8.
+/// General form: 66 [REX] 81 /7 iw.
+fn encode_cmp_reg16_imm(
+    buf: &mut CodeBuffer,
+    dest_reg_id: u8,
+    imm_i64: i64,
+) -> Result<EncodeOutput, EncodeError> {
+    if imm_i64 < i16::MIN as i64 || imm_i64 > i16::MAX as i64 {
+        return Err(EncodeError::Unsupported(
+            "cmp_w imm must fit in signed 16-bit; use a smaller value or load into reg first",
+        ));
+    }
+    buf.bytes.push(0x66); // operand-size override
+    let reg_low = dest_reg_id & 7;
+    let needs_rex_b = (dest_reg_id >> 3) != 0;
+    // imm8 sign-extend short form via /7 subgroup.
+    if (-128..=127).contains(&imm_i64) {
+        if needs_rex_b {
+            buf.bytes.push(0x41);
+        }
+        buf.bytes.push(0x83);
+        buf.bytes.push(0xF8 | reg_low);
+        buf.bytes.push(imm_i64 as i8 as u8);
+    } else if dest_reg_id == 0 {
+        // cmp ax, imm16 short form: 66 3D iw
+        buf.bytes.push(0x3D);
+        buf.bytes.extend((imm_i64 as i16).to_le_bytes());
+    } else {
+        if needs_rex_b {
+            buf.bytes.push(0x41);
+        }
+        buf.bytes.push(0x81);
+        buf.bytes.push(0xF8 | reg_low);
+        buf.bytes.extend((imm_i64 as i16).to_le_bytes());
+    }
+    Ok(EncodeOutput::new())
+}
+
+/// #1254: `cmp reg32, imm{8sxt,32}` — [REX] path, no operand-size override.
+///
+/// EAX short form: 3D id for `cmp eax, imm32`.
+/// imm8 sign-extension short form: [REX] 83 /7 ib when imm fits i8.
+/// General form: [REX] 81 /7 id.
+fn encode_cmp_reg32_imm(
+    buf: &mut CodeBuffer,
+    dest_reg_id: u8,
+    imm_i64: i64,
+) -> Result<EncodeOutput, EncodeError> {
+    if imm_i64 < i32::MIN as i64 || imm_i64 > i32::MAX as i64 {
+        return Err(EncodeError::Unsupported(
+            "cmp_d imm must fit in signed 32-bit; use a smaller value or load into reg first",
+        ));
+    }
+    let reg_low = dest_reg_id & 7;
+    let needs_rex_b = (dest_reg_id >> 3) != 0;
+    if (-128..=127).contains(&imm_i64) {
+        if needs_rex_b {
+            buf.bytes.push(0x41);
+        }
+        buf.bytes.push(0x83);
+        buf.bytes.push(0xF8 | reg_low);
+        buf.bytes.push(imm_i64 as i8 as u8);
+    } else if dest_reg_id == 0 {
+        // cmp eax, imm32 short form: 3D id
+        buf.bytes.push(0x3D);
+        buf.bytes.extend((imm_i64 as i32).to_le_bytes());
+    } else {
+        if needs_rex_b {
+            buf.bytes.push(0x41);
+        }
+        buf.bytes.push(0x81);
+        buf.bytes.push(0xF8 | reg_low);
+        buf.bytes.extend((imm_i64 as i32).to_le_bytes());
+    }
+    Ok(EncodeOutput::new())
+}
+
+/// #1254: `cmp reg8, reg8` — [REX] 38 /r.
+///
+/// ModR/M encoding: mod=11, reg=<src>, rm=<dest> (per Intel Vol 2A: 38 /r
+/// means r/m8 is the first operand, r8 is the second; the reg field
+/// carries the source register).
+fn encode_cmp_reg8_reg8(
+    buf: &mut CodeBuffer,
+    dest_id: u8,
+    src_id: u8,
+) -> Result<EncodeOutput, EncodeError> {
+    let dest_low = dest_id & 7;
+    let src_low = src_id & 7;
+    let rex_b = (dest_id >> 3) != 0;
+    let rex_r = (src_id >> 3) != 0;
+    if rex_b || rex_r {
+        buf.bytes.push(
+            0x40 | if rex_r { 0x04 } else { 0 } | if rex_b { 0x01 } else { 0 },
+        );
+    }
+    buf.bytes.push(0x38);
+    buf.bytes.push(0xC0 | (src_low << 3) | dest_low);
+    Ok(EncodeOutput::new())
+}
+
+/// #1254: `cmp reg16, reg16` — 66 [REX] 39 /r.
+fn encode_cmp_reg16_reg16(
+    buf: &mut CodeBuffer,
+    dest_id: u8,
+    src_id: u8,
+) -> Result<EncodeOutput, EncodeError> {
+    buf.bytes.push(0x66); // operand-size override
+    let dest_low = dest_id & 7;
+    let src_low = src_id & 7;
+    let rex_b = (dest_id >> 3) != 0;
+    let rex_r = (src_id >> 3) != 0;
+    if rex_b || rex_r {
+        buf.bytes.push(
+            0x40 | if rex_r { 0x04 } else { 0 } | if rex_b { 0x01 } else { 0 },
+        );
+    }
+    buf.bytes.push(0x39);
+    buf.bytes.push(0xC0 | (src_low << 3) | dest_low);
+    Ok(EncodeOutput::new())
+}
+
+/// #1254: `cmp reg32, reg32` — [REX] 39 /r.
+fn encode_cmp_reg32_reg32(
+    buf: &mut CodeBuffer,
+    dest_id: u8,
+    src_id: u8,
+) -> Result<EncodeOutput, EncodeError> {
+    let dest_low = dest_id & 7;
+    let src_low = src_id & 7;
+    let rex_b = (dest_id >> 3) != 0;
+    let rex_r = (src_id >> 3) != 0;
+    if rex_b || rex_r {
+        buf.bytes.push(
+            0x40 | if rex_r { 0x04 } else { 0 } | if rex_b { 0x01 } else { 0 },
+        );
+    }
+    buf.bytes.push(0x39);
+    buf.bytes.push(0xC0 | (src_low << 3) | dest_low);
+    Ok(EncodeOutput::new())
+}
+
+/// #1254: `cmp [base + disp], reg8` — [REX] 38 /r.
+fn encode_cmp_mem_reg8(
+    buf: &mut CodeBuffer,
+    base_id: u8,
+    disp: i32,
+    src_id: u8,
+) -> Result<EncodeOutput, EncodeError> {
+    let rex_r = (src_id >> 3) != 0;
+    let rex_b = (base_id >> 3) != 0;
+    if rex_r || rex_b {
+        buf.bytes.push(
+            0x40 | if rex_r { 0x04 } else { 0 } | if rex_b { 0x01 } else { 0 },
+        );
+    }
+    buf.bytes.push(0x38);
+    crate::encode::emit_mem_base_disp(buf, src_id & 7, base_id, disp);
+    Ok(EncodeOutput::new())
+}
+
+/// #1254: `cmp [base + disp], reg16` — 66 [REX] 39 /r.
+fn encode_cmp_mem_reg16(
+    buf: &mut CodeBuffer,
+    base_id: u8,
+    disp: i32,
+    src_id: u8,
+) -> Result<EncodeOutput, EncodeError> {
+    buf.bytes.push(0x66);
+    let rex_r = (src_id >> 3) != 0;
+    let rex_b = (base_id >> 3) != 0;
+    if rex_r || rex_b {
+        buf.bytes.push(
+            0x40 | if rex_r { 0x04 } else { 0 } | if rex_b { 0x01 } else { 0 },
+        );
+    }
+    buf.bytes.push(0x39);
+    crate::encode::emit_mem_base_disp(buf, src_id & 7, base_id, disp);
+    Ok(EncodeOutput::new())
+}
+
+/// #1254: `cmp [base + disp], reg32` — [REX] 39 /r.
+fn encode_cmp_mem_reg32(
+    buf: &mut CodeBuffer,
+    base_id: u8,
+    disp: i32,
+    src_id: u8,
+) -> Result<EncodeOutput, EncodeError> {
+    let rex_r = (src_id >> 3) != 0;
+    let rex_b = (base_id >> 3) != 0;
+    if rex_r || rex_b {
+        buf.bytes.push(
+            0x40 | if rex_r { 0x04 } else { 0 } | if rex_b { 0x01 } else { 0 },
+        );
+    }
+    buf.bytes.push(0x39);
+    crate::encode::emit_mem_base_disp(buf, src_id & 7, base_id, disp);
+    Ok(EncodeOutput::new())
 }
 
 fn encode_test(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, EncodeError> {
