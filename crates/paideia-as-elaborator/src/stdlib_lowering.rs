@@ -351,6 +351,372 @@ pub fn lower_stdlib_method(
                 labels: vec![],
             }))
         }
+        // PA-v0.21-003 (#1279): RefcountOps atomic refcount primitives.
+        // Trait declared at paideia-stdlib/pdx/refcount.pdx (PA-R16-009).
+        // SysVRegs: RDI = counter (*u32), RAX = return.
+        //
+        // The AC says "compile to lock xadd sequence" — every primitive here
+        // reaches for `lock xadd_d [rdi], eax`, matching the design comment
+        // in paideia-os core/sync/atomic_refcount.pdx (PA-R18-M3-002 / #769)
+        // which is the primary consumer once #1279 unblocks that migration
+        // path away from raw asm.
+        //
+        // Return value semantics (matching Linux atomic_fetch_add /
+        // atomic_dec_and_test):
+        //   - refcount_incr(p)         → previous *p
+        //   - refcount_decr(p)         → previous *p
+        //   - refcount_decr_and_test(p)→ bool: true iff new *p == 0
+        //
+        // decr_and_test's boolean is derived from the previous value: since
+        // xadd delivers `previous` in EAX and decrements by 1 atomically,
+        // `new == 0` iff `previous == 1`. Emit that comparison inline as
+        // `cmp eax, 1 / sete al / movzx eax, al` — a canonical bool-return
+        // sequence that costs 8 additional bytes beyond the atomic RMW.
+        ("RefcountOps", "refcount_incr") => {
+            // mov eax, 1               ; B8 01 00 00 00       (5 bytes)
+            // lock xadd_d [rdi], eax  ; F0 0F C1 07           (4 bytes)
+            let mut mov_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            mov_ops.push(Operand::Reg(abi::RAX));
+            mov_ops.push(Operand::Imm64(1));
+
+            let mut xadd_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            xadd_ops.push(Operand::MemSib {
+                base: abi::RDI,
+                index: None,
+                scale: paideia_as_ir::instruction::Scale::X1,
+                disp: 0,
+            });
+            xadd_ops.push(Operand::Reg(abi::RAX));
+
+            Some(Ok(LoweringRecipe {
+                instructions: vec![
+                    Instruction {
+                        mnemonic: Mnemonic::MovSized { width: IntWidth::W32 },
+                        operands: mov_ops,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                        emission_order: 0,
+                    },
+                    Instruction {
+                        mnemonic: Mnemonic::LockXadd { width: IntWidth::W32 },
+                        operands: xadd_ops,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                        emission_order: 0,
+                    },
+                ],
+                arg_convention: ArgConvention::SysVRegs,
+                labels: vec![],
+            }))
+        }
+        ("RefcountOps", "refcount_decr") => {
+            // mov eax, -1              ; B8 FF FF FF FF       (5 bytes)
+            // lock xadd_d [rdi], eax  ; F0 0F C1 07           (4 bytes)
+            let mut mov_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            mov_ops.push(Operand::Reg(abi::RAX));
+            mov_ops.push(Operand::Imm64(-1));
+
+            let mut xadd_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            xadd_ops.push(Operand::MemSib {
+                base: abi::RDI,
+                index: None,
+                scale: paideia_as_ir::instruction::Scale::X1,
+                disp: 0,
+            });
+            xadd_ops.push(Operand::Reg(abi::RAX));
+
+            Some(Ok(LoweringRecipe {
+                instructions: vec![
+                    Instruction {
+                        mnemonic: Mnemonic::MovSized { width: IntWidth::W32 },
+                        operands: mov_ops,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                        emission_order: 0,
+                    },
+                    Instruction {
+                        mnemonic: Mnemonic::LockXadd { width: IntWidth::W32 },
+                        operands: xadd_ops,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                        emission_order: 0,
+                    },
+                ],
+                arg_convention: ArgConvention::SysVRegs,
+                labels: vec![],
+            }))
+        }
+        ("RefcountOps", "refcount_decr_and_test") => {
+            // mov eax, -1              ; B8 FF FF FF FF       (5 bytes)
+            // lock xadd_d [rdi], eax   ; F0 0F C1 07          (4 bytes)  ; EAX = previous *p
+            // cmp eax, 1               ; 83 F8 01             (3 bytes)  ; ZF = 1 iff prev == 1 (new == 0)
+            // sete al                  ; 0F 94 C0             (3 bytes)  ; AL = 1 iff ZF
+            // movzx eax, al            ; 48 0F B6 C0          (4 bytes)  ; zero-extend to bool return
+            use paideia_as_ir::instruction::Cond;
+
+            let mut mov_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            mov_ops.push(Operand::Reg(abi::RAX));
+            mov_ops.push(Operand::Imm64(-1));
+
+            let mut xadd_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            xadd_ops.push(Operand::MemSib {
+                base: abi::RDI,
+                index: None,
+                scale: paideia_as_ir::instruction::Scale::X1,
+                disp: 0,
+            });
+            xadd_ops.push(Operand::Reg(abi::RAX));
+
+            let mut cmp_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            cmp_ops.push(Operand::Reg(abi::RAX));
+            cmp_ops.push(Operand::Imm64(1));
+
+            let mut sete_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            sete_ops.push(Operand::Reg(abi::RAX)); // low byte AL
+
+            let mut movzx_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            movzx_ops.push(Operand::Reg(abi::RAX));
+            movzx_ops.push(Operand::Reg(abi::RAX)); // src also RAX; encoder treats as r/m8 via encoding_hint
+
+            Some(Ok(LoweringRecipe {
+                instructions: vec![
+                    Instruction {
+                        mnemonic: Mnemonic::MovSized { width: IntWidth::W32 },
+                        operands: mov_ops,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                        emission_order: 0,
+                    },
+                    Instruction {
+                        mnemonic: Mnemonic::LockXadd { width: IntWidth::W32 },
+                        operands: xadd_ops,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                        emission_order: 0,
+                    },
+                    Instruction {
+                        mnemonic: Mnemonic::CmpSized { width: IntWidth::W32 },
+                        operands: cmp_ops,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                        emission_order: 0,
+                    },
+                    Instruction {
+                        mnemonic: Mnemonic::Setcc(Cond::Eq),
+                        operands: sete_ops,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                        emission_order: 0,
+                    },
+                    Instruction {
+                        mnemonic: Mnemonic::Movzx,
+                        operands: movzx_ops,
+                        encoding_hint: Some(paideia_as_ir::instruction::EncodingHint {
+                            opcode: 0x0F_B6,
+                            operand_size: 1,
+                        }),
+                        byte_offset_in_text: None,
+                        mode,
+                        emission_order: 0,
+                    },
+                ],
+                arg_convention: ArgConvention::SysVRegs,
+                labels: vec![],
+            }))
+        }
+        // PA-v0.21-003 (#1279): BitmapOps atomic bit-manipulation primitives.
+        // Trait declared at paideia-stdlib/pdx/bitmap.pdx (PA-R16-010).
+        // SysVRegs: RDI = bmap (*u64), RSI = bit_index (u64), RAX = return
+        //           (previous bit as bool, 0 or 1).
+        //
+        // The AC says "compile to lock bts / btr" — each primitive here
+        // lowers to the corresponding lock-prefixed bit-manipulation
+        // instruction followed by a `setc al / movzx eax, al` tail that
+        // hoists CF (the previous-bit value delivered by BTS/BTR/BTC) into
+        // the SysV return register.
+        //
+        // Non-atomic BitmapOps (bitmap_get, bitmap_word_count,
+        // bitmap_first_free) and the compound bitmap_claim_first_free
+        // require additional sequences (bt for get, arithmetic-only for
+        // word_count, per-word bsf scan for first_free, retry loop for
+        // claim_first_free); they remain deferred and fall through to
+        // normal call emission.
+        ("BitmapOps", "bitmap_set") => {
+            // lock bts_q [rdi], rsi    ; F0 48 0F AB 37       (5 bytes)
+            // setc al                  ; 0F 92 C0             (3 bytes)
+            // movzx eax, al            ; 48 0F B6 C0          (4 bytes)
+            use paideia_as_ir::instruction::Cond;
+
+            let mut bts_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            bts_ops.push(Operand::MemSib {
+                base: abi::RDI,
+                index: None,
+                scale: paideia_as_ir::instruction::Scale::X1,
+                disp: 0,
+            });
+            bts_ops.push(Operand::Reg(abi::RSI));
+
+            let mut setc_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            setc_ops.push(Operand::Reg(abi::RAX));
+
+            let mut movzx_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            movzx_ops.push(Operand::Reg(abi::RAX));
+            movzx_ops.push(Operand::Reg(abi::RAX));
+
+            Some(Ok(LoweringRecipe {
+                instructions: vec![
+                    Instruction {
+                        mnemonic: Mnemonic::LockBts { width: IntWidth::W64 },
+                        operands: bts_ops,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                        emission_order: 0,
+                    },
+                    Instruction {
+                        mnemonic: Mnemonic::Setcc(Cond::Below),
+                        operands: setc_ops,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                        emission_order: 0,
+                    },
+                    Instruction {
+                        mnemonic: Mnemonic::Movzx,
+                        operands: movzx_ops,
+                        encoding_hint: Some(paideia_as_ir::instruction::EncodingHint {
+                            opcode: 0x0F_B6,
+                            operand_size: 1,
+                        }),
+                        byte_offset_in_text: None,
+                        mode,
+                        emission_order: 0,
+                    },
+                ],
+                arg_convention: ArgConvention::SysVRegs,
+                labels: vec![],
+            }))
+        }
+        ("BitmapOps", "bitmap_clear") => {
+            // lock btr_q [rdi], rsi    ; F0 48 0F B3 37       (5 bytes)
+            // setc al                  ; 0F 92 C0             (3 bytes)
+            // movzx eax, al            ; 48 0F B6 C0          (4 bytes)
+            use paideia_as_ir::instruction::Cond;
+
+            let mut btr_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            btr_ops.push(Operand::MemSib {
+                base: abi::RDI,
+                index: None,
+                scale: paideia_as_ir::instruction::Scale::X1,
+                disp: 0,
+            });
+            btr_ops.push(Operand::Reg(abi::RSI));
+
+            let mut setc_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            setc_ops.push(Operand::Reg(abi::RAX));
+
+            let mut movzx_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            movzx_ops.push(Operand::Reg(abi::RAX));
+            movzx_ops.push(Operand::Reg(abi::RAX));
+
+            Some(Ok(LoweringRecipe {
+                instructions: vec![
+                    Instruction {
+                        mnemonic: Mnemonic::LockBtr { width: IntWidth::W64 },
+                        operands: btr_ops,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                        emission_order: 0,
+                    },
+                    Instruction {
+                        mnemonic: Mnemonic::Setcc(Cond::Below),
+                        operands: setc_ops,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                        emission_order: 0,
+                    },
+                    Instruction {
+                        mnemonic: Mnemonic::Movzx,
+                        operands: movzx_ops,
+                        encoding_hint: Some(paideia_as_ir::instruction::EncodingHint {
+                            opcode: 0x0F_B6,
+                            operand_size: 1,
+                        }),
+                        byte_offset_in_text: None,
+                        mode,
+                        emission_order: 0,
+                    },
+                ],
+                arg_convention: ArgConvention::SysVRegs,
+                labels: vec![],
+            }))
+        }
+        ("BitmapOps", "bitmap_toggle") => {
+            // lock btc_q [rdi], rsi    ; F0 48 0F BB 37       (5 bytes)
+            // setc al                  ; 0F 92 C0             (3 bytes)
+            // movzx eax, al            ; 48 0F B6 C0          (4 bytes)
+            use paideia_as_ir::instruction::Cond;
+
+            let mut btc_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            btc_ops.push(Operand::MemSib {
+                base: abi::RDI,
+                index: None,
+                scale: paideia_as_ir::instruction::Scale::X1,
+                disp: 0,
+            });
+            btc_ops.push(Operand::Reg(abi::RSI));
+
+            let mut setc_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            setc_ops.push(Operand::Reg(abi::RAX));
+
+            let mut movzx_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+            movzx_ops.push(Operand::Reg(abi::RAX));
+            movzx_ops.push(Operand::Reg(abi::RAX));
+
+            Some(Ok(LoweringRecipe {
+                instructions: vec![
+                    Instruction {
+                        mnemonic: Mnemonic::LockBtc { width: IntWidth::W64 },
+                        operands: btc_ops,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                        emission_order: 0,
+                    },
+                    Instruction {
+                        mnemonic: Mnemonic::Setcc(Cond::Below),
+                        operands: setc_ops,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                        emission_order: 0,
+                    },
+                    Instruction {
+                        mnemonic: Mnemonic::Movzx,
+                        operands: movzx_ops,
+                        encoding_hint: Some(paideia_as_ir::instruction::EncodingHint {
+                            opcode: 0x0F_B6,
+                            operand_size: 1,
+                        }),
+                        byte_offset_in_text: None,
+                        mode,
+                        emission_order: 0,
+                    },
+                ],
+                arg_convention: ArgConvention::SysVRegs,
+                labels: vec![],
+            }))
+        }
         ("MmioOps", "mmio_read_u32") => {
             // mmio_read_u32(addr: u64) → mov eax, dword [addr]
             if arg_ids.len() != 1 {

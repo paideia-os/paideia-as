@@ -24,4 +24,5 @@ mod lowering {
     pub mod stdlib_mmio;
     pub mod stdlib_pause;
     pub mod stdlib_percpu;
+    pub mod stdlib_refcount_bitmap;
 }
