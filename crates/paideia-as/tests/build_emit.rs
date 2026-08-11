@@ -121,6 +121,7 @@ mod build_emit {
     pub mod typed_encoder_diagnostics;
     pub mod two_let_with_app;
     pub mod two_let_with_app_spill_restore;
+    pub mod trait_call_lambda_body_1290;
     pub mod two_let_with_tail_binop;
     pub mod single_let_then_tail_add;
     pub mod two_let_with_4arg_call_saves_rcx;

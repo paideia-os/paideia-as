@@ -16,6 +16,33 @@ pub(super) fn is_valid_identifier(s: &str) -> bool {
     s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
+/// Check if a string is a valid qualified identifier — a `::`-separated
+/// path where each segment is a plain identifier.
+///
+/// Issue #1290: the pre-emit `call_sites` populator previously accepted only
+/// `is_valid_identifier`, so a lambda body like `fn (a, b) -> Foo::bar(a, b)`
+/// left `arena.call_sites().get(body_id)` empty. Downstream, the App-body arm
+/// in `visit_lambda` fell through to the operator-fallback for (Var, Var)
+/// args and dispatched into `emit_var_assign_expr_to_rax`, which fires T0540
+/// on a non-var_assign shape.
+///
+/// Accepting qualified names here routes them through `emit_function_call`,
+/// which knows how to resolve `TraitName::method` via `stdlib_lowering`.
+pub(super) fn is_valid_qualified_identifier(s: &str) -> bool {
+    if s.is_empty() {
+        return false;
+    }
+    // Every `::`-separated segment must itself be a plain identifier.
+    let mut has_segments = false;
+    for seg in s.split("::") {
+        if !is_valid_identifier(seg) {
+            return false;
+        }
+        has_segments = true;
+    }
+    has_segments
+}
+
 /// #1181: operator lexemes the pre-emit call_sites populator lets through
 /// so the elaborator can identify the operator by string at emit time.
 /// Delegates to central registry in paideia-as-ir (#1230).
@@ -84,5 +111,54 @@ pub(super) fn parse_integer_literal(text: &str) -> Result<i64, ()> {
         Ok(result.wrapping_neg())
     } else {
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Issue #1290: `is_valid_qualified_identifier` must accept `Foo::bar` shapes
+    // so the pre-emit `call_sites` populator records qualified callees, letting
+    // `visit_lambda` route them through `emit_function_call` instead of the
+    // (Var, Var) operator fallback that fires T0540.
+
+    #[test]
+    fn qualified_identifier_accepts_two_segments_1290() {
+        assert!(is_valid_qualified_identifier("PerCpuOps::write_u64"));
+        assert!(is_valid_qualified_identifier("Foo::bar"));
+    }
+
+    #[test]
+    fn qualified_identifier_accepts_three_segments_1290() {
+        assert!(is_valid_qualified_identifier("Outer::Inner::method"));
+    }
+
+    #[test]
+    fn qualified_identifier_still_accepts_bare_ident_1290() {
+        // A single segment IS a valid path; the caller uses this check as a
+        // qualified-name FALLBACK when the plain-ident check has already passed,
+        // but the function itself should treat a bare ident as legitimate.
+        assert!(is_valid_qualified_identifier("foo"));
+        assert!(is_valid_qualified_identifier("_foo"));
+    }
+
+    #[test]
+    fn qualified_identifier_rejects_empty_segments() {
+        assert!(!is_valid_qualified_identifier(""));
+        assert!(!is_valid_qualified_identifier("Foo::"));
+        assert!(!is_valid_qualified_identifier("::bar"));
+        assert!(!is_valid_qualified_identifier("Foo::::bar"));
+    }
+
+    #[test]
+    fn qualified_identifier_rejects_leading_digit_segment() {
+        assert!(!is_valid_qualified_identifier("Foo::1bar"));
+    }
+
+    #[test]
+    fn qualified_identifier_rejects_operator_chars() {
+        assert!(!is_valid_qualified_identifier("Foo::+"));
+        assert!(!is_valid_qualified_identifier("Foo.bar"));
     }
 }

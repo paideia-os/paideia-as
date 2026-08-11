@@ -1,0 +1,17 @@
+// #1290 regression fixture: 2-arg trait-method call at lambda-body position
+// must not emit T0540. `PerCpuOps::write_u64` uses the SysVRegs recipe so
+// this wrapper lowers to a call marshalling `a` → RDI, `b` → RSI + call
+// through the stdlib recipe. Before the fix, the pre-emit `call_sites`
+// populator rejected the `PerCpuOps::write_u64` callee text as not being
+// a valid identifier, so `arena.call_sites().get(body_id)` was None,
+// visit_lambda fell through to the (Var, Var) operator fallback, and
+// `emit_var_assign_expr_to_rax` fired T0540.
+
+module TraitCallLambdaBody = structure {
+  trait PerCpuOps {
+    fn write_u64(counter_gs_offset: u64, val: u64) -> () !{RawMem} @{paideia.raw_mem};
+  }
+
+  pub let wrap_write : (u64, u64) -> () !{RawMem} @{paideia.raw_mem} =
+    fn(a: u64, b: u64) -> PerCpuOps::write_u64(a, b)
+}
