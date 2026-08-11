@@ -1,0 +1,6 @@
+// Fixture: bitfield_set_bits_single
+// Isolates BitfieldOps::set_bits for parse regression.
+
+trait BitfieldSetBitsSingle {
+  fn set_bits(word: u64, start: u32, width: u32, val: u64) -> u64;
+}

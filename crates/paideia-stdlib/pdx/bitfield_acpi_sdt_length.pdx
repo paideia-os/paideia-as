@@ -1,0 +1,20 @@
+// Fixture: bitfield_acpi_sdt_length
+// #1288 AC: fixture consuming an ACPI SDT header `length` field
+// (u32 bytes 4-7) round-trips through get_bits / set_bits.
+//
+// SDT header layout (ACPI 6.5 §5.2.6):
+//   bytes  size  field
+//   0      4     signature ("XSDT", "MADT", …)
+//   4      4     length (total table length in bytes, this field inclusive)
+//   8      1     revision
+//   …
+//
+// The whole 8-byte prefix packs into a single u64 when read little-endian:
+//   word[63:32] = length, word[31:0] = signature.
+// get_bits(word, 32, 32) extracts length; set_bits(word, 32, 32, new)
+// writes it back.
+
+trait BitfieldAcpiSdtLength {
+  fn get_bits(word: u64, start: u32, width: u32) -> u64;
+  fn set_bits(word: u64, start: u32, width: u32, val: u64) -> u64;
+}

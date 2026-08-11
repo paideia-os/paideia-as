@@ -9788,12 +9788,313 @@ mod jcc_tests {
             encoding_hint: None,
             byte_offset_in_text: None,
             mode: InstrMode::default(),
-        
+
         emission_order: 0,
         };
         let mut stats = EncodeStats::new();
         let err = encode_instruction(&inst, &mut buf, &mut stats).unwrap_err();
         assert!(matches!(err, EncodeError::OperandShape { mnemonic: Mnemonic::Fxsave }));
+    }
+
+    // Phase v0.21-006 (#1282): xsaveopt / xrstor byte-exact tests.
+    //
+    // Encoders landed under PA-R15-m4-005 (#1022) and are empirically exercised
+    // by paideia-os R21.M1 XSAVE (src/kernel/core/cpu/xsave.pdx — xsave_save_for
+    // / xsave_restore_for). Adds the SDM Vol 2 opcode-map witnesses that the
+    // fxsave/fxrstor tests above already provide for /0 and /1: xsaveopt is /6
+    // and xrstor is /5, sharing the 0F AE prefix. Coverage matches fxsave: rdi
+    // (mod=00), rdi+disp8 (mod=01), r8 (REX.B, mod=00), rsp (SIB=24), rbp
+    // (mod=01 disp8=00), r15+disp32 (REX.B + mod=10).
+    #[test]
+    fn encode_xsaveopt_rdi_emits_0f_ae_37() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Xsaveopt,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(7), index: None, scale: Scale::X1, disp: 0 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+            emission_order: 0,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x0F, 0xAE, 0x37]);
+    }
+
+    #[test]
+    fn encode_xsaveopt_rdi_disp8_emits_0f_ae_77_08() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Xsaveopt,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(7), index: None, scale: Scale::X1, disp: 8 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+            emission_order: 0,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x0F, 0xAE, 0x77, 0x08]);
+    }
+
+    #[test]
+    fn encode_xsaveopt_r8_emits_41_0f_ae_30() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Xsaveopt,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(8), index: None, scale: Scale::X1, disp: 0 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+            emission_order: 0,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x41, 0x0F, 0xAE, 0x30]);
+    }
+
+    #[test]
+    fn encode_xsaveopt_rsp_emits_0f_ae_34_24() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Xsaveopt,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(4), index: None, scale: Scale::X1, disp: 0 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+            emission_order: 0,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x0F, 0xAE, 0x34, 0x24]);
+    }
+
+    #[test]
+    fn encode_xsaveopt_rbp_emits_0f_ae_75_00() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Xsaveopt,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(5), index: None, scale: Scale::X1, disp: 0 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+            emission_order: 0,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x0F, 0xAE, 0x75, 0x00]);
+    }
+
+    #[test]
+    fn encode_xsaveopt_r15_disp32_emits_41_0f_ae_b7_disp32() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Xsaveopt,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(15), index: None, scale: Scale::X1, disp: 0x100 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+            emission_order: 0,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x41, 0x0F, 0xAE, 0xB7, 0x00, 0x01, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn encode_xrstor_rdi_emits_0f_ae_2f() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Xrstor,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(7), index: None, scale: Scale::X1, disp: 0 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+            emission_order: 0,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x0F, 0xAE, 0x2F]);
+    }
+
+    #[test]
+    fn encode_xrstor_rdi_disp8_emits_0f_ae_6f_08() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Xrstor,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(7), index: None, scale: Scale::X1, disp: 8 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+            emission_order: 0,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x0F, 0xAE, 0x6F, 0x08]);
+    }
+
+    #[test]
+    fn encode_xrstor_r8_emits_41_0f_ae_28() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Xrstor,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(8), index: None, scale: Scale::X1, disp: 0 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+            emission_order: 0,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x41, 0x0F, 0xAE, 0x28]);
+    }
+
+    #[test]
+    fn encode_xrstor_rsp_emits_0f_ae_2c_24() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Xrstor,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(4), index: None, scale: Scale::X1, disp: 0 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+            emission_order: 0,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x0F, 0xAE, 0x2C, 0x24]);
+    }
+
+    #[test]
+    fn encode_xrstor_rbp_emits_0f_ae_6d_00() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Xrstor,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(5), index: None, scale: Scale::X1, disp: 0 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+            emission_order: 0,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x0F, 0xAE, 0x6D, 0x00]);
+    }
+
+    #[test]
+    fn encode_xrstor_r15_disp32_emits_41_0f_ae_af_disp32() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Xrstor,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(15), index: None, scale: Scale::X1, disp: 0x100 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+            emission_order: 0,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        assert_eq!(buf.as_slice(), &[0x41, 0x0F, 0xAE, 0xAF, 0x00, 0x01, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn encode_xsaveopt_rdi_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Xsaveopt,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(7), index: None, scale: Scale::X1, disp: 0 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+            emission_order: 0,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Xsaveopt);
+    }
+
+    #[test]
+    fn encode_xrstor_rdi_round_trips_through_iced_x86() {
+        use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
+
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Xrstor,
+            operands: smallvec::smallvec![
+                Operand::MemSib { base: RegId(7), index: None, scale: Scale::X1, disp: 0 },
+            ],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+            emission_order: 0,
+        };
+        let mut stats = EncodeStats::new();
+        encode_instruction(&inst, &mut buf, &mut stats).expect("encoding failed");
+        let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+        let instr = decoder.decode();
+        assert_eq!(instr.mnemonic(), IcedMnem::Xrstor);
+    }
+
+    #[test]
+    fn encode_xsaveopt_reg_operand_rejects() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Xsaveopt,
+            operands: smallvec::smallvec![Operand::Reg(RegId(0))],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+            emission_order: 0,
+        };
+        let mut stats = EncodeStats::new();
+        let err = encode_instruction(&inst, &mut buf, &mut stats).unwrap_err();
+        assert!(matches!(err, EncodeError::OperandShape { mnemonic: Mnemonic::Xsaveopt }));
+    }
+
+    #[test]
+    fn encode_xrstor_reg_operand_rejects() {
+        let mut buf = CodeBuffer::new();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Xrstor,
+            operands: smallvec::smallvec![Operand::Reg(RegId(0))],
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+            emission_order: 0,
+        };
+        let mut stats = EncodeStats::new();
+        let err = encode_instruction(&inst, &mut buf, &mut stats).unwrap_err();
+        assert!(matches!(err, EncodeError::OperandShape { mnemonic: Mnemonic::Xrstor }));
     }
 
     // Error-shape tests for new instructions

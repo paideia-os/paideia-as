@@ -2071,6 +2071,71 @@ fn freelist_stress_shape_pdx_parses_cleanly() {
     );
 }
 
+// PA-v0.21-012 (#1288): BitfieldOps trait + fixture parse-cleanliness.
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn bitfield_pdx_parses_cleanly() {
+    let bin = paideia_as_bin().expect("paideia-as binary not built");
+    let pdx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/bitfield.pdx");
+    let result = Command::new(bin)
+        .args(["check", &pdx.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn bitfield_get_bits_single_pdx_parses_cleanly() {
+    let bin = paideia_as_bin().expect("paideia-as binary not built");
+    let pdx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/bitfield_get_bits_single.pdx");
+    let result = Command::new(bin)
+        .args(["check", &pdx.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn bitfield_set_bits_single_pdx_parses_cleanly() {
+    let bin = paideia_as_bin().expect("paideia-as binary not built");
+    let pdx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/bitfield_set_bits_single.pdx");
+    let result = Command::new(bin)
+        .args(["check", &pdx.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn bitfield_acpi_sdt_length_pdx_parses_cleanly() {
+    let bin = paideia_as_bin().expect("paideia-as binary not built");
+    let pdx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/bitfield_acpi_sdt_length.pdx");
+    let result = Command::new(bin)
+        .args(["check", &pdx.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
 #[test]
 #[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
 fn bulkmem_pdx_parses_cleanly() {

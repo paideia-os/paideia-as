@@ -1,0 +1,48 @@
+// PA-v0.21-012 (#1288): Bitfield read/write helpers (phase 1).
+//
+// Trait BitfieldOps declares two primitive shift-and-mask accessors that
+// paper over the manual `word & ((1 << width) - 1) << start` juggling
+// downstream code has been open-coding in every `bytes.pdx` consumer that
+// touches an ACPI SDT header field, a NVMe CAP register, a MADT flags
+// word, or a PCI capability slice.
+//
+// Phase 1 scope: two runtime-parametric helpers over a u64 word. The
+// paideia-os R18-R28 build-out established empirically that shift-and-
+// mask decode is proven-cheap when the ambient bitfield is under 64 bits
+// (every "paper tiger" verdict at NVMe CAP, xHCI HCSPARAMS, VT-d ECAP,
+// MADT flags leaned on this recipe); this trait cements the recipe as
+// a first-class stdlib primitive so a downstream reviewer sees intent
+// (`get_bits(cap, 0, 16)`) rather than an arithmetic incantation.
+//
+// Phase 2 (v0.22) will add `packed struct { field: u3, next: u5 }`
+// syntax on top of these helpers; the accessors remain the underlying
+// substrate.
+//
+// Semantics:
+//   get_bits(word, start, width) -> u64
+//       Returns (word >> start) & ((1 << width) - 1).
+//       Zero-based bit indexing (bit 0 = LSB).
+//       Precondition: start + width <= 64. width <= 63 (width == 64 is
+//       caller-handled — pass width=63 and shift again, or read the word
+//       directly). No runtime bounds check — costs a branch on every
+//       accessor call, and the natural downstream sites are compile-time
+//       known.
+//
+//   set_bits(word, start, width, val) -> u64
+//       Returns word with bits [start, start+width) replaced by the low
+//       `width` bits of val. Formally:
+//         mask    = ((1 << width) - 1) << start
+//         payload = (val << start) & mask
+//         return  = (word & ~mask) | payload
+//       The val-side mask is required so callers can pass any u64 as
+//       val without concern for overflow into neighboring bits.
+//       Same precondition on start + width <= 64 and width <= 63.
+//
+// Effect: !{} — pure arithmetic, no memory / MSR / port touch.
+// Capability: none. Usable from any context, no `unsafe { }` required
+// (the value-in-register lowering has no privileged encoding).
+
+trait BitfieldOps {
+  fn get_bits(word: u64, start: u32, width: u32) -> u64;
+  fn set_bits(word: u64, start: u32, width: u32, val: u64) -> u64;
+}

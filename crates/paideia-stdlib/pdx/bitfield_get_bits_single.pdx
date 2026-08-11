@@ -1,0 +1,6 @@
+// Fixture: bitfield_get_bits_single
+// Isolates BitfieldOps::get_bits for parse regression.
+
+trait BitfieldGetBitsSingle {
+  fn get_bits(word: u64, start: u32, width: u32) -> u64;
+}
