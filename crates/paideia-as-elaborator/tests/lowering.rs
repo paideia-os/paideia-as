@@ -22,7 +22,9 @@ mod lowering {
     pub mod stdlib_bytes;
     pub mod stdlib_checksum;
     pub mod stdlib_mmio;
+    pub mod stdlib_msr;
     pub mod stdlib_pause;
     pub mod stdlib_percpu;
     pub mod stdlib_refcount_bitmap;
+    pub mod stdlib_tlb;
 }

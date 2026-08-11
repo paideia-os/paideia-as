@@ -1,0 +1,46 @@
+// PA-v0.21-008 (#1284): MsrOps typed wrapper — rdmsr(idx) / wrmsr(idx, val).
+//
+// Trait MsrOps wraps the zero-arity Rdmsr / Wrmsr mnemonics (which read/
+// write MSR[ECX] using EDX:EAX for the value pair) into typed calls that
+// take the MSR index and value as ordinary function arguments. Consumers
+// stop having to hand-roll the mov ecx / edx-eax marshalling in unsafe
+// blocks — the lowering recipe does it once, correctly.
+//
+// Consumed by paideia-os R18 (IA32_GS_BASE / IA32_KERNEL_GS_BASE /
+// IA32_TSC_DEADLINE / IA32_APIC_BASE reads-writes), R21 (x2APIC MSR-mode
+// enable), and any downstream code that touches per-CPU or feature-gate
+// MSRs.
+//
+// Semantics (Intel SDM Vol 3B §11):
+//   rdmsr(idx)         Reads MSR[idx] and returns the 64-bit value packed
+//                      as EDX:EAX (high 32 in EDX, low 32 in EAX). Hardware
+//                      zero-extends both RAX and RDX in 64-bit mode
+//                      (SDM RDMSR: "In 64-bit mode … the upper 32-bits of
+//                      both RAX and RDX are cleared"), so the packing
+//                      RAX = (RDX << 32) | RAX is safe with no explicit
+//                      masking.
+//   wrmsr(idx, val)    Writes val into MSR[idx]. Requires splitting val
+//                      into EDX:EAX. Both halves are set from `val` and
+//                      shifted appropriately.
+//
+// Privilege: rdmsr / wrmsr are Ring-0 only. #GP(0) at CPL > 0 or when idx
+// names a reserved MSR (SDM 3B §11.1.2 lists the reserved ranges).
+//
+// Effect discipline:
+//   rdmsr is !{sysreg, mem} — reads a system register (MSR is a memory-
+//   mapped-in-microarchitecture-space read that also drains store buffers
+//   on some MSRs like IA32_TSC_ADJUST). Callers are Ring-0 and inside
+//   unsafe blocks already.
+//   wrmsr is !{sysreg, mem} + serializes the pipeline for MSRs that
+//   change segmentation / paging state (SDM 3B §11.4). We do not encode
+//   per-MSR serialization here — callers must own that discipline.
+//
+// Capability: @{paideia.sysreg} — the kernel-only capability that gates
+// every privileged system-register read/write in the stdlib. Held by
+// early boot + arch/x86_64 modules; not present in driver or user
+// contexts.
+
+trait MsrOps {
+  fn rdmsr(idx: u32) -> u64 !{sysreg, mem} @{paideia.sysreg};
+  fn wrmsr(idx: u32, val: u64) -> () !{sysreg, mem} @{paideia.sysreg};
+}

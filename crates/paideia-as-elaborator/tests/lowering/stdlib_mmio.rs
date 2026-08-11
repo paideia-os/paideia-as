@@ -290,3 +290,178 @@ fn mmio_write_u32_encodes_to_correct_bytes() {
         "mmio_write_u32 should encode to mov dword [0x1000], 0x12345678"
     );
 }
+
+// PA-v0.21-013 (#1289): u8 / u16 / u64 volatile lowering.
+//
+// The recipe layer mirrors the u32 form with a different IntWidth; the
+// encoder path is exactly what `MovSized{W8/W16/W64}` already exercises.
+// We assert shape here and add one representative byte-exact check per
+// width to catch a mis-wiring of the width parameter.
+
+use paideia_as_ir::instruction::IntWidth as MmioWidth;
+
+fn recipe_for(method: &str, addr: i64) -> paideia_as_elaborator::stdlib_lowering::LoweringRecipe {
+    let mut arena = IrArena::new();
+    let addr_id = IrNodeId::new(1).expect("valid node id");
+    arena.literal_values_mut().insert(addr_id, addr);
+    paideia_as_elaborator::stdlib_lowering::lower_stdlib_method(
+        "MmioOps",
+        method,
+        InstrMode::Mode64,
+        &[addr_id],
+        &arena,
+    )
+    .unwrap_or_else(|| panic!("MmioOps::{} must be registered", method))
+    .unwrap_or_else(|e| panic!("MmioOps::{} lowering must succeed, got {:?}", method, e))
+}
+
+fn write_recipe_for(
+    method: &str,
+    addr: i64,
+    val: i64,
+) -> paideia_as_elaborator::stdlib_lowering::LoweringRecipe {
+    let mut arena = IrArena::new();
+    let addr_id = IrNodeId::new(1).expect("valid node id");
+    let val_id = IrNodeId::new(2).expect("valid node id");
+    arena.literal_values_mut().insert(addr_id, addr);
+    arena.literal_values_mut().insert(val_id, val);
+    paideia_as_elaborator::stdlib_lowering::lower_stdlib_method(
+        "MmioOps",
+        method,
+        InstrMode::Mode64,
+        &[addr_id, val_id],
+        &arena,
+    )
+    .unwrap_or_else(|| panic!("MmioOps::{} must be registered", method))
+    .unwrap_or_else(|e| panic!("MmioOps::{} lowering must succeed, got {:?}", method, e))
+}
+
+fn assert_mov_sized_shape(
+    recipe: &paideia_as_elaborator::stdlib_lowering::LoweringRecipe,
+    expected_width: MmioWidth,
+) {
+    assert_eq!(recipe.instructions.len(), 1);
+    match recipe.instructions[0].mnemonic {
+        Mnemonic::MovSized { width } => assert_eq!(width, expected_width),
+        other => panic!("expected MovSized, got {:?}", other),
+    }
+    assert_eq!(recipe.instructions[0].operands.len(), 2);
+}
+
+#[test]
+fn mmio_read_u8_lowers_to_mov_sized_w8() {
+    let recipe = recipe_for("mmio_read_u8", 0x1000);
+    assert_mov_sized_shape(&recipe, MmioWidth::W8);
+}
+
+#[test]
+fn mmio_read_u16_lowers_to_mov_sized_w16() {
+    let recipe = recipe_for("mmio_read_u16", 0x1000);
+    assert_mov_sized_shape(&recipe, MmioWidth::W16);
+}
+
+#[test]
+fn mmio_read_u64_lowers_to_mov_sized_w64() {
+    let recipe = recipe_for("mmio_read_u64", 0x1000);
+    assert_mov_sized_shape(&recipe, MmioWidth::W64);
+}
+
+#[test]
+fn mmio_write_u8_lowers_to_mov_sized_w8() {
+    let recipe = write_recipe_for("mmio_write_u8", 0x1000, 0x42);
+    assert_mov_sized_shape(&recipe, MmioWidth::W8);
+}
+
+#[test]
+fn mmio_write_u16_lowers_to_mov_sized_w16() {
+    let recipe = write_recipe_for("mmio_write_u16", 0x1000, 0x1234);
+    assert_mov_sized_shape(&recipe, MmioWidth::W16);
+}
+
+#[test]
+fn mmio_write_u64_lowers_to_mov_sized_w64() {
+    // W64 requires the immediate to fit in i32 sign-extended (per the
+    // encoder's guard); use a small value.
+    let recipe = write_recipe_for("mmio_write_u64", 0x1000, 0x7FFFFFFF);
+    assert_mov_sized_shape(&recipe, MmioWidth::W64);
+}
+
+#[test]
+fn mmio_read_u8_non_literal_addr_returns_error() {
+    let arena = IrArena::new();
+    let missing_id = IrNodeId::new(999).expect("valid node id");
+    let result = paideia_as_elaborator::stdlib_lowering::lower_stdlib_method(
+        "MmioOps",
+        "mmio_read_u8",
+        InstrMode::Mode64,
+        &[missing_id],
+        &arena,
+    );
+    let err = result
+        .expect("recipe must be registered")
+        .expect_err("must error on non-literal addr");
+    match err {
+        paideia_as_elaborator::stdlib_lowering::StdlibLoweringError::NonLiteralArg {
+            arg_index,
+            method,
+        } => {
+            assert_eq!(arg_index, 0);
+            assert_eq!(method, "MmioOps::mmio_read_u8");
+        }
+    }
+}
+
+#[test]
+fn mmio_two_adjacent_reads_emit_two_distinct_movs() {
+    // #1289 acceptance criterion: two adjacent MmioOps reads of the same
+    // address emit two distinct `mov` instructions (not one CSE-collapsed).
+    // The recipe is a raw MovSized mnemonic — no CSE runs over encoded
+    // instructions — so emitting the recipe twice must produce two
+    // byte-identical instructions in the buffer.
+    let recipe1 = recipe_for("mmio_read_u32", 0x1000);
+    let recipe2 = recipe_for("mmio_read_u32", 0x1000);
+
+    let mut buf = CodeBuffer::new();
+    let mut stats = EncodeStats::default();
+    let _ = encode_instruction(&recipe1.instructions[0], &mut buf, &mut stats).unwrap();
+    let after_first = buf.bytes.len();
+    let _ = encode_instruction(&recipe2.instructions[0], &mut buf, &mut stats).unwrap();
+
+    // Two calls → two independent encodings; each produces the same 7-byte
+    // sequence, so the buffer length is exactly 2 * 7 = 14 bytes.
+    assert_eq!(after_first, 7, "first mmio_read_u32 = 7 bytes");
+    assert_eq!(buf.bytes.len(), 14, "two adjacent reads emit two 7-byte MOVs");
+    assert_eq!(
+        &buf.bytes[0..7],
+        &buf.bytes[7..14],
+        "the two encodings are byte-identical"
+    );
+}
+
+#[test]
+fn mmio_read_u16_encodes_to_66_prefix_form() {
+    // Byte-exact spot-check for the W16 width: mov ax, [0x1000] should
+    // start with the 0x66 operand-size prefix.
+    let recipe = recipe_for("mmio_read_u16", 0x1000);
+    let mut buf = CodeBuffer::new();
+    let mut stats = EncodeStats::default();
+    let _ = encode_instruction(&recipe.instructions[0], &mut buf, &mut stats).unwrap();
+    assert_eq!(
+        buf.bytes[0], 0x66,
+        "W16 mov to memory carries the 0x66 operand-size prefix"
+    );
+}
+
+#[test]
+fn mmio_read_u64_encodes_to_rex_w_form() {
+    // Byte-exact spot-check for the W64 width: mov rax, [0x1000] should
+    // start with 0x48 (REX.W).
+    let recipe = recipe_for("mmio_read_u64", 0x1000);
+    let mut buf = CodeBuffer::new();
+    let mut stats = EncodeStats::default();
+    let _ = encode_instruction(&recipe.instructions[0], &mut buf, &mut stats).unwrap();
+    assert_eq!(
+        buf.bytes[0], 0x48,
+        "W64 mov to memory carries the REX.W prefix"
+    );
+}

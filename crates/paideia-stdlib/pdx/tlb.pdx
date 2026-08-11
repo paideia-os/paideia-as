@@ -1,0 +1,57 @@
+// PA-v0.21-009 (#1285): TlbOps typed wrapper — invlpg / invpcid / wbinvd.
+//
+// Trait TlbOps exposes the three TLB / cache invalidation primitives as
+// typed stdlib helpers so callers do not have to hand-roll unsafe blocks
+// with raw mnemonics. Consumed by paideia-os R18-M5 (TLB shootdown IPI
+// handler) and R22 (VT-d IOMMU flush after invalidation queue drain).
+//
+// Semantics (Intel SDM Vol 3A §4.10, §11.5):
+//   invlpg(va)                       Invalidate every TLB entry (and
+//                                    corresponding paging-structure cache
+//                                    entry) that translates the linear
+//                                    address `va`. Local to the executing
+//                                    CPU — TLB shootdown across cores
+//                                    requires an IPI.
+//   invpcid_single(pcid, va)         Invalidate TLB entries for `va`
+//                                    scoped to `pcid` (INVPCID type=0).
+//                                    Descriptor: 128-bit [pcid:64][va:64]
+//                                    with pcid in the low 12 bits.
+//   invpcid_all_nonglobal(pcid)      Invalidate all TLB entries for
+//                                    `pcid` except global pages
+//                                    (INVPCID type=1). Descriptor
+//                                    low 12 bits carry pcid; high bits
+//                                    ignored by hardware but zeroed here.
+//   flush_cache_writeback()          WBINVD — write back and invalidate
+//                                    every line of every cache. Very
+//                                    expensive (millions of cycles on
+//                                    modern parts); typically only run
+//                                    at power-state transitions or when
+//                                    resetting MTRRs.
+//
+// Privilege: every method is Ring-0 only. INVLPG / INVPCID / WBINVD
+// #GP(0) at CPL > 0.
+//
+// Effect discipline:
+//   invlpg / invpcid_* are !{sysreg, mem} — they mutate the TLB, which
+//   is architecturally part of the system-register set.
+//   flush_cache_writeback is !{sysreg, mem, cache} — it additionally
+//   serializes globally-observable cache state, and downstream code that
+//   depends on visibility across cores must not reorder around it.
+//
+// Capability: @{paideia.sysreg} — the same kernel-only capability that
+// gates cr3 writes and IDT loads.
+//
+// NOTE (2026-08-11): invlpg_single is landed with a lowering recipe today.
+// invpcid_single / invpcid_all_nonglobal are declared but their lowering
+// recipes wait on the INVPCID mnemonic landing across the exhaustive
+// Mnemonic-match sites (encoder + IR passes + AST/IR round-trips) — see
+// paideia-as#1285 comment thread for the follow-up sub-issue. Calling
+// them today emits a normal-call diagnostic (unresolved intrinsic); no
+// silent fall-through. flush_cache_writeback lowers to WBINVD directly.
+
+trait TlbOps {
+  fn invlpg_single(va: u64) -> () !{sysreg, mem} @{paideia.sysreg};
+  fn invpcid_single(pcid: u16, va: u64) -> () !{sysreg, mem} @{paideia.sysreg};
+  fn invpcid_all_nonglobal(pcid: u16) -> () !{sysreg, mem} @{paideia.sysreg};
+  fn flush_cache_writeback() -> () !{sysreg, mem, cache} @{paideia.sysreg};
+}

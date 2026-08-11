@@ -17,6 +17,33 @@
 //! Scope: PauseOps::spin_hint(), PerCpuOps::percpu_inc/percpu_add,
 //! MmioOps::mmio_read_u32/mmio_write_u32 in v0.16.
 //! Follow-up issues track BytesOps, ChecksumOps retrofits.
+//!
+//! v0.21-008 (#1284): MsrOps::rdmsr/wrmsr — typed wrappers over the
+//! zero-arity Rdmsr/Wrmsr mnemonics; args arrive in SysV regs (idx in RDI,
+//! val in RSI for wrmsr) and the recipe marshals ECX + EDX:EAX, then packs
+//! the RDMSR result into RAX per the SysV return convention. Hardware
+//! zero-extends RAX / RDX after rdmsr in 64-bit mode (SDM Vol 2B RDMSR),
+//! so no explicit masking is needed before the shl-or pack.
+//!
+//! v0.21-009 (#1285): TlbOps::invlpg_single / flush_cache_writeback —
+//! typed wrappers over Invlpg / Wbinvd. invpcid_* remains a follow-up
+//! (the INVPCID mnemonic hasn't landed across all exhaustive
+//! Mnemonic-match sites yet); calls to it fall through to normal call
+//! emission and emit an unresolved-intrinsic diagnostic — no silent
+//! success.
+//!
+//! v0.21-013 (#1289): MmioOps volatile load/store widening to u8/u16/u64
+//! — mirrors the existing mmio_read_u32/mmio_write_u32 shape with
+//! MovSized{width=W8/W16/W64}. MovSized is emitted as a raw asm
+//! instruction, not a typed load, so CSE never collapses two adjacent
+//! reads at the same address (the "two distinct MOVs" fixture in
+//! #1289's acceptance criteria is satisfied by construction). Volatile
+//! ordering across MMIO writes and unrelated WB stores is a caller
+//! discipline: use BarrierOps::barrier_full / barrier_store between
+//! critical MMIO pairs. We do NOT embed a fence in every recipe —
+//! doubling instruction count for every device-register access when
+//! most callsites do not need it is worse than the discipline of
+//! naming the fence.
 
 use paideia_as_ir::{SmallVec, IrArena, IrNodeId, instruction::{InstrMode, Instruction, Mnemonic, Operand, SegPrefix, IntWidth}, abi};
 
@@ -1705,8 +1732,318 @@ pub fn lower_stdlib_method(
                 labels: vec![("loop_top", 1)],
             }))
         }
+        // PA-v0.21-008 (#1284): MsrOps — typed rdmsr/wrmsr with SysV marshalling.
+        //
+        // rdmsr(idx: u32) -> u64
+        //   idx  arrives in EDI (SysV arg 0; upper 32 of RDI = 0 for u32).
+        //   RCX  ← RDI       (mov r64,r64; drops caller's high bits — a u32
+        //                     arg's upper 32 are already zero, so RCX = idx.)
+        //   rdmsr            reads MSR[ECX]; hardware zero-extends RAX/RDX
+        //                     upper 32 in 64-bit mode (SDM Vol 2B RDMSR).
+        //   shl rdx, 32      RDX high half now in position for the pack.
+        //   or  rax, rdx     RAX = (EDX << 32) | EAX; matches SysV return.
+        ("MsrOps", "rdmsr") => {
+            let mut mov_ops = SmallVec::new();
+            mov_ops.push(Operand::Reg(abi::RCX));
+            mov_ops.push(Operand::Reg(abi::RDI));
+
+            let mut shl_ops = SmallVec::new();
+            shl_ops.push(Operand::Reg(abi::RDX));
+            shl_ops.push(Operand::Imm64(32));
+
+            let mut or_ops = SmallVec::new();
+            or_ops.push(Operand::Reg(abi::RAX));
+            or_ops.push(Operand::Reg(abi::RDX));
+
+            Some(Ok(LoweringRecipe {
+                instructions: vec![
+                    Instruction {
+                        mnemonic: Mnemonic::Mov,
+                        operands: mov_ops,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                        emission_order: 0,
+                    },
+                    Instruction {
+                        mnemonic: Mnemonic::Rdmsr,
+                        operands: SmallVec::new(),
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                        emission_order: 0,
+                    },
+                    Instruction {
+                        mnemonic: Mnemonic::Shl,
+                        operands: shl_ops,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                        emission_order: 0,
+                    },
+                    Instruction {
+                        mnemonic: Mnemonic::Or,
+                        operands: or_ops,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                        emission_order: 0,
+                    },
+                ],
+                arg_convention: ArgConvention::SysVRegs,
+                labels: vec![],
+            }))
+        }
+        // wrmsr(idx: u32, val: u64) -> ()
+        //   idx  arrives in EDI; val in RSI.
+        //   RCX  ← RDI       (idx into ECX slot.)
+        //   RAX  ← RSI       (val low half naturally in EAX.)
+        //   RDX  ← RSI       (copy val to RDX, then shift down.)
+        //   shr rdx, 32      RDX = val >> 32; upper 32 zeroed by shr.
+        //   wrmsr            MSR[ECX] ← EDX:EAX.
+        ("MsrOps", "wrmsr") => {
+            let mut mov_rcx = SmallVec::new();
+            mov_rcx.push(Operand::Reg(abi::RCX));
+            mov_rcx.push(Operand::Reg(abi::RDI));
+
+            let mut mov_rax = SmallVec::new();
+            mov_rax.push(Operand::Reg(abi::RAX));
+            mov_rax.push(Operand::Reg(abi::RSI));
+
+            let mut mov_rdx = SmallVec::new();
+            mov_rdx.push(Operand::Reg(abi::RDX));
+            mov_rdx.push(Operand::Reg(abi::RSI));
+
+            let mut shr_rdx = SmallVec::new();
+            shr_rdx.push(Operand::Reg(abi::RDX));
+            shr_rdx.push(Operand::Imm64(32));
+
+            Some(Ok(LoweringRecipe {
+                instructions: vec![
+                    Instruction {
+                        mnemonic: Mnemonic::Mov,
+                        operands: mov_rcx,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                        emission_order: 0,
+                    },
+                    Instruction {
+                        mnemonic: Mnemonic::Mov,
+                        operands: mov_rax,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                        emission_order: 0,
+                    },
+                    Instruction {
+                        mnemonic: Mnemonic::Mov,
+                        operands: mov_rdx,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                        emission_order: 0,
+                    },
+                    Instruction {
+                        mnemonic: Mnemonic::Shr,
+                        operands: shr_rdx,
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                        emission_order: 0,
+                    },
+                    Instruction {
+                        mnemonic: Mnemonic::Wrmsr,
+                        operands: SmallVec::new(),
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode,
+                        emission_order: 0,
+                    },
+                ],
+                arg_convention: ArgConvention::SysVRegs,
+                labels: vec![],
+            }))
+        }
+        // PA-v0.21-009 (#1285): TlbOps — invlpg (SysVRegs) + wbinvd (Literal).
+        //
+        // invlpg_single(va: u64) -> ()
+        //   va arrives in RDI; invlpg expects a memory operand [base+0] and
+        //   ignores the actual dereferenced value — the base register itself
+        //   is what carries the linear address to invalidate.
+        ("TlbOps", "invlpg_single") => {
+            let mut ops = SmallVec::new();
+            ops.push(Operand::MemSib {
+                base: abi::RDI,
+                index: None,
+                scale: paideia_as_ir::instruction::Scale::X1,
+                disp: 0,
+            });
+            Some(Ok(LoweringRecipe {
+                instructions: vec![Instruction {
+                    mnemonic: Mnemonic::Invlpg,
+                    operands: ops,
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode,
+                    emission_order: 0,
+                }],
+                arg_convention: ArgConvention::SysVRegs,
+                labels: vec![],
+            }))
+        }
+        // flush_cache_writeback() -> () — nullary WBINVD.
+        ("TlbOps", "flush_cache_writeback") => {
+            Some(Ok(LoweringRecipe {
+                instructions: vec![Instruction {
+                    mnemonic: Mnemonic::Wbinvd,
+                    operands: SmallVec::new(),
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode,
+                    emission_order: 0,
+                }],
+                arg_convention: ArgConvention::Literal,
+                labels: vec![],
+            }))
+        }
+        // PA-v0.21-013 (#1289): MmioOps — u8 / u16 / u64 volatile lowering.
+        // Mirrors the existing mmio_read_u32 / mmio_write_u32 shape with
+        // MovSized{W8/W16/W64}. Address is a compile-time literal (Literal
+        // convention); if a caller needs a runtime address, they lift the
+        // address into a register and use raw asm — the recipe explicitly
+        // rejects non-literal addresses so no silent fall-through occurs.
+        ("MmioOps", "mmio_read_u8") => {
+            mmio_read_recipe_literal(arg_ids, arena, mode, IntWidth::W8, "MmioOps::mmio_read_u8")
+        }
+        ("MmioOps", "mmio_read_u16") => {
+            mmio_read_recipe_literal(arg_ids, arena, mode, IntWidth::W16, "MmioOps::mmio_read_u16")
+        }
+        ("MmioOps", "mmio_read_u64") => {
+            mmio_read_recipe_literal(arg_ids, arena, mode, IntWidth::W64, "MmioOps::mmio_read_u64")
+        }
+        ("MmioOps", "mmio_write_u8") => {
+            mmio_write_recipe_literal(arg_ids, arena, mode, IntWidth::W8, "MmioOps::mmio_write_u8")
+        }
+        ("MmioOps", "mmio_write_u16") => {
+            mmio_write_recipe_literal(arg_ids, arena, mode, IntWidth::W16, "MmioOps::mmio_write_u16")
+        }
+        ("MmioOps", "mmio_write_u64") => {
+            mmio_write_recipe_literal(arg_ids, arena, mode, IntWidth::W64, "MmioOps::mmio_write_u64")
+        }
         _ => None,
     }
+}
+
+/// Shared helper for MmioOps::mmio_read_uN (N ∈ {8,16,64}) — Literal
+/// convention with compile-time-literal address. Emits one MovSized{width}
+/// with (RAX, [disp32]) operands. Extracted so the six new arms above stay
+/// single-line and share their address-validation with each other and with
+/// the u32 form immediately above (which is inlined for parity with the
+/// v0.16 landing).
+fn mmio_read_recipe_literal(
+    arg_ids: &[IrNodeId],
+    arena: &IrArena,
+    mode: InstrMode,
+    width: IntWidth,
+    method: &'static str,
+) -> Option<Result<LoweringRecipe, StdlibLoweringError>> {
+    if arg_ids.len() != 1 {
+        return Some(Err(StdlibLoweringError::NonLiteralArg {
+            arg_index: 0,
+            method,
+        }));
+    }
+    let addr_val = match arena.literal_values().get(arg_ids[0]) {
+        Some(v) => v,
+        None => {
+            return Some(Err(StdlibLoweringError::NonLiteralArg {
+                arg_index: 0,
+                method,
+            }));
+        }
+    };
+    if addr_val < i32::MIN as i64 || addr_val > i32::MAX as i64 {
+        return Some(Err(StdlibLoweringError::NonLiteralArg {
+            arg_index: 0,
+            method,
+        }));
+    }
+    let mut operands = SmallVec::new();
+    operands.push(Operand::Reg(abi::RAX));
+    operands.push(Operand::MemDisp {
+        disp: addr_val as i32,
+    });
+    Some(Ok(LoweringRecipe {
+        instructions: vec![Instruction {
+            mnemonic: Mnemonic::MovSized { width },
+            operands,
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode,
+            emission_order: 0,
+        }],
+        arg_convention: ArgConvention::Literal,
+        labels: vec![],
+    }))
+}
+
+/// Shared helper for MmioOps::mmio_write_uN (N ∈ {8,16,64}) — Literal
+/// convention with compile-time-literal address and value.
+fn mmio_write_recipe_literal(
+    arg_ids: &[IrNodeId],
+    arena: &IrArena,
+    mode: InstrMode,
+    width: IntWidth,
+    method: &'static str,
+) -> Option<Result<LoweringRecipe, StdlibLoweringError>> {
+    if arg_ids.len() != 2 {
+        return Some(Err(StdlibLoweringError::NonLiteralArg {
+            arg_index: 0,
+            method,
+        }));
+    }
+    let addr_val = match arena.literal_values().get(arg_ids[0]) {
+        Some(v) => v,
+        None => {
+            return Some(Err(StdlibLoweringError::NonLiteralArg {
+                arg_index: 0,
+                method,
+            }));
+        }
+    };
+    let val_val = match arena.literal_values().get(arg_ids[1]) {
+        Some(v) => v,
+        None => {
+            return Some(Err(StdlibLoweringError::NonLiteralArg {
+                arg_index: 1,
+                method,
+            }));
+        }
+    };
+    if addr_val < i32::MIN as i64 || addr_val > i32::MAX as i64 {
+        return Some(Err(StdlibLoweringError::NonLiteralArg {
+            arg_index: 0,
+            method,
+        }));
+    }
+    let mut operands = SmallVec::new();
+    operands.push(Operand::MemDisp {
+        disp: addr_val as i32,
+    });
+    operands.push(Operand::Imm64(val_val));
+    Some(Ok(LoweringRecipe {
+        instructions: vec![Instruction {
+            mnemonic: Mnemonic::MovSized { width },
+            operands,
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode,
+            emission_order: 0,
+        }],
+        arg_convention: ArgConvention::Literal,
+        labels: vec![],
+    }))
 }
 
 #[cfg(test)]
