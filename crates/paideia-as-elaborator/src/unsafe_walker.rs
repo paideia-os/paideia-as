@@ -189,6 +189,8 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     // Note: Int (software interrupt) uses int3 as canonical (see resolve_mnemonic)
     // Phase 8 m5-001: Additional supervisor mnemonics
     ("invlpg", Mnemonic::Invlpg),
+    // v0.21-009-followup (#1297): INVPCID mnemonic — unblocks TlbOps::invpcid_*.
+    ("invpcid", Mnemonic::Invpcid),
     ("rdtsc", Mnemonic::Rdtsc),
     // Phase 10 m2-001 (PA10-006b): Bitwise operation mnemonics
     ("and", Mnemonic::And),

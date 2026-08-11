@@ -393,6 +393,8 @@ fn encode_instruction_impl(
         Mnemonic::Xor => encode_and_or_xor::encode_xor(inst, buf),
         // Phase 8 m5-001: supervisor TLB and timing mnemonics
         Mnemonic::Invlpg => encode_invlpg_inst(inst, buf),
+        // v0.21-009-followup (#1297): invpcid r64, m128
+        Mnemonic::Invpcid => encode_invpcid_inst(inst, buf),
         Mnemonic::Rdtsc => encode_rdtsc_inst(inst, buf),
         // Phase R11 PA-R11-006: divide instructions
         Mnemonic::Div => encode_div(inst, buf),
@@ -4318,6 +4320,47 @@ fn encode_invlpg_inst(
         }
         _ => Err(EncodeError::OperandShape {
             mnemonic: Mnemonic::Invlpg,
+        }),
+    }
+}
+
+/// v0.21-009-followup (#1297): Encode `invpcid r64, m128` instruction.
+/// Two operands: [Reg(type_reg), MemSib{base, disp}]. The register holds
+/// the INVPCID type in its low 2 bits; the m128 memory operand supplies
+/// the 128-bit descriptor `[pcid_low12:64][linear_addr:64]`.
+///
+/// Encoding: 66 [REX] 0F 38 82 /r per Intel SDM Vol 2A INVPCID.
+fn encode_invpcid_inst(
+    inst: &Instruction,
+    buf: &mut CodeBuffer,
+) -> Result<EncodeOutput, EncodeError> {
+    if inst.operands.len() != 2 {
+        return Err(EncodeError::OperandCount {
+            mnemonic: Mnemonic::Invpcid,
+            expected: 2,
+            got: inst.operands.len(),
+        });
+    }
+    match inst.operands.as_slice() {
+        [
+            Operand::Reg(reg),
+            Operand::MemSib {
+                base,
+                index: None,
+                scale: Scale::X1,
+                disp,
+            },
+        ] => {
+            crate::encode::invpcid_reg_mem_base_disp(
+                buf,
+                reg64_from(*reg)?,
+                reg64_from(*base)?,
+                *disp,
+            );
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape {
+            mnemonic: Mnemonic::Invpcid,
         }),
     }
 }

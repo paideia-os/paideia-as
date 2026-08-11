@@ -4807,6 +4807,48 @@ pub fn encode_invlpg(buf: &mut CodeBuffer, base_reg: Reg64, disp: i32) {
     }
 }
 
+/// Encode `invpcid reg64, [base + disp]` — v0.21-009-followup (#1297).
+///
+/// Instruction: 66 [REX] 0F 38 82 /r
+/// The register operand carries the INVPCID type (0/1/2/3 in low 2 bits
+/// of r64); the m128 memory operand supplies a 128-bit descriptor
+/// `[pcid_low12:64][linear_addr:64]` per Intel SDM Vol 2A INVPCID.
+///
+/// Prefix order: 66 (mandatory) precedes REX (Intel SDM Vol 2A §2.1.1).
+/// REX.W is NOT set — the mandatory 66 selects the INVPCID opcode form,
+/// and the register operand is 64-bit in 64-bit mode by default. REX is
+/// only emitted when REX.R (reg extension) or REX.B (base extension) is
+/// needed for r8–r15.
+///
+/// Examples:
+/// - `invpcid rax, [rbx]`: `66 0F 38 82 03`
+/// - `invpcid rax, [rsp]`: `66 0F 38 82 04 24` (SIB escape for RSP base)
+/// - `invpcid r10, [rbx]`: `66 44 0F 38 82 13` (REX.R for r10)
+/// - `invpcid rax, [r11]`: `66 41 0F 38 82 03` (REX.B for r11 base)
+pub fn invpcid_reg_mem_base_disp(
+    buf: &mut CodeBuffer,
+    reg: Reg64,
+    base: Reg64,
+    disp: i32,
+) {
+    let reg_id = reg as u8;
+    let base_id = base as u8;
+    // Mandatory 66 prefix first.
+    buf.bytes.push(0x66);
+    // Optional REX for extended registers. REX.W = 0.
+    let needs_r = (reg_id >> 3) != 0;
+    let needs_b = (base_id >> 3) != 0;
+    if needs_r || needs_b {
+        buf.bytes.push(rex(false, needs_r, false, needs_b));
+    }
+    // Opcode: 0F 38 82
+    buf.bytes.push(0x0F);
+    buf.bytes.push(0x38);
+    buf.bytes.push(0x82);
+    // ModR/M + optional SIB + optional displacement via shared helper.
+    emit_mem_base_disp(buf, reg_id & 7, base_id, disp);
+}
+
 // PA-R13-003: Indirect call (call reg / call [mem]) encoder helpers.
 
 /// Encode `call reg64` — indirect call via register.

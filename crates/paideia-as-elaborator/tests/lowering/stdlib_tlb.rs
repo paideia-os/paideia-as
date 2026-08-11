@@ -75,43 +75,128 @@ fn tlb_ops_flush_cache_writeback_lowers_to_wbinvd() {
 }
 
 #[test]
-fn tlb_ops_invpcid_single_is_deferred_returns_none_for_now() {
-    // Until INVPCID lands, TlbOps::invpcid_single is unregistered. This test
-    // documents the intentional gap so it flips green (with an updated
-    // assertion) the moment the recipe lands.
+fn tlb_ops_invpcid_single_lowers_to_stack_descriptor_and_invpcid() {
+    // v0.21-009-followup (#1297): INVPCID mnemonic landed; TlbOps::invpcid_single
+    // now emits the descriptor-on-stack recipe.
+    //
+    // Expected sequence (SysVRegs; pcid in RDI, va in RSI):
+    //   sub rsp, 16
+    //   mov [rsp + 0], rdi        ; descriptor low  = pcid
+    //   mov [rsp + 8], rsi        ; descriptor high = va
+    //   mov rax, 0                ; type = 0 (individual-address)
+    //   invpcid rax, [rsp]
+    //   add rsp, 16
     let arena = IrArena::new();
     let pcid_id = IrNodeId::new(1).expect("valid node id");
     let va_id = IrNodeId::new(2).expect("valid node id");
-    let result = lower_stdlib_method(
+    let recipe = lower_stdlib_method(
         "TlbOps",
         "invpcid_single",
         InstrMode::Mode64,
         &[pcid_id, va_id],
         &arena,
+    )
+    .expect("TlbOps::invpcid_single must be registered")
+    .expect("invpcid_single lowering must succeed");
+
+    assert_eq!(recipe.arg_convention, ArgConvention::SysVRegs);
+    assert!(recipe.labels.is_empty());
+    assert_eq!(recipe.instructions.len(), 6, "sub/store-lo/store-hi/mov-type/invpcid/add");
+
+    let mnemonics: Vec<Mnemonic> =
+        recipe.instructions.iter().map(|i| i.mnemonic).collect();
+    assert_eq!(
+        mnemonics,
+        vec![
+            Mnemonic::Sub,
+            Mnemonic::Mov,
+            Mnemonic::Mov,
+            Mnemonic::Mov,
+            Mnemonic::Invpcid,
+            Mnemonic::Add,
+        ],
     );
-    assert!(
-        result.is_none(),
-        "invpcid_single is a documented deferred recipe (see stdlib_lowering.rs \
-         v0.21-009 note). If this assertion fails, INVPCID has landed — update \
-         this test to assert the recipe shape."
-    );
+
+    // Spot-check the INVPCID operand shape: [Reg(RAX), MemSib{RSP, ..., disp=0}].
+    let invpcid = &recipe.instructions[4];
+    assert_eq!(invpcid.operands.len(), 2);
+    match (&invpcid.operands[0], &invpcid.operands[1]) {
+        (Operand::Reg(r), Operand::MemSib { base, index, scale, disp }) => {
+            assert_eq!(*r, abi::RAX, "type register is RAX");
+            assert_eq!(*base, abi::RSP, "descriptor address is [rsp]");
+            assert!(index.is_none());
+            assert!(matches!(scale, Scale::X1));
+            assert_eq!(*disp, 0);
+        }
+        _ => panic!("invpcid operand shape must be (Reg(RAX), [rsp])"),
+    }
+
+    // Type-load instruction preceding INVPCID must set RAX to 0 (type = 0).
+    let mov_type = &recipe.instructions[3];
+    assert_eq!(mov_type.mnemonic, Mnemonic::Mov);
+    match (&mov_type.operands[0], &mov_type.operands[1]) {
+        (Operand::Reg(r), Operand::Imm64(v)) => {
+            assert_eq!(*r, abi::RAX);
+            assert_eq!(*v, 0, "invpcid_single uses type 0 (individual-address)");
+        }
+        _ => panic!("type-load must be `mov rax, 0`"),
+    }
 }
 
 #[test]
-fn tlb_ops_invpcid_all_nonglobal_is_deferred_returns_none_for_now() {
+fn tlb_ops_invpcid_all_nonglobal_uses_type_1_with_zeroed_va_slot() {
+    // v0.21-009-followup (#1297): Type-1 recipe zeros the linear-addr descriptor
+    // slot (SDM: reserved bits must be 0 even when the type ignores the field).
+    //
+    // Expected sequence:
+    //   sub rsp, 16
+    //   mov [rsp + 0], rdi      ; low  = pcid
+    //   xor rax, rax            ; scratch zero
+    //   mov [rsp + 8], rax      ; high = 0
+    //   mov rax, 1              ; type = 1 (single-context)
+    //   invpcid rax, [rsp]
+    //   add rsp, 16
     let arena = IrArena::new();
     let pcid_id = IrNodeId::new(1).expect("valid node id");
-    let result = lower_stdlib_method(
+    let recipe = lower_stdlib_method(
         "TlbOps",
         "invpcid_all_nonglobal",
         InstrMode::Mode64,
         &[pcid_id],
         &arena,
+    )
+    .expect("TlbOps::invpcid_all_nonglobal must be registered")
+    .expect("invpcid_all_nonglobal lowering must succeed");
+
+    assert_eq!(recipe.arg_convention, ArgConvention::SysVRegs);
+    assert!(recipe.labels.is_empty());
+    assert_eq!(recipe.instructions.len(), 7);
+
+    let mnemonics: Vec<Mnemonic> =
+        recipe.instructions.iter().map(|i| i.mnemonic).collect();
+    assert_eq!(
+        mnemonics,
+        vec![
+            Mnemonic::Sub,
+            Mnemonic::Mov,
+            Mnemonic::Xor,
+            Mnemonic::Mov,
+            Mnemonic::Mov,
+            Mnemonic::Invpcid,
+            Mnemonic::Add,
+        ],
     );
-    assert!(
-        result.is_none(),
-        "invpcid_all_nonglobal is a documented deferred recipe"
-    );
+
+    // Type-load must be `mov rax, 1` (type = 1 selects single-context /
+    // all-nonglobal per SDM Vol 3A §4.10.4.1).
+    let mov_type = &recipe.instructions[4];
+    match (&mov_type.operands[0], &mov_type.operands[1]) {
+        (Operand::Reg(r), Operand::Imm64(v)) => {
+            assert_eq!(*r, abi::RAX);
+            assert_eq!(*v, 1, "invpcid_all_nonglobal uses type 1");
+        }
+        _ => panic!("type-load must be `mov rax, 1`"),
+    }
 }
 
 #[test]

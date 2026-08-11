@@ -277,6 +277,13 @@ pub enum Mnemonic {
     Xor,
     /// Invalidate TLB entry. Phase 8 m5-001: emits `invlpg [mem]` (0F 01 /7).
     Invlpg,
+    /// Invalidate process-context identifier — v0.21-009-followup (#1297).
+    /// Emits `invpcid r64, m128` (66 0F 38 82 /r) per Intel SDM Vol 2A.
+    /// The register operand carries the INVPCID type (0/1/2/3 in the low
+    /// 2 bits of r64); the m128 memory operand supplies a 128-bit
+    /// descriptor `[pcid_low12:64][linear_addr:64]`. Two operands
+    /// (reg, mem). Ring-0 only (#GP outside CPL 0).
+    Invpcid,
     /// Read time-stamp counter. Phase 8 m5-001: emits `rdtsc` (0F 31), returns in RDX:RAX.
     Rdtsc,
     /// Unsigned integer divide (64-bit). Phase R11 PA-R11-006: emits `div r64` (REX.W F7 /6).
@@ -1006,7 +1013,9 @@ impl Mnemonic {
             | Mnemonic::LockSub { .. }
             | Mnemonic::Movnti { .. }
             | Mnemonic::Vpmovmskb
-            | Mnemonic::Vmovdqu { .. } => 2,
+            | Mnemonic::Vmovdqu { .. }
+            // v0.21-009-followup (#1297): invpcid r64, m128 — arity 2.
+            | Mnemonic::Invpcid => 2,
 
             // Three-operand instructions (Phase R18 PA-R18-011 issue #1004)
             Mnemonic::Vpxor | Mnemonic::Vpcmpeqb => 3,
@@ -1138,6 +1147,10 @@ impl Mnemonic {
 
             // TLB invalidate: 7 bytes (opcode + SIB + disp)
             Mnemonic::Invlpg => 7,
+
+            // v0.21-009-followup (#1297): invpcid r64, m128.
+            // Upper bound: 66 + REX + 0F 38 82 + ModR/M + SIB + disp32 = 11 bytes.
+            Mnemonic::Invpcid => 11,
 
             // String operations: 2 bytes (prefix + opcode)
             Mnemonic::RepMovsb => 2,

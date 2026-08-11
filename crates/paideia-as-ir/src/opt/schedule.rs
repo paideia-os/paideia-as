@@ -159,6 +159,8 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         | Mnemonic::FarJmp
         // Phase 8 m5-001: supervisor TLB and timing mnemonics
         | Mnemonic::Invlpg
+        // v0.21-009-followup (#1297): invpcid — privileged TLB op, Other class.
+        | Mnemonic::Invpcid
         | Mnemonic::Rdtsc
         // Phase R13 PA-R13-007: FP state operations
         | Mnemonic::Fxsave

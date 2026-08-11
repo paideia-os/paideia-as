@@ -96,6 +96,7 @@ enum Mnemonic
     Int3
     Invd
     Invlpg
+    Invpcid
     Iret
     Iretq
     Jcc(Cond)
@@ -171,9 +172,11 @@ enum Mnemonic
     Wbinvd
     Wrmsr
     Xchg
+    Xgetbv
     Xor
     Xrstor
     Xsaveopt
+    Xsetbv
 
 enum Operand
   attrs:
