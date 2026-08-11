@@ -4,6 +4,7 @@
 //! UD2 (undefined-instruction trap), and PUSH immediate encoding.
 
 mod call_indirect;
+mod cmp_jcc_1270;
 mod endbr;
 mod ljmp_two_operand;
 mod push_imm;
