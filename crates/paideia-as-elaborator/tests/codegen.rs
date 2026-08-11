@@ -19,4 +19,5 @@ mod codegen {
     }
     pub mod let_app_in_arm;
     pub mod string_lit_emit;
+    pub mod undefined_callee_1260;
 }

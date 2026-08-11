@@ -34,6 +34,17 @@ fn t0551_code() -> DiagnosticCode {
         .expect("T0551 is within valid T range")
 }
 
+/// Helper to construct T0553 diagnostic code — undefined identifier at call site.
+///
+/// Issue #1260: fired by emit_call_expr when the callee name resolves to
+/// none of {module symbol, stdlib trait recipe, local closure/fnptr}.
+/// Without this the compiler silently emits an unresolvable relocation
+/// and the caller sees a load-time SIGSEGV — a P0 miscompile.
+fn t0553_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::T, Severity::Error, 553)
+        .expect("T0553 is within valid T range")
+}
+
 /// Diagnostic helpers for #1226 (caller-side pos-0 pair enum args)
 fn u1670_code() -> DiagnosticCode {
     DiagnosticCode::new(Category::U, Severity::Error, 1670)
@@ -911,6 +922,56 @@ impl EmitWalker {
         arg_ids: &[IrNodeId],
         arena: &IrArena,
     ) {
+        // #1260: Validate the callee is defined before emitting the call.
+        //
+        // Prior to this check, `let x = does_not_exist(1, 2)` compiled
+        // silently: emit_call_args_and_call happily wrote a SymbolRef
+        // relocation for an unresolvable name, and the failure surfaced
+        // only at link time (or as a load-time SIGSEGV in the produced
+        // binary). That defeated the whole compile-time-safety story.
+        //
+        // Paideia has no cross-module import mechanism — every callable
+        // identifier reaching emit_call_expr must be resolvable to one
+        // of the sources below within this compilation unit:
+        //   1. A module symbol (arena.symbols() — populated by the
+        //      emit_walker Let pre-pass for every top-level let/lambda).
+        //   2. A stdlib trait recipe (Trait::method routed through
+        //      stdlib_lowering::lower_stdlib_method).
+        //   3. Local closure / function-pointer bindings — those are
+        //      dispatched by emit_closure_call BEFORE reaching this
+        //      entry (see emit_block_body.rs ~line 821), so any name
+        //      hitting this function that fails (1) and (2) is a real
+        //      undefined identifier.
+        //
+        // Operators are filtered out at the emit_block_body call site
+        // (is_operator_callee), and enum constructors (Foo::Variant) go
+        // through visit_enum_cons rather than emit_call_expr.
+        let is_stdlib_recipe = resolve_stdlib_trait_method(&target_name)
+            .and_then(|(t, m)| {
+                crate::stdlib_lowering::lower_stdlib_method(
+                    &t,
+                    &m,
+                    self.current_mode(),
+                    arg_ids,
+                    arena,
+                )
+                .map(|_res| ())
+            })
+            .is_some();
+        let is_module_symbol =
+            arena.symbols().lookup_by_name(&target_name).is_some();
+        if !is_stdlib_recipe && !is_module_symbol {
+            self.push_typed_diag(
+                t0553_code(),
+                format!("undefined identifier: {}", &target_name),
+            );
+            // Return without emitting the call. Downstream code that
+            // depended on RAX carrying a return value will observe
+            // whatever RAX held on entry — the diagnostic makes the
+            // build fail, so no correctness invariant on RAX matters.
+            return;
+        }
+
         let caller_abi = self.state.lambda_abi_option(lambda_node_id.get());
         self.emit_call_args_and_call(lambda_node_id, target_name, arg_ids, arena, caller_abi);
     }

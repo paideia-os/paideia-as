@@ -93,6 +93,16 @@ fn let_app_in_arm_emits_call_and_result_materialization() {
     let sym = Symbol::new("test_fn".to_string(), SymbolKind::Function, lambda_id);
     arena.symbols_mut().insert(sym);
 
+    // #1260: emit_call_expr now validates that callees resolve to a module
+    // symbol, stdlib recipe, or local binding — this test's synthetic
+    // arena needs to register callee_add_two so the T0553 undefined-
+    // identifier check doesn't reject the call before it emits. Prior to
+    // the check the arena was permitted to synthesize a callee name
+    // out of thin air; that indulgence is what let #1260's real bug
+    // ship as a silent success.
+    let callee_sym = Symbol::new("callee_add_two".to_string(), SymbolKind::Function, callee_id);
+    arena.symbols_mut().insert(callee_sym);
+
     // Walk the arena
     let mut walker = EmitWalker::new();
     walker.walk(&mut arena);

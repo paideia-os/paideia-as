@@ -1616,6 +1616,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "Issue #1260: A call expression names a callee that is not defined in this module's symbol table, is not a registered stdlib trait method (Trait::method), and is not a local closure/function-pointer binding. Prior to this diagnostic the compiler silently emitted a broken relocation and the linker (or, worse, load-time SIGSEGV in the produced binary) surfaced the failure. Fix by defining the function, correcting the identifier spelling, or adding the missing stdlib trait method import. Paideia has no cross-module import mechanism today: every callable identifier must be resolvable within its compilation unit at emit time."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0553",
+              "id": "T0553",
+              "name": "Undefined identifier at call site",
+              "shortDescription": {
+                "text": "callee name resolves to neither a module symbol, stdlib trait method, nor local binding"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "Issue #1198 (phase 7 m1-005): A call expression references an enum type with an EnumType::Variant qualifier (e.g., Choice::A), but the variant name does not match any variant declared in that enum. Check the spelling of the variant name and ensure it matches one of the declared variants in the enum definition."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0554",
