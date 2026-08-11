@@ -2633,6 +2633,110 @@ pub fn mov_mem_base_disp_reg32(buf: &mut CodeBuffer, base: Reg64, disp: i32, src
     emit_mem_base_disp(buf, src_id & 7, base_id, disp);
 }
 
+/// Encode `mov [base + index*scale + disp], r8` — issue #1269: SIB-indexed narrow (8-bit) store.
+///
+/// Instruction: `[REX?] 88 /r` with SIB byte
+/// Operand-size: 8-bit (register is r8, memory is r/m8)
+/// REX: MANDATORY when src ∈ {rsp, rbp, rsi, rdi} (ids 4-7) to select SPL/BPL/SIL/DIL,
+///      otherwise decoded as ah/bh/ch/dh.
+/// REX.R: set if src ∈ r8-r15; REX.X: set if index ∈ r8-r15; REX.B: set if base ∈ r8-r15.
+///
+/// Example: `mov [rax + rcx*4], dil` → `40 88 3C 88`
+pub fn mov_mem_sib_disp_reg8(
+    buf: &mut CodeBuffer,
+    base: Reg64,
+    index: Reg64,
+    scale_bits: u8,
+    disp: i32,
+    src: Reg64,
+) {
+    let base_id = base as u8;
+    let index_id = index as u8;
+    let src_id = src as u8;
+    let src_low = src_id & 7;
+    let requires_rex_for_byte_reg = (4..=7).contains(&src_low);
+    let rex_byte = rex(
+        false,
+        (src_id >> 3) != 0,
+        (index_id >> 3) != 0,
+        (base_id >> 3) != 0,
+    );
+    if (src_id >> 3) != 0
+        || (index_id >> 3) != 0
+        || (base_id >> 3) != 0
+        || requires_rex_for_byte_reg
+    {
+        buf.bytes.push(rex_byte);
+    }
+    buf.bytes.push(0x88); // mov r/m8, r8
+    emit_mem_sib_disp(buf, src_low, base_id, index_id, scale_bits, disp);
+}
+
+/// Encode `mov [base + index*scale + disp], r16` — issue #1269: SIB-indexed narrow (16-bit) store.
+///
+/// Instruction: `66 [REX?] 89 /r` with SIB byte
+/// Operand-size: 16-bit via 0x66 override.
+/// REX.R: set if src ∈ r8-r15; REX.X: set if index ∈ r8-r15; REX.B: set if base ∈ r8-r15.
+///
+/// Example: `mov [rax + rcx*4], di` → `66 89 3C 88`
+pub fn mov_mem_sib_disp_reg16(
+    buf: &mut CodeBuffer,
+    base: Reg64,
+    index: Reg64,
+    scale_bits: u8,
+    disp: i32,
+    src: Reg64,
+) {
+    let base_id = base as u8;
+    let index_id = index as u8;
+    let src_id = src as u8;
+    buf.bytes.push(0x66); // operand-size override
+    let rex_byte = rex(
+        false,
+        (src_id >> 3) != 0,
+        (index_id >> 3) != 0,
+        (base_id >> 3) != 0,
+    );
+    if (src_id >> 3) != 0 || (index_id >> 3) != 0 || (base_id >> 3) != 0 {
+        buf.bytes.push(rex_byte);
+    }
+    buf.bytes.push(0x89); // mov r/m16, r16
+    emit_mem_sib_disp(buf, src_id & 7, base_id, index_id, scale_bits, disp);
+}
+
+/// Encode `mov [base + index*scale + disp], r32` — issue #1269: SIB-indexed narrow (32-bit) store.
+///
+/// Instruction: `[REX?] 89 /r` with SIB byte
+/// Operand-size: 32-bit (no REX.W).
+/// REX.R: set if src ∈ r8-r15; REX.X: set if index ∈ r8-r15; REX.B: set if base ∈ r8-r15.
+///
+/// Examples:
+/// - `mov [rax + rcx*4], edi` → `89 3C 88`
+/// - `mov [rax + rcx*4], r8d`  → `44 89 04 88`
+pub fn mov_mem_sib_disp_reg32(
+    buf: &mut CodeBuffer,
+    base: Reg64,
+    index: Reg64,
+    scale_bits: u8,
+    disp: i32,
+    src: Reg64,
+) {
+    let base_id = base as u8;
+    let index_id = index as u8;
+    let src_id = src as u8;
+    let rex_byte = rex(
+        false,
+        (src_id >> 3) != 0,
+        (index_id >> 3) != 0,
+        (base_id >> 3) != 0,
+    );
+    if (src_id >> 3) != 0 || (index_id >> 3) != 0 || (base_id >> 3) != 0 {
+        buf.bytes.push(rex_byte);
+    }
+    buf.bytes.push(0x89); // mov r/m32, r32
+    emit_mem_sib_disp(buf, src_id & 7, base_id, index_id, scale_bits, disp);
+}
+
 /// Encode `mov r64, [base + index*scale + disp]` — Phase 9 m1-003: SIB addressing with displacement.
 ///
 /// Instruction: REX.W 8B /r

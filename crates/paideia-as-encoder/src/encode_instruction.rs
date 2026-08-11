@@ -576,6 +576,28 @@ fn encode_mov_sized(
             }
             Ok(EncodeOutput::new())
         }
+        // #1269: narrow-width register-source STORE, [base + index*scale + disp], reg
+        // Complements the SIB-indexed IMMEDIATE-store arm below; without this the
+        // 3-operand SIB store `mov_d [rax+rcx*4], edi` fell through to the generic
+        // OperandShape handler and silently widened to REX.W (64-bit) form.
+        [Operand::MemSib { base, index: Some(idx), scale, disp }, Operand::Reg(src)] => {
+            let base_reg = reg64_from(*base)?;
+            let index_reg = reg64_from(*idx)?;
+            let src_reg = reg64_from(*src)?;
+            let scale_bits = match scale {
+                Scale::X1 => 0,
+                Scale::X2 => 1,
+                Scale::X4 => 2,
+                Scale::X8 => 3,
+            };
+            match width {
+                IntWidth::W8 => mov_mem_sib_disp_reg8(buf, base_reg, index_reg, scale_bits, *disp, src_reg),
+                IntWidth::W16 => mov_mem_sib_disp_reg16(buf, base_reg, index_reg, scale_bits, *disp, src_reg),
+                IntWidth::W32 => mov_mem_sib_disp_reg32(buf, base_reg, index_reg, scale_bits, *disp, src_reg),
+                IntWidth::W64 => mov_mem_sib_disp_reg64(buf, base_reg, index_reg, scale_bits, *disp, src_reg),
+            }
+            Ok(EncodeOutput::new())
+        }
         // PA-R14-001 (#944): narrow-width store to memory [base + index*scale + disp], imm
         [Operand::MemSib { base, index: Some(idx), scale, disp }, Operand::Imm64(imm)] => {
             let base_reg = reg64_from(*base)?;

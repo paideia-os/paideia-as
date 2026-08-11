@@ -386,6 +386,155 @@ fn mov_d_mem_rbx_r9_8_round_trip() {
     assert_eq!(decoded.mnemonic(), IcedMnem::Mov);
 }
 
+// ===== Suite C: #1269 — SIB-indexed register-source narrow stores =====
+//
+// Regression tests for the encoder gap where `mov [base + index*scale + disp], reg`
+// with a NARROW (8/16/32-bit) register source was missing from encode_mov_sized —
+// it fell through to the generic OperandShape handler and either rejected or
+// silently emitted a 64-bit REX.W form.
+
+#[test]
+fn mov_d_mem_rax_rcx_4_edi_byte_exact_1269() {
+    // `mov_d [rax + rcx*4], edi` — the exact reproducer from issue #1269.
+    let mut buf = CodeBuffer::new();
+    let inst = Instruction {
+        mnemonic: Mnemonic::MovSized { width: IntWidth::W32 },
+        operands: smallvec![
+            Operand::MemSib { base: RegId(0), index: Some(RegId(1)), scale: Scale::X4, disp: 0 },
+            Operand::Reg(RegId(7))
+        ],
+        byte_offset_in_text: None,
+        mode: InstrMode::default(),
+        encoding_hint: None,
+        emission_order: 0,
+    };
+    let mut stats = EncodeStats::new();
+    paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
+        .expect("encoding failed for mov_d [rax + rcx*4], edi");
+    // Expected: 89 3C 88 — 32-bit store, no REX.W. Absence of 0x48 REX proves the fix.
+    assert_eq!(buf.as_slice(), &[0x89, 0x3C, 0x88]);
+}
+
+#[test]
+fn mov_d_mem_rax_rcx_4_r8d_byte_exact_1269() {
+    // Extended-reg source needs REX.R.
+    let mut buf = CodeBuffer::new();
+    let inst = Instruction {
+        mnemonic: Mnemonic::MovSized { width: IntWidth::W32 },
+        operands: smallvec![
+            Operand::MemSib { base: RegId(0), index: Some(RegId(1)), scale: Scale::X4, disp: 0 },
+            Operand::Reg(RegId(8))
+        ],
+        byte_offset_in_text: None,
+        mode: InstrMode::default(),
+        encoding_hint: None,
+        emission_order: 0,
+    };
+    let mut stats = EncodeStats::new();
+    paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
+        .expect("encoding failed for mov_d [rax + rcx*4], r8d");
+    // Expected: 44 89 04 88 — REX.R for r8, no REX.W.
+    assert_eq!(buf.as_slice(), &[0x44, 0x89, 0x04, 0x88]);
+}
+
+#[test]
+fn mov_w_mem_rax_rcx_4_di_byte_exact_1269() {
+    // 16-bit narrow store: 66 prefix + no REX.
+    let mut buf = CodeBuffer::new();
+    let inst = Instruction {
+        mnemonic: Mnemonic::MovSized { width: IntWidth::W16 },
+        operands: smallvec![
+            Operand::MemSib { base: RegId(0), index: Some(RegId(1)), scale: Scale::X4, disp: 0 },
+            Operand::Reg(RegId(7))
+        ],
+        byte_offset_in_text: None,
+        mode: InstrMode::default(),
+        encoding_hint: None,
+        emission_order: 0,
+    };
+    let mut stats = EncodeStats::new();
+    paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
+        .expect("encoding failed for mov_w [rax + rcx*4], di");
+    // Expected: 66 89 3C 88
+    assert_eq!(buf.as_slice(), &[0x66, 0x89, 0x3C, 0x88]);
+}
+
+#[test]
+fn mov_b_mem_rax_rcx_4_dil_byte_exact_1269() {
+    // 8-bit narrow store: MANDATORY REX (dil requires REX.0 to disambiguate from ah/bh/ch/dh).
+    let mut buf = CodeBuffer::new();
+    let inst = Instruction {
+        mnemonic: Mnemonic::MovSized { width: IntWidth::W8 },
+        operands: smallvec![
+            Operand::MemSib { base: RegId(0), index: Some(RegId(1)), scale: Scale::X4, disp: 0 },
+            Operand::Reg(RegId(7))
+        ],
+        byte_offset_in_text: None,
+        mode: InstrMode::default(),
+        encoding_hint: None,
+        emission_order: 0,
+    };
+    let mut stats = EncodeStats::new();
+    paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
+        .expect("encoding failed for mov_b [rax + rcx*4], dil");
+    // Expected: 40 88 3C 88 — REX.0 for dil (register id 7 in 4..=7 range).
+    assert_eq!(buf.as_slice(), &[0x40, 0x88, 0x3C, 0x88]);
+}
+
+#[test]
+fn mov_d_mem_rax_rcx_4_disp8_byte_exact_1269() {
+    // With a small displacement: mod=01, disp8.
+    let mut buf = CodeBuffer::new();
+    let inst = Instruction {
+        mnemonic: Mnemonic::MovSized { width: IntWidth::W32 },
+        operands: smallvec![
+            Operand::MemSib { base: RegId(0), index: Some(RegId(1)), scale: Scale::X4, disp: 8 },
+            Operand::Reg(RegId(7))
+        ],
+        byte_offset_in_text: None,
+        mode: InstrMode::default(),
+        encoding_hint: None,
+        emission_order: 0,
+    };
+    let mut stats = EncodeStats::new();
+    paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats)
+        .expect("encoding failed for mov_d [rax + rcx*4 + 8], edi");
+    // Expected: 89 7C 88 08
+    assert_eq!(buf.as_slice(), &[0x89, 0x7C, 0x88, 0x08]);
+}
+
+#[test]
+fn mov_d_mem_rax_rcx_4_edi_iced_round_trip_1269() {
+    // iced-x86 cross-check: verify the encoded bytes decode back to MOV r/m32, r32.
+    use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem, OpKind, Register};
+
+    let mut buf = CodeBuffer::new();
+    let inst = Instruction {
+        mnemonic: Mnemonic::MovSized { width: IntWidth::W32 },
+        operands: smallvec![
+            Operand::MemSib { base: RegId(0), index: Some(RegId(1)), scale: Scale::X4, disp: 0 },
+            Operand::Reg(RegId(7))
+        ],
+        byte_offset_in_text: None,
+        mode: InstrMode::default(),
+        encoding_hint: None,
+        emission_order: 0,
+    };
+    let mut stats = EncodeStats::new();
+    paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats).unwrap();
+
+    let mut decoder = Decoder::new(64, buf.as_slice(), DecoderOptions::NONE);
+    let decoded = decoder.decode();
+    assert_eq!(decoded.mnemonic(), IcedMnem::Mov);
+    // Op0 must be memory (destination); op1 must be 32-bit register (source).
+    assert_eq!(decoded.op0_kind(), OpKind::Memory);
+    assert_eq!(decoded.op1_kind(), OpKind::Register);
+    assert_eq!(decoded.op1_register(), Register::EDI);
+    assert_eq!(decoded.memory_base(), Register::RAX);
+    assert_eq!(decoded.memory_index(), Register::RCX);
+    assert_eq!(decoded.memory_index_scale(), 4);
+}
+
 #[test]
 fn mov_q_mem_rsp_rax_round_trip() {
     use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem};
