@@ -4341,6 +4341,9 @@ fn encode_vpmovmskb(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOu
 }
 
 /// Phase R18 PA-R18-011 (issue #1004): Encode Vmovdqu ymm/[mem] dst, ymm/[mem] src.
+/// paideia-as#1295-b: added RIP-relative memory operand shapes to unblock
+/// paideia-os R21.M2 #832 (YMM-preservation fixture reads/writes YMM state
+/// through .rodata / .bss labels via `[rip + label]` memory refs).
 fn encode_vmovdqu(inst: &Instruction, buf: &mut CodeBuffer, is_store: bool) -> Result<EncodeOutput, EncodeError> {
     match inst.operands.as_slice() {
         // vmovdqu ymm dst, ymm src (register-to-register)
@@ -4356,6 +4359,44 @@ fn encode_vmovdqu(inst: &Instruction, buf: &mut CodeBuffer, is_store: bool) -> R
         // vmovdqu [mem] dst, ymm src (store form, is_store=true)
         [Operand::MemSib { base, index: None, scale: Scale::X1, disp }, Operand::Reg(src)] if is_store => {
             crate::encode_vex::encode_vmovdqu_mem_ymm(buf, base.0, *disp, src.0);
+            Ok(EncodeOutput::new())
+        }
+        // paideia-as#1295-b: vmovdqu ymm dst, [rip + sym + addend] (load, RIP-rel with symbol)
+        [Operand::Reg(dst), Operand::MemRipRelSym { name, addend }] if !is_store => {
+            // #1143: capture instruction start so disp_offset stays instruction-local
+            // (RelocSite.byte_offset contract per the mov/lea patterns above).
+            let start = buf.bytes.len();
+            let disp_abs = crate::encode_vex::encode_vmovdqu_ymm_riprel(buf, dst.0, 0);
+            let mut output = EncodeOutput::new();
+            output.add_reloc(RelocSite {
+                byte_offset: (disp_abs - start) as u32,
+                symbol: name.clone(),
+                kind: RelocKind::PcRel32,
+                addend: addend.wrapping_add(PC32_FIELD_BIAS),
+            });
+            Ok(output)
+        }
+        // paideia-as#1295-b: vmovdqu ymm dst, [rip + disp] (load, RIP-rel plain)
+        [Operand::Reg(dst), Operand::MemRipRel { disp }] if !is_store => {
+            crate::encode_vex::encode_vmovdqu_ymm_riprel(buf, dst.0, *disp);
+            Ok(EncodeOutput::new())
+        }
+        // paideia-as#1295-b: vmovdqu [rip + sym + addend], ymm src (store, RIP-rel with symbol)
+        [Operand::MemRipRelSym { name, addend }, Operand::Reg(src)] if is_store => {
+            let start = buf.bytes.len();
+            let disp_abs = crate::encode_vex::encode_vmovdqu_riprel_ymm(buf, 0, src.0);
+            let mut output = EncodeOutput::new();
+            output.add_reloc(RelocSite {
+                byte_offset: (disp_abs - start) as u32,
+                symbol: name.clone(),
+                kind: RelocKind::PcRel32,
+                addend: addend.wrapping_add(PC32_FIELD_BIAS),
+            });
+            Ok(output)
+        }
+        // paideia-as#1295-b: vmovdqu [rip + disp], ymm src (store, RIP-rel plain)
+        [Operand::MemRipRel { disp }, Operand::Reg(src)] if is_store => {
+            crate::encode_vex::encode_vmovdqu_riprel_ymm(buf, *disp, src.0);
             Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::OperandShape {

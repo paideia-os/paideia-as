@@ -413,6 +413,95 @@ pub fn encode_vmovdqu_ymm_mem(
     }
 }
 
+/// Encode Vmovdqu ymm dst, [rip + disp32] → VEX F3 0F 6F /r (RIP-relative load form).
+///
+/// paideia-as#1295-b (paideia-os R21.M2 #832 unblock): the base-register+disp form
+/// (`encode_vmovdqu_ymm_mem`) doesn't fit RIP-relative memory references — those
+/// use mod=00, rm=101 (SIB-less, forced-disp32) rather than a base-register ModR/M.
+/// This helper emits the RIP-relative form and returns the byte offset of the
+/// disp32 field so the caller can attach a PcRel32 relocation.
+///
+/// The disp32 bytes are emitted as a placeholder (0x00000000); the caller MUST
+/// attach a relocation (typically `RelocKind::PcRel32` with the symbol name
+/// biased by `PC32_FIELD_BIAS = -4`) so the linker fixes up the actual offset.
+///
+/// Returns the byte offset of the disp32 within `buf.bytes` (relative to the
+/// start of buf.bytes) — matching the pattern used by other RIP-relative
+/// encoders in `encode_instruction.rs`.
+pub fn encode_vmovdqu_ymm_riprel(
+    buf: &mut CodeBuffer,
+    dst_id: u8,
+    disp: i32,
+) -> usize {
+    let dst_ymm = ymm_id_from_regid(dst_id).expect("vmovdqu: invalid dst register");
+    let dst_is_high = (dst_ymm & 0x08) != 0;
+
+    // 3-byte VEX required only if dst is high; RIP-rel has no base/index
+    // register whose high bit could force the wider form.
+    if !dst_is_high {
+        // 2-byte VEX: R = NOT(dst_high) = 1, vvvv = 0x0F (unused for one-src ops),
+        // L = 1 (256-bit), pp = 0x2 (F3 prefix).
+        let vex = Vex2::new(true, 0x0F, true, 0x2);
+        buf.bytes.push(0xC5);
+        buf.bytes.push(vex.byte);
+    } else {
+        // 3-byte VEX: R = high, X = false, B = false, mmmmm=1 (0F escape).
+        let vex = Vex3::new(true, false, false, 0x01, false, 0x0F, true, 0x2);
+        buf.bytes.push(0xC4);
+        buf.bytes.push(vex.byte0);
+        buf.bytes.push(vex.byte1);
+    }
+
+    // Opcode 6F (load form).
+    buf.bytes.push(0x6F);
+
+    // ModR/M: mod=00, reg=dst[2:0], rm=101 (RIP-relative).
+    let modrm = 0x05 | ((dst_ymm & 0x07) << 3);
+    buf.bytes.push(modrm);
+
+    // Record disp32 byte offset before pushing the placeholder — the caller
+    // uses this to attach the PcRel32 relocation site.
+    let disp_offset = buf.bytes.len();
+    buf.bytes.extend(disp.to_le_bytes());
+    disp_offset
+}
+
+/// Encode Vmovdqu [rip + disp32], ymm src → VEX F3 0F 7F /r (RIP-relative store form).
+///
+/// paideia-as#1295-b: mirror of `encode_vmovdqu_ymm_riprel` for the store form
+/// (opcode 7F).  Same disp32 relocation contract: returns the byte offset of
+/// the disp32 placeholder for the caller to attach a PcRel32 reloc.
+pub fn encode_vmovdqu_riprel_ymm(
+    buf: &mut CodeBuffer,
+    disp: i32,
+    src_id: u8,
+) -> usize {
+    let src_ymm = ymm_id_from_regid(src_id).expect("vmovdqu: invalid src register");
+    let src_is_high = (src_ymm & 0x08) != 0;
+
+    if !src_is_high {
+        let vex = Vex2::new(true, 0x0F, true, 0x2);
+        buf.bytes.push(0xC5);
+        buf.bytes.push(vex.byte);
+    } else {
+        let vex = Vex3::new(true, false, false, 0x01, false, 0x0F, true, 0x2);
+        buf.bytes.push(0xC4);
+        buf.bytes.push(vex.byte0);
+        buf.bytes.push(vex.byte1);
+    }
+
+    // Opcode 7F (store form).
+    buf.bytes.push(0x7F);
+
+    // ModR/M: mod=00, reg=src[2:0], rm=101 (RIP-relative).
+    let modrm = 0x05 | ((src_ymm & 0x07) << 3);
+    buf.bytes.push(modrm);
+
+    let disp_offset = buf.bytes.len();
+    buf.bytes.extend(disp.to_le_bytes());
+    disp_offset
+}
+
 /// Encode Vmovdqu [rax], ymm src → VEX F3 0F 7F /r (store form).
 pub fn encode_vmovdqu_mem_ymm(
     buf: &mut CodeBuffer,
