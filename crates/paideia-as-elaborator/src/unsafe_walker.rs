@@ -304,6 +304,21 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     ("prefetcht0", Mnemonic::Prefetcht0),
     ("prefetcht1", Mnemonic::Prefetcht1),
     ("prefetcht2", Mnemonic::Prefetcht2),
+    // v0.21-016 (paideia-as#1295, paideia-os R21.M2 #832): AVX2 mnemonic
+    // parser wiring. #1004 landed the encoder + IR primitives in v0.18 but
+    // never wired the string spellings into the elaborator, so no .pdx
+    // source could actually emit them. The two Vmovdqu forms differ only
+    // in their `is_store: bool` variant field, which can't be inferred
+    // from the mnemonic string alone — hence two distinct spellings.
+    //   vmovdqu_ld : (ymm dst, [mem] src) OR (ymm dst, ymm src)  — VEX.256 F3 0F 6F /r
+    //   vmovdqu_st : ([mem] dst, ymm src)                        — VEX.256 F3 0F 7F /r
+    // The three-operand VEX-encoded AVX2 arithmetic mnemonics remain in
+    // their single canonical spelling (no is_store distinction).
+    ("vmovdqu_ld", Mnemonic::Vmovdqu { is_store: false }),
+    ("vmovdqu_st", Mnemonic::Vmovdqu { is_store: true }),
+    ("vpxor", Mnemonic::Vpxor),
+    ("vpcmpeqb", Mnemonic::Vpcmpeqb),
+    ("vpmovmskb", Mnemonic::Vpmovmskb),
 ];
 
 /// Resolve a mnemonic name to an IR Mnemonic enum variant.
@@ -1511,6 +1526,41 @@ mod tests {
     fn resolve_mnemonic_xsetbv() {
         // v0.21-015 (paideia-as#1294): xsetbv is the write half of XCR0 access
         assert_eq!(resolve_mnemonic("xsetbv"), Some(Mnemonic::Xsetbv));
+    }
+
+    // v0.21-016 (paideia-as#1295): AVX2 mnemonic parser wiring — encoder
+    // side (issue #1004, v0.18) already ships the byte-exact + iced tests
+    // for every operand shape below; these resolver tests just pin the
+    // string → Mnemonic mapping so downstream .pdx sources can invoke them.
+    #[test]
+    fn resolve_mnemonic_vmovdqu_ld() {
+        assert_eq!(
+            resolve_mnemonic("vmovdqu_ld"),
+            Some(Mnemonic::Vmovdqu { is_store: false })
+        );
+    }
+
+    #[test]
+    fn resolve_mnemonic_vmovdqu_st() {
+        assert_eq!(
+            resolve_mnemonic("vmovdqu_st"),
+            Some(Mnemonic::Vmovdqu { is_store: true })
+        );
+    }
+
+    #[test]
+    fn resolve_mnemonic_vpxor() {
+        assert_eq!(resolve_mnemonic("vpxor"), Some(Mnemonic::Vpxor));
+    }
+
+    #[test]
+    fn resolve_mnemonic_vpcmpeqb() {
+        assert_eq!(resolve_mnemonic("vpcmpeqb"), Some(Mnemonic::Vpcmpeqb));
+    }
+
+    #[test]
+    fn resolve_mnemonic_vpmovmskb() {
+        assert_eq!(resolve_mnemonic("vpmovmskb"), Some(Mnemonic::Vpmovmskb));
     }
 
     #[test]
