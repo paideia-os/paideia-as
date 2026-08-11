@@ -54,21 +54,52 @@ pub fn s_codes_for(path: &Path) -> Result<BTreeSet<String>, String> {
 ///
 /// Looks for patterns like `S0901`, `S0900`, etc. — capital S followed
 /// by exactly 4 ASCII digits. Extracts all matches in order of appearance.
+///
+/// **Issue #1268**: the match now requires ASCII word boundaries on both
+/// sides so that an `S1234` substring inside an identifier or path (e.g.,
+/// the PascalCase form of a file basename echoed in an M0305 note) does
+/// not spuriously register as a diagnostic S-code. Previously the byte
+/// scan matched `S0901` inside `PtrCopyNoS0901`, so the ptr_copy_no_s0901
+/// / ptr_in_let_no_s0901 accept fixtures failed even though no walker
+/// ever emitted S0901 on them.
 fn parse_s_codes_from_stderr(stderr: &str) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     let bytes = stderr.as_bytes();
+    let n = bytes.len();
     let mut i = 0;
-    while i + 5 <= bytes.len() {
+    while i + 5 <= n {
         if bytes[i] == b'S' && bytes[i + 1..i + 5].iter().all(|b| b.is_ascii_digit()) {
-            if let Ok(s) = std::str::from_utf8(&bytes[i..i + 5]) {
-                out.insert(s.to_string());
+            // Left boundary: no ASCII alphanumeric or underscore immediately before.
+            let left_ok = i == 0 || !is_word_byte(bytes[i - 1]);
+            // Right boundary: nothing, or non-word char, immediately after the 4 digits.
+            let right_ok = i + 5 == n || !is_word_byte(bytes[i + 5]);
+            if left_ok && right_ok {
+                if let Ok(s) = std::str::from_utf8(&bytes[i..i + 5]) {
+                    out.insert(s.to_string());
+                }
+                i += 5;
+                continue;
             }
-            i += 5;
-        } else {
-            i += 1;
         }
+        i += 1;
     }
     out
+}
+
+/// ASCII word byte: letters, digits, or underscore.
+#[inline]
+fn is_word_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
+}
+
+/// Test-visible wrapper around the private stderr parser.
+///
+/// Exposed so regression tests can exercise the parser directly without
+/// spawning `paideia-as`. Not part of the harness's public contract for
+/// paideia-os consumers.
+#[doc(hidden)]
+pub fn parse_s_codes_from_stderr_public(stderr: &str) -> BTreeSet<String> {
+    parse_s_codes_from_stderr(stderr)
 }
 
 /// Parse a `.expect` sidecar file: one `Sxxxx` code per line; `#`

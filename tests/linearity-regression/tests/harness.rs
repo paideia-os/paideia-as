@@ -4,7 +4,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use paideia_linearity_regression::{parse_expect_file, s_codes_for};
+use paideia_linearity_regression::{parse_expect_file, parse_s_codes_from_stderr_public, s_codes_for};
 
 fn corpus_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -101,6 +101,41 @@ fn reject_corpus_emits_expected_s_codes() {
         failures.len(),
         failures.join("\n")
     );
+}
+
+/// Issue #1268 regression: an `S`-code embedded in an identifier (e.g., the
+/// PascalCase form of a file basename echoed inside an M0305 note like
+/// `expected 'PtrCopyNoS0901'`) must NOT be extracted as an S-diagnostic.
+/// Before the word-boundary fix, `parse_s_codes_from_stderr` picked up
+/// `S0901` from `PtrCopyNoS0901` and reported it, breaking the two accept
+/// fixtures whose filenames contained `no_s0901`.
+#[test]
+fn parse_s_codes_ignores_ident_embedded_code_1268() {
+    // The exact fragment that shipped in the M0305 diagnostic note:
+    let msg = "expected 'PtrCopyNoS0901'";
+    assert!(
+        parse_s_codes_from_stderr_public(msg).is_empty(),
+        "identifier-embedded S0901 must not register as an S-code"
+    );
+}
+
+#[test]
+fn parse_s_codes_still_extracts_bare_codes_1268() {
+    // Sanity: bona-fide diagnostic lines are still picked up.
+    let msg = "error[S0901]: linear binding overused";
+    let codes = parse_s_codes_from_stderr_public(msg);
+    assert_eq!(codes.len(), 1);
+    assert!(codes.contains("S0901"));
+}
+
+#[test]
+fn parse_s_codes_mixed_ident_and_bare_1268() {
+    // Both forms in one buffer: only the bare one should be extracted.
+    let msg = "note: expected 'PtrCopyNoS0901'\nerror[S0902]: let shadowing";
+    let codes = parse_s_codes_from_stderr_public(msg);
+    assert_eq!(codes.len(), 1);
+    assert!(codes.contains("S0902"));
+    assert!(!codes.contains("S0901"));
 }
 
 #[test]
