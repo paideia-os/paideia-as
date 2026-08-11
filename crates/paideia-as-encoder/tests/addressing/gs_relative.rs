@@ -257,12 +257,109 @@ fn mov_rax_fs_rax_disp0_round_trips_through_iced_x86_with_fs_segment() {
     assert_eq!(decoded.segment_prefix(), IcedReg::FS);
 }
 
-// ── Known limitation (now closed) ──────────────────────────────────────────
+// ── SIB-less-base absolute-disp32 form under GS override ────────────────────
 //
-// The disp32-only / "no base" SIB form — needed for `[gs:0]` and
-// `[gs:absolute_addr]` (ModR/M mod=00 rm=100, SIB base=101, disp32) — was a
-// pre-existing gap in the encoder. The gap has been closed via #1061, which
-// added encoder support for `mov_reg_mem_abs_disp32` and
-// `mov_mem_abs_disp32_reg` primitives. Once those are integrated into the
-// IR layer, `[gs:0]`/`[gs:8]` disp-only load and store forms should be added
-// here to complement the existing segment-prefix tests.
+// The disp32-only / "no base" SIB form (ModR/M mod=00 rm=100, SIB base=101,
+// disp32) is what `mov rax, gs:[0x20]` compiles to. It IS a SIB byte (a SIB
+// byte is architecturally required whenever ModR/M rm=100 in 64-bit mode),
+// but the SIB base and index fields are both encoded as "none" so no register
+// participates in the effective address — a disp32 immediate is the sole
+// address. PA-R14-001 (#926) audits this path for PerCpuOps at the encoder
+// level; the W32 form (mov eax, gs:[0x1000]) is validated in
+// mov/mov_mem_abs_disp32.rs Suite D.
+//
+// The `mov rax, gs:[0x20]` W64 form below is the p0 v0.21-005 (#1281)
+// acceptance-criterion witness: PerCpuOps { read_u64 } lowering uses this
+// idiom whenever the CB offset is a compile-time literal that fits disp32.
+
+#[test]
+fn mov_rax_gs_disp32_0x20_w64_read_pa_r14_001_witness() {
+    // mov rax, gs:[0x20]
+    // Segment prefix (65) + REX.W (48) + opcode (8B) + ModR/M (04) + SIB (25)
+    //   + disp32 (20 00 00 00)
+    // Expected: 65 48 8B 04 25 20 00 00 00 (9 bytes)
+    //
+    // This is the PA-R14-001 (#926) / v0.21-005 (#1281) acceptance-criterion
+    // witness for `mov rax, gs:[0x20]` — the natural W64 per-CPU CB read at
+    // offset 0x20, exercised through the plain `Mnemonic::Mov` path (which
+    // defaults to W64 when the operand pair is `[Reg64, MemDisp]`).
+    let inst = Instruction {
+        mnemonic: Mnemonic::Mov,
+        operands: smallvec![
+            Operand::Reg(RegId(0)), // rax
+            Operand::MemSeg {
+                seg: SegPrefix::Gs,
+                inner: Box::new(Operand::MemDisp { disp: 0x20 }),
+            },
+        ],
+        byte_offset_in_text: None,
+        mode: InstrMode::default(),
+        encoding_hint: None,
+        emission_order: 0,
+    };
+    let bytes = encode_one(inst);
+    assert_eq!(
+        bytes,
+        &[0x65, 0x48, 0x8B, 0x04, 0x25, 0x20, 0x00, 0x00, 0x00],
+        "mov rax, gs:[0x20] W64 SIB-no-base form"
+    );
+}
+
+#[test]
+fn mov_gs_disp32_0x20_rax_w64_store_pa_r14_001_witness() {
+    // mov gs:[0x20], rax — store direction of the SIB-no-base form.
+    // Expected: 65 48 89 04 25 20 00 00 00 (9 bytes; 89 = MR store opcode)
+    let inst = Instruction {
+        mnemonic: Mnemonic::Mov,
+        operands: smallvec![
+            Operand::MemSeg {
+                seg: SegPrefix::Gs,
+                inner: Box::new(Operand::MemDisp { disp: 0x20 }),
+            },
+            Operand::Reg(RegId(0)), // rax
+        ],
+        byte_offset_in_text: None,
+        mode: InstrMode::default(),
+        encoding_hint: None,
+        emission_order: 0,
+    };
+    let bytes = encode_one(inst);
+    assert_eq!(
+        bytes,
+        &[0x65, 0x48, 0x89, 0x04, 0x25, 0x20, 0x00, 0x00, 0x00],
+        "mov gs:[0x20], rax W64 SIB-no-base store form"
+    );
+}
+
+#[test]
+fn mov_rax_gs_disp32_0x20_iced_round_trip_confirms_gs_and_disp() {
+    // Round-trip the AC witness through iced-x86 to confirm not just byte
+    // equality but that the decoded semantic (GS segment override, absolute
+    // displacement 0x20, W64 mov) matches Intel's authoritative decoder.
+    use iced_x86::{Decoder, DecoderOptions, Mnemonic as IcedMnem, Register as IcedReg};
+
+    let inst = Instruction {
+        mnemonic: Mnemonic::Mov,
+        operands: smallvec![
+            Operand::Reg(RegId(0)), // rax
+            Operand::MemSeg {
+                seg: SegPrefix::Gs,
+                inner: Box::new(Operand::MemDisp { disp: 0x20 }),
+            },
+        ],
+        byte_offset_in_text: None,
+        mode: InstrMode::default(),
+        encoding_hint: None,
+        emission_order: 0,
+    };
+    let bytes = encode_one(inst);
+    let mut decoder = Decoder::new(64, &bytes, DecoderOptions::NONE);
+    let decoded = decoder.decode();
+    assert_eq!(decoded.mnemonic(), IcedMnem::Mov);
+    assert_eq!(decoded.segment_prefix(), IcedReg::GS);
+    assert_eq!(decoded.op0_register(), IcedReg::RAX);
+    // op1 is a memory operand at absolute disp32 = 0x20; no base/index.
+    assert_eq!(decoded.memory_displacement64(), 0x20);
+    assert_eq!(decoded.memory_base(), IcedReg::None);
+    assert_eq!(decoded.memory_index(), IcedReg::None);
+}
