@@ -455,6 +455,7 @@ fn eval_inner<'a>(
                 name,
                 ty: _,
                 value,
+                atomic: _,
             }) = arena.stmt_data(expr_id)
             {
                 let val = eval(arena, *value, env, type_cache)?;
@@ -804,6 +805,7 @@ mod tests {
                 name: x_name,
                 ty: None,
                 value: lit1_id,
+                atomic: None,
             },
         );
 
@@ -1564,6 +1566,7 @@ mod tests {
                 name: x_name,
                 ty: None,
                 value: lit1_id,
+                atomic: None,
             },
         );
 
@@ -1585,6 +1588,7 @@ mod tests {
                 name: y_name,
                 ty: None,
                 value: lit2_id,
+                atomic: None,
             },
         );
 
@@ -1606,6 +1610,7 @@ mod tests {
                 name: z_name,
                 ty: None,
                 value: lit3_id,
+                atomic: None,
             },
         );
 

@@ -18,6 +18,40 @@ pub enum CallingConvention {
     Sysv,
 }
 
+/// Memory-ordering discipline for atomic bindings (paideia-as#1296, v0.21-003b).
+///
+/// Attached to a `let`-binding via the `@atomic(Ordering)` binding-position
+/// attribute. Names the acquire/release/relaxed/seq-cst semantics that every
+/// load and store of the binding must honour, so a code reviewer can see the
+/// intended memory order at the declaration site without descending into an
+/// `unsafe { }` block that hides the raw fence / lock-prefix sequence.
+///
+/// Encoding intent (x86_64 TSO, phase-2 elaborator emit — inert in phase-1):
+/// - `Relaxed` — plain `mov` on both load and store.
+/// - `Acquire` — plain `mov` on load (x86 TSO gives acquire for aligned loads); paired store site is `Release`.
+/// - `Release` — plain `mov` on store (x86 TSO gives release for aligned stores); paired load site is `Acquire`.
+/// - `SeqCst`  — `mfence`-bracketed load and `mov ; mfence` store (total order across cores).
+///
+/// The four variants match C11 `memory_order_*` and Rust `std::sync::atomic::Ordering`
+/// so a reader familiar with either model can port intent one-to-one; the
+/// `Consume` variant is deliberately omitted (folded into `Acquire`, same as
+/// LLVM's x86 lowering) because no shipping x86_64 CPU distinguishes it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum AtomicOrdering {
+    /// No inter-thread synchronisation. Reads/writes are atomic (indivisible)
+    /// but carry no happens-before edge relative to other memory operations.
+    Relaxed,
+    /// Acquire ordering: no reads/writes in this thread may be reordered
+    /// before this load. Pairs with a `Release` store on the producer side.
+    Acquire,
+    /// Release ordering: no reads/writes in this thread may be reordered
+    /// after this store. Pairs with an `Acquire` load on the consumer side.
+    Release,
+    /// Sequentially-consistent ordering: a single total order across all
+    /// SeqCst operations globally, in addition to Acquire+Release semantics.
+    SeqCst,
+}
+
 /// Value types for inner attributes.
 ///
 /// Supports integer literals, string literals, and identifiers

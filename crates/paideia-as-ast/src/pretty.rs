@@ -735,10 +735,11 @@ fn print_stmt_internal(arena: &AstArena, id: NodeId, depth: usize, output: &mut 
             name,
             ty,
             value,
+            atomic,
         } => {
             format!(
-                "Let {{ mutable: {}, name: {}, ty: {:?}, value: {} }}",
-                mutable, name, ty, value
+                "Let {{ mutable: {}, name: {}, ty: {:?}, value: {}, atomic: {:?} }}",
+                mutable, name, ty, value, atomic
             )
         }
         StmtData::Expr { expr } => {

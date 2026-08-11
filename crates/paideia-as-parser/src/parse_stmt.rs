@@ -12,7 +12,7 @@
 //!   Newline handling will be added in a follow-up PR once the lexer exposes
 //!   newlines as tokens.
 
-use paideia_as_ast::{NodeId, NodeKind, StmtData};
+use paideia_as_ast::{AtomicOrdering, NodeId, NodeKind, StmtData};
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
 use paideia_as_lexer::TokenKind;
 
@@ -74,10 +74,22 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         }
     }
 
-    /// Parse a let statement: `let [mut] Pat (: Type)? = Expr ;`
+    /// Parse a let statement: `let [@atomic(Ordering)] [mut] Pat (: Type)? = Expr ;`
+    ///
+    /// paideia-as#1296 (phase 1, v0.21-003b): the optional `@atomic(Ordering)`
+    /// binding-position attribute sits between `let` and the optional `mut`
+    /// keyword. When present, it stamps the binding with a memory-ordering
+    /// discipline (Relaxed / Acquire / Release / SeqCst) that a later
+    /// elaborator phase honours by emitting fence-bracketed or lock-prefixed
+    /// load/store sequences at every access site.
     fn parse_let_stmt(&mut self) -> Result<NodeId, ParseError> {
         let let_tok = self.expect(TokenKind::KwLet)?;
         let let_span = let_tok.span;
+
+        // Optional `@atomic(Ordering)` binding-position attribute (paideia-as#1296).
+        // Must come *before* the optional `mut` keyword so that the code-review
+        // eye lands on the memory-ordering discipline immediately after `let`.
+        let atomic = self.parse_optional_atomic_prefix()?;
 
         // Check for optional `mut` keyword
         let mutable = self.eat(TokenKind::KwMut);
@@ -135,8 +147,106 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 name: name_id,
                 ty,
                 value,
+                atomic,
             },
         ))
+    }
+
+    /// Parse the optional `@atomic(Ordering)` binding-position attribute
+    /// (paideia-as#1296, v0.21-003b).
+    ///
+    /// Called immediately after consuming `let` in `parse_let_stmt`, before the
+    /// optional `mut` keyword. Returns `Ok(None)` when the current token is not
+    /// `@` — the common non-atomic case that must stay hot-path fast.
+    ///
+    /// **Grammar:** `@ atomic ( <ordering-name> )`
+    ///
+    /// The ordering identifier must be exactly one of `Relaxed`, `Acquire`,
+    /// `Release`, or `SeqCst` — the C11 / Rust `std::sync::atomic::Ordering`
+    /// vocabulary. Case-sensitive by design so a reader familiar with either
+    /// model can port intent one-to-one.
+    ///
+    /// **Diagnostics (all P-category, following the `@abi`/`@align` convention).
+    /// Numbers slot into the free block above the `@abi` P0285 range:**
+    /// - P0286 — the token after `@` is not the identifier `atomic`.
+    /// - P0287 — missing `(` after `atomic`.
+    /// - P0288 — the ordering argument is not one of the four recognised names.
+    /// - P0289 — missing `)` after the ordering identifier.
+    fn parse_optional_atomic_prefix(&mut self) -> Result<Option<AtomicOrdering>, ParseError> {
+        if !self.at(TokenKind::At) {
+            return Ok(None);
+        }
+
+        let at_tok = self.expect(TokenKind::At)?;
+        let at_span = at_tok.span;
+
+        // Attribute name — must be `atomic`.
+        let name_tok = self.expect(TokenKind::Ident)?;
+        let name_text = self.source_text_for_span(name_tok.span);
+        if name_text != "atomic" {
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 286)
+                .expect("valid P0286 code");
+            let diag = Diagnostic::error(code)
+                .message(format!(
+                    "unknown binding-position attribute '@{}' on let (only '@atomic(Ordering)' is recognised)",
+                    name_text
+                ))
+                .with_span(name_tok.span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        // Expect `(`.
+        if !self.eat(TokenKind::LParen) {
+            let span = self.peek().map(|t| t.span).unwrap_or(at_span);
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 287)
+                .expect("valid P0287 code");
+            let diag = Diagnostic::error(code)
+                .message("malformed @atomic(Ordering) syntax: expected '(' after 'atomic'")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        // Ordering argument.
+        let ord_tok = self.expect(TokenKind::Ident)?;
+        let ord_text = self.source_text_for_span(ord_tok.span);
+        let ordering = match ord_text {
+            "Relaxed" => AtomicOrdering::Relaxed,
+            "Acquire" => AtomicOrdering::Acquire,
+            "Release" => AtomicOrdering::Release,
+            "SeqCst" => AtomicOrdering::SeqCst,
+            other => {
+                let code = DiagnosticCode::new(Category::P, Severity::Error, 288)
+                    .expect("valid P0288 code");
+                let diag = Diagnostic::error(code)
+                    .message(format!(
+                        "unknown atomic ordering '{}' (expected one of: Relaxed, Acquire, Release, SeqCst)",
+                        other
+                    ))
+                    .with_span(ord_tok.span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                return Err(ParseError);
+            }
+        };
+
+        // Expect `)`.
+        if !self.eat(TokenKind::RParen) {
+            let span = self.peek().map(|t| t.span).unwrap_or(ord_tok.span);
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 289)
+                .expect("valid P0289 code");
+            let diag = Diagnostic::error(code)
+                .message("malformed @atomic(Ordering) syntax: expected ')' after ordering name")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        Ok(Some(ordering))
     }
 
     /// Parse a return statement: `return Expr? ;`
@@ -828,5 +938,251 @@ mod tests {
             "expected diagnostic for uninit in immutable let"
         );
         assert_eq!(diags[0].code().number(), 220, "expected P0220 error code");
+    }
+
+    // ---- paideia-as#1296 (v0.21-003b) ----
+    // `@atomic(Ordering)` binding-position attribute on statement-let.
+    //
+    // Grammar under test:  `let @atomic(<Ord>) [mut] <name> : <T> = <expr> ;`
+    // The `@atomic(...)` prefix sits between `let` and the optional `mut`.
+    // Four accepted orderings — Relaxed, Acquire, Release, SeqCst — map
+    // directly onto C11 / Rust `std::sync::atomic::Ordering`.
+
+    /// Common driver: build the token stream `let @atomic(<Ord>) mut a : u64 = 0 ;`
+    /// for a given ordering token, run the statement parser, and return the
+    /// parsed `StmtData::Let`'s `atomic` field.
+    fn parse_let_with_atomic_prefix(
+        ord_ident: &str,
+    ) -> (Vec<paideia_as_diagnostics::Diagnostic>, Option<AtomicOrdering>) {
+        // Byte layout (matches the source below):
+        //   0:  let         (len 3)
+        //   4:  @           (len 1)
+        //   5:  atomic      (len 6)
+        //   11: (           (len 1)
+        //   12: <Ord>       (len ord_ident.len())
+        //   ..
+        let base = 12u32;
+        let ord_len = ord_ident.len() as u32;
+        let after_ord = base + ord_len;      // position of `)`
+        let mut_pos  = after_ord + 2;        // skip `) `
+        let mut_len  = 3u32;                 // `mut`
+        let name_pos = mut_pos + mut_len + 1;
+        let colon_pos = name_pos + 2;
+        let ty_pos    = colon_pos + 2;
+        let assign_pos = ty_pos + 4;
+        let lit_pos    = assign_pos + 2;
+        let semi_pos   = lit_pos + 2;
+
+        let toks = vec![
+            tok(TokenKind::KwLet, 0, 3),
+            tok(TokenKind::At, 4, 1),
+            tok(TokenKind::Ident, 5, 6),           // "atomic"
+            tok(TokenKind::LParen, 11, 1),
+            tok(TokenKind::Ident, base, ord_len),  // ordering ident
+            tok(TokenKind::RParen, after_ord, 1),
+            tok(TokenKind::KwMut, mut_pos, mut_len),
+            tok(TokenKind::Ident, name_pos, 1),    // "a"
+            tok(TokenKind::Colon, colon_pos, 1),
+            tok(TokenKind::Ident, ty_pos, 3),      // "u64"
+            tok(TokenKind::Assign, assign_pos, 1),
+            tok(TokenKind::IntLit, lit_pos, 1),    // "0"
+            tok(TokenKind::Semicolon, semi_pos, 1),
+        ];
+        let source = format!("let @atomic({}) mut a : u64 = 0 ;", ord_ident);
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut p = Parser::new(
+            &toks,
+            &source,
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        );
+
+        let result = p.parse_stmt(false);
+        let diags = sink.diagnostics().to_vec();
+        let atomic = result.ok().and_then(|stmt_id| match arena.stmt_data(stmt_id) {
+            Some(paideia_as_ast::StmtData::Let { atomic, .. }) => *atomic,
+            _ => None,
+        });
+        (diags, atomic)
+    }
+
+    #[test]
+    fn let_atomic_relaxed_parses() {
+        let (diags, atomic) = parse_let_with_atomic_prefix("Relaxed");
+        assert!(diags.is_empty(), "expected no diagnostics: {:?}", diags);
+        assert_eq!(atomic, Some(AtomicOrdering::Relaxed));
+    }
+
+    #[test]
+    fn let_atomic_acquire_parses() {
+        let (diags, atomic) = parse_let_with_atomic_prefix("Acquire");
+        assert!(diags.is_empty(), "expected no diagnostics: {:?}", diags);
+        assert_eq!(atomic, Some(AtomicOrdering::Acquire));
+    }
+
+    #[test]
+    fn let_atomic_release_parses() {
+        let (diags, atomic) = parse_let_with_atomic_prefix("Release");
+        assert!(diags.is_empty(), "expected no diagnostics: {:?}", diags);
+        assert_eq!(atomic, Some(AtomicOrdering::Release));
+    }
+
+    #[test]
+    fn let_atomic_seqcst_parses() {
+        let (diags, atomic) = parse_let_with_atomic_prefix("SeqCst");
+        assert!(diags.is_empty(), "expected no diagnostics: {:?}", diags);
+        assert_eq!(atomic, Some(AtomicOrdering::SeqCst));
+    }
+
+    /// Non-atomic `let` bindings keep `atomic == None` — the hot-path default
+    /// must not regress and the pretty-printer / IR-propagation code must be
+    /// able to distinguish "no `@atomic(...)` seen" from "attribute present".
+    #[test]
+    fn let_without_atomic_prefix_is_none() {
+        let toks = vec![
+            tok(TokenKind::KwLet, 0, 3),
+            tok(TokenKind::Ident, 4, 1), // "x"
+            tok(TokenKind::Colon, 6, 1),
+            tok(TokenKind::Ident, 8, 3), // "u64"
+            tok(TokenKind::Assign, 12, 1),
+            tok(TokenKind::IntLit, 14, 1), // "1"
+            tok(TokenKind::Semicolon, 16, 1),
+        ];
+        let source = "let x : u64 = 1 ;";
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut p = Parser::new(
+            &toks,
+            source,
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        );
+        let stmt_id = p.parse_stmt(false).expect("let parses");
+        match arena.stmt_data(stmt_id) {
+            Some(paideia_as_ast::StmtData::Let { atomic, .. }) => {
+                assert!(atomic.is_none(), "non-atomic let must not carry an ordering");
+            }
+            other => panic!("expected StmtData::Let, got {:?}", other),
+        }
+    }
+
+    /// Unknown ordering name emits P0288 and refuses the parse — the
+    /// grammar only recognises Relaxed / Acquire / Release / SeqCst.
+    #[test]
+    fn let_atomic_unknown_ordering_emits_p0288() {
+        // `let @atomic(Total) mut a : u64 = 0 ;` — "Total" is not a valid ordering.
+        let toks = vec![
+            tok(TokenKind::KwLet, 0, 3),
+            tok(TokenKind::At, 4, 1),
+            tok(TokenKind::Ident, 5, 6),  // "atomic"
+            tok(TokenKind::LParen, 11, 1),
+            tok(TokenKind::Ident, 12, 5), // "Total"
+            tok(TokenKind::RParen, 17, 1),
+            tok(TokenKind::KwMut, 19, 3),
+            tok(TokenKind::Ident, 23, 1),
+            tok(TokenKind::Colon, 25, 1),
+            tok(TokenKind::Ident, 27, 3),
+            tok(TokenKind::Assign, 31, 1),
+            tok(TokenKind::IntLit, 33, 1),
+            tok(TokenKind::Semicolon, 35, 1),
+        ];
+        let source = "let @atomic(Total) mut a : u64 = 0 ;";
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut p = Parser::new(
+            &toks,
+            source,
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        );
+        let result = p.parse_stmt(false);
+        assert!(result.is_err(), "unknown ordering must refuse the parse");
+        let diags = sink.diagnostics();
+        assert!(
+            diags.iter().any(|d| d.code().number() == 288),
+            "expected P0288 emitted, got {:?}",
+            diags
+        );
+    }
+
+    /// Missing `(` after `atomic` emits P0287.
+    #[test]
+    fn let_atomic_missing_open_paren_emits_p0287() {
+        // `let @atomic Release mut a : u64 = 0 ;` — no `(`.
+        let toks = vec![
+            tok(TokenKind::KwLet, 0, 3),
+            tok(TokenKind::At, 4, 1),
+            tok(TokenKind::Ident, 5, 6),   // "atomic"
+            tok(TokenKind::Ident, 12, 7),  // "Release" — appears where `(` should
+            tok(TokenKind::KwMut, 20, 3),
+            tok(TokenKind::Ident, 24, 1),
+            tok(TokenKind::Colon, 26, 1),
+            tok(TokenKind::Ident, 28, 3),
+            tok(TokenKind::Assign, 32, 1),
+            tok(TokenKind::IntLit, 34, 1),
+            tok(TokenKind::Semicolon, 36, 1),
+        ];
+        let source = "let @atomic Release mut a : u64 = 0 ;";
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut p = Parser::new(
+            &toks,
+            source,
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        );
+        let result = p.parse_stmt(false);
+        assert!(result.is_err(), "missing '(' must refuse the parse");
+        let diags = sink.diagnostics();
+        assert!(
+            diags.iter().any(|d| d.code().number() == 287),
+            "expected P0287 emitted, got {:?}",
+            diags
+        );
+    }
+
+    /// A non-`atomic` attribute after `@` on a let statement is refused with
+    /// P0286 — only `@atomic(Ordering)` is recognised in binding-prefix position.
+    #[test]
+    fn let_unknown_prefix_attribute_emits_p0286() {
+        // `let @foo(Release) mut a : u64 = 0 ;`
+        let toks = vec![
+            tok(TokenKind::KwLet, 0, 3),
+            tok(TokenKind::At, 4, 1),
+            tok(TokenKind::Ident, 5, 3),   // "foo"
+            tok(TokenKind::LParen, 8, 1),
+            tok(TokenKind::Ident, 9, 7),   // "Release"
+            tok(TokenKind::RParen, 16, 1),
+            tok(TokenKind::KwMut, 18, 3),
+            tok(TokenKind::Ident, 22, 1),
+            tok(TokenKind::Colon, 24, 1),
+            tok(TokenKind::Ident, 26, 3),
+            tok(TokenKind::Assign, 30, 1),
+            tok(TokenKind::IntLit, 32, 1),
+            tok(TokenKind::Semicolon, 34, 1),
+        ];
+        let source = "let @foo(Release) mut a : u64 = 0 ;";
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut p = Parser::new(
+            &toks,
+            source,
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        );
+        let result = p.parse_stmt(false);
+        assert!(result.is_err(), "unknown prefix attribute must refuse the parse");
+        let diags = sink.diagnostics();
+        assert!(
+            diags.iter().any(|d| d.code().number() == 286),
+            "expected P0286 emitted, got {:?}",
+            diags
+        );
     }
 }

@@ -103,6 +103,7 @@ fn lower_let_plus() {
             name: name_x_id,
             ty: None,
             value: infix_id,
+            atomic: None,
         },
     );
 
@@ -942,6 +943,7 @@ fn populate_field_access_info_basic() {
             name: vops_binding_id,
             ty: Some(vops_type_id),
             value: dummy_value_id,
+            atomic: None,
         },
     );
 
@@ -1202,6 +1204,7 @@ fn populate_match_arm_meta_basic() {
             name: r_binding_id,
             ty: Some(result_type_id),
             value: dummy_value_id,
+            atomic: None,
         },
     );
 
@@ -1383,6 +1386,7 @@ fn populate_match_arm_meta_default_wildcard() {
             name: r_binding_id,
             ty: Some(result_type_id),
             value: dummy_value_id,
+            atomic: None,
         },
     );
 
@@ -1542,6 +1546,7 @@ fn populate_match_arm_meta_bare_ident_variant() {
             name: r_binding_id,
             ty: Some(result_type_id),
             value: dummy_value_id,
+            atomic: None,
         },
     );
 
@@ -1705,6 +1710,7 @@ fn populate_match_arm_meta_nested_ok_of_point() {
             name: r_binding_id,
             ty: Some(result_type_id),
             value: dummy_value_id,
+            atomic: None,
         },
     );
 

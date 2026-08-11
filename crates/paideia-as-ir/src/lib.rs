@@ -79,7 +79,7 @@ pub use instruction::{
 pub use int_match::{IntMatchScrutinee, IntMatchScrutineeTable};
 pub use lambda_param::LambdaParamTable;
 pub use lambda_param_enum_ty::LambdaParamEnumTypeTable;
-pub use let_meta::{CallingConvention, LetInfo, LetMetaTable};
+pub use let_meta::{AtomicOrdering, CallingConvention, LetInfo, LetMetaTable};
 pub use literal_bytes::LiteralBytesTable;
 pub use literal_value::LiteralValueTable;
 pub use load_store::{

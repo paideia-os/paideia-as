@@ -3,6 +3,7 @@
 //! as "instructions that talk to the memory subsystem" rather than
 //! moving data.
 
+mod atomic_ordering;
 mod cache_ops;
 mod mem_fences;
 mod pause;

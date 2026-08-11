@@ -247,7 +247,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     }
 
     /// Get the source text for a given span.
-    fn source_text_for_span(&self, span: Span) -> &str {
+    pub(crate) fn source_text_for_span(&self, span: Span) -> &str {
         let source = self.source();
         let start = span.byte_start() as usize;
         let end = (span.byte_start() + span.byte_len()) as usize;

@@ -4,7 +4,7 @@
 //! Statements are the building blocks of block bodies and unsafe blocks.
 //! Categories: LetStmt, ExprStmt, ReturnStmt, InstructionStmt.
 
-use crate::NodeId;
+use crate::{NodeId, items::AtomicOrdering};
 
 /// Structured payload for statement nodes.
 ///
@@ -12,10 +12,18 @@ use crate::NodeId;
 /// syntax reference. Child `NodeId` fields point to other nodes in the arena.
 #[derive(Clone, Debug)]
 pub enum StmtData {
-    /// `let [mut] name: ty? = expr;`.
+    /// `let [@atomic(Ordering)] [mut] name: ty? = expr;`.
     ///
     /// Local let-binding (statement form). Distinct from top-level `ItemData::Let`.
     /// The `mutable` flag indicates whether this is a mutable binding (`let mut ...`).
+    ///
+    /// The `atomic` field carries the `@atomic(Ordering)` binding-position attribute
+    /// (paideia-as#1296, v0.21-003b). When `Some(o)`, every load and store of this
+    /// binding must be emitted with memory ordering `o` — see
+    /// [`crate::items::AtomicOrdering`] for the intent and the x86_64 lowering
+    /// contract. Phase-1 landing captures the flag here and propagates it into
+    /// IR `LetInfo::atomic`; the elaborator emit pass is inert in phase-1 and
+    /// the fence-bracketed / lock-prefixed access sequences ship in phase-2.
     Let {
         /// Whether this is a mutable binding (true for `let mut ...`, false for `let ...`).
         mutable: bool,
@@ -25,6 +33,9 @@ pub enum StmtData {
         ty: Option<NodeId>,
         /// Value expression.
         value: NodeId,
+        /// Optional atomic ordering discipline (`@atomic(Ordering)` prefix attribute).
+        /// `None` for non-atomic bindings (the common case).
+        atomic: Option<AtomicOrdering>,
     },
 
     /// `expr;`.
@@ -84,6 +95,7 @@ mod tests {
             name,
             ty: Some(ty),
             value,
+            atomic: None,
         };
         match stmt {
             StmtData::Let {
@@ -91,11 +103,13 @@ mod tests {
                 name: n,
                 ty: t,
                 value: v,
+                atomic: a,
             } => {
                 assert!(!m);
                 assert_eq!(n, name);
                 assert_eq!(t, Some(ty));
                 assert_eq!(v, value);
+                assert!(a.is_none());
             }
             _ => panic!("expected Let variant"),
         }
@@ -166,6 +180,7 @@ mod tests {
             name,
             ty: Some(ty),
             value,
+            atomic: None,
         };
         match stmt {
             StmtData::Let {
@@ -173,13 +188,45 @@ mod tests {
                 name: n,
                 ty: t,
                 value: v,
+                atomic: a,
             } => {
                 assert!(m);
                 assert_eq!(n, name);
                 assert_eq!(t, Some(ty));
                 assert_eq!(v, value);
+                assert!(a.is_none());
             }
             _ => panic!("expected Let variant"),
+        }
+    }
+
+    /// paideia-as#1296 (phase 1, v0.21-003b): `StmtData::Let` accepts an
+    /// `atomic` field carrying the `@atomic(Ordering)` binding-position
+    /// discipline; the four variants round-trip through construction and
+    /// pattern-matching without disturbing the other fields.
+    #[test]
+    fn stmt_let_atomic_variants_construct() {
+        use crate::items::AtomicOrdering;
+        let name = make_nodeid(1);
+        let ty = make_nodeid(2);
+        let value = make_nodeid(3);
+        for ordering in [
+            AtomicOrdering::Relaxed,
+            AtomicOrdering::Acquire,
+            AtomicOrdering::Release,
+            AtomicOrdering::SeqCst,
+        ] {
+            let stmt = StmtData::Let {
+                mutable: true,
+                name,
+                ty: Some(ty),
+                value,
+                atomic: Some(ordering),
+            };
+            match stmt {
+                StmtData::Let { atomic: Some(o), .. } => assert_eq!(o, ordering),
+                _ => panic!("expected StmtData::Let with atomic ordering {ordering:?}"),
+            }
         }
     }
 }

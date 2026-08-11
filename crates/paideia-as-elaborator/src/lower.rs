@@ -342,8 +342,47 @@ fn populate_let_meta(
     ir: &mut paideia_as_ir::IrArena,
     ast_to_ir: &std::collections::HashMap<paideia_as_ast::NodeId, paideia_as_ir::IrNodeId>,
 ) {
-    use paideia_as_ast::{NodeId, ItemData};
-    use paideia_as_ir::let_meta::{LetInfo, CallingConvention};
+    use paideia_as_ast::{NodeId, ItemData, StmtData};
+    use paideia_as_ir::let_meta::{LetInfo, CallingConvention, AtomicOrdering as IrAtomicOrdering};
+
+    // Convert an AST AtomicOrdering to the IR crate's mirror enum.
+    // Kept as a local closure so no crate-wide From impl is needed for a phase-1 landing.
+    fn to_ir_ordering(ord: paideia_as_ast::AtomicOrdering) -> IrAtomicOrdering {
+        use paideia_as_ast::AtomicOrdering as AstOrd;
+        match ord {
+            AstOrd::Relaxed => IrAtomicOrdering::Relaxed,
+            AstOrd::Acquire => IrAtomicOrdering::Acquire,
+            AstOrd::Release => IrAtomicOrdering::Release,
+            AstOrd::SeqCst => IrAtomicOrdering::SeqCst,
+        }
+    }
+
+    // paideia-as#1296 phase 1 (v0.21-003b): first pass — propagate the
+    // `@atomic(Ordering)` binding-position attribute from statement-level lets
+    // (`StmtData::Let`) into IR `LetInfo::atomic`. Runs before the ItemData::Let
+    // scan below so that the second pass's read-modify-write path preserves any
+    // atomic ordering already stamped on a shared IR node. The elaborator emit
+    // pass at load/store sites is still inert this landing; a phase-2 follow-up
+    // wires the fence-bracketed / lock-prefixed access sequences.
+    for i in 0..ast.len() {
+        if let Some(ast_id) = NodeId::new((i + 1) as u32) {
+            if let Some(node) = ast.get(ast_id) {
+                if node.kind == paideia_as_ast::NodeKind::StmtLet {
+                    if let Some(StmtData::Let { atomic: Some(ord), .. }) = ast.stmt_data(ast_id) {
+                        if let Some(let_ir_id) = ast_to_ir.get(&ast_id) {
+                            let mut info = ir
+                                .let_meta_mut()
+                                .get(*let_ir_id)
+                                .cloned()
+                                .unwrap_or_else(LetInfo::immutable);
+                            info.atomic = Some(to_ir_ordering(*ord));
+                            ir.let_meta_mut().insert(*let_ir_id, info);
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     for i in 0..ast.len() {
         if let Some(ast_id) = NodeId::new((i + 1) as u32) {
@@ -398,6 +437,7 @@ fn populate_let_meta(
                                                     link_section: None,
                                                     abi: None,
                                                     no_frame: false,
+                                                    atomic: None,
                                                     enum_type_id: None,
                                                 });
                                             let_info.abi = Some(ir_abi_val);

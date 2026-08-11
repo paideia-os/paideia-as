@@ -106,6 +106,7 @@ fn test_stmt_let_unannotated() {
             name: name_id,
             ty: None,
             value: rhs_id,
+            atomic: None,
         },
     );
 
@@ -259,6 +260,7 @@ fn test_rmw_preserves_fields() {
             link_section: None,
             abi: None,
             no_frame: false,
+            atomic: None,
             enum_type_id: None,
         },
     );
@@ -489,6 +491,7 @@ fn test_stmt_let_enum_annotated_populates_enum_type_id() {
             name: name_id,
             ty: Some(type_node),
             value: rhs_id,
+            atomic: None,
         },
     );
 
@@ -655,6 +658,7 @@ fn test_stmt_let_struct_annotated_leaves_enum_type_id_none() {
             name: name_id,
             ty: Some(type_node),
             value: rhs_id,
+            atomic: None,
         },
     );
 
@@ -723,6 +727,7 @@ fn test_stmt_let_unknown_type_leaves_both_none() {
             name: name_id,
             ty: Some(type_node),
             value: rhs_id,
+            atomic: None,
         },
     );
 
@@ -784,7 +789,7 @@ fn test_stmt_let_u64_primitive_annotated_populates_ty() {
     let stmt_let_id = ast.alloc_stmt(
         NodeKind::StmtLet,
         benign_span,
-        StmtData::Let { mutable: false, name: name_id, ty: Some(type_node), value: rhs_id },
+        StmtData::Let { mutable: false, name: name_id, ty: Some(type_node), value: rhs_id, atomic: None },
     );
 
     let registry = StructRegistry::empty();
@@ -836,7 +841,7 @@ fn test_stmt_let_i32_primitive_annotated_populates_ty() {
     let stmt_let_id = ast.alloc_stmt(
         NodeKind::StmtLet,
         benign_span,
-        StmtData::Let { mutable: false, name: name_id, ty: Some(type_node), value: rhs_id },
+        StmtData::Let { mutable: false, name: name_id, ty: Some(type_node), value: rhs_id, atomic: None },
     );
 
     let registry = StructRegistry::empty();
@@ -894,7 +899,7 @@ fn test_stmt_let_array_annotated_populates_ty_as_top() {
     let stmt_let_id = ast.alloc_stmt(
         NodeKind::StmtLet,
         span,
-        StmtData::Let { mutable: false, name: name_id, ty: Some(type_node), value: rhs_id },
+        StmtData::Let { mutable: false, name: name_id, ty: Some(type_node), value: rhs_id, atomic: None },
     );
 
     let registry = StructRegistry::empty();
@@ -947,7 +952,7 @@ fn test_populator_does_not_panic_on_broken_annotation() {
     let stmt_let_id = ast.alloc_stmt(
         NodeKind::StmtLet,
         span,
-        StmtData::Let { mutable: false, name: name_id, ty: Some(type_node), value: rhs_id },
+        StmtData::Let { mutable: false, name: name_id, ty: Some(type_node), value: rhs_id, atomic: None },
     );
 
     let registry = StructRegistry::empty();

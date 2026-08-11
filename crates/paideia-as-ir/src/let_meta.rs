@@ -25,6 +25,25 @@ pub enum CallingConvention {
     Sysv,
 }
 
+/// Memory-ordering discipline for atomic bindings (paideia-as#1296, v0.21-003b).
+///
+/// IR-level mirror of [`paideia_as_ast::AtomicOrdering`]. Copied into the IR
+/// crate to avoid a cross-crate cycle and to keep the elaborator emit pass
+/// (which consumes `LetInfo::atomic`) free of an AST dependency at the
+/// encoder-facing boundary. See the AST enum's doc-comment for the encoding
+/// intent and the x86_64 lowering contract.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum AtomicOrdering {
+    /// Atomic-indivisible access with no inter-thread happens-before edge.
+    Relaxed,
+    /// Acquire ordering (paired with a `Release` store on the producer side).
+    Acquire,
+    /// Release ordering (paired with an `Acquire` load on the consumer side).
+    Release,
+    /// Sequentially-consistent ordering (single global total order).
+    SeqCst,
+}
+
 /// Metadata for a Let IR node.
 ///
 /// Records whether the let binding is mutable (let mut x : T = ...) and,
@@ -81,6 +100,16 @@ pub struct LetInfo {
     /// from AST → IR, but the elaborator emit pass ignores it. Phase 3 will consult
     /// this field in `emit_visit_lambda` / `emit_walker::emit_ret`.
     pub no_frame: bool,
+    /// Memory-ordering discipline `@atomic(Ordering)` on statement-let bindings
+    /// (paideia-as#1296, v0.21-003b). When `Some(o)`, every load and store of
+    /// the binding lowers to a fence-bracketed or lock-prefixed sequence honouring
+    /// ordering `o`. `None` is the common non-atomic case and keeps the plain-`mov`
+    /// path.
+    ///
+    /// Phase-1 landing (parser + AST/IR plumbing): the flag propagates AST → IR
+    /// here, but the elaborator emit pass at load/store sites still ignores it.
+    /// A follow-up phase-2 issue wires the emit change and lands the .pdx fixture.
+    pub atomic: Option<AtomicOrdering>,
     /// Optional enum type ID if the binding is annotated with an enum type (#1222).
     /// When `Some(eid)`, the binding's declared type is an enum variant of that type.
     pub enum_type_id: Option<EnumTypeId>,
@@ -98,6 +127,7 @@ impl LetInfo {
             link_section: None,
             abi: None,
             no_frame: false,
+            atomic: None,
             enum_type_id: None,
         }
     }
@@ -113,6 +143,7 @@ impl LetInfo {
             link_section: None,
             abi: None,
             no_frame: false,
+            atomic: None,
             enum_type_id: None,
         }
     }
@@ -123,7 +154,7 @@ impl LetInfo {
     /// is known, enabling width-threaded integer-literal emission.
     #[must_use]
     pub fn with_type(mutable: bool, ty: Option<TypeId>) -> Self {
-        Self { mutable, ty, align: None, ring: None, link_section: None, abi: None, no_frame: false, enum_type_id: None }
+        Self { mutable, ty, align: None, ring: None, link_section: None, abi: None, no_frame: false, atomic: None, enum_type_id: None }
     }
 
     /// Construct a LetInfo with explicit mutability, type, and alignment.
@@ -132,7 +163,7 @@ impl LetInfo {
     /// and optional alignment directive are known.
     #[must_use]
     pub fn with_align(mutable: bool, ty: Option<TypeId>, align: Option<u32>) -> Self {
-        Self { mutable, ty, align, ring: None, link_section: None, abi: None, no_frame: false, enum_type_id: None }
+        Self { mutable, ty, align, ring: None, link_section: None, abi: None, no_frame: false, atomic: None, enum_type_id: None }
     }
 
     /// Construct a LetInfo with explicit mutability, type, alignment, and ring.
@@ -141,7 +172,7 @@ impl LetInfo {
     /// optional alignment directive, and optional ring buffer directive are known.
     #[must_use]
     pub fn with_ring(mutable: bool, ty: Option<TypeId>, align: Option<u32>, ring: Option<(u32, u32)>) -> Self {
-        Self { mutable, ty, align, ring, link_section: None, abi: None, no_frame: false, enum_type_id: None }
+        Self { mutable, ty, align, ring, link_section: None, abi: None, no_frame: false, atomic: None, enum_type_id: None }
     }
 
     /// Construct a LetInfo with explicit mutability, type, alignment, ring, and link_section.
@@ -151,7 +182,7 @@ impl LetInfo {
     /// directive are known.
     #[must_use]
     pub fn with_link_section(mutable: bool, ty: Option<TypeId>, align: Option<u32>, ring: Option<(u32, u32)>, link_section: Option<String>) -> Self {
-        Self { mutable, ty, align, ring, link_section, abi: None, no_frame: false, enum_type_id: None }
+        Self { mutable, ty, align, ring, link_section, abi: None, no_frame: false, atomic: None, enum_type_id: None }
     }
 
     /// Construct a LetInfo with explicit mutability, type, alignment, ring, link_section, and abi.
@@ -161,7 +192,18 @@ impl LetInfo {
     /// directive, and optional calling convention directive are known.
     #[must_use]
     pub fn with_abi(mutable: bool, ty: Option<TypeId>, align: Option<u32>, ring: Option<(u32, u32)>, link_section: Option<String>, abi: Option<CallingConvention>) -> Self {
-        Self { mutable, ty, align, ring, link_section, abi, no_frame: false, enum_type_id: None }
+        Self { mutable, ty, align, ring, link_section, abi, no_frame: false, atomic: None, enum_type_id: None }
+    }
+
+    /// Attach an atomic ordering discipline to an existing LetInfo (paideia-as#1296, v0.21-003b).
+    ///
+    /// Chainable helper: the lowerer builds a base LetInfo via one of the
+    /// existing constructors and then folds in the `@atomic(Ordering)` field
+    /// when present on the AST binding.
+    #[must_use]
+    pub fn with_atomic(mut self, atomic: Option<AtomicOrdering>) -> Self {
+        self.atomic = atomic;
+        self
     }
 }
 

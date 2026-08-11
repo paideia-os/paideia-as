@@ -170,6 +170,7 @@ fn unsafe_block_with_mixed_stmts_lowers_all() {
             ty: None,
             value: lit_expr,
             mutable: false,
+            atomic: None,
         },
     );
 
