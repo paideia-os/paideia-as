@@ -241,6 +241,9 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     // Phase R15 PA-R15-m4-005 (issue #1022): xsaveopt/xrstor
     ("xsaveopt", Mnemonic::Xsaveopt),
     ("xrstor", Mnemonic::Xrstor),
+    // v0.21-015 (paideia-as#1294): XCR0 read/write (paideia-os R21.M1 #826)
+    ("xgetbv", Mnemonic::Xgetbv),
+    ("xsetbv", Mnemonic::Xsetbv),
     // Phase R13 PA-R13-005 (issue #934): inc/dec r64
     ("inc", Mnemonic::Inc),
     ("dec", Mnemonic::Dec),
@@ -1496,6 +1499,18 @@ mod tests {
     #[test]
     fn resolve_mnemonic_xrstor() {
         assert_eq!(resolve_mnemonic("xrstor"), Some(Mnemonic::Xrstor));
+    }
+
+    #[test]
+    fn resolve_mnemonic_xgetbv() {
+        // v0.21-015 (paideia-as#1294): xgetbv is the read half of XCR0 access
+        assert_eq!(resolve_mnemonic("xgetbv"), Some(Mnemonic::Xgetbv));
+    }
+
+    #[test]
+    fn resolve_mnemonic_xsetbv() {
+        // v0.21-015 (paideia-as#1294): xsetbv is the write half of XCR0 access
+        assert_eq!(resolve_mnemonic("xsetbv"), Some(Mnemonic::Xsetbv));
     }
 
     #[test]

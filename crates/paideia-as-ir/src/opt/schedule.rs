@@ -166,6 +166,9 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         // Phase R15 PA-R15-m4-005 (issue #1022): extended state save/restore
         | Mnemonic::Xsaveopt
         | Mnemonic::Xrstor
+        // v0.21-015 (paideia-as#1294): XCR0 access — privileged, treat as Other
+        | Mnemonic::Xgetbv
+        | Mnemonic::Xsetbv
         // Phase R14 PA-R14-003 (issue #946): non-temporal store has special cache semantics
         | Mnemonic::Movnti { .. }
         // Phase R14 PA-R14-005 (issue #948): cache control operations

@@ -344,6 +344,16 @@ pub enum Mnemonic {
     /// Instruction: 0F AE /5 (reg field = 101). REX.B for r8-r15 base; no REX.W.
     /// One operand (memory).
     Xrstor,
+    /// xgetbv (v0.21-015, paideia-as#1294 — blocks paideia-os R21.M1 #826).
+    /// Read extended control register: XCR indexed by ECX into EDX:EAX.
+    /// Encoding: `0F 01 D0`. Zero explicit operands (implicit ECX / EDX:EAX).
+    Xgetbv,
+    /// xsetbv (v0.21-015, paideia-as#1294 — blocks paideia-os R21.M1 #826).
+    /// Write extended control register: EDX:EAX into XCR indexed by ECX.
+    /// Encoding: `0F 01 D1`. Zero explicit operands (implicit ECX / EDX:EAX).
+    /// Privileged (ring 0 only); required to gate on x87/SSE/AVX in XCR0 before
+    /// any XSAVE/XRSTOR variant is executed.
+    Xsetbv,
     /// clflush [base + disp] (PA-R14-005, #948). Flush cache line to main memory.
     /// Instruction: 0F AE /7 (reg field = 111). REX.B for r8-r15 base; no REX.W.
     /// One operand (memory).
@@ -908,7 +918,9 @@ impl Mnemonic {
             | Mnemonic::Lfence
             | Mnemonic::Pause
             | Mnemonic::Wbinvd
-            | Mnemonic::Invd => 0,
+            | Mnemonic::Invd
+            | Mnemonic::Xgetbv
+            | Mnemonic::Xsetbv => 0,
 
             // One-operand instructions
             Mnemonic::Call
@@ -1272,6 +1284,9 @@ impl Mnemonic {
             // Phase R13 PA-R13-007: fxsave/fxrstor to memory, 9 bytes upper bound
             // (two-byte opcode + REX.B + SIB + disp32 worst-case)
             Mnemonic::Fxsave | Mnemonic::Fxrstor | Mnemonic::Xsaveopt | Mnemonic::Xrstor => 9,
+
+            // v0.21-015 (paideia-as#1294): xgetbv/xsetbv, exact 3 bytes (0F 01 D0/D1)
+            Mnemonic::Xgetbv | Mnemonic::Xsetbv => 3,
 
             // Phase R14 PA-R14-005: clflush/clflushopt, 9 bytes upper bound
             // (0x66 prefix + two-byte opcode + REX.B + SIB + disp32 worst-case)

@@ -275,3 +275,105 @@ fn mov_rax_dr6_mode32_equals_mode64() {
         "MOV RAX,DR6 should encode as 0x0F 0x21 0xF0"
     );
 }
+
+// ============================================================================
+// v0.21-015 (paideia-as#1294): XCR0 access — xgetbv / xsetbv
+// ============================================================================
+// Both are 3-byte fixed encodings and mode-agnostic (no REX.W, no operand-size
+// prefix). Structurally identical to rdmsr/wrmsr except for the escape sequence
+// (0F 01 D0/D1 instead of 0F 32/30) — they read/write extended control
+// registers rather than model-specific registers. Zero explicit operands;
+// implicit ECX index and EDX:EAX value.
+
+#[test]
+fn xgetbv_mode32_equals_mode64() {
+    let inst = Instruction {
+        mnemonic: Mnemonic::Xgetbv,
+        operands: smallvec![],
+        byte_offset_in_text: None,
+        mode: InstrMode::Mode64,
+        encoding_hint: None,
+        emission_order: 0,
+    };
+
+    let mode32_bytes = encode_in_mode(&inst, InstrMode::Mode32);
+    let mode64_bytes = encode_in_mode(&inst, InstrMode::Mode64);
+
+    assert_eq!(
+        mode32_bytes, mode64_bytes,
+        "XGETBV encoding differs between Mode32 and Mode64"
+    );
+    assert_eq!(
+        mode32_bytes,
+        &[0x0F, 0x01, 0xD0],
+        "XGETBV should encode as 0x0F 0x01 0xD0"
+    );
+}
+
+#[test]
+fn xsetbv_mode32_equals_mode64() {
+    let inst = Instruction {
+        mnemonic: Mnemonic::Xsetbv,
+        operands: smallvec![],
+        byte_offset_in_text: None,
+        mode: InstrMode::Mode64,
+        encoding_hint: None,
+        emission_order: 0,
+    };
+
+    let mode32_bytes = encode_in_mode(&inst, InstrMode::Mode32);
+    let mode64_bytes = encode_in_mode(&inst, InstrMode::Mode64);
+
+    assert_eq!(
+        mode32_bytes, mode64_bytes,
+        "XSETBV encoding differs between Mode32 and Mode64"
+    );
+    assert_eq!(
+        mode32_bytes,
+        &[0x0F, 0x01, 0xD1],
+        "XSETBV should encode as 0x0F 0x01 0xD1"
+    );
+}
+
+#[test]
+fn xgetbv_rejects_explicit_operand() {
+    // Guard: xgetbv is zero-arity; any operand must produce OperandCount error
+    // rather than silently emitting bytes that would then mis-encode the
+    // caller's asm sequence.
+    use paideia_as_encoder::CodeBuffer;
+    let inst = Instruction {
+        mnemonic: Mnemonic::Xgetbv,
+        operands: smallvec![Operand::Reg(RegId(0))],
+        byte_offset_in_text: None,
+        mode: InstrMode::Mode64,
+        encoding_hint: None,
+        emission_order: 0,
+    };
+    let mut buf = CodeBuffer::new();
+    let mut stats = EncodeStats::new();
+    let result = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats);
+    assert!(
+        result.is_err(),
+        "XGETBV with an explicit operand must be rejected"
+    );
+}
+
+#[test]
+fn xsetbv_rejects_explicit_operand() {
+    use paideia_as_encoder::CodeBuffer;
+    let inst = Instruction {
+        mnemonic: Mnemonic::Xsetbv,
+        operands: smallvec![Operand::Reg(RegId(0))],
+        byte_offset_in_text: None,
+        mode: InstrMode::Mode64,
+        encoding_hint: None,
+        emission_order: 0,
+    };
+    let mut buf = CodeBuffer::new();
+    let mut stats = EncodeStats::new();
+    let result = paideia_as_encoder::encode_instruction(&inst, &mut buf, &mut stats);
+    assert!(
+        result.is_err(),
+        "XSETBV with an explicit operand must be rejected"
+    );
+}
