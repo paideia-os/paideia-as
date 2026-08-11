@@ -28,7 +28,8 @@ pub use exprs::{
     SharingConstraint,
 };
 pub use items::{
-    AtomicOrdering, AttrValue, CallingConvention, ImplDecl, ItemAttribute, ItemData, TraitMethod,
+    AtomicOrdering, AttrValue, CallingConvention, ImplDecl, InterruptAttr, ItemAttribute,
+    ItemData, TraitMethod,
 };
 pub use macros::{MacroDeclData, MacroFragment, MacroFragmentKind, MacroRule};
 pub use modules::{

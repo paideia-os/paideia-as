@@ -3,11 +3,68 @@
 
 use std::collections::HashSet;
 
-use paideia_as_ast::{CallingConvention, ItemData, NodeId, NodeKind};
+use paideia_as_ast::{CallingConvention, InterruptAttr, ItemData, NodeId, NodeKind};
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
 use paideia_as_lexer::TokenKind;
 
 use crate::parser::{ParseError, Parser};
+
+/// Canonical x86_64 exception / IRQ names → vector number (paideia-as#1278).
+///
+/// Covers the exception vectors 0..=31 (Intel SDM Vol. 3A §6.15) plus the
+/// LAPIC-timer / spurious / TLB-shootdown IPI vectors paideia-os wires today
+/// (see `src/kernel/core/int/isr_trampoline.pdx`). A caller who needs a
+/// vector outside this table can still pass the decimal spelling — e.g.
+/// `@interrupt("42")` — which the numeric branch of [`resolve_vector_name`]
+/// accepts unconditionally in `0..=255`.
+const CANONICAL_VECTORS: &[(&str, u8)] = &[
+    // Faults / traps / aborts (0..=31), Intel SDM Vol. 3A §6.15.
+    ("divide_error",         0),
+    ("div_by_zero",          0),
+    ("debug",                1),
+    ("nmi",                  2),
+    ("breakpoint",           3),
+    ("int3",                 3),
+    ("overflow",             4),
+    ("bound_range",          5),
+    ("invalid_opcode",       6),
+    ("device_not_available", 7),
+    ("double_fault",         8),   // error-code vector
+    ("invalid_tss",         10),   // error-code vector
+    ("segment_not_present", 11),   // error-code vector
+    ("stack_segment_fault", 12),   // error-code vector
+    ("general_protection",  13),   // error-code vector
+    ("page_fault",          14),   // error-code vector
+    ("x87_fp",              16),
+    ("alignment_check",     17),   // error-code vector
+    ("machine_check",       18),
+    ("simd_fp",             19),
+    ("virtualization",      20),
+    ("control_protection",  21),   // error-code vector
+    ("hypervisor_injection",28),
+    ("vmm_communication",   29),   // error-code vector
+    ("security",            30),   // error-code vector
+    // IRQ vectors paideia-os wires today (see isr_trampoline.pdx entry stubs).
+    ("timer",               32),
+    ("keyboard",            33),
+    ("cascade",             34),
+    ("com1",                36),
+    ("apic_timer",         240),
+    ("apic_spurious",      241),
+    ("tlb_shootdown_ipi",  242),
+];
+
+/// Resolve a `@interrupt("...")` argument to a vector number.
+///
+/// Accepts a canonical name from [`CANONICAL_VECTORS`] (case-sensitive) OR
+/// the decimal spelling of any number in `0..=255`. Returns `None` for both
+/// unknown names and out-of-range numeric input.
+fn resolve_vector_name(name: &str) -> Option<u8> {
+    if let Some((_, v)) = CANONICAL_VECTORS.iter().find(|(k, _)| *k == name) {
+        return Some(*v);
+    }
+    name.parse::<u16>().ok().and_then(|n| u8::try_from(n).ok())
+}
 
 /// Structured container for trailing symbol attributes on Let bindings.
 /// Refactored in PA19-r19-001 to eliminate growing tuple.
@@ -24,6 +81,12 @@ pub(super) struct LetSymbolAttrs {
     /// but the elaborator emit pass still ignores it. Non-function placement is not
     /// yet diagnosed (deferred to the phase that wires the emit change).
     pub no_frame: bool,
+    /// `@interrupt("vec_name")` or `@interrupt_error("vec_name")` ISR sugar
+    /// (paideia-as#1278, v0.21-002). Phase-1 landing captures the parsed
+    /// [`InterruptAttr`] here and propagates it into
+    /// [`paideia_as_ast::ItemData::Let::interrupt`]; the elaborator emit-side
+    /// synthesis (spill/iretq/error-code skip) lands in a phase-2 follow-up.
+    pub interrupt: Option<InterruptAttr>,
 }
 
 impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
@@ -33,6 +96,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         let mut link_section: Option<String> = None;
         let mut abi: Option<CallingConvention> = None;
         let mut no_frame: bool = false;
+        let mut interrupt: Option<InterruptAttr> = None;
         let mut seen_attrs = HashSet::new();
 
         // Loop to accept attributes in any order
@@ -94,12 +158,22 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                     // with the emit change; phase 1 keeps the attribute inert.
                     no_frame = true;
                 }
+                "interrupt" | "interrupt_error" => {
+                    // paideia-as#1278 (phase 1): `@interrupt("vec_name")` /
+                    // `@interrupt_error("vec_name")` — ISR-entry sugar over
+                    // `@no_frame`. Phase-1 landing captures the parsed
+                    // InterruptAttr for later emit-side synthesis; the
+                    // `_error` variant marks the vector as having a
+                    // CPU-pushed error code (skipped before iretq).
+                    let has_error_code = attr_name == "interrupt_error";
+                    interrupt = Some(self.parse_interrupt_attr(has_error_code)?);
+                }
                 _ => {
                     // P0250: unknown symbol attribute
                     let code = DiagnosticCode::new(Category::P, Severity::Error, 250)
                         .expect("valid P0250 code");
                     let diag = Diagnostic::error(code)
-                        .message(format!("unknown symbol attribute '@{}' (only 'align', 'ring', 'link_section', 'abi', and 'no_frame' supported)", attr_name))
+                        .message(format!("unknown symbol attribute '@{}' (only 'align', 'ring', 'link_section', 'abi', 'no_frame', 'interrupt', and 'interrupt_error' supported)", attr_name))
                         .with_span(attr_name_tok.span)
                         .finish();
                     self.emit_diagnostic(diag);
@@ -108,7 +182,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             }
         }
 
-        Ok(LetSymbolAttrs { align, ring, link_section, abi, no_frame })
+        Ok(LetSymbolAttrs { align, ring, link_section, abi, no_frame, interrupt })
     }
 
     /// Parse `@align(N)` where N is a power-of-two integer literal.
@@ -554,6 +628,98 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         Ok(cc)
     }
 
+    /// Parse `@interrupt("vec")` or `@interrupt_error("vec")` where `vec` is
+    /// either a canonical x86_64 exception name or the decimal spelling of a
+    /// vector number in `0..=255` (paideia-as#1278, v0.21-002).
+    ///
+    /// **`has_error_code`** — `true` when the caller matched `@interrupt_error`,
+    /// `false` for the plain `@interrupt` form; propagated onto the returned
+    /// [`InterruptAttr`] so the phase-2 elaborator emit can insert the
+    /// CPU-error-code skip before `iretq`.
+    ///
+    /// **Diagnostics (P-category, sharing the free P0290-P0294 block above `@abi`):**
+    /// - P0290 — malformed `(...)` syntax (missing `(`, `)` or non-string arg).
+    /// - P0291 — the string does not resolve to a canonical name and is not a
+    ///   numeric literal in `0..=255`.
+    pub(super) fn parse_interrupt_attr(&mut self, has_error_code: bool) -> Result<InterruptAttr, ParseError> {
+        // Expect `(`.
+        if !self.eat(TokenKind::LParen) {
+            let span = self.peek().map(|t| t.span).unwrap_or_else(|| Span::new(self.file(), 0, 0));
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 290)
+                .expect("valid P0290 code");
+            let attr = if has_error_code { "interrupt_error" } else { "interrupt" };
+            let diag = Diagnostic::error(code)
+                .message(format!("malformed @{}(\"vec\") syntax: expected '(' after '{}'", attr, attr))
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        // Argument must be a string literal.
+        if !self.at(TokenKind::StringLit) {
+            let span = self.peek().map(|t| t.span).unwrap_or_else(|| Span::new(self.file(), 0, 0));
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 290)
+                .expect("valid P0290 code");
+            let diag = Diagnostic::error(code)
+                .message("@interrupt / @interrupt_error argument must be a string literal (canonical name or decimal vector number)")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            self.bump();
+            return Err(ParseError);
+        }
+
+        let str_tok = self.expect(TokenKind::StringLit)?;
+        let str_span = str_tok.span;
+        let raw = self.source_text_for_span(str_span);
+        let name = if raw.starts_with('"') && raw.ends_with('"') && raw.len() >= 2 {
+            raw[1..raw.len() - 1].to_string()
+        } else {
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 290)
+                .expect("valid P0290 code");
+            let diag = Diagnostic::error(code)
+                .message("@interrupt / @interrupt_error argument must be a valid string literal")
+                .with_span(str_span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        };
+
+        // Resolve to a vector number.
+        let vector = match resolve_vector_name(&name) {
+            Some(v) => v,
+            None => {
+                let code = DiagnosticCode::new(Category::P, Severity::Error, 291)
+                    .expect("valid P0291 code");
+                let diag = Diagnostic::error(code)
+                    .message(format!(
+                        "unknown interrupt vector '{}' — expected a canonical name (e.g. \"page_fault\", \"general_protection\", \"breakpoint\") or a decimal number in 0..=255",
+                        name
+                    ))
+                    .with_span(str_span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                return Err(ParseError);
+            }
+        };
+
+        // Expect `)`.
+        if !self.eat(TokenKind::RParen) {
+            let span = self.peek().map(|t| t.span).unwrap_or_else(|| Span::new(self.file(), 0, 0));
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 290)
+                .expect("valid P0290 code");
+            let diag = Diagnostic::error(code)
+                .message("malformed @interrupt / @interrupt_error syntax: expected ')' after vector name")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        Ok(InterruptAttr { has_error_code, vector, name })
+    }
+
     /// Parse a top-level let declaration with optional visibility: `[pub] let [mut] <Ident> <GenericParams>? (: Type)? = Expr @align(N)? @ring(...)? @link_section("name")? @abi("ms"|"sysv")?`
     pub(super) fn parse_let_decl_with_visibility(&mut self, public: bool) -> Result<NodeId, ParseError> {
         let let_tok = self.expect(TokenKind::KwLet)?;
@@ -629,8 +795,9 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         // Parse value expression
         let value = self.parse_expr()?;
 
-        // Parse optional symbol attributes (@align, @ring, @link_section, @abi, or @no_frame)
-        let LetSymbolAttrs { align, ring, link_section, abi, no_frame } = self.parse_optional_symbol_attributes()?;
+        // Parse optional symbol attributes (@align, @ring, @link_section, @abi, @no_frame,
+        // @interrupt, or @interrupt_error).
+        let LetSymbolAttrs { align, ring, link_section, abi, no_frame, interrupt } = self.parse_optional_symbol_attributes()?;
 
         // paideia-as#1276 phase 3: `@no_frame` is a function-only attribute — it
         // toggles the SysV frame-pointer prologue/epilogue that the elaborator
@@ -639,7 +806,12 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         // there is no lambda / no ret / no prologue to suppress. Reject at
         // parse time via P0250 so downstream phases can trust that any
         // `LetInfo::no_frame == true` corresponds to a Lambda RHS.
-        if no_frame {
+        //
+        // paideia-as#1278 phase 1: `@interrupt(...)` and `@interrupt_error(...)`
+        // share the same category constraint — an ISR entry stub only makes
+        // sense wrapping a lambda body. Reject non-lambda placement here so
+        // phase-2 emit synthesis can trust the shape.
+        if no_frame || interrupt.is_some() {
             let value_kind = self
                 .arena()
                 .get(value)
@@ -652,10 +824,13 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                     .unwrap_or(span_start);
                 let code = DiagnosticCode::new(Category::P, Severity::Error, 250)
                     .expect("valid P0250 code");
+                let msg = if interrupt.is_some() {
+                    "@interrupt / @interrupt_error is a function-only attribute; ISR entry sugar can only wrap a lambda body"
+                } else {
+                    "@no_frame is a function-only attribute; it toggles the SysV frame-pointer prologue/epilogue and cannot be applied to a non-function binding"
+                };
                 let diag = Diagnostic::error(code)
-                    .message(
-                        "@no_frame is a function-only attribute; it toggles the SysV frame-pointer prologue/epilogue and cannot be applied to a non-function binding"
-                    )
+                    .message(msg)
                     .with_span(value_span)
                     .finish();
                 self.emit_diagnostic(diag);
@@ -693,6 +868,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 link_section,
                 abi,
                 no_frame,
+                interrupt,
                 doc: None,
             },
         );
@@ -1209,6 +1385,146 @@ mod tests {
             "expected P0250 diagnostic for @no_frame on non-fn binding, got: {:?}",
             diags
         );
+    }
+
+    // ---- paideia-as#1278 (v0.21-002): @interrupt / @interrupt_error sugar ----
+    //
+    // Phase-1 landing tests the trailing symbol-attribute parse path:
+    //   pub let f : ... = fn(...) -> body @interrupt("page_fault")
+    // records InterruptAttr { has_error_code: false, vector: 14, name: "page_fault" }
+    // on ItemData::Let::interrupt; the @interrupt_error variant flips the flag.
+
+    /// Canonical exception name resolves to its SDM vector number and stamps
+    /// `has_error_code = false` for the plain `@interrupt` form. `page_fault` is
+    /// vector 14 in the Intel SDM; despite being a real error-code exception,
+    /// the parser does not cross-check against the `_error` variant in phase-1
+    /// (kept as a deferred phase-2 validation, per the CANONICAL_VECTORS table).
+    #[test]
+    fn interrupt_page_fault_parses_to_vector_14() {
+        let source = r#"pub let isr_pf : () -> () = fn() -> 0 @interrupt("page_fault")"#;
+        let (arena, result, diags) = parse_let_in_module(source);
+
+        assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
+        assert!(result.is_ok(), "expected successful parse");
+
+        let root = result.unwrap();
+        match arena.item_data(root) {
+            Some(paideia_as_ast::ItemData::Let { interrupt: Some(attr), .. }) => {
+                assert!(!attr.has_error_code, "@interrupt sets has_error_code = false");
+                assert_eq!(attr.vector, 14, "page_fault → vector 14");
+                assert_eq!(attr.name, "page_fault");
+            }
+            other => panic!("expected ItemData::Let with interrupt set, got {:?}", other),
+        }
+    }
+
+    /// The `@interrupt_error` variant flips `has_error_code` so the phase-2
+    /// elaborator emits an `add rsp, 8` skip of the CPU-pushed error code
+    /// before `iretq`.
+    #[test]
+    fn interrupt_error_general_protection_parses_to_vector_13() {
+        let source = r#"pub let isr_gp : () -> () = fn() -> 0 @interrupt_error("general_protection")"#;
+        let (arena, result, diags) = parse_let_in_module(source);
+
+        assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
+        assert!(result.is_ok(), "expected successful parse");
+
+        let root = result.unwrap();
+        match arena.item_data(root) {
+            Some(paideia_as_ast::ItemData::Let { interrupt: Some(attr), .. }) => {
+                assert!(attr.has_error_code, "@interrupt_error sets has_error_code = true");
+                assert_eq!(attr.vector, 13, "general_protection → vector 13");
+                assert_eq!(attr.name, "general_protection");
+            }
+            other => panic!("expected ItemData::Let with interrupt set, got {:?}", other),
+        }
+    }
+
+    /// Numeric string spelling — the escape hatch for vectors outside the
+    /// canonical table (e.g. custom LAPIC IPI vectors above 32 that
+    /// paideia-os may add before the table catches up). Any u8 must accept.
+    #[test]
+    fn interrupt_numeric_string_accepts_arbitrary_u8_vector() {
+        let source = r#"pub let isr42 : () -> () = fn() -> 0 @interrupt("42")"#;
+        let (arena, result, diags) = parse_let_in_module(source);
+
+        assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
+        assert!(result.is_ok(), "expected successful parse");
+
+        let root = result.unwrap();
+        match arena.item_data(root) {
+            Some(paideia_as_ast::ItemData::Let { interrupt: Some(attr), .. }) => {
+                assert!(!attr.has_error_code);
+                assert_eq!(attr.vector, 42);
+                assert_eq!(attr.name, "42");
+            }
+            other => panic!("expected ItemData::Let with interrupt set, got {:?}", other),
+        }
+    }
+
+    /// An unknown vector name is rejected with P0291.
+    #[test]
+    fn interrupt_unknown_vector_emits_p0291() {
+        let source = r#"pub let isr_junk : () -> () = fn() -> 0 @interrupt("blorp")"#;
+        let (_arena, result, diags) = parse_let_in_module(source);
+
+        assert!(result.is_err(), "unknown vector name must fail parse");
+        let has_p0291 = diags.iter().any(|d| {
+            let code = d.code();
+            code.category() == paideia_as_diagnostics::Category::P && code.number() == 291
+        });
+        assert!(has_p0291, "expected P0291 diagnostic, got: {:?}", diags);
+    }
+
+    /// Out-of-range numeric (256+) is rejected — u8 boundary is the ceiling.
+    #[test]
+    fn interrupt_out_of_range_number_emits_p0291() {
+        let source = r#"pub let isr_hi : () -> () = fn() -> 0 @interrupt("256")"#;
+        let (_arena, result, diags) = parse_let_in_module(source);
+
+        assert!(result.is_err(), "vector > 255 must fail parse");
+        let has_p0291 = diags.iter().any(|d| {
+            let code = d.code();
+            code.category() == paideia_as_diagnostics::Category::P && code.number() == 291
+        });
+        assert!(has_p0291, "expected P0291 diagnostic, got: {:?}", diags);
+    }
+
+    /// Applying `@interrupt(...)` to a non-lambda binding is a category error —
+    /// there is no function body to synthesise an ISR prologue around. Shares
+    /// the P0250 code with the `@no_frame` non-lambda rejection.
+    #[test]
+    fn interrupt_on_non_fn_binding_emits_p0250() {
+        let source = r#"pub let CONST : u64 = 42 @interrupt("breakpoint")"#;
+        let (_arena, result, diags) = parse_let_in_module(source);
+
+        assert!(result.is_err(), "@interrupt on non-fn must fail parse");
+        let has_p0250 = diags.iter().any(|d| {
+            let code = d.code();
+            code.category() == paideia_as_diagnostics::Category::P && code.number() == 250
+        });
+        assert!(has_p0250, "expected P0250 diagnostic, got: {:?}", diags);
+    }
+
+    /// `@interrupt` composes with other attributes (e.g. `@abi("sysv")`) in a
+    /// single trailing attribute run. Guards against a future refactor that
+    /// accidentally short-circuits the loop once `interrupt` is seen.
+    #[test]
+    fn interrupt_composes_with_abi() {
+        let source = r#"pub let isr : () -> () = fn() -> 0 @interrupt("nmi") @abi("sysv")"#;
+        let (arena, result, diags) = parse_let_in_module(source);
+
+        assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
+        assert!(result.is_ok(), "expected successful parse");
+
+        let root = result.unwrap();
+        match arena.item_data(root) {
+            Some(paideia_as_ast::ItemData::Let { interrupt: Some(attr), abi, .. }) => {
+                assert_eq!(attr.vector, 2, "nmi → vector 2");
+                assert_eq!(*abi, Some(paideia_as_ast::CallingConvention::Sysv));
+            }
+            other => panic!("expected ItemData::Let with interrupt+abi, got {:?}", other),
+        }
     }
 }
 

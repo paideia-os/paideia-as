@@ -761,6 +761,7 @@ mod tests {
                 link_section: None,
                 abi: None,
                 no_frame: false,
+                interrupt: None,
                 doc: None,
             },
         );

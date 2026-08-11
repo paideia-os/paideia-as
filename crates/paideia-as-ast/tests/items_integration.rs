@@ -42,6 +42,7 @@ fn build_and_walk_full_module_tree() {
             link_section: None,
             abi: None,
             no_frame: false,
+            interrupt: None,
             doc: None,
         },
     );
@@ -61,6 +62,7 @@ fn build_and_walk_full_module_tree() {
             link_section: None,
             abi: None,
             no_frame: false,
+            interrupt: None,
             doc: None,
         },
     );

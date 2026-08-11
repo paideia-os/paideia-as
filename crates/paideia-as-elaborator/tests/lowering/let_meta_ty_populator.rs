@@ -45,6 +45,7 @@ fn test_item_let_unannotated() {
             link_section: None,
             abi: None,
             no_frame: false,
+            interrupt: None,
             doc: None,
         },
     );
@@ -174,6 +175,7 @@ fn test_mutable_let_unannotated() {
             link_section: None,
             abi: None,
             no_frame: false,
+            interrupt: None,
             doc: None,
         },
     );
@@ -238,6 +240,7 @@ fn test_rmw_preserves_fields() {
             link_section: None,
             abi: None,
             no_frame: false,
+            interrupt: None,
             doc: None,
         },
     );
@@ -261,6 +264,7 @@ fn test_rmw_preserves_fields() {
             abi: None,
             no_frame: false,
             atomic: None,
+            interrupt: None,
             enum_type_id: None,
         },
     );
@@ -321,6 +325,7 @@ fn test_multiple_unannotated_lets() {
             link_section: None,
             abi: None,
             no_frame: false,
+            interrupt: None,
             doc: None,
         },
     );
@@ -340,6 +345,7 @@ fn test_multiple_unannotated_lets() {
             link_section: None,
             abi: None,
             no_frame: false,
+            interrupt: None,
             doc: None,
         },
     );
@@ -411,6 +417,7 @@ fn test_many_unannotated_lets() {
                 link_section: None,
                 abi: None,
                 no_frame: false,
+                interrupt: None,
                 doc: None,
             },
         );
@@ -581,6 +588,7 @@ fn test_item_let_enum_annotated_populates_enum_type_id() {
             link_section: None,
             abi: None,
             no_frame: false,
+            interrupt: None,
             doc: None,
         },
     );

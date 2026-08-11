@@ -43,6 +43,7 @@ fn pub_let_flag_flows_to_ir_arena() {
             link_section: None,
             abi: None,
             no_frame: false,
+            interrupt: None,
             doc: None,
         },
     );

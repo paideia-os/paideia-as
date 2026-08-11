@@ -44,6 +44,23 @@ pub enum AtomicOrdering {
     SeqCst,
 }
 
+/// Interrupt-service-routine sugar payload (paideia-as#1278, v0.21-002).
+///
+/// IR-level mirror of [`paideia_as_ast::InterruptAttr`]; kept local for the
+/// same reason as [`AtomicOrdering`] — the elaborator emit pass reads from
+/// `LetInfo::interrupt` and stays free of an AST dependency. See the AST
+/// struct's doc-comment for resolution rules (canonical name / numeric).
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct InterruptAttr {
+    /// `true` iff parsed from `@interrupt_error(...)` — CPU-pushed error
+    /// code needs an extra 8-byte skip before `iretq`.
+    pub has_error_code: bool,
+    /// The resolved vector number in `0..=255`.
+    pub vector: u8,
+    /// The original attribute-argument spelling as written in source.
+    pub name: String,
+}
+
 /// Metadata for a Let IR node.
 ///
 /// Records whether the let binding is mutable (let mut x : T = ...) and,
@@ -110,6 +127,14 @@ pub struct LetInfo {
     /// here, but the elaborator emit pass at load/store sites still ignores it.
     /// A follow-up phase-2 issue wires the emit change and lands the .pdx fixture.
     pub atomic: Option<AtomicOrdering>,
+    /// Interrupt-service-routine sugar `@interrupt("vec")` / `@interrupt_error("vec")`
+    /// (paideia-as#1278, v0.21-002). When `Some(attr)`, the binding wraps an ISR
+    /// entry — the elaborator (phase-2) synthesises the push-all / body / pop-all /
+    /// `iretq` sequence around the lambda body, adding an `add rsp, 8` skip if
+    /// `attr.has_error_code` is true.
+    ///
+    /// Phase-1 landing: propagates AST → IR here; elaborator emit is inert.
+    pub interrupt: Option<InterruptAttr>,
     /// Optional enum type ID if the binding is annotated with an enum type (#1222).
     /// When `Some(eid)`, the binding's declared type is an enum variant of that type.
     pub enum_type_id: Option<EnumTypeId>,
@@ -128,6 +153,7 @@ impl LetInfo {
             abi: None,
             no_frame: false,
             atomic: None,
+            interrupt: None,
             enum_type_id: None,
         }
     }
@@ -144,6 +170,7 @@ impl LetInfo {
             abi: None,
             no_frame: false,
             atomic: None,
+            interrupt: None,
             enum_type_id: None,
         }
     }
@@ -154,7 +181,7 @@ impl LetInfo {
     /// is known, enabling width-threaded integer-literal emission.
     #[must_use]
     pub fn with_type(mutable: bool, ty: Option<TypeId>) -> Self {
-        Self { mutable, ty, align: None, ring: None, link_section: None, abi: None, no_frame: false, atomic: None, enum_type_id: None }
+        Self { mutable, ty, align: None, ring: None, link_section: None, abi: None, no_frame: false, atomic: None, interrupt: None, enum_type_id: None }
     }
 
     /// Construct a LetInfo with explicit mutability, type, and alignment.
@@ -163,7 +190,7 @@ impl LetInfo {
     /// and optional alignment directive are known.
     #[must_use]
     pub fn with_align(mutable: bool, ty: Option<TypeId>, align: Option<u32>) -> Self {
-        Self { mutable, ty, align, ring: None, link_section: None, abi: None, no_frame: false, atomic: None, enum_type_id: None }
+        Self { mutable, ty, align, ring: None, link_section: None, abi: None, no_frame: false, atomic: None, interrupt: None, enum_type_id: None }
     }
 
     /// Construct a LetInfo with explicit mutability, type, alignment, and ring.
@@ -172,7 +199,7 @@ impl LetInfo {
     /// optional alignment directive, and optional ring buffer directive are known.
     #[must_use]
     pub fn with_ring(mutable: bool, ty: Option<TypeId>, align: Option<u32>, ring: Option<(u32, u32)>) -> Self {
-        Self { mutable, ty, align, ring, link_section: None, abi: None, no_frame: false, atomic: None, enum_type_id: None }
+        Self { mutable, ty, align, ring, link_section: None, abi: None, no_frame: false, atomic: None, interrupt: None, enum_type_id: None }
     }
 
     /// Construct a LetInfo with explicit mutability, type, alignment, ring, and link_section.
@@ -182,7 +209,7 @@ impl LetInfo {
     /// directive are known.
     #[must_use]
     pub fn with_link_section(mutable: bool, ty: Option<TypeId>, align: Option<u32>, ring: Option<(u32, u32)>, link_section: Option<String>) -> Self {
-        Self { mutable, ty, align, ring, link_section, abi: None, no_frame: false, atomic: None, enum_type_id: None }
+        Self { mutable, ty, align, ring, link_section, abi: None, no_frame: false, atomic: None, interrupt: None, enum_type_id: None }
     }
 
     /// Construct a LetInfo with explicit mutability, type, alignment, ring, link_section, and abi.
@@ -192,7 +219,7 @@ impl LetInfo {
     /// directive, and optional calling convention directive are known.
     #[must_use]
     pub fn with_abi(mutable: bool, ty: Option<TypeId>, align: Option<u32>, ring: Option<(u32, u32)>, link_section: Option<String>, abi: Option<CallingConvention>) -> Self {
-        Self { mutable, ty, align, ring, link_section, abi, no_frame: false, atomic: None, enum_type_id: None }
+        Self { mutable, ty, align, ring, link_section, abi, no_frame: false, atomic: None, interrupt: None, enum_type_id: None }
     }
 
     /// Attach an atomic ordering discipline to an existing LetInfo (paideia-as#1296, v0.21-003b).

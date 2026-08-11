@@ -18,6 +18,40 @@ pub enum CallingConvention {
     Sysv,
 }
 
+/// Interrupt-service-routine attribute payload (paideia-as#1278, v0.21-002).
+///
+/// Carries the metadata for `@interrupt("vec_name")` and
+/// `@interrupt_error("vec_name")` — sugar over `@no_frame` that a later
+/// elaborator phase turns into a synthesized ISR prologue-epilogue
+/// (spill RAX/RCX/RDX/RSI/RDI/R8..R15, execute body, restore, `iretq`,
+/// with an extra `add rsp, 8` skip for the CPU-pushed error code in the
+/// `_error` variant).
+///
+/// **Resolution:** the parser accepts a string literal that is either
+/// a canonical vector name from the x86_64 exception table
+/// (`page_fault`, `general_protection`, `breakpoint`, …) or the
+/// decimal / hex spelling of a vector number in `0..=255`. Both are
+/// normalised into `vector` here; `name` retains the original spelling
+/// for diagnostics and doc output.
+///
+/// Phase-1 landing (parser + AST/IR plumbing) captures this struct and
+/// propagates it through `ItemData::Let::interrupt` and IR
+/// `LetInfo::interrupt`. The elaborator emit-side synthesis lands in a
+/// phase-2 follow-up issue.
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct InterruptAttr {
+    /// `true` iff parsed from `@interrupt_error(...)` — the vector's
+    /// CPU-pushed error code needs an extra 8-byte skip before `iretq`.
+    /// `false` for the plain `@interrupt(...)` form.
+    pub has_error_code: bool,
+    /// The resolved vector number in `0..=255`.
+    pub vector: u8,
+    /// The original attribute-argument spelling as written in source.
+    /// Kept so diagnostics can echo the user's word choice and so
+    /// disassembly / DWARF output can label the ISR site by name.
+    pub name: String,
+}
+
 /// Memory-ordering discipline for atomic bindings (paideia-as#1296, v0.21-003b).
 ///
 /// Attached to a `let`-binding via the `@atomic(Ordering)` binding-position
@@ -266,6 +300,15 @@ pub enum ItemData {
         /// [`crate::items::ItemData::Let`] and eventually into IR `LetInfo::no_frame`, but
         /// the elaborator emit pass still ignores it — no prologue/epilogue emission changes.
         no_frame: bool,
+        /// Interrupt-service-routine sugar `@interrupt("vec")` / `@interrupt_error("vec")`
+        /// (paideia-as#1278, v0.21-002). When `Some(attr)`, the binding is an ISR entry
+        /// and the elaborator (phase-2) synthesises the ISR prologue/epilogue instead
+        /// of the SysV frame. Composes with `@no_frame` (which is implied when
+        /// `interrupt.is_some()`).
+        ///
+        /// Phase-1 landing: parser + AST/IR plumbing only; the elaborator emit-side
+        /// synthesis lands in a phase-2 follow-up issue.
+        interrupt: Option<InterruptAttr>,
         /// Optional documentation comment.
         doc: Option<NodeId>,
     },
@@ -388,6 +431,7 @@ mod tests {
             link_section: None,
             abi: None,
             no_frame: false,
+            interrupt: None,
             doc: None,
         };
         match item {
@@ -403,6 +447,7 @@ mod tests {
                 link_section: ls,
                 abi,
                 no_frame: nf,
+                interrupt: intr,
                 doc: d,
             } => {
                 assert!(!mut_flag);
@@ -415,6 +460,7 @@ mod tests {
                 assert_eq!(ls, None);
                 assert_eq!(abi, None);
                 assert!(!nf);
+                assert!(intr.is_none());
                 assert!(d.is_none());
             }
             _ => panic!("expected Let variant"),
