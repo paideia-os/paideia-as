@@ -17,6 +17,7 @@ mod lowering {
     pub mod pa_r15_009c_jump_table_fixture;
     pub mod pa_r17_012_pure_control_flow;
     pub mod pa_r17_013_match_in_return;
+    pub mod stdlib_barrier;
     pub mod stdlib_bulkmem;
     pub mod stdlib_bytes;
     pub mod stdlib_checksum;

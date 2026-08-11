@@ -1,0 +1,67 @@
+// PA-v0.21-004 (#1280): Barrier intrinsics — mfence / sfence / lfence / pause.
+//
+// Trait BarrierOps declares the four architectural memory-order fence
+// intrinsics as first-class stdlib primitives, so barrier discipline is
+// visible at the callsite (`barrier_full()` reads clearly) rather than
+// hidden inside an `unsafe { mfence; }` block.
+//
+// Consumed by paideia-os R18-M5-002 (#776) — the TLB-shootdown mfence
+// audit — which currently emits mfence via raw asm; once #1280 lands
+// downstream, tlb_shootdown.pdx can migrate to `barrier_full()`.
+//
+// Semantics (Intel SDM Vol 3A §8.2 + §11.10):
+//   barrier_full()   → MFENCE: fully-serializing memory fence. Every load
+//                      and every store before the fence completes globally
+//                      before any load or store after the fence begins.
+//                      Use when a store must be visible to another CPU
+//                      before a subsequent load on THIS CPU observes what
+//                      the other CPU wrote in response — the classic
+//                      Dekker pattern. Also required to order plain WB
+//                      stores before UC MMIO stores from the same CPU.
+//   barrier_store()  → SFENCE: store-store fence. Every store before the
+//                      fence completes globally before any store after
+//                      the fence begins. Cheaper than mfence when only
+//                      store ordering matters. Common in ring-buffer
+//                      producer paths: write the payload, sfence, publish
+//                      the index. On x86 TSO, plain WB→WB stores are
+//                      already ordered, so sfence is primarily useful when
+//                      one side of the ordering is a WC store (movnt* /
+//                      NT stores).
+//   barrier_load()   → LFENCE: load-load fence + speculation barrier.
+//                      Every load before the fence completes before any
+//                      load after the fence begins. On modern (post-2018)
+//                      Intel/AMD, LFENCE is also a full speculation
+//                      barrier — the pipeline drains before subsequent
+//                      instructions may issue. Used for Spectre v1
+//                      mitigation on data-dependent branches, and to
+//                      pair with SFENCE on the consumer side of a ring
+//                      buffer that read the published index and needs to
+//                      order the subsequent payload load after.
+//   cpu_pause()      → PAUSE (F3 90): spinloop hint. NOT a fence. Signals
+//                      to the hardware that this loop iteration is a
+//                      busy-wait, letting the pipeline back off (SMT
+//                      partner runs faster; power draw drops). Used
+//                      inside every spin-wait: while (locked) { pause; }.
+//
+// Effect discipline:
+//   barrier_full / barrier_store / barrier_load are !{Atomic} — they are
+//   the ordering primitives that make Atomic-effect sequences visible in
+//   a defined order across cores.
+//   cpu_pause is !{} — architecturally a NOP hint; caller sits in an
+//   Atomic context already (the spin-wait it decorates).
+//
+// Capability: none. All four are unprivileged; usable anywhere.
+//
+// Visibility discipline: exposed OUTSIDE `unsafe { }` blocks intentionally.
+// Barrier discipline is a code-review-visible property of correct
+// concurrent code — every one of these calls signals to a reviewer that
+// the writer thought about memory ordering. Hiding them in raw-asm blocks
+// inside kernel .pdx files (the current situation before #1280) is
+// deliberately being reversed.
+
+trait BarrierOps {
+  fn barrier_full() -> () !{Atomic};
+  fn barrier_store() -> () !{Atomic};
+  fn barrier_load() -> () !{Atomic};
+  fn cpu_pause() -> ();
+}

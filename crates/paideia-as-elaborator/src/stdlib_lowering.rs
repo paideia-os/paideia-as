@@ -1224,6 +1224,71 @@ pub fn lower_stdlib_method(
                 ],
             }))
         }
+        // PA-v0.21-004 (#1280): BarrierOps — mfence / sfence / lfence / pause.
+        // Nullary intrinsics; each lowers to exactly one operand-less
+        // mnemonic that the encoder already handles (mfence/sfence/lfence
+        // covered by mem_fences.rs, pause by pause.rs). Args are Literal
+        // convention because there are no args to marshal.
+        ("BarrierOps", "barrier_full") => {
+            Some(Ok(LoweringRecipe {
+                instructions: vec![Instruction {
+                    mnemonic: Mnemonic::Mfence,
+                    operands: SmallVec::new(),
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode,
+                    emission_order: 0,
+                }],
+                arg_convention: ArgConvention::Literal,
+                labels: vec![],
+            }))
+        }
+        ("BarrierOps", "barrier_store") => {
+            Some(Ok(LoweringRecipe {
+                instructions: vec![Instruction {
+                    mnemonic: Mnemonic::Sfence,
+                    operands: SmallVec::new(),
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode,
+                    emission_order: 0,
+                }],
+                arg_convention: ArgConvention::Literal,
+                labels: vec![],
+            }))
+        }
+        ("BarrierOps", "barrier_load") => {
+            Some(Ok(LoweringRecipe {
+                instructions: vec![Instruction {
+                    mnemonic: Mnemonic::Lfence,
+                    operands: SmallVec::new(),
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode,
+                    emission_order: 0,
+                }],
+                arg_convention: ArgConvention::Literal,
+                labels: vec![],
+            }))
+        }
+        ("BarrierOps", "cpu_pause") => {
+            // Alias of PauseOps::spin_hint under the BarrierOps trait so
+            // barrier discipline reads as one cohesive family at the
+            // callsite. Byte-identical to spin_hint (F3 90). PauseOps
+            // remains for the earlier PA-R16-007 consumers.
+            Some(Ok(LoweringRecipe {
+                instructions: vec![Instruction {
+                    mnemonic: Mnemonic::Pause,
+                    operands: SmallVec::new(),
+                    encoding_hint: None,
+                    byte_offset_in_text: None,
+                    mode,
+                    emission_order: 0,
+                }],
+                arg_convention: ArgConvention::Literal,
+                labels: vec![],
+            }))
+        }
         // PA-r16-007 (#1066): Test recipe demonstrating loop pattern with local labels.
         // Recipe: mov rax, 3; loop_top: dec rax; jnz loop_top
         #[cfg(test)]
