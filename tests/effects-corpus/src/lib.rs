@@ -52,17 +52,27 @@ pub fn codes_for(path: &Path) -> Result<BTreeSet<String>, String> {
     Ok(parse_codes_from_stderr(&stderr))
 }
 
-/// Parse effect-system codes from stderr output of `paideia-as build`.
+/// Parse effect-system + capability-discipline codes from stderr
+/// output of `paideia-as build`.
 ///
-/// Looks for patterns like `F1100`, `F1101`, ..., `F1106` (F-codes)
-/// and `T0510`, `T0556` (T-codes). Extracts all matches in order of appearance.
+/// Looks for `F1100`..`F1106` (F-codes, effect system), `T0510`/`T0556`
+/// (T-codes, type/pattern system), and `C1300`/`C1301` (C-codes,
+/// capability discipline — C1301 landed in paideia-as#1307 for the
+/// effect_cap_coupling walker). Extracts all matches in order of
+/// appearance.
+///
+/// A code is recognized when the leading letter is one of `F` / `T` /
+/// `C` and the next four bytes are ASCII digits. This is a pattern
+/// scan, not a category-range check — it deliberately admits any four-
+/// digit number so a future fixture referencing e.g. `C1302` needs no
+/// harness change.
 fn parse_codes_from_stderr(stderr: &str) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     let bytes = stderr.as_bytes();
     let mut i = 0;
     while i + 5 <= bytes.len() {
         let prefix = bytes[i];
-        if (prefix == b'F' || prefix == b'T')
+        if (prefix == b'F' || prefix == b'T' || prefix == b'C')
             && bytes[i + 1..i + 5].iter().all(|b| b.is_ascii_digit())
         {
             if let Ok(s) = std::str::from_utf8(&bytes[i..i + 5]) {

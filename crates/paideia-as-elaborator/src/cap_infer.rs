@@ -17,6 +17,16 @@ use paideia_as_types::{CapId, CapSet};
 /// Diagnostic code for missing capability.
 pub const C_MISSING_CAP: u16 = 1300;
 
+/// Diagnostic code for "effect row requires capability not declared":
+/// a function's effect row names an effect whose static binding demands
+/// a capability that is absent from the function's declared `@{...}`.
+///
+/// Per `paideia_as_effects::effect_cap_binding`, every recognised
+/// effect maps to zero or one required capability; R29 driver
+/// framework consumers rely on this coupling being enforced at
+/// elaboration time (softarch §3 R29 structural witness).
+pub const C_EFFECT_REQUIRES_CAP: u16 = 1301;
+
 /// Check that `declared` contains every capability in `required`.
 ///
 /// Emits one C1300 per missing capability, naming the cap id. Returns

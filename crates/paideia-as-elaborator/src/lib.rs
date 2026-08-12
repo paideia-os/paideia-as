@@ -27,6 +27,7 @@ pub mod check_pure;
 pub mod data_encoder;
 pub mod derive;
 pub mod derive_fn_sig;
+pub mod effect_cap_coupling;
 pub mod effect_infer;
 pub mod effect_unify;
 pub mod effect_walker;
@@ -91,7 +92,10 @@ pub mod walker_pass_state;
 
 pub use borrow_walker::{BorrowKind, BorrowWalker};
 pub use branch_merge::{S_BRANCH_MISMATCH, merge_branches};
-pub use cap_infer::{C_MISSING_CAP, check_capabilities, compose_caps};
+pub use cap_infer::{
+    C_EFFECT_REQUIRES_CAP, C_MISSING_CAP, check_capabilities, compose_caps,
+};
+pub use effect_cap_coupling::check_effect_cap_coupling;
 pub use cap_walker::CapWalker;
 pub use capture::{CaptureKind, CapturedBinding, analyze_captures};
 pub use check_bounds::{

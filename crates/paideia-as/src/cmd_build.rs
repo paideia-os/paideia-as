@@ -232,6 +232,25 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
         }
     }
 
+    // paideia-as#1307 (unblocks paideia-os#1024 R29.M2-002): AST-level
+    // effect-row → cap-set coupling check. For every `let` binding
+    // whose annotated type carries an effect row, verify that any
+    // effect listed in the row whose static binding (see
+    // paideia_as_effects::effect_cap_binding) requires a capability
+    // has that capability declared in the same signature's `@{...}`.
+    // Emits C1301 per (function, missing cap) pair. Runs on the raw
+    // AST since it is purely syntactic; no IR lowering required.
+    // Skipped when the parser errored, mirroring the file_module
+    // validation gate — a broken tree yields cascade noise.
+    if let Some(root) = root_id
+        && !parse_errored
+        && !lex_errored
+    {
+        for d in paideia_as_elaborator::check_effect_cap_coupling(&arena, &source_map, root) {
+            let _ = sink.emit(d);
+        }
+    }
+
     // PA-r17-010a (#1070): Build struct registry before lowering.
     // This enables populate_record_layout_table to look up struct types during RecordCons lowering.
     let registry = build_struct_registry(&arena, &source_map, &mut sink);

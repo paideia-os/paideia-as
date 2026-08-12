@@ -1,0 +1,20 @@
+// paideia-as#1307 (paideia-os R29.M2-002 #1024) —
+// A driver-shaped function that claims `!{Mmio}` in its effect row but
+// withholds `paideia.mmio` from its `@{...}` declaration. The
+// elaborator's effect_cap_coupling walker (crates/paideia-as-
+// elaborator/src/effect_cap_coupling.rs) must reject this with C1301.
+//
+// Companion accept fixture:
+//   tests/effects-corpus/corpus/accept/effect_cap_pair_satisfied.pdx
+//
+// This is the R29 driver-substrate structural witness per
+// design/roadmap/next-wave-softarch.md §3 R29.
+
+module RMmioEffectWithoutCap = structure {
+  effect Mmio {
+    op mmio_read : (u32) -> u64
+  }
+
+  let driver_bad : (u32) -> u64 !{Mmio} @{} =
+    fn (addr : u32) -> perform Mmio::mmio_read(addr)
+}

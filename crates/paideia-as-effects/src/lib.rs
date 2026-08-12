@@ -14,7 +14,11 @@ mod row;
 mod unify;
 
 pub mod capabilities;
+pub mod effect_cap_binding;
 
+pub use effect_cap_binding::{
+    BINDINGS, EffectCapBinding, effects_requiring_cap, required_cap_for_effect,
+};
 pub use intern::EffectInterner;
 pub use registry::{EffectRegistry, F_REDECL_MISMATCH, Operation, SignatureId};
 pub use row::{EffectId, EffectRow, RowVarId};

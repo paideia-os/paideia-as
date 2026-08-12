@@ -95,3 +95,33 @@ fn reject_corpus_emits_expected_codes() {
         failures.join("\n")
     );
 }
+
+/// paideia-as#1307 (paideia-os R29.M2-002 #1024) — the effect-row →
+/// cap-set coupling fixtures are not aspirational; the walker landed
+/// with the issue and both the accept + reject fixtures must be live-
+/// verified end-to-end.
+///
+/// Kept as a dedicated test so it is not swept up by the ignored
+/// `reject_corpus_emits_expected_codes` gate that documents-by-example
+/// the pre-m3 F/T fixtures.
+#[test]
+fn effect_cap_coupling_reject_fixture_emits_c1301() {
+    let path = corpus_root().join("corpus/reject/r_mmio_effect_without_cap.pdx");
+    assert!(path.exists(), "fixture missing: {}", path.display());
+    let codes = codes_for(&path).expect("codes_for succeeds");
+    assert!(
+        codes.contains("C1301"),
+        "expected C1301 in emitted codes; got {codes:?}"
+    );
+}
+
+#[test]
+fn effect_cap_coupling_accept_fixture_emits_no_codes() {
+    let path = corpus_root().join("corpus/accept/effect_cap_pair_satisfied.pdx");
+    assert!(path.exists(), "fixture missing: {}", path.display());
+    let codes = codes_for(&path).expect("codes_for succeeds");
+    assert!(
+        !codes.contains("C1301"),
+        "expected no C1301 on positive companion; got {codes:?}"
+    );
+}
