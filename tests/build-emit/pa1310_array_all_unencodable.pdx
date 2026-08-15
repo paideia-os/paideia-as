@@ -1,0 +1,8 @@
+module Pa1310ArrayAllUnencodable = structure {
+  pub let k : u64 = 3
+  // Issue #1310 scope boundary: NO element encodes as a constant, so the
+  // ArrayLit data branch does not claim this array at all — it emits no data
+  // entry and therefore no symbol. That is a separate gap from #1309's
+  // partial-emission guard, and T0576 must NOT fire here.
+  pub let mut all_unencodable : [u64; 2] = [k, k]
+}

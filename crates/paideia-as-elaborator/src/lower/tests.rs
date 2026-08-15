@@ -706,11 +706,68 @@ fn lower_empty_array_literal() {
     assert_eq!(children.len(), 0, "Empty ArrayLit should have no children");
 }
 
+/// Source map whose content is a bare count token, plus a matching span, for
+/// the repeat-literal tests. The AST stores integer literals as spans only, so
+/// the count has to be readable back out of the source.
+fn count_source(text: &str) -> (SourceMap, paideia_as_diagnostics::Span) {
+    let mut source_map = SourceMap::new();
+    let file = source_map.add_file(
+        std::path::PathBuf::from("test.pdx"),
+        String::from(text),
+    );
+    let span = paideia_as_diagnostics::Span::new(file, 0, text.len() as u32);
+    (source_map, span)
+}
+
+/// Allocate an `ExprLiteral` whose inner Placeholder covers `span`.
+fn alloc_literal_expr(ast: &mut AstArena, span: paideia_as_diagnostics::Span) -> NodeId {
+    let lit = ast.alloc(NodeKind::Placeholder, span);
+    ast.alloc_expr(NodeKind::ExprLiteral, span, ExprData::Literal { lit })
+}
+
+#[test]
+fn lower_array_repeat_with_literal_count_expands_to_n_children() {
+    // Issue #1308: `[expr; 4]` must materialise four element slots. Before the
+    // fix `extract_repeat_count` was a stub returning None, so this collapsed
+    // to a single child and the symbol linked at 1/4 of its declared size.
+    let (source_map, count_span) = count_source("4");
+    let mut sink = VecSink::new();
+    let mut ast = AstArena::new();
+
+    let elem_id = alloc_literal_expr(&mut ast, count_span);
+    let count_id = alloc_literal_expr(&mut ast, count_span);
+
+    let repeat_id = ast.alloc_expr(
+        NodeKind::ExprArrayRepeat,
+        count_span,
+        ExprData::ArrayRepeat {
+            expr: elem_id,
+            count: count_id,
+        },
+    );
+
+    let result = lower_ast_to_ir(&ast, &source_map, &mut sink, &crate::StructRegistry::empty(), &crate::EnumRegistry::empty(), &std::collections::HashMap::new());
+
+    let ir_repeat_id = result.ast_to_ir[&repeat_id];
+    assert_eq!(
+        result.ir[ir_repeat_id].kind,
+        IrKind::ArrayLit,
+        "ArrayRepeat should lower to IrKind::ArrayLit"
+    );
+
+    let children = result.ir.children(ir_repeat_id);
+    let elem_ir = result.ast_to_ir[&elem_id];
+    assert_eq!(children.len(), 4, "[expr; 4] must expand to 4 element children");
+    assert!(children.iter().all(|&c| c == elem_ir));
+    assert!(sink.diagnostics().is_empty(), "a constant count must not diagnose");
+}
+
 #[test]
 fn lower_array_repeat_with_non_literal_count() {
-    // Phase 9 m1-002: array repeat `[expr; count]` where count is not a literal
+    // Issue #1308: a repeat count that is not a resolvable constant must raise
+    // P0211 and produce NO children. The old fallback returned a single copy,
+    // which is exactly the silent under-allocation this diagnostic replaces.
     let (source_map, mut sink) = create_test_source_map_and_sink();
-    // Currently expands to a single copy with a note that P0211 should be emitted.
     let mut ast = AstArena::new();
 
     // Allocate element expression (a literal)
@@ -743,49 +800,49 @@ fn lower_array_repeat_with_non_literal_count() {
         "ArrayRepeat should lower to IrKind::ArrayLit"
     );
 
-    // For non-literal count, expand_array_repeat returns a single copy.
     let children = result.ir.children(ir_repeat_id);
     assert_eq!(
         children.len(),
-        1,
-        "ArrayRepeat with non-literal count should have 1 element child (fallback)"
+        0,
+        "a non-constant count must not silently produce a one-element array"
     );
-
-    let elem_ir = result.ast_to_ir[&elem_id];
-    assert_eq!(children[0], elem_ir);
+    assert_eq!(sink.diagnostics().len(), 1, "exactly one diagnostic expected");
+    assert_eq!(sink.diagnostics()[0].code().to_string(), "P0211");
 }
 
 #[test]
 fn lower_array_repeat_nested_structs() {
-    // Phase 9 m1-002: array repeat with struct-lit as element: `[Point { x: 1, y: 2 }; count]`
-    let (source_map, mut sink) = create_test_source_map_and_sink();
-    // This tests that recursion handles RecordCons nested in ArrayRepeat.
+    // Phase 9 m1-002: array repeat with struct-lit as element:
+    // `[Point { x: 1, y: 2 }; 3]`. Checks that expansion (#1308) replicates a
+    // composite element and that RecordCons lowering still runs underneath it.
+    let (source_map, count_span) = count_source("3");
+    let mut sink = VecSink::new();
     let mut ast = AstArena::new();
 
     // Allocate type name and field elements
-    let type_name_id = ast.alloc(NodeKind::Ident, span());
-    let field_x_id = ast.alloc(NodeKind::Ident, span());
-    let field_x_val_id = ast.alloc(NodeKind::ExprLiteral, span());
-    let field_y_id = ast.alloc(NodeKind::Ident, span());
-    let field_y_val_id = ast.alloc(NodeKind::ExprLiteral, span());
+    let type_name_id = ast.alloc(NodeKind::Ident, count_span);
+    let field_x_id = ast.alloc(NodeKind::Ident, count_span);
+    let field_x_val_id = ast.alloc(NodeKind::ExprLiteral, count_span);
+    let field_y_id = ast.alloc(NodeKind::Ident, count_span);
+    let field_y_val_id = ast.alloc(NodeKind::ExprLiteral, count_span);
 
     // Allocate RecordCons: Point { x: 1, y: 2 }
     let struct_lit_id = ast.alloc_expr(
         NodeKind::ExprRecordCons,
-        span(),
+        count_span,
         ExprData::RecordCons {
             type_name: type_name_id,
             fields: vec![(field_x_id, field_x_val_id), (field_y_id, field_y_val_id)],
         },
     );
 
-    // Allocate count (non-literal to defer evaluation)
-    let count_id = ast.alloc(NodeKind::Ident, span());
+    // Allocate the repeat count as a real integer literal.
+    let count_id = alloc_literal_expr(&mut ast, count_span);
 
-    // Allocate ExprArrayRepeat: [struct_lit; count]
+    // Allocate ExprArrayRepeat: [struct_lit; 3]
     let repeat_id = ast.alloc_expr(
         NodeKind::ExprArrayRepeat,
-        span(),
+        count_span,
         ExprData::ArrayRepeat {
             expr: struct_lit_id,
             count: count_id,
@@ -799,16 +856,16 @@ fn lower_array_repeat_nested_structs() {
     let ir_repeat_id = result.ast_to_ir[&repeat_id];
     assert_eq!(result.ir[ir_repeat_id].kind, IrKind::ArrayLit);
 
-    // Verify that the struct-lit is present in the children.
+    // Verify that the struct-lit is replicated across all three slots.
     let children = result.ir.children(ir_repeat_id);
     assert_eq!(
         children.len(),
-        1,
-        "ArrayRepeat with nested struct should have 1 element child (fallback)"
+        3,
+        "[RecordCons; 3] must expand to 3 element children"
     );
 
     let struct_ir = result.ast_to_ir[&struct_lit_id];
-    assert_eq!(children[0], struct_ir);
+    assert!(children.iter().all(|&c| c == struct_ir));
 
     // Verify the struct-lit lowered to RecordCons.
     assert_eq!(result.ir[struct_ir].kind, IrKind::RecordCons);

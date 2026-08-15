@@ -1,0 +1,5 @@
+module Pa1308RepeatU32Nonzero = structure {
+  // Issue #1308: the repeated value and the declared element width must both
+  // be honoured — 4 elements x 4 bytes, each holding 7.
+  pub let mut repeat_seven : [u32; 4] = [7; 4]
+}

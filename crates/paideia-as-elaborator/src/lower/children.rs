@@ -189,8 +189,10 @@ fn expr_children(
         }
         ExprData::ArrayLit(elements) => elements.clone(),
         ExprData::ArrayRepeat { expr, count } => {
-            // ArrayRepeat: expand [expr; count] to N copies of expr.
-            expand_array_repeat(ast, *expr, *count)
+            // ArrayRepeat (#1308): expand `[expr; count]` to N copies of expr.
+            // A non-constant or out-of-range count yields no children and a
+            // P0211 error — never a silently truncated one-element array.
+            expand_array_repeat(ast, source_map, sink, ast_span, *expr, *count)
         }
         ExprData::RecordCons { type_name, fields } => record_cons_children(
             ast,

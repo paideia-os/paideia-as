@@ -1,0 +1,5 @@
+module Pa1309ArrayArityShort = structure {
+  // Issue #1309 negative: the initialiser lists 3 elements but the type
+  // declares 4 — the symbol used to link 8 bytes short with no diagnostic.
+  pub let mut short_array : [u64; 4] = [1, 2, 3]
+}

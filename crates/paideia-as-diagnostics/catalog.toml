@@ -497,6 +497,15 @@ description = "Phase 5 m4-002: array literal expressions with explicit syntax `[
 since = "0.8.0"
 deprecated = false
 
+[diagnostic.P0211]
+severity = "error"
+category = "parser"
+title = "Array repeat count must be a constant"
+brief = "`[v; N]` requires N to be a constant integer literal in range"
+description = "Issue #1308: the repeat-array literal `[v; N]` allocates N * sizeof(v) bytes of storage, so N must be resolvable at elaboration time. N must be an integer literal (decimal, 0x, 0o or 0b, with optional `_` separators and integer suffix), strictly greater than zero, and no larger than 1048576 elements. Named constants, arithmetic expressions and negative counts are rejected. Before this diagnostic existed the elaborator silently expanded any unresolvable `[v; N]` to a SINGLE element while the type system still reported `[T; N]`, under-allocating the symbol and letting writes to index >= 1 corrupt the neighbouring symbol. Use an explicit element list if the count genuinely cannot be a literal."
+since = "0.21.0"
+deprecated = false
+
 [diagnostic.P0220]
 severity = "error"
 category = "parser"
@@ -1549,6 +1558,40 @@ closure to a top-level `fn` (no environment) or restructure so the inner call
 happens outside the outer closure's body.
 """
 since = "0.18.0"
+deprecated = false
+
+[diagnostic.T0576]
+severity = "error"
+category = "type"
+title = "Array initialiser arity mismatch"
+brief = "array literal element count does not match the storage the symbol declares"
+description = """
+Issue #1309: a module-level `let` with an array-literal initialiser emits one
+packed element per encodable child, and used to emit whatever it got with no
+reconciliation against the declared type. Two silent under-allocations were
+possible:
+
+  1. the initialiser list is shorter (or longer) than the declared `[T; N]`.
+     paideia-os `_frame_meta : [u64; 1024]` was written with 992 elements and
+     linked at 7936 bytes instead of 8192, leaving the last 32 slots aliasing
+     the next symbol in the section;
+  2. an element is not an encodable integer constant — a negative literal, a
+     named constant, an arithmetic expression — in which case the packing loop
+     skipped it entirely and the symbol came out short by that element.
+
+Both are now rejected and the symbol is not emitted. Fix the initialiser to
+list exactly N encodable constants, or use the repeat form `[v; N]` (see
+P0211), or declare the binding `uninit` to get an N-sized zeroed `.bss`
+reservation.
+
+Scope: this guard fires only when at least one element encoded, i.e. when the
+array-literal path actually produced a partial symbol. An array in which
+*nothing* encodes — such as a table of symbol addresses — emits no data entry
+and therefore no symbol at all, so a use of it fails loudly at link time as an
+undefined symbol rather than silently reading short storage. That is a separate
+gap tracked as issue #1310, not an arity mismatch.
+"""
+since = "0.21.0"
 deprecated = false
 
 [diagnostic.P0282]

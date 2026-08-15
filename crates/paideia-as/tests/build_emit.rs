@@ -8,6 +8,7 @@ mod common;
 
 mod build_emit {
     pub mod abi_probe;
+    pub mod array_storage_arity;
     pub mod action_bodied_lambda_first_instr;
     pub mod back_to_back_labels;
     pub mod bridge_thunk;

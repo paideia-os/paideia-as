@@ -1,0 +1,4 @@
+module Pa1308RepeatU64 = structure {
+  // Issue #1308: [0; 2] must allocate 2 * 8 = 16 bytes, not 8.
+  pub let mut repeat_two : [u64; 2] = [0; 2]
+}

@@ -1,6 +1,5 @@
 ---
 source: crates/paideia-as-diagnostics/tests/sarif.rs
-assertion_line: 359
 expression: "serde_json::to_string_pretty(&sarif).unwrap()"
 ---
 {
@@ -601,6 +600,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               "name": "Empty array literal requires type annotation",
               "shortDescription": {
                 "text": "empty array literal `[]` used without explicit type"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Issue #1308: the repeat-array literal `[v; N]` allocates N * sizeof(v) bytes of storage, so N must be resolvable at elaboration time. N must be an integer literal (decimal, 0x, 0o or 0b, with optional `_` separators and integer suffix), strictly greater than zero, and no larger than 1048576 elements. Named constants, arithmetic expressions and negative counts are rejected. Before this diagnostic existed the elaborator silently expanded any unresolvable `[v; N]` to a SINGLE element while the type system still reported `[T; N]`, under-allocating the symbol and letting writes to index >= 1 corrupt the neighbouring symbol. Use an explicit element list if the count genuinely cannot be a literal."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/P0211",
+              "id": "P0211",
+              "name": "Array repeat count must be a constant",
+              "shortDescription": {
+                "text": "`[v; N]` requires N to be a constant integer literal in range"
               }
             },
             {
@@ -1868,6 +1881,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
+                "text": "Issue #1309: a module-level `let` with an array-literal initialiser emits one\npacked element per encodable child, and used to emit whatever it got with no\nreconciliation against the declared type. Two silent under-allocations were\npossible:\n\n  1. the initialiser list is shorter (or longer) than the declared `[T; N]`.\n     paideia-os `_frame_meta : [u64; 1024]` was written with 992 elements and\n     linked at 7936 bytes instead of 8192, leaving the last 32 slots aliasing\n     the next symbol in the section;\n  2. an element is not an encodable integer constant — a negative literal, a\n     named constant, an arithmetic expression — in which case the packing loop\n     skipped it entirely and the symbol came out short by that element.\n\nBoth are now rejected and the symbol is not emitted. Fix the initialiser to\nlist exactly N encodable constants, or use the repeat form `[v; N]` (see\nP0211), or declare the binding `uninit` to get an N-sized zeroed `.bss`\nreservation.\n\nScope: this guard fires only when at least one element encoded, i.e. when the\narray-literal path actually produced a partial symbol. An array in which\n*nothing* encodes — such as a table of symbol addresses — emits no data entry\nand therefore no symbol at all, so a use of it fails loudly at link time as an\nundefined symbol rather than silently reading short storage. That is a separate\ngap tracked as issue #1310, not an arity mismatch.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0576",
+              "id": "T0576",
+              "name": "Array initialiser arity mismatch",
+              "shortDescription": {
+                "text": "array literal element count does not match the storage the symbol declares"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "A binding declared as Linear or Ordered in the substructural lattice must be used exactly once. This binding was never used. A Linear binding represents a unique resource that must be consumed; Ordered adds ordering constraints. Check that the binding is referenced exactly once in its scope."
               },
               "helpUri": "https://paideia-os.org/diagnostics/S0900",
@@ -2858,8 +2885,8 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               }
             }
           ],
-          "semanticVersion": "0.20.1",
-          "version": "0.20.1"
+          "semanticVersion": "0.21.0",
+          "version": "0.21.0"
         }
       }
     }

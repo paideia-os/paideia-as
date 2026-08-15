@@ -1,0 +1,6 @@
+module Pa1308RepeatNonconstCount = structure {
+  pub let n : u64 = 4
+  // Issue #1308 negative: a non-literal repeat count must raise P0211 rather
+  // than silently collapsing to a one-element array.
+  pub let mut repeat_bad : [u64; 4] = [0; n]
+}

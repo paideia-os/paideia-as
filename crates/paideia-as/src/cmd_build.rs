@@ -1699,7 +1699,65 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                                         }
                                     }
 
-                                    if element_count > 0 {
+                                    // Issue #1309: reconcile the *emitted* element count against
+                                    // both the declared arity and the written element list.
+                                    //
+                                    // Two ways a symbol used to come out short with no diagnostic:
+                                    //   1. the initialiser list is shorter than the declared `[T; N]`
+                                    //      (paideia-os `_frame_meta : [u64; 1024]` was written with
+                                    //      992 elements and linked at 7936 B instead of 8192 B);
+                                    //   2. an element is not an encodable integer literal (a negative
+                                    //      value, a named constant, an expression) and was skipped by
+                                    //      the loop above without incrementing `element_count`.
+                                    //
+                                    // Both are now hard errors. The symbol is *not* emitted, so a
+                                    // build that survives this pass has byte-exact storage.
+                                    //
+                                    // SCOPE: the guard applies only when this branch actually claimed
+                                    // the array, i.e. at least one element encoded. An array in which
+                                    // *nothing* encodes is not a partially-emitted symbol — it is a
+                                    // shape this branch does not own at all, e.g. paideia-os
+                                    // `_klog_files : [u64; 205] = [(rip + name_file_0), ...]`, an
+                                    // array of symbol-address relocations. Those emit no data entry
+                                    // and therefore no symbol, so a reference to one fails loudly at
+                                    // link time as an undefined symbol rather than silently reading
+                                    // short storage. That is a real gap, but a different one, tracked
+                                    // separately as #1310 — reporting it as an arity mismatch here
+                                    // would be a misleading message for an unimplemented feature.
+                                    let declared_len = declared_array_len_from_type(
+                                        node_id, &arena, &source_map, file,
+                                    );
+                                    let written_len = array_children.len();
+                                    let expected_len = declared_len
+                                        .map(|n| n as usize)
+                                        .unwrap_or(written_len);
+                                    let arity_ok = element_count == 0 || element_count == expected_len;
+
+                                    if !arity_ok {
+                                        let code = paideia_as_diagnostics::DiagnosticCode::new(
+                                            paideia_as_diagnostics::Category::T,
+                                            paideia_as_diagnostics::Severity::Error,
+                                            576,
+                                        ).expect("T0576 is valid");
+                                        let message = if declared_len.is_some()
+                                            && element_count == written_len
+                                        {
+                                            format!(
+                                                "array initialiser has {element_count} elements but the declared type is [_; {expected_len}]"
+                                            )
+                                        } else {
+                                            format!(
+                                                "array initialiser has {written_len} elements but only {element_count} could be encoded as constants (expected {expected_len})"
+                                            )
+                                        };
+                                        let diag = paideia_as_diagnostics::Diagnostic::error(code)
+                                            .message(message)
+                                            .with_span(rhs_node.span)
+                                            .finish();
+                                        let _ = sink.emit(diag);
+                                    }
+
+                                    if arity_ok && element_count > 0 {
                                         let let_info = lowering.ir.let_meta().get(node_id);
                                         let explicit_align = let_info.and_then(|i| i.align);
                                         let is_mutable = let_info

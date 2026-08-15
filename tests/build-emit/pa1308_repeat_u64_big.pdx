@@ -1,0 +1,4 @@
+module Pa1308RepeatU64Big = structure {
+  // Issue #1308: large N must not hit a small-N special case.
+  pub let mut repeat_many : [u64; 512] = [0; 512]
+}
