@@ -1,0 +1,53 @@
+// Fixture for issue #1311 — `not r64` must be reachable from .pdx source.
+//
+// The encoder, the dispatch arm and their unit tests all predate the fix;
+// what was missing was the ("not", Mnemonic::Not) row in the elaborator's
+// mnemonic resolver table, which made a fully-encoded instruction
+// unwritable. The test that guards the fix therefore has to start from
+// SOURCE — a test that builds an Instruction by hand would have passed
+// throughout the entire period the bug existed.
+//
+// Three registers, chosen to exercise both REX.W forms: rax needs no REX.B,
+// r12 does, and rcx pins the ModRM /2 field against an off-by-one in the
+// opcode extension.
+
+// Note: the module name drops the pure-numeric `1311` segment because the
+// basename-to-PascalCase rule (M0305) discards all-digit segments.
+module PaR30NotR64 = structure {
+  pub let not_rax : () -> u64 !{} @{} =
+    fn () -> unsafe {
+      effects: {}, capabilities: {},
+      justification: "#1311 witness: one's complement of rax. Expected encoding 48 F7 D0.",
+      block: {
+        xor rax, rax;
+        not rax;
+        ret
+      }
+    } @no_frame
+
+  pub let not_rcx : () -> u64 !{} @{} =
+    fn () -> unsafe {
+      effects: {}, capabilities: {},
+      justification: "#1311 witness: one's complement of rcx. Expected encoding 48 F7 D1 — the ModRM byte differs from not_rax only in the r/m field, so a mis-set /2 opcode extension shows up here.",
+      block: {
+        xor rcx, rcx;
+        not rcx;
+        mov rax, rcx;
+        ret
+      }
+    } @no_frame
+
+  pub let not_r12 : () -> u64 !{} @{} =
+    fn () -> unsafe {
+      effects: {}, capabilities: {},
+      justification: "#1311 witness: one's complement of an extended register, which requires REX.B. Expected encoding 49 F7 D4.",
+      block: {
+        push r12;
+        xor r12, r12;
+        not r12;
+        mov rax, r12;
+        pop r12;
+        ret
+      }
+    } @no_frame
+}

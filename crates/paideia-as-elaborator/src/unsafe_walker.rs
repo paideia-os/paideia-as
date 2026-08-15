@@ -249,6 +249,11 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     // Phase R13 PA-R13-005 (issue #934): inc/dec r64
     ("inc", Mnemonic::Inc),
     ("dec", Mnemonic::Dec),
+    // Phase R30 (issue #1311): not r64 — one's complement. Mnemonic::Not,
+    // encode_not and its dispatch arm all predate this row; only the
+    // source-level name was missing, which made a fully-encoded instruction
+    // unreachable from .pdx. ACPI 6.5 §19.6 Not/Nand/Nor need it.
+    ("not", Mnemonic::Not),
     // Phase R13 PA-R13-014 (issue #943): bswap r64
     ("bswap", Mnemonic::Bswap),
     // Phase R15 PA-R15-001 (issue #956): bswap r32
