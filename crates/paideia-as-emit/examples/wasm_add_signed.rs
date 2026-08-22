@@ -1,4 +1,4 @@
-//! paideia-as v0.20 dynamic-emit + PQ signing demo — WASM i32.add with signature
+//! paideia-as dynamic-emit + PQ signing demo — WASM i32.add with signature
 //!
 //! This example extends the basic `wasm_add.rs` example by adding a post-emit
 //! signing and verification step. It demonstrates the composition pattern that
@@ -184,8 +184,8 @@ fn verify_with_iced(bytes: &[u8]) -> Result<Vec<String>, String> {
 fn main() {
     let function_body: &[u8] = &[0x20, 0x00, 0x20, 0x01, 0x6A, 0x0B];
 
-    println!("paideia-as v0.20 dynamic-emit + PQ signing demo");
-    println!("================================================\n");
+    println!("paideia-as dynamic-emit + PQ signing demo");
+    println!("==========================================\n");
 
     // Decode WASM bytes
     println!("Input WASM byte stream (function body of `(func (param i32 i32) (result i32) local.get 0 local.get 1 i32.add)`):");

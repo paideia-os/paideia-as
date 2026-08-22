@@ -78,7 +78,7 @@ pub(super) fn extract_var_name_from_operand(
             )
             .message(match policy {
                 AddrOfPolicy::FunctionOnly => {
-                    "address-of target is not a function; data-symbol addr-of not supported in v0.17".to_string()
+                    "address-of target is not a function; data-symbol addr-of not supported".to_string()
                 }
                 AddrOfPolicy::FunctionOrObject => {
                     format!("address-of target must be a function or object; got {:?}", sym_kind)

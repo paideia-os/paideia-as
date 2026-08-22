@@ -1155,7 +1155,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                                         284,
                                     ).expect("valid P0284 code");
                                     let diag = paideia_as_diagnostics::Diagnostic::error(code)
-                                        .message("lambda-shaped bindings cannot use @link_section (deferred to pa-r19-010b)")
+                                        .message("lambda-shaped bindings cannot use @link_section")
                                         .with_span(value_node.span)
                                         .finish();
                                     let _ = sink.emit(diag);
