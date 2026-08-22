@@ -860,6 +860,198 @@ fn test_lgdt_rip_relative_symbol() {
     }
 }
 
+/// Fix #1321: `mov_b [rdi + rcx], al` (unscaled two-register SIB: base + index,
+/// no explicit scale) must parse cleanly instead of being rejected as a
+/// malformed operand (U1606).
+///
+/// Root cause: a bare register on the RHS of `base + index` can surface as
+/// `NodeKind::ExprPath` (single-segment path) rather than `NodeKind::Ident`
+/// depending on parser context. `combine_additive_terms` in
+/// `unsafe_walker/memory.rs` only recognized `NodeKind::Ident` for that RHS
+/// register, so `[rdi + rcx]` fell through to `Err(MalformedOperand)`. This
+/// test builds the AST exactly as the real parser would for that shape (RHS
+/// register as an `ExprPath`) to guard against regressing that case.
+#[test]
+fn mov_b_unscaled_two_register_sib_parses() {
+    // Source: `mov_b [rdi + rcx], al`
+    //   "mov_b " = bytes [0, 6)
+    //   "["      = byte 6
+    //   "rdi"    = bytes [7, 10)
+    //   " + "    = bytes [10, 13), with "+" at byte 11
+    //   "rcx"    = bytes [13, 16)
+    //   "]"      = byte 16
+    //   ", "     = bytes [17, 19)
+    //   "al"     = bytes [19, 21)
+    let source = "mov_b [rdi + rcx], al";
+
+    let mut ast = AstArena::new();
+    let mut ir = IrArena::new();
+
+    let file_id = paideia_as_diagnostics::FileId::new(1).unwrap();
+    let stmt_span = test_span();
+
+    let justification = ast.alloc(NodeKind::ExprString, stmt_span);
+
+    // Base register `rdi`, surfaced as a single-segment ExprPath (as the real
+    // parser produces for a bare identifier in this position).
+    let rdi_span = Span::new(file_id, 7, 3);
+    let rdi_ident = ast.alloc(NodeKind::Ident, rdi_span);
+    let rdi_path = ast.alloc_expr(
+        NodeKind::ExprPath,
+        rdi_span,
+        ExprData::Path {
+            segments: vec![rdi_ident],
+        },
+    );
+
+    // Index register `rcx`, also a single-segment ExprPath — this is the RHS
+    // of the `+` that combine_additive_terms previously mishandled.
+    let rcx_span = Span::new(file_id, 13, 3);
+    let rcx_ident = ast.alloc(NodeKind::Ident, rcx_span);
+    let rcx_path = ast.alloc_expr(
+        NodeKind::ExprPath,
+        rcx_span,
+        ExprData::Path {
+            segments: vec![rcx_ident],
+        },
+    );
+
+    let op_span = Span::new(file_id, 11, 1);
+    let op_node = ast.alloc(NodeKind::Placeholder, op_span);
+
+    let infix_expr = ast.alloc_expr(
+        NodeKind::ExprInfix,
+        Span::new(file_id, 7, 9),
+        ExprData::Infix {
+            lhs: rdi_path,
+            op: op_node,
+            rhs: rcx_path,
+        },
+    );
+
+    let memref_operand = ast.alloc_expr(
+        NodeKind::OperandMemoryRef,
+        Span::new(file_id, 6, 11),
+        ExprData::OperandMemoryRef {
+            segment: None,
+            addr: infix_expr,
+        },
+    );
+
+    let al_span = Span::new(file_id, 19, 2);
+    let al_ident = ast.alloc(NodeKind::Ident, al_span);
+    let al_operand = ast.alloc_expr(
+        NodeKind::OperandRegister,
+        al_span,
+        ExprData::OperandRegister { reg: al_ident },
+    );
+
+    let mnemonic_id = ast.intern_mnemonic("mov_b");
+    let inst_stmt = ast.alloc_stmt(
+        NodeKind::StmtInstruction,
+        stmt_span,
+        StmtData::Instruction {
+            mnemonic: mnemonic_id,
+            operands: vec![memref_operand, al_operand],
+        },
+    );
+
+    let _unsafe_expr = ast.alloc_expr(
+        NodeKind::ExprUnsafe,
+        stmt_span,
+        ExprData::Unsafe {
+            effects: vec![],
+            capabilities: vec![],
+            justification,
+            block: vec![inst_stmt],
+        },
+    );
+
+    let ir_unsafe = ir.alloc(paideia_as_ir::IrKind::Unsafe, stmt_span);
+
+    let mut source_map = SourceMap::new();
+    let _ = source_map.add_file(PathBuf::from("test.pdx"), source.to_string());
+
+    let mut sink = VecSink::new();
+    let record_layouts = HashMap::new();
+    let local_bindings = LocalBindingTable::new();
+    let mut next_emission_order = 1u32;
+    let (_unsafe_labels, _label_to_instr, _first_instrs, _diags) = UnsafeWalker::run(
+        &mut ir,
+        &ast,
+        vec![ir_unsafe.get()],
+        &source_map,
+        &mut sink,
+        &record_layouts,
+        &local_bindings,
+        InstrMode::Mode64,
+        &HashSet::new(),
+        &HashMap::new(),
+        &mut HashMap::new(),
+        &mut next_emission_order,
+    );
+
+    let sink_diags = sink.into_diagnostics();
+    let u1606_diags: Vec<_> = sink_diags
+        .iter()
+        .filter(|d| d.code().number() == 1606)
+        .collect();
+    assert!(
+        u1606_diags.is_empty(),
+        "expected no U1606 (malformed operand) diagnostics for `[rdi + rcx]`, got {:?}",
+        u1606_diags
+    );
+
+    assert_eq!(
+        ir.instructions().len(),
+        1,
+        "expected exactly one instruction for `mov_b [rdi + rcx], al`"
+    );
+
+    let instruction = ir
+        .instructions()
+        .entries()
+        .values()
+        .next()
+        .expect("instruction present");
+
+    assert_eq!(
+        instruction.mnemonic,
+        Mnemonic::MovSized {
+            width: IntWidth::W8
+        },
+        "expected MovSized {{ W8 }} for mov_b"
+    );
+
+    assert_eq!(instruction.operands.len(), 2, "expected 2 operands");
+
+    match &instruction.operands[0] {
+        paideia_as_ir::instruction::Operand::MemSib {
+            base,
+            index,
+            scale,
+            disp,
+        } => {
+            assert_eq!(*base, paideia_as_ir::abi::RDI, "expected base=rdi");
+            assert_eq!(
+                *index,
+                Some(paideia_as_ir::abi::RCX),
+                "expected index=rcx"
+            );
+            assert_eq!(
+                *scale,
+                paideia_as_ir::instruction::Scale::X1,
+                "expected unscaled (X1) index"
+            );
+            assert_eq!(*disp, 0, "expected zero displacement");
+        }
+        other => panic!(
+            "expected MemSib operand for `[rdi + rcx]`, got {:?}",
+            other
+        ),
+    }
+}
+
 // ===== Suite C: Elaborator-level smoke tests for PA10-004 (narrow-form MOV) =====
 
 /// PA10-004: `mov ah, 0x80` produces MovSized { W8 } with RegId(4).

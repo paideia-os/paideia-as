@@ -285,8 +285,17 @@ fn combine_additive_terms(
     let right_kind = ast.get(right).map(|n| n.kind);
 
     match right_kind {
-        Some(NodeKind::Ident) => {
-            // Right is a register: could be base or index
+        // Right is a bare register: could be base or index.
+        //
+        // Fix #1321: a bare register on the RHS of `base + index` can surface
+        // as NodeKind::ExprPath (single-segment path) rather than
+        // NodeKind::Ident depending on parser context (e.g. `[rdi + rcx]`
+        // unscaled two-register SIB addressing). `parse_register_from_ident`
+        // already dispatches on both node kinds internally (see
+        // unsafe_walker/register.rs), so both arms are handled identically
+        // here — this mirrors the Ident/ExprPath symmetry already present in
+        // `extract_sib_components` above.
+        Some(NodeKind::Ident) | Some(NodeKind::ExprPath) => {
             match parse_register_from_ident(ast, right, source_map)? {
                 Operand::Reg(reg) => {
                     // Merge: if left has base, right is index; otherwise right is base
