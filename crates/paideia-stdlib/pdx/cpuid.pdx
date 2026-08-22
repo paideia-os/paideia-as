@@ -1,0 +1,113 @@
+// PA-v0.21-007 (#1283): CpuidOps typed wrapper over the zero-arity CPUID
+// mnemonic. Consumed by paideia-os R18 M6 (hybrid P/E core tagging via
+// leaf 0x1A, topology walk via 0x0B / 0x1F) and R21 (XSAVE area size via
+// leaf 0x0D), plus any downstream code that needs to probe feature bits
+// or walk topology levels.
+//
+// Trait CpuidOps wraps the raw CPUID instruction (SDM Vol 2A §3.2) into
+// typed calls that take the leaf + subleaf as ordinary u32 arguments and
+// return the four output registers packed pairwise into u64. Consumers
+// stop having to hand-roll `mov eax, leaf; mov ecx, sub; cpuid` in
+// unsafe blocks — the lowering recipe (see crates/paideia-as-elaborator/
+// src/stdlib_lowering/cpuidops.rs) does it once, correctly, and
+// bracket-saves the callee-saved RBX around CPUID's clobber of EBX.
+//
+// # Semantics (SDM Vol 2A CPUID)
+//
+//   cpuid_leaf_ad(leaf, subleaf)   Runs CPUID with EAX=leaf, ECX=subleaf
+//                                   and returns (EDX << 32) | EAX in the
+//                                   SysV return register: EAX in the low
+//                                   32 bits, EDX in the high 32 bits.
+//   cpuid_leaf_bc(leaf, subleaf)   Same run, returns (ECX << 32) | EBX:
+//                                   EBX in the low 32 bits, ECX in the
+//                                   high 32 bits.
+//
+// The two calls together yield every register CPUID writes. Reissuing
+// CPUID with the same (leaf, subleaf) is safe — CPUID is idempotent and
+// side-effect-free at the ISA level (SDM: "CPUID does not modify the
+// content of any general-purpose or floating-point register other than
+// EAX/EBX/ECX/EDX and any of the flags").
+//
+// # Split-return rationale
+//
+// A single 4×u32 record return would require a record-return marshalling
+// recipe that the elaborator does not yet support — see paideia-as#1298
+// for the scope note. Landing the two scalar-return primitives today
+// unblocks the leaf-decoders sketched below and keeps #1298 free to
+// introduce a `cpuid_leaf(leaf, subleaf) -> CpuidRegs` wrapper on top
+// when the record-return convention is designed. Consumers written
+// against the AD/BC pair keep working after that migration; they just
+// stop paying the second CPUID execution.
+//
+// # Privilege + effect + capability discipline
+//
+// CPUID is not ring-restricted (SDM: "CPUID may be executed at any
+// privilege level"), but the typed wrapper is scoped to the
+// paideia.sysreg capability because every current consumer lives in
+// kernel-context boot / arch/x86_64 modules where the same capability
+// already gates the surrounding privileged operations. Effects are
+// `!{sysreg}` only — CPUID reads architectural state, not memory, so
+// no !{mem} row.
+//
+// # Typed per-leaf decoders (companion helpers)
+//
+// The following free functions belong to this stdlib module. Each one
+// calls into CpuidOps and extracts the field(s) meaningful for the
+// leaf it targets — pattern-naming the bit-slice arithmetic once so
+// callsites read as `cpuid_hybrid_class_from_1a()` rather than
+// `(cpuid_leaf_ad(0x1A, 0) & 0xFFFFFFFF) >> 24`. Each helper carries
+// the same !{sysreg} @{paideia.sysreg} discipline as the underlying
+// intrinsic.
+//
+//   cpuid_features_from_01_edx() -> u32
+//     EDX feature bits from CPUID.01H:ECX=0
+//     (FPU, VME, PSE, MSR, PAE, MMX, SSE, SSE2, HTT, …).
+//     Extract:  (cpuid_leaf_ad(0x01, 0) & 0xFFFFFFFF) as u32
+//
+//   cpuid_features_from_01_ecx() -> u32
+//     ECX feature bits from CPUID.01H:ECX=0
+//     (SSE3, PCLMULQDQ, VMX, SSE4.1, SSE4.2, AVX, XSAVE, F16C, …).
+//     Extract:  ((cpuid_leaf_bc(0x01, 0) >> 32) & 0xFFFFFFFF) as u32
+//
+//   cpuid_topology_shift_from_0b(level: u32) -> u32
+//     Bits 0..4 of EAX for CPUID.0BH:ECX=level — the right-shift
+//     amount that isolates the next-higher topology level from the
+//     x2APIC ID (SDM Vol 3A §8.9.4).
+//     Extract:  ((cpuid_leaf_ad(0x0B, level) & 0xFFFFFFFF) & 0x1F) as u32
+//
+//   cpuid_topology_shift_from_1f(level: u32) -> u32
+//     Same shape as 0x0B but for the V2 extended topology
+//     (SDM Vol 2A CPUID leaf 1FH). Preferred on hybrid parts.
+//     Extract:  ((cpuid_leaf_ad(0x1F, level) & 0xFFFFFFFF) & 0x1F) as u32
+//
+//   cpuid_xsave_area_size() -> u32
+//     EBX from CPUID.0DH:ECX=0 — required size in bytes of the XSAVE
+//     area for the enabled state components (SDM Vol 1 §13.4).
+//     Extract:  (cpuid_leaf_bc(0x0D, 0) & 0xFFFFFFFF) as u32
+//
+//   cpuid_hybrid_class_from_1a() -> u32
+//     Bits 24..31 of EAX from CPUID.1AH:ECX=0 — Native Model ID that
+//     identifies the microarchitecture family of the executing logical
+//     processor. Values in the wild on Intel client parts:
+//         0x40 = P-core
+//         0x30 = LP-E-core
+//         0x20 = E-core
+//     (SDM Vol 2A CPUID leaf 1AH.)
+//     Extract:  (((cpuid_leaf_ad(0x1A, 0) & 0xFFFFFFFF) >> 24) & 0xFF) as u32
+//
+// The decoders are documented here rather than expressed as `fn` bodies
+// because the surrounding stdlib .pdx files are pure trait-declaration
+// documents (see msr.pdx, tlb.pdx) — the parse-cleanliness harness in
+// crates/paideia-stdlib/tests/parse_pdx.rs enumerates .pdx files
+// individually, and this file is not enumerated yet. Adding a function-
+// body implementation here would require enumerating this file in the
+// harness and pinning the pdx expression grammar for the bit-slice
+// operations; that is deferred until the next batch of stdlib pdx
+// bodies (which will also convert msr.pdx / tlb.pdx). Downstream
+// callsites can either compose the AD/BC intrinsics directly or roll
+// the extraction into a hand-written pdx helper.
+
+trait CpuidOps {
+  fn cpuid_leaf_ad(leaf: u32, subleaf: u32) -> u64 !{sysreg} @{paideia.sysreg};
+  fn cpuid_leaf_bc(leaf: u32, subleaf: u32) -> u64 !{sysreg} @{paideia.sysreg};
+}

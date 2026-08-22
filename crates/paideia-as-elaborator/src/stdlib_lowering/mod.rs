@@ -32,6 +32,17 @@
 //! emission and emit an unresolved-intrinsic diagnostic — no silent
 //! success.
 //!
+//! v0.21-007 (#1283): CpuidOps::cpuid_leaf_ad / cpuid_leaf_bc — a pair
+//! of SysVRegs recipes over the zero-arity Cpuid mnemonic that together
+//! surface every register CPUID writes as SysV scalar u64 returns
+//! (RAX=EDX:EAX, RAX=ECX:EBX). RBX is bracketed with push/pop because
+//! CPUID clobbers it and RBX is callee-saved. Typed per-leaf decoders
+//! (leaves 0x01, 0x0B, 0x0D, 0x1A, 0x1F) live in
+//! `crates/paideia-stdlib/pdx/cpuid.pdx` and compose on top. Full
+//! record-return marshalling (a single `cpuid_leaf(...) -> CpuidRegs`
+//! intrinsic) is tracked in #1298 and does not need to land before
+//! consumers can call the primitives here.
+//!
 //! v0.21-013 (#1289): MmioOps volatile load/store widening to u8/u16/u64
 //! — mirrors the existing mmio_read_u32/mmio_write_u32 shape with
 //! MovSized{width=W8/W16/W64}. MovSized is emitted as a raw asm
@@ -57,8 +68,9 @@
 //! here so the family submodules import them via `super::…`.
 //!
 //! The top-level `lower_stdlib_method` shrank from a 2200-line
-//! `match (trait, method)` to a 13-arm `match trait_name` that
-//! delegates to each family's `try_lower`.
+//! `match (trait, method)` to a 14-arm `match trait_name` that
+//! delegates to each family's `try_lower` — cpuidops arrived last
+//! (v0.21-007 / #1283).
 
 use paideia_as_ir::{
     IrArena, IrNodeId,
@@ -82,6 +94,7 @@ mod bitmapops;
 mod bulkmemops;
 mod bytesops;
 mod checksumops;
+mod cpuidops;
 mod mmioops;
 mod msrops;
 mod pauseops;
@@ -175,6 +188,7 @@ pub fn lower_stdlib_method(
         "MsrOps" => msrops::try_lower(method_name, mode, arg_ids, arena),
         "TlbOps" => tlbops::try_lower(method_name, mode, arg_ids, arena),
         "BitfieldOps" => bitfieldops::try_lower(method_name, mode, arg_ids, arena),
+        "CpuidOps" => cpuidops::try_lower(method_name, mode, arg_ids, arena),
         _ => None,
     }
 }

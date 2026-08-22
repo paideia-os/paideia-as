@@ -22,6 +22,7 @@ mod lowering {
     pub mod stdlib_bulkmem;
     pub mod stdlib_bytes;
     pub mod stdlib_checksum;
+    pub mod stdlib_cpuid;
     pub mod stdlib_mmio;
     pub mod stdlib_msr;
     pub mod stdlib_pause;
