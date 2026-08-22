@@ -1,0 +1,8 @@
+module Pa1313BssUnresolvableLen = structure {
+  // Issue #1313: a `[T; N]` array length built from an expression (not a
+  // bare literal, not a single resolvable constant identifier) must be a
+  // hard error (T0577), never a silent 8-byte guess.
+  pub let MAX_PIDS : u64 = 64
+  pub let SLOT_QWORDS : u64 = 512
+  pub let mut arr : [u64; MAX_PIDS * SLOT_QWORDS] = uninit
+}

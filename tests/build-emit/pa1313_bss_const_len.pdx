@@ -1,0 +1,7 @@
+module Pa1313BssConstLen = structure {
+  // Issue #1313: a `[T; N]` array length that names a resolvable
+  // module-level constant (rather than a literal) must size the .bss
+  // symbol from the constant's value, not silently default to 8 bytes.
+  pub let SOME_CONST : u64 = 12
+  pub let mut arr : [u64; SOME_CONST] = uninit
+}

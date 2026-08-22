@@ -14,6 +14,7 @@ mod build_emit {
     pub mod back_to_back_labels;
     pub mod bare_ret_before_label;
     pub mod bridge_thunk;
+    pub mod bss_array_length_const;
     pub mod bss_reloc;
     pub mod call_sym;
     pub mod call_with_unresolvable_var_pos0;
