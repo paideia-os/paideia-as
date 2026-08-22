@@ -1471,7 +1471,7 @@ mod tests {
             .collect();
         assert!(
             !s0903_diags.is_empty(),
-            "out-of-order use in handler should emit diagnostic (S0903 phase-3-m7-002, S0905 when full)"
+            "out-of-order use in handler should emit diagnostic (S0903 today, S0905 once handler elaboration is complete)"
         );
     }
 

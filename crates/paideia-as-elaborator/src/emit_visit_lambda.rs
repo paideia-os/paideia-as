@@ -139,7 +139,7 @@ impl EmitWalker {
 
                         if cfg!(debug_assertions) {
                             eprintln!(
-                                "[visit_lambda PA8-m1-001c] Lambda {} param_index={} name={} → register {} (ABI={:?})",
+                                "[visit_lambda] Lambda {} param_index={} name={} → register {} (ABI={:?})",
                                 lambda_node_id.get(),
                                 current_param_index,
                                 param_name,
@@ -159,7 +159,7 @@ impl EmitWalker {
             self.state.local_bindings.insert(param_name.clone(), param_reg);
             if cfg!(debug_assertions) {
                 eprintln!(
-                    "[visit_lambda PA8-m1-001c] Lambda {} param_index={} name={} → register {} (ABI={:?})",
+                    "[visit_lambda] Lambda {} param_index={} name={} → register {} (ABI={:?})",
                     lambda_node_id.get(),
                     param_index,
                     param_name,

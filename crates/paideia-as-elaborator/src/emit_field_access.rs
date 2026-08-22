@@ -423,14 +423,14 @@ impl EmitWalker {
                     None => {
                         self.push_typed_diag(t0540_code(), format!(
                             "module-field write RHS {} not found in local bindings; \
-                             non-register sources deferred (follow-up #1182)", rhs_name));
+                             non-register sources not yet supported", rhs_name));
                         return;
                     }
                 }
             }
             other => {
                 self.push_typed_diag(t0540_code(), format!(
-                    "module-field write RHS must be Var (MVP #1182); got {:?}", other));
+                    "module-field write RHS must be Var; got {:?}", other));
                 return;
             }
         };

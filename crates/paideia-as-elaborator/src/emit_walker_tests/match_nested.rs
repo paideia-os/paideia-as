@@ -250,11 +250,11 @@ fn match_labels_registered_correctly() {
     // instead of register_label (which captured walker-time estimated_offset that drifts with Unsafe bodies).
     // Mirrors #1120's fix for end_label to all arm/default labels.
     assert!(walker.state().label_to_instr.contains_key(&arm_0_label),
-        "#1241: arm_0_label must be registered via label_to_instr for post-sort resolution");
+        "arm_0_label must be registered via label_to_instr for post-sort resolution");
     assert!(walker.state().label_to_instr.contains_key(&default_label),
-        "#1241: default_label must be registered via label_to_instr for post-sort resolution");
+        "default_label must be registered via label_to_instr for post-sort resolution");
     assert!(walker.state().label_to_instr.contains_key(&end_label),
-        "#1120: end_label must be registered via label_to_instr for post-sort resolution");
+        "end_label must be registered via label_to_instr for post-sort resolution");
 }
 
 #[test]

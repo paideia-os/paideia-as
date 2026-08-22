@@ -156,7 +156,7 @@ impl EmitWalker {
                                     self.push_typed_diag(
                                         t0527_code(),
                                         format!(
-                                            "register pressure exceeded in Phase 7 Let-literal bindings: more than {} in-flight bindings",
+                                            "register pressure exceeded in Let-literal bindings: more than {} in-flight bindings",
                                             scratch_regs.len()
                                         ),
                                     );
@@ -934,7 +934,7 @@ impl EmitWalker {
                                     self.push_typed_diag(
                                         t0527_code(),
                                         format!(
-                                            "register pressure exceeded in Phase 7 Let-literal bindings: more than {} in-flight bindings",
+                                            "register pressure exceeded in Let-literal bindings: more than {} in-flight bindings",
                                             scratch_regs.len()
                                         ),
                                     );

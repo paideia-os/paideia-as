@@ -1550,12 +1550,13 @@ fn emit_block_body_arm_dispatches_field_assign_store() {
     walker.state_mut().local_bindings.insert("v".to_string(), abi::RDX);
     walker.emit_block_body_arm(block_id, &arena, None);
 
-    // Fix asserts: the Store node's instruction is emitted by dispatch_store→visit_field_assign.
+    // Fix asserts: the Store node's instruction is emitted by dispatch_store→visit_field_assign
+    // (see #1115 for the dispatch fix this test guards).
     let inst = walker
         .state()
         .instructions
         .get(store_id)
         .cloned()
-        .expect("#1115: emit_block_body_arm must dispatch Store to visit_field_assign");
+        .expect("emit_block_body_arm must dispatch Store to visit_field_assign");
     assert_eq!(inst.mnemonic, Mnemonic::MovSized { width: IntWidth::W32 });
 }

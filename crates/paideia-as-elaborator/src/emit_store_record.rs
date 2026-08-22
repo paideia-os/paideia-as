@@ -425,7 +425,7 @@ impl EmitWalker {
                 self.push_typed_diag(
                     t0518_code(),
                     format!(
-                        "RecordCons node {} has no layout entry (unsupported shape in Phase 6)",
+                        "RecordCons node {} has no layout entry (unsupported shape)",
                         record_cons_id.get()
                     ),
                 );
@@ -441,7 +441,7 @@ impl EmitWalker {
                 self.push_typed_diag(
                     t0518_code(),
                     format!(
-                        "RecordCons node {} type {} not finalised (unsupported shape in Phase 6)",
+                        "RecordCons node {} type {} not finalised (unsupported shape)",
                         record_cons_id.get(),
                         type_id.0
                     ),
@@ -458,7 +458,7 @@ impl EmitWalker {
             self.push_typed_diag(
                 t0518_code(),
                 format!(
-                    "RecordCons node {} has {} fields; cap-mint requires 4 (unsupported shape in Phase 6)",
+                    "RecordCons node {} has {} fields; cap-mint requires 4 (unsupported shape)",
                     record_cons_id.get(),
                     layout.fields.len()
                 ),
@@ -471,7 +471,7 @@ impl EmitWalker {
                 self.push_typed_diag(
                     t0518_code(),
                     format!(
-                        "RecordCons node {} field {} has size {}; cap-mint requires u64 (size 8) (unsupported shape in Phase 6)",
+                        "RecordCons node {} field {} has size {}; cap-mint requires u64 (size 8) (unsupported shape)",
                         record_cons_id.get(),
                         i,
                         field.size
@@ -484,7 +484,7 @@ impl EmitWalker {
                 self.push_typed_diag(
                     t0518_code(),
                     format!(
-                        "RecordCons node {} field {} has offset {}; cap-mint requires offset {} (unsupported shape in Phase 6)",
+                        "RecordCons node {} field {} has offset {}; cap-mint requires offset {} (unsupported shape)",
                         record_cons_id.get(),
                         i,
                         field.offset,
@@ -501,7 +501,7 @@ impl EmitWalker {
             self.push_typed_diag(
                 t0518_code(),
                 format!(
-                    "RecordCons node {} has {} children; cap-mint requires 4 (unsupported shape in Phase 6)",
+                    "RecordCons node {} has {} children; cap-mint requires 4 (unsupported shape)",
                     record_cons_id.get(),
                     children.len()
                 ),

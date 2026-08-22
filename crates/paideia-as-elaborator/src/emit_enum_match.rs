@@ -2558,9 +2558,9 @@ mod tests {
         let end_label = format!("match_end_{}", match_id.get());
         // #1120: end_label must be in label_to_instr, not labels
         assert!(walker.state().label_to_instr.contains_key(&end_label),
-            "#1120: jump-table end_label must use label_to_instr");
+            "jump-table end_label must use label_to_instr");
         assert!(!walker.state().labels.contains_key(&end_label),
-            "#1120: jump-table end_label should not be in labels (walker-time offsets)");
+            "jump-table end_label should not be in labels (walker-time offsets)");
 
         // #1120: Verify the NOP anchor's byte offset is correct via real encoding
         let mut table = walker.state().instructions().clone();
@@ -2569,14 +2569,14 @@ mod tests {
             .expect("encode should succeed");
 
         let &nop_id = walker.state().label_to_instr().get(&end_label)
-            .expect("#1120: end_label must resolve via label_to_instr");
+            .expect("end_label must resolve via label_to_instr");
         let &nop_offset = result.offset_map.get(&nop_id)
-            .expect("#1120: NOP anchor must have an offset_map entry");
+            .expect("NOP anchor must have an offset_map entry");
 
         assert_eq!(
             nop_offset as usize,
             buf.len() - 1,
-            "#1120: end_label NOP anchor must be the LAST byte in .text \
+            "end_label NOP anchor must be the LAST byte in .text \
              (sort-order proof — this is what the walker-order bug broke). \
              Actual: nop at offset {}, buf.len()={}",
             nop_offset,
@@ -2622,9 +2622,9 @@ mod tests {
         let end_label = format!("match_end_{}", match_id.get());
         // #1120: end_label must be in label_to_instr, not labels
         assert!(walker.state().label_to_instr.contains_key(&end_label),
-            "#1120: cmp/jne end_label must use label_to_instr");
+            "cmp/jne end_label must use label_to_instr");
         assert!(!walker.state().labels.contains_key(&end_label),
-            "#1120: cmp/jne end_label should not be in labels (walker-time offsets)");
+            "cmp/jne end_label should not be in labels (walker-time offsets)");
 
         // #1120: Verify the NOP anchor's byte offset is correct via real encoding
         let mut table = walker.state().instructions().clone();
@@ -2633,14 +2633,14 @@ mod tests {
             .expect("encode should succeed");
 
         let &nop_id = walker.state().label_to_instr().get(&end_label)
-            .expect("#1120: end_label must resolve via label_to_instr");
+            .expect("end_label must resolve via label_to_instr");
         let &nop_offset = result.offset_map.get(&nop_id)
-            .expect("#1120: NOP anchor must have an offset_map entry");
+            .expect("NOP anchor must have an offset_map entry");
 
         assert_eq!(
             nop_offset as usize,
             buf.len() - 1,
-            "#1120: end_label NOP anchor must be the LAST byte in .text \
+            "end_label NOP anchor must be the LAST byte in .text \
              (sort-order proof — this is what the walker-order bug broke). \
              Actual: nop at offset {}, buf.len()={}",
             nop_offset,
@@ -2686,9 +2686,9 @@ mod tests {
         let arm_label = format!("match_arm_{}_{}", match_id.get(), 0);
         // #1241: arm_label must be in label_to_instr, not labels
         assert!(walker.state().label_to_instr.contains_key(&arm_label),
-            "#1241: cmp/jne arm_label must use label_to_instr");
+            "cmp/jne arm_label must use label_to_instr");
         assert!(!walker.state().labels.contains_key(&arm_label),
-            "#1241: cmp/jne arm_label should not be in labels (walker-time offsets)");
+            "cmp/jne arm_label should not be in labels (walker-time offsets)");
 
         // #1241: Verify the NOP anchor's byte offset via real encoding
         let mut table = walker.state().instructions().clone();
@@ -2697,12 +2697,12 @@ mod tests {
             .expect("encode should succeed");
 
         let &arm_nop_id = walker.state().label_to_instr().get(&arm_label)
-            .expect("#1241: arm_label must resolve via label_to_instr");
+            .expect("arm_label must resolve via label_to_instr");
         let &arm_nop_offset = result.offset_map.get(&arm_nop_id)
-            .expect("#1241: arm NOP anchor must have an offset_map entry");
+            .expect("arm NOP anchor must have an offset_map entry");
 
         // Verify the NOP is at the start of the arm's dispatch sequence
-        assert!(arm_nop_offset < 100, "#1241: arm_label NOP should be early in .text");
+        assert!(arm_nop_offset < 100, "arm_label NOP should be early in .text");
     }
 
     #[test]
@@ -2742,9 +2742,9 @@ mod tests {
         let default_label = format!("match_default_{}", match_id.get());
         // #1241: default_label must be in label_to_instr, not labels
         assert!(walker.state().label_to_instr.contains_key(&default_label),
-            "#1241: cmp/jne default_label must use label_to_instr");
+            "cmp/jne default_label must use label_to_instr");
         assert!(!walker.state().labels.contains_key(&default_label),
-            "#1241: cmp/jne default_label should not be in labels (walker-time offsets)");
+            "cmp/jne default_label should not be in labels (walker-time offsets)");
 
         // Verify encoding succeeds
         let mut table = walker.state().instructions().clone();
@@ -2753,12 +2753,12 @@ mod tests {
             .expect("encode should succeed");
 
         let &default_nop_id = walker.state().label_to_instr().get(&default_label)
-            .expect("#1241: default_label must resolve via label_to_instr");
+            .expect("default_label must resolve via label_to_instr");
         let &default_nop_offset = result.offset_map.get(&default_nop_id)
-            .expect("#1241: default NOP anchor must have an offset_map entry");
+            .expect("default NOP anchor must have an offset_map entry");
 
         // Default label should be present and have a valid offset
-        assert!(default_nop_offset < buf.len() as u64, "#1241: default_label NOP must be within .text");
+        assert!(default_nop_offset < buf.len() as u64, "default_label NOP must be within .text");
     }
 
     #[test]
@@ -2799,9 +2799,9 @@ mod tests {
         let body_label = format!("match_arm_{}_{}_body", match_id.get(), 0);
         // #1241: body_label must be in label_to_instr, not labels
         assert!(walker.state().label_to_instr.contains_key(&body_label),
-            "#1241: cmp/jne body_label must use label_to_instr");
+            "cmp/jne body_label must use label_to_instr");
         assert!(!walker.state().labels.contains_key(&body_label),
-            "#1241: cmp/jne body_label should not be in labels (walker-time offsets)");
+            "cmp/jne body_label should not be in labels (walker-time offsets)");
 
         // Verify encoding succeeds
         let mut table = walker.state().instructions().clone();
@@ -2810,12 +2810,12 @@ mod tests {
             .expect("encode should succeed");
 
         let &body_nop_id = walker.state().label_to_instr().get(&body_label)
-            .expect("#1241: body_label must resolve via label_to_instr");
+            .expect("body_label must resolve via label_to_instr");
         let &body_nop_offset = result.offset_map.get(&body_nop_id)
-            .expect("#1241: body NOP anchor must have an offset_map entry");
+            .expect("body NOP anchor must have an offset_map entry");
 
         // Body label should be present and have a valid offset
-        assert!(body_nop_offset < buf.len() as u64, "#1241: body_label NOP must be within .text");
+        assert!(body_nop_offset < buf.len() as u64, "body_label NOP must be within .text");
     }
 }
 

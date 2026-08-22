@@ -2721,7 +2721,7 @@ fn emit_walker_sysv_call_still_uses_rdi_rsi_pool() {
         matches!(&inst.operands[0], paideia_as_ir::instruction::Operand::Reg(r) if *r == paideia_as_ir::abi::RSP) &&
         matches!(&inst.operands[1], paideia_as_ir::instruction::Operand::Imm64(8))
     });
-    assert!(sysv_pad_found, "Expected 'sub rsp, 8' for paideia→SysV N=0 case per #1195");
+    assert!(sysv_pad_found, "Expected 'sub rsp, 8' for paideia→SysV N=0 case");
 }
 
 #[test]

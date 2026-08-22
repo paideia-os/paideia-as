@@ -867,6 +867,7 @@ impl UnsafeWalker {
                                                 }
                                             } else {
                                                 // U1614: Unsupported statement kind in unsafe block
+                                                // (see #1088 for follow-up on broadening unsafe-block coverage)
                                                 let stmt_kind = ast
                                                     .get(stmt_id)
                                                     .map(|n| n.kind)
@@ -891,7 +892,7 @@ impl UnsafeWalker {
                                                     .expect("valid U1614 code"),
                                                 )
                                                 .message(format!(
-                                                    "unsupported statement in unsafe block: {:?} — only asm mnemonics and labels are emitted today (see #1088 for follow-up)",
+                                                    "unsupported statement in unsafe block: {:?} — only asm mnemonics and labels are emitted today",
                                                     stmt_kind
                                                 ))
                                                 .with_span(stmt_span)
