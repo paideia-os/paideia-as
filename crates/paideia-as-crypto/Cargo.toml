@@ -1,0 +1,16 @@
+[package]
+name = "paideia-as-crypto"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+name = "paideia_as_crypto"
+
+[dependencies]
+argon2 = { workspace = true }
+thiserror = { workspace = true }
+

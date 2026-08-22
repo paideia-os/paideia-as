@@ -23,6 +23,7 @@ members = [
     "crates/paideia-lsp",
     "crates/paideia-fmt",
     "crates/paideia-pq-sign",
+    "crates/paideia-as-crypto",
     "crates/paideia-stdlib",
     "tests/e2e",
     "tests/end-to-end",
@@ -106,6 +107,7 @@ blake3 = "1"
 ml-dsa = "0.1"
 rand_core = "0.6"
 signature = "2"
+argon2 = "0.5"
 
 # Testing
 insta = "1"
