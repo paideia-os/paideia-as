@@ -252,6 +252,25 @@ impl EmitWalker {
             .filter(|r| live.contains(r))
             .collect();
 
+        // v0.21-001 (#1277): count MS x64 stack-passed integer args (idx ≥ 4).
+        // These live above the 32-byte shadow area, at caller's [rsp + 32 + 8*(idx-4)]
+        // — which the callee sees at [rsp + 40 + 8*(idx-4)] after the CALL push
+        // (an 8-byte return-address offset accounts for the difference between the
+        // two frames). The bump must reserve room for them (`8 * stack_arg_count`)
+        // plus an alignment pad when the count is odd — a single extra 8-byte slot
+        // that keeps `ms_bump mod 16` invariant relative to the 4-arg baseline.
+        //
+        // Only MS callees are handled here. A SysV callee with > 6 args still
+        // fires T0521 in the arg-marshalling loop (out of scope for this bundle;
+        // the paideia-os UEFI use case is MS-only).
+        let ms_stack_arg_count: usize = if callee_abi == CallingConvention::Ms {
+            arg_ids.len().saturating_sub(abi::MS_ARG_REGS.len())
+        } else {
+            0
+        };
+        let ms_stack_arg_bytes: u32 = (ms_stack_arg_count as u32) * 8;
+        let ms_stack_arg_pad: u32 = if ms_stack_arg_count % 2 == 1 { 8 } else { 0 };
+
         // #1192: Compute dynamic MS shadow-space bump based on scratch-save parity.
         // Entry RSP ≡ 8 mod 16 (return address already on stack).
         // bridge_saves = 2 pushes (R15, R14) if paideia→MS/SysV crossing, else 0.
@@ -262,12 +281,18 @@ impl EmitWalker {
         // ⟹ ms_bump ≡ 8 mod 16 when (bridge_saves + scratch_saves) is odd
         // When callee_abi == Ms, both even and odd cases need ms_bump ≥ 40.
         // If scratch_save_set.len() is odd, add 8 to restore 0-mod-16 alignment.
+        //
+        // v0.21-001 (#1277): `ms_stack_arg_bytes + ms_stack_arg_pad` reserves the
+        // stack-passed-arg slots above the 32-byte shadow area; both addends are
+        // multiples of 16 together (raw bytes + odd-count pad), so the base
+        // alignment invariant above is preserved.
         let ms_bump: u32 = if callee_abi == CallingConvention::Ms {
-            if scratch_save_set.len() % 2 == 1 {
+            let base = if scratch_save_set.len() % 2 == 1 {
                 abi::MS_CALL_STACK_BUMP + abi::MS_CALL_STACK_BUMP_ODD_PAD
             } else {
                 abi::MS_CALL_STACK_BUMP
-            }
+            };
+            base + ms_stack_arg_bytes + ms_stack_arg_pad
         } else {
             0
         };
@@ -468,12 +493,134 @@ impl EmitWalker {
             }
 
             if arg_idx >= arg_regs.len() {
-                // Emit distinct T0521 message for MS branch
-                let error_msg = if callee_abi == CallingConvention::Ms {
-                    format!("MS x64 ABI: max 4 arguments supported (arg {} out of bounds)", arg_idx)
-                } else {
-                    format!("SysV ABI: max 6 arguments supported (arg {} out of bounds)", arg_idx)
-                };
+                if callee_abi == CallingConvention::Ms {
+                    // v0.21-001 (#1277): MS x64 stack passing for arg 5+.
+                    //
+                    // Callee expects arg[idx] (idx ≥ 4) at [callee_rsp + 40 + 8*(idx-4)]
+                    // after the CALL push. Caller writes to [rsp + 32 + 8*(idx-4)],
+                    // which shifts by -8 across the CALL push to the callee slot.
+                    //
+                    // Emission-order note: writing at idx ≥ 4 only ever runs after
+                    // the 4 register-arg MOVs (idx 0..4) have already fired, so
+                    // `first_id` has already been consumed by bridge_saves and/or
+                    // the MS prelude — both fire before this loop is entered on
+                    // every MS-callee call path. Nothing to hand `first_id` here;
+                    // always allocate a fresh id.
+                    let stack_off: i32 = 32
+                        + 8 * (arg_idx as i32 - abi::MS_ARG_REGS.len() as i32);
+                    let arg_node_kind = arena.get(arg_id).map(|n| n.kind);
+                    match arg_node_kind {
+                        Some(IrKind::Literal) => {
+                            if let Some(value) = arena.literal_values().get(arg_id) {
+                                let store_id = self.alloc_synthetic_id();
+                                self.emit_mov_stack_slot_imm(store_id, stack_off, value);
+                            } else {
+                                self.push_typed_diag(
+                                    t0521_code(),
+                                    format!(
+                                        "MS x64 stack arg {}: literal has no value",
+                                        arg_idx
+                                    ),
+                                );
+                            }
+                        }
+                        Some(IrKind::Var) => {
+                            let src_reg = arena
+                                .binding_names()
+                                .get(arg_id)
+                                .and_then(|name| self.state.local_bindings.get(name));
+                            match src_reg {
+                                Some(src) => {
+                                    let store_id = self.alloc_synthetic_id();
+                                    self.emit_mov_stack_slot_reg(store_id, stack_off, src);
+                                }
+                                None => {
+                                    // Module-level Object constant path: materialise
+                                    // via a RIP-relative load into R10, then store.
+                                    let module_const = arena
+                                        .binding_names()
+                                        .get(arg_id)
+                                        .and_then(|name| {
+                                            arena
+                                                .symbols()
+                                                .lookup_by_name(name)
+                                                .filter(|s| {
+                                                    matches!(s.kind, SymbolKind::Object)
+                                                })
+                                                .map(|_| name.to_string())
+                                        });
+                                    if let Some(name) = module_const {
+                                        let load_id = self.alloc_synthetic_id();
+                                        self.emit_mem_read_via_rip_sym(
+                                            load_id, abi::R10, name, 0, 8, false,
+                                        );
+                                        let store_id = self.alloc_synthetic_id();
+                                        self.emit_mov_stack_slot_reg(
+                                            store_id, stack_off, abi::R10,
+                                        );
+                                    } else {
+                                        self.push_typed_diag(
+                                            t0521_code(),
+                                            format!(
+                                                "MS x64 stack arg {}: Var has no local \
+                                                 binding entry; source register \
+                                                 unresolvable",
+                                                arg_idx
+                                            ),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        Some(IrKind::EnumCons) => {
+                            if let Some(info) = arena.enum_cons_info().get(arg_id) {
+                                if arena.children(arg_id).is_empty() {
+                                    let store_id = self.alloc_synthetic_id();
+                                    self.emit_mov_stack_slot_imm(
+                                        store_id,
+                                        stack_off,
+                                        info.variant_index as i64,
+                                    );
+                                    self.state.mark_enum_cons_handled(arg_id.get());
+                                } else {
+                                    self.push_typed_diag(
+                                        t0521_code(),
+                                        format!(
+                                            "MS x64 stack arg {}: payload-bearing enum \
+                                             literal not yet supported (use let-binding)",
+                                            arg_idx
+                                        ),
+                                    );
+                                }
+                            } else {
+                                self.push_typed_diag(
+                                    t0521_code(),
+                                    format!(
+                                        "MS x64 stack arg {}: EnumCons missing metadata",
+                                        arg_idx
+                                    ),
+                                );
+                            }
+                        }
+                        _ => {
+                            self.push_typed_diag(
+                                t0521_code(),
+                                format!(
+                                    "MS x64 stack arg {}: kind not yet supported for \
+                                     stack passing",
+                                    arg_idx
+                                ),
+                            );
+                        }
+                    }
+                    continue;
+                }
+                // Non-MS callee (SysV): stack passing for arg 7+ not yet
+                // implemented — keep the T0521 rejection.
+                let error_msg = format!(
+                    "SysV ABI: max 6 arguments supported (arg {} out of bounds)",
+                    arg_idx
+                );
                 self.push_typed_diag(t0521_code(), error_msg);
                 break;
             }
@@ -853,6 +1000,62 @@ impl EmitWalker {
 
         // Emit caller-side bridge postlude (pop R14, R15) if crossing paideia→MS/SysV
         self.emit_bridge_postlude(bridge_saves);
+    }
+
+    /// v0.21-001 (#1277): Emit `mov qword ptr [rsp + disp], src_reg` for an
+    /// MS-x64 stack-passed argument. The 64-bit generic Mov form encodes as
+    /// `48 89 <ModRM> <SIB> [disp8|disp32]` (5 or 8 bytes depending on disp).
+    ///
+    /// `disp` is the byte offset from RSP at the moment of the store — i.e.
+    /// AFTER the `sub rsp, ms_bump` prelude and any scratch pushes have run.
+    /// See the caller's stack-layout calculation for how `disp` is chosen so
+    /// the callee will see the value at `[rsp + 40 + 8*(idx-4)]` after CALL.
+    fn emit_mov_stack_slot_reg(&mut self, inst_id: IrNodeId, disp: i32, src_reg: RegId) {
+        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+        ops.push(Operand::MemSib {
+            base: abi::RSP,
+            index: None,
+            scale: Scale::X1,
+            disp,
+        });
+        ops.push(Operand::Reg(src_reg));
+
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: ops,
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: self.current_mode(),
+            emission_order: 0,
+        };
+        self.emit_inst(inst_id, inst);
+    }
+
+    /// v0.21-001 (#1277): Emit `mov qword ptr [rsp + disp], imm` for an MS-x64
+    /// stack-passed literal argument. The encoder narrows to `48 C7` (rm64,
+    /// imm32-sign-extended, 8 bytes) when the value fits; a value outside the
+    /// i32 sign-extended range would trip the encoder's Unsupported error
+    /// (see encode_instruction.rs — the generic-Mov MemSib+Imm64 arm), which
+    /// surfaces as a build failure rather than a silent miscompile.
+    fn emit_mov_stack_slot_imm(&mut self, inst_id: IrNodeId, disp: i32, value: i64) {
+        let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+        ops.push(Operand::MemSib {
+            base: abi::RSP,
+            index: None,
+            scale: Scale::X1,
+            disp,
+        });
+        ops.push(Operand::Imm64(value));
+
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: ops,
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: self.current_mode(),
+            emission_order: 0,
+        };
+        self.emit_inst(inst_id, inst);
     }
 
     /// Emit RET instruction after a call (or standalone for statement-position calls).
