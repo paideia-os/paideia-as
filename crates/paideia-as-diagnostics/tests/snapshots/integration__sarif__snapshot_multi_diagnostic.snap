@@ -397,7 +397,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 15 m3-001: An instruction specifies a 64-bit immediate or destination in 32-bit mode. In 32-bit mode, immediate values must fit in 32 bits (signed or unsigned), and destination registers must be 32-bit (r32) not 64-bit (r64). Either reduce the immediate to 32 bits, use a 32-bit destination register, or switch to 64-bit mode."
+                "text": "An instruction specifies a 64-bit immediate or destination in 32-bit mode. In 32-bit mode, immediate values must fit in 32 bits (signed or unsigned), and destination registers must be 32-bit (r32) not 64-bit (r64). Either reduce the immediate to 32 bits, use a 32-bit destination register, or switch to 64-bit mode."
               },
               "helpUri": "https://paideia-os.org/diagnostics/E0019",
               "id": "E0019",
@@ -411,7 +411,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 6 m2-002: a statement block (such as `unsafe { block: { ... } }`) encountered consecutive semicolons or a leading semicolon, forming an empty statement. Empty statements are not allowed. Provide a valid statement (expression, let binding, return, instruction, etc.) or remove the extra semicolons. Trailing semicolons after valid statements are permitted (e.g., `{ stmt1; stmt2; }`)."
+                "text": "A statement block (such as `unsafe { block: { ... } }`) encountered consecutive semicolons or a leading semicolon, forming an empty statement. Empty statements are not allowed. Provide a valid statement (expression, let binding, return, instruction, etc.) or remove the extra semicolons. Trailing semicolons after valid statements are permitted (e.g., `{ stmt1; stmt2; }`)."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0101",
               "id": "P0101",
@@ -593,7 +593,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 5 m4-002: array literal expressions with explicit syntax `[expr, expr, ...]` require a type annotation to disambiguate the element type when the array is empty. Provide an explicit type annotation like `let xs: [u64; 3] = [1, 2, 3];` or ensure the array is not empty so the type can be inferred from elements."
+                "text": "Array literal expressions with explicit syntax `[expr, expr, ...]` require a type annotation to disambiguate the element type when the array is empty. Provide an explicit type annotation like `let xs: [u64; 3] = [1, 2, 3];` or ensure the array is not empty so the type can be inferred from elements."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0210",
               "id": "P0210",
@@ -607,7 +607,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #1308: the repeat-array literal `[v; N]` allocates N * sizeof(v) bytes of storage, so N must be resolvable at elaboration time. N must be an integer literal (decimal, 0x, 0o or 0b, with optional `_` separators and integer suffix), strictly greater than zero, and no larger than 1048576 elements. Named constants, arithmetic expressions and negative counts are rejected. Before this diagnostic existed the elaborator silently expanded any unresolvable `[v; N]` to a SINGLE element while the type system still reported `[T; N]`, under-allocating the symbol and letting writes to index >= 1 corrupt the neighbouring symbol. Use an explicit element list if the count genuinely cannot be a literal."
+                "text": "The repeat-array literal `[v; N]` allocates N * sizeof(v) bytes of storage, so N must be resolvable at elaboration time. N must be an integer literal (decimal, 0x, 0o or 0b, with optional `_` separators and integer suffix), strictly greater than zero, and no larger than 1048576 elements. Named constants, arithmetic expressions and negative counts are rejected. Silently expanding an unresolvable `[v; N]` to a single element while the type system still reports `[T; N]` under-allocates the symbol and lets writes to index >= 1 corrupt the neighbouring symbol. Use an explicit element list if the count genuinely cannot be a literal."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0211",
               "id": "P0211",
@@ -621,7 +621,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 6 m5-001: The uninit keyword can only be used as the right-hand side of a mutable let binding (let mut). To fix this, either add the mut keyword to the let binding or provide a proper initialization value. Example: `let mut x: u64 = uninit;` is valid, but `let x: u64 = uninit;` is not."
+                "text": "The uninit keyword can only be used as the right-hand side of a mutable let binding (let mut). To fix this, either add the mut keyword to the let binding or provide a proper initialization value. Example: `let mut x: u64 = uninit;` is valid, but `let x: u64 = uninit;` is not."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0220",
               "id": "P0220",
@@ -635,7 +635,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 6 m5-001: The uninit keyword can only be used as the right-hand side of a mutable let binding. It cannot appear as a general expression in function calls, return statements, or other contexts. Use it only in patterns like `let mut x: Type = uninit;`."
+                "text": "The uninit keyword can only be used as the right-hand side of a mutable let binding. It cannot appear as a general expression in function calls, return statements, or other contexts. Use it only in patterns like `let mut x: Type = uninit;`."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0221",
               "id": "P0221",
@@ -649,7 +649,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "PA10-006u: In static initializers (module-level let bindings), & can only be applied directly to a symbol name, not to arbitrary expressions. For example, `let p: u64 = & target;` is valid, but `let p: u64 = & (expr);` is not. Address-of-expression patterns must be used in runtime contexts, not static initialization."
+                "text": "In static initializers (module-level let bindings), & can only be applied directly to a symbol name, not to arbitrary expressions. For example, `let p: u64 = & target;` is valid, but `let p: u64 = & (expr);` is not. Address-of-expression patterns must be used in runtime contexts, not static initialization."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0230",
               "id": "P0230",
@@ -663,7 +663,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "PA10-006u: Mutable references (& mut) are not allowed in static initializers (module-level let bindings). Only immutable addresses are supported. Use `let p: u64 = & symbol;` (without mut)."
+                "text": "Mutable references (& mut) are not allowed in static initializers (module-level let bindings). Only immutable addresses are supported. Use `let p: u64 = & symbol;` (without mut)."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0231",
               "id": "P0231",
@@ -691,7 +691,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 16 m4-001: The #![target_features = \"name\"] attribute specifies a CPU feature token that is not recognized. Valid feature tokens are: cx16, popcnt, bmi1, sse4.2, avx, avx512f. These correspond to x86_64 CPU capabilities that may be assumed for code generation. Other feature names are invalid or not yet supported. Check the feature name spelling against the accepted set, or file an issue to request additional CPU feature support."
+                "text": "The #![target_features = \"name\"] attribute specifies a CPU feature token that is not recognized. Valid feature tokens are: cx16, popcnt, bmi1, sse4.2, avx, avx512f. These correspond to x86_64 CPU capabilities that may be assumed for code generation. Other feature names are invalid or not yet supported. Check the feature name spelling against the accepted set, or file an issue to request additional CPU feature support."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0241",
               "id": "P0241",
@@ -705,7 +705,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 10 PA10-006y: A postfix symbol attribute was used on a let declaration, but the attribute name is not recognized. Currently, only '@align(N)' is supported for per-symbol alignment. Check that the attribute name is spelled correctly. Example: `let mut pml4 : [u64; 512] = uninit @align(4096)`."
+                "text": "A postfix symbol attribute was used on a let declaration, but the attribute name is not recognized. Currently, only '@align(N)' is supported for per-symbol alignment. Check that the attribute name is spelled correctly. Example: `let mut pml4 : [u64; 512] = uninit @align(4096)`."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0250",
               "id": "P0250",
@@ -719,7 +719,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 10 PA10-006y: The @align directive is syntactically malformed. The correct syntax is '@align(N)' where N is an integer literal. Either the opening '(' after 'align' is missing, or the closing ')' after the value is missing. Example: `let mut pml4 : [u64; 512] = uninit @align(4096)`."
+                "text": "The @align directive is syntactically malformed. The correct syntax is '@align(N)' where N is an integer literal. Either the opening '(' after 'align' is missing, or the closing ')' after the value is missing. Example: `let mut pml4 : [u64; 512] = uninit @align(4096)`."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0251",
               "id": "P0251",
@@ -733,7 +733,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 10 PA10-006y: The @align directive's value must be a positive integer that is a power of two, and must fit in the range [1, 2^30] (i.e., 1, 2, 4, 8, 16, ..., 1073741824). Common alignment values are 1, 4, 8, 16, 4096, 65536. Check that the value is a valid power of two and not too large."
+                "text": "The @align directive's value must be a positive integer that is a power of two, and must fit in the range [1, 2^30] (i.e., 1, 2, 4, 8, 16, ..., 1073741824). Common alignment values are 1, 4, 8, 16, 4096, 65536. Check that the value is a valid power of two and not too large."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0252",
               "id": "P0252",
@@ -747,7 +747,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 14 PA14-r14-008: The @ring directive is syntactically malformed. The correct syntax is '@ring(slots=N, slot_size=M)' where N and M are integer literals. N must be a power of two > 0, and M must be > 0. Either a required parameter is missing, the format is incorrect, or closing parentheses are missing. Example: `let mut ring_buf : [u64; 512] = uninit @ring(slots=256, slot_size=32)`."
+                "text": "The @ring directive is syntactically malformed. The correct syntax is '@ring(slots=N, slot_size=M)' where N and M are integer literals. N must be a power of two > 0, and M must be > 0. Either a required parameter is missing, the format is incorrect, or closing parentheses are missing. Example: `let mut ring_buf : [u64; 512] = uninit @ring(slots=256, slot_size=32)`."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0253",
               "id": "P0253",
@@ -761,7 +761,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 14 PA14-r14-008: The @ring directive's slots parameter must be a positive integer that is a power of two. Valid slots values: 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, etc. Check that the slots value is a power of two and not zero."
+                "text": "The @ring directive's slots parameter must be a positive integer that is a power of two. Valid slots values: 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, etc. Check that the slots value is a power of two and not zero."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0260",
               "id": "P0260",
@@ -775,7 +775,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 14 PA14-r14-008: The @ring directive's slot_size parameter must be a positive integer, and the total size (slots * slot_size) must not overflow a 64-bit integer. Check that slot_size is > 0 and not too large."
+                "text": "The @ring directive's slot_size parameter must be a positive integer, and the total size (slots * slot_size) must not overflow a 64-bit integer. Check that slot_size is > 0 and not too large."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0261",
               "id": "P0261",
@@ -789,7 +789,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #964: A match expression has an @ attribute that is not recognized. Valid attributes are @jump_table. Check the spelling of the attribute name."
+                "text": "A match expression has an @ attribute that is not recognized. Valid attributes are @jump_table. Check the spelling of the attribute name."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0270",
               "id": "P0270",
@@ -803,7 +803,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #964: A match expression has a malformed @ attribute. The attribute name must be a valid identifier (e.g., @jump_table)."
+                "text": "A match expression has a malformed @ attribute. The attribute name must be a valid identifier (e.g., @jump_table)."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0271",
               "id": "P0271",
@@ -817,7 +817,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "warning"
               },
               "fullDescription": {
-                "text": "Issue #964: A match expression was marked with @jump_table but the coverage is too sparse (less than 50% density or range > 256). The elaborator will emit a cmp/je fallback chain instead of a dense jump table. To enable jump-table dispatch, ensure at least 50% coverage of the range and arm count <= 256."
+                "text": "A match expression was marked with @jump_table but the coverage is too sparse (less than 50% density or range > 256). The elaborator will emit a cmp/je fallback chain instead of a dense jump table. To enable jump-table dispatch, ensure at least 50% coverage of the range and arm count <= 256."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0272",
               "id": "P0272",
@@ -831,7 +831,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "warning"
               },
               "fullDescription": {
-                "text": "Issue #964: This match has @jump_table set, but the full codegen (rodata synthesis + memory-indirect jmp) is deferred to issue pa-r15-009b. For now, the elaborator emits a cmp/je fallback chain. The jump-table dispatch will be implemented in a future release."
+                "text": "This match has @jump_table set, but the full codegen (rodata synthesis + memory-indirect jmp) is not yet implemented. For now, the elaborator emits a cmp/je fallback chain. The jump-table dispatch will be implemented in a future release."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0273",
               "id": "P0273",
@@ -845,7 +845,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #964: A match expression marked with @jump_table lacks a default (_) arm. Jump-table dispatch requires an exhaustive default case for bounds-checking the dispatch index. Add a default arm with `_ => <expr>`."
+                "text": "A match expression marked with @jump_table lacks a default (_) arm. Jump-table dispatch requires an exhaustive default case for bounds-checking the dispatch index. Add a default arm with `_ => <expr>`."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0274",
               "id": "P0274",
@@ -859,7 +859,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #964: A match expression marked with @jump_table has a non-integer-literal arm (e.g., a variable or string pattern). Jump-table dispatch requires all arms (except the default _) to be integer literals so the elaborator can compute density and generate the dispatch offset. Convert non-literal patterns to integer literals or remove @jump_table."
+                "text": "A match expression marked with @jump_table has a non-integer-literal arm (e.g., a variable or string pattern). Jump-table dispatch requires all arms (except the default _) to be integer literals so the elaborator can compute density and generate the dispatch offset. Convert non-literal patterns to integer literals or remove @jump_table."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0275",
               "id": "P0275",
@@ -873,7 +873,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #1041: the current System-V x86-64 lowering passes lambda parameters in RDI, RSI, RDX, RCX, R8, R9. Stack-spill of the 7th+ parameter is not yet implemented. Reduce the parameter count to 6 or fewer, or split the function into curried groups (each group is a separate lambda)."
+                "text": "The current System-V x86-64 lowering passes lambda parameters in RDI, RSI, RDX, RCX, R8, R9. Stack-spill of the 7th+ parameter is not yet implemented. Reduce the parameter count to 6 or fewer, or split the function into curried groups (each group is a separate lambda)."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0276",
               "id": "P0276",
@@ -887,7 +887,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #1071 (pa-r17-010b): A struct field declaration is syntactically incomplete. Ensure all fields follow the pattern `name: type`, separated by commas, with proper opening and closing braces. Trailing commas are allowed. Example: `struct S { x: u64, y: u32 }`."
+                "text": "A struct field declaration is syntactically incomplete. Ensure all fields follow the pattern `name: type`, separated by commas, with proper opening and closing braces. Trailing commas are allowed. Example: `struct S { x: u64, y: u32 }`."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0277",
               "id": "P0277",
@@ -901,7 +901,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #1012: A @guid compile-time directive has an invalid GUID string. GUID syntax is XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX (36 characters with dashes at positions 8, 13, 18, 23; all other characters must be hexadecimal). Verify the string is 36 characters, dashes are in the correct positions, and all hex characters are valid (0-9, a-f, A-F)."
+                "text": "A @guid compile-time directive has an invalid GUID string. GUID syntax is XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX (36 characters with dashes at positions 8, 13, 18, 23; all other characters must be hexadecimal). Verify the string is 36 characters, dashes are in the correct positions, and all hex characters are valid (0-9, a-f, A-F)."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0278",
               "id": "P0278",
@@ -915,7 +915,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #1013: The @include_bytes compile-time directive encountered an error resolving or reading the file. Common causes: empty path, absolute path (only relative paths allowed), file not found, permission denied, or path is not a regular file. Verify the path is relative, the file exists, and the file is readable."
+                "text": "The @include_bytes compile-time directive encountered an error resolving or reading the file. Common causes: empty path, absolute path (only relative paths allowed), file not found, permission denied, or path is not a regular file. Verify the path is relative, the file exists, and the file is readable."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0279",
               "id": "P0279",
@@ -929,7 +929,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #1013: The file referenced by @include_bytes is larger than the 16 MiB size limit for compile-time embeds. This limit is enforced to prevent accidentally embedding very large files during compilation. Split the data into smaller files or use a different approach (e.g., external file references) for larger payloads."
+                "text": "The file referenced by @include_bytes is larger than the 16 MiB size limit for compile-time embeds. This limit is enforced to prevent accidentally embedding very large files during compilation. Split the data into smaller files or use a different approach (e.g., external file references) for larger payloads."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0280",
               "id": "P0280",
@@ -943,7 +943,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #1014: The @include_str directive requires the referenced file to be valid UTF-8. The file contains an invalid UTF-8 byte sequence at the indicated byte offset. Use @include_bytes_as_str instead if you need to embed binary data without UTF-8 validation."
+                "text": "The @include_str directive requires the referenced file to be valid UTF-8. The file contains an invalid UTF-8 byte sequence at the indicated byte offset. Use @include_bytes_as_str instead if you need to embed binary data without UTF-8 validation."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0281",
               "id": "P0281",
@@ -957,7 +957,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 19 PA19-r19-010: The @link_section directive's name must be a valid identifier containing only letters, digits, dots, underscores, and hyphens. The name must be 1–32 characters long and non-empty. Example: `let payload : [u8; 8] = ... @link_section(\".uefi_hdr\")`."
+                "text": "The @link_section directive's name must be a valid identifier containing only letters, digits, dots, underscores, and hyphens. The name must be 1–32 characters long and non-empty. Example: `let payload : [u8; 8] = ... @link_section(\".uefi_hdr\")`."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0282",
               "id": "P0282",
@@ -971,7 +971,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 19 PA19-r19-010: A let binding has multiple @link_section directives, which is not allowed. Remove all but one @link_section directive. Example: `let x = ... @link_section(\".foo\") @link_section(\".bar\")` is invalid."
+                "text": "A let binding has multiple @link_section directives, which is not allowed. Remove all but one @link_section directive. Example: `let x = ... @link_section(\".foo\") @link_section(\".bar\")` is invalid."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0283",
               "id": "P0283",
@@ -985,7 +985,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 19 PA19-r19-010 (MVP deferred to pa-r19-010b): The @link_section attribute is currently supported only on let bindings with data (literal, array) values. Lambda-shaped bindings (let x = fn(...)) are not yet supported. This is deferred to a future phase. Rewrite the binding without @link_section or defer the attribute."
+                "text": "The @link_section attribute is currently supported only on let bindings with data (literal, array) values. Lambda-shaped bindings (let x = fn(...)) are not yet supported. Rewrite the binding without @link_section, or use it only on data bindings."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0284",
               "id": "P0284",
@@ -999,7 +999,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 19 PA19-r19-001: The @abi directive must specify a valid calling convention string. Valid options are \"ms\" (Microsoft x64 ABI for UEFI) and \"sysv\" (System V AMD64 ABI). The string must be lowercase, enclosed in double quotes, and passed as the sole argument to @abi. Examples: `@abi(\"ms\")` or `@abi(\"sysv\")`. Invalid strings, non-string arguments, missing parentheses, or empty strings all trigger this error."
+                "text": "The @abi directive must specify a valid calling convention string. Valid options are \"ms\" (Microsoft x64 ABI for UEFI) and \"sysv\" (System V AMD64 ABI). The string must be lowercase, enclosed in double quotes, and passed as the sole argument to @abi. Examples: `@abi(\"ms\")` or `@abi(\"sysv\")`. Invalid strings, non-string arguments, missing parentheses, or empty strings all trigger this error."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0285",
               "id": "P0285",
@@ -1013,7 +1013,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 19 PA19-r19-001: The @abi calling-convention directive is intended for function-shaped bindings (lambdas). You have applied @abi to a let binding with a non-function value (literal, array, etc.). Remove the @abi directive or rewrite the binding as a lambda. Example: `let f = fn(...) -> ... @abi(\"ms\")` is valid, but `let x : u64 = 42 @abi(\"ms\")` is invalid."
+                "text": "The @abi calling-convention directive is intended for function-shaped bindings (lambdas). You have applied @abi to a let binding with a non-function value (literal, array, etc.). Remove the @abi directive or rewrite the binding as a lambda. Example: `let f = fn(...) -> ... @abi(\"ms\")` is valid, but `let x : u64 = 42 @abi(\"ms\")` is invalid."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0286",
               "id": "P0286",
@@ -1027,7 +1027,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 19 PA19-r19-010 (MVP deferred to pa-r19-010b): The @link_section attribute is currently supported only on let bindings with data (literal, array) values. Lambda-shaped bindings (let x = fn(...)) are not yet supported. This is deferred to a future phase. Rewrite the binding without @link_section or defer the attribute."
+                "text": "The @link_section attribute is currently supported only on let bindings with data (literal, array) values. Lambda-shaped bindings (let x = fn(...)) are not yet supported. Rewrite the binding without @link_section, or use it only on data bindings."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0287",
               "id": "P0287",
@@ -1041,7 +1041,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 19 PA19-r19-010: The @link_section attribute is not valid on mutable let bindings (let mut). Custom section placement is only supported for immutable data. If you need mutable data in a custom section, this is deferred to a future phase."
+                "text": "The @link_section attribute is not valid on mutable let bindings (let mut). Custom section placement is only supported for immutable data."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0288",
               "id": "P0288",
@@ -1055,7 +1055,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 19 PA19-r19-013 (pe-data-section-wiring): PE/COFF section names are limited to 8 bytes. The @link_section name you provided is longer than 8 bytes and cannot be emitted. Valid UEFI section names are `.text` (5 bytes), `.rdata` (6 bytes), `.data` (5 bytes), `.bss` (4 bytes), and custom names like `.uefi_hdr` (8 bytes), `.pdata` (6 bytes), `.xdata` (6 bytes), `.reloc` (6 bytes). Choose a shorter name or use a standard section."
+                "text": "PE/COFF section names are limited to 8 bytes. The @link_section name you provided is longer than 8 bytes and cannot be emitted. Valid UEFI section names are `.text` (5 bytes), `.rdata` (6 bytes), `.data` (5 bytes), `.bss` (4 bytes), and custom names like `.uefi_hdr` (8 bytes), `.pdata` (6 bytes), `.xdata` (6 bytes), `.reloc` (6 bytes). Choose a shorter name or use a standard section."
               },
               "helpUri": "https://paideia-os.org/diagnostics/P0289",
               "id": "P0289",
@@ -1153,7 +1153,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase-1 placeholder for reflective macro features (typed elaborator reflection, quote/antiquote, splice, elab, hygiene under reflection). Retired in Phase 2 m2 (PRs #361–#371) — the full Lean-4-style reflection track is now live so this code should never fire. Reserved for compatibility; will be deleted in Phase 3."
+                "text": "Placeholder for reflective macro features (typed elaborator reflection, quote/antiquote, splice, elab, hygiene under reflection) that are no longer needed — the full Lean-4-style reflection track is live, so this diagnostic should never fire. Reserved for compatibility and slated for removal."
               },
               "helpUri": "https://paideia-os.org/diagnostics/M0307",
               "id": "M0307",
@@ -1181,7 +1181,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "warning"
               },
               "fullDescription": {
-                "text": "Phase 3 ships raw pointers (*T) only. Borrowed references &T / &mut T are reserved for a future phase that requires a region calculus + borrow-checker pass; see design/toolchain/phase-3-plan.md §15 open question."
+                "text": "Only raw pointers (*T) are supported today. Borrowed references (&T / &mut T) require a region calculus and borrow-checker pass that has not yet been implemented."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0511",
               "id": "T0511",
@@ -1195,7 +1195,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 4 m7-006: match expressions on enum types must cover every variant. Either add the missing variant arms or use a wildcard pattern `_` to catch the remainder. Diagnostic code lands in the type-system pattern region (0500-0899) — the issue spec's M0900 was out of M's reserved range (0300-0499); T0512 follows m1-003's T0511 reservation for the future borrowed-reference codepath."
+                "text": "Match expressions on enum types must cover every variant. Either add the missing variant arms or use a wildcard pattern `_` to catch the remainder."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0512",
               "id": "T0512",
@@ -1209,7 +1209,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 4 m9-004: impl coherence check. Each (trait, type) pair may have at most one impl block. Remove the duplicate impl or distinguish the type to avoid the conflict."
+                "text": "Impl coherence check. Each (trait, type) pair may have at most one impl block. Remove the duplicate impl or distinguish the type to avoid the conflict."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0513",
               "id": "T0513",
@@ -1223,7 +1223,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 4 m9-005: trait-bound resolution. At this call site, a method requires its type argument to implement a specific trait, but neither a generic-parameter bound nor a concrete impl satisfies this requirement. Either bind the type parameter to the required trait in the enclosing generic-parameter list, or provide a concrete impl for the type."
+                "text": "Trait-bound resolution. At this call site, a method requires its type argument to implement a specific trait, but neither a generic-parameter bound nor a concrete impl satisfies this requirement. Either bind the type parameter to the required trait in the enclosing generic-parameter list, or provide a concrete impl for the type."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0514",
               "id": "T0514",
@@ -1237,7 +1237,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 6 m3-001: record field layout computation supports u64 (8 bytes, align 8), u32 (4 bytes, align 4), u8 (1 byte, align 1), and pointer types *T (8 bytes, align 8). Records with fields outside this set cannot be finalised. Add support for additional field types in a future phase or refactor the record to use only the supported types."
+                "text": "Record field layout computation supports u64 (8 bytes, align 8), u32 (4 bytes, align 4), u8 (1 byte, align 1), and pointer types *T (8 bytes, align 8). Records with fields outside this set cannot be finalised. Add support for additional field types in a future phase or refactor the record to use only the supported types."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0515",
               "id": "T0515",
@@ -1251,7 +1251,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 6 m3-002: EmitWalker field access lowering currently supports only the shape (*p).field where p is the function's first argument. Other patterns, such as nested dereferences (**p), non-argument pointers (local p), or more complex expressions, are not yet supported. Restructure your code to use field access on a dereferenced first argument, or defer support to a later phase."
+                "text": "EmitWalker field access lowering currently supports only the shape (*p).field where p is the function's first argument. Other patterns, such as nested dereferences (**p), non-argument pointers (local p), or more complex expressions, are not yet supported. Restructure your code to use field access on a dereferenced first argument, or defer support to a later phase."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0516",
               "id": "T0516",
@@ -1265,7 +1265,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 6 m3-003: EmitWalker field-binding lowering assigns scratch registers in sequence: RAX(0), RCX(1), RDX(2), R8(8). The calling convention provides exactly 4 caller-save scratch registers. When more than 4 field bindings appear in a single function scope, the elaborator cannot assign a scratch register. Restructure your function to use fewer than 5 field bindings, or defer the assignment of later bindings to a later phase."
+                "text": "EmitWalker field-binding lowering assigns scratch registers in sequence: RAX(0), RCX(1), RDX(2), R8(8). The calling convention provides exactly 4 caller-save scratch registers. When more than 4 field bindings appear in a single function scope, the elaborator cannot assign a scratch register. Restructure your function to use fewer than 5 field bindings, or defer the assignment of later bindings to a later phase."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0517",
               "id": "T0517",
@@ -1279,7 +1279,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 6 m3-004: EmitWalker RecordCons lowering currently supports only the cap-mint (4-field all-u64) shape when bound via let p : *T = construct_into(...). Other record shapes and binding patterns are not yet supported. Restructure your code to use the supported shape, or defer support to a later phase."
+                "text": "EmitWalker RecordCons lowering currently supports only the cap-mint (4-field all-u64) shape when bound via let p : *T = construct_into(...). Other record shapes and binding patterns are not yet supported. Restructure your code to use the supported shape, or defer support to a later phase."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0518",
               "id": "T0518",
@@ -1293,7 +1293,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 7 m1-001: both branches of an if-then-else expression must have the same type. The then branch has type T1 but the else branch has type T2. If you meant to discard the result, wrap in an action block { ... }; if you meant to use one branch's type, add an explicit type annotation or restructure the expression."
+                "text": "Both branches of an if-then-else expression must have the same type. The then branch has type T1 but the else branch has type T2. If you meant to discard the result, wrap in an action block { ... }; if you meant to use one branch's type, add an explicit type annotation or restructure the expression."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0519",
               "id": "T0519",
@@ -1307,7 +1307,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 7 m1-002 (PA7-004): when a break statement in a while loop provides a value, that value's type must match the expected result type of the loop expression. If the loop is used in a context requiring a specific return type, all break values must have that type. If you meant to discard the result, ensure all breaks are value-less or restructure the code to return unit type."
+                "text": "When a break statement in a while loop provides a value, that value's type must match the expected result type of the loop expression. If the loop is used in a context requiring a specific return type, all break values must have that type. If you meant to discard the result, ensure all breaks are value-less or restructure the code to return unit type."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0520",
               "id": "T0520",
@@ -1321,7 +1321,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 7 m1-003 (PA7-006): a function call argument has a type that does not match the expected parameter type. Ensure that all arguments to a function match their respective parameter types. Check type annotations in the function signature and verify that the argument values have compatible types."
+                "text": "A function call argument has a type that does not match the expected parameter type. Ensure that all arguments to a function match their respective parameter types. Check type annotations in the function signature and verify that the argument values have compatible types."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0521",
               "id": "T0521",
@@ -1335,7 +1335,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 7 m1-004 (PA7-007): a match expression on an enum-like u32 value requires an exhaustive set of patterns. Since the code generation uses compare-and-jump dispatch, the default arm (_) is mandatory to handle all unmatched cases. Add a default arm with `_ => <expr>` to make the match exhaustive."
+                "text": "A match expression on an enum-like u32 value requires an exhaustive set of patterns. Since the code generation uses compare-and-jump dispatch, the default arm (_) is mandatory to handle all unmatched cases. Add a default arm with `_ => <expr>` to make the match exhaustive."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0522",
               "id": "T0522",
@@ -1349,7 +1349,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 7 m1-004 (PA7-007): in a match expression, all arms (including the default) must produce values of the same type. If the first arm produces type T1 and a later arm produces type T2, the expression is ill-typed. Either unify the arm types by adding explicit conversions or restructure the match to ensure all paths have compatible types."
+                "text": "In a match expression, all arms (including the default) must produce values of the same type. If the first arm produces type T1 and a later arm produces type T2, the expression is ill-typed. Either unify the arm types by adding explicit conversions or restructure the match to ensure all paths have compatible types."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0523",
               "id": "T0523",
@@ -1363,7 +1363,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 7 m1-008 (PA7-008): break statements can only appear inside the body of a loop or while loop. A break outside any loop context is a control-flow error. Move the break statement inside the appropriate loop body or remove it if it is not needed."
+                "text": "Break statements can only appear inside the body of a loop or while loop. A break outside any loop context is a control-flow error. Move the break statement inside the appropriate loop body or remove it if it is not needed."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0524",
               "id": "T0524",
@@ -1377,7 +1377,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 7 m1-008 (PA7-008): a while loop produces unit type () and cannot accept break values. Only infinite loops (loop { ... }) can return values via break. Either remove the value from the break statement, or restructure as a loop expression to return values."
+                "text": "A while loop produces unit type () and cannot accept break values. Only infinite loops (loop { ... }) can return values via break. Either remove the value from the break statement, or restructure as a loop expression to return values."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0525",
               "id": "T0525",
@@ -1391,7 +1391,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 7 m2-001 (PA7C-m2-001): During IR traversal in emit_block_body, a RawInstruction child node was encountered but the instruction payload was not found in the InstructionSideTable. This indicates an internal compiler error: either the instruction was not properly registered during elaboration, or the side-table lookup failed. This is a structural invariant violation and should not occur in normal compilation."
+                "text": "During IR traversal in emit_block_body, a RawInstruction child node was encountered but the instruction payload was not found in the InstructionSideTable. This indicates an internal compiler error: either the instruction was not properly registered during elaboration, or the side-table lookup failed. This is a structural invariant violation and should not occur in normal compilation."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0526",
               "id": "T0526",
@@ -1405,7 +1405,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 7 m2-002 (PA7C-m2-002): EmitWalker Let-literal lowering in emit_block_body assigns scratch registers in sequence: RAX(0), RCX(1), RDX(2), R8(8). The calling convention provides exactly 4 caller-save scratch registers. When more than 4 let-literal bindings appear in a single function body, the elaborator cannot assign a scratch register. Restructure your function to use fewer than 5 let-literal bindings, or defer the assignment of later bindings to a later phase."
+                "text": "EmitWalker Let-literal lowering in emit_block_body assigns scratch registers in sequence: RAX(0), RCX(1), RDX(2), R8(8). The calling convention provides exactly 4 caller-save scratch registers. When more than 4 let-literal bindings appear in a single function body, the elaborator cannot assign a scratch register. Restructure your function to use fewer than 5 let-literal bindings, or defer the assignment of later bindings to a later phase."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0527",
               "id": "T0527",
@@ -1419,7 +1419,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 7 m2-003 (PA7C-m2-003): An unsafe.instruction operand references a local binding name (e.g., ${x} in let-chain unsafe.block) that was not found in the function's local binding table. This occurs when a binding has either not been declared, has gone out of scope, or the resolve_var_operands pass is not wired into the build pipeline. Ensure the binding is declared before use in the unsafe block operand."
+                "text": "An unsafe.instruction operand references a local binding name (e.g., ${x} in let-chain unsafe.block) that was not found in the function's local binding table. This occurs when a binding has either not been declared, has gone out of scope, or the resolve_var_operands pass is not wired into the build pipeline. Ensure the binding is declared before use in the unsafe block operand."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0528",
               "id": "T0528",
@@ -1433,7 +1433,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "The field-access lowering path in emit_mem_read_via_rip_sym currently only\nhandles u32 and u64 loads. Fields typed u8/u16/i8/i16/i32 are recognized but\ntheir movzx/movsx lowering is deferred to Phase 17 m6-b. This diagnostic\nreplaces the earlier T0517 reuse at emit_field_access.rs (issue #1080).\n"
+                "text": "The field-access lowering path in emit_mem_read_via_rip_sym currently only\nhandles u32 and u64 loads. Fields typed u8/u16/i8/i16/i32 are recognized but\ntheir movzx/movsx lowering is not yet implemented.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0529",
               "id": "T0529",
@@ -1447,7 +1447,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "The module-level field-assign lowering path in emit_field_access.rs\ncurrently handles only u32 (MovSized{W32}) and u64 (Mov) stores. Fields\ntyped u8/u16/i8/i16/i32 are recognized in layout but their narrow-store\nlowering is deferred to Phase 17 m6-b. Write-side counterpart of T0529;\nreplaces the ad-hoc T0519 reuse at emit_field_access.rs:185 (issue #1175).\n"
+                "text": "The module-level field-assign lowering path in emit_field_access.rs\ncurrently handles only u32 (MovSized{W32}) and u64 (Mov) stores. Fields\ntyped u8/u16/i8/i16/i32 are recognized in layout but their narrow-store\nlowering is not yet implemented. Write-side counterpart of T0529.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0530",
               "id": "T0530",
@@ -1461,7 +1461,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 10 m1-001 (PA10-005): PA10-005 nested var lookup. When resolve_var_operands fails to find a binding in the local binding table, it checks the module's SymbolTable. If found there, this diagnostic is emitted instead of T0528. This indicates the variable is module-scoped (e.g., a global let-fn or let-const) and cannot be directly accessed within function-local unsafe blocks without explicit capture or higher-level binding. Either move the reference outside the unsafe block, or declare a local let binding that captures the module-scoped value."
+                "text": "When resolve_var_operands fails to find a binding in the local binding table, it checks the module's SymbolTable. If found there, this diagnostic is emitted instead of T0528. This indicates the variable is module-scoped (e.g., a global let-fn or let-const) and cannot be directly accessed within function-local unsafe blocks without explicit capture or higher-level binding. Either move the reference outside the unsafe block, or declare a local let binding that captures the module-scoped value."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0531",
               "id": "T0531",
@@ -1475,7 +1475,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #981 (pa-r17-003): the & (address-of) operator in a static initializer context must have an identifier (variable or function name) as its operand. Expressions like &(1 + 2) or &arr[0] are not permitted. Use &function_name or &global_variable_name instead."
+                "text": "The & (address-of) operator in a static initializer context must have an identifier (variable or function name) as its operand. Expressions like &(1 + 2) or &arr[0] are not permitted. Use &function_name or &global_variable_name instead."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0532",
               "id": "T0532",
@@ -1489,7 +1489,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "warning"
               },
               "fullDescription": {
-                "text": "Phase 13 m6-001 (PA13-001): When encoding mov r8, [mem] with destination ah/ch/dh/bh (RegId 4–7), if the memory operand's base or index register is in r8–r15 (requiring REX), there is an encoding ambiguity: the ah–bh aliasing mode cannot coexist with REX prefixes. This diagnostic warns that the instruction may not assemble correctly. Workarounds: (1) use al/cl/dl/bl (low-byte) or r8b–r15b (extended) instead; (2) use a base/index register from r0–r7. In v0.13, this is a warning. Future versions may harden to an error."
+                "text": "When encoding mov r8, [mem] with destination ah/ch/dh/bh (RegId 4–7), if the memory operand's base or index register is in r8–r15 (requiring REX), there is an encoding ambiguity: the ah–bh aliasing mode cannot coexist with REX prefixes. This diagnostic warns that the instruction may not assemble correctly. Workarounds: (1) use al/cl/dl/bl (low-byte) or r8b–r15b (extended) instead; (2) use a base/index register from r0–r7. This is currently a warning; a future version may harden this to an error."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0533",
               "id": "T0533",
@@ -1503,7 +1503,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #981 (pa-r17-003): the & (address-of) operator references an identifier that is not found in the local scope. Either define the name locally, use a fully-qualified cross-file reference (if supported), or ensure the name is spelled correctly."
+                "text": "The & (address-of) operator references an identifier that is not found in the local scope. Either define the name locally, use a fully-qualified cross-file reference (if supported), or ensure the name is spelled correctly."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0534",
               "id": "T0534",
@@ -1517,7 +1517,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #980 (pa-r17-002): a let-binding annotated with a function-pointer type receives a value whose signature does not match. Signature matching requires: (1) equal arity, (2) invariant parameter types, (3) invariant return type, (4) source's effect row must be a subset of the target's (widening on assignment is safe; narrowing is not), (5) source's capability set must be a subset of the target's. The specific mismatch reason appears in the diagnostic's notes."
+                "text": "A let-binding annotated with a function-pointer type receives a value whose signature does not match. Signature matching requires: (1) equal arity, (2) invariant parameter types, (3) invariant return type, (4) source's effect row must be a subset of the target's (widening on assignment is safe; narrowing is not), (5) source's capability set must be a subset of the target's. The specific mismatch reason appears in the diagnostic's notes."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0535",
               "id": "T0535",
@@ -1531,7 +1531,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #981 (pa-r17-003): in v0.17, the & (address-of) operator is limited to function symbols only. Taking the address of a data symbol (let-bound variable, constant, or array) is not yet supported. Use &function_name only. Issue #992 (pa-r17-014): addends in lea [rip + sym + addend] must fit in i32; offsets for record fields must not exceed i32::MAX (0x7FFFFFFF)."
+                "text": "The & (address-of) operator is limited to function symbols only. Taking the address of a data symbol (let-bound variable, constant, or array) is not yet supported. Use &function_name only. Addends in lea [rip + sym + addend] must fit in i32; offsets for record fields must not exceed i32::MAX (0x7FFFFFFF)."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0536",
               "id": "T0536",
@@ -1545,7 +1545,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #1092 (pa-r17-015): a record literal is missing one or more fields that are declared in the record type. All declared fields must be present in the record literal. The missing field names appear in the diagnostic message."
+                "text": "A record literal is missing one or more fields that are declared in the record type. All declared fields must be present in the record literal. The missing field names appear in the diagnostic message."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0537",
               "id": "T0537",
@@ -1559,7 +1559,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #1092 (pa-r17-015): a record literal contains a field name multiple times. Each field may appear exactly once in a record literal. Remove the duplicate field name occurrences."
+                "text": "A record literal contains a field name multiple times. Each field may appear exactly once in a record literal. Remove the duplicate field name occurrences."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0538",
               "id": "T0538",
@@ -1573,7 +1573,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #1092 (pa-r17-015): a record literal contains a field name that is not declared in the target record type. Check the spelling of the field name and ensure it matches one of the declared fields."
+                "text": "A record literal contains a field name that is not declared in the target record type. Check the spelling of the field name and ensure it matches one of the declared fields."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0539",
               "id": "T0539",
@@ -1587,7 +1587,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #1135 (pa-r17-016-followup): Pattern 5 module-level let-mut assignment via var_assign lowering accepts only Var-to-Var shapes where LHS is a module-level let-mut symbol (not shadowed by a local binding) and RHS is a function parameter (register) from local_bindings. Unsupported cases: (1) RHS is not a Var (e.g., literal, field access); (2) LHS is shadowed by a local binding; (3) LHS is not a module symbol; (4) structural invariants violated. For non-Var RHS patterns, use a separate let binding in the function body. For shadowed symbols, rename the local binding or restructure the scope."
+                "text": "Module-level let-mut assignment via var_assign lowering accepts only Var-to-Var shapes where LHS is a module-level let-mut symbol (not shadowed by a local binding) and RHS is a function parameter (register) from local_bindings. Unsupported cases: (1) RHS is not a Var (e.g., literal, field access); (2) LHS is shadowed by a local binding; (3) LHS is not a module symbol; (4) structural invariants violated. For non-Var RHS patterns, use a separate let binding in the function body. For shadowed symbols, rename the local binding or restructure the scope."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0540",
               "id": "T0540",
@@ -1601,7 +1601,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #1056 (pa-r16-007-followup): stdlib trait methods like PerCpuOps::percpu_inc require their arguments to be integer literals known at compile time. This allows the code generator to directly encode absolute displacements and immediate values into the instruction encoding. Pass an integer literal (e.g., 0x1000, 8192) instead of a variable or expression."
+                "text": "Stdlib trait methods like PerCpuOps::percpu_inc require their arguments to be integer literals known at compile time. This allows the code generator to directly encode absolute displacements and immediate values into the instruction encoding. Pass an integer literal (e.g., 0x1000, 8192) instead of a variable or expression."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0551",
               "id": "T0551",
@@ -1615,7 +1615,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #1070 (PA-r17-010a): Struct field types must be one of the supported primitive types (u8, i8, u16, i16, u32, i32, u64, i64) or a pointer type (*T). Unsupported types include floats (f32, f64), bools, or user-defined types. Use a supported type instead."
+                "text": "Struct field types must be one of the supported primitive types (u8, i8, u16, i16, u32, i32, u64, i64) or a pointer type (*T). Unsupported types include floats (f32, f64), bools, or user-defined types. Use a supported type instead."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0552",
               "id": "T0552",
@@ -1629,7 +1629,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #1260: A call expression names a callee that is not defined in this module's symbol table, is not a registered stdlib trait method (Trait::method), and is not a local closure/function-pointer binding. Prior to this diagnostic the compiler silently emitted a broken relocation and the linker (or, worse, load-time SIGSEGV in the produced binary) surfaced the failure. Fix by defining the function, correcting the identifier spelling, or adding the missing stdlib trait method import. Paideia has no cross-module import mechanism today: every callable identifier must be resolvable within its compilation unit at emit time."
+                "text": "A call expression names a callee that is not defined in this module's symbol table, is not a registered stdlib trait method (Trait::method), and is not a local closure/function-pointer binding. Silently emitting a broken relocation here previously let the linker (or, worse, load-time SIGSEGV in the produced binary) surface the failure much later. Fix by defining the function, correcting the identifier spelling, or adding the missing stdlib trait method import. Paideia has no cross-module import mechanism today: every callable identifier must be resolvable within its compilation unit at emit time."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0553",
               "id": "T0553",
@@ -1643,7 +1643,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #1198 (phase 7 m1-005): A call expression references an enum type with an EnumType::Variant qualifier (e.g., Choice::A), but the variant name does not match any variant declared in that enum. Check the spelling of the variant name and ensure it matches one of the declared variants in the enum definition."
+                "text": "A call expression references an enum type with an EnumType::Variant qualifier (e.g., Choice::A), but the variant name does not match any variant declared in that enum. Check the spelling of the variant name and ensure it matches one of the declared variants in the enum definition."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0554",
               "id": "T0554",
@@ -1657,7 +1657,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #1198 (phase 7 m1-005): A bare enum variant identifier (e.g., `A` without the `EnumType::` prefix) is ambiguous because multiple enum types declare a variant with that name. Use the fully-qualified form (e.g., Choice::A) to disambiguate which variant you intend."
+                "text": "A bare enum variant identifier (e.g., `A` without the `EnumType::` prefix) is ambiguous because multiple enum types declare a variant with that name. Use the fully-qualified form (e.g., Choice::A) to disambiguate which variant you intend."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0555",
               "id": "T0555",
@@ -1671,7 +1671,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #1084 (PA-r17-009b): The scrutinee (value being matched) must be a Var that resolves to either a module-level Object symbol or a local binding. Other expressions (like literals, function calls, or complex expressions) are not yet supported as match scrutinees in the current emit pass. Extract the value into a local variable and use that variable as the scrutinee (e.g., `let x = f(y); match x { ... }`)."
+                "text": "The scrutinee (value being matched) must be a Var that resolves to either a module-level Object symbol or a local binding. Other expressions (like literals, function calls, or complex expressions) are not yet supported as match scrutinees in the current emit pass. Extract the value into a local variable and use that variable as the scrutinee (e.g., `let x = f(y); match x { ... }`)."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0556",
               "id": "T0556",
@@ -1685,7 +1685,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #1013 (T0558 retroactive guard): A Let binding has a declared [u8; N] array type annotation, but the actual bytes from the @guid or @include_bytes directive differ in length. Either fix the type annotation to match the actual size, or fix the directive to produce the correct number of bytes. This guard prevents silent data truncation or padding mismatches."
+                "text": "A Let binding has a declared [u8; N] array type annotation, but the actual bytes from the @guid or @include_bytes directive differ in length. Either fix the type annotation to match the actual size, or fix the directive to produce the correct number of bytes. This guard prevents silent data truncation or padding mismatches."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0558",
               "id": "T0558",
@@ -1699,7 +1699,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 8 emit_enum_match: enum constructor payload lowering currently supports only Literal and Var child nodes (constants or variable bindings). Other shapes such as RecordCons (record literal payloads in enum constructors) are not yet supported. Restructure to use a simpler payload expression, or defer this pattern to a later phase."
+                "text": "Enum constructor payload lowering currently supports only Literal and Var child nodes (constants or variable bindings). Other shapes such as RecordCons (record literal payloads in enum constructors) are not yet supported. Restructure to use a simpler payload expression, or defer this pattern to a later phase."
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0559",
               "id": "T0559",
@@ -1713,7 +1713,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "The match-arm body lowering path in emit_enum_match.rs dispatches on\nthe arm's IR kind. App bodies are lowered via emit_arm_body_app; other\nIR kinds (nested Match, Let, Block, etc.) are not yet supported and\nfall through to this diagnostic. Issue #1147 retag of the legacy\nstring push at emit_enum_match.rs.\n"
+                "text": "The match-arm body lowering path in emit_enum_match.rs dispatches on\nthe arm's IR kind. App bodies are lowered via emit_arm_body_app; other\nIR kinds (nested Match, Let, Block, etc.) are not yet supported and\nfall through to this diagnostic.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0560",
               "id": "T0560",
@@ -1727,7 +1727,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "emit_arm_body_app infers the operator string from the callee's source\nspan length via infer_operator_from_span_len. Spans whose length does\nnot correspond to any registered operator (1..=2 bytes today) raise\nthis diagnostic. Indicates either a novel operator not yet wired or a\nmalformed span. Issue #1147 retag.\n"
+                "text": "emit_arm_body_app infers the operator string from the callee's source\nspan length via infer_operator_from_span_len. Spans whose length does\nnot correspond to any registered operator (1..=2 bytes today) raise\nthis diagnostic. Indicates either a novel operator not yet wired or a\nmalformed span.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0561",
               "id": "T0561",
@@ -1741,7 +1741,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "The App-node lowering in emit_enum_match.rs dispatches the inferred\noperator against a fixed table (+, -, *, &, |, ^, <<, >>) across four\noperand-shape arms ((Var,Var), (Var,Literal), (Literal,Var),\n(Literal,Literal)). Operators outside this set (e.g. /, %, comparisons)\nare not yet lowered in the match-arm path. Same code fires from all\nfour arms; issue #1147 retag.\n"
+                "text": "The App-node lowering in emit_enum_match.rs dispatches the inferred\noperator against a fixed table (+, -, *, &, |, ^, <<, >>) across four\noperand-shape arms ((Var,Var), (Var,Literal), (Literal,Var),\n(Literal,Literal)). Operators outside this set (e.g. /, %, comparisons)\nare not yet lowered in the match-arm path. Same code fires from all\nfour arms.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0562",
               "id": "T0562",
@@ -1755,7 +1755,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "emit_arm_body_app case-analyzes operand shapes over the 2x2 matrix\n(Var|Literal, Var|Literal). Any other operand shape (e.g. nested App,\nFieldAccess, EnumCons) falls through and raises this diagnostic.\nComplements T0562; issue #1147 retag.\n"
+                "text": "emit_arm_body_app case-analyzes operand shapes over the 2x2 matrix\n(Var|Literal, Var|Literal). Any other operand shape (e.g. nested App,\nFieldAccess, EnumCons) falls through and raises this diagnostic.\nComplements T0562.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0563",
               "id": "T0563",
@@ -1769,7 +1769,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "The pointer-receiver field-assign path in emit_field_access.rs\n(visit_field_assign) dispatches store width on field_size and lowers\n1/2/4/8-byte stores via MovSized. Any other width (e.g. padded or\noversized fields introduced by future layout work) falls through and\nraises this diagnostic. Store-side counterpart of T0565; issue #1147\nretag of the legacy string push.\n"
+                "text": "The pointer-receiver field-assign path in emit_field_access.rs\n(visit_field_assign) dispatches store width on field_size and lowers\n1/2/4/8-byte stores via MovSized. Any other width (e.g. padded or\noversized fields introduced by future layout work) falls through and\nraises this diagnostic. Store-side counterpart of T0565.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0564",
               "id": "T0564",
@@ -1783,7 +1783,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "The unified widening-load dispatcher (emit_widening_load) in\nemit_field_access.rs covers the 4x2 (size in {1,2,4,8}, signed in\n{false,true}) matrix that today's frontend can produce. Any other\n(size, signed) combination — e.g. from future non-power-of-two field\ntypes — falls through and raises this diagnostic. Read-side counterpart\nof T0564; issue #1147 retag of the legacy string push.\n"
+                "text": "The unified widening-load dispatcher (emit_widening_load) in\nemit_field_access.rs covers the 4x2 (size in {1,2,4,8}, signed in\n{false,true}) matrix that today's frontend can produce. Any other\n(size, signed) combination — e.g. from future non-power-of-two field\ntypes — falls through and raises this diagnostic. Read-side counterpart\nof T0564.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0565",
               "id": "T0565",
@@ -1797,7 +1797,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "The register-form pattern binding path in emit_enum_match.rs extracts\nenum-variant payload fields via a size-and-signed dispatch. Field\nshapes outside the supported set fall through and raise this\ndiagnostic. Register-pattern counterpart of T0565; issue #1147 retag.\n"
+                "text": "The register-form pattern binding path in emit_enum_match.rs extracts\nenum-variant payload fields via a size-and-signed dispatch. Field\nshapes outside the supported set fall through and raise this\ndiagnostic. Register-pattern counterpart of T0565.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0566",
               "id": "T0566",
@@ -1811,7 +1811,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #1210: An integer-scrutinee match expression is missing an explicit\ndefault arm. All integer-scrutinee matches require a `_ =>` arm to handle\nvalues that do not match any literal pattern. Add a default arm to handle\nthe fallback case. Example: `match x { 1u64 => ..., _ => ... }`.\n"
+                "text": "An integer-scrutinee match expression is missing an explicit\ndefault arm. All integer-scrutinee matches require a `_ =>` arm to handle\nvalues that do not match any literal pattern. Add a default arm to handle\nthe fallback case. Example: `match x { 1u64 => ..., _ => ... }`.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0567",
               "id": "T0567",
@@ -1825,7 +1825,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #1210: An integer-scrutinee match expression contains a pattern\nthat is neither an integer literal nor a wildcard. Only integer literal\npatterns (e.g. `1u64`, `42i32`) and default/wildcard patterns (`_`) are\nsupported in integer-scrutinee matches. Rewrite the pattern using integer\nliterals or a wildcard.\n"
+                "text": "An integer-scrutinee match expression contains a pattern\nthat is neither an integer literal nor a wildcard. Only integer literal\npatterns (e.g. `1u64`, `42i32`) and default/wildcard patterns (`_`) are\nsupported in integer-scrutinee matches. Rewrite the pattern using integer\nliterals or a wildcard.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0568",
               "id": "T0568",
@@ -1839,7 +1839,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #1210: An arm pattern's integer width does not match the integer\nscrutinee's width. For example, matching a u64 value against a u8 literal\npattern. Ensure all arm patterns use the same width as the scrutinee\n(e.g. if scrutinee is u64, use u64 patterns like `0u64`, `1u64`).\n"
+                "text": "An arm pattern's integer width does not match the integer\nscrutinee's width. For example, matching a u64 value against a u8 literal\npattern. Ensure all arm patterns use the same width as the scrutinee\n(e.g. if scrutinee is u64, use u64 patterns like `0u64`, `1u64`).\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0569",
               "id": "T0569",
@@ -1853,7 +1853,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #994: a lambda literal assigned to a binding annotated with a plain\nfunction-pointer type (`fn(T) -> R`) actually references one or more free\nvariables from its enclosing scope. A bare function pointer is an 8-byte\ncode address with no room to store a captured environment, so this\ncombination cannot be represented. Use closure-type syntax instead\n(`|T| -> R`), which lowers to a 16-byte fat pointer (environment pointer +\ncode pointer) that can carry the captured bindings.\n"
+                "text": "A lambda literal assigned to a binding annotated with a plain\nfunction-pointer type (`fn(T) -> R`) actually references one or more free\nvariables from its enclosing scope. A bare function pointer is an 8-byte\ncode address with no room to store a captured environment, so this\ncombination cannot be represented. Use closure-type syntax instead\n(`|T| -> R`), which lowers to a 16-byte fat pointer (environment pointer +\ncode pointer) that can carry the captured bindings.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0571",
               "id": "T0571",
@@ -1867,7 +1867,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #1239: A closure body contains an application of another closure-typed\nbinding. The closure-call ABI loads the callee's environment pointer into R14\nvia `mov r14, [r11 + 0]` at every call site (see emit_closure_call), which\ndestroys the outer closure's own env-ptr with no save/restore. Any subsequent\nread of a captured binding in the outer closure would resolve against the\ninner closure's environment. Until R14 preservation across closure calls\nlands, this pattern is rejected statically. Workaround: hoist the inner\nclosure to a top-level `fn` (no environment) or restructure so the inner call\nhappens outside the outer closure's body.\n"
+                "text": "A closure body contains an application of another closure-typed\nbinding. The closure-call ABI loads the callee's environment pointer into R14\nvia `mov r14, [r11 + 0]` at every call site (see emit_closure_call), which\ndestroys the outer closure's own env-ptr with no save/restore. Any subsequent\nread of a captured binding in the outer closure would resolve against the\ninner closure's environment. Until R14 preservation across closure calls\nlands, this pattern is rejected statically. Workaround: hoist the inner\nclosure to a top-level `fn` (no environment) or restructure so the inner call\nhappens outside the outer closure's body.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0575",
               "id": "T0575",
@@ -1881,13 +1881,27 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Issue #1309: a module-level `let` with an array-literal initialiser emits one\npacked element per encodable child, and used to emit whatever it got with no\nreconciliation against the declared type. Two silent under-allocations were\npossible:\n\n  1. the initialiser list is shorter (or longer) than the declared `[T; N]`.\n     paideia-os `_frame_meta : [u64; 1024]` was written with 992 elements and\n     linked at 7936 bytes instead of 8192, leaving the last 32 slots aliasing\n     the next symbol in the section;\n  2. an element is not an encodable integer constant — a negative literal, a\n     named constant, an arithmetic expression — in which case the packing loop\n     skipped it entirely and the symbol came out short by that element.\n\nBoth are now rejected and the symbol is not emitted. Fix the initialiser to\nlist exactly N encodable constants, or use the repeat form `[v; N]` (see\nP0211), or declare the binding `uninit` to get an N-sized zeroed `.bss`\nreservation.\n\nScope: this guard fires only when at least one element encoded, i.e. when the\narray-literal path actually produced a partial symbol. An array in which\n*nothing* encodes — such as a table of symbol addresses — emits no data entry\nand therefore no symbol at all, so a use of it fails loudly at link time as an\nundefined symbol rather than silently reading short storage. That is a separate\ngap tracked as issue #1310, not an arity mismatch.\n"
+                "text": "A module-level `let` with an array-literal initialiser emits one\npacked element per encodable child; it used to emit whatever it got with no\nreconciliation against the declared type. Two silent under-allocations were\npossible:\n\n  1. the initialiser list is shorter (or longer) than the declared `[T; N]`.\n     paideia-os `_frame_meta : [u64; 1024]` was written with 992 elements and\n     linked at 7936 bytes instead of 8192, leaving the last 32 slots aliasing\n     the next symbol in the section;\n  2. an element is not an encodable integer constant — a negative literal, a\n     named constant, an arithmetic expression — in which case the packing loop\n     skipped it entirely and the symbol came out short by that element.\n\nBoth are now rejected and the symbol is not emitted. Fix the initialiser to\nlist exactly N encodable constants, or use the repeat form `[v; N]` (see\nP0211), or declare the binding `uninit` to get an N-sized zeroed `.bss`\nreservation.\n\nScope: this guard fires only when at least one element encoded, i.e. when the\narray-literal path actually produced a partial symbol. An array in which\n*nothing* encodes — such as a table of symbol addresses — emits no data entry\nand therefore no symbol at all, so a use of it fails loudly at link time as an\nundefined symbol rather than silently reading short storage. That is a separate\ngap, not an arity mismatch.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/T0576",
               "id": "T0576",
               "name": "Array initialiser arity mismatch",
               "shortDescription": {
                 "text": "array literal element count does not match the storage the symbol declares"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "`compute_bss_size_from_type` sizes a `.bss` symbol for\n`pub let mut NAME : [T; N] = uninit` from the declared array type. When `N`\nwas anything other than a bare integer literal — a named constant, an\narithmetic expression such as `MAX_PIDS * TASK_SLOT_QWORDS` — it silently fell\nback to an 8-byte object instead of failing. This directly caused a kernel\nbug: `_task_pool : [u64; MAX_PIDS * TASK_SLOT_QWORDS]` linked at 8 bytes, so\nevery pid past the first wrote a complete task structure past the end of the\narray and into the adjacent kernel-stack region, with no diagnostic anywhere.\n\n`N` is now resolved as:\n  1. an integer literal, sized directly;\n  2. a single bare identifier naming a non-`mut`, module-level\n     `let NAME (: TY)? = <integer literal>` declared in the same file — folded\n     as a compile-time constant;\n  3. anything else — a binary expression, a multi-segment path, an\n     undeclared or mutable identifier — is this diagnostic. The declaration's\n     `.bss` symbol is not emitted; give the array a literal length, or move the\n     bound into a single resolvable constant `let`.\n\nSilent fallback to 8 bytes was removed entirely: an array whose length cannot\nbe determined is a hard build error, never a guess.\n"
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/T0577",
+              "id": "T0577",
+              "name": "Array length cannot be sized at emit-time",
+              "shortDescription": {
+                "text": "`[T; N]` where `N` is not a literal or a resolvable module constant — cannot determine `.bss` size"
               }
             },
             {
@@ -1965,7 +1979,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 4 m6-001: the borrow checker requires that a binding can be borrowed either as immutable (any number of times) or as mutable (exactly once), but not both simultaneously. This rule prevents data races and use-after-free patterns."
+                "text": "The borrow checker requires that a binding can be borrowed either as immutable (any number of times) or as mutable (exactly once), but not both simultaneously. This rule prevents data races and use-after-free patterns."
               },
               "helpUri": "https://paideia-os.org/diagnostics/S0906",
               "id": "S0906",
@@ -1979,7 +1993,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 4 m6-001: a binding can have at most one active mutable borrow at a time. This prevents data races by guaranteeing exclusive access through the mutable reference."
+                "text": "A binding can have at most one active mutable borrow at a time. This prevents data races by guaranteeing exclusive access through the mutable reference."
               },
               "helpUri": "https://paideia-os.org/diagnostics/S0907",
               "id": "S0907",
@@ -1993,7 +2007,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 4 m6-002: the borrow checker requires that any borrowed value lives at least as long as the borrow. If the source goes out of scope before the borrow does, fire S0908."
+                "text": "The borrow checker requires that any borrowed value lives at least as long as the borrow. If the source goes out of scope before the borrow does, fire S0908."
               },
               "helpUri": "https://paideia-os.org/diagnostics/S0908",
               "id": "S0908",
@@ -2007,7 +2021,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 4 m6-003: prevents mutation-through-borrow races. While a borrow is active, the source binding may not be assigned a new value."
+                "text": "Prevents mutation-through-borrow races. While a borrow is active, the source binding may not be assigned a new value."
               },
               "helpUri": "https://paideia-os.org/diagnostics/S0909",
               "id": "S0909",
@@ -2161,7 +2175,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "note"
               },
               "fullDescription": {
-                "text": "Per OS-requirements §6 design-clarification 5: TCO ships in Phase 2 to support the kernel's exception-unwinder path. Capability boundaries, effect-handler installations, and ABI mismatches suppress TCO."
+                "text": "TCO applies to support the kernel's exception-unwinder path. Capability boundaries, effect-handler installations, and ABI mismatches suppress TCO."
               },
               "helpUri": "https://paideia-os.org/diagnostics/O1510",
               "id": "O1510",
@@ -2175,7 +2189,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "note"
               },
               "fullDescription": {
-                "text": "Per optimization-passes.md §10, loop unrolling replicates loop body by a compile-time constant factor to reduce branch penalties and improve ILP. Phase-2-m9-009 supports only known trip counts with divisible factors; remainder loops are deferred to phase-2-m9-010."
+                "text": "Loop unrolling replicates the loop body by a compile-time constant factor to reduce branch penalties and improve ILP. Only known trip counts with divisible factors are currently supported; unrolling loops with indivisible or unknown trip counts is not yet implemented."
               },
               "helpUri": "https://paideia-os.org/diagnostics/O1511",
               "id": "O1511",
@@ -2189,7 +2203,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "warning"
               },
               "fullDescription": {
-                "text": "Loop unrolling with #[unroll(n)] requires a known trip count divisible by n. This loop's trip count is symbolic or unknown, preventing safe unrolling. Remainder-loop dispatch to handle unknown trip counts is deferred to phase-2-m9-010. Provide a constant trip count or remove the #[unroll(n)] directive."
+                "text": "Loop unrolling with #[unroll(n)] requires a known trip count divisible by n. This loop's trip count is symbolic or unknown, preventing safe unrolling. Remainder-loop dispatch for unknown trip counts is not yet implemented. Provide a constant trip count or remove the #[unroll(n)] directive."
               },
               "helpUri": "https://paideia-os.org/diagnostics/O1512",
               "id": "O1512",
@@ -2203,7 +2217,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 5 m3-003: every mnemonic used inside an `unsafe { block: { ... } }` must be present in the MNEMONIC_TABLE. Unknown mnemonics could be typos OR could be valid x86_64 instructions not yet wired through paideia-as. The resolver tables cover Phase 3 m2-001's 10 base mnemonics plus Phase 5 m2-001's 20 privileged/system-ISA mnemonics, along with all Jcc condition codes, control/debug register moves, I/O port operations, and software interrupts (30+ total). Consult `crates/paideia-as-elaborator/src/unsafe_walker.rs` MNEMONIC_TABLE or file an issue to request additional instruction support."
+                "text": "Every mnemonic used inside an `unsafe { block: { ... } }` must be present in the MNEMONIC_TABLE. Unknown mnemonics could be typos OR could be valid x86_64 instructions not yet wired through paideia-as. The resolver tables cover roughly 30 base and privileged/system-ISA mnemonics, along with all Jcc condition codes, control/debug register moves, I/O port operations, and software interrupts. Consult `crates/paideia-as-elaborator/src/unsafe_walker.rs` MNEMONIC_TABLE or file an issue to request additional instruction support."
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1605",
               "id": "U1605",
@@ -2217,7 +2231,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 5 m3-004: UnsafeWalker encountered an operand parsing error while elaborating a StmtInstruction inside an `unsafe { block: { ... } }`. This indicates a syntax error in the operand expression: invalid register name, malformed memory reference (e.g., '[rdi +]' with missing operand), type mismatch, or other shape error returned by m3-002's operand parser. The instruction is skipped; check the operand against the x86_64 addressing-mode rules in design/cpu/unsafe-blocks.md."
+                "text": "UnsafeWalker encountered an operand parsing error while elaborating a StmtInstruction inside an `unsafe { block: { ... } }`. This indicates a syntax error in the operand expression: invalid register name, malformed memory reference (e.g., '[rdi +]' with missing operand), type mismatch, or other shape error returned by the operand parser. The instruction is skipped; check the operand against the x86_64 addressing-mode rules in design/cpu/unsafe-blocks.md."
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1606",
               "id": "U1606",
@@ -2231,7 +2245,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 6 m1-005: cli, sti, hlt, nop, swapgs, cpuid, wrmsr, rdmsr, iret, iretq, sysret, rep_stosq take no operands. Source with operands for these mnemonics emits U1607 and proceeds with operands ignored (recovery posture for iteration)."
+                "text": "cli, sti, hlt, nop, swapgs, cpuid, wrmsr, rdmsr, iret, iretq, sysret, rep_stosq take no operands. Source with operands for these mnemonics emits U1607 and proceeds with operands ignored (recovery posture for iteration)."
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1607",
               "id": "U1607",
@@ -2245,7 +2259,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 6 m3-005: A field access expression (*p.field) inside an unsafe { block: { ... } } references a field whose struct type has not been registered in the record layout table. This occurs when the target record type is not declared before the unsafe block, or the field name does not exist in the struct. The unsafe block requires C-ABI natural-alignment record layout information to resolve field byte offsets at parse time."
+                "text": "A field access expression (*p.field) inside an unsafe { block: { ... } } references a field whose struct type has not been registered in the record layout table. This occurs when the target record type is not declared before the unsafe block, or the field name does not exist in the struct. The unsafe block requires C-ABI natural-alignment record layout information to resolve field byte offsets at parse time."
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1608",
               "id": "U1608",
@@ -2259,7 +2273,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 6 m4-002: A label with this name has already been declared in the current unsafe block. Labels must have unique names within the block's scope. Rename the duplicate label to a unique identifier or remove the duplicate declaration."
+                "text": "A label with this name has already been declared in the current unsafe block. Labels must have unique names within the block's scope. Rename the duplicate label to a unique identifier or remove the duplicate declaration."
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1609",
               "id": "U1609",
@@ -2273,7 +2287,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 6 m4-002: A jump instruction references a label that has not been declared in the current unsafe block. Either declare the label with a `label_name:` statement, or fix the spelling of the label reference. Label resolution is performed at parse time by the walker."
+                "text": "A jump instruction references a label that has not been declared in the current unsafe block. Either declare the label with a `label_name:` statement, or fix the spelling of the label reference. Label resolution is performed at parse time by the walker."
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1610",
               "id": "U1610",
@@ -2287,7 +2301,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 6 m4-005: A bare-identifier symbol operand (e.g., `cap_alloc`) was used with a mnemonic that does not support symbol references. In Phase 6, only `call` and `jmp` (both conditional and unconditional) mnemonics support bare-identifier symbols in call position, which resolve to SymbolRef operands with PC-relative 32-bit relocations. Other mnemonics (mov, lea, etc.) require explicit syntax (e.g., `lea rax, [symbol]` for RIP-relative addressing). This restriction will be lifted in Phase 7+ with full symbol-address-of support. Either use call/jmp, or refactor to use supported addressing modes."
+                "text": "A bare-identifier symbol operand (e.g., `cap_alloc`) was used with a mnemonic that does not support symbol references. Currently, only `call` and `jmp` (both conditional and unconditional) mnemonics support bare-identifier symbols in call position, which resolve to SymbolRef operands with PC-relative 32-bit relocations. Other mnemonics (mov, lea, etc.) require explicit syntax (e.g., `lea rax, [symbol]` for RIP-relative addressing). This restriction will be lifted once full symbol-address-of support is implemented. Either use call/jmp, or refactor to use supported addressing modes."
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1611",
               "id": "U1611",
@@ -2301,7 +2315,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 16 m4-002: An instruction mnemonic inside an unsafe block requires a CPU feature (cx16, popcnt, bmi1, sse4.2, avx, avx512f, etc.) that is not declared in the module's #![target_features] attribute. For example, using a popcnt instruction requires declaring #![target_features = \"popcnt\"]. Either add the required feature to the module's #![target_features] list, or replace the instruction with one that doesn't require it."
+                "text": "An instruction mnemonic inside an unsafe block requires a CPU feature (cx16, popcnt, bmi1, sse4.2, avx, avx512f, etc.) that is not declared in the module's #![target_features] attribute. For example, using a popcnt instruction requires declaring #![target_features = \"popcnt\"]. Either add the required feature to the module's #![target_features] list, or replace the instruction with one that doesn't require it."
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1612",
               "id": "U1612",
@@ -2315,7 +2329,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "warning"
               },
               "fullDescription": {
-                "text": "Phase 16 m4-003: A LOCK-prefixed instruction (e.g., LOCK CMPXCHG) has implicit register reads/writes that conflict with registers named in the explicit operand list. For example, `lock cmpxchg [rax], rcx` reads and writes RAX implicitly, but RAX is also the memory operand's base register — the implicit write will silently overwrite RAX after the instruction executes. This is an aliasing hazard that can lead to correctness bugs. Refactor the instruction to avoid overlapping registers, or use a different addressing mode for the memory operand."
+                "text": "A LOCK-prefixed instruction (e.g., LOCK CMPXCHG) has implicit register reads/writes that conflict with registers named in the explicit operand list. For example, `lock cmpxchg [rax], rcx` reads and writes RAX implicitly, but RAX is also the memory operand's base register — the implicit write will silently overwrite RAX after the instruction executes. This is an aliasing hazard that can lead to correctness bugs. Refactor the instruction to avoid overlapping registers, or use a different addressing mode for the memory operand."
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1613",
               "id": "U1613",
@@ -2329,7 +2343,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Historically the unsafe-block emit path only routes StmtInstruction and\nStmtLabel through the walker. All other statement kinds (call expressions,\nlet bindings, field-access reads, etc.) reach the walker but emit zero\nbytes. This diagnostic makes that drop explicit rather than silent.\n\nThe parser (parse_unsafe.rs) and lowering (lower.rs) accept the full\nstatement grammar inside unsafe blocks; the emit routing to close the gap\nis tracked in follow-up #1088.\n\nWorkaround: move non-asm statements outside the unsafe block, or wait for\n#1088 to land the full routing.\n"
+                "text": "The unsafe-block emit path only routes StmtInstruction and StmtLabel through\nthe walker. Other statement kinds (call expressions, let bindings,\nfield-access reads, etc.) reach the walker but emit zero bytes. This\ndiagnostic makes that drop explicit rather than silent.\n\nThe parser (parse_unsafe.rs) and lowering (lower.rs) accept the full\nstatement grammar inside unsafe blocks; the emit routing to close the gap\nis not yet implemented.\n\nWorkaround: move non-asm statements outside the unsafe block.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1614",
               "id": "U1614",
@@ -2343,7 +2357,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "PA-R13-010 macro-expansion reserves R11 as scratch for `movabs r11, imm64; <op> dst, r11`.\nWhen the destination register is r11, the expansion cannot proceed because clobbering the\nscratch register would destroy the immediate value before the operation executes. Select a\ndifferent destination register or hoist the bitwise operation outside the site.\n"
+                "text": "The imm64 bitwise-expansion macro reserves R11 as scratch for\n`movabs r11, imm64; <op> dst, r11`. When the destination register is r11,\nthe expansion cannot proceed because clobbering the scratch register would\ndestroy the immediate value before the operation executes. Select a\ndifferent destination register or hoist the bitwise operation outside the\nsite.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1615",
               "id": "U1615",
@@ -2357,7 +2371,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "cmd_build drained a message from emit_walker.diagnostics() — the legacy\nVec<String> channel used by internal invariants and shape gaps that predate\nthe typed diagnostic pipe (T0516, T0518, T0521, etc.). The raw message follows.\n\nThis diagnostic indicates a compiler-internal error: invariant violations,\nmissing side-tables, or unpopulated layouts in the elaborator. Any fire\nrepresents a silent-broken-.o class bug that would previously have shipped\nwithout a build error.\n\nPost-#1086 migration, this channel holds only non-T-coded internal errors;\nall user-facing shape gaps have migrated to the typed pipe. If you see this\ndiagnostic, the elaborator has detected a structural invariant violation and\ncannot proceed safely.\n"
+                "text": "cmd_build drained a message from emit_walker.diagnostics() — the legacy\nVec<String> channel used by internal invariants and shape gaps that predate\nthe typed diagnostic pipe (T0516, T0518, T0521, etc.). The raw message follows.\n\nThis diagnostic indicates a compiler-internal error: invariant violations,\nmissing side-tables, or unpopulated layouts in the elaborator. Any fire\nrepresents a silent-broken-.o class bug that would previously have shipped\nwithout a build error.\n\nThis channel holds only non-T-coded internal errors; all user-facing shape\ngaps have migrated to the typed pipe. If you see this diagnostic, the\nelaborator has detected a structural invariant violation and cannot proceed\nsafely.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1616",
               "id": "U1616",
@@ -2371,7 +2385,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 19 PA19-r19-006 (narrowed gate): The @abi(\"ms\") calling convention annotation is accepted at parse time and emits successfully for MVP-supported shapes (identity `fn(x) -> x`, add-imm `fn(x) -> x + literal`, literal-return `fn() -> N`, with 0–4 integer arguments). Unsupported shapes — 5+ arguments, non-identity/non-add-imm/non-literal bodies (multiplication, function calls, complex expressions), aggregate returns, or float arguments — fire this gate. SysV-annotated (@abi(\"sysv\")) and unannotated functions emit normally using the paideia default calling convention."
+                "text": "The @abi(\"ms\") calling convention annotation is accepted at parse time and emits successfully for MVP-supported shapes (identity `fn(x) -> x`, add-imm `fn(x) -> x + literal`, literal-return `fn() -> N`, with 0–4 integer arguments). Unsupported shapes — 5+ arguments, non-identity/non-add-imm/non-literal bodies (multiplication, function calls, complex expressions), aggregate returns, or float arguments — fire this gate. SysV-annotated (@abi(\"sysv\")) and unannotated functions emit normally using the paideia default calling convention."
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1620",
               "id": "U1620",
@@ -2385,7 +2399,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "visit_branch requires each IrKind::Branch node to carry at least a condition\nchild and a then_body child (else_body is optional). Fewer than 2 children\nindicates the parser/lowerer produced a malformed Branch — a post-elaboration\ninvariant violation. Issue #1147 slice A1 migration from the legacy Vec<String>\ndiagnostic channel to the typed pipe.\n"
+                "text": "visit_branch requires each IrKind::Branch node to carry at least a condition\nchild and a then_body child (else_body is optional). Fewer than 2 children\nindicates the parser/lowerer produced a malformed Branch — a post-elaboration\ninvariant violation.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1621",
               "id": "U1621",
@@ -2399,7 +2413,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "visit_while accepts two shapes: zero children (While inside an unsafe block —\nhandled by the unsafe_walker) or exactly [condition, body]. Any other count\nindicates the child-transfer pass or lowerer produced a malformed While — a\npost-elaboration invariant violation. Issue #1147 slice A1 migration from the\nlegacy Vec<String> diagnostic channel to the typed pipe.\n"
+                "text": "visit_while accepts two shapes: zero children (While inside an unsafe block —\nhandled by the unsafe_walker) or exactly [condition, body]. Any other count\nindicates the child-transfer pass or lowerer produced a malformed While — a\npost-elaboration invariant violation.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1622",
               "id": "U1622",
@@ -2413,7 +2427,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "visit_store requires each IrKind::Store node to carry exactly three children\n[addr, index_or_unused, value] with both addr and value materialized into\nIrKind::Var nodes by the ANF/let-hoisting pass. Any deviation — wrong child\ncount, non-Var addr, or non-Var value — indicates the parser/lowerer produced\na malformed Store: a post-elaboration invariant violation. Issue #1147 slice A2\nmigration from the legacy Vec<String> diagnostic channel to the typed pipe.\n"
+                "text": "visit_store requires each IrKind::Store node to carry exactly three children\n[addr, index_or_unused, value] with both addr and value materialized into\nIrKind::Var nodes by the ANF/let-hoisting pass. Any deviation — wrong child\ncount, non-Var addr, or non-Var value — indicates the parser/lowerer produced\na malformed Store: a post-elaboration invariant violation.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1623",
               "id": "U1623",
@@ -2427,7 +2441,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "During IR traversal in emit_block_body / emit_block_body_arm, a RawInstruction\nchild node was encountered but the instruction payload was not found in the\nInstructionSideTable. Post-elaboration invariant violation: either the\ninstruction was not registered during elaboration or the side-table lookup\nfailed. Issue #1147 slice A3 migration from the legacy Vec<String> diagnostic\nchannel to the typed pipe (reclassified from T0526 to unsafe/invariant).\n"
+                "text": "During IR traversal in emit_block_body / emit_block_body_arm, a RawInstruction\nchild node was encountered but the instruction payload was not found in the\nInstructionSideTable. Post-elaboration invariant violation: either the\ninstruction was not registered during elaboration or the side-table lookup\nfailed.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1642",
               "id": "U1642",
@@ -2441,7 +2455,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "During field-access elaboration, a Store, FieldAccess, or Deref node violated\na structural invariant. This can occur when:\n- A Store node has fewer than 3 children (expected: FieldAccess, index/unused, value)\n- A FieldAccess node has no child (expected: record value/Deref)\n- A Deref node has no child (expected: pointer)\n\nIssue #1147 slice A4 migration from the legacy Vec<String> diagnostic channel\nto the typed pipe. This diagnostic indicates a compiler-internal structural\ninvariant violation and should not occur in normal compilation.\n"
+                "text": "During field-access elaboration, a Store, FieldAccess, or Deref node violated\na structural invariant. This can occur when:\n- A Store node has fewer than 3 children (expected: FieldAccess, index/unused, value)\n- A FieldAccess node has no child (expected: record value/Deref)\n- A Deref node has no child (expected: pointer)\n\nThis diagnostic indicates a compiler-internal structural invariant violation\nand should not occur in normal compilation.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1643",
               "id": "U1643",
@@ -2455,7 +2469,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "During field-access lowering for a Store operation, a FieldAccess node was\nencountered but the corresponding FieldAccessInfo payload was not found in the\nside-table. This indicates an elaboration-phase invariant violation: either the\nFieldAccess node was not properly registered during elaboration, or the\nside-table lookup failed.\n\nIssue #1147 slice A4 migration from the legacy Vec<String> diagnostic channel\nto the typed pipe.\n"
+                "text": "During field-access lowering for a Store operation, a FieldAccess node was\nencountered but the corresponding FieldAccessInfo payload was not found in the\nside-table. This indicates an elaboration-phase invariant violation: either the\nFieldAccess node was not properly registered during elaboration, or the\nside-table lookup failed.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1644",
               "id": "U1644",
@@ -2469,7 +2483,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "During field-access elaboration (read or write), the elaborator attempted to\nlook up the record layout for a field's type_id but the layout was not found\nin the record_layouts table. This indicates that a record type was not\nproperly registered during elaboration, or the type_id is invalid.\n\nIssue #1147 slice A4 migration from the legacy Vec<String> diagnostic channel\nto the typed pipe. This diagnostic indicates a compiler-internal invariant\nviolation and should not occur in normal compilation.\n"
+                "text": "During field-access elaboration (read or write), the elaborator attempted to\nlook up the record layout for a field's type_id but the layout was not found\nin the record_layouts table. This indicates that a record type was not\nproperly registered during elaboration, or the type_id is invalid.\n\nThis diagnostic indicates a compiler-internal invariant violation and should\nnot occur in normal compilation.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1645",
               "id": "U1645",
@@ -2483,7 +2497,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "During field-access elaboration, a field_index from FieldAccessInfo was used\nto index into the record layout's fields array, but the index exceeded the\narray's length. This indicates an invariant violation: either the field_index\nis corrupt, or the record layout was incompletely registered.\n\nIssue #1147 slice A4 migration from the legacy Vec<String> diagnostic channel\nto the typed pipe.\n"
+                "text": "During field-access elaboration, a field_index from FieldAccessInfo was used\nto index into the record layout's fields array, but the index exceeded the\narray's length. This indicates an invariant violation: either the field_index\nis corrupt, or the record layout was incompletely registered.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1646",
               "id": "U1646",
@@ -2497,7 +2511,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "During field-assignment lowering ((*p).field = value), the elaborator\nattempted to resolve a local binding name (for either the pointer receiver p\nor the RHS value Var) but the binding was not found in the local_bindings map.\nThis can occur when:\n- The pointer receiver binding has not been declared in the enclosing function\n- The RHS Var binding has not been declared or has gone out of scope\n- The resolve_var_operands pass failed to populate local_bindings\n\nIssue #1147 slice A4 migration from the legacy Vec<String> diagnostic channel\nto the typed pipe.\n"
+                "text": "During field-assignment lowering ((*p).field = value), the elaborator\nattempted to resolve a local binding name (for either the pointer receiver p\nor the RHS value Var) but the binding was not found in the local_bindings map.\nThis can occur when:\n- The pointer receiver binding has not been declared in the enclosing function\n- The RHS Var binding has not been declared or has gone out of scope\n- The resolve_var_operands pass failed to populate local_bindings\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1647",
               "id": "U1647",
@@ -2511,7 +2525,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "During enum constructor or discriminant lowering, the elaborator attempted to\nlook up required metadata but the entry was not found in the side-table. This\ncan occur when:\n- EnumCons node lacks EnumConsInfo in the side-table\n- EnumCons has payload_size > 0 but no payload child\n- EnumDiscriminant node lacks EnumTypeId in the side-table\n\nIssue #1147 slice A5a migration from the legacy Vec<String> diagnostic channel\nto the typed pipe. This indicates a structural invariant violation in the\nelaborator and should not occur in normal compilation.\n"
+                "text": "During enum constructor or discriminant lowering, the elaborator attempted to\nlook up required metadata but the entry was not found in the side-table. This\ncan occur when:\n- EnumCons node lacks EnumConsInfo in the side-table\n- EnumCons has payload_size > 0 but no payload child\n- EnumDiscriminant node lacks EnumTypeId in the side-table\n\nThis indicates a structural invariant violation in the elaborator and should\nnot occur in normal compilation.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1648",
               "id": "U1648",
@@ -2525,7 +2539,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "During enum constructor, discriminant, or match lowering, the elaborator\nattempted to look up the enum layout for a type_id but the layout was not\nfound in the state's enum_layouts table. This can occur when:\n- An enum type was not properly registered during elaboration\n- The type_id is invalid or uninitialized\n- The layout was removed prematurely from the state\n\nIssue #1147 slice A5a migration from the legacy Vec<String> diagnostic channel\nto the typed pipe. This indicates a structural invariant violation and should\nnot occur in normal compilation.\n"
+                "text": "During enum constructor, discriminant, or match lowering, the elaborator\nattempted to look up the enum layout for a type_id but the layout was not\nfound in the state's enum_layouts table. This can occur when:\n- An enum type was not properly registered during elaboration\n- The type_id is invalid or uninitialized\n- The layout was removed prematurely from the state\n\nThis indicates a structural invariant violation and should not occur in\nnormal compilation.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1649",
               "id": "U1649",
@@ -2539,7 +2553,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "During match expression lowering, a Match IR node was found to be malformed:\n- Missing children (expected at least scrutinee)\n- Missing arms in jump-table or cascade dispatch\n- Scrutinee type not resolvable from the node structure\n- Insufficient arms for exhaustive pattern coverage\n\nIssue #1147 slice A5a migration from the legacy Vec<String> diagnostic channel\nto the typed pipe. This indicates a post-elaboration invariant violation: either\nthe parser/lowerer produced a malformed Match, or child-transfer passed through\nwithout validating the shape.\n"
+                "text": "During match expression lowering, a Match IR node was found to be malformed:\n- Missing children (expected at least scrutinee)\n- Missing arms in jump-table or cascade dispatch\n- Scrutinee type not resolvable from the node structure\n- Insufficient arms for exhaustive pattern coverage\n\nThis indicates a post-elaboration invariant violation: either the\nparser/lowerer produced a malformed Match, or child-transfer passed through\nwithout validating the shape.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1650",
               "id": "U1650",
@@ -2553,7 +2567,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "During match arm lowering (either jump-table or cascade dispatch), the\nelaborator attempted to look up match-arm metadata but the entry was not found\nin the arena's match_arm_meta side-table. Each arm must have associated\nMatchArmMeta describing its pattern bindings and layout.\n\nIssue #1147 slice A5a migration from the legacy Vec<String> diagnostic channel\nto the typed pipe. This indicates a structural invariant violation: the arm\nwas not properly registered during elaboration.\n"
+                "text": "During match arm lowering (either jump-table or cascade dispatch), the\nelaborator attempted to look up match-arm metadata but the entry was not found\nin the arena's match_arm_meta side-table. Each arm must have associated\nMatchArmMeta describing its pattern bindings and layout.\n\nThis indicates a structural invariant violation: the arm was not properly\nregistered during elaboration.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1651",
               "id": "U1651",
@@ -2567,7 +2581,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "During nested pattern binding lowering (in lower_pattern for enum variants\nwith record payloads or direct record patterns), the elaborator attempted to\nlook up the record layout for a type_id but the layout was not found in the\nstate's record_layouts table. This can occur when:\n- A record type was not properly registered during elaboration\n- The type_id is invalid or uninitialized\n- The layout was removed prematurely from the state\n\nIssue #1147 slice A5a migration from the legacy Vec<String> diagnostic channel\nto the typed pipe. This indicates a structural invariant violation and should\nnot occur in normal compilation.\n"
+                "text": "During nested pattern binding lowering (in lower_pattern for enum variants\nwith record payloads or direct record patterns), the elaborator attempted to\nlook up the record layout for a type_id but the layout was not found in the\nstate's record_layouts table. This can occur when:\n- A record type was not properly registered during elaboration\n- The type_id is invalid or uninitialized\n- The layout was removed prematurely from the state\n\nThis indicates a structural invariant violation and should not occur in\nnormal compilation.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1652",
               "id": "U1652",
@@ -2581,7 +2595,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "During nested pattern binding lowering (in lower_pattern for record fields),\nthe elaborator attempted to resolve a field name to its index in the record\nlayout but the field was not found. This can occur when:\n- The field name does not exist in the record type definition\n- The record layout was incompletely populated\n- The field name spelling does not match the layout's field index\n\nIssue #1147 slice A5a migration from the legacy Vec<String> diagnostic channel\nto the typed pipe. This indicates a structural invariant violation or type\nmismatch in the record field resolution.\n"
+                "text": "During nested pattern binding lowering (in lower_pattern for record fields),\nthe elaborator attempted to resolve a field name to its index in the record\nlayout but the field was not found. This can occur when:\n- The field name does not exist in the record type definition\n- The record layout was incompletely populated\n- The field name spelling does not match the layout's field index\n\nThis indicates a structural invariant violation or type mismatch in the\nrecord field resolution.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1653",
               "id": "U1653",
@@ -2595,7 +2609,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "During nested pattern binding lowering (in lower_pattern), the elaborator\nattempted to assign binding slots but exhausted the available scratch\nregisters. Two forms:\n- Memory-form patterns: each binding requires a scratch register; limit is 5\n  (scratch_regs array length). Exceeding 5 bindings per arm exhausts the pool.\n- Register-form patterns: limit is 4 caller-save registers. Exceeding 4\n  bindings per arm triggers this diagnostic.\n\nIssue #1147 slice A5a migration from the legacy Vec<String> diagnostic channel\nto the typed pipe. Workaround: restructure nested patterns to use fewer than\n5 (memory) or 4 (register) bindings per arm.\n"
+                "text": "During nested pattern binding lowering (in lower_pattern), the elaborator\nattempted to assign binding slots but exhausted the available scratch\nregisters. Two forms:\n- Memory-form patterns: each binding requires a scratch register; limit is 5\n  (scratch_regs array length). Exceeding 5 bindings per arm exhausts the pool.\n- Register-form patterns: limit is 4 caller-save registers. Exceeding 4\n  bindings per arm triggers this diagnostic.\n\nWorkaround: restructure nested patterns to use fewer than 5 (memory) or 4\n(register) bindings per arm.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1654",
               "id": "U1654",
@@ -2609,7 +2623,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "During arm-body lowering, the elaborator expected an App node to have at\nleast 3 children (callee, arg0, arg1) and for all to be present in the\narena. One or more conditions failed:\n- App node has fewer than 3 children\n- Callee child ID is not in the arena\n- Arg0 (first argument) child ID is not in the arena\n- Arg1 (second argument) child ID is not in the arena\n\nIssue #1147 slice A5b migration from the legacy Vec<String> diagnostic channel\nto the typed pipe.\n"
+                "text": "During arm-body lowering, the elaborator expected an App node to have at\nleast 3 children (callee, arg0, arg1) and for all to be present in the\narena. One or more conditions failed:\n- App node has fewer than 3 children\n- Callee child ID is not in the arena\n- Arg0 (first argument) child ID is not in the arena\n- Arg1 (second argument) child ID is not in the arena\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1655",
               "id": "U1655",
@@ -2623,7 +2637,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "During arm-body lowering, the elaborator attempted to lower an App node's\noperands but found that the corresponding side-table entry was missing:\n- For Var operands: binding_names side-table has no entry for the variable\n- For Literal operands: literal_values side-table has no entry for the literal\n\nThis indicates an inconsistency in the IR: the operand is registered but not\nindexed in the side-table used to extract its value during lowering.\n\nIssue #1147 slice A5b migration from the legacy Vec<String> diagnostic channel\nto the typed pipe.\n"
+                "text": "During arm-body lowering, the elaborator attempted to lower an App node's\noperands but found that the corresponding side-table entry was missing:\n- For Var operands: binding_names side-table has no entry for the variable\n- For Literal operands: literal_values side-table has no entry for the literal\n\nThis indicates an inconsistency in the IR: the operand is registered but not\nindexed in the side-table used to extract its value during lowering.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1656",
               "id": "U1656",
@@ -2637,7 +2651,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "During arm-body lowering, the elaborator attempted to lower a Var operand\nbut found that the variable's binding name is not present in the current\nlocal_bindings map. This indicates that the variable was not bound in the\nmatch arm's scope, or the binding was lost before operand lowering occurred.\n\nIssue #1147 slice A5b migration from the legacy Vec<String> diagnostic channel\nto the typed pipe.\n"
+                "text": "During arm-body lowering, the elaborator attempted to lower a Var operand\nbut found that the variable's binding name is not present in the current\nlocal_bindings map. This indicates that the variable was not bound in the\nmatch arm's scope, or the binding was lost before operand lowering occurred.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1657",
               "id": "U1657",
@@ -2651,7 +2665,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "emit_scrutinee_load's local-binding branch found a register-form enum scrutinee\n(layout.payload_size > 0) whose local binding was inserted via the scalar insert()\nrather than insert_pair(). Payload consumers reading RDX will see stale data.\nThis diagnostic is defensive: the producer side (#1178) will make it structurally\nimpossible when let-type is a register-form enum. Filed as part of #1154 Slice 1.\n"
+                "text": "emit_scrutinee_load's local-binding branch found a register-form enum scrutinee\n(layout.payload_size > 0) whose local binding was inserted via the scalar insert()\nrather than insert_pair(). Payload consumers reading RDX will see stale data.\nThis diagnostic is defensive: making this structurally impossible on the\nproducer side, when let-type is a register-form enum, is not yet implemented.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1658",
               "id": "U1658",
@@ -2665,7 +2679,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "During emit_block_body / emit_block_body_arm, a Let statement was encountered\nwhose RHS expression kind is not explicitly handled by the emitter. The binding\nwas recorded in local_bindings but no code was emitted to populate its scratch\nregister. This means the binding will read garbage when referenced later.\n\nThis is a hard invariant violation: every RHS kind that can appear syntactically\nmust have a dedicated emit path. If a new IR kind is introduced, the Let-RHS\ndispatch must be updated.\n\nPart of #1209 / #1207 hardening. This diagnostic prevents silent miscompilation\nwhen new Let-RHS shapes are added without updating the dispatcher.\n"
+                "text": "During emit_block_body / emit_block_body_arm, a Let statement was encountered\nwhose RHS expression kind is not explicitly handled by the emitter. The binding\nwas recorded in local_bindings but no code was emitted to populate its scratch\nregister. This means the binding will read garbage when referenced later.\n\nThis is a hard invariant violation: every RHS kind that can appear syntactically\nmust have a dedicated emit path. If a new IR kind is introduced, the Let-RHS\ndispatch must be updated. This diagnostic prevents silent miscompilation when\nnew Let-RHS shapes are added without updating the dispatcher.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1659",
               "id": "U1659",
@@ -2679,7 +2693,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "During register_nested_lambda_params in emit_visit_lambda, a parameter was found\nto have a type that resolves to a registered enum with RegisterPair passing\nconvention. Pair parameters (with both discriminant and payload in registers)\nare only supported at parameter index 0 (registers RAX, RDX).\n\nFor index >= 1, the prologue would need to allocate different scratch registers\nto hold the pair, which is not yet implemented. Either reorder your lambda\nparameters to place enum-typed parameters first, or refactor the lambda to\naccept fewer parameters.\n\nPart of #1156 (receiver-side).\n"
+                "text": "During register_nested_lambda_params in emit_visit_lambda, a parameter was found\nto have a type that resolves to a registered enum with RegisterPair passing\nconvention. Pair parameters (with both discriminant and payload in registers)\nare only supported at parameter index 0 (registers RAX, RDX).\n\nFor index >= 1, the prologue would need to allocate different scratch registers\nto hold the pair, which is not yet implemented. Either reorder your lambda\nparameters to place enum-typed parameters first, or refactor the lambda to\naccept fewer parameters.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1660",
               "id": "U1660",
@@ -2693,7 +2707,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "An argument at position N > 0 in a function call was classified as a register-pair\nenum (Var with payload, or App returning a pair-form enum). Register-pair calling\nconvention requires both discriminant and payload to be passed in RAX and RDX\nrespectively, which is only supported when the pair-form argument is at position 0.\n\nFor positions N >= 1, the standard register-passing order (RDI, RSI, RDX, ...)\nconflicts with the pair-form binding locations. This requires stack spilling,\nwhich is not yet implemented.\n\nRefactor your call to place pair-form arguments only at position 0, or use\nlet-bindings and qualified paths to avoid pair-form argument passing.\n\nPart of #1226 (caller-side pair enum args).\n"
+                "text": "An argument at position N > 0 in a function call was classified as a register-pair\nenum (Var with payload, or App returning a pair-form enum). Register-pair calling\nconvention requires both discriminant and payload to be passed in RAX and RDX\nrespectively, which is only supported when the pair-form argument is at position 0.\n\nFor positions N >= 1, the standard register-passing order (RDI, RSI, RDX, ...)\nconflicts with the pair-form binding locations. This requires stack spilling,\nwhich is not yet implemented.\n\nRefactor your call to place pair-form arguments only at position 0, or use\nlet-bindings and qualified paths to avoid pair-form argument passing.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1670",
               "id": "U1670",
@@ -2707,7 +2721,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "A nested function call returning a register-pair enum was passed at argument\nposition 0, along with one or more additional arguments. The nested call result\nlands in RAX + RDX, but additional arguments need to be marshalled into RSI, RDX,\nRCX, etc. This creates a potential data corruption hazard.\n\nRefactor by moving the nested call to a separate let-binding, then pass that\nbinding as the pair-form argument.\n\nPart of #1226 (caller-side pair enum args).\n"
+                "text": "A nested function call returning a register-pair enum was passed at argument\nposition 0, along with one or more additional arguments. The nested call result\nlands in RAX + RDX, but additional arguments need to be marshalled into RSI, RDX,\nRCX, etc. This creates a potential data corruption hazard.\n\nRefactor by moving the nested call to a separate let-binding, then pass that\nbinding as the pair-form argument.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1671",
               "id": "U1671",
@@ -2721,7 +2735,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "A register-pair enum argument at position 0 requires both RAX and RDX.\nWhen three or more arguments are present, position 2 (the third argument)\nis mapped to RDX per the System-V calling convention, creating a clobber.\n\nRefactor to fewer arguments, or move one of the conflicting arguments to a\nlet-binding and reference it by variable name.\n\nPart of #1226 (caller-side pair enum args).\n"
+                "text": "A register-pair enum argument at position 0 requires both RAX and RDX.\nWhen three or more arguments are present, position 2 (the third argument)\nis mapped to RDX per the System-V calling convention, creating a clobber.\n\nRefactor to fewer arguments, or move one of the conflicting arguments to a\nlet-binding and reference it by variable name.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1672",
               "id": "U1672",
@@ -2735,7 +2749,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "A pair-form Var argument at position 0 uses register(s) that are also target\ndestinations for subsequent arguments. For example, if the pair's payload is\nin RDX, and argument 1 (mapped to RSI) or argument 2 (mapped to RDX) reads\nthe same register, the clobber order will corrupt one value.\n\nRefactor by rearranging argument order or moving arguments to temporary\nlet-bindings.\n\nPart of #1226 (caller-side pair enum args).\n"
+                "text": "A pair-form Var argument at position 0 uses register(s) that are also target\ndestinations for subsequent arguments. For example, if the pair's payload is\nin RDX, and argument 1 (mapped to RSI) or argument 2 (mapped to RDX) reads\nthe same register, the clobber order will corrupt one value.\n\nRefactor by rearranging argument order or moving arguments to temporary\nlet-bindings.\n"
               },
               "helpUri": "https://paideia-os.org/diagnostics/U1673",
               "id": "U1673",
@@ -2777,7 +2791,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 7 m1-001: when building an ELF object file, the elaboration phase produced no top-level function or object bindings to export. The resulting ELF would have no named symbols. Ensure the module contains at least one top-level `let` binding (e.g., `let _start : () -> () = fn () -> ...`) or other named definition."
+                "text": "When building an ELF object file, the elaboration phase produced no top-level function or object bindings to export. The resulting ELF would have no named symbols. Ensure the module contains at least one top-level `let` binding (e.g., `let _start : () -> () = fn () -> ...`) or other named definition."
               },
               "helpUri": "https://paideia-os.org/diagnostics/B1702",
               "id": "B1702",
@@ -2791,7 +2805,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 7 m1-002: when emitting the ELF symbol table, one or more symbols violated layout invariants: (a) a symbol's range [st_value, st_value + st_size) exceeded its section's bounds, or (b) two symbols share the same name. Symbol names must be unique, and each symbol must fit within its containing section. This usually indicates a bug in the encoder or elaborator."
+                "text": "When emitting the ELF symbol table, one or more symbols violated layout invariants: (a) a symbol's range [st_value, st_value + st_size) exceeded its section's bounds, or (b) two symbols share the same name. Symbol names must be unique, and each symbol must fit within its containing section. This usually indicates a bug in the encoder or elaborator."
               },
               "helpUri": "https://paideia-os.org/diagnostics/B1703",
               "id": "B1703",
@@ -2805,7 +2819,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "warning"
               },
               "fullDescription": {
-                "text": "Phase 8 m1-003: when emitting an ELF object file, the elaboration phase (EmitWalker) recorded offsets for function symbols, but this particular function symbol has no entry in the offset table. This can occur for lambdas with unsupported shapes (e.g., literal-body functions) that do not emit bytecode but still receive symbol table entries. The symbol is emitted with st_value=0 and st_size=0 as a placeholder."
+                "text": "When emitting an ELF object file, the elaboration phase (EmitWalker) recorded offsets for function symbols, but this particular function symbol has no entry in the offset table. This can occur for lambdas with unsupported shapes (e.g., literal-body functions) that do not emit bytecode but still receive symbol table entries. The symbol is emitted with st_value=0 and st_size=0 as a placeholder."
               },
               "helpUri": "https://paideia-os.org/diagnostics/B1704",
               "id": "B1704",
@@ -2819,7 +2833,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "error"
               },
               "fullDescription": {
-                "text": "Phase 8 m1-004: during binary emission (ELF or PE), the encoder encountered an error while processing an IR node. This typically indicates an encoder bug or an unsupported IR shape. The error message details the specific failure. Report this issue with the code that triggered it."
+                "text": "During binary emission (ELF or PE), the encoder encountered an error while processing an IR node. This typically indicates an encoder bug or an unsupported IR shape. The error message details the specific failure. Report this issue with the code that triggered it."
               },
               "helpUri": "https://paideia-os.org/diagnostics/B1705",
               "id": "B1705",
@@ -2833,7 +2847,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "warning"
               },
               "fullDescription": {
-                "text": "Phase 8 m1-004: during binary emission (ELF or PE), the encoder encountered a non-fatal warning condition. The emission continues, but this diagnostic should be reviewed. Use --sarif to capture details for analysis."
+                "text": "During binary emission (ELF or PE), the encoder encountered a non-fatal warning condition. The emission continues, but this diagnostic should be reviewed. Use --sarif to capture details for analysis."
               },
               "helpUri": "https://paideia-os.org/diagnostics/B1706",
               "id": "B1706",
@@ -2847,7 +2861,21 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "warning"
               },
               "fullDescription": {
-                "text": "Phase 4 m5-005: region (lifetime) elision. When a function's output borrow lacks an explicit lifetime, the elision rules attempt to infer it from input lifetimes: (1) if a single input borrow has an elided lifetime, use it; (2) if a single input lifetime exists (explicit or elided), assign it to all elided outputs; (3) for methods, all output lifetimes take the receiver's lifetime. This warning fires when the rules encounter an ambiguous situation: either multiple input lifetimes (ambiguous which to choose) or zero input lifetimes but an elided output (nothing to infer from). Resolve by explicitly annotating the output lifetime with the desired region."
+                "text": "The elaborator unconditionally suppresses the SysV frame-pointer prologue (`push rbp; mov rbp, rsp`) for any lambda whose body is an `unsafe { ... }` block, regardless of whether that lambda's binding carries `@no_frame` — the hand-written asm body owns its own `ret` and there is no elaborator-owned exit site to insert a matching `pop rbp` before. Annotating such a lambda with `@no_frame` is therefore always redundant: it is accepted and recorded but cannot change code generation for that lambda. This diagnostic flags the redundant annotation so it can be removed or left as documentation, rather than silently doing nothing."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/B1707",
+              "id": "B1707",
+              "name": "@no_frame redundant on unsafe-bodied lambda",
+              "shortDescription": {
+                "text": "`@no_frame` has no effect here; unsafe-bodied lambdas never emit a frame-pointer prologue"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "fullDescription": {
+                "text": "Region (lifetime) elision. When a function's output borrow lacks an explicit lifetime, the elision rules attempt to infer it from input lifetimes: (1) if a single input borrow has an elided lifetime, use it; (2) if a single input lifetime exists (explicit or elided), assign it to all elided outputs; (3) for methods, all output lifetimes take the receiver's lifetime. This warning fires when the rules encounter an ambiguous situation: either multiple input lifetimes (ambiguous which to choose) or zero input lifetimes but an elided output (nothing to infer from). Resolve by explicitly annotating the output lifetime with the desired region."
               },
               "helpUri": "https://paideia-os.org/diagnostics/L2001",
               "id": "L2001",
@@ -2875,7 +2903,7 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
                 "level": "warning"
               },
               "fullDescription": {
-                "text": "Phase 3 m6-002 documents this as the canonical hybrid-fallback shape. Operator opt-in is required via --opt-in-hybrid-fallback. See design/security/pq-trust-root.md (phase-3 appendix m6-005)."
+                "text": "This is the canonical hybrid-fallback shape. Operator opt-in is required via --opt-in-hybrid-fallback. See design/security/pq-trust-root.md."
               },
               "helpUri": "https://paideia-os.org/diagnostics/Q0902",
               "id": "Q0902",

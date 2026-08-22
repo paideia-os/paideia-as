@@ -223,7 +223,7 @@ severity = "error"
 category = "module"
 title = "Macro feature not implemented in phase 1"
 brief = "macro feature deferred to phase 2"
-description = "Phase-1 placeholder for reflective macro features (typed elaborator reflection, quote/antiquote, splice, elab, hygiene under reflection). Retired in Phase 2 m2 (PRs #361–#371) — the full Lean-4-style reflection track is now live so this code should never fire. Reserved for compatibility; will be deleted in Phase 3."
+description = "Placeholder for reflective macro features (typed elaborator reflection, quote/antiquote, splice, elab, hygiene under reflection) that are no longer needed — the full Lean-4-style reflection track is live, so this diagnostic should never fire. Reserved for compatibility and slated for removal."
 since = "0.1.0"
 deprecated = true
 
@@ -259,7 +259,7 @@ severity = "error"
 category = "binary"
 title = "No exported symbols"
 brief = "no symbols to export in ELF output"
-description = "Phase 7 m1-001: when building an ELF object file, the elaboration phase produced no top-level function or object bindings to export. The resulting ELF would have no named symbols. Ensure the module contains at least one top-level `let` binding (e.g., `let _start : () -> () = fn () -> ...`) or other named definition."
+description = "When building an ELF object file, the elaboration phase produced no top-level function or object bindings to export. The resulting ELF would have no named symbols. Ensure the module contains at least one top-level `let` binding (e.g., `let _start : () -> () = fn () -> ...`) or other named definition."
 since = "0.11.0"
 deprecated = false
 
@@ -268,7 +268,7 @@ severity = "error"
 category = "binary"
 title = "Symbol layout invalid"
 brief = "symbol layout invalid (duplicate names or out-of-bounds ranges)"
-description = "Phase 7 m1-002: when emitting the ELF symbol table, one or more symbols violated layout invariants: (a) a symbol's range [st_value, st_value + st_size) exceeded its section's bounds, or (b) two symbols share the same name. Symbol names must be unique, and each symbol must fit within its containing section. This usually indicates a bug in the encoder or elaborator."
+description = "When emitting the ELF symbol table, one or more symbols violated layout invariants: (a) a symbol's range [st_value, st_value + st_size) exceeded its section's bounds, or (b) two symbols share the same name. Symbol names must be unique, and each symbol must fit within its containing section. This usually indicates a bug in the encoder or elaborator."
 since = "0.11.0"
 deprecated = false
 
@@ -277,7 +277,7 @@ severity = "warning"
 category = "binary"
 title = "Function symbol has no recorded offset"
 brief = "function symbol has no recorded offset; emitted with st_value=0, st_size=0"
-description = "Phase 8 m1-003: when emitting an ELF object file, the elaboration phase (EmitWalker) recorded offsets for function symbols, but this particular function symbol has no entry in the offset table. This can occur for lambdas with unsupported shapes (e.g., literal-body functions) that do not emit bytecode but still receive symbol table entries. The symbol is emitted with st_value=0 and st_size=0 as a placeholder."
+description = "When emitting an ELF object file, the elaboration phase (EmitWalker) recorded offsets for function symbols, but this particular function symbol has no entry in the offset table. This can occur for lambdas with unsupported shapes (e.g., literal-body functions) that do not emit bytecode but still receive symbol table entries. The symbol is emitted with st_value=0 and st_size=0 as a placeholder."
 since = "0.13.0"
 deprecated = false
 
@@ -286,7 +286,7 @@ severity = "error"
 category = "binary"
 title = "Encoder failure on IR node"
 brief = "encoder failed on IR node during binary emission"
-description = "Phase 8 m1-004: during binary emission (ELF or PE), the encoder encountered an error while processing an IR node. This typically indicates an encoder bug or an unsupported IR shape. The error message details the specific failure. Report this issue with the code that triggered it."
+description = "During binary emission (ELF or PE), the encoder encountered an error while processing an IR node. This typically indicates an encoder bug or an unsupported IR shape. The error message details the specific failure. Report this issue with the code that triggered it."
 since = "0.19.0"
 deprecated = false
 
@@ -295,7 +295,7 @@ severity = "warning"
 category = "binary"
 title = "Encoder warning downgraded to diagnostic"
 brief = "encoder encountered a non-fatal issue; check SARIF output for details"
-description = "Phase 8 m1-004: during binary emission (ELF or PE), the encoder encountered a non-fatal warning condition. The emission continues, but this diagnostic should be reviewed. Use --sarif to capture details for analysis."
+description = "During binary emission (ELF or PE), the encoder encountered a non-fatal warning condition. The emission continues, but this diagnostic should be reviewed. Use --sarif to capture details for analysis."
 since = "0.19.0"
 deprecated = false
 
@@ -304,7 +304,7 @@ severity = "warning"
 category = "binary"
 title = "@no_frame redundant on unsafe-bodied lambda"
 brief = "`@no_frame` has no effect here; unsafe-bodied lambdas never emit a frame-pointer prologue"
-description = "Issue #1314: the elaborator unconditionally suppresses the SysV frame-pointer prologue (`push rbp; mov rbp, rsp`) for any lambda whose body is an `unsafe { ... }` block, regardless of whether that lambda's binding carries `@no_frame` — the hand-written asm body owns its own `ret` and there is no elaborator-owned exit site to insert a matching `pop rbp` before. Annotating such a lambda with `@no_frame` is therefore always redundant: it is accepted and recorded but cannot change code generation for that lambda. This diagnostic flags the redundant annotation so it can be removed or left as documentation, rather than silently doing nothing."
+description = "The elaborator unconditionally suppresses the SysV frame-pointer prologue (`push rbp; mov rbp, rsp`) for any lambda whose body is an `unsafe { ... }` block, regardless of whether that lambda's binding carries `@no_frame` — the hand-written asm body owns its own `ret` and there is no elaborator-owned exit site to insert a matching `pop rbp` before. Annotating such a lambda with `@no_frame` is therefore always redundant: it is accepted and recorded but cannot change code generation for that lambda. This diagnostic flags the redundant annotation so it can be removed or left as documentation, rather than silently doing nothing."
 since = "0.21.0"
 deprecated = false
 
@@ -322,7 +322,7 @@ severity = "error"
 category = "parser"
 title = "Unknown CPU feature token"
 brief = "the CPU feature name is not in the accepted set (cx16, popcnt, bmi1, sse4.2, avx, avx512f)"
-description = "Phase 16 m4-001: The #![target_features = \"name\"] attribute specifies a CPU feature token that is not recognized. Valid feature tokens are: cx16, popcnt, bmi1, sse4.2, avx, avx512f. These correspond to x86_64 CPU capabilities that may be assumed for code generation. Other feature names are invalid or not yet supported. Check the feature name spelling against the accepted set, or file an issue to request additional CPU feature support."
+description = "The #![target_features = \"name\"] attribute specifies a CPU feature token that is not recognized. Valid feature tokens are: cx16, popcnt, bmi1, sse4.2, avx, avx512f. These correspond to x86_64 CPU capabilities that may be assumed for code generation. Other feature names are invalid or not yet supported. Check the feature name spelling against the accepted set, or file an issue to request additional CPU feature support."
 since = "0.16.0"
 deprecated = false
 
@@ -331,7 +331,7 @@ severity = "error"
 category = "parser"
 title = "Unknown symbol attribute"
 brief = "only '@align' is supported as a symbol attribute"
-description = "Phase 10 PA10-006y: A postfix symbol attribute was used on a let declaration, but the attribute name is not recognized. Currently, only '@align(N)' is supported for per-symbol alignment. Check that the attribute name is spelled correctly. Example: `let mut pml4 : [u64; 512] = uninit @align(4096)`."
+description = "A postfix symbol attribute was used on a let declaration, but the attribute name is not recognized. Currently, only '@align(N)' is supported for per-symbol alignment. Check that the attribute name is spelled correctly. Example: `let mut pml4 : [u64; 512] = uninit @align(4096)`."
 since = "0.11.0"
 deprecated = false
 
@@ -340,7 +340,7 @@ severity = "error"
 category = "parser"
 title = "Malformed @align directive"
 brief = "@align(N) syntax error: expected '(' after 'align' or ')' after value"
-description = "Phase 10 PA10-006y: The @align directive is syntactically malformed. The correct syntax is '@align(N)' where N is an integer literal. Either the opening '(' after 'align' is missing, or the closing ')' after the value is missing. Example: `let mut pml4 : [u64; 512] = uninit @align(4096)`."
+description = "The @align directive is syntactically malformed. The correct syntax is '@align(N)' where N is an integer literal. Either the opening '(' after 'align' is missing, or the closing ')' after the value is missing. Example: `let mut pml4 : [u64; 512] = uninit @align(4096)`."
 since = "0.11.0"
 deprecated = false
 
@@ -349,7 +349,7 @@ severity = "error"
 category = "parser"
 title = "Invalid @align value"
 brief = "@align value must be a power of two in range [1, 2^30]"
-description = "Phase 10 PA10-006y: The @align directive's value must be a positive integer that is a power of two, and must fit in the range [1, 2^30] (i.e., 1, 2, 4, 8, 16, ..., 1073741824). Common alignment values are 1, 4, 8, 16, 4096, 65536. Check that the value is a valid power of two and not too large."
+description = "The @align directive's value must be a positive integer that is a power of two, and must fit in the range [1, 2^30] (i.e., 1, 2, 4, 8, 16, ..., 1073741824). Common alignment values are 1, 4, 8, 16, 4096, 65536. Check that the value is a valid power of two and not too large."
 since = "0.11.0"
 deprecated = false
 
@@ -358,7 +358,7 @@ severity = "error"
 category = "parser"
 title = "Malformed @ring directive"
 brief = "@ring(slots=N, slot_size=M) syntax error"
-description = "Phase 14 PA14-r14-008: The @ring directive is syntactically malformed. The correct syntax is '@ring(slots=N, slot_size=M)' where N and M are integer literals. N must be a power of two > 0, and M must be > 0. Either a required parameter is missing, the format is incorrect, or closing parentheses are missing. Example: `let mut ring_buf : [u64; 512] = uninit @ring(slots=256, slot_size=32)`."
+description = "The @ring directive is syntactically malformed. The correct syntax is '@ring(slots=N, slot_size=M)' where N and M are integer literals. N must be a power of two > 0, and M must be > 0. Either a required parameter is missing, the format is incorrect, or closing parentheses are missing. Example: `let mut ring_buf : [u64; 512] = uninit @ring(slots=256, slot_size=32)`."
 since = "0.14.0"
 deprecated = false
 
@@ -367,7 +367,7 @@ severity = "error"
 category = "parser"
 title = "Invalid @ring slots value"
 brief = "@ring slots must be a power of two and > 0"
-description = "Phase 14 PA14-r14-008: The @ring directive's slots parameter must be a positive integer that is a power of two. Valid slots values: 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, etc. Check that the slots value is a power of two and not zero."
+description = "The @ring directive's slots parameter must be a positive integer that is a power of two. Valid slots values: 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, etc. Check that the slots value is a power of two and not zero."
 since = "0.14.0"
 deprecated = false
 
@@ -376,7 +376,7 @@ severity = "error"
 category = "parser"
 title = "Invalid @ring slot_size value or overflow"
 brief = "@ring slot_size must be > 0 and not cause overflow"
-description = "Phase 14 PA14-r14-008: The @ring directive's slot_size parameter must be a positive integer, and the total size (slots * slot_size) must not overflow a 64-bit integer. Check that slot_size is > 0 and not too large."
+description = "The @ring directive's slot_size parameter must be a positive integer, and the total size (slots * slot_size) must not overflow a 64-bit integer. Check that slot_size is > 0 and not too large."
 since = "0.14.0"
 deprecated = false
 
@@ -475,7 +475,7 @@ severity = "error"
 category = "parser"
 title = "Empty statement found"
 brief = "expected statement, found empty statement (`;`)"
-description = "Phase 6 m2-002: a statement block (such as `unsafe { block: { ... } }`) encountered consecutive semicolons or a leading semicolon, forming an empty statement. Empty statements are not allowed. Provide a valid statement (expression, let binding, return, instruction, etc.) or remove the extra semicolons. Trailing semicolons after valid statements are permitted (e.g., `{ stmt1; stmt2; }`)."
+description = "A statement block (such as `unsafe { block: { ... } }`) encountered consecutive semicolons or a leading semicolon, forming an empty statement. Empty statements are not allowed. Provide a valid statement (expression, let binding, return, instruction, etc.) or remove the extra semicolons. Trailing semicolons after valid statements are permitted (e.g., `{ stmt1; stmt2; }`)."
 since = "0.9.0"
 deprecated = false
 
@@ -502,7 +502,7 @@ severity = "error"
 category = "parser"
 title = "Empty array literal requires type annotation"
 brief = "empty array literal `[]` used without explicit type"
-description = "Phase 5 m4-002: array literal expressions with explicit syntax `[expr, expr, ...]` require a type annotation to disambiguate the element type when the array is empty. Provide an explicit type annotation like `let xs: [u64; 3] = [1, 2, 3];` or ensure the array is not empty so the type can be inferred from elements."
+description = "Array literal expressions with explicit syntax `[expr, expr, ...]` require a type annotation to disambiguate the element type when the array is empty. Provide an explicit type annotation like `let xs: [u64; 3] = [1, 2, 3];` or ensure the array is not empty so the type can be inferred from elements."
 since = "0.8.0"
 deprecated = false
 
@@ -511,7 +511,7 @@ severity = "error"
 category = "parser"
 title = "Array repeat count must be a constant"
 brief = "`[v; N]` requires N to be a constant integer literal in range"
-description = "Issue #1308: the repeat-array literal `[v; N]` allocates N * sizeof(v) bytes of storage, so N must be resolvable at elaboration time. N must be an integer literal (decimal, 0x, 0o or 0b, with optional `_` separators and integer suffix), strictly greater than zero, and no larger than 1048576 elements. Named constants, arithmetic expressions and negative counts are rejected. Before this diagnostic existed the elaborator silently expanded any unresolvable `[v; N]` to a SINGLE element while the type system still reported `[T; N]`, under-allocating the symbol and letting writes to index >= 1 corrupt the neighbouring symbol. Use an explicit element list if the count genuinely cannot be a literal."
+description = "The repeat-array literal `[v; N]` allocates N * sizeof(v) bytes of storage, so N must be resolvable at elaboration time. N must be an integer literal (decimal, 0x, 0o or 0b, with optional `_` separators and integer suffix), strictly greater than zero, and no larger than 1048576 elements. Named constants, arithmetic expressions and negative counts are rejected. Silently expanding an unresolvable `[v; N]` to a single element while the type system still reports `[T; N]` under-allocates the symbol and lets writes to index >= 1 corrupt the neighbouring symbol. Use an explicit element list if the count genuinely cannot be a literal."
 since = "0.21.0"
 deprecated = false
 
@@ -520,7 +520,7 @@ severity = "error"
 category = "parser"
 title = "uninit only valid for let mut"
 brief = "uninit marker not allowed in immutable let binding"
-description = "Phase 6 m5-001: The uninit keyword can only be used as the right-hand side of a mutable let binding (let mut). To fix this, either add the mut keyword to the let binding or provide a proper initialization value. Example: `let mut x: u64 = uninit;` is valid, but `let x: u64 = uninit;` is not."
+description = "The uninit keyword can only be used as the right-hand side of a mutable let binding (let mut). To fix this, either add the mut keyword to the let binding or provide a proper initialization value. Example: `let mut x: u64 = uninit;` is valid, but `let x: u64 = uninit;` is not."
 since = "0.9.0"
 deprecated = false
 
@@ -529,7 +529,7 @@ severity = "error"
 category = "parser"
 title = "uninit not valid in this position"
 brief = "uninit keyword only valid as RHS of let mut binding"
-description = "Phase 6 m5-001: The uninit keyword can only be used as the right-hand side of a mutable let binding. It cannot appear as a general expression in function calls, return statements, or other contexts. Use it only in patterns like `let mut x: Type = uninit;`."
+description = "The uninit keyword can only be used as the right-hand side of a mutable let binding. It cannot appear as a general expression in function calls, return statements, or other contexts. Use it only in patterns like `let mut x: Type = uninit;`."
 since = "0.9.0"
 deprecated = false
 
@@ -538,7 +538,7 @@ severity = "error"
 category = "parser"
 title = "address-of requires identifier in static initializer"
 brief = "& must be applied to a simple symbol identifier"
-description = "PA10-006u: In static initializers (module-level let bindings), & can only be applied directly to a symbol name, not to arbitrary expressions. For example, `let p: u64 = & target;` is valid, but `let p: u64 = & (expr);` is not. Address-of-expression patterns must be used in runtime contexts, not static initialization."
+description = "In static initializers (module-level let bindings), & can only be applied directly to a symbol name, not to arbitrary expressions. For example, `let p: u64 = & target;` is valid, but `let p: u64 = & (expr);` is not. Address-of-expression patterns must be used in runtime contexts, not static initialization."
 since = "1.0.0"
 deprecated = false
 
@@ -547,7 +547,7 @@ severity = "error"
 category = "parser"
 title = "mutable reference forbidden in static initializer"
 brief = "& mut cannot be used in static initializers"
-description = "PA10-006u: Mutable references (& mut) are not allowed in static initializers (module-level let bindings). Only immutable addresses are supported. Use `let p: u64 = & symbol;` (without mut)."
+description = "Mutable references (& mut) are not allowed in static initializers (module-level let bindings). Only immutable addresses are supported. Use `let p: u64 = & symbol;` (without mut)."
 since = "1.0.0"
 deprecated = false
 
@@ -646,7 +646,7 @@ severity = "note"
 category = "optimization"
 title = "Tail-call eliminated"
 brief = "final call + ret sequence rewritten as a jmp"
-description = "Per OS-requirements §6 design-clarification 5: TCO ships in Phase 2 to support the kernel's exception-unwinder path. Capability boundaries, effect-handler installations, and ABI mismatches suppress TCO."
+description = "TCO applies to support the kernel's exception-unwinder path. Capability boundaries, effect-handler installations, and ABI mismatches suppress TCO."
 since = "0.1.0"
 deprecated = false
 
@@ -655,7 +655,7 @@ severity = "note"
 category = "optimization"
 title = "Loop unrolling applied"
 brief = "loop unrolled by explicit factor"
-description = "Per optimization-passes.md §10, loop unrolling replicates loop body by a compile-time constant factor to reduce branch penalties and improve ILP. Phase-2-m9-009 supports only known trip counts with divisible factors; remainder loops are deferred to phase-2-m9-010."
+description = "Loop unrolling replicates the loop body by a compile-time constant factor to reduce branch penalties and improve ILP. Only known trip counts with divisible factors are currently supported; unrolling loops with indivisible or unknown trip counts is not yet implemented."
 since = "0.1.0"
 deprecated = false
 
@@ -664,7 +664,7 @@ severity = "warning"
 category = "optimization"
 title = "Loop unrolling requested on unknown trip count"
 brief = "unroll directive ignored due to symbolic or unknown iteration count"
-description = "Loop unrolling with #[unroll(n)] requires a known trip count divisible by n. This loop's trip count is symbolic or unknown, preventing safe unrolling. Remainder-loop dispatch to handle unknown trip counts is deferred to phase-2-m9-010. Provide a constant trip count or remove the #[unroll(n)] directive."
+description = "Loop unrolling with #[unroll(n)] requires a known trip count divisible by n. This loop's trip count is symbolic or unknown, preventing safe unrolling. Remainder-loop dispatch for unknown trip counts is not yet implemented. Provide a constant trip count or remove the #[unroll(n)] directive."
 since = "0.1.0"
 deprecated = false
 
@@ -682,7 +682,7 @@ severity = "warning"
 category = "post-quantum"
 title = "HSM does not support post-quantum signing"
 brief = "the configured HSM (YubiHSM2 ≤ firmware 2.6) supports Ed25519 in hardware but not ML-DSA-65; the PQ leg falls back to soft-HSM"
-description = "Phase 3 m6-002 documents this as the canonical hybrid-fallback shape. Operator opt-in is required via --opt-in-hybrid-fallback. See design/security/pq-trust-root.md (phase-3 appendix m6-005)."
+description = "This is the canonical hybrid-fallback shape. Operator opt-in is required via --opt-in-hybrid-fallback. See design/security/pq-trust-root.md."
 since = "0.3.0"
 deprecated = false
 
@@ -691,7 +691,7 @@ severity = "warning"
 category = "type"
 title = "Borrowed-reference type not yet supported"
 brief = "&T / &mut T are reserved for a future region-calculus extension"
-description = "Phase 3 ships raw pointers (*T) only. Borrowed references &T / &mut T are reserved for a future phase that requires a region calculus + borrow-checker pass; see design/toolchain/phase-3-plan.md §15 open question."
+description = "Only raw pointers (*T) are supported today. Borrowed references (&T / &mut T) require a region calculus and borrow-checker pass that has not yet been implemented."
 since = "0.1.0"
 deprecated = false
 
@@ -745,7 +745,7 @@ severity = "error"
 category = "substructural"
 title = "Cannot borrow as mutable while also borrowed as immutable"
 brief = "a mutable borrow conflicts with an active immutable borrow"
-description = "Phase 4 m6-001: the borrow checker requires that a binding can be borrowed either as immutable (any number of times) or as mutable (exactly once), but not both simultaneously. This rule prevents data races and use-after-free patterns."
+description = "The borrow checker requires that a binding can be borrowed either as immutable (any number of times) or as mutable (exactly once), but not both simultaneously. This rule prevents data races and use-after-free patterns."
 since = "0.4.0"
 deprecated = false
 
@@ -754,7 +754,7 @@ severity = "error"
 category = "substructural"
 title = "Cannot borrow as mutable more than once"
 brief = "a mutable borrow conflicts with another active mutable borrow"
-description = "Phase 4 m6-001: a binding can have at most one active mutable borrow at a time. This prevents data races by guaranteeing exclusive access through the mutable reference."
+description = "A binding can have at most one active mutable borrow at a time. This prevents data races by guaranteeing exclusive access through the mutable reference."
 since = "0.4.0"
 deprecated = false
 
@@ -763,7 +763,7 @@ severity = "error"
 category = "substructural"
 title = "Borrowed value does not live long enough"
 brief = "the source binding's lifetime is shorter than the borrow's lifetime"
-description = "Phase 4 m6-002: the borrow checker requires that any borrowed value lives at least as long as the borrow. If the source goes out of scope before the borrow does, fire S0908."
+description = "The borrow checker requires that any borrowed value lives at least as long as the borrow. If the source goes out of scope before the borrow does, fire S0908."
 since = "0.4.0"
 deprecated = false
 
@@ -772,7 +772,7 @@ severity = "error"
 category = "substructural"
 title = "Cannot assign to value while borrowed"
 brief = "the binding is currently borrowed; assignment is forbidden until all borrows expire"
-description = "Phase 4 m6-003: prevents mutation-through-borrow races. While a borrow is active, the source binding may not be assigned a new value."
+description = "Prevents mutation-through-borrow races. While a borrow is active, the source binding may not be assigned a new value."
 since = "0.4.0"
 deprecated = false
 
@@ -781,7 +781,7 @@ severity = "error"
 category = "type"
 title = "Non-exhaustive match"
 brief = "match arms do not cover every variant of the scrutinee's type"
-description = "Phase 4 m7-006: match expressions on enum types must cover every variant. Either add the missing variant arms or use a wildcard pattern `_` to catch the remainder. Diagnostic code lands in the type-system pattern region (0500-0899) — the issue spec's M0900 was out of M's reserved range (0300-0499); T0512 follows m1-003's T0511 reservation for the future borrowed-reference codepath."
+description = "Match expressions on enum types must cover every variant. Either add the missing variant arms or use a wildcard pattern `_` to catch the remainder."
 since = "0.4.0"
 deprecated = false
 
@@ -790,7 +790,7 @@ severity = "error"
 category = "type"
 title = "Duplicate impl for trait-type pair"
 brief = "an impl block for the same (trait, type) pair already exists"
-description = "Phase 4 m9-004: impl coherence check. Each (trait, type) pair may have at most one impl block. Remove the duplicate impl or distinguish the type to avoid the conflict."
+description = "Impl coherence check. Each (trait, type) pair may have at most one impl block. Remove the duplicate impl or distinguish the type to avoid the conflict."
 since = "0.7.0"
 deprecated = false
 
@@ -799,7 +799,7 @@ severity = "error"
 category = "type"
 title = "Unsatisfied trait bound"
 brief = "no impl found for trait X on type Y at this call site"
-description = "Phase 4 m9-005: trait-bound resolution. At this call site, a method requires its type argument to implement a specific trait, but neither a generic-parameter bound nor a concrete impl satisfies this requirement. Either bind the type parameter to the required trait in the enclosing generic-parameter list, or provide a concrete impl for the type."
+description = "Trait-bound resolution. At this call site, a method requires its type argument to implement a specific trait, but neither a generic-parameter bound nor a concrete impl satisfies this requirement. Either bind the type parameter to the required trait in the enclosing generic-parameter list, or provide a concrete impl for the type."
 since = "0.7.0"
 deprecated = false
 
@@ -808,7 +808,7 @@ severity = "error"
 category = "type"
 title = "Unsupported record field type in Phase 6 layout computation"
 brief = "field type is not in {u64, u32, u8, *T} supported by Phase-6 layout finaliser"
-description = "Phase 6 m3-001: record field layout computation supports u64 (8 bytes, align 8), u32 (4 bytes, align 4), u8 (1 byte, align 1), and pointer types *T (8 bytes, align 8). Records with fields outside this set cannot be finalised. Add support for additional field types in a future phase or refactor the record to use only the supported types."
+description = "Record field layout computation supports u64 (8 bytes, align 8), u32 (4 bytes, align 4), u8 (1 byte, align 1), and pointer types *T (8 bytes, align 8). Records with fields outside this set cannot be finalised. Add support for additional field types in a future phase or refactor the record to use only the supported types."
 since = "0.6.0"
 deprecated = false
 
@@ -817,7 +817,7 @@ severity = "error"
 category = "type"
 title = "Field access only supports Deref(Var(arg0)) shape"
 brief = "(*p).field pattern required; nested dereferences or non-argument patterns not yet supported"
-description = "Phase 6 m3-002: EmitWalker field access lowering currently supports only the shape (*p).field where p is the function's first argument. Other patterns, such as nested dereferences (**p), non-argument pointers (local p), or more complex expressions, are not yet supported. Restructure your code to use field access on a dereferenced first argument, or defer support to a later phase."
+description = "EmitWalker field access lowering currently supports only the shape (*p).field where p is the function's first argument. Other patterns, such as nested dereferences (**p), non-argument pointers (local p), or more complex expressions, are not yet supported. Restructure your code to use field access on a dereferenced first argument, or defer support to a later phase."
 since = "0.6.0"
 deprecated = false
 
@@ -826,7 +826,7 @@ severity = "error"
 category = "type"
 title = "Register pressure exceeded in Phase 6 field-bind"
 brief = "more than 4 in-flight field bindings in a single function"
-description = "Phase 6 m3-003: EmitWalker field-binding lowering assigns scratch registers in sequence: RAX(0), RCX(1), RDX(2), R8(8). The calling convention provides exactly 4 caller-save scratch registers. When more than 4 field bindings appear in a single function scope, the elaborator cannot assign a scratch register. Restructure your function to use fewer than 5 field bindings, or defer the assignment of later bindings to a later phase."
+description = "EmitWalker field-binding lowering assigns scratch registers in sequence: RAX(0), RCX(1), RDX(2), R8(8). The calling convention provides exactly 4 caller-save scratch registers. When more than 4 field bindings appear in a single function scope, the elaborator cannot assign a scratch register. Restructure your function to use fewer than 5 field bindings, or defer the assignment of later bindings to a later phase."
 since = "0.6.0"
 deprecated = false
 
@@ -835,7 +835,7 @@ severity = "error"
 category = "type"
 title = "RecordCons must be bound by construct_into(...) in Phase 6"
 brief = "unsupported RecordCons shape in Phase 6 m3-004"
-description = "Phase 6 m3-004: EmitWalker RecordCons lowering currently supports only the cap-mint (4-field all-u64) shape when bound via let p : *T = construct_into(...). Other record shapes and binding patterns are not yet supported. Restructure your code to use the supported shape, or defer support to a later phase."
+description = "EmitWalker RecordCons lowering currently supports only the cap-mint (4-field all-u64) shape when bound via let p : *T = construct_into(...). Other record shapes and binding patterns are not yet supported. Restructure your code to use the supported shape, or defer support to a later phase."
 since = "0.6.0"
 deprecated = false
 
@@ -844,7 +844,7 @@ severity = "error"
 category = "type"
 title = "If-expression branches have mismatched types"
 brief = "then and else branches of if-expression have incompatible types"
-description = "Phase 7 m1-001: both branches of an if-then-else expression must have the same type. The then branch has type T1 but the else branch has type T2. If you meant to discard the result, wrap in an action block { ... }; if you meant to use one branch's type, add an explicit type annotation or restructure the expression."
+description = "Both branches of an if-then-else expression must have the same type. The then branch has type T1 but the else branch has type T2. If you meant to discard the result, wrap in an action block { ... }; if you meant to use one branch's type, add an explicit type annotation or restructure the expression."
 since = "0.7.0"
 deprecated = false
 
@@ -853,7 +853,7 @@ severity = "error"
 category = "type"
 title = "Loop body type-incompatible with break value"
 brief = "break value type does not match loop result type"
-description = "Phase 7 m1-002 (PA7-004): when a break statement in a while loop provides a value, that value's type must match the expected result type of the loop expression. If the loop is used in a context requiring a specific return type, all break values must have that type. If you meant to discard the result, ensure all breaks are value-less or restructure the code to return unit type."
+description = "When a break statement in a while loop provides a value, that value's type must match the expected result type of the loop expression. If the loop is used in a context requiring a specific return type, all break values must have that type. If you meant to discard the result, ensure all breaks are value-less or restructure the code to return unit type."
 since = "0.7.0"
 deprecated = false
 
@@ -862,7 +862,7 @@ severity = "warning"
 category = "lint"
 title = "Ambiguous lifetime elision"
 brief = "elision rules cannot determine output lifetime from input lifetimes"
-description = "Phase 4 m5-005: region (lifetime) elision. When a function's output borrow lacks an explicit lifetime, the elision rules attempt to infer it from input lifetimes: (1) if a single input borrow has an elided lifetime, use it; (2) if a single input lifetime exists (explicit or elided), assign it to all elided outputs; (3) for methods, all output lifetimes take the receiver's lifetime. This warning fires when the rules encounter an ambiguous situation: either multiple input lifetimes (ambiguous which to choose) or zero input lifetimes but an elided output (nothing to infer from). Resolve by explicitly annotating the output lifetime with the desired region."
+description = "Region (lifetime) elision. When a function's output borrow lacks an explicit lifetime, the elision rules attempt to infer it from input lifetimes: (1) if a single input borrow has an elided lifetime, use it; (2) if a single input lifetime exists (explicit or elided), assign it to all elided outputs; (3) for methods, all output lifetimes take the receiver's lifetime. This warning fires when the rules encounter an ambiguous situation: either multiple input lifetimes (ambiguous which to choose) or zero input lifetimes but an elided output (nothing to infer from). Resolve by explicitly annotating the output lifetime with the desired region."
 since = "0.7.0"
 deprecated = false
 
@@ -871,7 +871,7 @@ severity = "error"
 category = "unsafe"
 title = "Unknown mnemonic in unsafe block"
 brief = "the mnemonic name is not in the resolver table; check spelling or file an issue if the instruction should be supported"
-description = "Phase 5 m3-003: every mnemonic used inside an `unsafe { block: { ... } }` must be present in the MNEMONIC_TABLE. Unknown mnemonics could be typos OR could be valid x86_64 instructions not yet wired through paideia-as. The resolver tables cover Phase 3 m2-001's 10 base mnemonics plus Phase 5 m2-001's 20 privileged/system-ISA mnemonics, along with all Jcc condition codes, control/debug register moves, I/O port operations, and software interrupts (30+ total). Consult `crates/paideia-as-elaborator/src/unsafe_walker.rs` MNEMONIC_TABLE or file an issue to request additional instruction support."
+description = "Every mnemonic used inside an `unsafe { block: { ... } }` must be present in the MNEMONIC_TABLE. Unknown mnemonics could be typos OR could be valid x86_64 instructions not yet wired through paideia-as. The resolver tables cover roughly 30 base and privileged/system-ISA mnemonics, along with all Jcc condition codes, control/debug register moves, I/O port operations, and software interrupts. Consult `crates/paideia-as-elaborator/src/unsafe_walker.rs` MNEMONIC_TABLE or file an issue to request additional instruction support."
 since = "0.5.0"
 deprecated = false
 
@@ -880,7 +880,7 @@ severity = "error"
 category = "unsafe"
 title = "Malformed operand in unsafe block"
 brief = "operand parsing failed; check operand syntax and memory-addressing mode"
-description = "Phase 5 m3-004: UnsafeWalker encountered an operand parsing error while elaborating a StmtInstruction inside an `unsafe { block: { ... } }`. This indicates a syntax error in the operand expression: invalid register name, malformed memory reference (e.g., '[rdi +]' with missing operand), type mismatch, or other shape error returned by m3-002's operand parser. The instruction is skipped; check the operand against the x86_64 addressing-mode rules in design/cpu/unsafe-blocks.md."
+description = "UnsafeWalker encountered an operand parsing error while elaborating a StmtInstruction inside an `unsafe { block: { ... } }`. This indicates a syntax error in the operand expression: invalid register name, malformed memory reference (e.g., '[rdi +]' with missing operand), type mismatch, or other shape error returned by the operand parser. The instruction is skipped; check the operand against the x86_64 addressing-mode rules in design/cpu/unsafe-blocks.md."
 since = "0.5.0"
 deprecated = false
 
@@ -889,7 +889,7 @@ severity = "error"
 category = "unsafe"
 title = "Unexpected operands for zero-arity instruction"
 brief = "the instruction takes no operands; operands present in source are ignored"
-description = "Phase 6 m1-005: cli, sti, hlt, nop, swapgs, cpuid, wrmsr, rdmsr, iret, iretq, sysret, rep_stosq take no operands. Source with operands for these mnemonics emits U1607 and proceeds with operands ignored (recovery posture for iteration)."
+description = "cli, sti, hlt, nop, swapgs, cpuid, wrmsr, rdmsr, iret, iretq, sysret, rep_stosq take no operands. Source with operands for these mnemonics emits U1607 and proceeds with operands ignored (recovery posture for iteration)."
 since = "0.6.0"
 deprecated = false
 
@@ -898,7 +898,7 @@ severity = "error"
 category = "unsafe"
 title = "Field offset not resolved in unsafe block"
 brief = "field offset cannot be resolved; declare struct before use"
-description = "Phase 6 m3-005: A field access expression (*p.field) inside an unsafe { block: { ... } } references a field whose struct type has not been registered in the record layout table. This occurs when the target record type is not declared before the unsafe block, or the field name does not exist in the struct. The unsafe block requires C-ABI natural-alignment record layout information to resolve field byte offsets at parse time."
+description = "A field access expression (*p.field) inside an unsafe { block: { ... } } references a field whose struct type has not been registered in the record layout table. This occurs when the target record type is not declared before the unsafe block, or the field name does not exist in the struct. The unsafe block requires C-ABI natural-alignment record layout information to resolve field byte offsets at parse time."
 since = "0.6.0"
 deprecated = false
 
@@ -907,7 +907,7 @@ severity = "error"
 category = "unsafe"
 title = "Duplicate label declaration in unsafe block"
 brief = "label name already declared; each label must be unique within the unsafe block"
-description = "Phase 6 m4-002: A label with this name has already been declared in the current unsafe block. Labels must have unique names within the block's scope. Rename the duplicate label to a unique identifier or remove the duplicate declaration."
+description = "A label with this name has already been declared in the current unsafe block. Labels must have unique names within the block's scope. Rename the duplicate label to a unique identifier or remove the duplicate declaration."
 since = "0.9.0"
 deprecated = false
 
@@ -916,7 +916,7 @@ severity = "error"
 category = "unsafe"
 title = "Unknown label reference in unsafe block"
 brief = "label referenced but not declared; check spelling or add label declaration"
-description = "Phase 6 m4-002: A jump instruction references a label that has not been declared in the current unsafe block. Either declare the label with a `label_name:` statement, or fix the spelling of the label reference. Label resolution is performed at parse time by the walker."
+description = "A jump instruction references a label that has not been declared in the current unsafe block. Either declare the label with a `label_name:` statement, or fix the spelling of the label reference. Label resolution is performed at parse time by the walker."
 since = "0.9.0"
 deprecated = false
 
@@ -925,7 +925,7 @@ severity = "error"
 category = "unsafe"
 title = "SymbolRef operand not supported for mnemonic in Phase 6"
 brief = "bare-identifier symbol in call position is valid only for call/jmp mnemonics"
-description = "Phase 6 m4-005: A bare-identifier symbol operand (e.g., `cap_alloc`) was used with a mnemonic that does not support symbol references. In Phase 6, only `call` and `jmp` (both conditional and unconditional) mnemonics support bare-identifier symbols in call position, which resolve to SymbolRef operands with PC-relative 32-bit relocations. Other mnemonics (mov, lea, etc.) require explicit syntax (e.g., `lea rax, [symbol]` for RIP-relative addressing). This restriction will be lifted in Phase 7+ with full symbol-address-of support. Either use call/jmp, or refactor to use supported addressing modes."
+description = "A bare-identifier symbol operand (e.g., `cap_alloc`) was used with a mnemonic that does not support symbol references. Currently, only `call` and `jmp` (both conditional and unconditional) mnemonics support bare-identifier symbols in call position, which resolve to SymbolRef operands with PC-relative 32-bit relocations. Other mnemonics (mov, lea, etc.) require explicit syntax (e.g., `lea rax, [symbol]` for RIP-relative addressing). This restriction will be lifted once full symbol-address-of support is implemented. Either use call/jmp, or refactor to use supported addressing modes."
 since = "0.10.0"
 deprecated = false
 
@@ -934,7 +934,7 @@ severity = "error"
 category = "unsafe"
 title = "Required CPU feature not declared"
 brief = "mnemonic requires a CPU feature not present in the module's #![target_features] list"
-description = "Phase 16 m4-002: An instruction mnemonic inside an unsafe block requires a CPU feature (cx16, popcnt, bmi1, sse4.2, avx, avx512f, etc.) that is not declared in the module's #![target_features] attribute. For example, using a popcnt instruction requires declaring #![target_features = \"popcnt\"]. Either add the required feature to the module's #![target_features] list, or replace the instruction with one that doesn't require it."
+description = "An instruction mnemonic inside an unsafe block requires a CPU feature (cx16, popcnt, bmi1, sse4.2, avx, avx512f, etc.) that is not declared in the module's #![target_features] attribute. For example, using a popcnt instruction requires declaring #![target_features = \"popcnt\"]. Either add the required feature to the module's #![target_features] list, or replace the instruction with one that doesn't require it."
 since = "0.16.0"
 deprecated = false
 
@@ -943,7 +943,7 @@ severity = "warning"
 category = "unsafe"
 title = "Implicit register clobber overlaps explicit operand"
 brief = "a LOCK-prefixed mnemonic's implicit register write overlaps a register named in its explicit operand list"
-description = "Phase 16 m4-003: A LOCK-prefixed instruction (e.g., LOCK CMPXCHG) has implicit register reads/writes that conflict with registers named in the explicit operand list. For example, `lock cmpxchg [rax], rcx` reads and writes RAX implicitly, but RAX is also the memory operand's base register — the implicit write will silently overwrite RAX after the instruction executes. This is an aliasing hazard that can lead to correctness bugs. Refactor the instruction to avoid overlapping registers, or use a different addressing mode for the memory operand."
+description = "A LOCK-prefixed instruction (e.g., LOCK CMPXCHG) has implicit register reads/writes that conflict with registers named in the explicit operand list. For example, `lock cmpxchg [rax], rcx` reads and writes RAX implicitly, but RAX is also the memory operand's base register — the implicit write will silently overwrite RAX after the instruction executes. This is an aliasing hazard that can lead to correctness bugs. Refactor the instruction to avoid overlapping registers, or use a different addressing mode for the memory operand."
 since = "0.16.0"
 deprecated = false
 
@@ -953,17 +953,16 @@ category = "unsafe"
 title = "Unsupported statement in unsafe block"
 brief = "unsafe { block: { ... } } currently emits only asm mnemonics and labels; other statement kinds are silently dropped in codegen"
 description = """
-Historically the unsafe-block emit path only routes StmtInstruction and
-StmtLabel through the walker. All other statement kinds (call expressions,
-let bindings, field-access reads, etc.) reach the walker but emit zero
-bytes. This diagnostic makes that drop explicit rather than silent.
+The unsafe-block emit path only routes StmtInstruction and StmtLabel through
+the walker. Other statement kinds (call expressions, let bindings,
+field-access reads, etc.) reach the walker but emit zero bytes. This
+diagnostic makes that drop explicit rather than silent.
 
 The parser (parse_unsafe.rs) and lowering (lower.rs) accept the full
 statement grammar inside unsafe blocks; the emit routing to close the gap
-is tracked in follow-up #1088.
+is not yet implemented.
 
-Workaround: move non-asm statements outside the unsafe block, or wait for
-#1088 to land the full routing.
+Workaround: move non-asm statements outside the unsafe block.
 """
 since = "0.17.0"
 
@@ -973,10 +972,12 @@ category = "unsafe"
 title = "R11 scratch-register collision in imm64 bitwise expansion"
 brief = "destination register r11 collision in movabs r11, imm64 expansion for bitwise operations"
 description = """
-PA-R13-010 macro-expansion reserves R11 as scratch for `movabs r11, imm64; <op> dst, r11`.
-When the destination register is r11, the expansion cannot proceed because clobbering the
-scratch register would destroy the immediate value before the operation executes. Select a
-different destination register or hoist the bitwise operation outside the site.
+The imm64 bitwise-expansion macro reserves R11 as scratch for
+`movabs r11, imm64; <op> dst, r11`. When the destination register is r11,
+the expansion cannot proceed because clobbering the scratch register would
+destroy the immediate value before the operation executes. Select a
+different destination register or hoist the bitwise operation outside the
+site.
 """
 since = "0.19.0"
 deprecated = false
@@ -996,10 +997,10 @@ missing side-tables, or unpopulated layouts in the elaborator. Any fire
 represents a silent-broken-.o class bug that would previously have shipped
 without a build error.
 
-Post-#1086 migration, this channel holds only non-T-coded internal errors;
-all user-facing shape gaps have migrated to the typed pipe. If you see this
-diagnostic, the elaborator has detected a structural invariant violation and
-cannot proceed safely.
+This channel holds only non-T-coded internal errors; all user-facing shape
+gaps have migrated to the typed pipe. If you see this diagnostic, the
+elaborator has detected a structural invariant violation and cannot proceed
+safely.
 """
 since = "0.17.0"
 deprecated = false
@@ -1009,7 +1010,7 @@ severity = "error"
 category = "type"
 title = "Argument type mismatch at call site"
 brief = "function argument type does not match expected type"
-description = "Phase 7 m1-003 (PA7-006): a function call argument has a type that does not match the expected parameter type. Ensure that all arguments to a function match their respective parameter types. Check type annotations in the function signature and verify that the argument values have compatible types."
+description = "A function call argument has a type that does not match the expected parameter type. Ensure that all arguments to a function match their respective parameter types. Check type annotations in the function signature and verify that the argument values have compatible types."
 since = "0.11.0"
 deprecated = false
 
@@ -1018,7 +1019,7 @@ severity = "error"
 category = "type"
 title = "Match expression is non-exhaustive"
 brief = "match expression must have a default arm for all unmatched patterns"
-description = "Phase 7 m1-004 (PA7-007): a match expression on an enum-like u32 value requires an exhaustive set of patterns. Since the code generation uses compare-and-jump dispatch, the default arm (_) is mandatory to handle all unmatched cases. Add a default arm with `_ => <expr>` to make the match exhaustive."
+description = "A match expression on an enum-like u32 value requires an exhaustive set of patterns. Since the code generation uses compare-and-jump dispatch, the default arm (_) is mandatory to handle all unmatched cases. Add a default arm with `_ => <expr>` to make the match exhaustive."
 since = "0.11.0"
 deprecated = false
 
@@ -1027,7 +1028,7 @@ severity = "error"
 category = "type"
 title = "Match arm type mismatch"
 brief = "all match arms must have the same type"
-description = "Phase 7 m1-004 (PA7-007): in a match expression, all arms (including the default) must produce values of the same type. If the first arm produces type T1 and a later arm produces type T2, the expression is ill-typed. Either unify the arm types by adding explicit conversions or restructure the match to ensure all paths have compatible types."
+description = "In a match expression, all arms (including the default) must produce values of the same type. If the first arm produces type T1 and a later arm produces type T2, the expression is ill-typed. Either unify the arm types by adding explicit conversions or restructure the match to ensure all paths have compatible types."
 since = "0.11.0"
 deprecated = false
 
@@ -1036,7 +1037,7 @@ severity = "error"
 category = "type"
 title = "Break outside loop body"
 brief = "break can only appear inside a loop or while body"
-description = "Phase 7 m1-008 (PA7-008): break statements can only appear inside the body of a loop or while loop. A break outside any loop context is a control-flow error. Move the break statement inside the appropriate loop body or remove it if it is not needed."
+description = "Break statements can only appear inside the body of a loop or while loop. A break outside any loop context is a control-flow error. Move the break statement inside the appropriate loop body or remove it if it is not needed."
 since = "0.11.0"
 deprecated = false
 
@@ -1045,7 +1046,7 @@ severity = "error"
 category = "type"
 title = "Break value in unit-typed loop"
 brief = "break value not allowed in unit-typed loop contexts"
-description = "Phase 7 m1-008 (PA7-008): a while loop produces unit type () and cannot accept break values. Only infinite loops (loop { ... }) can return values via break. Either remove the value from the break statement, or restructure as a loop expression to return values."
+description = "A while loop produces unit type () and cannot accept break values. Only infinite loops (loop { ... }) can return values via break. Either remove the value from the break statement, or restructure as a loop expression to return values."
 since = "0.11.0"
 deprecated = false
 
@@ -1054,7 +1055,7 @@ severity = "error"
 category = "type"
 title = "Instruction payload not found in side-table"
 brief = "RawInstruction node lacks corresponding instruction payload (internal compiler error)"
-description = "Phase 7 m2-001 (PA7C-m2-001): During IR traversal in emit_block_body, a RawInstruction child node was encountered but the instruction payload was not found in the InstructionSideTable. This indicates an internal compiler error: either the instruction was not properly registered during elaboration, or the side-table lookup failed. This is a structural invariant violation and should not occur in normal compilation."
+description = "During IR traversal in emit_block_body, a RawInstruction child node was encountered but the instruction payload was not found in the InstructionSideTable. This indicates an internal compiler error: either the instruction was not properly registered during elaboration, or the side-table lookup failed. This is a structural invariant violation and should not occur in normal compilation."
 since = "0.12.0"
 deprecated = false
 
@@ -1063,7 +1064,7 @@ severity = "error"
 category = "type"
 title = "Register pressure exceeded in Phase 7 Let-literal bindings"
 brief = "more than 4 in-flight let-literal bindings in multi-statement function body"
-description = "Phase 7 m2-002 (PA7C-m2-002): EmitWalker Let-literal lowering in emit_block_body assigns scratch registers in sequence: RAX(0), RCX(1), RDX(2), R8(8). The calling convention provides exactly 4 caller-save scratch registers. When more than 4 let-literal bindings appear in a single function body, the elaborator cannot assign a scratch register. Restructure your function to use fewer than 5 let-literal bindings, or defer the assignment of later bindings to a later phase."
+description = "EmitWalker Let-literal lowering in emit_block_body assigns scratch registers in sequence: RAX(0), RCX(1), RDX(2), R8(8). The calling convention provides exactly 4 caller-save scratch registers. When more than 4 let-literal bindings appear in a single function body, the elaborator cannot assign a scratch register. Restructure your function to use fewer than 5 let-literal bindings, or defer the assignment of later bindings to a later phase."
 since = "0.12.1"
 deprecated = false
 
@@ -1072,7 +1073,7 @@ severity = "error"
 category = "type"
 title = "Unresolved local binding in unsafe operand"
 brief = "unresolved local binding referenced in unsafe.instruction operand"
-description = "Phase 7 m2-003 (PA7C-m2-003): An unsafe.instruction operand references a local binding name (e.g., ${x} in let-chain unsafe.block) that was not found in the function's local binding table. This occurs when a binding has either not been declared, has gone out of scope, or the resolve_var_operands pass is not wired into the build pipeline. Ensure the binding is declared before use in the unsafe block operand."
+description = "An unsafe.instruction operand references a local binding name (e.g., ${x} in let-chain unsafe.block) that was not found in the function's local binding table. This occurs when a binding has either not been declared, has gone out of scope, or the resolve_var_operands pass is not wired into the build pipeline. Ensure the binding is declared before use in the unsafe block operand."
 since = "0.12.2"
 deprecated = false
 
@@ -1084,8 +1085,7 @@ brief = "only u32/u64 field reads supported; u8/u16/i8/i16/i32 deferred"
 description = """
 The field-access lowering path in emit_mem_read_via_rip_sym currently only
 handles u32 and u64 loads. Fields typed u8/u16/i8/i16/i32 are recognized but
-their movzx/movsx lowering is deferred to Phase 17 m6-b. This diagnostic
-replaces the earlier T0517 reuse at emit_field_access.rs (issue #1080).
+their movzx/movsx lowering is not yet implemented.
 """
 since = "0.17.0"
 deprecated = false
@@ -1099,8 +1099,7 @@ description = """
 The module-level field-assign lowering path in emit_field_access.rs
 currently handles only u32 (MovSized{W32}) and u64 (Mov) stores. Fields
 typed u8/u16/i8/i16/i32 are recognized in layout but their narrow-store
-lowering is deferred to Phase 17 m6-b. Write-side counterpart of T0529;
-replaces the ad-hoc T0519 reuse at emit_field_access.rs:185 (issue #1175).
+lowering is not yet implemented. Write-side counterpart of T0529.
 """
 since = "0.17.0"
 deprecated = false
@@ -1110,7 +1109,7 @@ severity = "error"
 category = "type"
 title = "Local binding not found; checking module SymbolTable"
 brief = "variable reference found in module scope but not local scope"
-description = "Phase 10 m1-001 (PA10-005): PA10-005 nested var lookup. When resolve_var_operands fails to find a binding in the local binding table, it checks the module's SymbolTable. If found there, this diagnostic is emitted instead of T0528. This indicates the variable is module-scoped (e.g., a global let-fn or let-const) and cannot be directly accessed within function-local unsafe blocks without explicit capture or higher-level binding. Either move the reference outside the unsafe block, or declare a local let binding that captures the module-scoped value."
+description = "When resolve_var_operands fails to find a binding in the local binding table, it checks the module's SymbolTable. If found there, this diagnostic is emitted instead of T0528. This indicates the variable is module-scoped (e.g., a global let-fn or let-const) and cannot be directly accessed within function-local unsafe blocks without explicit capture or higher-level binding. Either move the reference outside the unsafe block, or declare a local let binding that captures the module-scoped value."
 since = "0.13.0"
 deprecated = false
 
@@ -1119,7 +1118,7 @@ severity = "warning"
 category = "type"
 title = "High-byte register (ah/ch/dh/bh) accessed with memory operand requiring REX prefix"
 brief = "ah/ch/dh/bh with memory access may conflict with REX encoding"
-description = "Phase 13 m6-001 (PA13-001): When encoding mov r8, [mem] with destination ah/ch/dh/bh (RegId 4–7), if the memory operand's base or index register is in r8–r15 (requiring REX), there is an encoding ambiguity: the ah–bh aliasing mode cannot coexist with REX prefixes. This diagnostic warns that the instruction may not assemble correctly. Workarounds: (1) use al/cl/dl/bl (low-byte) or r8b–r15b (extended) instead; (2) use a base/index register from r0–r7. In v0.13, this is a warning. Future versions may harden to an error."
+description = "When encoding mov r8, [mem] with destination ah/ch/dh/bh (RegId 4–7), if the memory operand's base or index register is in r8–r15 (requiring REX), there is an encoding ambiguity: the ah–bh aliasing mode cannot coexist with REX prefixes. This diagnostic warns that the instruction may not assemble correctly. Workarounds: (1) use al/cl/dl/bl (low-byte) or r8b–r15b (extended) instead; (2) use a base/index register from r0–r7. This is currently a warning; a future version may harden this to an error."
 since = "0.13.0"
 deprecated = false
 
@@ -1128,7 +1127,7 @@ severity = "error"
 category = "type"
 title = "Address-of operand is not an identifier"
 brief = "& operator applied to non-identifier expression"
-description = "Issue #981 (pa-r17-003): the & (address-of) operator in a static initializer context must have an identifier (variable or function name) as its operand. Expressions like &(1 + 2) or &arr[0] are not permitted. Use &function_name or &global_variable_name instead."
+description = "The & (address-of) operator in a static initializer context must have an identifier (variable or function name) as its operand. Expressions like &(1 + 2) or &arr[0] are not permitted. Use &function_name or &global_variable_name instead."
 since = "0.17.0"
 deprecated = false
 
@@ -1137,7 +1136,7 @@ severity = "error"
 category = "type"
 title = "Unresolved identifier in address-of expression"
 brief = "& operator applied to an unknown identifier"
-description = "Issue #981 (pa-r17-003): the & (address-of) operator references an identifier that is not found in the local scope. Either define the name locally, use a fully-qualified cross-file reference (if supported), or ensure the name is spelled correctly."
+description = "The & (address-of) operator references an identifier that is not found in the local scope. Either define the name locally, use a fully-qualified cross-file reference (if supported), or ensure the name is spelled correctly."
 since = "0.17.0"
 deprecated = false
 
@@ -1146,7 +1145,7 @@ severity = "error"
 category = "type"
 title = "Function-pointer signature mismatch in assignment"
 brief = "assignee's fn-ptr signature does not match target binding"
-description = "Issue #980 (pa-r17-002): a let-binding annotated with a function-pointer type receives a value whose signature does not match. Signature matching requires: (1) equal arity, (2) invariant parameter types, (3) invariant return type, (4) source's effect row must be a subset of the target's (widening on assignment is safe; narrowing is not), (5) source's capability set must be a subset of the target's. The specific mismatch reason appears in the diagnostic's notes."
+description = "A let-binding annotated with a function-pointer type receives a value whose signature does not match. Signature matching requires: (1) equal arity, (2) invariant parameter types, (3) invariant return type, (4) source's effect row must be a subset of the target's (widening on assignment is safe; narrowing is not), (5) source's capability set must be a subset of the target's. The specific mismatch reason appears in the diagnostic's notes."
 since = "0.17.0"
 deprecated = false
 
@@ -1155,7 +1154,7 @@ severity = "error"
 category = "type"
 title = "Address-of target is not a function; data-symbol addr-of not supported in v0.17"
 brief = "& operator applied to non-function symbol, or addend exceeds i32 range"
-description = "Issue #981 (pa-r17-003): in v0.17, the & (address-of) operator is limited to function symbols only. Taking the address of a data symbol (let-bound variable, constant, or array) is not yet supported. Use &function_name only. Issue #992 (pa-r17-014): addends in lea [rip + sym + addend] must fit in i32; offsets for record fields must not exceed i32::MAX (0x7FFFFFFF)."
+description = "The & (address-of) operator is limited to function symbols only. Taking the address of a data symbol (let-bound variable, constant, or array) is not yet supported. Use &function_name only. Addends in lea [rip + sym + addend] must fit in i32; offsets for record fields must not exceed i32::MAX (0x7FFFFFFF)."
 since = "0.17.0"
 deprecated = false
 
@@ -1164,7 +1163,7 @@ severity = "error"
 category = "type"
 title = "Record literal missing field"
 brief = "record literal omits declared field {name}"
-description = "Issue #1092 (pa-r17-015): a record literal is missing one or more fields that are declared in the record type. All declared fields must be present in the record literal. The missing field names appear in the diagnostic message."
+description = "A record literal is missing one or more fields that are declared in the record type. All declared fields must be present in the record literal. The missing field names appear in the diagnostic message."
 since = "0.17.0"
 deprecated = false
 
@@ -1173,7 +1172,7 @@ severity = "error"
 category = "type"
 title = "Record literal duplicate field"
 brief = "record literal contains field {name} more than once"
-description = "Issue #1092 (pa-r17-015): a record literal contains a field name multiple times. Each field may appear exactly once in a record literal. Remove the duplicate field name occurrences."
+description = "A record literal contains a field name multiple times. Each field may appear exactly once in a record literal. Remove the duplicate field name occurrences."
 since = "0.17.0"
 deprecated = false
 
@@ -1182,7 +1181,7 @@ severity = "error"
 category = "type"
 title = "Record literal unknown field"
 brief = "record literal contains field {name} not declared in the record"
-description = "Issue #1092 (pa-r17-015): a record literal contains a field name that is not declared in the target record type. Check the spelling of the field name and ensure it matches one of the declared fields."
+description = "A record literal contains a field name that is not declared in the target record type. Check the spelling of the field name and ensure it matches one of the declared fields."
 since = "0.17.0"
 deprecated = false
 
@@ -1191,7 +1190,7 @@ severity = "error"
 category = "type"
 title = "Unsupported shape in Pattern 5 module-level let-mut assignment"
 brief = "var_assign accepts only Var-to-Var; LHS must resolve to a module let-mut symbol not shadowed by a local binding"
-description = "Issue #1135 (pa-r17-016-followup): Pattern 5 module-level let-mut assignment via var_assign lowering accepts only Var-to-Var shapes where LHS is a module-level let-mut symbol (not shadowed by a local binding) and RHS is a function parameter (register) from local_bindings. Unsupported cases: (1) RHS is not a Var (e.g., literal, field access); (2) LHS is shadowed by a local binding; (3) LHS is not a module symbol; (4) structural invariants violated. For non-Var RHS patterns, use a separate let binding in the function body. For shadowed symbols, rename the local binding or restructure the scope."
+description = "Module-level let-mut assignment via var_assign lowering accepts only Var-to-Var shapes where LHS is a module-level let-mut symbol (not shadowed by a local binding) and RHS is a function parameter (register) from local_bindings. Unsupported cases: (1) RHS is not a Var (e.g., literal, field access); (2) LHS is shadowed by a local binding; (3) LHS is not a module symbol; (4) structural invariants violated. For non-Var RHS patterns, use a separate let binding in the function body. For shadowed symbols, rename the local binding or restructure the scope."
 since = "0.17.0"
 deprecated = false
 
@@ -1200,7 +1199,7 @@ severity = "error"
 category = "type"
 title = "Stdlib intrinsic requires integer-literal argument"
 brief = "stdlib trait method arg must be compile-time integer"
-description = "Issue #1056 (pa-r16-007-followup): stdlib trait methods like PerCpuOps::percpu_inc require their arguments to be integer literals known at compile time. This allows the code generator to directly encode absolute displacements and immediate values into the instruction encoding. Pass an integer literal (e.g., 0x1000, 8192) instead of a variable or expression."
+description = "Stdlib trait methods like PerCpuOps::percpu_inc require their arguments to be integer literals known at compile time. This allows the code generator to directly encode absolute displacements and immediate values into the instruction encoding. Pass an integer literal (e.g., 0x1000, 8192) instead of a variable or expression."
 since = "0.16.0"
 deprecated = false
 
@@ -1209,7 +1208,7 @@ severity = "error"
 category = "type"
 title = "Unsupported struct field type"
 brief = "struct field type not recognized"
-description = "Issue #1070 (PA-r17-010a): Struct field types must be one of the supported primitive types (u8, i8, u16, i16, u32, i32, u64, i64) or a pointer type (*T). Unsupported types include floats (f32, f64), bools, or user-defined types. Use a supported type instead."
+description = "Struct field types must be one of the supported primitive types (u8, i8, u16, i16, u32, i32, u64, i64) or a pointer type (*T). Unsupported types include floats (f32, f64), bools, or user-defined types. Use a supported type instead."
 since = "0.17.0"
 deprecated = false
 
@@ -1218,7 +1217,7 @@ severity = "error"
 category = "type"
 title = "Undefined identifier at call site"
 brief = "callee name resolves to neither a module symbol, stdlib trait method, nor local binding"
-description = "Issue #1260: A call expression names a callee that is not defined in this module's symbol table, is not a registered stdlib trait method (Trait::method), and is not a local closure/function-pointer binding. Prior to this diagnostic the compiler silently emitted a broken relocation and the linker (or, worse, load-time SIGSEGV in the produced binary) surfaced the failure. Fix by defining the function, correcting the identifier spelling, or adding the missing stdlib trait method import. Paideia has no cross-module import mechanism today: every callable identifier must be resolvable within its compilation unit at emit time."
+description = "A call expression names a callee that is not defined in this module's symbol table, is not a registered stdlib trait method (Trait::method), and is not a local closure/function-pointer binding. Silently emitting a broken relocation here previously let the linker (or, worse, load-time SIGSEGV in the produced binary) surface the failure much later. Fix by defining the function, correcting the identifier spelling, or adding the missing stdlib trait method import. Paideia has no cross-module import mechanism today: every callable identifier must be resolvable within its compilation unit at emit time."
 since = "0.20.1"
 deprecated = false
 
@@ -1227,7 +1226,7 @@ severity = "error"
 category = "type"
 title = "Unknown variant in known enum"
 brief = "enum type exists but the variant name was not found"
-description = "Issue #1198 (phase 7 m1-005): A call expression references an enum type with an EnumType::Variant qualifier (e.g., Choice::A), but the variant name does not match any variant declared in that enum. Check the spelling of the variant name and ensure it matches one of the declared variants in the enum definition."
+description = "A call expression references an enum type with an EnumType::Variant qualifier (e.g., Choice::A), but the variant name does not match any variant declared in that enum. Check the spelling of the variant name and ensure it matches one of the declared variants in the enum definition."
 since = "0.20.0"
 deprecated = false
 
@@ -1236,7 +1235,7 @@ severity = "error"
 category = "type"
 title = "Ambiguous bare enum variant identifier"
 brief = "bare enum variant name matches multiple enum variants"
-description = "Issue #1198 (phase 7 m1-005): A bare enum variant identifier (e.g., `A` without the `EnumType::` prefix) is ambiguous because multiple enum types declare a variant with that name. Use the fully-qualified form (e.g., Choice::A) to disambiguate which variant you intend."
+description = "A bare enum variant identifier (e.g., `A` without the `EnumType::` prefix) is ambiguous because multiple enum types declare a variant with that name. Use the fully-qualified form (e.g., Choice::A) to disambiguate which variant you intend."
 since = "0.20.0"
 deprecated = false
 
@@ -1245,7 +1244,7 @@ severity = "error"
 category = "type"
 title = "Unsupported match scrutinee kind"
 brief = "match scrutinee must be a Var binding — bind the value to a `let` first"
-description = "Issue #1084 (PA-r17-009b): The scrutinee (value being matched) must be a Var that resolves to either a module-level Object symbol or a local binding. Other expressions (like literals, function calls, or complex expressions) are not yet supported as match scrutinees in the current emit pass. Extract the value into a local variable and use that variable as the scrutinee (e.g., `let x = f(y); match x { ... }`)."
+description = "The scrutinee (value being matched) must be a Var that resolves to either a module-level Object symbol or a local binding. Other expressions (like literals, function calls, or complex expressions) are not yet supported as match scrutinees in the current emit pass. Extract the value into a local variable and use that variable as the scrutinee (e.g., `let x = f(y); match x { ... }`)."
 since = "0.17.0"
 deprecated = false
 
@@ -1254,7 +1253,7 @@ severity = "error"
 category = "lexer"
 title = "64-bit immediate or destination cannot be encoded in 32-bit mode"
 brief = "64-bit value in 32-bit mode"
-description = "Phase 15 m3-001: An instruction specifies a 64-bit immediate or destination in 32-bit mode. In 32-bit mode, immediate values must fit in 32 bits (signed or unsigned), and destination registers must be 32-bit (r32) not 64-bit (r64). Either reduce the immediate to 32 bits, use a 32-bit destination register, or switch to 64-bit mode."
+description = "An instruction specifies a 64-bit immediate or destination in 32-bit mode. In 32-bit mode, immediate values must fit in 32 bits (signed or unsigned), and destination registers must be 32-bit (r32) not 64-bit (r64). Either reduce the immediate to 32 bits, use a 32-bit destination register, or switch to 64-bit mode."
 since = "0.15.0"
 deprecated = false
 
@@ -1263,7 +1262,7 @@ severity = "error"
 category = "parser"
 title = "Unknown match attribute"
 brief = "@<name> not recognized in match attributes"
-description = "Issue #964: A match expression has an @ attribute that is not recognized. Valid attributes are @jump_table. Check the spelling of the attribute name."
+description = "A match expression has an @ attribute that is not recognized. Valid attributes are @jump_table. Check the spelling of the attribute name."
 since = "0.15.0"
 deprecated = false
 
@@ -1272,7 +1271,7 @@ severity = "error"
 category = "parser"
 title = "Malformed match attribute"
 brief = "match attribute syntax error"
-description = "Issue #964: A match expression has a malformed @ attribute. The attribute name must be a valid identifier (e.g., @jump_table)."
+description = "A match expression has a malformed @ attribute. The attribute name must be a valid identifier (e.g., @jump_table)."
 since = "0.15.0"
 deprecated = false
 
@@ -1281,7 +1280,7 @@ severity = "warning"
 category = "parser"
 title = "@jump_table density too sparse"
 brief = "match is too sparse for jump-table codegen; reverting to cmp/je chain"
-description = "Issue #964: A match expression was marked with @jump_table but the coverage is too sparse (less than 50% density or range > 256). The elaborator will emit a cmp/je fallback chain instead of a dense jump table. To enable jump-table dispatch, ensure at least 50% coverage of the range and arm count <= 256."
+description = "A match expression was marked with @jump_table but the coverage is too sparse (less than 50% density or range > 256). The elaborator will emit a cmp/je fallback chain instead of a dense jump table. To enable jump-table dispatch, ensure at least 50% coverage of the range and arm count <= 256."
 since = "0.15.0"
 deprecated = false
 
@@ -1290,7 +1289,7 @@ severity = "warning"
 category = "parser"
 title = "@jump_table codegen deferred"
 brief = "@jump_table codegen deferred to follow-up issue; using cmp/je fallback for now"
-description = "Issue #964: This match has @jump_table set, but the full codegen (rodata synthesis + memory-indirect jmp) is deferred to issue pa-r15-009b. For now, the elaborator emits a cmp/je fallback chain. The jump-table dispatch will be implemented in a future release."
+description = "This match has @jump_table set, but the full codegen (rodata synthesis + memory-indirect jmp) is not yet implemented. For now, the elaborator emits a cmp/je fallback chain. The jump-table dispatch will be implemented in a future release."
 since = "0.15.0"
 deprecated = false
 
@@ -1299,7 +1298,7 @@ severity = "error"
 category = "parser"
 title = "@jump_table requires default arm"
 brief = "match with @jump_table must have a default arm (_)"
-description = "Issue #964: A match expression marked with @jump_table lacks a default (_) arm. Jump-table dispatch requires an exhaustive default case for bounds-checking the dispatch index. Add a default arm with `_ => <expr>`."
+description = "A match expression marked with @jump_table lacks a default (_) arm. Jump-table dispatch requires an exhaustive default case for bounds-checking the dispatch index. Add a default arm with `_ => <expr>`."
 since = "0.15.0"
 deprecated = false
 
@@ -1308,7 +1307,7 @@ severity = "error"
 category = "parser"
 title = "@jump_table requires integer-literal arms"
 brief = "match with @jump_table must have integer-literal patterns only"
-description = "Issue #964: A match expression marked with @jump_table has a non-integer-literal arm (e.g., a variable or string pattern). Jump-table dispatch requires all arms (except the default _) to be integer literals so the elaborator can compute density and generate the dispatch offset. Convert non-literal patterns to integer literals or remove @jump_table."
+description = "A match expression marked with @jump_table has a non-integer-literal arm (e.g., a variable or string pattern). Jump-table dispatch requires all arms (except the default _) to be integer literals so the elaborator can compute density and generate the dispatch offset. Convert non-literal patterns to integer literals or remove @jump_table."
 since = "0.15.0"
 deprecated = false
 
@@ -1317,7 +1316,7 @@ severity = "error"
 category = "parser"
 title = "Lambda has more than 6 parameters"
 brief = "lambda arity exceeds System-V register-passed cap (6)"
-description = "Issue #1041: the current System-V x86-64 lowering passes lambda parameters in RDI, RSI, RDX, RCX, R8, R9. Stack-spill of the 7th+ parameter is not yet implemented. Reduce the parameter count to 6 or fewer, or split the function into curried groups (each group is a separate lambda)."
+description = "The current System-V x86-64 lowering passes lambda parameters in RDI, RSI, RDX, RCX, R8, R9. Stack-spill of the 7th+ parameter is not yet implemented. Reduce the parameter count to 6 or fewer, or split the function into curried groups (each group is a separate lambda)."
 since = "0.17.0"
 deprecated = false
 
@@ -1326,7 +1325,7 @@ severity = "error"
 category = "parser"
 title = "Malformed struct field declaration"
 brief = "expected field name, colon, type, or closing brace"
-description = "Issue #1071 (pa-r17-010b): A struct field declaration is syntactically incomplete. Ensure all fields follow the pattern `name: type`, separated by commas, with proper opening and closing braces. Trailing commas are allowed. Example: `struct S { x: u64, y: u32 }`."
+description = "A struct field declaration is syntactically incomplete. Ensure all fields follow the pattern `name: type`, separated by commas, with proper opening and closing braces. Trailing commas are allowed. Example: `struct S { x: u64, y: u32 }`."
 since = "0.17.0"
 deprecated = false
 
@@ -1335,7 +1334,7 @@ severity = "error"
 category = "parser"
 title = "Malformed GUID literal"
 brief = "@guid literal malformed (wrong length, invalid dashes, non-hex characters)"
-description = "Issue #1012: A @guid compile-time directive has an invalid GUID string. GUID syntax is XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX (36 characters with dashes at positions 8, 13, 18, 23; all other characters must be hexadecimal). Verify the string is 36 characters, dashes are in the correct positions, and all hex characters are valid (0-9, a-f, A-F)."
+description = "A @guid compile-time directive has an invalid GUID string. GUID syntax is XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX (36 characters with dashes at positions 8, 13, 18, 23; all other characters must be hexadecimal). Verify the string is 36 characters, dashes are in the correct positions, and all hex characters are valid (0-9, a-f, A-F)."
 since = "0.18.0"
 deprecated = false
 
@@ -1344,7 +1343,7 @@ severity = "error"
 category = "parser"
 title = "@include_bytes path error"
 brief = "@include_bytes path is invalid, not found, or inaccessible"
-description = "Issue #1013: The @include_bytes compile-time directive encountered an error resolving or reading the file. Common causes: empty path, absolute path (only relative paths allowed), file not found, permission denied, or path is not a regular file. Verify the path is relative, the file exists, and the file is readable."
+description = "The @include_bytes compile-time directive encountered an error resolving or reading the file. Common causes: empty path, absolute path (only relative paths allowed), file not found, permission denied, or path is not a regular file. Verify the path is relative, the file exists, and the file is readable."
 since = "0.19.0"
 deprecated = false
 
@@ -1353,7 +1352,7 @@ severity = "error"
 category = "parser"
 title = "@include_bytes file too large"
 brief = "@include_bytes file exceeds 16 MiB limit"
-description = "Issue #1013: The file referenced by @include_bytes is larger than the 16 MiB size limit for compile-time embeds. This limit is enforced to prevent accidentally embedding very large files during compilation. Split the data into smaller files or use a different approach (e.g., external file references) for larger payloads."
+description = "The file referenced by @include_bytes is larger than the 16 MiB size limit for compile-time embeds. This limit is enforced to prevent accidentally embedding very large files during compilation. Split the data into smaller files or use a different approach (e.g., external file references) for larger payloads."
 since = "0.19.0"
 deprecated = false
 
@@ -1362,7 +1361,7 @@ severity = "error"
 category = "parser"
 title = "@include_str file is not valid UTF-8"
 brief = "@include_str: file is not valid UTF-8"
-description = "Issue #1014: The @include_str directive requires the referenced file to be valid UTF-8. The file contains an invalid UTF-8 byte sequence at the indicated byte offset. Use @include_bytes_as_str instead if you need to embed binary data without UTF-8 validation."
+description = "The @include_str directive requires the referenced file to be valid UTF-8. The file contains an invalid UTF-8 byte sequence at the indicated byte offset. Use @include_bytes_as_str instead if you need to embed binary data without UTF-8 validation."
 since = "0.19.0"
 deprecated = false
 
@@ -1371,7 +1370,7 @@ severity = "error"
 category = "type"
 title = "InlineBytes size mismatch"
 brief = "declared [u8; N] size does not match actual bytes from @guid or @include_bytes"
-description = "Issue #1013 (T0558 retroactive guard): A Let binding has a declared [u8; N] array type annotation, but the actual bytes from the @guid or @include_bytes directive differ in length. Either fix the type annotation to match the actual size, or fix the directive to produce the correct number of bytes. This guard prevents silent data truncation or padding mismatches."
+description = "A Let binding has a declared [u8; N] array type annotation, but the actual bytes from the @guid or @include_bytes directive differ in length. Either fix the type annotation to match the actual size, or fix the directive to produce the correct number of bytes. This guard prevents silent data truncation or padding mismatches."
 since = "0.19.0"
 deprecated = false
 
@@ -1380,7 +1379,7 @@ severity = "error"
 category = "type"
 title = "Unsupported EnumCons payload shape"
 brief = "EnumCons payload child is neither Literal nor Var"
-description = "Phase 8 emit_enum_match: enum constructor payload lowering currently supports only Literal and Var child nodes (constants or variable bindings). Other shapes such as RecordCons (record literal payloads in enum constructors) are not yet supported. Restructure to use a simpler payload expression, or defer this pattern to a later phase."
+description = "Enum constructor payload lowering currently supports only Literal and Var child nodes (constants or variable bindings). Other shapes such as RecordCons (record literal payloads in enum constructors) are not yet supported. Restructure to use a simpler payload expression, or defer this pattern to a later phase."
 since = "0.17.0"
 deprecated = false
 
@@ -1394,8 +1393,7 @@ The pointer-receiver field-assign path in emit_field_access.rs
 (visit_field_assign) dispatches store width on field_size and lowers
 1/2/4/8-byte stores via MovSized. Any other width (e.g. padded or
 oversized fields introduced by future layout work) falls through and
-raises this diagnostic. Store-side counterpart of T0565; issue #1147
-retag of the legacy string push.
+raises this diagnostic. Store-side counterpart of T0565.
 """
 since = "0.19.0"
 deprecated = false
@@ -1411,7 +1409,7 @@ emit_field_access.rs covers the 4x2 (size in {1,2,4,8}, signed in
 {false,true}) matrix that today's frontend can produce. Any other
 (size, signed) combination — e.g. from future non-power-of-two field
 types — falls through and raises this diagnostic. Read-side counterpart
-of T0564; issue #1147 retag of the legacy string push.
+of T0564.
 """
 since = "0.19.0"
 deprecated = false
@@ -1425,8 +1423,7 @@ description = """
 The match-arm body lowering path in emit_enum_match.rs dispatches on
 the arm's IR kind. App bodies are lowered via emit_arm_body_app; other
 IR kinds (nested Match, Let, Block, etc.) are not yet supported and
-fall through to this diagnostic. Issue #1147 retag of the legacy
-string push at emit_enum_match.rs.
+fall through to this diagnostic.
 """
 since = "0.19.0"
 deprecated = false
@@ -1441,7 +1438,7 @@ emit_arm_body_app infers the operator string from the callee's source
 span length via infer_operator_from_span_len. Spans whose length does
 not correspond to any registered operator (1..=2 bytes today) raise
 this diagnostic. Indicates either a novel operator not yet wired or a
-malformed span. Issue #1147 retag.
+malformed span.
 """
 since = "0.19.0"
 deprecated = false
@@ -1457,7 +1454,7 @@ operator against a fixed table (+, -, *, &, |, ^, <<, >>) across four
 operand-shape arms ((Var,Var), (Var,Literal), (Literal,Var),
 (Literal,Literal)). Operators outside this set (e.g. /, %, comparisons)
 are not yet lowered in the match-arm path. Same code fires from all
-four arms; issue #1147 retag.
+four arms.
 """
 since = "0.19.0"
 deprecated = false
@@ -1471,7 +1468,7 @@ description = """
 emit_arm_body_app case-analyzes operand shapes over the 2x2 matrix
 (Var|Literal, Var|Literal). Any other operand shape (e.g. nested App,
 FieldAccess, EnumCons) falls through and raises this diagnostic.
-Complements T0562; issue #1147 retag.
+Complements T0562.
 """
 since = "0.19.0"
 deprecated = false
@@ -1485,7 +1482,7 @@ description = """
 The register-form pattern binding path in emit_enum_match.rs extracts
 enum-variant payload fields via a size-and-signed dispatch. Field
 shapes outside the supported set fall through and raise this
-diagnostic. Register-pattern counterpart of T0565; issue #1147 retag.
+diagnostic. Register-pattern counterpart of T0565.
 """
 since = "0.19.0"
 deprecated = false
@@ -1496,7 +1493,7 @@ category = "type"
 title = "Integer match requires explicit default arm"
 brief = "integer-scrutinee match must include a default `_ =>` arm"
 description = """
-Issue #1210: An integer-scrutinee match expression is missing an explicit
+An integer-scrutinee match expression is missing an explicit
 default arm. All integer-scrutinee matches require a `_ =>` arm to handle
 values that do not match any literal pattern. Add a default arm to handle
 the fallback case. Example: `match x { 1u64 => ..., _ => ... }`.
@@ -1510,7 +1507,7 @@ category = "type"
 title = "Non-integer pattern in integer-scrutinee match"
 brief = "only integer literals and wildcards are allowed in integer matches"
 description = """
-Issue #1210: An integer-scrutinee match expression contains a pattern
+An integer-scrutinee match expression contains a pattern
 that is neither an integer literal nor a wildcard. Only integer literal
 patterns (e.g. `1u64`, `42i32`) and default/wildcard patterns (`_`) are
 supported in integer-scrutinee matches. Rewrite the pattern using integer
@@ -1525,7 +1522,7 @@ category = "type"
 title = "Integer pattern width mismatch"
 brief = "integer pattern width does not match scrutinee width"
 description = """
-Issue #1210: An arm pattern's integer width does not match the integer
+An arm pattern's integer width does not match the integer
 scrutinee's width. For example, matching a u64 value against a u8 literal
 pattern. Ensure all arm patterns use the same width as the scrutinee
 (e.g. if scrutinee is u64, use u64 patterns like `0u64`, `1u64`).
@@ -1539,7 +1536,7 @@ category = "type"
 title = "Function-pointer annotation on a lambda that captures free variables"
 brief = "lambda captures free variables but is annotated as fn-ptr"
 description = """
-Issue #994: a lambda literal assigned to a binding annotated with a plain
+A lambda literal assigned to a binding annotated with a plain
 function-pointer type (`fn(T) -> R`) actually references one or more free
 variables from its enclosing scope. A bare function pointer is an 8-byte
 code address with no room to store a captured environment, so this
@@ -1556,7 +1553,7 @@ category = "type"
 title = "Nested closure invocation not yet supported"
 brief = "closure body invokes another closure — outer env-ptr (R14) would be clobbered"
 description = """
-Issue #1239: A closure body contains an application of another closure-typed
+A closure body contains an application of another closure-typed
 binding. The closure-call ABI loads the callee's environment pointer into R14
 via `mov r14, [r11 + 0]` at every call site (see emit_closure_call), which
 destroys the outer closure's own env-ptr with no save/restore. Any subsequent
@@ -1575,8 +1572,8 @@ category = "type"
 title = "Array initialiser arity mismatch"
 brief = "array literal element count does not match the storage the symbol declares"
 description = """
-Issue #1309: a module-level `let` with an array-literal initialiser emits one
-packed element per encodable child, and used to emit whatever it got with no
+A module-level `let` with an array-literal initialiser emits one
+packed element per encodable child; it used to emit whatever it got with no
 reconciliation against the declared type. Two silent under-allocations were
 possible:
 
@@ -1598,7 +1595,7 @@ array-literal path actually produced a partial symbol. An array in which
 *nothing* encodes — such as a table of symbol addresses — emits no data entry
 and therefore no symbol at all, so a use of it fails loudly at link time as an
 undefined symbol rather than silently reading short storage. That is a separate
-gap tracked as issue #1310, not an arity mismatch.
+gap, not an arity mismatch.
 """
 since = "0.21.0"
 deprecated = false
@@ -1609,15 +1606,14 @@ category = "type"
 title = "Array length cannot be sized at emit-time"
 brief = "`[T; N]` where `N` is not a literal or a resolvable module constant — cannot determine `.bss` size"
 description = """
-Issue #1313: `compute_bss_size_from_type` sizes a `.bss` symbol for
+`compute_bss_size_from_type` sizes a `.bss` symbol for
 `pub let mut NAME : [T; N] = uninit` from the declared array type. When `N`
 was anything other than a bare integer literal — a named constant, an
 arithmetic expression such as `MAX_PIDS * TASK_SLOT_QWORDS` — it silently fell
-back to an 8-byte object instead of failing. paideia-os#1594 hit this
-directly: `_task_pool : [u64; MAX_PIDS * TASK_SLOT_QWORDS]` linked at 8 bytes,
-so every pid past the first wrote a complete task structure past the end of
-the array and into the adjacent kernel-stack region, with no diagnostic
-anywhere.
+back to an 8-byte object instead of failing. This directly caused a kernel
+bug: `_task_pool : [u64; MAX_PIDS * TASK_SLOT_QWORDS]` linked at 8 bytes, so
+every pid past the first wrote a complete task structure past the end of the
+array and into the adjacent kernel-stack region, with no diagnostic anywhere.
 
 `N` is now resolved as:
   1. an integer literal, sized directly;
@@ -1640,7 +1636,7 @@ severity = "error"
 category = "parser"
 title = "Invalid @link_section name"
 brief = "@link_section name must match [A-Za-z0-9._-], length 1..32"
-description = "Phase 19 PA19-r19-010: The @link_section directive's name must be a valid identifier containing only letters, digits, dots, underscores, and hyphens. The name must be 1–32 characters long and non-empty. Example: `let payload : [u8; 8] = ... @link_section(\".uefi_hdr\")`."
+description = "The @link_section directive's name must be a valid identifier containing only letters, digits, dots, underscores, and hyphens. The name must be 1–32 characters long and non-empty. Example: `let payload : [u8; 8] = ... @link_section(\".uefi_hdr\")`."
 since = "0.19.0"
 deprecated = false
 
@@ -1649,7 +1645,7 @@ severity = "error"
 category = "parser"
 title = "Duplicate @link_section directive"
 brief = "@link_section appears more than once on the same binding"
-description = "Phase 19 PA19-r19-010: A let binding has multiple @link_section directives, which is not allowed. Remove all but one @link_section directive. Example: `let x = ... @link_section(\".foo\") @link_section(\".bar\")` is invalid."
+description = "A let binding has multiple @link_section directives, which is not allowed. Remove all but one @link_section directive. Example: `let x = ... @link_section(\".foo\") @link_section(\".bar\")` is invalid."
 since = "0.19.0"
 deprecated = false
 
@@ -1658,7 +1654,7 @@ severity = "error"
 category = "parser"
 title = "Lambda bindings cannot use @link_section"
 brief = "@link_section not yet supported on lambda-shaped let bindings"
-description = "Phase 19 PA19-r19-010 (MVP deferred to pa-r19-010b): The @link_section attribute is currently supported only on let bindings with data (literal, array) values. Lambda-shaped bindings (let x = fn(...)) are not yet supported. This is deferred to a future phase. Rewrite the binding without @link_section or defer the attribute."
+description = "The @link_section attribute is currently supported only on let bindings with data (literal, array) values. Lambda-shaped bindings (let x = fn(...)) are not yet supported. Rewrite the binding without @link_section, or use it only on data bindings."
 since = "0.19.0"
 deprecated = false
 
@@ -1667,7 +1663,7 @@ severity = "error"
 category = "parser"
 title = "Invalid @abi(...) value"
 brief = "@abi requires \"ms\" or \"sysv\" (case-sensitive lowercase)"
-description = "Phase 19 PA19-r19-001: The @abi directive must specify a valid calling convention string. Valid options are \"ms\" (Microsoft x64 ABI for UEFI) and \"sysv\" (System V AMD64 ABI). The string must be lowercase, enclosed in double quotes, and passed as the sole argument to @abi. Examples: `@abi(\"ms\")` or `@abi(\"sysv\")`. Invalid strings, non-string arguments, missing parentheses, or empty strings all trigger this error."
+description = "The @abi directive must specify a valid calling convention string. Valid options are \"ms\" (Microsoft x64 ABI for UEFI) and \"sysv\" (System V AMD64 ABI). The string must be lowercase, enclosed in double quotes, and passed as the sole argument to @abi. Examples: `@abi(\"ms\")` or `@abi(\"sysv\")`. Invalid strings, non-string arguments, missing parentheses, or empty strings all trigger this error."
 since = "0.19.0"
 deprecated = false
 
@@ -1676,7 +1672,7 @@ severity = "error"
 category = "parser"
 title = "@abi directive only valid on function-shaped bindings"
 brief = "@abi applied to non-lambda let binding"
-description = "Phase 19 PA19-r19-001: The @abi calling-convention directive is intended for function-shaped bindings (lambdas). You have applied @abi to a let binding with a non-function value (literal, array, etc.). Remove the @abi directive or rewrite the binding as a lambda. Example: `let f = fn(...) -> ... @abi(\"ms\")` is valid, but `let x : u64 = 42 @abi(\"ms\")` is invalid."
+description = "The @abi calling-convention directive is intended for function-shaped bindings (lambdas). You have applied @abi to a let binding with a non-function value (literal, array, etc.). Remove the @abi directive or rewrite the binding as a lambda. Example: `let f = fn(...) -> ... @abi(\"ms\")` is valid, but `let x : u64 = 42 @abi(\"ms\")` is invalid."
 since = "0.19.0"
 deprecated = false
 
@@ -1685,7 +1681,7 @@ severity = "error"
 category = "parser"
 title = "Invalid @link_section for lambda binding"
 brief = "@link_section applied to lambda/function binding"
-description = "Phase 19 PA19-r19-010 (MVP deferred to pa-r19-010b): The @link_section attribute is currently supported only on let bindings with data (literal, array) values. Lambda-shaped bindings (let x = fn(...)) are not yet supported. This is deferred to a future phase. Rewrite the binding without @link_section or defer the attribute."
+description = "The @link_section attribute is currently supported only on let bindings with data (literal, array) values. Lambda-shaped bindings (let x = fn(...)) are not yet supported. Rewrite the binding without @link_section, or use it only on data bindings."
 since = "0.19.0"
 deprecated = false
 
@@ -1694,7 +1690,7 @@ severity = "error"
 category = "parser"
 title = "@link_section requires immutable let binding"
 brief = "@link_section applied to mutable let binding"
-description = "Phase 19 PA19-r19-010: The @link_section attribute is not valid on mutable let bindings (let mut). Custom section placement is only supported for immutable data. If you need mutable data in a custom section, this is deferred to a future phase."
+description = "The @link_section attribute is not valid on mutable let bindings (let mut). Custom section placement is only supported for immutable data."
 since = "0.19.0"
 deprecated = false
 
@@ -1703,7 +1699,7 @@ severity = "error"
 category = "parser"
 title = "Section name exceeds PE/COFF 8-byte limit"
 brief = "@link_section name is too long for PE/COFF"
-description = "Phase 19 PA19-r19-013 (pe-data-section-wiring): PE/COFF section names are limited to 8 bytes. The @link_section name you provided is longer than 8 bytes and cannot be emitted. Valid UEFI section names are `.text` (5 bytes), `.rdata` (6 bytes), `.data` (5 bytes), `.bss` (4 bytes), and custom names like `.uefi_hdr` (8 bytes), `.pdata` (6 bytes), `.xdata` (6 bytes), `.reloc` (6 bytes). Choose a shorter name or use a standard section."
+description = "PE/COFF section names are limited to 8 bytes. The @link_section name you provided is longer than 8 bytes and cannot be emitted. Valid UEFI section names are `.text` (5 bytes), `.rdata` (6 bytes), `.data` (5 bytes), `.bss` (4 bytes), and custom names like `.uefi_hdr` (8 bytes), `.pdata` (6 bytes), `.xdata` (6 bytes), `.reloc` (6 bytes). Choose a shorter name or use a standard section."
 since = "0.19.0"
 deprecated = false
 
@@ -1712,7 +1708,7 @@ severity = "error"
 category = "unsafe"
 title = "@abi(\"ms\") unsupported lambda shape (arity or body shape)"
 brief = "MS x64 lambda body shape or arity not yet emittable"
-description = "Phase 19 PA19-r19-006 (narrowed gate): The @abi(\"ms\") calling convention annotation is accepted at parse time and emits successfully for MVP-supported shapes (identity `fn(x) -> x`, add-imm `fn(x) -> x + literal`, literal-return `fn() -> N`, with 0–4 integer arguments). Unsupported shapes — 5+ arguments, non-identity/non-add-imm/non-literal bodies (multiplication, function calls, complex expressions), aggregate returns, or float arguments — fire this gate. SysV-annotated (@abi(\"sysv\")) and unannotated functions emit normally using the paideia default calling convention."
+description = "The @abi(\"ms\") calling convention annotation is accepted at parse time and emits successfully for MVP-supported shapes (identity `fn(x) -> x`, add-imm `fn(x) -> x + literal`, literal-return `fn() -> N`, with 0–4 integer arguments). Unsupported shapes — 5+ arguments, non-identity/non-add-imm/non-literal bodies (multiplication, function calls, complex expressions), aggregate returns, or float arguments — fire this gate. SysV-annotated (@abi(\"sysv\")) and unannotated functions emit normally using the paideia default calling convention."
 since = "0.19.0"
 deprecated = false
 
@@ -1725,8 +1721,7 @@ description = """
 visit_branch requires each IrKind::Branch node to carry at least a condition
 child and a then_body child (else_body is optional). Fewer than 2 children
 indicates the parser/lowerer produced a malformed Branch — a post-elaboration
-invariant violation. Issue #1147 slice A1 migration from the legacy Vec<String>
-diagnostic channel to the typed pipe.
+invariant violation.
 """
 since = "0.19.0"
 deprecated = false
@@ -1740,8 +1735,7 @@ description = """
 visit_while accepts two shapes: zero children (While inside an unsafe block —
 handled by the unsafe_walker) or exactly [condition, body]. Any other count
 indicates the child-transfer pass or lowerer produced a malformed While — a
-post-elaboration invariant violation. Issue #1147 slice A1 migration from the
-legacy Vec<String> diagnostic channel to the typed pipe.
+post-elaboration invariant violation.
 """
 since = "0.19.0"
 deprecated = false
@@ -1756,8 +1750,7 @@ visit_store requires each IrKind::Store node to carry exactly three children
 [addr, index_or_unused, value] with both addr and value materialized into
 IrKind::Var nodes by the ANF/let-hoisting pass. Any deviation — wrong child
 count, non-Var addr, or non-Var value — indicates the parser/lowerer produced
-a malformed Store: a post-elaboration invariant violation. Issue #1147 slice A2
-migration from the legacy Vec<String> diagnostic channel to the typed pipe.
+a malformed Store: a post-elaboration invariant violation.
 """
 since = "0.19.0"
 deprecated = false
@@ -1772,8 +1765,7 @@ During IR traversal in emit_block_body / emit_block_body_arm, a RawInstruction
 child node was encountered but the instruction payload was not found in the
 InstructionSideTable. Post-elaboration invariant violation: either the
 instruction was not registered during elaboration or the side-table lookup
-failed. Issue #1147 slice A3 migration from the legacy Vec<String> diagnostic
-channel to the typed pipe (reclassified from T0526 to unsafe/invariant).
+failed.
 """
 since = "0.19.0"
 deprecated = false
@@ -1790,9 +1782,8 @@ a structural invariant. This can occur when:
 - A FieldAccess node has no child (expected: record value/Deref)
 - A Deref node has no child (expected: pointer)
 
-Issue #1147 slice A4 migration from the legacy Vec<String> diagnostic channel
-to the typed pipe. This diagnostic indicates a compiler-internal structural
-invariant violation and should not occur in normal compilation.
+This diagnostic indicates a compiler-internal structural invariant violation
+and should not occur in normal compilation.
 """
 since = "0.19.0"
 deprecated = false
@@ -1808,9 +1799,6 @@ encountered but the corresponding FieldAccessInfo payload was not found in the
 side-table. This indicates an elaboration-phase invariant violation: either the
 FieldAccess node was not properly registered during elaboration, or the
 side-table lookup failed.
-
-Issue #1147 slice A4 migration from the legacy Vec<String> diagnostic channel
-to the typed pipe.
 """
 since = "0.19.0"
 deprecated = false
@@ -1826,9 +1814,8 @@ look up the record layout for a field's type_id but the layout was not found
 in the record_layouts table. This indicates that a record type was not
 properly registered during elaboration, or the type_id is invalid.
 
-Issue #1147 slice A4 migration from the legacy Vec<String> diagnostic channel
-to the typed pipe. This diagnostic indicates a compiler-internal invariant
-violation and should not occur in normal compilation.
+This diagnostic indicates a compiler-internal invariant violation and should
+not occur in normal compilation.
 """
 since = "0.19.0"
 deprecated = false
@@ -1843,9 +1830,6 @@ During field-access elaboration, a field_index from FieldAccessInfo was used
 to index into the record layout's fields array, but the index exceeded the
 array's length. This indicates an invariant violation: either the field_index
 is corrupt, or the record layout was incompletely registered.
-
-Issue #1147 slice A4 migration from the legacy Vec<String> diagnostic channel
-to the typed pipe.
 """
 since = "0.19.0"
 deprecated = false
@@ -1863,9 +1847,6 @@ This can occur when:
 - The pointer receiver binding has not been declared in the enclosing function
 - The RHS Var binding has not been declared or has gone out of scope
 - The resolve_var_operands pass failed to populate local_bindings
-
-Issue #1147 slice A4 migration from the legacy Vec<String> diagnostic channel
-to the typed pipe.
 """
 since = "0.19.0"
 deprecated = false
@@ -1883,9 +1864,8 @@ can occur when:
 - EnumCons has payload_size > 0 but no payload child
 - EnumDiscriminant node lacks EnumTypeId in the side-table
 
-Issue #1147 slice A5a migration from the legacy Vec<String> diagnostic channel
-to the typed pipe. This indicates a structural invariant violation in the
-elaborator and should not occur in normal compilation.
+This indicates a structural invariant violation in the elaborator and should
+not occur in normal compilation.
 """
 since = "0.19.0"
 deprecated = false
@@ -1903,9 +1883,8 @@ found in the state's enum_layouts table. This can occur when:
 - The type_id is invalid or uninitialized
 - The layout was removed prematurely from the state
 
-Issue #1147 slice A5a migration from the legacy Vec<String> diagnostic channel
-to the typed pipe. This indicates a structural invariant violation and should
-not occur in normal compilation.
+This indicates a structural invariant violation and should not occur in
+normal compilation.
 """
 since = "0.19.0"
 deprecated = false
@@ -1922,9 +1901,8 @@ During match expression lowering, a Match IR node was found to be malformed:
 - Scrutinee type not resolvable from the node structure
 - Insufficient arms for exhaustive pattern coverage
 
-Issue #1147 slice A5a migration from the legacy Vec<String> diagnostic channel
-to the typed pipe. This indicates a post-elaboration invariant violation: either
-the parser/lowerer produced a malformed Match, or child-transfer passed through
+This indicates a post-elaboration invariant violation: either the
+parser/lowerer produced a malformed Match, or child-transfer passed through
 without validating the shape.
 """
 since = "0.19.0"
@@ -1941,9 +1919,8 @@ elaborator attempted to look up match-arm metadata but the entry was not found
 in the arena's match_arm_meta side-table. Each arm must have associated
 MatchArmMeta describing its pattern bindings and layout.
 
-Issue #1147 slice A5a migration from the legacy Vec<String> diagnostic channel
-to the typed pipe. This indicates a structural invariant violation: the arm
-was not properly registered during elaboration.
+This indicates a structural invariant violation: the arm was not properly
+registered during elaboration.
 """
 since = "0.19.0"
 deprecated = false
@@ -1962,9 +1939,8 @@ state's record_layouts table. This can occur when:
 - The type_id is invalid or uninitialized
 - The layout was removed prematurely from the state
 
-Issue #1147 slice A5a migration from the legacy Vec<String> diagnostic channel
-to the typed pipe. This indicates a structural invariant violation and should
-not occur in normal compilation.
+This indicates a structural invariant violation and should not occur in
+normal compilation.
 """
 since = "0.19.0"
 deprecated = false
@@ -1982,9 +1958,8 @@ layout but the field was not found. This can occur when:
 - The record layout was incompletely populated
 - The field name spelling does not match the layout's field index
 
-Issue #1147 slice A5a migration from the legacy Vec<String> diagnostic channel
-to the typed pipe. This indicates a structural invariant violation or type
-mismatch in the record field resolution.
+This indicates a structural invariant violation or type mismatch in the
+record field resolution.
 """
 since = "0.19.0"
 deprecated = false
@@ -2003,9 +1978,8 @@ registers. Two forms:
 - Register-form patterns: limit is 4 caller-save registers. Exceeding 4
   bindings per arm triggers this diagnostic.
 
-Issue #1147 slice A5a migration from the legacy Vec<String> diagnostic channel
-to the typed pipe. Workaround: restructure nested patterns to use fewer than
-5 (memory) or 4 (register) bindings per arm.
+Workaround: restructure nested patterns to use fewer than 5 (memory) or 4
+(register) bindings per arm.
 """
 since = "0.19.0"
 deprecated = false
@@ -2023,9 +1997,6 @@ arena. One or more conditions failed:
 - Callee child ID is not in the arena
 - Arg0 (first argument) child ID is not in the arena
 - Arg1 (second argument) child ID is not in the arena
-
-Issue #1147 slice A5b migration from the legacy Vec<String> diagnostic channel
-to the typed pipe.
 """
 since = "0.19.0"
 deprecated = false
@@ -2043,9 +2014,6 @@ operands but found that the corresponding side-table entry was missing:
 
 This indicates an inconsistency in the IR: the operand is registered but not
 indexed in the side-table used to extract its value during lowering.
-
-Issue #1147 slice A5b migration from the legacy Vec<String> diagnostic channel
-to the typed pipe.
 """
 since = "0.19.0"
 deprecated = false
@@ -2060,9 +2028,6 @@ During arm-body lowering, the elaborator attempted to lower a Var operand
 but found that the variable's binding name is not present in the current
 local_bindings map. This indicates that the variable was not bound in the
 match arm's scope, or the binding was lost before operand lowering occurred.
-
-Issue #1147 slice A5b migration from the legacy Vec<String> diagnostic channel
-to the typed pipe.
 """
 since = "0.19.0"
 deprecated = false
@@ -2076,8 +2041,8 @@ description = """
 emit_scrutinee_load's local-binding branch found a register-form enum scrutinee
 (layout.payload_size > 0) whose local binding was inserted via the scalar insert()
 rather than insert_pair(). Payload consumers reading RDX will see stale data.
-This diagnostic is defensive: the producer side (#1178) will make it structurally
-impossible when let-type is a register-form enum. Filed as part of #1154 Slice 1.
+This diagnostic is defensive: making this structurally impossible on the
+producer side, when let-type is a register-form enum, is not yet implemented.
 """
 since = "0.19.0"
 deprecated = false
@@ -2095,10 +2060,8 @@ register. This means the binding will read garbage when referenced later.
 
 This is a hard invariant violation: every RHS kind that can appear syntactically
 must have a dedicated emit path. If a new IR kind is introduced, the Let-RHS
-dispatch must be updated.
-
-Part of #1209 / #1207 hardening. This diagnostic prevents silent miscompilation
-when new Let-RHS shapes are added without updating the dispatcher.
+dispatch must be updated. This diagnostic prevents silent miscompilation when
+new Let-RHS shapes are added without updating the dispatcher.
 """
 since = "0.19.0"
 deprecated = false
@@ -2118,8 +2081,6 @@ For index >= 1, the prologue would need to allocate different scratch registers
 to hold the pair, which is not yet implemented. Either reorder your lambda
 parameters to place enum-typed parameters first, or refactor the lambda to
 accept fewer parameters.
-
-Part of #1156 (receiver-side).
 """
 since = "0.20.0"
 deprecated = false
@@ -2141,8 +2102,6 @@ which is not yet implemented.
 
 Refactor your call to place pair-form arguments only at position 0, or use
 let-bindings and qualified paths to avoid pair-form argument passing.
-
-Part of #1226 (caller-side pair enum args).
 """
 since = "0.20.1"
 deprecated = false
@@ -2160,8 +2119,6 @@ RCX, etc. This creates a potential data corruption hazard.
 
 Refactor by moving the nested call to a separate let-binding, then pass that
 binding as the pair-form argument.
-
-Part of #1226 (caller-side pair enum args).
 """
 since = "0.20.1"
 deprecated = false
@@ -2178,8 +2135,6 @@ is mapped to RDX per the System-V calling convention, creating a clobber.
 
 Refactor to fewer arguments, or move one of the conflicting arguments to a
 let-binding and reference it by variable name.
-
-Part of #1226 (caller-side pair enum args).
 """
 since = "0.20.1"
 deprecated = false
@@ -2197,8 +2152,6 @@ the same register, the clobber order will corrupt one value.
 
 Refactor by rearranging argument order or moving arguments to temporary
 let-bindings.
-
-Part of #1226 (caller-side pair enum args).
 """
 since = "0.20.1"
 deprecated = false
