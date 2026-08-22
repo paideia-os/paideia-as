@@ -936,6 +936,16 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
             // PA8-m1-002b: Wire first_instrs back to lambda_first_instr for unsafe lambdas.
             // first_instrs[i] is the first instruction of the i-th pending unsafe block.
             // We look up which lambda corresponds to that pending index via unsafe_lambda_to_pending_idx.
+            //
+            // paideia-as#1278 phase 2: for lambdas marked `@interrupt(...)`,
+            // the ISR entry point is the very first `push rax` of the 13-push
+            // spill (already recorded at `emit_interrupt_prologue` time via
+            // `record_lambda_entry`), NOT the first raw instruction of the
+            // unsafe body. Overwriting `lambda_first_instr` with the body's
+            // first instruction here would land the ELF symbol INSIDE the
+            // spill chain — the CPU's IDT dispatch would skip the spill and
+            // iretq would pop random values off the stack. Skip the overwrite
+            // for interrupt lambdas so the prologue's record stands.
             {
                 let pending_idx_map: Vec<_> = emit_walker
                     .state()
@@ -944,6 +954,9 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                     .map(|(&lambda_id, &idx)| (lambda_id, idx))
                     .collect();
                 for (lambda_id, idx) in pending_idx_map {
+                    if emit_walker.state().lambda_interrupt(lambda_id).is_some() {
+                        continue;
+                    }
                     if let Some(Some(first_instr)) = first_instrs.get(idx) {
                         emit_walker
                             .state_mut()
@@ -961,6 +974,20 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                 &mut lowering.ir,
                 None,
             );
+            for diag in emit_walker.take_typed_diagnostics() {
+                let _ = walker_sink.emit(diag);
+            }
+
+            // paideia-as#1278 phase 2: emit the ISR entry-stub tail for every
+            // lambda marked `@interrupt(...)` / `@interrupt_error(...)` —
+            // 13-pop GPR restore + optional `add rsp, 8` errcode-skip +
+            // `iretq`. Must run AFTER the two body-emission passes above so
+            // the tail sorts strictly last in each ISR function's .text range
+            // (the text emitter sorts by `(emission_order, node_id)`; the tail
+            // instructions here allocate emission_order values above every
+            // body instruction). The matching 13-push + `cld` prologue was
+            // already emitted during `walk()` at Lambda entry.
+            emit_walker.emit_interrupt_epilogues(&mut lowering.ir);
             for diag in emit_walker.take_typed_diagnostics() {
                 let _ = walker_sink.emit(diag);
             }

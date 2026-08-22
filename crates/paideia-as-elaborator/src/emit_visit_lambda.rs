@@ -321,7 +321,17 @@ impl EmitWalker {
         // inverting the stack-parity assumptions baked into that hand
         // -written asm.
         let is_no_frame = self.state.is_lambda_no_frame(lambda_node_id.get());
-        if body_is_unsafe && is_no_frame {
+        // paideia-as#1278 phase 2: `@interrupt(...)` / `@interrupt_error(...)`
+        // implies `no_frame = true` (stamped by phase-1 lower.rs), and the
+        // ISR handler's own 13-push spill fills the redundancy niche that
+        // B1707 exists to warn about. Suppress the diagnostic here so
+        // author-visible ISR bindings don't trip a `@no_frame is redundant`
+        // warning for the implicit flag they never wrote.
+        let is_interrupt = self
+            .state
+            .lambda_interrupt(lambda_node_id.get())
+            .is_some();
+        if body_is_unsafe && is_no_frame && !is_interrupt {
             // The annotation cannot do anything here — diagnose it instead
             // of leaving it silently inert (issue #1314).
             let span = arena
@@ -347,6 +357,26 @@ impl EmitWalker {
         }
         if !body_is_unsafe && !is_no_frame {
             self.state.arm_pending_frame_prologue(lambda_node_id.get());
+        }
+
+        // paideia-as#1278 phase 2: emit the ISR entry-stub prologue (13
+        // pushes + `cld`) BEFORE dispatching to any body-shape arm below.
+        // Applies uniformly to unsafe and non-unsafe bodies:
+        //   * Unsafe bodies (the common case): UnsafeWalker later processes
+        //     the block and appends raw asm at strictly higher
+        //     emission_order than what emit_inst allocated here, so the
+        //     spill correctly sorts first.
+        //   * Non-unsafe bodies (rare, e.g. `fn () -> 42 @interrupt(...)`):
+        //     the body's own emit path runs immediately below and takes
+        //     the next emission_order values.
+        //
+        // The matching pop+iretq tail is synthesised by
+        // `emit_interrupt_epilogues` (post-pass in cmd_build), which runs
+        // after every body path has consumed its share of emission_order —
+        // guaranteeing the tail lands at the strictly highest position in
+        // this function's .text range.
+        if is_interrupt {
+            self.emit_interrupt_prologue(lambda_node_id);
         }
 
         // #1233: Emit prologue (sub rsp, total_size) for lambdas with closure frame layout.

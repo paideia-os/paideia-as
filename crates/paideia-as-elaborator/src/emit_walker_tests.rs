@@ -30,3 +30,6 @@ mod closure_primitives;
 
 #[path = "emit_walker_tests/frame_prologue.rs"]
 mod frame_prologue;
+
+#[path = "emit_walker_tests/interrupt_handler.rs"]
+mod interrupt_handler;
