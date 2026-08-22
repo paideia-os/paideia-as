@@ -33,6 +33,11 @@
 //! - `Mmio` / `MmioRead` / `MmioWrite` — driver MMIO poke; hardware.
 //! - `mmio_read` / `mmio_write` — softarch §5.5 op-style spellings of
 //!   the same MMIO cap.
+//! - `PortIo` — port I/O (`in_al`/`in_ax`/`in_eax`/`out_al`/`out_ax`/
+//!   `out_eax`); hardware. paideia-as#1312: a single root effect covers
+//!   both directions rather than splitting `PortIn`/`PortOut` — port
+//!   reads routinely mutate device state (status registers clearing on
+//!   read, FIFOs popping), so "read" is not the safer half.
 //!
 //! Additions go at the bottom of `BINDINGS` — the array is scanned in
 //! order but each key must appear at most once.
@@ -76,6 +81,13 @@ pub const BINDINGS: &[EffectCapBinding] = &[
     EffectCapBinding {
         effect: "mmio_write",
         required_cap: "paideia.mmio",
+    },
+    // Port I/O family (paideia-as#1312) — in/out mnemonics. A single
+    // root effect covers both directions; see the module-level doc
+    // comment above for the rationale.
+    EffectCapBinding {
+        effect: "PortIo",
+        required_cap: "paideia.port_io",
     },
 ];
 
@@ -133,6 +145,16 @@ mod tests {
     }
 
     #[test]
+    fn required_cap_for_port_io_returns_paideia_port_io() {
+        // paideia-as#1312: PortIo (in_al/in_ax/in_eax/out_al/out_ax/out_eax)
+        // mirrors the Mmio family exactly.
+        assert_eq!(
+            required_cap_for_effect("PortIo"),
+            Some("paideia.port_io")
+        );
+    }
+
+    #[test]
     fn io_is_not_a_root_effect_returns_none() {
         // `Io` and `IO` are non-root — they can be handled by user
         // `with handle Io` blocks (see effects-corpus accept fixtures
@@ -171,6 +193,13 @@ mod tests {
         assert!(set.contains("MmioWrite"));
         assert!(set.contains("mmio_read"));
         assert!(set.contains("mmio_write"));
+    }
+
+    #[test]
+    fn effects_requiring_paideia_port_io_covers_port_io() {
+        let set: HashSet<&'static str> =
+            effects_requiring_cap("paideia.port_io").collect();
+        assert!(set.contains("PortIo"));
     }
 
     #[test]
