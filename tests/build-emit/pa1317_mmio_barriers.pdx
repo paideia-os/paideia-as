@@ -1,0 +1,52 @@
+// Issue #1317 — R51-paideia-as-003: MMIO barriers.
+//
+// Fixture pins the three memory-fence mnemonics (sfence/mfence/lfence) at the
+// build-emit boundary: each function is an unsafe block that performs a store
+// immediately followed by a fence. The paired integration test decodes .text
+// from the produced ELF and asserts (a) the fence encodes to its canonical
+// three-byte opcode and (b) the fence appears *after* the preceding store in
+// the emitted byte stream — the property NVMe SQyTDBL / AHCI CI doorbell
+// writes rely on (paideia-os design/hardware/nvme-and-disk-substrate.md §8.3).
+//
+// Encodings pinned by mem_fences.rs and Intel SDM Vol. 2A:
+//   sfence : 0F AE F8
+//   mfence : 0F AE F0
+//   lfence : 0F AE E8
+
+module Pa1317MmioBarriers = structure {
+  // store [rdi] <- rsi ; sfence — the NVMe doorbell shape
+  pub let store_then_sfence : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {}, capabilities: {}, justification: "pa1317: sfence after store",
+    block: {
+      mov [rdi], rsi;
+      sfence
+    }
+  }
+
+  // store [rdi] <- rsi ; mfence — full barrier variant
+  pub let store_then_mfence : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {}, capabilities: {}, justification: "pa1317: mfence after store",
+    block: {
+      mov [rdi], rsi;
+      mfence
+    }
+  }
+
+  // store [rdi] <- rsi ; lfence — load fence still preserves prior store order
+  pub let store_then_lfence : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {}, capabilities: {}, justification: "pa1317: lfence after store",
+    block: {
+      mov [rdi], rsi;
+      lfence
+    }
+  }
+
+  // non-temporal store followed by sfence — the exact SQyTDBL / CI shape
+  pub let movnti_then_sfence : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {}, capabilities: {}, justification: "pa1317: sfence after movnti",
+    block: {
+      movnti_q [rdi], rsi;
+      sfence
+    }
+  }
+}

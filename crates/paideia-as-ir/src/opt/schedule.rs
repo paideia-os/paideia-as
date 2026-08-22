@@ -1016,6 +1016,137 @@ mod tests {
         assert_eq!(result, vec![0, 1, 2]);
     }
 
+    /// Issue #1317 — memory fences must sit between two stores without the
+    /// scheduler reordering either the store *before* the fence past the
+    /// fence, or the store *after* the fence back before it. Covers the NVMe
+    /// SQyTDBL / AHCI CI doorbell shape (paideia-os
+    /// design/hardware/nvme-and-disk-substrate.md §8.3).
+    fn assert_store_fence_store_preserved(fence: Mnemonic) {
+        use crate::instruction::{Instruction, InstructionSideTable, Operand, RegId};
+        use smallvec::SmallVec;
+
+        let mut table = InstructionSideTable::new();
+        let store_before = IrNodeId::new(1).unwrap();
+        let fence_id = IrNodeId::new(2).unwrap();
+        let store_after = IrNodeId::new(3).unwrap();
+
+        // [rdi] <- rax — store to memory. Built inline in each Instruction
+        // literal so `SmallVec::new()` gets its element/inline-len from the
+        // struct field type, matching the surrounding tests' pattern.
+        let make_store = || Instruction {
+            mnemonic: Mnemonic::Mov,
+            operands: {
+                let mut ops = SmallVec::new();
+                ops.push(Operand::MemSib {
+                    base: RegId(7),
+                    index: None,
+                    scale: crate::instruction::Scale::X1,
+                    disp: 0,
+                });
+                ops.push(Operand::Reg(RegId(0)));
+                ops
+            },
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: InstrMode::default(),
+            emission_order: 0,
+        };
+
+        table.insert(store_before, make_store());
+        table.insert(
+            fence_id,
+            Instruction {
+                mnemonic: fence,
+                operands: SmallVec::new(),
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: InstrMode::default(),
+                emission_order: 0,
+            },
+        );
+        table.insert(store_after, make_store());
+
+        let result = schedule_block(&table, &[store_before, fence_id, store_after]);
+        assert_eq!(
+            result,
+            vec![0, 1, 2],
+            "{fence:?} must preserve store→fence→store order"
+        );
+    }
+
+    #[test]
+    fn schedule_preserves_store_sfence_store() {
+        assert_store_fence_store_preserved(Mnemonic::Sfence);
+    }
+
+    #[test]
+    fn schedule_preserves_store_mfence_store() {
+        assert_store_fence_store_preserved(Mnemonic::Mfence);
+    }
+
+    #[test]
+    fn schedule_preserves_store_lfence_store() {
+        assert_store_fence_store_preserved(Mnemonic::Lfence);
+    }
+
+    /// Issue #1317 — the NVMe SQyTDBL / AHCI CI doorbell shape: a
+    /// non-temporal store (movnti) followed by an sfence must retain that
+    /// order. movnti classifies as `Other` in the scheduler; the fence, as
+    /// `AtomicLocked`. The barrier semantics of the fence prevent the
+    /// scheduler from hoisting anything past it in either direction.
+    #[test]
+    fn schedule_preserves_movnti_sfence_pair() {
+        use crate::instruction::{
+            IntWidth, Instruction, InstructionSideTable, Operand, RegId,
+        };
+        use smallvec::SmallVec;
+
+        let mut table = InstructionSideTable::new();
+        let movnti = IrNodeId::new(1).unwrap();
+        let fence = IrNodeId::new(2).unwrap();
+
+        // movnti_q [rdi], rax — non-temporal write of a 64-bit register.
+        table.insert(
+            movnti,
+            Instruction {
+                mnemonic: Mnemonic::Movnti { width: IntWidth::W64 },
+                operands: {
+                    let mut ops = SmallVec::new();
+                    ops.push(Operand::MemSib {
+                        base: RegId(7),
+                        index: None,
+                        scale: crate::instruction::Scale::X1,
+                        disp: 0,
+                    });
+                    ops.push(Operand::Reg(RegId(0)));
+                    ops
+                },
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: InstrMode::default(),
+                emission_order: 0,
+            },
+        );
+        table.insert(
+            fence,
+            Instruction {
+                mnemonic: Mnemonic::Sfence,
+                operands: SmallVec::new(),
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: InstrMode::default(),
+                emission_order: 0,
+            },
+        );
+
+        let result = schedule_block(&table, &[movnti, fence]);
+        assert_eq!(
+            result,
+            vec![0, 1],
+            "movnti must precede sfence in emitted order"
+        );
+    }
+
     #[test]
     fn schedule_does_not_reorder_across_xchg() {
         use crate::instruction::{Instruction, InstructionSideTable, Mnemonic, Operand, RegId};
