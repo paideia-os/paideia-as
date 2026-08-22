@@ -1,0 +1,15 @@
+// Issue #1316 (R51-paideia-as-002): DMA descriptor packing byte-accuracy.
+//
+// NVMe PRP-list page — arrays of u64 physical addresses at 8-byte stride.
+// A full page holds 512 entries × 8 B = 4096 B; this fixture uses 8 entries
+// with distinctive values so the byte layout is unambiguous.  512-entry
+// zero-fill packing is already pinned by pa1308_repeat_u64_big.pdx; this
+// fixture adds the value-carrying variant so a per-slot address ends up at
+// the correct offset (i * 8).
+
+module Pa1316PrpListEntries = structure {
+  pub let prp_list_entries : [u64; 8] = [
+    0x1000, 0x2000, 0x3000, 0x4000,
+    0x5000, 0x6000, 0x7000, 0x8000
+  ]
+}

@@ -1,0 +1,25 @@
+// Issue #1316 (R51-paideia-as-002): DMA descriptor packing byte-accuracy.
+//
+// AHCI PRDT entry — 16-byte struct with mixed field widths:
+//   dba:      u64  offset 0..8
+//   reserved: u32  offset 8..12
+//   dbc_i:    u32  offset 12..16
+// Total size MUST be exactly 16 bytes with no interior padding drift, so an
+// array of these can be walked at 16-byte stride by DMA hardware.
+//
+// Values are chosen so every field has a distinctive little-endian byte
+// pattern that would fail the assertion under any reordering or padding
+// mistake: see crates/paideia-as/tests/milestone/pa_r51_1316_dma_descriptor_packing.rs.
+
+module Pa1316PrdtEntry = structure {
+  struct Prdt {
+    dba: u64,
+    reserved: u32,
+    dbc_i: u32
+  }
+
+  // dba      = 0x0102030405060708 → 08 07 06 05 04 03 02 01
+  // reserved = 0x11223344         → 44 33 22 11
+  // dbc_i    = 0x55667788         → 88 77 66 55
+  pub let prdt_entry : Prdt = Prdt { dba: 0x0102030405060708, reserved: 0x11223344, dbc_i: 0x55667788 }
+}

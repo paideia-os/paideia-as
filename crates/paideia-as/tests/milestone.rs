@@ -30,4 +30,5 @@ mod milestone {
     pub mod pa_r17_1076_t0535_effect_cap_row;
     pub mod pa_r18_1234_recordcons_data_borrow;
     pub mod pa_r30_1311_not_r64;
+    pub mod pa_r51_1316_dma_descriptor_packing;
 }
