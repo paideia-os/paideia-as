@@ -139,4 +139,5 @@ mod build_emit {
     pub mod unsafe_sibling_scope_leak_probe_reversed;
     pub mod unsafe_stmt_kinds_diagnostic;
     pub mod uefi_stub;
+    pub mod vtd_qi_smoke;
 }
