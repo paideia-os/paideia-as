@@ -299,6 +299,15 @@ description = "Phase 8 m1-004: during binary emission (ELF or PE), the encoder e
 since = "0.19.0"
 deprecated = false
 
+[diagnostic.B1707]
+severity = "warning"
+category = "binary"
+title = "@no_frame redundant on unsafe-bodied lambda"
+brief = "`@no_frame` has no effect here; unsafe-bodied lambdas never emit a frame-pointer prologue"
+description = "Issue #1314: the elaborator unconditionally suppresses the SysV frame-pointer prologue (`push rbp; mov rbp, rsp`) for any lambda whose body is an `unsafe { ... }` block, regardless of whether that lambda's binding carries `@no_frame` — the hand-written asm body owns its own `ret` and there is no elaborator-owned exit site to insert a matching `pop rbp` before. Annotating such a lambda with `@no_frame` is therefore always redundant: it is accepted and recorded but cannot change code generation for that lambda. This diagnostic flags the redundant annotation so it can be removed or left as documentation, rather than silently doing nothing."
+since = "0.21.0"
+deprecated = false
+
 [diagnostic.P0240]
 severity = "error"
 category = "parser"
@@ -1590,6 +1599,38 @@ array-literal path actually produced a partial symbol. An array in which
 and therefore no symbol at all, so a use of it fails loudly at link time as an
 undefined symbol rather than silently reading short storage. That is a separate
 gap tracked as issue #1310, not an arity mismatch.
+"""
+since = "0.21.0"
+deprecated = false
+
+[diagnostic.T0577]
+severity = "error"
+category = "type"
+title = "Array length cannot be sized at emit-time"
+brief = "`[T; N]` where `N` is not a literal or a resolvable module constant — cannot determine `.bss` size"
+description = """
+Issue #1313: `compute_bss_size_from_type` sizes a `.bss` symbol for
+`pub let mut NAME : [T; N] = uninit` from the declared array type. When `N`
+was anything other than a bare integer literal — a named constant, an
+arithmetic expression such as `MAX_PIDS * TASK_SLOT_QWORDS` — it silently fell
+back to an 8-byte object instead of failing. paideia-os#1594 hit this
+directly: `_task_pool : [u64; MAX_PIDS * TASK_SLOT_QWORDS]` linked at 8 bytes,
+so every pid past the first wrote a complete task structure past the end of
+the array and into the adjacent kernel-stack region, with no diagnostic
+anywhere.
+
+`N` is now resolved as:
+  1. an integer literal, sized directly;
+  2. a single bare identifier naming a non-`mut`, module-level
+     `let NAME (: TY)? = <integer literal>` declared in the same file — folded
+     as a compile-time constant;
+  3. anything else — a binary expression, a multi-segment path, an
+     undeclared or mutable identifier — is this diagnostic. The declaration's
+     `.bss` symbol is not emitted; give the array a literal length, or move the
+     bound into a single resolvable constant `let`.
+
+Silent fallback to 8 bytes was removed entirely: an array whose length cannot
+be determined is a hard build error, never a guess.
 """
 since = "0.21.0"
 deprecated = false

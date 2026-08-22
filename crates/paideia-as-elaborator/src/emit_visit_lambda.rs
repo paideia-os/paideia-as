@@ -15,7 +15,7 @@
 use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand, RegId};
 use paideia_as_ir::let_meta::CallingConvention;
 use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, SymbolKind, abi, PassingConvention};
-use paideia_as_diagnostics::{DiagnosticCode, Category, Severity};
+use paideia_as_diagnostics::{Diagnostic, DiagnosticCode, Category, Severity};
 
 use crate::emit_block_body::TailContext;
 use crate::emit_store_record::operator_lexeme_of;
@@ -33,6 +33,15 @@ fn u1660_code() -> DiagnosticCode {
 pub(crate) fn t0575_code() -> DiagnosticCode {
     DiagnosticCode::new(Category::T, Severity::Error, 575)
         .expect("T0575 is within valid T range")
+}
+
+/// Helper to construct B1707 diagnostic code.
+/// Issue #1314: `@no_frame` is inert on an unsafe-bodied lambda — the
+/// frame-pointer prologue is already unconditionally suppressed for
+/// unsafe bodies, so the annotation has no observable effect there.
+pub(crate) fn b1707_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::B, Severity::Warning, 1707)
+        .expect("B1707 is within valid B range")
 }
 
 impl EmitWalker {
@@ -291,7 +300,52 @@ impl EmitWalker {
             .and_then(|&body_id| arena.get(body_id))
             .map(|body_node| body_node.kind == IrKind::Unsafe)
             .unwrap_or(false);
-        if !body_is_unsafe && !self.state.is_lambda_no_frame(lambda_node_id.get()) {
+        // paideia-as#1314: evaluate `is_lambda_no_frame` unconditionally (it
+        // used to sit behind `!body_is_unsafe &&`, so Rust's `&&`
+        // short-circuit meant the annotation was never even consulted for an
+        // unsafe-bodied lambda — `@no_frame` was accepted, recorded, and
+        // silently ignored). Consulting it here does NOT change which
+        // lambdas get a prologue: the arm condition below still requires
+        // `!body_is_unsafe`, unchanged from before this fix.
+        //
+        // DO NOT fold `is_no_frame` into the arm condition for unsafe bodies
+        // (e.g. `if !body_is_unsafe || !is_no_frame`-style rewrites). The
+        // frame prologue is suppressed for every unsafe-bodied lambda
+        // unconditionally, annotated or not — see the comment above this
+        // block. 825 `@no_frame` sites plus every other unsafe lambda in the
+        // corpus (paideia-os in particular — see paideia-os#1606, #1192,
+        // #1195, #1584) were written against "unsafe body ⇒ no prologue,
+        // always". Making prologue emission depend on the annotation for
+        // unsafe bodies would start emitting prologues for the (far more
+        // numerous) unsafe lambdas that carry no annotation at all,
+        // inverting the stack-parity assumptions baked into that hand
+        // -written asm.
+        let is_no_frame = self.state.is_lambda_no_frame(lambda_node_id.get());
+        if body_is_unsafe && is_no_frame {
+            // The annotation cannot do anything here — diagnose it instead
+            // of leaving it silently inert (issue #1314).
+            let span = arena
+                .get(lambda_node_id)
+                .map(|node| node.span)
+                .unwrap_or_else(|| {
+                    paideia_as_diagnostics::Span::new(
+                        paideia_as_diagnostics::FileId::new(1).unwrap(),
+                        0,
+                        1,
+                    )
+                });
+            let diag = Diagnostic::warning(b1707_code())
+                .message(
+                    "`@no_frame` has no effect on this lambda: unsafe-bodied lambdas \
+                     never emit a frame-pointer prologue, annotated or not — the \
+                     annotation is redundant here"
+                        .to_string(),
+                )
+                .with_span(span)
+                .finish();
+            self.structured_diagnostics.push(diag);
+        }
+        if !body_is_unsafe && !is_no_frame {
             self.state.arm_pending_frame_prologue(lambda_node_id.get());
         }
 

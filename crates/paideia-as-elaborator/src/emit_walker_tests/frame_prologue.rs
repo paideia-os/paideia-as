@@ -17,10 +17,45 @@
 //!   `lambda_first_instr` entry names `push rbp`, not the body's first
 //!   instruction. This is the invariant that prevents control from
 //!   entering after the prologue and blowing the stack at ret.
+//!
+//! paideia-as#1314: also pins the unsafe-bodied lambda combination that
+//! motivated this issue:
+//!
+//! - `no_prologue_for_unsafe_body_regardless_of_no_frame` — an
+//!   unsafe-bodied lambda never gets a frame prologue, whether or not it
+//!   carries `@no_frame`. This is the invariant 825+ existing `@no_frame`
+//!   sites (and every unannotated unsafe lambda) are written against; it
+//!   must not flip silently if `visit_lambda`'s condition is ever
+//!   restructured again.
+//! - `no_frame_on_unsafe_body_emits_b1707` — `@no_frame` combined with an
+//!   unsafe body now produces a B1707 diagnostic (redundant annotation)
+//!   instead of being silently accepted and ignored.
+//! - `no_frame_absent_on_unsafe_body_emits_no_b1707` — an unannotated
+//!   unsafe-bodied lambda emits no B1707 (nothing redundant was written).
 
 use super::super::*;
 use paideia_as_diagnostics::{FileId, Span};
 use paideia_as_ir::let_meta::LetInfo;
+
+/// Build a minimal `let f = fn(x) -> unsafe {}` arena and drive the walker.
+/// Mirrors `build_and_walk_identity` but with an (empty) `Unsafe` body
+/// instead of the identity `Var` body, so `visit_lambda`'s
+/// `body_is_unsafe` arm fires.
+fn build_and_walk_unsafe_body(no_frame: bool) -> (IrArena, EmitWalker, IrNodeId) {
+    let mut arena = IrArena::new();
+    let unsafe_body = arena.alloc(IrKind::Unsafe, span());
+    let lambda_id = arena.alloc_with_children(IrKind::Lambda, span(), [unsafe_body]);
+    let let_id = arena.alloc_with_children(IrKind::Let, span(), [lambda_id]);
+    arena.binding_names_mut().insert(let_id, "f".to_string());
+
+    let mut let_info = LetInfo::immutable();
+    let_info.no_frame = no_frame;
+    arena.let_meta_mut().insert(let_id, let_info);
+
+    let mut walker = EmitWalker::new();
+    walker.walk(&mut arena);
+    (arena, walker, lambda_id)
+}
 
 fn span() -> Span {
     Span::new(FileId::new(1).unwrap(), 0, 1)
@@ -258,5 +293,77 @@ fn lambda_first_instr_points_at_prologue() {
         first_inst.operands.as_slice(),
         &[paideia_as_ir::instruction::Operand::Reg(paideia_as_ir::abi::RBP)],
         "the recorded first instruction must be exactly `push rbp`"
+    );
+}
+
+/// paideia-as#1314 regression: an unsafe-bodied lambda must NEVER get a
+/// frame-pointer prologue, whether or not it carries `@no_frame`. This is
+/// the invariant `visit_lambda`'s `body_is_unsafe` check exists to
+/// preserve; the fix for #1314 only stopped `is_lambda_no_frame` from
+/// being dead code for unsafe bodies, it must not change which lambdas
+/// get a prologue. If this test ever fails after touching
+/// `visit_lambda`'s frame-arming condition, that condition has been
+/// folded incorrectly — see the warning comment at that call site.
+#[test]
+fn no_prologue_for_unsafe_body_regardless_of_no_frame() {
+    for no_frame in [false, true] {
+        let (_arena, walker, lambda_id) = build_and_walk_unsafe_body(no_frame);
+        assert!(
+            !walker.state().was_frame_prologue_emitted(lambda_id.get()),
+            "unsafe-bodied lambda (no_frame={no_frame}) must never be recorded as \
+             prologue-emitted"
+        );
+        let insts = function_instructions(&walker, lambda_id);
+        let has_push_rbp = insts.iter().any(|inst| {
+            inst.mnemonic == paideia_as_ir::instruction::Mnemonic::Push
+                && inst.operands.as_slice()
+                    == &[paideia_as_ir::instruction::Operand::Reg(paideia_as_ir::abi::RBP)]
+        });
+        assert!(
+            !has_push_rbp,
+            "unsafe-bodied lambda (no_frame={no_frame}) must not emit `push rbp`; got {:?}",
+            insts.iter().map(|i| i.mnemonic).collect::<Vec<_>>()
+        );
+    }
+}
+
+/// paideia-as#1314: `@no_frame` on an unsafe-bodied lambda is redundant
+/// (see `no_prologue_for_unsafe_body_regardless_of_no_frame`) and must now
+/// produce a B1707 diagnostic instead of being silently accepted.
+#[test]
+fn no_frame_on_unsafe_body_emits_b1707() {
+    let (_arena, walker, _lambda_id) = build_and_walk_unsafe_body(true);
+    let has_b1707 = walker
+        .structured_diagnostics
+        .iter()
+        .any(|d| d.code().number() == 1707);
+    assert!(
+        has_b1707,
+        "expected a B1707 diagnostic for `@no_frame` on an unsafe body, got: {:?}",
+        walker
+            .structured_diagnostics
+            .iter()
+            .map(|d| d.code().number())
+            .collect::<Vec<_>>()
+    );
+}
+
+/// paideia-as#1314 (defensive): an unsafe-bodied lambda with NO `@no_frame`
+/// annotation has nothing redundant to flag, so it must not emit B1707.
+#[test]
+fn no_frame_absent_on_unsafe_body_emits_no_b1707() {
+    let (_arena, walker, _lambda_id) = build_and_walk_unsafe_body(false);
+    let has_b1707 = walker
+        .structured_diagnostics
+        .iter()
+        .any(|d| d.code().number() == 1707);
+    assert!(
+        !has_b1707,
+        "unannotated unsafe-bodied lambda must not emit B1707, got: {:?}",
+        walker
+            .structured_diagnostics
+            .iter()
+            .map(|d| d.code().number())
+            .collect::<Vec<_>>()
     );
 }
