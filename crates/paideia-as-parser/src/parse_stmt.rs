@@ -346,6 +346,18 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             if self.at(TokenKind::Semicolon) || self.at(TokenKind::RBrace) {
                 break;
             }
+            // paideia-as#1320: `ident:` immediately following the mnemonic (or a
+            // preceding operand) is a label declaration, not an operand. Without this
+            // check, a bare zero-operand instruction like `ret` directly followed by
+            // a label (no `;` separator) would have the label's identifier consumed
+            // as a stray operand, leaving the `:` to cascade into a P0100 error on
+            // the next statement. Segment-override colon syntax (`fs:`/`gs:`) only
+            // ever appears inside `[...]` memory refs, so `Ident Colon` in bare
+            // operand position is unambiguously a label start, never a valid operand.
+            if self.at(TokenKind::Ident) && self.peek_at(1).map(|t| t.kind) == Some(TokenKind::Colon)
+            {
+                break;
+            }
             if self.peek().is_none() {
                 break;
             }

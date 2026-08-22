@@ -1,0 +1,23 @@
+// Test: paideia-as#1320 — bare `ret` (no trailing `;`) directly followed by
+// a label declaration must not have the label's identifier consumed as a
+// stray `ret` operand.
+//
+// Before the fix, the instruction-statement operand loop in
+// crates/paideia-as-parser/src/parse_stmt.rs only recognized `;` and `}` as
+// boundaries after a zero-operand mnemonic. A following label declaration
+// (`ident:`) was not recognized as a boundary, so the label's identifier was
+// consumed as a stray register operand for `ret`, leaving the label's `:`
+// to cascade into a P0100 parse error on the next statement.
+
+module BareRetBeforeLabel = structure {
+  let test_bare_ret_before_label : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "test bare ret directly before a label (PA-1320)",
+    block: {
+      start:
+      ret
+      done: nop
+    }
+  }
+}

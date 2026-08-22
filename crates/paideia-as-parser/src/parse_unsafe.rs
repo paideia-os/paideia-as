@@ -1420,4 +1420,76 @@ mod tests {
             panic!("Expected ExprUnsafe");
         }
     }
+
+    /// paideia-as#1320: A bare zero-operand instruction (`ret`) with no
+    /// trailing `;` immediately followed by a label declaration must not
+    /// consume the label's identifier as a stray operand. Regression test:
+    /// `unsafe { ..., block: { start: ret done: hlt } }` — two labels
+    /// separated by a bare `ret` (no semicolon) — must parse cleanly as
+    /// four statements (label, ret, label, hlt) with zero diagnostics.
+    #[test]
+    fn unsafe_block_bare_ret_before_label() {
+        let tokens = vec![
+            tok(TokenKind::KwUnsafe, 0),
+            tok(TokenKind::LBrace, 7),
+            tok(TokenKind::Ident, 9), // effects
+            tok(TokenKind::Colon, 16),
+            tok(TokenKind::LBrace, 18),
+            tok(TokenKind::RBrace, 19),
+            tok(TokenKind::Comma, 20),
+            tok(TokenKind::Ident, 22), // capabilities
+            tok(TokenKind::Colon, 34),
+            tok(TokenKind::LBrace, 36),
+            tok(TokenKind::RBrace, 37),
+            tok(TokenKind::Comma, 38),
+            tok(TokenKind::Ident, 40), // justification
+            tok(TokenKind::Colon, 53),
+            tok(TokenKind::StringLit, 55),
+            tok(TokenKind::Comma, 77),
+            tok(TokenKind::Ident, 79), // block
+            tok(TokenKind::Colon, 84),
+            tok(TokenKind::LBrace, 86),
+            tok(TokenKind::Ident, 88),  // start (label)
+            tok(TokenKind::Colon, 98),  // :
+            tok(TokenKind::Ident, 100), // ret (bare, no semicolon before next label)
+            tok(TokenKind::Ident, 105), // done (label; immediately follows `ret`)
+            tok(TokenKind::Colon, 114), // :
+            tok(TokenKind::Ident, 116), // hlt
+            tok(TokenKind::RBrace, 119),
+            tok(TokenKind::RBrace, 121),
+            tok(TokenKind::Eof, 122),
+        ];
+        let (arena, result, diags) = parse_unsafe_block(tokens);
+
+        assert_eq!(diags.len(), 0, "Expected no diagnostics; got: {:?}", diags);
+        assert!(result.is_ok(), "Expected parse success");
+
+        let expr_id = result.unwrap();
+        let expr_node = arena.get(expr_id).unwrap();
+        assert_eq!(expr_node.kind, NodeKind::ExprUnsafe);
+
+        // Verify block contains 4 statements: label + ret + label + hlt
+        if let Some(ExprData::Unsafe { block, .. }) = arena.expr_data(expr_id) {
+            assert_eq!(block.len(), 4, "Block should contain 4 statements");
+            let stmt0 = arena.get(block[0]).unwrap();
+            let stmt1 = arena.get(block[1]).unwrap();
+            let stmt2 = arena.get(block[2]).unwrap();
+            let stmt3 = arena.get(block[3]).unwrap();
+            assert_eq!(stmt0.kind, NodeKind::StmtLabel);
+            assert_eq!(stmt1.kind, NodeKind::StmtInstruction);
+            if let Some(StmtData::Instruction { operands, .. }) = arena.stmt_data(block[1]) {
+                assert_eq!(
+                    operands.len(),
+                    0,
+                    "bare `ret` before a label must have zero operands"
+                );
+            } else {
+                panic!("Expected StmtData::Instruction for block[1]");
+            }
+            assert_eq!(stmt2.kind, NodeKind::StmtLabel);
+            assert_eq!(stmt3.kind, NodeKind::StmtInstruction);
+        } else {
+            panic!("Expected ExprUnsafe");
+        }
+    }
 }
