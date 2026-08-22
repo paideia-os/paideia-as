@@ -38,12 +38,20 @@ pub(super) fn supports_label_ref(mnemonic: Mnemonic) -> bool {
     matches!(mnemonic, Mnemonic::Jcc(_) | Mnemonic::Jmp | Mnemonic::Call)
 }
 
-/// Parse a symbol reference from a bare identifier (Phase 6 m4-005, Phase 6 m5-004).
+/// Parse a symbol reference from a bare identifier or path (Phase 6 m4-005, Phase 6 m5-004).
 ///
-/// Returns `Operand::SymbolRef { name, addend: 0 }` for bare-identifier
-/// symbols used in call/jmp/mov/lea position. These are resolved at link time
-/// with PC-relative 32-bit relocations. Phase 6 m5-004 extends support to
-/// mov/lea for .bss symbol references (e.g., `mov rax, cap_table`).
+/// Returns `Operand::SymbolRef { name, addend: 0 }` for identifier or
+/// `Module::function`-style path symbols used in call/jmp/mov/lea position.
+/// These are resolved at link time with PC-relative 32-bit relocations.
+/// Phase 6 m5-004 extends support to mov/lea for .bss symbol references
+/// (e.g., `mov rax, cap_table`).
+///
+/// Issue #1319: multi-segment paths (`Module::function`) are flattened by
+/// taking the last segment. Paideia's assembler flat-links symbols by their
+/// raw binding name (see `emit_call.rs`: "Paideia has no cross-module import
+/// mechanism"), so `Module::function` and `function` designate the same
+/// symbol at link time — the module qualifier is a readability annotation
+/// preserved in source, not part of the emitted symbol name.
 pub(super) fn parse_symbol_ref_from_ident(
     ast: &AstArena,
     ident_node: NodeId,
@@ -53,8 +61,10 @@ pub(super) fn parse_symbol_ref_from_ident(
         paideia_as_diagnostics::Span::new(paideia_as_diagnostics::FileId::new(1).unwrap(), 0, 1)
     });
 
-    // Extract the symbol name from the source
-    let symbol_name = match get_register_name(ast, ident_node, source_map) {
+    // Extract the symbol name from the source. Handles both bare `Ident` and
+    // `ExprPath` (single- or multi-segment) — the latter reduces to the last
+    // segment's identifier text (issue #1319).
+    let symbol_name = match try_extract_symbol_name(ast, ident_node, source_map) {
         Some(name) => name,
         None => return Err(OperandError::MalformedOperand(span)),
     };
@@ -65,8 +75,31 @@ pub(super) fn parse_symbol_ref_from_ident(
     })
 }
 
-/// Helper function to extract symbol name from Ident or single-segment ExprPath nodes.
-/// Returns None if the node is not a symbol (e.g., if it's a register or "rip").
+/// Public wrapper around [`try_extract_symbol_name`] for callers outside
+/// this module (issue #1319: `unsafe_walker::parse_operand_from_ast` needs
+/// the effective symbol name for an `ExprPath` operand to check the
+/// local-binding and label tables before falling back to a link-time
+/// symbol reference).
+pub(super) fn extract_symbol_name_for_operand(
+    ast: &AstArena,
+    node_id: NodeId,
+    source_map: &paideia_as_diagnostics::SourceMap,
+) -> Option<String> {
+    try_extract_symbol_name(ast, node_id, source_map)
+}
+
+/// Helper function to extract a symbol name from an Ident or ExprPath node.
+///
+/// Returns None if the node is not a symbol (e.g., a register or `rip`).
+///
+/// Issue #1319: multi-segment paths (`Module::function`) are supported by
+/// taking the LAST segment as the effective symbol name. This matches how
+/// paideia-as flat-links symbols by their raw binding name — the module
+/// qualifier is source-level readability, not part of the emitted symbol
+/// (see `emit_call.rs`'s "no cross-module import mechanism" comment). The
+/// register/`rip` filter still runs on the last segment so a stray path
+/// ending in a register spelling (e.g. `Foo::rax`) is rejected the same
+/// way a bare `rax` in symbol position would be.
 fn try_extract_symbol_name(
     ast: &AstArena,
     node_id: NodeId,
@@ -85,9 +118,13 @@ fn try_extract_symbol_name(
         }
         NodeKind::ExprPath => {
             match ast.expr_data(node_id) {
-                Some(ExprData::Path { segments }) if segments.len() == 1 => {
-                    let name = get_register_name(ast, segments[0], source_map)?;
-                    // Check if it's a known register or special register (if so, not a symbol)
+                // Single- or multi-segment path: flatten to the last segment.
+                // The `segments` invariant from `parse_path_or_ident` is that
+                // a Path always has at least one segment, so `last()` is safe.
+                Some(ExprData::Path { segments }) if !segments.is_empty() => {
+                    let last = *segments.last().expect("Path has >=1 segment");
+                    let name = get_register_name(ast, last, source_map)?;
+                    // Reject if the last segment names a register or `rip`.
                     if register_name_to_regid(&name).is_some() || name == "rip" {
                         return None;
                     }

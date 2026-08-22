@@ -408,13 +408,26 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     ///
     /// **Algorithm:**
     /// 1. If current token is `LBracket`: parse memory reference `[addr_expr]`.
-    /// 2. If current token is `Ident`: parse as register operand.
-    /// 3. Otherwise: parse as immediate (any expression).
+    /// 2. If current token is `Ident` AND the next token is NOT `::`: parse
+    ///    as a register operand.
+    /// 3. Otherwise (including multi-segment paths like `Module::fn` — issue
+    ///    #1319): parse as immediate (any expression), which routes the
+    ///    whole path through `parse_expr` and produces an `ExprPath` under
+    ///    `OperandImmediate` for the elaborator to resolve.
     fn parse_operand(&mut self) -> Result<NodeId, ParseError> {
         if self.at(TokenKind::LBracket) {
             self.parse_memref()
-        } else if self.at(TokenKind::Ident) {
-            // Register operand
+        } else if self.at(TokenKind::Ident)
+            && !matches!(self.peek_at(1).map(|t| t.kind), Some(TokenKind::ColonColon))
+        {
+            // Bare-identifier operand: parsed as a register operand.
+            //
+            // Multi-segment paths (`Module::fn`) do NOT take this branch — the
+            // guard above defers them to the immediate-expression parser below,
+            // which produces an `ExprPath` under `OperandImmediate`. The
+            // elaborator (unsafe_walker::symbol_ref) then flattens the path to
+            // its last segment, which matches the flat-linked symbol name (see
+            // issue #1319).
             let reg_tok = self.expect(TokenKind::Ident)?;
             let reg_id = self.arena_mut().alloc(NodeKind::Ident, reg_tok.span);
             let span = reg_tok.span;
@@ -1156,6 +1169,72 @@ mod tests {
             "expected P0287 emitted, got {:?}",
             diags
         );
+    }
+
+    /// Issue #1319: `call Foo::bar;` — a multi-segment path in operand
+    /// position must not be greedily eaten as a single-Ident register
+    /// operand. The `parse_operand` guard defers when the next token is
+    /// `::`, so the whole path parses as an expression and lands inside
+    /// `OperandImmediate { expr: ExprPath { segments: [Foo, bar] } }`.
+    /// The elaborator flattens to the last segment (`bar`) — see
+    /// `unsafe_walker::symbol_ref::try_extract_symbol_name`.
+    #[test]
+    fn instruction_stmt_with_multi_segment_path_operand() {
+        // `call Foo::bar;`
+        let toks = vec![
+            tok(TokenKind::Ident, 0, 4),        // "call"
+            tok(TokenKind::Ident, 5, 3),        // "Foo"
+            tok(TokenKind::ColonColon, 8, 2),   // "::"
+            tok(TokenKind::Ident, 10, 3),       // "bar"
+            tok(TokenKind::Semicolon, 13, 1),
+        ];
+        let source = "call Foo::bar;";
+        let mut arena = AstArena::new();
+        let mut sink = VecSink::new();
+        let mut p = Parser::new(
+            &toks,
+            source,
+            FileId::new(1).unwrap(),
+            &mut arena,
+            &mut sink,
+        );
+
+        let result = p.parse_stmt(true); // in_action_context = true
+        assert!(
+            result.is_ok(),
+            "call Foo::bar; must parse; got diags {:?}",
+            sink.diagnostics()
+        );
+        let stmt_id = result.unwrap();
+        let node = arena.get(stmt_id).unwrap();
+        assert_eq!(node.kind, NodeKind::StmtInstruction);
+
+        // Verify the operand is an OperandImmediate wrapping an ExprPath
+        // with two segments — this is the contract the elaborator's
+        // ExprPath arm in parse_operand_from_ast relies on.
+        let operands = match arena.stmt_data(stmt_id) {
+            Some(StmtData::Instruction { operands, .. }) => operands.clone(),
+            other => panic!("expected StmtInstruction, got {:?}", other),
+        };
+        assert_eq!(operands.len(), 1, "call Foo::bar has one operand");
+        let op_node = arena.get(operands[0]).unwrap();
+        assert_eq!(
+            op_node.kind,
+            NodeKind::OperandImmediate,
+            "multi-segment path must land under OperandImmediate, not OperandRegister"
+        );
+        let inner_expr = match arena.expr_data(operands[0]) {
+            Some(paideia_as_ast::ExprData::OperandImmediate { expr }) => *expr,
+            other => panic!("expected OperandImmediate, got {:?}", other),
+        };
+        let inner_node = arena.get(inner_expr).unwrap();
+        assert_eq!(inner_node.kind, NodeKind::ExprPath);
+        match arena.expr_data(inner_expr) {
+            Some(paideia_as_ast::ExprData::Path { segments }) => {
+                assert_eq!(segments.len(), 2, "Foo::bar has two segments");
+            }
+            other => panic!("expected ExprPath, got {:?}", other),
+        }
     }
 
     /// A non-`atomic` attribute after `@` on a let statement is refused with

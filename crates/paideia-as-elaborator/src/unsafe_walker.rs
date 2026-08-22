@@ -491,6 +491,37 @@ pub fn parse_operand_from_ast(
                 _ => Err(OperandError::MalformedOperand(node.span)),
             }
         }
+        NodeKind::ExprPath => {
+            // Issue #1319: a path expression in operand position (typically
+            // reached via OperandImmediate's recursive unwrap when the
+            // parser sees `call Module::function`). Mirrors the Ident case:
+            // try register first, then local binding, then label, then
+            // symbol_ref. For multi-segment paths the effective name is
+            // the last segment (`try_extract_symbol_name` handles that);
+            // for single-segment paths the behavior is unchanged.
+            match parse_register_from_ident(ast, operand_node, source_map) {
+                Ok(op) => Ok(op),
+                Err(_) => {
+                    // Not a register: fall through to symbol-shaped resolution.
+                    if let Some(name) =
+                        symbol_ref::extract_symbol_name_for_operand(ast, operand_node, source_map)
+                    {
+                        if local_bindings.get(&name).is_some() {
+                            return Ok(Operand::Var { name });
+                        }
+                        if supports_label_ref(mnemonic) && labels.contains_key(&name) {
+                            return Ok(Operand::LabelRef { name, addend: 0 });
+                        }
+                    }
+
+                    if supports_symbol_ref(mnemonic) {
+                        parse_symbol_ref_from_ident(ast, operand_node, source_map)
+                    } else {
+                        Err(OperandError::MalformedOperand(node.span))
+                    }
+                }
+            }
+        }
         NodeKind::ExprLiteral => {
             // Immediate operand: extract integer literal
             parse_immediate_from_literal(ast, operand_node, source_map)
@@ -535,6 +566,19 @@ pub const U_UNSUPPORTED_STMT_IN_UNSAFE: u16 = 1614;
 fn u_code(n: u16) -> DiagnosticCode {
     DiagnosticCode::new(Category::U, Severity::Error, n).expect("valid U code")
 }
+
+/// #1270: number of `emission_order` ticks reserved for each `StmtExpr`
+/// (call-expression) statement inside an unsafe block at the point it's
+/// encountered by `UnsafeWalker::run`'s raw-instruction pass.
+///
+/// The statement's *real* instructions (arg marshalling + CALL, possibly
+/// bridge push/pop, possibly a frame prologue) are synthesized later by
+/// `emit_pending_unsafe_bodies` / `emit_call_args_and_call`; this reserved
+/// gap guarantees room for all of them to land at their true source
+/// position without colliding with the next reserved statement's range.
+/// Any realistic call-lowering sequence is well under 100 instructions, so
+/// this leaves a wide safety margin.
+const STMT_EXPR_ORDER_RESERVE: u32 = 4096;
 
 /// UnsafeWalker — Phase 5 m3-004 elaborator for unsafe blocks.
 ///
@@ -582,6 +626,7 @@ impl UnsafeWalker {
         unsafe_body_to_lambda: &HashMap<u32, u32>,
         instr_to_lambda: &mut HashMap<IrNodeId, u32>,
         next_emission_order: &mut u32,
+        stmt_expr_order_base: &mut HashMap<(u32, usize), u32>,
     ) -> (
         HashMap<String, u32>,
         HashMap<String, paideia_as_ir::IrNodeId>,
@@ -686,7 +731,7 @@ impl UnsafeWalker {
                                     // (`label1: label2: mov ...;`) both resolve.
                                     let mut pending_labels: Vec<String> = Vec::new();
                                     let mut block_first_instr: Option<IrNodeId> = None;
-                                    for &stmt_id in block {
+                                    for (stmt_idx, &stmt_id) in block.iter().enumerate() {
                                         if let Some(ast_stmt_node) = ast.get(stmt_id) {
                                             if ast_stmt_node.kind == NodeKind::StmtLabel {
                                                 if let Some(StmtData::Label { name }) =
@@ -749,11 +794,63 @@ impl UnsafeWalker {
                                                 }
                                             } else if ast_stmt_node.kind == NodeKind::StmtExpr {
                                                 // Issue #1088: StmtExpr (call expressions, field access, etc.)
-                                                // are now routable via the emit pipeline. UnsafeWalker ignores
-                                                // them; they'll be emitted later by emit_pending_unsafe_bodies.
+                                                // are routable via the emit pipeline; their real instructions
+                                                // are synthesized later by emit_pending_unsafe_bodies.
+                                                //
+                                                // Issue #1270: previously this arm did nothing else, which
+                                                // left the statement with NO reserved emission_order and no
+                                                // resolvable position for a preceding label. Its instructions
+                                                // would only get an emission_order once ALL unsafe blocks in
+                                                // the whole file had already been lowered by UnsafeWalker::run
+                                                // — sorting it to the very end of `.text` (even after its own
+                                                // function's `ret`) regardless of its true source position,
+                                                // and leaving any label immediately before it either dropped
+                                                // or mis-aliased to a much later raw instruction (corrupting
+                                                // jcc/jmp fixup targets). Reserve a real position for it now,
+                                                // at its true program point, and insert a 1-byte NOP marker
+                                                // so labels resolve correctly; emit_pending_unsafe_bodies
+                                                // resumes emission_order from this reserved base when it
+                                                // later lowers the statement's actual instructions.
+                                                let reserved_base = *next_emission_order;
+                                                *next_emission_order += STMT_EXPR_ORDER_RESERVE;
+                                                stmt_expr_order_base
+                                                    .insert((ir_node_id_u32, stmt_idx), reserved_base);
+
+                                                let marker_span = ast
+                                                    .get(stmt_id)
+                                                    .map(|n| n.span)
+                                                    .unwrap_or_else(|| {
+                                                        paideia_as_diagnostics::Span::new(
+                                                            paideia_as_diagnostics::FileId::new(1)
+                                                                .unwrap(),
+                                                            0,
+                                                            1,
+                                                        )
+                                                    });
+                                                let marker_id = arena
+                                                    .alloc(paideia_as_ir::IrKind::Placeholder, marker_span);
+                                                let marker_inst = Instruction {
+                                                    mnemonic: Mnemonic::Nop,
+                                                    operands: Default::default(),
+                                                    encoding_hint: None,
+                                                    byte_offset_in_text: None,
+                                                    mode: instr_mode,
+                                                    emission_order: reserved_base,
+                                                };
+                                                arena.instructions_mut().insert(marker_id, marker_inst);
+                                                if let Some(lambda_id) = owning_lambda_id {
+                                                    instr_to_lambda.insert(marker_id, lambda_id);
+                                                }
+                                                if block_first_instr.is_none() {
+                                                    block_first_instr = Some(marker_id);
+                                                }
+                                                for label_name in pending_labels.drain(..) {
+                                                    label_to_instr.insert(label_name, marker_id);
+                                                }
+
                                                 if cfg!(debug_assertions) {
                                                     eprintln!(
-                                                        "[unsafe_walker] StmtExpr in unsafe block (deferred to emit pipeline)"
+                                                        "[unsafe_walker] StmtExpr in unsafe block reserved emission_order base {reserved_base} (real instructions deferred to emit pipeline)"
                                                     );
                                                 }
                                             } else {

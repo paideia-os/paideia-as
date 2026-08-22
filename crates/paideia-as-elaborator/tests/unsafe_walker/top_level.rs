@@ -97,6 +97,7 @@ fn mov_reg_imm_mnemonic(reg_name: &str) -> Mnemonic {
         &HashMap::new(),
         &mut HashMap::new(),
         &mut next_emission_order,
+        &mut HashMap::new(),
     );
 
     assert_eq!(
@@ -214,6 +215,7 @@ fn test_lgdt_memory_operand() {
         &HashMap::new(),
         &mut HashMap::new(),
         &mut next_emission_order,
+        &mut HashMap::new(),
     );
 
     // Check that no errors were emitted (in a real test with proper AST nodes, this would work)
@@ -280,6 +282,7 @@ fn test_unknown_mnemonic_foozle() {
         &HashMap::new(),
         &mut HashMap::new(),
         &mut next_emission_order,
+        &mut HashMap::new(),
     );
 
     // Check that a U1605 diagnostic was emitted
@@ -365,6 +368,7 @@ fn test_malformed_operand_incomplete_memory() {
         &HashMap::new(),
         &mut HashMap::new(),
         &mut next_emission_order,
+        &mut HashMap::new(),
     );
 
     // Check that a U1606 diagnostic was emitted
@@ -474,6 +478,7 @@ fn parse_instruction_with_imm(
         &HashMap::new(),
         &mut HashMap::new(),
         &mut next_emission_order,
+        &mut HashMap::new(),
     );
 
     assert_eq!(
@@ -658,6 +663,7 @@ fn parse_ljmp_instruction(
         &HashMap::new(),
         &mut HashMap::new(),
         &mut next_emission_order,
+        &mut HashMap::new(),
     );
 
     assert_eq!(
@@ -817,6 +823,7 @@ fn test_lgdt_rip_relative_symbol() {
         &HashMap::new(),
         &mut HashMap::new(),
         &mut next_emission_order,
+        &mut HashMap::new(),
     );
 
     // Verify the instruction was elaborated
@@ -989,6 +996,7 @@ fn mov_b_unscaled_two_register_sib_parses() {
         &HashMap::new(),
         &mut HashMap::new(),
         &mut next_emission_order,
+        &mut HashMap::new(),
     );
 
     let sink_diags = sink.into_diagnostics();
@@ -1149,6 +1157,7 @@ fn parse_branch_instruction_with_label(
         &HashMap::new(),
         &mut HashMap::new(),
         &mut next_emission_order,
+        &mut HashMap::new(),
     );
 
     // Note: This test needs the actual unsafe walker to process labels correctly
@@ -1236,6 +1245,7 @@ fn test_local_label_backward_jump() {
         &HashMap::new(),
         &mut HashMap::new(),
         &mut next_emission_order,
+        &mut HashMap::new(),
     );
 
     // Verify instruction was parsed
@@ -1326,6 +1336,7 @@ fn test_local_label_forward_jump() {
         &HashMap::new(),
         &mut HashMap::new(),
         &mut next_emission_order,
+        &mut HashMap::new(),
     );
 
     // Verify instruction was parsed
@@ -1414,6 +1425,7 @@ fn test_undefined_label_as_symbol_ref() {
         &HashMap::new(),
         &mut HashMap::new(),
         &mut next_emission_order,
+        &mut HashMap::new(),
     );
 
     // For an undefined label with jmp, the label should be parsed as SymbolRef
@@ -1458,5 +1470,239 @@ fn test_undefined_label_as_symbol_ref() {
                 }
             }
         }
+    }
+}
+
+/// Issue #1319: `call Foo::bar` — a multi-segment path in call position
+/// resolves to a `SymbolRef` whose name is the *last* segment.
+///
+/// Paideia's assembler flat-links symbols by their raw binding name (see
+/// the "no cross-module import mechanism" comment in `emit_call.rs`), so
+/// the module qualifier `Foo::` is a source-level readability annotation
+/// with no bearing on the emitted symbol. This test drives the two-hop
+/// path through the elaborator: parser produces
+/// `OperandImmediate { expr: ExprPath { [Foo, bar] } }`; walker's
+/// `OperandImmediate` arm recurses; the new `ExprPath` arm in
+/// `parse_operand_from_ast` calls `parse_symbol_ref_from_ident`, which
+/// asks `try_extract_symbol_name` for the effective name — that returns
+/// the last segment (`bar`).
+#[test]
+fn call_multi_segment_path_flattens_to_last_segment() {
+    // Source: `call Foo::bar`
+    //   bytes 0..4 = "call", 5..8 = "Foo", 8..10 = "::", 10..13 = "bar"
+    let source = "call Foo::bar";
+    let file_id = paideia_as_diagnostics::FileId::new(1).unwrap();
+    let foo_span = Span::new(file_id, 5, 3);
+    let bar_span = Span::new(file_id, 10, 3);
+    let path_span = Span::new(file_id, 5, 8); // "Foo::bar"
+
+    let mut ast = AstArena::new();
+    let mut ir = IrArena::new();
+
+    let stmt_span = test_span();
+    let justification = ast.alloc(NodeKind::ExprString, stmt_span);
+
+    // Two-segment path `Foo::bar` — mirrors the AST shape produced by
+    // parser after the guard added in issue #1319.
+    let foo_seg = ast.alloc(NodeKind::Ident, foo_span);
+    let bar_seg = ast.alloc(NodeKind::Ident, bar_span);
+    let path = ast.alloc_expr(
+        NodeKind::ExprPath,
+        path_span,
+        ExprData::Path {
+            segments: vec![foo_seg, bar_seg],
+        },
+    );
+
+    // The parser wraps such an expression under `OperandImmediate`.
+    let imm_operand = ast.alloc_expr(
+        NodeKind::OperandImmediate,
+        path_span,
+        ExprData::OperandImmediate { expr: path },
+    );
+
+    let mnemonic_id = ast.intern_mnemonic("call");
+    let inst_stmt = ast.alloc_stmt(
+        NodeKind::StmtInstruction,
+        stmt_span,
+        StmtData::Instruction {
+            mnemonic: mnemonic_id,
+            operands: vec![imm_operand],
+        },
+    );
+
+    let _unsafe_expr = ast.alloc_expr(
+        NodeKind::ExprUnsafe,
+        stmt_span,
+        ExprData::Unsafe {
+            effects: vec![],
+            capabilities: vec![],
+            justification,
+            block: vec![inst_stmt],
+        },
+    );
+
+    let ir_unsafe = ir.alloc(paideia_as_ir::IrKind::Unsafe, stmt_span);
+
+    let mut source_map = SourceMap::new();
+    let _ = source_map.add_file(PathBuf::from("test.pdx"), source.to_string());
+
+    let mut sink = VecSink::new();
+    let record_layouts = HashMap::new();
+    let local_bindings = LocalBindingTable::new();
+    let mut next_emission_order = 1u32;
+    let (_labels, _label_to_instr, _first_instrs, _diags) = UnsafeWalker::run(
+        &mut ir,
+        &ast,
+        vec![ir_unsafe.get()],
+        &source_map,
+        &mut sink,
+        &record_layouts,
+        &local_bindings,
+        InstrMode::Mode64,
+        &HashSet::new(),
+        &HashMap::new(),
+        &mut HashMap::new(),
+        &mut next_emission_order,
+        &mut HashMap::new(),
+    );
+
+    assert_eq!(
+        ir.instructions().len(),
+        1,
+        "expected one instruction for `call Foo::bar`, diags: {:?}",
+        sink.diagnostics()
+    );
+    let instruction = ir
+        .instructions()
+        .entries()
+        .values()
+        .next()
+        .expect("instruction present");
+    assert_eq!(instruction.mnemonic, Mnemonic::Call);
+    assert_eq!(instruction.operands.len(), 1);
+    match &instruction.operands[0] {
+        paideia_as_ir::instruction::Operand::SymbolRef { name, addend } => {
+            assert_eq!(
+                name, "bar",
+                "multi-segment path must flatten to its last segment; \
+                 the module qualifier is not part of the emitted symbol name"
+            );
+            assert_eq!(*addend, 0);
+        }
+        other => panic!("expected SymbolRef, got {:?}", other),
+    }
+}
+
+/// Issue #1319: `lea rax, Foo::bar` — same last-segment flattening for
+/// the `lea` mnemonic (which also supports symbol references per
+/// `supports_symbol_ref`).
+#[test]
+fn lea_multi_segment_path_flattens_to_last_segment() {
+    // Source: `lea rax, Foo::bar`
+    //   bytes 0..3="lea", 4..7="rax", 9..12="Foo", 12..14="::", 14..17="bar"
+    let source = "lea rax, Foo::bar";
+    let file_id = paideia_as_diagnostics::FileId::new(1).unwrap();
+    let rax_span = Span::new(file_id, 4, 3);
+    let foo_span = Span::new(file_id, 9, 3);
+    let bar_span = Span::new(file_id, 14, 3);
+    let path_span = Span::new(file_id, 9, 8); // "Foo::bar"
+
+    let mut ast = AstArena::new();
+    let mut ir = IrArena::new();
+
+    let stmt_span = test_span();
+    let justification = ast.alloc(NodeKind::ExprString, stmt_span);
+
+    // rax register operand — mirrors parse_operand's single-Ident branch.
+    let rax_ident = ast.alloc(NodeKind::Ident, rax_span);
+    let rax_operand = ast.alloc_expr(
+        NodeKind::OperandRegister,
+        rax_span,
+        ExprData::OperandRegister { reg: rax_ident },
+    );
+
+    // Foo::bar path under OperandImmediate.
+    let foo_seg = ast.alloc(NodeKind::Ident, foo_span);
+    let bar_seg = ast.alloc(NodeKind::Ident, bar_span);
+    let path = ast.alloc_expr(
+        NodeKind::ExprPath,
+        path_span,
+        ExprData::Path {
+            segments: vec![foo_seg, bar_seg],
+        },
+    );
+    let imm_operand = ast.alloc_expr(
+        NodeKind::OperandImmediate,
+        path_span,
+        ExprData::OperandImmediate { expr: path },
+    );
+
+    let mnemonic_id = ast.intern_mnemonic("lea");
+    let inst_stmt = ast.alloc_stmt(
+        NodeKind::StmtInstruction,
+        stmt_span,
+        StmtData::Instruction {
+            mnemonic: mnemonic_id,
+            operands: vec![rax_operand, imm_operand],
+        },
+    );
+
+    let _unsafe_expr = ast.alloc_expr(
+        NodeKind::ExprUnsafe,
+        stmt_span,
+        ExprData::Unsafe {
+            effects: vec![],
+            capabilities: vec![],
+            justification,
+            block: vec![inst_stmt],
+        },
+    );
+
+    let ir_unsafe = ir.alloc(paideia_as_ir::IrKind::Unsafe, stmt_span);
+
+    let mut source_map = SourceMap::new();
+    let _ = source_map.add_file(PathBuf::from("test.pdx"), source.to_string());
+
+    let mut sink = VecSink::new();
+    let record_layouts = HashMap::new();
+    let local_bindings = LocalBindingTable::new();
+    let mut next_emission_order = 1u32;
+    let (_labels, _label_to_instr, _first_instrs, _diags) = UnsafeWalker::run(
+        &mut ir,
+        &ast,
+        vec![ir_unsafe.get()],
+        &source_map,
+        &mut sink,
+        &record_layouts,
+        &local_bindings,
+        InstrMode::Mode64,
+        &HashSet::new(),
+        &HashMap::new(),
+        &mut HashMap::new(),
+        &mut next_emission_order,
+        &mut HashMap::new(),
+    );
+
+    assert_eq!(
+        ir.instructions().len(),
+        1,
+        "expected one instruction for `lea rax, Foo::bar`, diags: {:?}",
+        sink.diagnostics()
+    );
+    let instruction = ir
+        .instructions()
+        .entries()
+        .values()
+        .next()
+        .expect("instruction present");
+    assert_eq!(instruction.mnemonic, Mnemonic::Lea);
+    assert_eq!(instruction.operands.len(), 2);
+    match &instruction.operands[1] {
+        paideia_as_ir::instruction::Operand::SymbolRef { name, addend } => {
+            assert_eq!(name, "bar", "lea Foo::bar → SymbolRef { name: \"bar\" }");
+            assert_eq!(*addend, 0);
+        }
+        other => panic!("expected SymbolRef as second operand, got {:?}", other),
     }
 }
