@@ -1,0 +1,19 @@
+module CmpJccRepro = structure {
+  let mark_a : () -> () !{} @{} = fn(_: ()) -> ()
+  let mark_b : () -> () !{} @{} = fn(_: ()) -> ()
+
+  pub let entry : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {}, capabilities: {}, justification: "issue #1270 repro: cmp+jcc between two call-expression statements",
+    block: {
+      mark_a();
+      mov rax, 0x30;
+      mov rdx, 0x30;
+      cmp rax, rdx;
+      je logp_ok;
+      mov rax, 0xDEAD;
+      logp_ok:
+      mark_b();
+      ret
+    }
+  }
+}

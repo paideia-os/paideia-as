@@ -227,6 +227,29 @@ pub struct EmitPassState {
     /// body-shape arm produced no instructions; the epilogue must skip too
     /// so we don't leave a bare `pop rbp` in front of a body-less function.
     pub(crate) emitted_frame_prologue: HashSet<u32>,
+
+    /// #1270: Reserved `emission_order` base for each `StmtExpr` (call
+    /// expression) statement inside an unsafe block, keyed by
+    /// `(unsafe_ir_node_id, statement_index_within_block)`.
+    ///
+    /// `UnsafeWalker::run`'s raw-instruction pass previously *skipped*
+    /// StmtExpr statements entirely — it neither reserved a position for
+    /// them nor let a preceding label alias to them — leaving their real
+    /// instructions to be emitted later by `emit_pending_unsafe_bodies`,
+    /// which runs only after EVERY unsafe block in the whole file has
+    /// already consumed `next_emission_order`. That stamped every
+    /// call-expression statement with an `emission_order` larger than
+    /// anything else in the file, sorting it to the very end of `.text`
+    /// (even after its own function's `ret`) regardless of where it
+    /// actually appeared in the source — and left any label immediately
+    /// preceding it aliased to whatever *later* raw instruction happened
+    /// to follow, silently mis-targeting `jcc`/`jmp` fixups. UnsafeWalker
+    /// now reserves a generous emission_order gap for each StmtExpr at the
+    /// point it's encountered (in true program order) and records the base
+    /// here; `emit_pending_unsafe_bodies` looks it up and temporarily
+    /// resumes the shared counter from that base while lowering the
+    /// statement's real instructions, so they land in their true position.
+    pub(crate) unsafe_stmt_expr_order_base: HashMap<(u32, usize), u32>,
 }
 
 impl Default for EmitPassState {
@@ -265,6 +288,7 @@ impl Default for EmitPassState {
             lambda_no_frame: Default::default(),
             pending_frame_prologue: Default::default(),
             emitted_frame_prologue: Default::default(),
+            unsafe_stmt_expr_order_base: Default::default(),
         }
     }
 }
@@ -679,11 +703,28 @@ impl EmitPassState {
         &mut self.next_emission_order
     }
 
-    /// Extract both instr_to_lambda and next_emission_order mutable references.
+    /// Extract instr_to_lambda, next_emission_order, and the #1270
+    /// StmtExpr-order-base map as mutable references.
     /// Issue #1244: Used by UnsafeWalker to avoid borrow-checker conflicts when
     /// both fields are needed simultaneously for the same function call.
-    pub fn unsafe_walker_refs(&mut self) -> (&mut HashMap<IrNodeId, u32>, &mut u32) {
-        (&mut self.instr_to_lambda, &mut self.next_emission_order)
+    /// Issue #1270: extended with the StmtExpr order-base map so UnsafeWalker
+    /// can reserve a real position for call-expression statements interleaved
+    /// with raw asm.
+    pub fn unsafe_walker_refs(
+        &mut self,
+    ) -> (&mut HashMap<IrNodeId, u32>, &mut u32, &mut HashMap<(u32, usize), u32>) {
+        (
+            &mut self.instr_to_lambda,
+            &mut self.next_emission_order,
+            &mut self.unsafe_stmt_expr_order_base,
+        )
+    }
+
+    /// Read-only view of the #1270 StmtExpr-order-base map, keyed by
+    /// `(unsafe_ir_node_id, statement_index_within_block)`.
+    #[must_use]
+    pub fn unsafe_stmt_expr_order_base(&self) -> &HashMap<(u32, usize), u32> {
+        &self.unsafe_stmt_expr_order_base
     }
 
     /// Check if a specific CPU feature is enabled.

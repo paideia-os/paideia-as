@@ -119,6 +119,7 @@ fn elaborate_bitop_with_imm64(
         &HashMap::new(),
         &mut HashMap::new(),
         &mut next_emission_order,
+        &mut HashMap::new(),
     );
 
     // Also collect diagnostics from the sink itself

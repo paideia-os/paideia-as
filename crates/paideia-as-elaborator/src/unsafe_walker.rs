@@ -816,36 +816,48 @@ impl UnsafeWalker {
                                                 stmt_expr_order_base
                                                     .insert((ir_node_id_u32, stmt_idx), reserved_base);
 
-                                                let marker_span = ast
-                                                    .get(stmt_id)
-                                                    .map(|n| n.span)
-                                                    .unwrap_or_else(|| {
-                                                        paideia_as_diagnostics::Span::new(
-                                                            paideia_as_diagnostics::FileId::new(1)
-                                                                .unwrap(),
-                                                            0,
-                                                            1,
-                                                        )
-                                                    });
-                                                let marker_id = arena
-                                                    .alloc(paideia_as_ir::IrKind::Placeholder, marker_span);
-                                                let marker_inst = Instruction {
-                                                    mnemonic: Mnemonic::Nop,
-                                                    operands: Default::default(),
-                                                    encoding_hint: None,
-                                                    byte_offset_in_text: None,
-                                                    mode: instr_mode,
-                                                    emission_order: reserved_base,
-                                                };
-                                                arena.instructions_mut().insert(marker_id, marker_inst);
-                                                if let Some(lambda_id) = owning_lambda_id {
-                                                    instr_to_lambda.insert(marker_id, lambda_id);
-                                                }
-                                                if block_first_instr.is_none() {
-                                                    block_first_instr = Some(marker_id);
-                                                }
-                                                for label_name in pending_labels.drain(..) {
-                                                    label_to_instr.insert(label_name, marker_id);
+                                                // Only materialize a physical 1-byte NOP marker when
+                                                // there's a label that actually needs a resolvable
+                                                // target here. The common case — a call/field-write
+                                                // with no preceding label — needs the emission_order
+                                                // reservation above (so its real instructions land in
+                                                // the right position) but does NOT need an extra byte
+                                                // in `.text` (see #1146's redundant-load-elimination
+                                                // tests, which assert exact byte counts).
+                                                if !pending_labels.is_empty() {
+                                                    let marker_span = ast
+                                                        .get(stmt_id)
+                                                        .map(|n| n.span)
+                                                        .unwrap_or_else(|| {
+                                                            paideia_as_diagnostics::Span::new(
+                                                                paideia_as_diagnostics::FileId::new(1)
+                                                                    .unwrap(),
+                                                                0,
+                                                                1,
+                                                            )
+                                                        });
+                                                    let marker_id = arena.alloc(
+                                                        paideia_as_ir::IrKind::Placeholder,
+                                                        marker_span,
+                                                    );
+                                                    let marker_inst = Instruction {
+                                                        mnemonic: Mnemonic::Nop,
+                                                        operands: Default::default(),
+                                                        encoding_hint: None,
+                                                        byte_offset_in_text: None,
+                                                        mode: instr_mode,
+                                                        emission_order: reserved_base,
+                                                    };
+                                                    arena.instructions_mut().insert(marker_id, marker_inst);
+                                                    if let Some(lambda_id) = owning_lambda_id {
+                                                        instr_to_lambda.insert(marker_id, lambda_id);
+                                                    }
+                                                    if block_first_instr.is_none() {
+                                                        block_first_instr = Some(marker_id);
+                                                    }
+                                                    for label_name in pending_labels.drain(..) {
+                                                        label_to_instr.insert(label_name, marker_id);
+                                                    }
                                                 }
 
                                                 if cfg!(debug_assertions) {

@@ -905,7 +905,9 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
             let enabled_features = emit_walker.state().enabled_features().clone();
             let unsafe_body_to_lambda = emit_walker.state().unsafe_body_to_lambda().clone();
             // Issue #1244: Extract mutable references before call to avoid borrow conflicts
-            let (instr_to_lambda_ref, emission_order_ref) = emit_walker.state_mut().unsafe_walker_refs();
+            // Issue #1270: also thread the StmtExpr order-base reservation map.
+            let (instr_to_lambda_ref, emission_order_ref, stmt_expr_order_base_ref) =
+                emit_walker.state_mut().unsafe_walker_refs();
             let (unsafe_labels, label_to_instr, first_instrs, unsafe_diags) = UnsafeWalker::run(
                 &mut lowering.ir,
                 &arena,
@@ -919,6 +921,7 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                 &unsafe_body_to_lambda,
                 instr_to_lambda_ref,
                 emission_order_ref,
+                stmt_expr_order_base_ref,
             );
 
             // Register collected unsafe block labels with emit_walker state
@@ -1888,21 +1891,40 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                                     // Phase 6 m5-005: Let with Placeholder (uninit) → Bss
                                     // Route all uninit to .bss regardless of mutability.
                                     // Phase 6 m5-005: Compute size from array type annotation if present.
-                                    let size = compute_bss_size_from_type(
-                                        node_id,
-                                        &arena,
-                                        &source_map,
-                                        file,
-                                    );
-                                    let let_info = lowering.ir.let_meta().get(node_id);
-                                    let explicit_align = let_info.and_then(|i| i.align);
-                                    let link_section = let_info.and_then(|i| i.link_section.clone());
-                                    let mut entry =
-                                        paideia_as_ir::DataEntry::new_bss(symbol_name, explicit_align.unwrap_or(8), size);
-                                    if let Some(name) = link_section {
-                                        entry = entry.with_section_override(name);
+                                    //
+                                    // Issue #1313: a non-literal array length that can't be
+                                    // resolved is a hard error, never a silent 8-byte guess —
+                                    // emit T0577 and skip the symbol entirely (like the arity
+                                    // mismatch above, this makes the build fail via `preview`
+                                    // rather than link an undersized object).
+                                    match compute_bss_size_from_type(node_id, &arena, &source_map, file) {
+                                        Ok(size) => {
+                                            let let_info = lowering.ir.let_meta().get(node_id);
+                                            let explicit_align = let_info.and_then(|i| i.align);
+                                            let link_section = let_info.and_then(|i| i.link_section.clone());
+                                            let mut entry = paideia_as_ir::DataEntry::new_bss(
+                                                symbol_name,
+                                                explicit_align.unwrap_or(8),
+                                                size,
+                                            );
+                                            if let Some(name) = link_section {
+                                                entry = entry.with_section_override(name);
+                                            }
+                                            data_entries.push((node_id, entry));
+                                        }
+                                        Err(unresolved) => {
+                                            let code = paideia_as_diagnostics::DiagnosticCode::new(
+                                                paideia_as_diagnostics::Category::T,
+                                                paideia_as_diagnostics::Severity::Error,
+                                                577,
+                                            ).expect("T0577 is valid");
+                                            let diag = paideia_as_diagnostics::Diagnostic::error(code)
+                                                .message(unresolved.message)
+                                                .with_span(unresolved.span)
+                                                .finish();
+                                            let _ = sink.emit(diag);
+                                        }
                                     }
-                                    data_entries.push((node_id, entry));
                                 } else if rhs_node.kind == paideia_as_ir::IrKind::StringLiteral {
                                     // PA-R12-001 (issue #910): Let with StringLiteral RHS →
                                     // inline the byte payload directly into .rodata (or .data if mutable).

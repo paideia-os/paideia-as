@@ -1041,7 +1041,7 @@ impl EmitWalker {
                 }
             }
 
-            for &child in arena.children(unsafe_id).iter() {
+            for (child_idx, &child) in arena.children(unsafe_id).iter().enumerate() {
                 let Some(node) = arena.get(child) else { continue };
                 match node.kind {
                     IrKind::RawInstruction | IrKind::Label | IrKind::Placeholder => {
@@ -1059,7 +1059,34 @@ impl EmitWalker {
                     }
                     IrKind::Action => {
                         // Statement-position expression: delegate to emit_action_stmt.
-                        self.emit_action_stmt(child, arena, typer);
+                        //
+                        // Issue #1270: UnsafeWalker's raw-instruction pass reserves an
+                        // emission_order base for each StmtExpr at the exact block
+                        // position it's encountered (keyed by (unsafe_id, stmt_index),
+                        // which lines up 1:1 with this child-index enumeration since
+                        // every AST statement in the block lowers to exactly one IR
+                        // child in the same order). If a reservation exists, resume
+                        // the shared counter from it so this call's real instructions
+                        // land at their true source position — interleaved correctly
+                        // with the surrounding raw asm — instead of wherever
+                        // next_emission_order has advanced to after every unsafe block
+                        // in the whole file has already been lowered.
+                        let reserved_base = self
+                            .state
+                            .unsafe_stmt_expr_order_base
+                            .get(&(id_u32, child_idx))
+                            .copied();
+                        match reserved_base {
+                            Some(reserved_base) => {
+                                let resume_from = self.state.next_emission_order;
+                                self.state.next_emission_order = reserved_base;
+                                self.emit_action_stmt(child, arena, typer);
+                                self.state.next_emission_order = resume_from;
+                            }
+                            None => {
+                                self.emit_action_stmt(child, arena, typer);
+                            }
+                        }
                     }
                     _ => {
                         // Unroutable statement kind (Let, Loop, While, Return, etc.).

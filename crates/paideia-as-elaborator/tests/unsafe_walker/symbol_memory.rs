@@ -133,6 +133,7 @@ fn mov_symbol_memory_operand(source: &str, ast: &mut AstArena, memref_operand: N
         &HashMap::new(),
         &mut HashMap::new(),
         &mut next_emission_order,
+        &mut HashMap::new(),
     );
 
     assert_eq!(

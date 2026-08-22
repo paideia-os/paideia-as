@@ -1700,7 +1700,7 @@ fn lea_multi_segment_path_flattens_to_last_segment() {
     assert_eq!(instruction.operands.len(), 2);
     match &instruction.operands[1] {
         paideia_as_ir::instruction::Operand::SymbolRef { name, addend } => {
-            assert_eq!(name, "bar", "lea Foo::bar → SymbolRef { name: \"bar\" }");
+            assert_eq!(name, "bar", "lea Foo::bar → SymbolRef {{ name: \"bar\" }}");
             assert_eq!(*addend, 0);
         }
         other => panic!("expected SymbolRef as second operand, got {:?}", other),
