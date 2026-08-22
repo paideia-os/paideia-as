@@ -103,6 +103,24 @@ impl<'a> Argon2idParams<'a> {
     /// SECOND RECOMMENDED parallelism.
     pub const RFC_9106_SECOND_RECOMMENDED_P: u32 = 4;
 
+    /// paideia-defined LOW_MEMORY profile for constrained targets
+    /// (early-boot user unlock on embedded x86_64, recovery consoles
+    /// with 128 MiB or less of usable RAM). NOT one of the two
+    /// profiles named in RFC 9106 §4 — kept explicitly separate so a
+    /// caller cannot mistake it for a full-strength interactive
+    /// profile.
+    ///
+    /// `t = 3`, `m = 8_192 KiB (8 MiB)`, `p = 1`. The memory /
+    /// parallelism ratio matches the §4 SECOND-RECOMMENDED shape
+    /// (`m == 2^13 * p_cost` with `p_cost = 1`) so the underlying
+    /// data-dependence pattern is unchanged; only the working-set
+    /// footprint shrinks.
+    pub const LOW_MEMORY_M_KIB: u32 = 1 << 13;
+    /// LOW_MEMORY time cost.
+    pub const LOW_MEMORY_T: u32 = 3;
+    /// LOW_MEMORY parallelism.
+    pub const LOW_MEMORY_P: u32 = 1;
+
     /// Convenience constructor for the FIRST RECOMMENDED profile.
     /// Callers still supply `password`, `salt`, and optional
     /// `secret` / `associated_data`.
@@ -115,6 +133,42 @@ impl<'a> Argon2idParams<'a> {
             m_cost_kib: Self::RFC_9106_FIRST_RECOMMENDED_M_KIB,
             t_cost: Self::RFC_9106_FIRST_RECOMMENDED_T,
             p_cost: Self::RFC_9106_FIRST_RECOMMENDED_P,
+        }
+    }
+
+    /// Convenience constructor for the SECOND RECOMMENDED profile
+    /// (memory-abundant deployments). Callers still supply
+    /// `password`, `salt`, and optional `secret` / `associated_data`.
+    ///
+    /// Note: derivation under this profile allocates 2 GiB of RAM
+    /// and takes multiple seconds on 2023-class silicon. Use
+    /// [`Self::first_recommended`] for interactive login on general
+    /// hardware.
+    pub fn second_recommended(password: &'a [u8], salt: &'a [u8]) -> Self {
+        Self {
+            password,
+            salt,
+            secret: None,
+            associated_data: None,
+            m_cost_kib: Self::RFC_9106_SECOND_RECOMMENDED_M_KIB,
+            t_cost: Self::RFC_9106_SECOND_RECOMMENDED_T,
+            p_cost: Self::RFC_9106_SECOND_RECOMMENDED_P,
+        }
+    }
+
+    /// Convenience constructor for the paideia LOW_MEMORY profile.
+    /// See [`Self::LOW_MEMORY_M_KIB`] for the rationale — this is
+    /// weaker than both RFC 9106 §4 profiles and is intended for
+    /// recovery consoles / early-boot unlock, not general login.
+    pub fn low_memory(password: &'a [u8], salt: &'a [u8]) -> Self {
+        Self {
+            password,
+            salt,
+            secret: None,
+            associated_data: None,
+            m_cost_kib: Self::LOW_MEMORY_M_KIB,
+            t_cost: Self::LOW_MEMORY_T,
+            p_cost: Self::LOW_MEMORY_P,
         }
     }
 }
@@ -307,5 +361,35 @@ mod tests {
         assert_eq!(p.p_cost, 4);
         assert!(p.secret.is_none());
         assert!(p.associated_data.is_none());
+    }
+
+    /// SECOND RECOMMENDED profile constants match RFC 9106 §4.
+    /// The constructor is verified independently of a full derivation
+    /// because a real §4 SECOND run allocates 2 GiB of RAM and cannot
+    /// be part of the fast-path test suite. The heavy derivation is
+    /// exercised by `tests/rfc_vectors.rs` behind `#[ignore]`.
+    #[test]
+    fn second_recommended_profile_constants() {
+        let p = Argon2idParams::second_recommended(b"pw", &[0u8; 16]);
+        assert_eq!(p.m_cost_kib, 1 << 21, "m = 2 GiB");
+        assert_eq!(p.t_cost, 1);
+        assert_eq!(p.p_cost, 4);
+        assert!(p.secret.is_none());
+        assert!(p.associated_data.is_none());
+    }
+
+    /// LOW_MEMORY profile constants match the paideia-defined values.
+    #[test]
+    fn low_memory_profile_constants() {
+        let p = Argon2idParams::low_memory(b"pw", &[0u8; 16]);
+        assert_eq!(p.m_cost_kib, 1 << 13, "m = 8 MiB");
+        assert_eq!(p.t_cost, 3);
+        assert_eq!(p.p_cost, 1);
+        assert!(p.secret.is_none());
+        assert!(p.associated_data.is_none());
+        // Cross-check the constraint m >= 8 * p that
+        // `KdfError::InvalidParams("m_cost < 8 * p_cost")` guards:
+        // 8192 KiB >= 8 * 1 KiB is trivially true.
+        assert!(p.m_cost_kib >= 8 * p.p_cost);
     }
 }

@@ -31,10 +31,12 @@ mod chacha20_poly1305;
 
 pub use chacha20_poly1305::{
     ChaCha20Poly1305, ChaCha20Poly1305Params, KEY_LEN, NONCE_LEN, TAG_LEN,
-    // RFC 8439 §2.8.2 encryption vector (re-exported for downstream
-    // integration suites in issue v0.33-005).
+    // RFC 8439 §2.8.2 encryption vector (single-block).
     RFC_8439_SEC_2_8_2_AAD, RFC_8439_SEC_2_8_2_CIPHERTEXT, RFC_8439_SEC_2_8_2_KEY,
     RFC_8439_SEC_2_8_2_NONCE, RFC_8439_SEC_2_8_2_PLAINTEXT, RFC_8439_SEC_2_8_2_TAG,
+    // RFC 8439 Appendix A.5 decryption vector (full multi-block).
+    RFC_8439_APPENDIX_A_5_AAD, RFC_8439_APPENDIX_A_5_CIPHERTEXT, RFC_8439_APPENDIX_A_5_KEY,
+    RFC_8439_APPENDIX_A_5_NONCE, RFC_8439_APPENDIX_A_5_PLAINTEXT, RFC_8439_APPENDIX_A_5_TAG,
 };
 
 use thiserror::Error;
