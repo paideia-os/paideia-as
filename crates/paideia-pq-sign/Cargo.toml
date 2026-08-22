@@ -10,6 +10,14 @@ repository.workspace = true
 [lib]
 name = "paideia_pq_sign"
 
+[features]
+default = []
+# Expose ACVP known-answer-test helpers on the ML-DSA-65 wrapper.
+# Enabled by the `pq-corpus` test crate to drive NIST FIPS-204
+# `internalProjection.json` vectors through the paideia wrapper.
+# Off by default: production callers should never need these.
+kat = []
+
 [[bin]]
 name = "paideia-pq-sign"
 path = "src/bin/cli.rs"

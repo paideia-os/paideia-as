@@ -68,7 +68,7 @@ Q-codes live under `Category::Q` (post-quantum, 0900–0999). Added to `paideia-
 ## 5. Phase-2-m7 deferrals
 
 - **Hardware HSM**: deferred to a future track. The soft-HSM API is `pub trait`-shaped enough that a hardware backend can implement the same interface.
-- **NIST ACVP test vectors for ML-DSA**: the m7-001 KAT uses a deterministic-rnd vector instead of the full NIST ACVP test-vector set. Adequate for round-trip; the broader vector set should land when the ml-dsa crate ships them upstream.
+- ~~**NIST ACVP test vectors for ML-DSA**~~: **RESOLVED 2026-08-22 (issue #525).** ML-DSA-65 subset of the NIST ACVP FIPS-204 internal-projection vectors is vendored at `tests/pq-corpus/vectors/` (pinned `usnistgov/ACVP-Server @ 65370b8`) and exercised by `tests/pq-corpus/tests/acvp_ml_dsa_65.rs` — 60 vectors (25 keyGen + 20 sigGen + 15 sigVer). Wrapper adds a `kat`-feature-gated helper module (`paideia_pq_sign::mldsa::kat`) to feed the ACVP internal projection through the paideia surface. Trigger path (b) — "vendor NIST JSON directly" — from `tests/pq-corpus/ML_DSA_ACVP_STATUS.md`.
 - ~~**Row-polymorphic scope subsumption**~~: **RESOLVED in Phase 3 m7-004 (PR #581).** See "Phase 3 m7 update" below.
 - **Signature timestamping / revocation**: not in scope for m7. Phase 3 may add an in-band timestamp section + revocation registry.
 
@@ -98,11 +98,15 @@ The token is intended to attach to `.paideia.sig` as an additional sub-record so
 
 When the artifact's signing-key key_id is in the revocation list and the operator hasn't passed `--ignore-revocation`, verification rejects the artifact.
 
-### NIST ACVP test vectors (m8-003 / PR #585) — STAYS OPEN
+### NIST ACVP test vectors (m8-003 / issue #525) — RESOLVED 2026-08-22
 
-The `ml-dsa` Rust crate (FIPS-204 ML-DSA-65 implementation) does not yet ship the NIST ACVP test-vector corpus. Per the m8-003 issue's AC bullet 2 ("If upstream hasn't shipped by the m8 cut, document the upstream issue link; task stays open."), m8-003 documents the deferral in `tests/pq-corpus/ML_DSA_ACVP_STATUS.md` and leaves the GitHub issue OPEN. Phase-3 m8 closes with this one issue intentionally open — it activates with the upstream landing.
+The `ml-dsa` crate (v0.1.1, latest as of 2026-08-22) still `exclude`s the ACVP vectors from crates.io. Rather than continue blocking on upstream, m8-003 was resolved via trigger path (b) — vendor the NIST JSON directly:
 
-Existing KAT coverage: `happy_mldsa65_keygen_sign_verify_roundtrip` (generative) + the hybrid path in `happy_hybrid_keygen_sign_verify_roundtrip`. Adequate for catching regressions; ACVP coverage is gold-standard and complementary.
+- Vectors: `tests/pq-corpus/vectors/ml_dsa_65_{keygen,siggen,sigver}.json` — ML-DSA-65 slice of `usnistgov/ACVP-Server @ 65370b8`; ~830 KB on disk. Provenance in `tests/pq-corpus/vectors/README.md`.
+- Driver: `tests/pq-corpus/tests/acvp_ml_dsa_65.rs` — 60 vectors across four test functions (keyGen, sigGen deterministic, sigGen hedged, sigVer, plus a wrapper cross-verify).
+- Wrapper additions: `paideia_pq_sign::mldsa::kat` module (feature-gated) exposes `keygen_pk_from_seed`, `sign_expanded_with_rnd`, and `verifying_key_from_expanded_sk` — the exact shape the ACVP internal projection needs (seed → pk; expanded-sk + rnd → sig; expanded-sk → pk cross-check).
+
+Existing KAT coverage (`happy_mldsa65_keygen_sign_verify_roundtrip` generative round-trip + hybrid path) is retained — it exercises the wrapper's RNG-driven `keygen` path, which the ACVP vectors do not.
 
 ### Operational impact summary
 
@@ -110,7 +114,7 @@ Per the m8 closure:
 
 - Signing pipelines may optionally fetch an RFC 3161 timestamp during the m7-005 `release` flow.
 - Verifiers may optionally consult a revocation list at verify time.
-- The ACVP coverage gap stays as the single Phase-3 deferral inside m8; the phase-2 KAT remains the operational baseline.
+- ~~The ACVP coverage gap stays as the single Phase-3 deferral inside m8~~ — **RESOLVED 2026-08-22 (issue #525):** ML-DSA-65 ACVP internal-projection vectors vendored under `tests/pq-corpus/vectors/`; the wrapper cross-verify on 60 vectors lives in `cargo test -p pq-corpus --test acvp_ml_dsa_65`. Phase 3 m8 now closes with zero open deferrals.
 
 ## Phase 3 m7 update: row-polymorphic scope subsumption
 
@@ -310,5 +314,5 @@ Deferred to Phase 5+:
 - ML-DSA-65 in cryptoki via PQC mechanism support (upstream dep).
 - ML-DSA-65 in YubiHSM2 firmware (vendor dep).
 - TSA token attachment as `.paideia.sig` sub-record (m4 emit-stage).
-- True NIST ACVP test vectors for ML-DSA-65 (upstream `ml-dsa` crate; tracked by #525).
+- ~~True NIST ACVP test vectors for ML-DSA-65 (upstream `ml-dsa` crate; tracked by #525).~~ **RESOLVED 2026-08-22** — vendored directly under `tests/pq-corpus/vectors/` (see Phase 3 m8 section above).
 - Production HSM quorum (≥2-of-3 signing requirement; pq-trust-root.md §8 mentions).

@@ -11,6 +11,8 @@
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+pub mod acvp;
+
 use paideia_as_emitter_pax::{
     Architecture, CapEntry, CapKind, CapsSection, EffectRowEntry, EffectsSection, ExportsSection,
     HeaderFlag, PAX_HEADER_SIZE, PaxHeader, SECTION_DESCRIPTOR_SIZE, Section, SectionTable,

@@ -92,6 +92,69 @@ impl Signer for MlDsa65Marker {
     }
 }
 
+/// NIST ACVP known-answer-test helpers for ML-DSA-65.
+///
+/// These functions expose exactly the shape the FIPS-204 ACVP
+/// `internalProjection.json` vectors use: keyGen is a
+/// seed → (pk, sk-expanded) derivation; sigGen is
+/// (sk-expanded, message, rnd) → signature.
+///
+/// The KAT surface is gated behind the `kat` cargo feature so it is
+/// not part of the production API. The workspace's `pq-corpus` test
+/// crate enables the feature to drive the vendored ACVP corpus.
+///
+/// The public `Signer` impl above deliberately hides the rnd input
+/// (it wires an all-zero rnd for the deterministic variant); ACVP
+/// hedged-variant vectors need a caller-supplied rnd, so the KAT
+/// entry points take it explicitly.
+#[cfg(any(test, feature = "kat"))]
+pub mod kat {
+    use ml_dsa::{ExpandedSigningKey, MlDsa65, SigningKey, VerifyingKey};
+
+    /// Derive the encoded verifying key from a 32-byte ACVP seed.
+    ///
+    /// Matches the ACVP ML-DSA-keyGen-FIPS204 internal projection:
+    /// `pk = ML-DSA.KeyGen(seed).encode()`.
+    pub fn keygen_pk_from_seed(seed: &[u8; 32]) -> Vec<u8> {
+        let sk = SigningKey::<MlDsa65>::from_seed(seed.into());
+        let vk: &VerifyingKey<MlDsa65> = sk.as_ref();
+        vk.encode().to_vec()
+    }
+
+    /// Sign with an *expanded* 4032-byte secret key and a caller-supplied 32-byte rnd.
+    ///
+    /// Matches the ACVP ML-DSA-sigGen-FIPS204 internal projection, which
+    /// supplies the secret key in its expanded (post-`KeyExpand`) form and,
+    /// for the hedged variant, an explicit rnd. Deterministic-variant
+    /// callers pass `&[0u8; 32]`.
+    pub fn sign_expanded_with_rnd(
+        sk_expanded: &[u8; 4032],
+        msg: &[u8],
+        rnd: &[u8; 32],
+    ) -> Vec<u8> {
+        // `ExpandedSigningKey::from_expanded` is `#[deprecated]` upstream in
+        // favour of `from_seed`, but ACVP sigGen vectors do not carry the
+        // seed — they carry the expanded key, so we have no choice here.
+        #[allow(deprecated)]
+        let esk = ExpandedSigningKey::<MlDsa65>::from_expanded(sk_expanded.into());
+        let sig = esk.sign_internal(&[msg], rnd.into());
+        sig.encode().to_vec()
+    }
+
+    /// Recover the encoded 1952-byte verifying key from an expanded 4032-byte
+    /// signing key.
+    ///
+    /// Used by the sigGen cross-check: ACVP sigGen vectors only carry
+    /// `(sk_expanded, msg, sig)`; to feed the NIST signature into the paideia
+    /// wrapper's `verify` we need the matching pk, which the FIPS-204 key
+    /// schedule embeds inside the expanded sk (`ρ`, `t₁`).
+    pub fn verifying_key_from_expanded_sk(sk_expanded: &[u8; 4032]) -> Vec<u8> {
+        #[allow(deprecated)]
+        let esk = ExpandedSigningKey::<MlDsa65>::from_expanded(sk_expanded.into());
+        esk.verifying_key().encode().to_vec()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
