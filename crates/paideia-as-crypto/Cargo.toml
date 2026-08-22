@@ -12,5 +12,9 @@ name = "paideia_as_crypto"
 
 [dependencies]
 argon2 = { workspace = true }
+# ChaCha20-Poly1305 (RFC 8439) — mirrors the version already
+# consumed by paideia-pq-sign so both crates share one entry in
+# Cargo.lock.
+chacha20poly1305 = "0.10"
 thiserror = { workspace = true }
 
