@@ -80,8 +80,8 @@ pub enum EncodeError {
     /// Invalid operand value (e.g., RSP as SIB index).
     #[error("invalid operand: {0}")]
     InvalidOperand(&'static str),
-    /// Feature not yet supported in phase 3 m2-002.
-    #[error("unsupported in phase 3 m2-002: {0}")]
+    /// Feature not yet supported by the encoder.
+    #[error("unsupported: {0}")]
     Unsupported(&'static str),
 }
 
@@ -1622,7 +1622,7 @@ fn encode_shl(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
             Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::Unsupported(
-            "shl form not supported in phase 8 m1-001d",
+            "shl form not supported: expected reg64,imm8 or reg64,cl",
         )),
     }
 }
@@ -1655,7 +1655,7 @@ fn encode_shr(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
             Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::Unsupported(
-            "shr form not supported in phase 8 m1-001d",
+            "shr form not supported: expected reg64,imm8 or reg64,cl",
         )),
     }
 }
@@ -1688,7 +1688,7 @@ fn encode_sar(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
             Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::Unsupported(
-            "sar form not supported in phase 8 m1-001d",
+            "sar form not supported: expected reg64,imm8 or reg64,cl",
         )),
     }
 }
@@ -2392,7 +2392,7 @@ fn encode_add(
             Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::Unsupported(
-            "add form not in phase-3-m2-002 minimum",
+            "add form not supported: expected reg64,reg64 or reg64,imm64",
         )),
     }
 }
@@ -2432,7 +2432,7 @@ fn encode_sub(
             Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::Unsupported(
-            "sub form not in phase-3-m2-002 minimum",
+            "sub form not supported: expected reg64,reg64 or reg64,imm64",
         )),
     }
 }
@@ -2639,6 +2639,7 @@ fn encode_popcnt(
     }
 }
 
+// bsf (bit scan forward) is encoded only in its 64-bit register form (PA-R16-008, #974).
 fn encode_bsf(
     inst: &Instruction,
     buf: &mut CodeBuffer,
@@ -2648,7 +2649,7 @@ fn encode_bsf(
         IntWidth::W64 => {}
         _ => {
             return Err(EncodeError::Unsupported(
-                "E0050: bsf only supports W64 (PA-R16-008, #974)",
+                "E0050: bsf only supports W64",
             ))
         }
     }
@@ -2673,6 +2674,7 @@ fn encode_bsf(
     }
 }
 
+// bsr (bit scan reverse) is encoded only in its 64-bit register form (PA-R16-008, #974).
 fn encode_bsr(
     inst: &Instruction,
     buf: &mut CodeBuffer,
@@ -2682,7 +2684,7 @@ fn encode_bsr(
         IntWidth::W64 => {}
         _ => {
             return Err(EncodeError::Unsupported(
-                "E0051: bsr only supports W64 (PA-R16-008, #974)",
+                "E0051: bsr only supports W64",
             ))
         }
     }
@@ -2707,6 +2709,7 @@ fn encode_bsr(
     }
 }
 
+// tzcnt (trailing zero count) is encoded only in its 64-bit register form (PA-R16-008, #974).
 fn encode_tzcnt(
     inst: &Instruction,
     buf: &mut CodeBuffer,
@@ -2716,7 +2719,7 @@ fn encode_tzcnt(
         IntWidth::W64 => {}
         _ => {
             return Err(EncodeError::Unsupported(
-                "E0052: tzcnt only supports W64 (PA-R16-008, #974)",
+                "E0052: tzcnt only supports W64",
             ))
         }
     }
@@ -2741,6 +2744,7 @@ fn encode_tzcnt(
     }
 }
 
+// crc32 checksum is encoded only in its 64-bit register form (PA-R15-006, #1005).
 fn encode_crc32(
     inst: &Instruction,
     buf: &mut CodeBuffer,
@@ -2750,7 +2754,7 @@ fn encode_crc32(
         IntWidth::W64 => {}
         _ => {
             return Err(EncodeError::Unsupported(
-                "E0053: crc32 only supports W64 (PA-R15-006, #1005)",
+                "E0053: crc32 only supports W64",
             ))
         }
     }
@@ -3031,7 +3035,7 @@ fn encode_cmp(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
             Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::Unsupported(
-            "cmp shape not in phase-6-m4-001 minimum",
+            "cmp form not supported: expected reg64,reg64, reg64,imm64, or [base+disp],reg64",
         )),
     }
 }
@@ -3373,7 +3377,7 @@ fn encode_test(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput,
             Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::Unsupported(
-            "test shape not in phase-7-m1-001 minimum",
+            "test form not supported: expected reg64,reg64 or reg64,imm32",
         )),
     }
 }
@@ -3441,7 +3445,7 @@ fn encode_jcc(
             Ok(output)
         }
         _ => Err(EncodeError::Unsupported(
-            "jcc form not in phase-3-m2-002 minimum",
+            "jcc form not supported: expected an immediate displacement or a label reference",
         )),
     }
 }
@@ -3543,7 +3547,7 @@ fn encode_jmp(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
             Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::Unsupported(
-            "jmp form not in phase-3-m2-002 minimum",
+            "jmp operand shape not supported by this encoder",
         )),
     }
 }
@@ -3617,7 +3621,7 @@ fn encode_call(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput,
             Ok(output)
         }
         _ => Err(EncodeError::Unsupported(
-            "call form not in phase-3-m2-002 minimum",
+            "call operand shape not supported by this encoder",
         )),
     }
 }
@@ -3790,7 +3794,7 @@ fn encode_lea(inst: &Instruction, buf: &mut CodeBuffer) -> Result<EncodeOutput, 
             Ok(output)
         }
         _ => Err(EncodeError::Unsupported(
-            "lea form not in phase-3-m2-002 minimum",
+            "lea operand shape not supported by this encoder",
         )),
     }
 }
@@ -4153,10 +4157,10 @@ fn encode_mov_dr_inst(
                 (second_reg.0, first_reg.0)
             };
 
-            // Validate DR index: phase-5 supports DR0..DR7 only
+            // Validate DR index: only DR0..DR7 exist
             if dr_idx > 7 {
                 return Err(EncodeError::Unsupported(
-                    "DR index > 7 not supported in phase-5",
+                    "DR index > 7 not supported",
                 ));
             }
 
