@@ -70,6 +70,7 @@ pub(super) fn try_lower(
     }],
                 arg_convention: ArgConvention::Literal,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         "mmio_write_u32" => {
@@ -128,6 +129,7 @@ pub(super) fn try_lower(
     }],
                 arg_convention: ArgConvention::Literal,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         // PA-v0.21-013 (#1289): MmioOps — u8 / u16 / u64 volatile lowering.
@@ -208,6 +210,7 @@ fn mmio_read_recipe_literal(
         }],
         arg_convention: ArgConvention::Literal,
         labels: vec![],
+        extern_target: None,
     }))
 }
 
@@ -266,5 +269,6 @@ fn mmio_write_recipe_literal(
         }],
         arg_convention: ArgConvention::Literal,
         labels: vec![],
+        extern_target: None,
     }))
 }

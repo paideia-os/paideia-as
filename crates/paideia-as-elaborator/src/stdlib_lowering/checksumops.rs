@@ -129,6 +129,7 @@ pub(super) fn try_lower(
                     ("odd_check", 11),
                     ("fold", 16),
                 ],
+                extern_target: None,
             }))
         }
         _ => None,

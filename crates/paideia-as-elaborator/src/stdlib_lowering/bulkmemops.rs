@@ -55,6 +55,7 @@ pub(super) fn try_lower(
                 ],
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         "memset" => {
@@ -86,6 +87,7 @@ pub(super) fn try_lower(
                 ],
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         "memcpy_qwords" => {
@@ -115,6 +117,7 @@ pub(super) fn try_lower(
                 ],
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         "memset_qwords" => {
@@ -146,6 +149,7 @@ pub(super) fn try_lower(
                 ],
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         _ => None,

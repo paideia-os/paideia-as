@@ -50,6 +50,7 @@ pub(super) fn try_lower(
     }],
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         "get_u16_le" => {
@@ -75,6 +76,7 @@ pub(super) fn try_lower(
     }],
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         "get_u16_be" => {
@@ -117,6 +119,7 @@ pub(super) fn try_lower(
                 ],
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         "get_u32_le" => {
@@ -142,6 +145,7 @@ pub(super) fn try_lower(
     }],
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         "get_u32_be" => {
@@ -181,6 +185,7 @@ pub(super) fn try_lower(
                 ],
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         "get_u64_le" => {
@@ -206,6 +211,7 @@ pub(super) fn try_lower(
     }],
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         "get_u64_be" => {
@@ -245,6 +251,7 @@ pub(super) fn try_lower(
                 ],
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         "put_u8" => {
@@ -285,6 +292,7 @@ pub(super) fn try_lower(
                 ],
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         "put_u16_le" => {
@@ -325,6 +333,7 @@ pub(super) fn try_lower(
                 ],
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         "put_u16_be" => {
@@ -379,6 +388,7 @@ pub(super) fn try_lower(
                 ],
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         "put_u32_le" => {
@@ -419,6 +429,7 @@ pub(super) fn try_lower(
                 ],
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         "put_u32_be" => {
@@ -470,6 +481,7 @@ pub(super) fn try_lower(
                 ],
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         "put_u64_le" => {
@@ -510,6 +522,7 @@ pub(super) fn try_lower(
                 ],
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         "put_u64_be" => {
@@ -561,6 +574,7 @@ pub(super) fn try_lower(
                 ],
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         _ => None,

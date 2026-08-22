@@ -15,6 +15,10 @@
 //!   - `aead::ChaCha20Poly1305` (RFC 8439).
 //! - `rng`  — secure random source.
 //!   - `rng::HardwareRng` (RDSEED preferred, RDRAND fallback).
+//! - `ffi`  — C-ABI thunks over the trait APIs, called by `.pdx` code
+//!   through the `stdlib_lowering::cryptoops` recipes
+//!   (paideia-as#1305). This is the only module in the crate that
+//!   touches raw pointers.
 //!
 //! Design rules for this crate:
 //!
@@ -39,6 +43,7 @@
 #![deny(unsafe_code)]
 
 pub mod aead;
+pub mod ffi;
 pub mod kdf;
 pub mod rng;
 

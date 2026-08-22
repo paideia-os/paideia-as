@@ -95,6 +95,7 @@ mod bulkmemops;
 mod bytesops;
 mod checksumops;
 mod cpuidops;
+mod cryptoops;
 mod mmioops;
 mod msrops;
 mod pauseops;
@@ -148,6 +149,24 @@ pub struct LoweringRecipe {
     /// Labels are per-recipe and get mangled with the caller's lambda_node_id
     /// at splice time to prevent collisions across recipe invocations.
     pub labels: Vec<(&'static str, usize)>,
+    /// Optional extern-C call target (paideia-as#1305).
+    ///
+    /// When `Some(sym)`, the recipe's `instructions` are spliced as usual
+    /// AFTER SysV arg marshalling; then `emit_call_args_and_call` continues
+    /// down the normal path — emitting `call <sym>` with a symbol
+    /// relocation, restoring caller-save scratch, and running the SysV / MS
+    /// postlude. Only meaningful with `ArgConvention::SysVRegs`.
+    ///
+    /// Used by `stdlib_lowering::cryptoops` to route `Argon2id::derive`
+    /// (etc.) to the extern-C thunks in `paideia-as-crypto::ffi`. Downstream
+    /// consumers (paideia-os or host tooling) satisfy the symbol at link
+    /// time by depending on `paideia-as-crypto` as a static rlib — or by
+    /// substituting a paideia-native implementation under the same name
+    /// once one lands (Phase 6+).
+    ///
+    /// Recipes not routing to an extern call MUST leave this `None`; the
+    /// existing SysVRegs early-return path handles them.
+    pub extern_target: Option<String>,
 }
 
 /// Look up the lowering recipe for `(trait_name, method_name)`.
@@ -189,6 +208,13 @@ pub fn lower_stdlib_method(
         "TlbOps" => tlbops::try_lower(method_name, mode, arg_ids, arena),
         "BitfieldOps" => bitfieldops::try_lower(method_name, mode, arg_ids, arena),
         "CpuidOps" => cpuidops::try_lower(method_name, mode, arg_ids, arena),
+        // paideia-as#1305 — trait names match the Rust type names in
+        // `paideia-as-crypto` (Argon2id, ChaCha20Poly1305) so a call
+        // site's spelling matches the trait's implementation.
+        "Argon2id" => cryptoops::try_lower_argon2id(method_name, mode, arg_ids, arena),
+        "ChaCha20Poly1305" => {
+            cryptoops::try_lower_chacha20_poly1305(method_name, mode, arg_ids, arena)
+        }
         _ => None,
     }
 }
@@ -522,6 +548,7 @@ mod tests {
 }],
             arg_convention: ArgConvention::SysVRegs,
             labels: vec![],
+            extern_target: None,
         };
 
         // Verify structure
@@ -1130,5 +1157,156 @@ mod tests {
         // Terminal instruction: rep stosq (zero-arity)
         assert_eq!(recipe.instructions[2].mnemonic, Mnemonic::RepStosq);
         assert!(recipe.instructions[2].operands.is_empty());
+    }
+
+    // ---------- paideia-as#1305: crypto extern-C recipes ----------
+
+    /// `Argon2id::derive` lowers to an empty SysVRegs recipe whose
+    /// `extern_target` names the paideia-as-crypto FFI thunk. emit_call
+    /// splices nothing, then rewrites the CALL target to
+    /// `paideia_crypto_argon2id_derive` and falls through to the normal
+    /// CALL / scratch-pop / postlude path. Any mismatch on the symbol
+    /// name would produce an unresolvable relocation at link time — the
+    /// unit test pins the string exactly.
+    #[test]
+    fn argon2id_derive_recipe_targets_ffi_thunk() {
+        let arena = IrArena::new();
+        let recipe =
+            lower_stdlib_method("Argon2id", "derive", InstrMode::Mode64, &[], &arena)
+                .expect("Argon2id::derive recipe should exist")
+                .expect("Argon2id::derive lowering should succeed");
+
+        assert!(
+            recipe.instructions.is_empty(),
+            "extern-C recipes carry no preamble instructions"
+        );
+        assert_eq!(recipe.arg_convention, ArgConvention::SysVRegs);
+        assert!(recipe.labels.is_empty());
+        assert_eq!(
+            recipe.extern_target.as_deref(),
+            Some("paideia_crypto_argon2id_derive")
+        );
+    }
+
+    /// `ChaCha20Poly1305::seal` lowers to an extern-target recipe.
+    #[test]
+    fn chacha20_poly1305_seal_recipe_targets_ffi_thunk() {
+        let arena = IrArena::new();
+        let recipe = lower_stdlib_method(
+            "ChaCha20Poly1305",
+            "seal",
+            InstrMode::Mode64,
+            &[],
+            &arena,
+        )
+        .expect("ChaCha20Poly1305::seal recipe should exist")
+        .expect("ChaCha20Poly1305::seal lowering should succeed");
+
+        assert!(recipe.instructions.is_empty());
+        assert_eq!(recipe.arg_convention, ArgConvention::SysVRegs);
+        assert_eq!(
+            recipe.extern_target.as_deref(),
+            Some("paideia_crypto_chacha20_poly1305_seal")
+        );
+    }
+
+    /// `ChaCha20Poly1305::open` lowers to an extern-target recipe.
+    #[test]
+    fn chacha20_poly1305_open_recipe_targets_ffi_thunk() {
+        let arena = IrArena::new();
+        let recipe = lower_stdlib_method(
+            "ChaCha20Poly1305",
+            "open",
+            InstrMode::Mode64,
+            &[],
+            &arena,
+        )
+        .expect("ChaCha20Poly1305::open recipe should exist")
+        .expect("ChaCha20Poly1305::open lowering should succeed");
+
+        assert!(recipe.instructions.is_empty());
+        assert_eq!(recipe.arg_convention, ArgConvention::SysVRegs);
+        assert_eq!(
+            recipe.extern_target.as_deref(),
+            Some("paideia_crypto_chacha20_poly1305_open")
+        );
+    }
+
+    /// Unknown crypto methods must NOT match — otherwise a typo like
+    /// `Argon2id::deriveee` would resolve to the FFI thunk under a
+    /// wrong name at link time. The dispatcher returns `None`, so
+    /// emit_call falls through to normal call emission and eventually
+    /// diagnoses T0553 (undefined identifier).
+    #[test]
+    fn unknown_argon2id_method_returns_none() {
+        let arena = IrArena::new();
+        assert!(
+            lower_stdlib_method("Argon2id", "no_such_method", InstrMode::Mode64, &[], &arena)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn unknown_chacha20_poly1305_method_returns_none() {
+        let arena = IrArena::new();
+        assert!(
+            lower_stdlib_method(
+                "ChaCha20Poly1305",
+                "no_such_method",
+                InstrMode::Mode64,
+                &[],
+                &arena
+            )
+            .is_none()
+        );
+    }
+
+    /// Existing SysVRegs recipes must continue to carry `extern_target:
+    /// None` so emit_call takes the early-return splice path (the
+    /// existing behaviour). This test pins that invariant for one
+    /// representative recipe from each interesting shape: msr (inline
+    /// mnemonics), cpuid (RBX-bracketed), checksum (labelled loop). If
+    /// a future refactor sets one of these to `Some(_)` accidentally,
+    /// emit_call would emit an unresolved `call` instead of the inline
+    /// sequence — a silent miscompile — and this test would catch it.
+    #[test]
+    fn preexisting_sysvregs_recipes_have_no_extern_target() {
+        let arena = IrArena::new();
+
+        let rdmsr = lower_stdlib_method("MsrOps", "rdmsr", InstrMode::Mode64, &[], &arena)
+            .expect("rdmsr recipe exists")
+            .expect("rdmsr lowering ok");
+        assert!(
+            rdmsr.extern_target.is_none(),
+            "MsrOps::rdmsr must remain a self-contained recipe"
+        );
+
+        let cpuid = lower_stdlib_method(
+            "CpuidOps",
+            "cpuid_leaf_ad",
+            InstrMode::Mode64,
+            &[],
+            &arena,
+        )
+        .expect("cpuid_leaf_ad recipe exists")
+        .expect("cpuid_leaf_ad lowering ok");
+        assert!(
+            cpuid.extern_target.is_none(),
+            "CpuidOps::cpuid_leaf_ad must remain a self-contained recipe"
+        );
+
+        let ipv4 = lower_stdlib_method(
+            "ChecksumOps",
+            "ipv4_checksum",
+            InstrMode::Mode64,
+            &[],
+            &arena,
+        )
+        .expect("ipv4_checksum recipe exists")
+        .expect("ipv4_checksum lowering ok");
+        assert!(
+            ipv4.extern_target.is_none(),
+            "ChecksumOps::ipv4_checksum must remain a self-contained recipe"
+        );
     }
 }

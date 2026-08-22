@@ -42,6 +42,7 @@ pub(super) fn try_lower(
                 }],
                 arg_convention: ArgConvention::Literal,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         "barrier_store" => {
@@ -56,6 +57,7 @@ pub(super) fn try_lower(
                 }],
                 arg_convention: ArgConvention::Literal,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         "barrier_load" => {
@@ -70,6 +72,7 @@ pub(super) fn try_lower(
                 }],
                 arg_convention: ArgConvention::Literal,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         "cpu_pause" => {
@@ -88,6 +91,7 @@ pub(super) fn try_lower(
                 }],
                 arg_convention: ArgConvention::Literal,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         _ => None,

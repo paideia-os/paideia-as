@@ -83,6 +83,7 @@ pub(super) fn try_lower(
                 ],
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         "refcount_decr" => {
@@ -122,6 +123,7 @@ pub(super) fn try_lower(
                 ],
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         "refcount_decr_and_test" => {
@@ -204,6 +206,7 @@ pub(super) fn try_lower(
                 ],
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         _ => None,

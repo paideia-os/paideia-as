@@ -115,6 +115,7 @@ pub(super) fn try_lower(
                 ],
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         // set_bits(word: u64, start: u32, width: u32, val: u64) -> u64
@@ -170,6 +171,7 @@ pub(super) fn try_lower(
                 ],
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         _ => None,

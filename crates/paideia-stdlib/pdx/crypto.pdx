@@ -1,0 +1,102 @@
+// paideia-as#1305 — Argon2id KDF + ChaCha20-Poly1305 AEAD trait
+// declarations. The elaborator's `stdlib_lowering::cryptoops` module
+// routes calls through these traits to the extern-C thunks in
+// `crates/paideia-as-crypto/src/ffi/mod.rs`.
+//
+// # Consumer contract
+//
+// Consumers pass parameters as pointers to `#[repr(C)]` structs laid
+// out to match `Argon2idParamsC` and `AeadParamsC` in the Rust FFI
+// module. All lengths are `u64`s and every byte-buffer is a plain
+// `*const u8` / `*mut u8`; there is no `.pdx`-side wrapper type.
+//
+// # Return codes (shared across all crypto FFI thunks)
+//
+//   0   OK
+//  -1   InvalidParam (missing pointer / bad `_reserved` field)
+//  -2   InvalidLength (key / nonce / output size mismatch)
+//  -3   AuthenticationFailed (AEAD `open` only)
+//  -4   Primitive-internal failure
+//  -5   BufferTooSmall (`out_cap` insufficient)
+//
+// Callers MUST branch on the return code; a negative value means the
+// output buffer is untouched and no bytes were written.
+//
+// # Nonce discipline
+//
+// ChaCha20-Poly1305 nonces MUST be unique per key across the entire
+// lifetime of that key. Reusing a `(key, nonce)` pair destroys both
+// confidentiality and authenticity (see the Rust `aead::mod` module
+// comment for the full argument). The AEAD does not fabricate nonces
+// internally — callers pass one in through `AeadParamsC` and are
+// responsible for uniqueness. Use `SecureRandom::fill` from `rng.pdx`
+// to sample fresh nonces.
+//
+// # Effect discipline
+//
+// The `crypto` effect names the domain (KDF / AEAD invocation on
+// caller-supplied buffers); the `mem` effect covers the pointer
+// dereferences the primitive performs on the parameter blob. A
+// dedicated `paideia.crypto` capability gates who may invoke these
+// primitives — user-authentication paths in R48 (see
+// `design/user/model.md` §2.1, §9.2) hold this cap; a driver in a
+// separate cap domain does not.
+//
+// # References
+//
+// - RFC 9106 (Argon2id KDF), §3.1 (parameter ranges), §4 (recommended
+//   profiles), §5.3 (canonical test vector).
+// - RFC 8439 (ChaCha20-Poly1305 AEAD), §2.3 (nonce), §2.5 (key / tag
+//   sizes), §2.8 (AEAD construction), §2.8.2 (canonical test vector).
+
+trait Argon2id {
+  // derive(params_ptr, out_ptr, out_len) -> return_code (see above)
+  //
+  //   RDI  params_ptr    *const Argon2idParamsC
+  //   RSI  out_ptr       *mut u8
+  //   RDX  out_len       u64
+  //   RAX  return code (i64)
+  //
+  // Reference: paideia_crypto_argon2id_derive in
+  //            crates/paideia-as-crypto/src/ffi/mod.rs.
+  fn derive(params_ptr: u64, out_ptr: u64, out_len: u64) -> i64 !{crypto, mem} @{paideia.crypto};
+}
+
+trait ChaCha20Poly1305 {
+  // seal(params, plaintext_ptr, plaintext_len, out_ptr, out_cap, written_ptr) -> return_code
+  //
+  //   RDI  params          *const AeadParamsC
+  //   RSI  plaintext_ptr   *const u8
+  //   RDX  plaintext_len   u64
+  //   RCX  out_ptr         *mut u8 (writable buffer)
+  //   R8   out_cap         u64 (>= plaintext_len + 16 for the tag)
+  //   R9   written_ptr     *mut u64
+  //   RAX  return code (i64)
+  //
+  // On success `*written_ptr = plaintext_len + 16` and the buffer
+  // contains `ciphertext || tag`.
+  fn seal(
+    params: u64,
+    plaintext_ptr: u64,
+    plaintext_len: u64,
+    out_ptr: u64,
+    out_cap: u64,
+    written_ptr: u64,
+  ) -> i64 !{crypto, mem} @{paideia.crypto};
+
+  // open(params, sealed_ptr, sealed_len, out_ptr, out_cap, written_ptr) -> return_code
+  //
+  //   Register mapping mirrors `seal`. `sealed_len` MUST be >= 16
+  //   (the tag length) and `out_cap` >= `sealed_len - 16`.
+  //   On success `*written_ptr = sealed_len - 16` (the recovered
+  //   plaintext length). On tag mismatch return code is -3 and the
+  //   output buffer is not touched.
+  fn open(
+    params: u64,
+    sealed_ptr: u64,
+    sealed_len: u64,
+    out_ptr: u64,
+    out_cap: u64,
+    written_ptr: u64,
+  ) -> i64 !{crypto, mem} @{paideia.crypto};
+}

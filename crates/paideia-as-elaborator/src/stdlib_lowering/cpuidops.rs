@@ -195,6 +195,7 @@ pub(super) fn try_lower(
                 ],
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         // cpuid_leaf_bc(leaf: u32, subleaf: u32) -> u64
@@ -291,6 +292,7 @@ pub(super) fn try_lower(
                 ],
                 arg_convention: ArgConvention::SysVRegs,
                 labels: vec![],
+                extern_target: None,
             }))
         }
         _ => None,

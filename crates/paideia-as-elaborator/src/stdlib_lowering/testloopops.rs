@@ -73,6 +73,7 @@ pub(super) fn try_lower(
                 arg_convention: ArgConvention::Literal,
                 // loop_top label aliases instruction at index 1 (the Dec)
                 labels: vec![("loop_top", 1)],
+                extern_target: None,
             }))
         }
         _ => None,

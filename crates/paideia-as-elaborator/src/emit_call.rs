@@ -214,6 +214,13 @@ impl EmitWalker {
         arena: &IrArena,
         caller_abi: Option<CallingConvention>,
     ) {
+        // paideia-as#1305: `target_name` becomes mutable so a SysVRegs
+        // recipe carrying `extern_target: Some(sym)` can rewrite the CALL
+        // destination (see the sysv_recipe splice block below). The ABI
+        // lookup below still uses the original `target_name`, which is
+        // correct — the extern target is a plain SysV C function so the
+        // arg-register pool selection does not change.
+        let mut target_name = target_name;
         // Resolve callee's ABI:
         // - callee_abi_option: None if unannotated (paideia default), Some if explicitly annotated
         // - callee_abi: resolved to CallingConvention::Sysv if unannotated (for register selection)
@@ -878,14 +885,27 @@ impl EmitWalker {
             }
         }
 
-        // If we have a stashed SysVRegs recipe, splice it now and return
-        // (skipping Call+Ret emission).
+        // If we have a stashed SysVRegs recipe, splice it now.
+        //
+        // Two flavours:
+        //  * `extern_target: None` (existing behaviour) — the recipe is
+        //    self-contained (e.g. rdmsr, cpuid_leaf_ad); we splice the
+        //    instructions and return, skipping the CALL / scratch-pop /
+        //    postlude that follows.
+        //  * `extern_target: Some(sym)` (paideia-as#1305) — the recipe
+        //    optionally splices preamble instructions and then rewrites
+        //    `target_name` to the extern symbol; we fall through to the
+        //    normal CALL emission so scratch-pop and postlude fire
+        //    correctly. This is how `Argon2id::derive` reaches the
+        //    `paideia_crypto_argon2id_derive` thunk in `paideia-as-crypto`.
         if let Some(recipe) = sysv_recipe {
             // PA-r16-007 (#1066): Handle local labels for SysVRegs recipes too.
             let mangle = |local: &str| {
                 format!("__recipe_{}_{}", lambda_node_id.get(), local)
             };
             let label_names: HashSet<&str> = recipe.labels.iter().map(|(n, _)| *n).collect();
+
+            let extern_target = recipe.extern_target.clone();
 
             for (i, mut inst) in recipe.instructions.into_iter().enumerate() {
                 // Rewrite label refs in operands
@@ -909,7 +929,20 @@ impl EmitWalker {
 
                 self.emit_inst(iid, inst);
             }
-            return;  // Skip Call+Ret block
+
+            match extern_target {
+                None => {
+                    return; // Skip Call+Ret block (existing SysVRegs behaviour).
+                }
+                Some(sym) => {
+                    // paideia-as#1305: rewrite the CALL target to the extern
+                    // symbol and fall through to the normal Call / scratch-pop
+                    // / postlude block below. Caller-save preservation, SysV
+                    // alignment, and the CALL relocation all go through the
+                    // same code path as any other cross-function call.
+                    target_name = sym;
+                }
+            }
         }
 
         // Emit CALL instruction with fresh ID
