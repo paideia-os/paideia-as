@@ -768,6 +768,32 @@ impl EmitWalker {
         self.emit_inst(field_access_id, inst);
     }
 
+    /// paideia-as#1301 (v0.21-003c): if `sym_name` is a module-level
+    /// `@atomic(SeqCst)` binding, emit an `mfence` (0F AE F0) BEFORE the
+    /// subsequent load. On x86_64 TSO the plain aligned load is already
+    /// acquire-ordered, so Relaxed / Acquire / Release produce no fence;
+    /// only SeqCst needs the mfence to enforce the single global total
+    /// order across cores (Intel SDM Vol. 3A §8.2). Returns silently when
+    /// the binding is non-atomic or the ordering is not SeqCst — the
+    /// caller always follows this with the plain load, so both paths
+    /// converge on the same downstream instruction shape.
+    fn emit_atomic_fence_pre_load(&mut self, sym_name: &str) {
+        use paideia_as_ir::let_meta::AtomicOrdering;
+        if !matches!(self.state.atomic_bindings.get(sym_name), Some(AtomicOrdering::SeqCst)) {
+            return;
+        }
+        let fence_id = self.alloc_synthetic_id();
+        let inst = Instruction {
+            mnemonic: Mnemonic::Mfence,
+            operands: SmallVec::new(),
+            encoding_hint: None,
+            byte_offset_in_text: None,
+            mode: self.current_mode(),
+            emission_order: 0,
+        };
+        self.emit_inst(fence_id, inst);
+    }
+
     /// pa-r17-005-e: Emit global record-field read via RIP-relative symbol.
     ///
     /// Emits `mov <dest_reg>, [rip + sym + addend]` for module-level records.
@@ -776,6 +802,12 @@ impl EmitWalker {
     /// For u8/u16/i8/i16/i32, the fixture does not exercise these paths, so
     /// a diagnostic is emitted as a placeholder. This method is called from
     /// the visit_lambda arm for FieldAccess(Var(...)) tail-position reads.
+    ///
+    /// paideia-as#1301 (v0.21-003c): if `sym_name` names an atomic binding
+    /// with `LetInfo::atomic == Some(SeqCst)`, an `mfence` is emitted BEFORE
+    /// the load so the aggregate byte sequence matches the x86_64 TSO
+    /// SeqCst-load recipe pinned in
+    /// `crates/paideia-as-encoder/tests/memory_ops/atomic_ordering.rs`.
     pub(crate) fn emit_mem_read_via_rip_sym(
         &mut self,
         node_id: IrNodeId,
@@ -785,6 +817,8 @@ impl EmitWalker {
         size: u8,
         signed: bool,
     ) {
+        // paideia-as#1301: SeqCst load — mfence bracket goes BEFORE the mov.
+        self.emit_atomic_fence_pre_load(&sym_name);
         match (size, signed) {
             (4, false) => {
                 // u32: emit movl (W32 without REX.W)
@@ -870,6 +904,17 @@ impl EmitWalker {
         size: u8,
         _signed: bool,
     ) {
+        // paideia-as#1301 (v0.21-003c): capture the fence disposition BEFORE
+        // moving `sym_name` into the store's operand list. Post-store fence
+        // (SeqCst) fires only when we actually emit the store; the diagnostic
+        // branch below produces no bytes and so needs no fence either.
+        let post_store_needs_mfence = {
+            use paideia_as_ir::let_meta::AtomicOrdering;
+            matches!(
+                self.state.atomic_bindings.get(sym_name.as_str()),
+                Some(AtomicOrdering::SeqCst)
+            )
+        };
         // PA-R17-006b: Dispatch on size and emit width-appropriate MovSized.
         // - W32 (4 bytes): MovSized{W32} emits 6-byte 89 05 + disp32 (no REX.W)
         // - W64 (8 bytes): MovSized{W64} emits 7-byte 48 89 05 + disp32 (with REX.W)
@@ -890,6 +935,18 @@ impl EmitWalker {
         };
 
                 self.emit_inst(node_id, inst);
+                if post_store_needs_mfence {
+                    let fence_id = self.alloc_synthetic_id();
+                    let fence = Instruction {
+                        mnemonic: Mnemonic::Mfence,
+                        operands: SmallVec::new(),
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode: self.current_mode(),
+                        emission_order: 0,
+                    };
+                    self.emit_inst(fence_id, fence);
+                }
             }
             8 => {
                 // u64: use MovSized{W64} to emit 7-byte mov [rip+...], rax (with REX.W)
@@ -907,6 +964,18 @@ impl EmitWalker {
         };
 
                 self.emit_inst(node_id, inst);
+                if post_store_needs_mfence {
+                    let fence_id = self.alloc_synthetic_id();
+                    let fence = Instruction {
+                        mnemonic: Mnemonic::Mfence,
+                        operands: SmallVec::new(),
+                        encoding_hint: None,
+                        byte_offset_in_text: None,
+                        mode: self.current_mode(),
+                        emission_order: 0,
+                    };
+                    self.emit_inst(fence_id, fence);
+                }
             }
             _ => {
                 // u8/u16/i8/i16/i32: not exercised by the fixture; emit diagnostic.

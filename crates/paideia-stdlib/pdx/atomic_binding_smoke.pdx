@@ -1,0 +1,38 @@
+// paideia-as#1301 (v0.21-003c, phase-2): @atomic emit fixture.
+//
+// Exercises the elaborator emit change that brackets accesses to a
+// module-level `@atomic(SeqCst)` binding with `mfence` (0F AE F0).
+//
+// Byte-shape contract (x86_64 TSO):
+//   Load:   MFENCE ; mov rax, [rip+counter]      → 0F AE F0 48 8B 05 <disp32>
+//   Store:  mov [rip+counter], rdi ; MFENCE      → 48 89 3D <disp32> 0F AE F0
+//
+// SeqCst is the only ordering that changes the emitted bytes on
+// x86_64 — plain aligned loads are already acquire-ordered and
+// aligned stores are already release-ordered (Intel SDM Vol 3A §8.2).
+// Relaxed / Acquire / Release therefore round-trip through the emit
+// pass as plain movs; SeqCst is what the paideia-os spinlock /
+// atomic_refcount call sites depend on and what this fixture pins.
+//
+// The load-side accessor uses module-qualified access
+// `AtomicBindingSmoke.counter`, which routes through
+// `emit_mem_read_via_rip_sym` via the module_field_refs side-table
+// (mirroring the tests/build-emit/module_field_read_tail.pdx pattern).
+// The bare `counter = v` on the store side routes through
+// visit_var_assign → emit_mem_write_via_rip_sym.
+//
+// This binding is the migration target for paideia-os core/sync/atomic.pdx,
+// core/sync/atomic_refcount.pdx, and core/sync/spinlock.pdx once
+// v0.21-003c ships.
+
+module AtomicBindingSmoke = structure {
+  pub let mut counter : u64 = 0 @atomic(SeqCst)
+
+  pub let store_it : (u64) -> () =
+    fn (v: u64) -> {
+      counter = v
+    }
+
+  pub let load_it : () -> u64 =
+    fn () -> AtomicBindingSmoke.counter
+}

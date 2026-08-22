@@ -388,6 +388,24 @@ fn populate_let_meta(
         if let Some(ast_id) = NodeId::new((i + 1) as u32) {
             if let Some(node) = ast.get(ast_id) {
                 if node.kind == paideia_as_ast::NodeKind::Let {
+                    // paideia-as#1301 (v0.21-003c, phase-2): propagate an
+                    // item-level `@atomic(Ordering)` recorded on the parser's
+                    // side-table into IR `LetInfo::atomic` for this Let node.
+                    // Stamped BEFORE the abi/no_frame/interrupt fold so the
+                    // read-modify-write cycles below preserve it. The emit
+                    // walker gates fence emission on this field via a name-keyed
+                    // lookup built in a pre-pass over the arena's let_meta.
+                    if let Some(item_ord) = ast.item_atomic().get(ast_id) {
+                        if let Some(let_ir_id) = ast_to_ir.get(&ast_id) {
+                            let mut info = ir
+                                .let_meta_mut()
+                                .get(*let_ir_id)
+                                .cloned()
+                                .unwrap_or_else(LetInfo::immutable);
+                            info.atomic = Some(to_ir_ordering(item_ord));
+                            ir.let_meta_mut().insert(*let_ir_id, info);
+                        }
+                    }
                     if let Some(ItemData::Let { abi, no_frame, interrupt, value: value_id, .. }) = ast.item_data(ast_id) {
                         // Convert AST CallingConvention to IR CallingConvention
                         let ir_abi = abi.map(|cc| {

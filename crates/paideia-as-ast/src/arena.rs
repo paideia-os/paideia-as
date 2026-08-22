@@ -252,6 +252,10 @@ pub struct AstArena {
     mnemonic_table: Vec<String>,
     /// Per-parameter type hints for lambda parameters (pattern → type mapping).
     pattern_type_hints: crate::PatternTypeHints,
+    /// paideia-as#1301 (v0.21-003c): item-level `@atomic(Ordering)` side-table
+    /// keyed by `Let` NodeId. Sparse — populated only for module-level `pub let`
+    /// bindings carrying the attribute.
+    item_atomic: crate::ItemAtomicTable,
 }
 
 impl AstArena {
@@ -276,6 +280,7 @@ impl AstArena {
             patterns: Vec::with_capacity(n),
             mnemonic_table: Vec::new(),
             pattern_type_hints: crate::PatternTypeHints::new(),
+            item_atomic: crate::ItemAtomicTable::new(),
         };
         // Reserve index 0 in mnemonic_table so that valid IDs start at 1.
         s.mnemonic_table.push(String::new());
@@ -521,6 +526,20 @@ impl AstArena {
     /// Borrow the pattern type hints table (mutable).
     pub fn pattern_type_hints_mut(&mut self) -> &mut crate::PatternTypeHints {
         &mut self.pattern_type_hints
+    }
+
+    /// Borrow the item-level atomic-ordering side-table (read-only).
+    ///
+    /// paideia-as#1301 (v0.21-003c). Populated by the parser when it sees a
+    /// trailing `@atomic(Ordering)` attribute on an item-position let.
+    #[must_use]
+    pub fn item_atomic(&self) -> &crate::ItemAtomicTable {
+        &self.item_atomic
+    }
+
+    /// Borrow the item-level atomic-ordering side-table (mutable).
+    pub fn item_atomic_mut(&mut self) -> &mut crate::ItemAtomicTable {
+        &mut self.item_atomic
     }
 }
 

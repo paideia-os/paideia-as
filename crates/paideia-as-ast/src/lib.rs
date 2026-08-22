@@ -10,6 +10,7 @@
 
 mod arena;
 mod exprs;
+mod item_atomic;
 mod items;
 mod macros;
 mod modules;
@@ -23,6 +24,7 @@ mod types;
 mod visit;
 
 pub use arena::{AstArena, NodeData, NodeKind};
+pub use item_atomic::ItemAtomicTable;
 pub use exprs::{
     ExprData, GenericParam, HandlerArm, LoopKind, MatchArm, MatchAttrs, PrefixOp, SegPrefix,
     SharingConstraint,

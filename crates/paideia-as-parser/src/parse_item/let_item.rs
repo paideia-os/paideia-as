@@ -3,7 +3,7 @@
 
 use std::collections::HashSet;
 
-use paideia_as_ast::{CallingConvention, InterruptAttr, ItemData, NodeId, NodeKind};
+use paideia_as_ast::{AtomicOrdering, CallingConvention, InterruptAttr, ItemData, NodeId, NodeKind};
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
 use paideia_as_lexer::TokenKind;
 
@@ -87,6 +87,14 @@ pub(super) struct LetSymbolAttrs {
     /// [`paideia_as_ast::ItemData::Let::interrupt`]; the elaborator emit-side
     /// synthesis (spill/iretq/error-code skip) lands in a phase-2 follow-up.
     pub interrupt: Option<InterruptAttr>,
+    /// `@atomic(Ordering)` binding-position discipline
+    /// (paideia-as#1301, v0.21-003c). When `Some(o)`, the caller stamps the
+    /// resulting let node into `AstArena::item_atomic` so the elaborator's
+    /// `populate_let_meta` propagates it into IR `LetInfo::atomic`, and the
+    /// emit walker's load/store sites bracket accesses to this binding with
+    /// the ordering-appropriate fences (mfence for SeqCst; nothing for
+    /// Relaxed/Acquire/Release under x86_64 TSO).
+    pub atomic: Option<AtomicOrdering>,
 }
 
 impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
@@ -97,6 +105,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         let mut abi: Option<CallingConvention> = None;
         let mut no_frame: bool = false;
         let mut interrupt: Option<InterruptAttr> = None;
+        let mut atomic: Option<AtomicOrdering> = None;
         let mut seen_attrs = HashSet::new();
 
         // Loop to accept attributes in any order
@@ -168,12 +177,26 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                     let has_error_code = attr_name == "interrupt_error";
                     interrupt = Some(self.parse_interrupt_attr(has_error_code)?);
                 }
+                "atomic" => {
+                    // paideia-as#1301 (v0.21-003c, phase-2): `@atomic(Ordering)`
+                    // trailing symbol attribute on item-position lets. Enables the
+                    // fixture `pub let mut counter : u64 = 0 @atomic(SeqCst);`.
+                    // Ordering is one of Relaxed / Acquire / Release / SeqCst
+                    // (case-sensitive), matching the C11 / Rust vocabulary and
+                    // the statement-position spelling already accepted by
+                    // parse_stmt.rs::parse_optional_atomic_prefix. Parser diagnoses
+                    // malformed syntax in place; the elaborator's populate_let_meta
+                    // reads the value from AstArena::item_atomic and stamps it into
+                    // IR `LetInfo::atomic`. Emit changes at load/store sites gate
+                    // fence emission on that IR field.
+                    atomic = Some(self.parse_atomic_attr(attr_name_tok.span)?);
+                }
                 _ => {
                     // P0250: unknown symbol attribute
                     let code = DiagnosticCode::new(Category::P, Severity::Error, 250)
                         .expect("valid P0250 code");
                     let diag = Diagnostic::error(code)
-                        .message(format!("unknown symbol attribute '@{}' (only 'align', 'ring', 'link_section', 'abi', 'no_frame', 'interrupt', and 'interrupt_error' supported)", attr_name))
+                        .message(format!("unknown symbol attribute '@{}' (only 'align', 'ring', 'link_section', 'abi', 'no_frame', 'interrupt', 'interrupt_error', and 'atomic' supported)", attr_name))
                         .with_span(attr_name_tok.span)
                         .finish();
                     self.emit_diagnostic(diag);
@@ -182,7 +205,64 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             }
         }
 
-        Ok(LetSymbolAttrs { align, ring, link_section, abi, no_frame, interrupt })
+        Ok(LetSymbolAttrs { align, ring, link_section, abi, no_frame, interrupt, atomic })
+    }
+
+    /// Parse `@atomic(Ordering)` — the item-position mirror of
+    /// `parse_stmt::parse_optional_atomic_prefix`. Called from
+    /// `parse_optional_symbol_attributes` after the `@atomic` keyword has been
+    /// recognised. Consumes `( <Ordering> )` where `<Ordering>` is one of
+    /// `Relaxed`, `Acquire`, `Release`, `SeqCst` (case-sensitive). Reuses the
+    /// P0287 / P0288 / P0289 codes assigned to `@atomic` at statement position
+    /// so the diagnostic surface stays uniform across the two entry points.
+    pub(super) fn parse_atomic_attr(&mut self, attr_span: Span) -> Result<AtomicOrdering, ParseError> {
+        if !self.eat(TokenKind::LParen) {
+            let span = self.peek().map(|t| t.span).unwrap_or(attr_span);
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 287)
+                .expect("valid P0287 code");
+            let diag = Diagnostic::error(code)
+                .message("malformed @atomic(Ordering) syntax: expected '(' after 'atomic'")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        let ord_tok = self.expect(TokenKind::Ident)?;
+        let ord_text = self.source_text_for_span(ord_tok.span);
+        let ordering = match ord_text {
+            "Relaxed" => AtomicOrdering::Relaxed,
+            "Acquire" => AtomicOrdering::Acquire,
+            "Release" => AtomicOrdering::Release,
+            "SeqCst" => AtomicOrdering::SeqCst,
+            other => {
+                let code = DiagnosticCode::new(Category::P, Severity::Error, 288)
+                    .expect("valid P0288 code");
+                let diag = Diagnostic::error(code)
+                    .message(format!(
+                        "unknown atomic ordering '{}' (expected one of: Relaxed, Acquire, Release, SeqCst)",
+                        other
+                    ))
+                    .with_span(ord_tok.span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                return Err(ParseError);
+            }
+        };
+
+        if !self.eat(TokenKind::RParen) {
+            let span = self.peek().map(|t| t.span).unwrap_or(ord_tok.span);
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 289)
+                .expect("valid P0289 code");
+            let diag = Diagnostic::error(code)
+                .message("malformed @atomic(Ordering) syntax: expected ')' after ordering name")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        Ok(ordering)
     }
 
     /// Parse `@align(N)` where N is a power-of-two integer literal.
@@ -796,8 +876,8 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         let value = self.parse_expr()?;
 
         // Parse optional symbol attributes (@align, @ring, @link_section, @abi, @no_frame,
-        // @interrupt, or @interrupt_error).
-        let LetSymbolAttrs { align, ring, link_section, abi, no_frame, interrupt } = self.parse_optional_symbol_attributes()?;
+        // @interrupt, @interrupt_error, or @atomic).
+        let LetSymbolAttrs { align, ring, link_section, abi, no_frame, interrupt, atomic } = self.parse_optional_symbol_attributes()?;
 
         // paideia-as#1276 phase 3: `@no_frame` is a function-only attribute — it
         // toggles the SysV frame-pointer prologue/epilogue that the elaborator
@@ -872,6 +952,17 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 doc: None,
             },
         );
+
+        // paideia-as#1301 (v0.21-003c): stamp the item-level `@atomic(Ordering)`
+        // ordering onto the AST arena's item_atomic side-table, keyed by the
+        // freshly allocated Let node. Kept off ItemData::Let to avoid touching
+        // every construction / destructuring site of the enum. Elaborator
+        // `populate_let_meta` reads back the ordering here and forwards it into
+        // IR `LetInfo::atomic`.
+        if let Some(ord) = atomic {
+            self.arena_mut().item_atomic_mut().insert(item, ord);
+        }
+
         Ok(item)
     }
 

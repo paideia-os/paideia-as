@@ -11,7 +11,7 @@
 use std::collections::{HashMap, HashSet};
 
 use paideia_as_ir::instruction::{CpuFeature, InstrMode, InstructionSideTable, RegId};
-use paideia_as_ir::let_meta::CallingConvention;
+use paideia_as_ir::let_meta::{AtomicOrdering, CallingConvention, InterruptAttr};
 use paideia_as_ir::record_layout::{FieldLayout, RecordLayout, RecordTypeId};
 use paideia_as_ir::{EnumLayout, EnumTypeId, IrNodeId};
 
@@ -228,6 +228,48 @@ pub struct EmitPassState {
     /// so we don't leave a bare `pop rbp` in front of a body-less function.
     pub(crate) emitted_frame_prologue: HashSet<u32>,
 
+    /// paideia-as#1278 phase 2: Lambda IR node ids marked as ISR entry
+    /// stubs, mapped to their `InterruptAttr` payload (has_error_code,
+    /// vector, name). Populated by `walk_inner`'s pre-pass and by the Let
+    /// handler when a Let→Lambda binding's `LetInfo::interrupt.is_some()`.
+    /// Consumed by:
+    ///   * `visit_lambda` — emits the 13-push GPR spill + `cld` prologue
+    ///     ahead of the body dispatch (regardless of body shape).
+    ///   * `emit_ret`     — suppresses the normal `ret` emission (the ISR
+    ///     epilogue synthesises `iretq` instead, via the post-pass).
+    ///   * `emit_interrupt_epilogues` — post-pass that emits the 13-pop
+    ///     restore + optional `add rsp, 8` errcode-skip + `iretq` for every
+    ///     interrupt lambda that has not already had its epilogue emitted.
+    pub(crate) lambda_interrupt: HashMap<u32, InterruptAttr>,
+
+    /// paideia-as#1278 phase 2: Lambda IR node ids for which the ISR
+    /// epilogue (13-pop + optional errcode-skip + `iretq`) has already been
+    /// emitted. Prevents `emit_interrupt_epilogues` from double-emitting a
+    /// tail that some other path already inserted (currently a no-op guard
+    /// — the post-pass is the only emitter — but kept independent so a
+    /// future in-line emit path can register its emission without needing
+    /// to remove the interrupt marker itself).
+    pub(crate) emitted_interrupt_epilogue: HashSet<u32>,
+
+    /// paideia-as#1278 phase 2: Lambda IR node ids for which the ISR
+    /// prologue (13-push GPR spill + `cld`) has already been emitted. Kept
+    /// as a defensive idempotency guard for the (currently single-caller)
+    /// `emit_interrupt_prologue` helper.
+    pub(crate) emitted_interrupt_prologue: HashSet<u32>,
+
+    /// paideia-as#1301 (v0.21-003c, phase-2): binding name → `AtomicOrdering`
+    /// discipline for module-level `@atomic(Ordering)`-annotated lets.
+    /// Populated once per walk by an EmitWalker pre-pass that scans every Let
+    /// with `LetInfo::atomic.is_some()`. Consulted at the two RIP-relative
+    /// memory-op emit sites — `emit_mem_read_via_rip_sym` and
+    /// `emit_mem_write_via_rip_sym` — to bracket the load/store with the
+    /// ordering-appropriate fence sequence. x86_64 TSO gives us acquire on
+    /// aligned loads and release on aligned stores "for free," so today only
+    /// `SeqCst` triggers actual mfence emission; the other three orderings
+    /// still round-trip through this lookup for future weak-model targets
+    /// and for the .pdx-fixture snapshot to pin the mov shape.
+    pub(crate) atomic_bindings: HashMap<String, AtomicOrdering>,
+
     /// #1270: Reserved `emission_order` base for each `StmtExpr` (call
     /// expression) statement inside an unsafe block, keyed by
     /// `(unsafe_ir_node_id, statement_index_within_block)`.
@@ -288,7 +330,11 @@ impl Default for EmitPassState {
             lambda_no_frame: Default::default(),
             pending_frame_prologue: Default::default(),
             emitted_frame_prologue: Default::default(),
+            lambda_interrupt: Default::default(),
+            emitted_interrupt_epilogue: Default::default(),
+            emitted_interrupt_prologue: Default::default(),
             unsafe_stmt_expr_order_base: Default::default(),
+            atomic_bindings: Default::default(),
         }
     }
 }
@@ -467,6 +513,61 @@ impl EmitPassState {
     #[must_use]
     pub fn was_frame_prologue_emitted(&self, lambda_id: u32) -> bool {
         self.emitted_frame_prologue.contains(&lambda_id)
+    }
+
+    // ── ISR entry sugar tracking (paideia-as#1278 phase 2) ───────────────
+
+    /// Mark `lambda_id` as an ISR entry stub carrying `attr`.
+    ///
+    /// Called from `walk_inner`'s Let-handler and its interrupt pre-pass
+    /// whenever a Let→Lambda binding's `LetInfo::interrupt.is_some()`.
+    /// Membership causes `visit_lambda` to emit the 13-push GPR spill +
+    /// `cld` prologue ahead of the body dispatch, `emit_ret` to suppress
+    /// the normal `ret`, and `emit_interrupt_epilogues` (post-pass) to
+    /// emit the matching 13-pop + optional `add rsp, 8` + `iretq` tail.
+    pub fn mark_lambda_interrupt(&mut self, lambda_id: u32, attr: InterruptAttr) {
+        self.lambda_interrupt.insert(lambda_id, attr);
+    }
+
+    /// Look up the `InterruptAttr` for `lambda_id` if it was marked as an
+    /// ISR entry stub; `None` for non-interrupt lambdas.
+    #[must_use]
+    pub fn lambda_interrupt(&self, lambda_id: u32) -> Option<&InterruptAttr> {
+        self.lambda_interrupt.get(&lambda_id)
+    }
+
+    /// Iterate over `(lambda_id, attr)` for every lambda marked as an ISR
+    /// entry stub. Used by `emit_interrupt_epilogues` to enumerate the set.
+    pub fn interrupt_lambdas(&self) -> impl Iterator<Item = (&u32, &InterruptAttr)> {
+        self.lambda_interrupt.iter()
+    }
+
+    /// Record that the ISR prologue (13-push GPR spill + `cld`) has been
+    /// emitted for this lambda. Idempotent guard; the sole caller today is
+    /// `emit_visit_lambda`'s entry hook.
+    pub fn mark_interrupt_prologue_emitted(&mut self, lambda_id: u32) {
+        self.emitted_interrupt_prologue.insert(lambda_id);
+    }
+
+    /// True if the ISR prologue was already emitted for this lambda.
+    #[must_use]
+    pub fn was_interrupt_prologue_emitted(&self, lambda_id: u32) -> bool {
+        self.emitted_interrupt_prologue.contains(&lambda_id)
+    }
+
+    /// Record that the ISR epilogue (13-pop + optional errcode-skip +
+    /// `iretq`) has been emitted for this lambda. Consulted by
+    /// `emit_interrupt_epilogues` to skip lambdas whose epilogue some other
+    /// path already emitted; today the post-pass is the only emitter, so
+    /// this is a forward-compat guard.
+    pub fn mark_interrupt_epilogue_emitted(&mut self, lambda_id: u32) {
+        self.emitted_interrupt_epilogue.insert(lambda_id);
+    }
+
+    /// True if the ISR epilogue was already emitted for this lambda.
+    #[must_use]
+    pub fn was_interrupt_epilogue_emitted(&self, lambda_id: u32) -> bool {
+        self.emitted_interrupt_epilogue.contains(&lambda_id)
     }
 
     // ── Match emission tracking (PA-r17-013) ─────────────────────────────
