@@ -14,7 +14,7 @@
 //! These tests assert on the linked symbol size *and* the emitted bytes, so a
 //! regression cannot hide behind a correct-looking size with wrong contents.
 
-use object::{Object, ObjectSection, ObjectSymbol};
+use object::{Object, ObjectSection, ObjectSymbol, RelocationKind, RelocationTarget};
 
 use crate::common::fixture::build_emit;
 use crate::common::harness::run_build;
@@ -149,4 +149,64 @@ fn array_with_no_encodable_elements_is_out_of_t0576_scope() {
             .any(|s| s.name().unwrap_or("") == "all_unencodable"),
         "the array emits no data entry, so no symbol should exist (see #1310)"
     );
+}
+
+#[test]
+fn array_of_symbol_addresses_emits_relocated_pointer_slots() {
+    // Issue #1310 fix: `[u64; 3] = [&name_file_0, &name_file_1, &name_file_2]` must
+    // link `_klog_files` at 3 * 8 = 24 bytes, with one R_X86_64_64 relocation per
+    // slot targeting the corresponding data symbol, in element order.
+    let out = run_build(build_emit("pa1310_array_symbol_addresses.pdx"));
+    out.assert_ok();
+
+    let bytes = out.artifact_bytes();
+    let (size, storage) = symbol_storage(&bytes, "_klog_files");
+    assert_eq!(size, 24, "[u64; 3] of &sym elements must link at 3 * 8 bytes");
+    assert_eq!(
+        storage,
+        vec![0u8; 24],
+        "relocated slots hold placeholder zero bytes; the linker patches the addresses"
+    );
+
+    let file = object::File::parse(&*bytes).expect("object should parse the ELF");
+    let klog_files_addr = file
+        .symbols()
+        .find(|s| s.name().unwrap_or("") == "_klog_files")
+        .expect("_klog_files symbol should exist")
+        .address();
+    let expected_targets = ["name_file_0", "name_file_1", "name_file_2"];
+    for (idx, expected_symbol) in expected_targets.iter().enumerate() {
+        // Relocation offsets from `section.relocations()` are section-relative,
+        // not symbol-relative, so add the symbol's own address within the section.
+        let want_offset = klog_files_addr + (idx * 8) as u64;
+        let mut found = false;
+        for section in file.sections() {
+            for (offset, relocation) in section.relocations() {
+                if offset != want_offset {
+                    continue;
+                }
+                if let RelocationTarget::Symbol(sym_idx) = relocation.target() {
+                    if let Ok(sym) = file.symbol_by_index(sym_idx) {
+                        if sym.name().unwrap_or("") == *expected_symbol {
+                            assert_eq!(
+                                relocation.kind(),
+                                RelocationKind::Absolute,
+                                "relocation targeting {expected_symbol} must be R_X86_64_64 (RelocationKind::Absolute)"
+                            );
+                            assert_eq!(
+                                relocation.size(),
+                                64,
+                                "relocation targeting {expected_symbol} must be a 64-bit slot"
+                            );
+                            found = true;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            found,
+            "expected a relocation at offset {want_offset} targeting `{expected_symbol}`"
+        );
+    }
 }

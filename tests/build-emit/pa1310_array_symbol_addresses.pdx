@@ -1,0 +1,17 @@
+module Pa1310ArraySymbolAddresses = structure {
+  // Issue #1310: a `[u64; N]` array literal of `&sym` (address-of) elements
+  // used to emit no data entry and therefore no symbol at all — the paideia-os
+  // live instance was `_klog_files : [u64; 205] = [&name_file_0, ...]`.
+  //
+  // Each element here targets a distinct data symbol so the test can assert
+  // on relocation count and per-slot target independently of encoder ordering.
+  pub let name_file_0 : [u8; 4] = "aaa\0"
+  pub let name_file_1 : [u8; 4] = "bbb\0"
+  pub let name_file_2 : [u8; 4] = "ccc\0"
+
+  pub let _klog_files : [u64; 3] = [
+    &name_file_0,
+    &name_file_1,
+    &name_file_2
+  ]
+}

@@ -1312,6 +1312,15 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
         // #1074: Extended to track record-field context: Option<(rc_ir_id, field_idx0)>
         let mut addr_of_entries: Vec<(IrNodeId, IrNodeId, String, Option<(IrNodeId, usize)>)> = Vec::new();
 
+        // #1310: ArrayLit elements with Borrow (`&sym`) children — a table of symbol
+        // addresses such as `pub let _klog_files : [u64; 205] = [&name_file_0, ...]`.
+        // Tracked separately from `addr_of_entries` because that vector is also the
+        // T0535 fn-ptr-assignment check queue, and T0535 is about a *scalar* LHS type
+        // being a function pointer; it has no meaning for `[u64; N]` array elements.
+        // Only the AddrOfSideTable insertion is needed here so the ArrayLit data-packing
+        // pass below can resolve each element's target symbol.
+        let mut array_addr_of_entries: Vec<(IrNodeId, String)> = Vec::new();
+
         for i in 1..=arena_len as u32 {
             if let Some(let_id) = IrNodeId::new(i) {
                 if let Some(node) = lowering.ir.get(let_id) {
@@ -1377,9 +1386,53 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                                 }
                             }
                         }
+
+                        // #1310: Also handle ArrayLit elements with Borrow children — a
+                        // module-level array of symbol addresses, e.g.
+                        // `pub let _klog_files : [u64; 205] = [&name_file_0, &name_file_1, ...]`.
+                        // No T0535 check is queued for these (see note on
+                        // `array_addr_of_entries` above); only the symbol name is resolved
+                        // so the AddrOfSideTable can be populated ahead of the ArrayLit
+                        // data-packing pass.
+                        for rhs_id in &children {
+                            if let Some(rhs_node) = lowering.ir.get(*rhs_id) {
+                                if rhs_node.kind == paideia_as_ir::IrKind::ArrayLit {
+                                    let array_children: Vec<_> = lowering.ir.children(*rhs_id).iter().copied().collect();
+                                    for &elem_id in &array_children {
+                                        if let Some(elem_node) = lowering.ir.get(elem_id) {
+                                            if elem_node.kind == paideia_as_ir::IrKind::Borrow {
+                                                let borrow_children: Vec<_> = lowering.ir.children(elem_id).iter().copied().collect();
+                                                if let Some(operand_id) = borrow_children.first() {
+                                                    if let Some(var_name) = extract_var_name_from_operand(
+                                                        *operand_id,
+                                                        &lowering,
+                                                        &source_map,
+                                                        file,
+                                                        addr_of::AddrOfPolicy::FunctionOrObject,
+                                                        &mut sink,
+                                                    ) {
+                                                        array_addr_of_entries.push((elem_id, var_name));
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
+        }
+
+        // #1310: Populate the AddrOfSideTable for ArrayLit-of-Borrow elements. Kept
+        // separate from the T0535 loop below since these entries never carry a
+        // fn-ptr-assignment check.
+        for (elem_id, var_name) in array_addr_of_entries {
+            lowering.ir.addr_of_mut().insert(
+                elem_id,
+                paideia_as_ir::AddrOfMeta::new(var_name),
+            );
         }
 
         // Now populate the AddrOfSideTable and perform T0535 checks
@@ -1672,6 +1725,10 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                                     let array_children = lowering.ir.children(rhs_id);
                                     let mut packed_bytes = Vec::new();
                                     let mut element_count = 0;
+                                    // #1310: relocations for `&sym` (Borrow) array elements — a
+                                    // table of symbol addresses. One RelocSpec per element, offset
+                                    // by its position in the packed byte stream.
+                                    let mut array_relocs: Vec<paideia_as_ir::RelocSpec> = Vec::new();
 
                                     // PA10-006s: Determine element byte width from AST type
                                     let element_width = array_element_byte_width(
@@ -1695,6 +1752,25 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                                                     packed_bytes.extend(elem_bytes);
                                                     element_count += 1;
                                                 }
+                                            } else if elem_node.kind == paideia_as_ir::IrKind::Borrow
+                                                && element_width == 8
+                                            {
+                                                // #1310: `&sym` element — a symbol address. Only
+                                                // supported for 8-byte (u64/pointer-width) elements;
+                                                // a pointer cannot be tight-packed into a narrower
+                                                // slot. Resolved via the AddrOfSideTable populated
+                                                // by the pre-pass above.
+                                                if let Some(meta) = lowering.ir.addr_of().get(elem_id) {
+                                                    let offset = packed_bytes.len() as u64;
+                                                    packed_bytes.extend(vec![0u8; 8]);
+                                                    array_relocs.push(paideia_as_ir::RelocSpec::with_width(
+                                                        offset,
+                                                        meta.symbol.clone(),
+                                                        paideia_as_ir::RelocWidth::W64,
+                                                        meta.addend,
+                                                    ));
+                                                    element_count += 1;
+                                                }
                                             }
                                         }
                                     }
@@ -1716,14 +1792,18 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                                     // SCOPE: the guard applies only when this branch actually claimed
                                     // the array, i.e. at least one element encoded. An array in which
                                     // *nothing* encodes is not a partially-emitted symbol — it is a
-                                    // shape this branch does not own at all, e.g. paideia-os
-                                    // `_klog_files : [u64; 205] = [(rip + name_file_0), ...]`, an
-                                    // array of symbol-address relocations. Those emit no data entry
-                                    // and therefore no symbol, so a reference to one fails loudly at
-                                    // link time as an undefined symbol rather than silently reading
-                                    // short storage. That is a real gap, but a different one, tracked
-                                    // separately as #1310 — reporting it as an arity mismatch here
-                                    // would be a misleading message for an unimplemented feature.
+                                    // shape this branch does not own at all (e.g. an element kind
+                                    // this branch has no encoding for, such as a plain Var reference
+                                    // to a non-constant binding). Such arrays emit no data entry and
+                                    // therefore no symbol, so a reference to one fails loudly at link
+                                    // time as an undefined symbol rather than silently reading short
+                                    // storage.
+                                    //
+                                    // #1310: `[u64; N]` arrays of `&sym` (Borrow) elements — a table
+                                    // of symbol addresses, e.g. paideia-os
+                                    // `_klog_files : [u64; 205] = [&name_file_0, &name_file_1, ...]`
+                                    // — are now encoded above as N relocated pointer slots, so they no
+                                    // longer fall into this zero-emission gap.
                                     let declared_len = declared_array_len_from_type(
                                         node_id, &arena, &source_map, file,
                                     );
@@ -1764,21 +1844,39 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                                             .map(|info| info.mutable).unwrap_or(false);
                                         let link_section = let_info.and_then(|i| i.link_section.clone());
                                         let entry = if is_mutable {
-                                            let mut e = paideia_as_ir::DataEntry::new_data(
-                                                packed_bytes,
-                                                symbol_name,
-                                                explicit_align.unwrap_or(8),
-                                            );
+                                            let mut e = if array_relocs.is_empty() {
+                                                paideia_as_ir::DataEntry::new_data(
+                                                    packed_bytes,
+                                                    symbol_name,
+                                                    explicit_align.unwrap_or(8),
+                                                )
+                                            } else {
+                                                paideia_as_ir::DataEntry::new_data_with_relocs(
+                                                    packed_bytes,
+                                                    symbol_name,
+                                                    explicit_align.unwrap_or(8),
+                                                    array_relocs,
+                                                )
+                                            };
                                             if let Some(name) = link_section {
                                                 e = e.with_section_override(name);
                                             }
                                             e
                                         } else {
-                                            let mut e = paideia_as_ir::DataEntry::new_rodata(
-                                                packed_bytes,
-                                                symbol_name,
-                                                explicit_align.unwrap_or(8),
-                                            );
+                                            let mut e = if array_relocs.is_empty() {
+                                                paideia_as_ir::DataEntry::new_rodata(
+                                                    packed_bytes,
+                                                    symbol_name,
+                                                    explicit_align.unwrap_or(8),
+                                                )
+                                            } else {
+                                                paideia_as_ir::DataEntry::new_rodata_with_relocs(
+                                                    packed_bytes,
+                                                    symbol_name,
+                                                    explicit_align.unwrap_or(8),
+                                                    array_relocs,
+                                                )
+                                            };
                                             if let Some(name) = link_section {
                                                 e = e.with_section_override(name);
                                             }
