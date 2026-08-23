@@ -1,0 +1,40 @@
+// v0.22.0 (#1326 phase 4): encoder-emission wide-displacement golden bytes.
+//
+// Phase 4 adds no production code (see design/compiler/lambda-arity-stack-spill.md
+// §7-8) — this fixture exists purely to drive the disp8 → disp32 boundary in
+// the existing caller-side `mov qword ptr [rsp + N], imm` stack-store path
+// (#1326 phase 2) and the callee-side `mov rax, [rbp + N]` stack-read path
+// (#1326 phase 3) through the exact displacement that crosses ±127.
+//
+// 23 total args: 6 register-passed (idx 0..5) + 17 stack-passed (idx 6..22).
+// Stack-arg byte offset is `8 * (idx - 6)`:
+//   idx  6 (g) → [rsp+0]     idx 14 (o) → [rsp+64]
+//   idx  7 (h) → [rsp+8]     idx 15 (p) → [rsp+72]
+//   idx  8 (i) → [rsp+16]    idx 16 (q) → [rsp+80]
+//   idx  9 (j) → [rsp+24]    idx 17 (r) → [rsp+88]
+//   idx 10 (k) → [rsp+32]    idx 18 (s) → [rsp+96]
+//   idx 11 (l) → [rsp+40]    idx 19 (t) → [rsp+104]
+//   idx 12 (m) → [rsp+48]    idx 20 (u) → [rsp+112]
+//   idx 13 (n) → [rsp+56]    idx 21 (v) → [rsp+120]  ← last disp8  (0x78)
+//                            idx 22 (w) → [rsp+128]  ← first disp32 (0x80)
+//
+// 17 stack args (odd count) → bytes=136, pad=8 → sysv_bump=144 (0x90), which
+// itself crosses the imm8/imm32 threshold for `sub/add rsp, N`.
+//
+// Callee returns its last (23rd, stack-passed) parameter `w`, forcing the
+// callee-side read at [rbp + 16 + 8*(22-6)] = [rbp+144] — also disp32.
+module SysvX6423argCallWideDisp = structure {
+  pub let sysv_callee_23arg :
+    (u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64,
+     u64, u64, u64, u64, u64, u64, u64, u64, u64, u64) -> u64 =
+    fn(a : u64, b : u64, c : u64, d : u64, e : u64, f : u64, g : u64,
+       h : u64, i : u64, j : u64, k : u64, l : u64, m : u64, n : u64,
+       o : u64, p : u64, q : u64, r : u64, s : u64, t : u64, u : u64,
+       v : u64, w : u64) -> w
+
+  pub let caller_23arg : (u64) -> u64 =
+    fn(base : u64) -> sysv_callee_23arg(
+      base, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+      19, 20, 21, 22, 23
+    )
+}
