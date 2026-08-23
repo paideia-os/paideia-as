@@ -1,0 +1,20 @@
+// v0.22.0 (#1326 phase 5): SysV stack arg — bare enum-variant literal
+// (EnumCons, nullary) at position 8 (0-indexed arg 7, the SECOND
+// stack-passed slot) of a 9-arg SysV call.
+//
+// `B` is a bare nullary variant of `Choice`; AST->IR lowering rewrites it
+// to an EnumCons node (see enum_lit_call_arg_second_pos.pdx for the
+// register-arg analogue). The SysV stack-arg marshalling loop must emit
+// `mov qword ptr [rsp+8], 1` (variant index of B) via
+// emit_mov_stack_slot_imm, exactly like the pos-6/pos-8 literal args
+// flanking it, proving EnumCons composes correctly at a non-first stack
+// slot (stack_off = 8*(arg_idx-6) with arg_idx=7 -> 8).
+module SysvX649argCallEnumconsPos8 = structure {
+  enum Choice { A, B }
+
+  pub let sysv_callee_9arg : (u64, u64, u64, u64, u64, u64, u64, u64, u64) -> u64 =
+    fn(a : u64, b : u64, c : u64, d : u64, e : u64, f : u64, g : u64, h : u64, i : u64) -> a
+
+  pub let caller_9arg_enumcons_pos8 : (u64) -> u64 =
+    fn(base : u64) -> sysv_callee_9arg(base, 2, 3, 4, 5, 6, 7, B, 9)
+}

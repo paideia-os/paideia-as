@@ -1,0 +1,25 @@
+// v0.22.0 (#1326 phase 5): bridge composition — a paideia (unannotated)
+// caller crossing into an explicit @abi("sysv") callee with 7 args (1
+// stack arg, idx 6). This exercises three additive components of
+// `sysv_bump` at once (design doc §4.3):
+//
+//   - sysv_stack_arg_bytes = 8  (1 stack arg * 8)
+//   - sysv_stack_arg_pad   = 8  (odd stack-arg count)
+//   - sysv_align_pad       = 8  (#1195: bridge_saves non-empty + even
+//                                 scratch-save count -- zero
+//                                 intervening let-bindings before the
+//                                 call keeps scratch_save_set empty)
+//
+// Total sysv_bump = 24, distinct from the pure-SysV-stack-only case
+// (sysv_x64_7arg_call.pdx, no bridge, bump=16) -- proving the
+// bridge-parity pad and the stack-arg reservation compose additively
+// rather than one clobbering the other.
+module SysvBridgeStackCompose = structure {
+  pub let sysv_callee_7arg : (u64, u64, u64, u64, u64, u64, u64) -> u64 =
+    fn (a: u64, b: u64, c: u64, d: u64, e: u64, f: u64, g: u64) -> a
+    @abi("sysv")
+
+  pub let f : (u64) -> u64 = fn (v: u64) -> sysv_callee_7arg(v, 2, 3, 4, 5, 6, 7)
+
+  pub let entry : () -> u64 = fn () -> f(5)
+}

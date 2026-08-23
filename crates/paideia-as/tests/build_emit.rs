@@ -124,10 +124,13 @@ mod build_emit {
     pub mod ms_x64_shadow;
     pub mod stmt_let_with_call_rhs;
     pub mod sysv_bridge_bump;
+    pub mod sysv_bridge_stack_compose;
     pub mod sysv_x64_23arg_call_wide_disp;
     pub mod sysv_x64_7arg_call;
     pub mod sysv_x64_7arg_callee_stack_read;
     pub mod sysv_x64_9arg_call;
+    pub mod sysv_x64_9arg_call_enumcons_pos8;
+    pub mod sysv_x64_9arg_call_object_const;
     pub mod sysv_x64_9arg_callee_stack_read;
     pub mod sysv_x64_9arg_no_frame_b1708;
     pub mod target_triplet;

@@ -1,0 +1,19 @@
+// v0.22.0 (#1326 phase 5): SysV stack arg — module-level Object constant
+// at position 7 (0-indexed arg 6, the first stack-passed slot) of a
+// 9-arg SysV call.
+//
+// SEVENTH is a module-level `Object` symbol, not a caller-local binding,
+// so the SysV stack-arg marshalling loop in emit_call.rs must take the
+// "Var with no local binding entry" branch: RIP-relative load into R10,
+// then `mov [rsp+0], r10` — mirroring the MS x64 Object-const path
+// (emit_call.rs:694-717) that phase 2 already extended to the SysV
+// stack-target case. This fixture regression-pins that composition.
+module SysvX649argCallObjectConst = structure {
+  let SEVENTH : u64 = 77
+
+  pub let sysv_callee_9arg : (u64, u64, u64, u64, u64, u64, u64, u64, u64) -> u64 =
+    fn(a : u64, b : u64, c : u64, d : u64, e : u64, f : u64, g : u64, h : u64, i : u64) -> a
+
+  pub let caller_9arg_object_const : (u64) -> u64 =
+    fn(base : u64) -> sysv_callee_9arg(base, 2, 3, 4, 5, 6, SEVENTH, 8, 9)
+}
