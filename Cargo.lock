@@ -1970,6 +1970,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "paideia-as-crypto"
+version = "0.21.0"
+dependencies = [
+ "argon2",
+ "chacha20poly1305",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "paideia-as-diagnostics"
 version = "0.21.0"
 dependencies = [
@@ -2522,11 +2531,14 @@ name = "pq-corpus"
 version = "0.21.0"
 dependencies = [
  "blake3",
+ "hex",
  "paideia-as-diagnostics",
  "paideia-as-emitter-pax",
  "paideia-pq-sign",
  "rand_chacha 0.3.1",
  "rand_core 0.6.4",
+ "serde",
+ "serde_json",
  "tempfile",
 ]
 

@@ -5,7 +5,7 @@
 //! System-V calling-convention marshalling sequence: per-arg moves into
 //! `[RDI, RSI, RDX, RCX, R8, R9]` followed by `call target; ret`.
 
-use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand, RegId};
+use paideia_as_ir::instruction::{Instruction, Mnemonic, Operand, RegId, Scale};
 use paideia_as_ir::{IrArena, IrKind, IrNodeId, SmallVec, abi, PassingConvention};
 use paideia_as_ir::let_meta::CallingConvention;
 use paideia_as_ir::symbol::SymbolKind;
