@@ -1314,9 +1314,9 @@ deprecated = false
 [diagnostic.P0276]
 severity = "error"
 category = "parser"
-title = "Lambda has more than 6 parameters"
-brief = "lambda arity exceeds System-V register-passed cap (6)"
-description = "The current System-V x86-64 lowering passes lambda parameters in RDI, RSI, RDX, RCX, R8, R9. Stack-spill of the 7th+ parameter is not yet implemented. Reduce the parameter count to 6 or fewer, or split the function into curried groups (each group is a separate lambda)."
+title = "Reserved: lambda arity cap retired from parser tier"
+brief = "reserved — historical arity cap now handled by codegen (paideia-as#1326)"
+description = "As of v0.22.0 the parser no longer enforces a 6-parameter cap on `fn`-style lambdas; the grammar was never arity-limited and this had been a codegen-shaped restriction misplaced at parse time. Lambdas of any arity now parse successfully. Whether a given >6-parameter lambda builds depends on codegen: SysV lowering incrementally gains stack-passing support for args beyond the 6 register-passed positions (paideia-as#1326); until that lands for a given call/callee shape, codegen may refuse with T0521 (caller-side, 'SysV ABI: max 6 arguments supported') or fail to resolve a var binding for an unregistered stack-homed parameter. This code (P0276) is retained allocated, unused at the parser tier, for backwards-compatible diagnostic references (e.g. old SARIF snapshots resolving helpUri) and is not re-emitted by current parser code."
 since = "0.17.0"
 deprecated = false
 

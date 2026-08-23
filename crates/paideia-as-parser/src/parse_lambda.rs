@@ -78,30 +78,12 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                 }
             }
 
-            // Arity check: if more than 6 params, emit P0276 and return Err
-            if params.len() > 6 {
-                // The 7th parameter is at index 6
-                let seventh_param = params[6];
-                let seventh_span = self
-                    .arena()
-                    .get(seventh_param)
-                    .map(|nd| nd.span)
-                    .unwrap_or_else(|| Span::new(self.file(), 0, 0));
-                let diag = paideia_as_diagnostics::Diagnostic::error(
-                    paideia_as_diagnostics::DiagnosticCode::new(
-                        paideia_as_diagnostics::Category::P,
-                        paideia_as_diagnostics::Severity::Error,
-                        276,
-                    )
-                    .unwrap(),
-                )
-                .message("lambda has more than 6 parameters".to_string())
-                .with_span(seventh_span)
-                .finish();
-                self.emit_diagnostic(diag);
-                return Err(ParseError);
-            }
-
+            // Issue #1326 (P0276 retired at parse tier): the parser no
+            // longer caps `fn`-style lambda arity at 6. Params of any
+            // count flow into `ExprData::Lambda` unmodified; codegen
+            // (SysV/MS lowering) is responsible for accepting or
+            // refusing arities beyond what the current ABI lowering
+            // supports. See `design/compiler/lambda-arity-stack-spill.md`.
             self.expect(TokenKind::RParen)?;
 
             // Check for another parameter group
@@ -811,9 +793,13 @@ mod tests {
     }
 
     #[test]
-    fn lambda_fn_seven_params_rejects() {
+    fn lambda_fn_seven_params_parses() {
         // fn (a: u64, b: u64, c: u64, d: u64, e: u64, f: u64, g: u64) -> 1
-        // Should reject with P0276 on the 7th parameter
+        //
+        // Issue #1326 (Phase 1): P0276 no longer fires at parse. The
+        // parser is purely syntactic and admits any arity; codegen
+        // (SysV stack-spill, phases 2-3 of #1326) is responsible for
+        // accepting or refusing >6-arg lowering.
         let tokens = vec![
             tok(TokenKind::KwFn, 0, 2),
             tok(TokenKind::LParen, 3, 1),
@@ -850,7 +836,7 @@ mod tests {
             tok(TokenKind::Eof, 57, 0),
         ];
 
-        // Parse manually to check for parse error + diagnostic
+        // Parse manually to check parse succeeds with zero diagnostics
         let mut arena = AstArena::new();
         let mut sink = VecSink::new();
         let result = {
@@ -859,13 +845,22 @@ mod tests {
         };
         let diags = sink.diagnostics().to_vec();
 
-        // Should have a parse error and 1 error diagnostic (P0276)
-        assert!(result.is_err(), "parse should fail");
-        assert_eq!(diags.len(), 1, "expected P0276 error");
-        assert!(
-            diags[0].code().to_string().contains("P0276"),
-            "expected P0276 code, got: {}",
-            diags[0].code()
-        );
+        // Parse must succeed with no diagnostics; arity enforcement (if
+        // any) is now purely a codegen-tier concern (#1326).
+        assert!(result.is_ok(), "parse should succeed for 7-arg lambda");
+        assert_eq!(diags.len(), 0, "expected no diagnostics, got: {:?}", diags);
+
+        let root = result.unwrap();
+        let node = arena.get(root).unwrap();
+        assert_eq!(node.kind, NodeKind::ExprLambda);
+        if let Some(expr_data) = arena.expr_data(root) {
+            if let ExprData::Lambda { params, .. } = expr_data {
+                assert_eq!(params.len(), 7, "should have 7 params");
+            } else {
+                panic!("expected ExprLambda");
+            }
+        } else {
+            panic!("expected expr data");
+        }
     }
 }

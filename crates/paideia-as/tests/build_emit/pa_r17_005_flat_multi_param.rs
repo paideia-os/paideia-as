@@ -259,37 +259,22 @@ fn curried_regression() {
     );
 }
 
-/// Test seven-param rejection: build should fail with P0276
+/// Test seven-param lambda: build must now SUCCEED (Issue #1326 Phase 1).
+///
+/// P0276 no longer fires at parse; `fn`-style lambdas of any arity parse
+/// successfully. `flat_seven_rejects.pdx` returns its first parameter `a`
+/// (SysV position 0 → RDI), which is well within the still-register-passed
+/// range, so this exercises the "parser opens the door, 6-arg fast path
+/// stays untouched" half of the design
+/// (`design/compiler/lambda-arity-stack-spill.md` §4.5). It does not
+/// exercise SysV stack-passing for params 7-9 — that lands in later phases
+/// of #1326, once codegen (caller marshalling + callee intake) gains
+/// stack-slot support for args beyond the 6 register-passed positions.
 #[test]
-fn flat_seven_rejects() {
-    let input = build_emit_data("flat_seven_rejects.pdx");
-    let tmp = std::env::temp_dir().join("paideia_as_flat_seven_rejects_emit.o");
-    let _ = std::fs::remove_file(&tmp);
-
-    // Build the fixture into ELF64 format
-    let out = cargo_run(&[
-        "build",
-        input.to_str().unwrap(),
-        "--emit",
-        "elf64",
-        "-o",
-        tmp.to_str().unwrap(),
-    ]);
-
-    // Build must fail
-    assert_ne!(
-        out.status.code(),
-        Some(0),
-        "seven-param lambda must fail to build"
+fn flat_seven_parses_and_builds() {
+    test_flat_lambda(
+        "flat_seven_rejects.pdx",
+        "flat_seven_rejects",
+        &[0x48, 0x89, 0xF8, 0xC3],
     );
-
-    // Stderr must contain P0276
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(
-        stderr.contains("P0276"),
-        "expected P0276 in stderr, got: {}",
-        stderr
-    );
-
-    let _ = std::fs::remove_file(&tmp);
 }
