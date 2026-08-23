@@ -1984,8 +1984,12 @@ fn emit_walker_function_call_6_args() {
 }
 
 #[test]
-fn emit_walker_function_call_7_args_reject() {
-    // PA7-006 AC #5: f(a, b, c, d, e, g, h) → 7 args should be rejected
+fn emit_walker_function_call_7_args_sysv_stack_spill() {
+    // v0.22.0 (#1326 phase 2): f(a, b, c, d, e, g, h) → 7 args now lowers
+    // via SysV caller-side stack-spill (arg 6 → [rsp+0]) instead of being
+    // rejected with T0521. Prior to phase 2 this test asserted rejection
+    // (PA7-006 AC #5, pre-#1326); phase 2 supersedes that AC — see
+    // design/compiler/lambda-arity-stack-spill.md §4.3.
     let mut arena = IrArena::new();
 
     // Allocate 7 literal arguments
@@ -2030,18 +2034,25 @@ fn emit_walker_function_call_7_args_reject() {
         is_intrinsic: false,
     });
 
-    // Walk the arena
+    // paideia-as#1276 phase 3: opt out of frame prologue/epilogue.
     let mut walker = EmitWalker::new();
+    walker.state_mut().mark_lambda_no_frame(lambda_id.get());
     walker.walk(&mut arena);
 
-    // Verify that structured diagnostics contain the "out of bounds" error
+    // v0.22.0 (#1326 phase 2): no diagnostics — the call now lowers
+    // instead of being rejected.
     let diags = walker.take_typed_diagnostics();
     assert!(
-        diags.iter()
-            .any(|d| d.message().contains("out of bounds") || d.message().contains("max 6")),
-        "Expected out-of-bounds error, got: {:?}",
+        diags.is_empty(),
+        "Expected no diagnostics for 7-arg SysV call (stack-spill now \
+         supported), got: {:?}",
         diags
     );
+
+    // Verify offset: 6 register movs (7 bytes each) + sub rsp,16 (4 bytes)
+    // + 1 stack-arg store (8 bytes, disp8=0) + call (5 bytes) +
+    // add rsp,16 (4 bytes) + ret (1 byte) = 64 bytes.
+    assert_eq!(walker.state().estimated_offset, 64);
 }
 
 #[test]

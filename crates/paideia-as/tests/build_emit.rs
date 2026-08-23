@@ -124,6 +124,8 @@ mod build_emit {
     pub mod ms_x64_shadow;
     pub mod stmt_let_with_call_rhs;
     pub mod sysv_bridge_bump;
+    pub mod sysv_x64_7arg_call;
+    pub mod sysv_x64_9arg_call;
     pub mod target_triplet;
     pub mod typed_encoder_diagnostics;
     pub mod two_let_with_app;

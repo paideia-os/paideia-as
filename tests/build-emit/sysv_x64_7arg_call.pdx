@@ -1,0 +1,27 @@
+// v0.22.0 (#1326 phase 2): SysV caller-side 7-arg call.
+//
+// Regression fixture for the missing SysV stack-passing emit path. Prior
+// to v0.22.0, a paideia caller passing 7+ args to a (default, unannotated)
+// SysV callee fired T0521 ("SysV ABI: max 6 arguments supported") and the
+// build refused. This fixture calls a 7-arg SysV callee with arg[0] a
+// Var (the caller's own param) and arg[1..6] literals, and expects:
+//
+//   1. `sub rsp, 16` — 1 stack arg (8 bytes) + 1 odd-count alignment pad
+//      (8 bytes) = 16.
+//   2. `mov qword ptr [rsp + 0], 7` — arg[6] (the 7th arg) materialised
+//      into the caller's stack slot immediately above the return address;
+//      the callee sees this at [rsp + 8] after the CALL push.
+//   3. `call sysv_callee_7arg`.
+//   4. `add rsp, 16` — matches the prelude.
+//
+// The callee body only reads its first parameter (`-> a`), sidestepping
+// the callee-side stack-arg intake path (Phase 3, not yet implemented) —
+// this fixture exercises the caller-side marshalling in isolation, exactly
+// as ms_x64_5arg_call.pdx does for the MS x64 analogue (#1277).
+module SysvX647argCall = structure {
+  pub let sysv_callee_7arg : (u64, u64, u64, u64, u64, u64, u64) -> u64 =
+    fn(a : u64, b : u64, c : u64, d : u64, e : u64, f : u64, g : u64) -> a
+
+  pub let caller_7arg : (u64) -> u64 =
+    fn(base : u64) -> sysv_callee_7arg(base, 2, 3, 4, 5, 6, 7)
+}

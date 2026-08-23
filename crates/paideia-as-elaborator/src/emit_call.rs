@@ -304,11 +304,29 @@ impl EmitWalker {
             0
         };
 
+        // v0.22.0 (#1326 phase 2): count SysV stack-passed integer args
+        // (idx ≥ 6, i.e. beyond the 6-register ARG_REGS pool). These live
+        // at the caller's [rsp + 8*(idx-6)] (no shadow-space offset — SysV
+        // differs from MS here), reserved by the prelude bump below.
+        // `sysv_stack_arg_bytes` is always a multiple of 8; the odd-count
+        // pad keeps `sysv_stack_arg_bytes + sysv_stack_arg_pad` a multiple
+        // of 16, so this addend preserves RSP mod-16 alignment on its own
+        // (design doc §4.2). Applies whenever the callee resolves to SysV
+        // (the default when unannotated), matching the register-selection
+        // logic above.
+        let sysv_stack_arg_count: usize = if callee_abi == CallingConvention::Sysv {
+            arg_ids.len().saturating_sub(abi::ARG_REGS.len())
+        } else {
+            0
+        };
+        let sysv_stack_arg_bytes: u32 = (sysv_stack_arg_count as u32) * 8;
+        let sysv_stack_arg_pad: u32 = if sysv_stack_arg_count % 2 == 1 { 8 } else { 0 };
+
         // #1195: Compute dynamic SysV alignment pad based on scratch-save parity.
         // Only for EXPLICIT SysV ABI calls (callee_abi_option == Some(Sysv)) with bridge saves.
         // When paideia→SysV cross-call and scratch count is even, emit 8-byte pad before
         // scratch saves to restore RSP ≡ 0 mod 16 at CALL.
-        let sysv_bump: u32 = if callee_abi_option == Some(CallingConvention::Sysv) && !bridge_saves.is_empty() {
+        let sysv_align_pad: u32 = if callee_abi_option == Some(CallingConvention::Sysv) && !bridge_saves.is_empty() {
             if scratch_save_set.len() % 2 == 0 {
                 abi::SYSV_CALL_ALIGN_PAD
             } else {
@@ -317,6 +335,12 @@ impl EmitWalker {
         } else {
             0
         };
+
+        // v0.22.0 (#1326 phase 2): total SysV prelude/postlude bump combines
+        // the stack-arg reservation (independently mod-16, see above) with
+        // the pre-existing #1195 bridge-parity pad. Both addends preserve
+        // RSP mod 16 on their own, so they compose additively.
+        let sysv_bump: u32 = sysv_stack_arg_bytes + sysv_stack_arg_pad + sysv_align_pad;
 
         // Emit caller-side bridge prelude (push R15, R14) if crossing paideia→MS/SysV
         // Use first_id for the first push, subsequent pushes get fresh IDs
@@ -370,7 +394,8 @@ impl EmitWalker {
             self.emit_inst(ms_prelude_id, prelude_inst);
         }
 
-        // #1195: Emit SysV alignment pad: sub rsp, 8 (for paideia→SysV with even scratch count)
+        // #1195 / v0.22.0 (#1326 phase 2): Emit combined SysV prelude bump —
+        // stack-arg reservation (idx ≥ 6) plus the #1195 bridge-parity pad.
         if sysv_bump > 0 {
             let sysv_prelude_id = if first_emission {
                 first_emission = false;
@@ -622,14 +647,129 @@ impl EmitWalker {
                     }
                     continue;
                 }
-                // Non-MS callee (SysV): stack passing for arg 7+ not yet
-                // implemented — keep the T0521 rejection.
-                let error_msg = format!(
-                    "SysV ABI: max 6 arguments supported (arg {} out of bounds)",
-                    arg_idx
-                );
-                self.push_typed_diag(t0521_code(), error_msg);
-                break;
+                // v0.22.0 (#1326 phase 2): SysV stack passing for arg 7+
+                // (idx ≥ 6, i.e. beyond ARG_REGS' 6 slots).
+                //
+                // Callee expects arg[idx] (idx ≥ 6) at [callee_rsp + 8 +
+                // 8*(idx-6)] after the CALL push (no shadow-space offset —
+                // SysV differs from MS here). Caller writes to
+                // [rsp + 8*(idx-6)], which shifts by +8 across the CALL
+                // push to the callee-observed slot.
+                //
+                // Emission-order note (mirrors #1277): writing at idx ≥ 6
+                // only ever runs after the 6 register-arg MOVs (idx 0..6)
+                // have already fired, so `first_id` has already been
+                // consumed by bridge_saves and/or the SysV prelude — both
+                // fire before this loop is entered on every SysV-callee
+                // call path. Always allocate a fresh id.
+                let stack_off: i32 =
+                    8 * (arg_idx as i32 - abi::ARG_REGS.len() as i32);
+                let arg_node_kind = arena.get(arg_id).map(|n| n.kind);
+                match arg_node_kind {
+                    Some(IrKind::Literal) => {
+                        if let Some(value) = arena.literal_values().get(arg_id) {
+                            let store_id = self.alloc_synthetic_id();
+                            self.emit_mov_stack_slot_imm(store_id, stack_off, value);
+                        } else {
+                            self.push_typed_diag(
+                                t0521_code(),
+                                format!(
+                                    "SysV stack arg {}: literal has no value",
+                                    arg_idx
+                                ),
+                            );
+                        }
+                    }
+                    Some(IrKind::Var) => {
+                        let src_reg = arena
+                            .binding_names()
+                            .get(arg_id)
+                            .and_then(|name| self.state.local_bindings.get(name));
+                        match src_reg {
+                            Some(src) => {
+                                let store_id = self.alloc_synthetic_id();
+                                self.emit_mov_stack_slot_reg(store_id, stack_off, src);
+                            }
+                            None => {
+                                // Module-level Object constant path: materialise
+                                // via a RIP-relative load into R10, then store.
+                                let module_const = arena
+                                    .binding_names()
+                                    .get(arg_id)
+                                    .and_then(|name| {
+                                        arena
+                                            .symbols()
+                                            .lookup_by_name(name)
+                                            .filter(|s| {
+                                                matches!(s.kind, SymbolKind::Object)
+                                            })
+                                            .map(|_| name.to_string())
+                                    });
+                                if let Some(name) = module_const {
+                                    let load_id = self.alloc_synthetic_id();
+                                    self.emit_mem_read_via_rip_sym(
+                                        load_id, abi::R10, name, 0, 8, false,
+                                    );
+                                    let store_id = self.alloc_synthetic_id();
+                                    self.emit_mov_stack_slot_reg(
+                                        store_id, stack_off, abi::R10,
+                                    );
+                                } else {
+                                    self.push_typed_diag(
+                                        t0521_code(),
+                                        format!(
+                                            "SysV stack arg {}: Var has no local \
+                                             binding entry; source register \
+                                             unresolvable",
+                                            arg_idx
+                                        ),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    Some(IrKind::EnumCons) => {
+                        if let Some(info) = arena.enum_cons_info().get(arg_id) {
+                            if arena.children(arg_id).is_empty() {
+                                let store_id = self.alloc_synthetic_id();
+                                self.emit_mov_stack_slot_imm(
+                                    store_id,
+                                    stack_off,
+                                    info.variant_index as i64,
+                                );
+                                self.state.mark_enum_cons_handled(arg_id.get());
+                            } else {
+                                self.push_typed_diag(
+                                    t0521_code(),
+                                    format!(
+                                        "SysV stack arg {}: payload-bearing enum \
+                                         literal not yet supported (use let-binding)",
+                                        arg_idx
+                                    ),
+                                );
+                            }
+                        } else {
+                            self.push_typed_diag(
+                                t0521_code(),
+                                format!(
+                                    "SysV stack arg {}: EnumCons missing metadata",
+                                    arg_idx
+                                ),
+                            );
+                        }
+                    }
+                    _ => {
+                        self.push_typed_diag(
+                            t0521_code(),
+                            format!(
+                                "SysV stack arg {}: kind not yet supported for \
+                                 SysV stack passing",
+                                arg_idx
+                            ),
+                        );
+                    }
+                }
+                continue;
             }
 
             let dest_reg = arg_regs[arg_idx];
@@ -991,7 +1131,8 @@ impl EmitWalker {
             self.emit_inst(scratch_restore_id, pop_inst);
         }
 
-        // #1195: Emit SysV alignment postlude: add rsp, 8 (matches SysV prelude)
+        // #1195 / v0.22.0 (#1326 phase 2): Emit combined SysV postlude
+        // (matches the combined SysV prelude above).
         if sysv_bump > 0 {
             let sysv_postlude_id = self.alloc_synthetic_id();
 

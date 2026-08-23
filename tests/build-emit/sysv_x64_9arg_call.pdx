@@ -1,0 +1,23 @@
+// v0.22.0 (#1326 phase 2): SysV caller-side 9-arg call.
+//
+// Companion fixture to sysv_x64_7arg_call.pdx, exercising the even-plus-pad
+// stack-arg-count arithmetic: 9 args → 3 stack args (idx 6, 7, 8) → bytes =
+// 24, pad = 8 (odd stack-arg count) → bump = 32. This is the arity shape
+// that motivated #1326 (paideia-os R51.M2 nvme_ns_dual_kind_mint, 9 args).
+//
+//   1. `sub rsp, 32` prelude.
+//   2. `mov qword ptr [rsp + 0], 7`  — arg[6] (7th arg).
+//      `mov qword ptr [rsp + 8], 8`  — arg[7] (8th arg).
+//      `mov qword ptr [rsp + 16], 9` — arg[8] (9th arg).
+//   3. `call sysv_callee_9arg`.
+//   4. `add rsp, 32` — matches the prelude.
+//
+// The callee body only reads its first parameter (`-> a`), same rationale
+// as the 7-arg fixture (Phase 3 callee-side intake not yet implemented).
+module SysvX649argCall = structure {
+  pub let sysv_callee_9arg : (u64, u64, u64, u64, u64, u64, u64, u64, u64) -> u64 =
+    fn(a : u64, b : u64, c : u64, d : u64, e : u64, f : u64, g : u64, h : u64, i : u64) -> a
+
+  pub let caller_9arg : (u64) -> u64 =
+    fn(base : u64) -> sysv_callee_9arg(base, 2, 3, 4, 5, 6, 7, 8, 9)
+}
