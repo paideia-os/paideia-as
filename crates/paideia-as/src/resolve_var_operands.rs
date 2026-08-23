@@ -118,6 +118,17 @@ pub(crate) fn resolve_var_operands(
                                 // #995: Closure binding: treat fat-pair address as scalar pointer.
                                 *operand = Operand::Reg(reg);
                             }
+                            BindingHome::StackSlot(off) => {
+                                // v0.22.0 (#1326 phase 3): SysV stack-passed
+                                // param (idx >= 6): rewrite Var → MemSib
+                                // [RBP + offset].
+                                *operand = Operand::MemSib {
+                                    base: abi::RBP,
+                                    index: None,
+                                    scale: Scale::X1,
+                                    disp: off,
+                                };
+                            }
                         }
                     } else {
                         // PA10-005 §3.5: Binding not found in local table;

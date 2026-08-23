@@ -704,6 +704,31 @@ impl EmitWalker {
                         self.emit_inst(inst_id, inst);
                         true
                     }
+                    Some(BindingHome::StackSlot(off)) => {
+                        // v0.22.0 (#1326 phase 3): SysV stack-passed param
+                        // (idx >= 6): mov dest, [rbp + off].
+                        let inst = Instruction {
+                            mnemonic: Mnemonic::Mov,
+                            operands: {
+                                let mut ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                                ops.push(Operand::Reg(dest));
+                                ops.push(Operand::MemSib {
+                                    base: abi::RBP,
+                                    index: None,
+                                    scale: paideia_as_ir::instruction::Scale::X1,
+                                    disp: off,
+                                });
+                                ops
+                            },
+                            encoding_hint: None,
+                            byte_offset_in_text: None,
+                            mode: self.current_mode(),
+                            emission_order: 0,
+                        };
+                        let inst_id = self.alloc_synthetic_id();
+                        self.emit_inst(inst_id, inst);
+                        true
+                    }
                     None => {
                         // Module object: load via RIP-relative
                         let is_module_object = arena

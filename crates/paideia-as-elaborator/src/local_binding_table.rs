@@ -25,6 +25,8 @@ use std::collections::{HashMap, HashSet};
 /// for resolution via resolve_var_operands.
 /// #995: Closure bindings (fat pointers) reside in a register but are distinct from
 /// scalar bindings for dispatch purposes.
+/// v0.22.0 (#1326 phase 3): Extended with `StackSlot` for SysV stack-passed
+/// lambda parameters (index ≥ 6) — read at `[RBP + offset]`.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum BindingHome {
     /// Scalar binding in a single register.
@@ -35,6 +37,12 @@ pub enum BindingHome {
     EnvSlot(i32),
     /// Closure binding: fat pointer (env_ptr|code_ptr pair) in a register (#995).
     Closure(RegId),
+    /// SysV stack-passed parameter (idx ≥ 6): [RBP + offset] memory-relative
+    /// binding (#1326 phase 3). Anchored to RBP rather than RSP because the
+    /// frame-pointer prologue (`push rbp; mov rbp, rsp`) is emitted for
+    /// every non-unsafe, non-`@no_frame` lambda — precisely the set that
+    /// permits >6 params (see B1708).
+    StackSlot(i32),
 }
 
 /// A local binding entry wrapping its home location.
@@ -119,6 +127,21 @@ impl LocalBindingTable {
     pub fn insert_env(&mut self, name: String, offset: i32) {
         let entry = BindingEntry {
             home: BindingHome::EnvSlot(offset),
+        };
+        // Insert into top scope
+        if let Some(top_scope) = self.scopes.last_mut() {
+            top_scope.insert(name.clone(), entry);
+        }
+        // Insert into flat union
+        self.flat.insert(name, entry);
+    }
+
+    /// Register a SysV stack-passed parameter binding at [RBP + offset].
+    /// v0.22.0 (#1326 phase 3): Constructs a BindingEntry with home=StackSlot(offset).
+    /// Called by `register_nested_lambda_params` for SysV params at idx ≥ 6.
+    pub fn insert_stack(&mut self, name: String, offset: i32) {
+        let entry = BindingEntry {
+            home: BindingHome::StackSlot(offset),
         };
         // Insert into top scope
         if let Some(top_scope) = self.scopes.last_mut() {
@@ -223,6 +246,7 @@ impl LocalBindingTable {
             BindingHome::RegPair(r, _) => Some((name, r)),
             BindingHome::EnvSlot(_) => None,
             BindingHome::Closure(r) => Some((name, r)),
+            BindingHome::StackSlot(_) => None,
         })
     }
 
@@ -273,6 +297,10 @@ impl LocalBindingTable {
                     BindingHome::Closure(r) => {
                         // Closure fat-pair address in register
                         s.insert(r);
+                    }
+                    BindingHome::StackSlot(_) => {
+                        // v0.22.0 (#1326 phase 3): memory-based binding
+                        // ([RBP + offset]), no register consumed.
                     }
                 }
             }

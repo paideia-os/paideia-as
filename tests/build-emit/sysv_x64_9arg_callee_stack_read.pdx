@@ -1,0 +1,18 @@
+// v0.22.0 (#1326 phase 3): SysV callee-side 9-arg stack-arg intake.
+//
+// Companion to sysv_x64_7arg_callee_stack_read.pdx, exercising a wider
+// stack-arg span: 3 stack-passed params (idx 6, 7, 8) at [rbp+16],
+// [rbp+24], [rbp+32] respectively. The callee body reads its LAST
+// parameter (idx=8, the 9th arg) — the shape that motivated #1326
+// (paideia-os R51.M2 nvme_ns_dual_kind_mint, 9 args).
+//
+// caller_9arg(10) computes sysv_callee_9arg(10, 2, 3, 4, 5, 6, 7, 8, 9),
+// which must return 9 — proving the [rbp+32] offset (idx=8) resolves
+// correctly, not merely the first stack-passed slot.
+module SysvX649argCalleeStackRead = structure {
+  pub let sysv_callee_9arg : (u64, u64, u64, u64, u64, u64, u64, u64, u64) -> u64 =
+    fn(a : u64, b : u64, c : u64, d : u64, e : u64, f : u64, g : u64, h : u64, i : u64) -> i
+
+  pub let caller_9arg : (u64) -> u64 =
+    fn(base : u64) -> sysv_callee_9arg(base, 2, 3, 4, 5, 6, 7, 8, 9)
+}

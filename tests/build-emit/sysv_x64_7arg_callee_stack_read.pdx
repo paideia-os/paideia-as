@@ -1,0 +1,27 @@
+// v0.22.0 (#1326 phase 3): SysV callee-side 7-arg stack-arg intake.
+//
+// Companion fixture to sysv_x64_7arg_call.pdx (phase 2), which exercised
+// only the caller-side stack-spill (the phase-2 callee read param 0,
+// sidestepping the not-yet-implemented callee-side intake). This fixture
+// exercises the phase-3 callee-side path directly: the callee's body is a
+// bare reference to its 7th parameter (idx=6, the first stack-passed
+// param), which register_nested_lambda_params now installs as
+// BindingHome::StackSlot(16) — read back via `mov rax, [rbp+16]`.
+//
+//   1. Caller marshals 7 args (6 in registers, 1 on the stack) exactly as
+//      in phase 2.
+//   2. Callee prologue: `push rbp; mov rbp, rsp` (non-`@no_frame`,
+//      non-unsafe body — the frame-pointer prologue is emitted by default).
+//   3. Callee body: `mov rax, [rbp+16]` — loads the 7th argument.
+//   4. Callee epilogue: `mov rsp, rbp; pop rbp; ret`.
+//
+// caller_7arg(10) computes sysv_callee_7arg(10, 2, 3, 4, 5, 6, 7), which
+// must return 7 (the 7th argument) — proving the stack-slot read targets
+// the correct offset, not an unrelated register-passed param.
+module SysvX647argCalleeStackRead = structure {
+  pub let sysv_callee_7arg : (u64, u64, u64, u64, u64, u64, u64) -> u64 =
+    fn(a : u64, b : u64, c : u64, d : u64, e : u64, f : u64, g : u64) -> g
+
+  pub let caller_7arg : (u64) -> u64 =
+    fn(base : u64) -> sysv_callee_7arg(base, 2, 3, 4, 5, 6, 7)
+}

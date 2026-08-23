@@ -308,6 +308,15 @@ description = "The elaborator unconditionally suppresses the SysV frame-pointer 
 since = "0.21.0"
 deprecated = false
 
+[diagnostic.B1708]
+severity = "error"
+category = "binary"
+title = "@no_frame incompatible with >6-parameter lambda"
+brief = "a `@no_frame` (or unsafe-bodied) lambda cannot accept more than 6 parameters"
+description = "A lambda declared with `@no_frame` — or one whose body is an `unsafe { ... }` block, which never emits a frame-pointer prologue either — cannot accept more than 6 parameters. SysV stack-passed parameters (idx >= 6, paideia-as#1326) are read back at `[rbp + N]` offsets that require the frame-pointer prologue (`push rbp; mov rbp, rsp`) to be present. Remove `@no_frame`, or split the function into curried groups so each takes <= 6 params."
+since = "0.22.0"
+deprecated = false
+
 [diagnostic.P0240]
 severity = "error"
 category = "parser"

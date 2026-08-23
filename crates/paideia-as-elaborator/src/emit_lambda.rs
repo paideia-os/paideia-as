@@ -36,12 +36,46 @@ impl EmitWalker {
         self.record_lambda_entry(lambda_node_id, main_id);
 
         let cc = self.state.lambda_abi(lambda_node_id.get());
-        let src_reg = arena
+        let home = arena
             .binding_names()
             .get(body_id)
-            .and_then(|name| self.state.local_bindings.get(name))
-            .or_else(|| Self::param_index_to_reg_for_abi(cc, 0))
-            .unwrap_or(abi::RDI);
+            .and_then(|name| self.state.local_bindings.get_home(name));
+
+        // v0.22.0 (#1326 phase 3): a bare-Var lambda body (e.g. `fn (a, ...,
+        // g) -> g`) whose Var resolves to a StackSlot binding (SysV
+        // stack-passed param, idx >= 6) cannot use the `mov rax, <reg>`
+        // passthrough below — the value lives at [rbp + off], not in a
+        // register. Emit a memory load instead. Falling through to the
+        // register path's `param_index_to_reg_for_abi(cc, 0)` fallback
+        // would be actively wrong here: it always resolves to the arg-0
+        // register regardless of which param the body Var actually names.
+        if let Some(crate::local_binding_table::BindingHome::StackSlot(off)) = home {
+            let mut mov_operands: SmallVec<[Operand; 3]> = SmallVec::new();
+            mov_operands.push(Operand::Reg(abi::RAX));
+            mov_operands.push(Operand::MemSib {
+                base: abi::RBP,
+                index: None,
+                scale: paideia_as_ir::Scale::X1,
+                disp: off,
+            });
+            let mov_inst = Instruction {
+                mnemonic: Mnemonic::Mov,
+                operands: mov_operands,
+                encoding_hint: None,
+                byte_offset_in_text: None,
+                mode: self.current_mode(),
+                emission_order: 0,
+            };
+            self.emit_inst(main_id, mov_inst);
+            let ret_id = IrNodeId::new(lambda_node_id.get() * 2 + 1).expect("ret virtual id");
+            self.emit_ret(ret_id, arena);
+            return;
+        }
+
+        let src_reg = match home {
+            Some(crate::local_binding_table::BindingHome::Reg(r)) => r,
+            _ => Self::param_index_to_reg_for_abi(cc, 0).unwrap_or(abi::RDI),
+        };
 
         let mut mov_operands: SmallVec<[Operand; 3]> = SmallVec::new();
         mov_operands.push(Operand::Reg(abi::RAX));
@@ -877,6 +911,53 @@ impl EmitWalker {
                             disp: env_off + cap.offset,
                         });
                         store_ops.push(Operand::Reg(closure_reg));
+                        self.emit_inst(
+                            store_id,
+                            Instruction {
+                                mnemonic: Mnemonic::Mov,
+                                operands: store_ops,
+                                encoding_hint: None,
+                                byte_offset_in_text: None,
+                                mode: self.current_mode(),
+                                emission_order: 0,
+                            },
+                        );
+                    }
+                    BindingHome::StackSlot(rbp_off) => {
+                        // v0.22.0 (#1326 phase 3): capturing a SysV
+                        // stack-passed param (idx >= 6). Mirrors the
+                        // EnvSlot arm above but sources from [rbp +
+                        // rbp_off] instead of [r14 + outer_off].
+                        let load_id = self.alloc_synthetic_id();
+                        let mut load_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                        load_ops.push(Operand::Reg(abi::R11));
+                        load_ops.push(Operand::MemSib {
+                            base: abi::RBP,
+                            index: None,
+                            scale: paideia_as_ir::Scale::X1,
+                            disp: rbp_off,
+                        });
+                        self.emit_inst(
+                            load_id,
+                            Instruction {
+                                mnemonic: Mnemonic::Mov,
+                                operands: load_ops,
+                                encoding_hint: None,
+                                byte_offset_in_text: None,
+                                mode: self.current_mode(),
+                                emission_order: 0,
+                            },
+                        );
+
+                        let store_id = self.alloc_synthetic_id();
+                        let mut store_ops: SmallVec<[Operand; 3]> = SmallVec::new();
+                        store_ops.push(Operand::MemSib {
+                            base: abi::RSP,
+                            index: None,
+                            scale: paideia_as_ir::Scale::X1,
+                            disp: env_off + cap.offset,
+                        });
+                        store_ops.push(Operand::Reg(abi::R11));
                         self.emit_inst(
                             store_id,
                             Instruction {

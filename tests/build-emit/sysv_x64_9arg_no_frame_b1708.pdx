@@ -1,0 +1,13 @@
+// v0.22.0 (#1326 phase 3): B1708 — `@no_frame` incompatible with >6-param
+// SysV lambda.
+//
+// Same 9-arg shape as sysv_x64_9arg_callee_stack_read.pdx, but the callee
+// carries `@no_frame`. Per design/compiler/lambda-arity-stack-spill.md
+// §4.4/§11, a `@no_frame` lambda never emits the frame-pointer prologue
+// (`push rbp; mov rbp, rsp`) that idx>=6 stack-passed params are read back
+// through at `[rbp + N]` — so this combination must be refused with B1708
+// rather than silently reading garbage off an uninitialised RBP.
+module SysvX649argNoFrameB1708 = structure {
+  pub let sysv_callee_9arg_no_frame : (u64, u64, u64, u64, u64, u64, u64, u64, u64) -> u64 =
+    fn(a : u64, b : u64, c : u64, d : u64, e : u64, f : u64, g : u64, h : u64, i : u64) -> i @no_frame
+}

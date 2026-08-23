@@ -44,6 +44,16 @@ pub(crate) fn b1707_code() -> DiagnosticCode {
         .expect("B1707 is within valid B range")
 }
 
+/// Helper to construct B1708 diagnostic code.
+/// v0.22.0 (#1326 phase 3): `@no_frame` (or an unsafe body, which never
+/// emits a frame-pointer prologue either) is incompatible with a
+/// >6-parameter SysV lambda — the idx>=6 params are read back at
+/// `[rbp + N]`, which requires the frame-pointer prologue to be present.
+pub(crate) fn b1708_code() -> DiagnosticCode {
+    DiagnosticCode::new(Category::B, Severity::Error, 1708)
+        .expect("B1708 is within valid B range")
+}
+
 impl EmitWalker {
     /// Get the register for parameter index under the specified calling convention.
     ///
@@ -144,6 +154,37 @@ impl EmitWalker {
                                 current_param_index,
                                 param_name,
                                 param_reg.0,
+                                cc
+                            );
+                        }
+                    } else if cc == CallingConvention::Sysv
+                        && current_param_index >= abi::ARG_REGS.len()
+                    {
+                        // v0.22.0 (#1326 phase 3): SysV stack-passed param
+                        // (idx >= 6). Frame-pointer prologue puts the
+                        // return address at [rbp+8] and the caller's
+                        // stack args immediately above it, so param idx=6
+                        // sits at [rbp+16], idx=7 at [rbp+24], etc. (design
+                        // doc §4.4). B1708 (emitted from visit_lambda)
+                        // forbids this combination when no frame-pointer
+                        // prologue is emitted (`@no_frame` or an unsafe
+                        // body), so this binding is only ever read back
+                        // through a valid RBP.
+                        let param_name = if let Some(real_name) = arena.binding_names().get(param_node_id) {
+                            real_name.to_string()
+                        } else {
+                            format!("_param_{}", current_param_index)
+                        };
+                        let rbp_off: i32 = 16 + 8 * (current_param_index as i32 - abi::ARG_REGS.len() as i32);
+                        self.state.local_bindings.insert_stack(param_name.clone(), rbp_off);
+
+                        if cfg!(debug_assertions) {
+                            eprintln!(
+                                "[visit_lambda] Lambda {} param_index={} name={} → [rbp+{}] (StackSlot, ABI={:?})",
+                                lambda_node_id.get(),
+                                current_param_index,
+                                param_name,
+                                rbp_off,
                                 cc
                             );
                         }
@@ -355,6 +396,52 @@ impl EmitWalker {
                 .finish();
             self.structured_diagnostics.push(diag);
         }
+
+        // v0.22.0 (#1326 phase 3): B1708 — a SysV lambda with >6 params
+        // needs the frame-pointer prologue to read its idx>=6 params back
+        // at [rbp + N] (see `register_nested_lambda_params`). Neither
+        // `@no_frame` nor an unsafe body ever emits that prologue (the
+        // arm condition just below), so the combination is refused
+        // outright rather than silently reading garbage off an
+        // uninitialised RBP. Interrupt handlers are excluded: their own
+        // ISR entry-stub prologue is unrelated to this path and they are
+        // not user-arity call targets.
+        let cc = self.state.lambda_abi(lambda_node_id.get());
+        let param_count = arena
+            .lambda_params()
+            .get(lambda_node_id)
+            .map(|p| p.len())
+            .unwrap_or(0);
+        if cc == CallingConvention::Sysv
+            && param_count > abi::ARG_REGS.len()
+            && (body_is_unsafe || is_no_frame)
+            && !is_interrupt
+        {
+            let span = arena
+                .get(lambda_node_id)
+                .map(|node| node.span)
+                .unwrap_or_else(|| {
+                    paideia_as_diagnostics::Span::new(
+                        paideia_as_diagnostics::FileId::new(1).unwrap(),
+                        0,
+                        1,
+                    )
+                });
+            let diag = Diagnostic::error(b1708_code())
+                .message(format!(
+                    "`@no_frame` incompatible with >6-parameter lambda: this lambda \
+                     has {} parameters, but a `@no_frame` (or unsafe-bodied) lambda \
+                     never emits the frame-pointer prologue that idx>=6 params are \
+                     read back through at [rbp + N]; remove `@no_frame`, or split \
+                     into curried groups of <=6 params",
+                    param_count
+                ))
+                .with_span(span)
+                .finish();
+            self.structured_diagnostics.push(diag);
+            return;
+        }
+
         if !body_is_unsafe && !is_no_frame {
             self.state.arm_pending_frame_prologue(lambda_node_id.get());
         }

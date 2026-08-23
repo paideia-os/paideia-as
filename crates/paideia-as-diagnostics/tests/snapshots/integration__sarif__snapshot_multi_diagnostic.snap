@@ -2873,6 +2873,20 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
             },
             {
               "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "A lambda declared with `@no_frame` — or one whose body is an `unsafe { ... }` block, which never emits a frame-pointer prologue either — cannot accept more than 6 parameters. SysV stack-passed parameters (idx >= 6, paideia-as#1326) are read back at `[rbp + N]` offsets that require the frame-pointer prologue (`push rbp; mov rbp, rsp`) to be present. Remove `@no_frame`, or split the function into curried groups so each takes <= 6 params."
+              },
+              "helpUri": "https://paideia-os.org/diagnostics/B1708",
+              "id": "B1708",
+              "name": "@no_frame incompatible with >6-parameter lambda",
+              "shortDescription": {
+                "text": "a `@no_frame` (or unsafe-bodied) lambda cannot accept more than 6 parameters"
+              }
+            },
+            {
+              "defaultConfiguration": {
                 "level": "warning"
               },
               "fullDescription": {
