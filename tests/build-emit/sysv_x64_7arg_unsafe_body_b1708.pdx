@@ -1,0 +1,23 @@
+// v0.22.0 (#1326 phase 6): B1708 also fires for an unsafe-bodied lambda,
+// not only for an explicit `@no_frame` annotation.
+//
+// Companion to sysv_x64_9arg_no_frame_b1708.pdx (phase 3), which pinned
+// the `@no_frame` attribute path. Per design doc §4.4/§11, an unsafe body
+// suppresses the frame-pointer prologue exactly like `@no_frame` does
+// (crates/paideia-as-elaborator/src/emit_visit_lambda.rs:417 checks
+// `body_is_unsafe || is_no_frame`), so a >6-param lambda whose body is
+// `unsafe { ... }` must be refused the same way. This fixture uses the
+// minimum boundary arity (7 — the first arity at which idx=6 is
+// stack-passed) rather than 9, to pin the boundary independently of the
+// 9-arg no_frame fixture.
+module SysvX647argUnsafeBodyB1708 = structure {
+  pub let sysv_callee_7arg_unsafe : (u64, u64, u64, u64, u64, u64, u64) -> u64 !{} @{} =
+    fn(a : u64, b : u64, c : u64, d : u64, e : u64, f : u64, g : u64) -> unsafe {
+      effects: {}, capabilities: {},
+      justification: "#1326 phase 6: B1708 regression fixture for unsafe-bodied >6-arg lambda",
+      block: {
+        mov rax, 0;
+        ret
+      }
+    }
+}

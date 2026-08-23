@@ -87,6 +87,29 @@ pop r15             ; restore effect environment (2 bytes: 41 5f)
 
 This resolves **AS3** from custom-assembler.md §15: "The effect-environment pointer in R15 conflicts with the System V ABI assumption that R15 is callee-saved. The thunk-bridge logic must save R15 on entry to C and restore on exit."
 
+#### 2.3.1 SysV argument count beyond the 6 register slots (v0.22.0)
+
+The System V AMD64 ABI passes only the first 6 integer/pointer arguments
+in `rdi, rsi, rdx, rcx, r8, r9`; a 7th-and-beyond argument is passed on
+the stack, above the return address. Through v0.21.0, paideia-as's SysV
+lowering treated a 7th argument as a hard build error (P0276 at the
+parser, T0521 at the call site) rather than emitting the stack-passing
+sequence SysV actually specifies — a codegen gap, not a language-surface
+restriction (the AST and type system never encoded an arity cap).
+
+**v0.22.0 (issue #1326) removes that gap.** Lambdas of any arity now
+lower cleanly for the SysV calling convention: the caller marshals args
+0–5 into the registers above and spills args 6+ to `[rsp + 8*(i-6)]`
+before `CALL` (maintaining the ABI's 16-byte stack alignment), and the
+callee — provided its frame-pointer prologue is present, i.e. it is
+neither `@no_frame` nor unsafe-bodied (see the new **B1708** diagnostic)
+— reads them back at `[rbp + 16 + 8*(i-6)]`. This is purely additive to
+the SysV bridge described in this section; the R15 save/restore sequence
+above is unaffected by argument count.
+
+Full design, byte layout, alignment arithmetic, and the phased
+implementation record: `design/compiler/lambda-arity-stack-spill.md`.
+
 ### 2.4 Nested handlers (Phase 2 minimum)
 
 When one handler installs inside another (nested effects), the new handler's environment record points to the saved outer R15 via a `.parent` field. The `emit_handler_chain()` function emits the open sequence; link-stage constructs the parent chain. Phase-2-m11 minimum: same bytes as `emit_handler_open()`, with the `.parent` field populated at link time.
@@ -260,6 +283,7 @@ In practice:
 ## References
 
 - **custom-assembler.md §8.4–8.6:** Effect-environment pointer semantics and System V bridge.
+- **`design/compiler/lambda-arity-stack-spill.md` (v0.22.0):** SysV stack-passed arguments beyond the 6-register cap (§2.3.1 above); `@no_frame`/unsafe-body interaction (B1708).
 - **abi.md:** ELF object format, ABI versioning, cross-build smoke test.
 - **paideia-as-emitter-elf:**
   - `src/handler.rs` — handler-bracketed region code emission.

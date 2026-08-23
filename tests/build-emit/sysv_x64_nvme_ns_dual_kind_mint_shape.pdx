@@ -1,0 +1,31 @@
+// v0.22.0 (#1326 phase 6): smoke fixture mirroring the actual paideia-os
+// signature that motivated this issue.
+//
+// R51.M2 `nvme_ns_dual_kind_mint` (design/hardware/ahci-substrate.md, this
+// repo's PaideiaOS sibling) originally took 9 direct u64 args:
+//   (ns_slot, blk_slot, parent_slot, ns_rights, blk_rights,
+//    nsid, lba_size, block_count, parent_ctrl_row)
+// and was refactored down to 6 args (commit cb6291e) by packing the last
+// four fields behind a caller-owned `params_ptr` — a workaround for the
+// P0276 arity cap, not a design choice (see design doc §1, §9). This
+// fixture uses the real field names and the real arity/position split
+// (6 register args, 3 stack-passed: nsid stays register-homed as arg
+// idx=5/r9; lba_size/block_count/parent_ctrl_row are stack-passed at
+// idx=6/7/8) to pin the exact shape #1326 restores, independent of the
+// generic sysv_x64_9arg_*.pdx fixtures (phases 2/3) which use placeholder
+// a..i names.
+//
+// caller_mint(100) calls callee_mint(100, 2, 3, 4, 5, 6, 512, 1000000, 7)
+// and must return 7 (parent_ctrl_row, the last/deepest stack-passed
+// field) — proving the full 9-arg shape round-trips through both the
+// caller-side stack-spill (phase 2) and the callee-side StackSlot intake
+// (phase 3) using the real driver's field layout.
+module SysvX64NvmeNsDualKindMintShape = structure {
+  pub let callee_mint : (u64, u64, u64, u64, u64, u64, u64, u64, u64) -> u64 =
+    fn(ns_slot : u64, blk_slot : u64, parent_slot : u64, ns_rights : u64,
+       blk_rights : u64, nsid : u64, lba_size : u64, block_count : u64,
+       parent_ctrl_row : u64) -> parent_ctrl_row
+
+  pub let caller_mint : (u64) -> u64 =
+    fn(base : u64) -> callee_mint(base, 2, 3, 4, 5, 6, 512, 1000000, 7)
+}
