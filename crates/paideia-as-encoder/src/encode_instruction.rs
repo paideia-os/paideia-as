@@ -2361,6 +2361,27 @@ fn encode_add(
             add_reg64_reg64(buf, reg64_from(*dest)?, reg64_from(*src)?);
             Ok(EncodeOutput::new())
         }
+        // Issue #1328: add r64, [base + disp] — load-direction ADD from memory.
+        // Complements add r64, r64 by accepting a memory source operand, so callers
+        // no longer need to r-to-r restage via a scratch register (workaround
+        // pattern used in paideia-os sys_getdents.pdx pre-fix).
+        [Operand::Reg(dest), Operand::MemSib { base, index: None, scale: _, disp }] => {
+            add_reg64_mem_base_disp(buf, reg64_from(*dest)?, reg64_from(*base)?, *disp);
+            Ok(EncodeOutput::new())
+        }
+        // Issue #1328: add r64, [base + index*scale + disp] — SIB-indexed memory source.
+        [Operand::Reg(dest), Operand::MemSib { base, index: Some(index), scale, disp }] => {
+            let scale_bits = sib_scale_bits(*scale);
+            add_reg64_mem_sib_disp(
+                buf,
+                reg64_from(*dest)?,
+                reg64_from(*base)?,
+                reg64_from(*index)?,
+                scale_bits,
+                *disp,
+            );
+            Ok(EncodeOutput::new())
+        }
         [Operand::Reg(dest), Operand::Imm64(imm)] => {
             let dest_reg = reg64_from(*dest)?;
             let imm_i64 = *imm;
@@ -2392,7 +2413,7 @@ fn encode_add(
             Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::Unsupported(
-            "add form not supported: expected reg64,reg64 or reg64,imm64",
+            "add form not supported: expected reg64,reg64, reg64,[mem], or reg64,imm64",
         )),
     }
 }
@@ -2406,6 +2427,27 @@ fn encode_sub(
         [Operand::Reg(dest), Operand::Reg(src)] => {
             // sub r64, r64 → 48 29 <ModR/M>
             sub_reg64_reg64(buf, reg64_from(*dest)?, reg64_from(*src)?);
+            Ok(EncodeOutput::new())
+        }
+        // Issue #1328: sub r64, [base + disp] — load-direction SUB from memory.
+        // Complements sub r64, r64 by accepting a memory source operand, so callers
+        // no longer need to r-to-r restage via a scratch register (workaround
+        // pattern used in paideia-os tmpfs/vops.pdx pre-fix).
+        [Operand::Reg(dest), Operand::MemSib { base, index: None, scale: _, disp }] => {
+            sub_reg64_mem_base_disp(buf, reg64_from(*dest)?, reg64_from(*base)?, *disp);
+            Ok(EncodeOutput::new())
+        }
+        // Issue #1328: sub r64, [base + index*scale + disp] — SIB-indexed memory source.
+        [Operand::Reg(dest), Operand::MemSib { base, index: Some(index), scale, disp }] => {
+            let scale_bits = sib_scale_bits(*scale);
+            sub_reg64_mem_sib_disp(
+                buf,
+                reg64_from(*dest)?,
+                reg64_from(*base)?,
+                reg64_from(*index)?,
+                scale_bits,
+                *disp,
+            );
             Ok(EncodeOutput::new())
         }
         [Operand::Reg(dest), Operand::Imm64(imm)] => {
@@ -2432,8 +2474,25 @@ fn encode_sub(
             Ok(EncodeOutput::new())
         }
         _ => Err(EncodeError::Unsupported(
-            "sub form not supported: expected reg64,reg64 or reg64,imm64",
+            "sub form not supported: expected reg64,reg64, reg64,[mem], or reg64,imm64",
         )),
+    }
+}
+
+/// Translate a `Scale` enum into the 2-bit SIB scale field.
+///
+/// The four SIB scale factors encode as 0, 1, 2, 3 for 1x, 2x, 4x, 8x
+/// respectively (Intel SDM Vol. 2 §2.1.5). Kept as a small helper because
+/// this three-line match repeats in every SIB-taking encoder arm; centralising
+/// it lets the scale-to-bits mapping change in one place if a future extension
+/// (e.g. AVX-512 x16 gather) ever needs a wider scale field.
+#[inline]
+fn sib_scale_bits(scale: Scale) -> u8 {
+    match scale {
+        Scale::X1 => 0,
+        Scale::X2 => 1,
+        Scale::X4 => 2,
+        Scale::X8 => 3,
     }
 }
 

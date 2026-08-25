@@ -1,0 +1,42 @@
+module Imm64MountinfoShape = structure {
+  // Issue #1328: pins that a 63-bit-set imm64 mov (`mov rax, 0xFFFFFFFFFFFFFFFE`)
+  // encodes correctly at a labeled branch target inside a labeled control-flow
+  // block, exactly the shape flagged by the paideia-os
+  // `src/kernel/core/syscall/sys_mountinfo.pdx` "-ENOENT" arm at commit 706a0f4.
+  //
+  // The workaround there staged the imm through r10 (`mov r10, 0xFF...FE;
+  // mov rax, r10;`); the observation that fingered `mov rax, imm64` in this
+  // context as U1606-rejected did not reproduce against a paideia-as HEAD build
+  // once #1270's raw-asm/StmtExpr ordering fix landed. The regression below
+  // freezes the pattern (labeled targets carrying sign-bit-set imm64 movs,
+  // reached from a je / jae fall-through with prior register-manipulation
+  // arithmetic) as a byte-exact pin so any encoder-order or label-alias
+  // regression that re-surfaces the sys_mountinfo failure will trip here.
+
+  pub let mountinfo_shape : (u64, u64) -> u64 !{mem} @{} =
+    fn(idx: u64, dst: u64) -> unsafe {
+      effects: {mem}, capabilities: {},
+      justification: "#1328 regression pin: 63-bit-set imm64 mov at labeled target after je fall-through — reproduces the sys_mountinfo.pdx `smi_enoent` / `smi_esrch` return-code shape without the r10 workaround.",
+      block: {
+        cmp rdi, 8;
+        jae mi_esrch;
+
+        mov rax, rdi;
+        shr rax, 32;
+        and rax, 0xFF;
+        cmp rax, 0;
+        je mi_enoent;
+
+        xor rax, rax;
+        ret;
+
+      mi_esrch:
+        mov rax, 0xFFFFFFFFFFFFFFFD;
+        ret;
+
+      mi_enoent:
+        mov rax, 0xFFFFFFFFFFFFFFFE;
+        ret
+      }
+    }
+}

@@ -8,6 +8,7 @@ mod common;
 
 mod build_emit {
     pub mod abi_probe;
+    pub mod add_sub_mem_1328;
     pub mod array_storage_arity;
     pub mod action_bodied_lambda_first_instr;
     pub mod atomic_binding_smoke;
@@ -44,6 +45,7 @@ mod build_emit {
     pub mod field_write_u32;
     pub mod guid_inline_bytes;
     pub mod imm64_bitop_ordering;
+    pub mod imm64_mountinfo_shape_1328;
     pub mod imm64_top_bit;
     pub mod include_bytes_probe;
     pub mod include_str_probe;

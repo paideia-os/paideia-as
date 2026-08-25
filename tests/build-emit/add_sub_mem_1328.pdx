@@ -1,0 +1,61 @@
+module AddSubMem = structure {
+  // Issue #1328: exercises `add r64, [mem]` and `sub r64, [mem]` end-to-end
+  // via the encoder — the two operand shapes that used to trip B1705
+  // (Unsupported("add form not supported…" / "sub form not supported…"))
+  // and forced paideia-os to r-to-r restage through a scratch register
+  // (`sys_getdents.pdx`, `tmpfs/vops.pdx` pre-#1328).
+  //
+  // The two body shapes below match the pre-fix workaround sites verbatim:
+  //
+  //   sys_getdents.pdx (pre-#1328):
+  //     mov r10, [rbp - 64];
+  //     add r8, r10;
+  //   after #1328:
+  //     add r8, [rbp - 64];
+  //
+  //   tmpfs/vops.pdx (pre-#1328):
+  //     mov rcx, [rsp + 24];
+  //     sub rax, rcx;
+  //   after #1328:
+  //     sub rax, [rsp + 24];
+
+  pub let add_r8_from_stack : () -> u64 !{mem} @{} =
+    fn () -> unsafe {
+      effects: {mem}, capabilities: {},
+      justification: "#1328: encoder accepts `add r64, [base+disp]` — mirrors paideia-os sys_getdents.pdx pre-fix workaround.",
+      block: {
+        add r8, [rbp - 64];
+        ret
+      }
+    }
+
+  pub let sub_rax_from_stack : () -> u64 !{mem} @{} =
+    fn () -> unsafe {
+      effects: {mem}, capabilities: {},
+      justification: "#1328: encoder accepts `sub r64, [base+disp]` — mirrors paideia-os tmpfs/vops.pdx pre-fix workaround.",
+      block: {
+        sub rax, [rsp + 24];
+        ret
+      }
+    }
+
+  pub let add_sib_scale_4 : () -> u64 !{mem} @{} =
+    fn () -> unsafe {
+      effects: {mem}, capabilities: {},
+      justification: "#1328: encoder accepts `add r64, [base + index*scale + disp]` SIB form.",
+      block: {
+        add rax, [rbx + rcx*4 + 16];
+        ret
+      }
+    }
+
+  pub let sub_sib_extended : () -> u64 !{mem} @{} =
+    fn () -> unsafe {
+      effects: {mem}, capabilities: {},
+      justification: "#1328: encoder accepts `sub r64, [base + index*scale]` SIB form across the r8-r15 extension frontier.",
+      block: {
+        sub r12, [r8 + r9*8];
+        ret
+      }
+    }
+}

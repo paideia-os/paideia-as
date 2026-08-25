@@ -395,6 +395,90 @@ pub fn sub_reg64_reg64(buf: &mut CodeBuffer, dst: Reg64, src: Reg64) {
     buf.bytes.push(0xC0 | ((src_id & 7) << 3) | (dst_id & 7));
 }
 
+/// Encode `add reg64, [base + disp]` (add from memory) — issue #1328.
+///
+/// Instruction: REX.W 03 /r
+/// ModR/M+SIB: emit_mem_base_disp with dst in reg field
+/// The `03` opcode is the load direction (r64, r/m64); `01` is the store form
+/// used by add_reg64_reg64 for (r/m64, r64).
+pub fn add_reg64_mem_base_disp(buf: &mut CodeBuffer, dst: Reg64, base: Reg64, disp: i32) {
+    let dst_id = dst as u8;
+    let base_id = base as u8;
+    let rex_byte = rex(true, (dst_id >> 3) != 0, false, (base_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x03);
+    emit_mem_base_disp(buf, dst_id & 7, base_id, disp);
+}
+
+/// Encode `add reg64, [base + index*scale + disp]` (SIB load) — issue #1328.
+///
+/// Instruction: REX.W 03 /r SIB [disp]
+/// REX: W set for 64-bit, R for dst in r8..r15, X for index in r8..r15,
+/// B for base in r8..r15.
+pub fn add_reg64_mem_sib_disp(
+    buf: &mut CodeBuffer,
+    dst: Reg64,
+    base: Reg64,
+    index: Reg64,
+    scale_bits: u8,
+    disp: i32,
+) {
+    let dst_id = dst as u8;
+    let base_id = base as u8;
+    let index_id = index as u8;
+    let rex_byte = rex(
+        true,
+        (dst_id >> 3) != 0,
+        (index_id >> 3) != 0,
+        (base_id >> 3) != 0,
+    );
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x03);
+    emit_mem_sib_disp(buf, dst_id & 7, base_id, index_id, scale_bits, disp);
+}
+
+/// Encode `sub reg64, [base + disp]` (subtract from memory) — issue #1328.
+///
+/// Instruction: REX.W 2B /r
+/// ModR/M+SIB: emit_mem_base_disp with dst in reg field
+/// The `2B` opcode is the load direction (r64, r/m64); `29` is the store form
+/// used by sub_reg64_reg64 for (r/m64, r64).
+pub fn sub_reg64_mem_base_disp(buf: &mut CodeBuffer, dst: Reg64, base: Reg64, disp: i32) {
+    let dst_id = dst as u8;
+    let base_id = base as u8;
+    let rex_byte = rex(true, (dst_id >> 3) != 0, false, (base_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x2B);
+    emit_mem_base_disp(buf, dst_id & 7, base_id, disp);
+}
+
+/// Encode `sub reg64, [base + index*scale + disp]` (SIB load) — issue #1328.
+///
+/// Instruction: REX.W 2B /r SIB [disp]
+/// REX: W set for 64-bit, R for dst in r8..r15, X for index in r8..r15,
+/// B for base in r8..r15.
+pub fn sub_reg64_mem_sib_disp(
+    buf: &mut CodeBuffer,
+    dst: Reg64,
+    base: Reg64,
+    index: Reg64,
+    scale_bits: u8,
+    disp: i32,
+) {
+    let dst_id = dst as u8;
+    let base_id = base as u8;
+    let index_id = index as u8;
+    let rex_byte = rex(
+        true,
+        (dst_id >> 3) != 0,
+        (index_id >> 3) != 0,
+        (base_id >> 3) != 0,
+    );
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0x2B);
+    emit_mem_sib_disp(buf, dst_id & 7, base_id, index_id, scale_bits, disp);
+}
+
 /// Encode `adc reg64, reg64` (add with carry).
 ///
 /// Instruction: REX.W 13 /r
