@@ -41,7 +41,7 @@ use paideia_as_diagnostics::{
     Category, Diagnostic, DiagnosticCode, DiagnosticSink, Severity, Span,
 };
 use paideia_as_ir::instruction::{
-    Cond, CpuFeature, InstrMode, Instruction, IntWidth, Mnemonic, Operand, RegId,
+    Cond, CpuFeature, EncodingHint, InstrMode, Instruction, IntWidth, Mnemonic, Operand, RegId,
 };
 use paideia_as_ir::record_layout::{RecordLayout, RecordTypeId};
 use paideia_as_ir::{IrArena, IrNodeId, SmallVec};
@@ -326,6 +326,17 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     ("vpxor", Mnemonic::Vpxor),
     ("vpcmpeqb", Mnemonic::Vpcmpeqb),
     ("vpmovmskb", Mnemonic::Vpmovmskb),
+    // Phase R68 (paideia-os #1861, paideia-as #1329): movzx/movsx
+    // reg-to-reg mnemonics. Mnemonic::Movzx/Movsx and their encoders
+    // (encode_movzx/encode_movsx in paideia-as-encoder) have existed since
+    // Phase 13 m6-001 for field-access lowering, and stdlib_lowering
+    // constructs them directly — but no MNEMONIC_TABLE row ever wired the
+    // canonical `movzx`/`movsx` spellings into the unsafe-block parser, so
+    // no .pdx source could spell them directly. Same "fully-encoded but
+    // unreachable from .pdx" gap as `not` (#1311) above; mkfs-pdxb's
+    // decimal-parse loop (main.pdx) is the first source to hit it.
+    ("movzx", Mnemonic::Movzx),
+    ("movsx", Mnemonic::Movsx),
 ];
 
 /// Resolve a mnemonic name to an IR Mnemonic enum variant.
@@ -1173,6 +1184,55 @@ impl UnsafeWalker {
             }
         }
 
+        // Phase R68 (paideia-os #1861, paideia-as #1329): movzx/movsx
+        // reg-to-reg source-width recovery.
+        //
+        // Mnemonic::Movzx/Movsx are two-operand (dst64, src) forms whose
+        // encoders (encode_movzx/encode_movsx) read the source width from
+        // `Instruction::encoding_hint.operand_size`, defaulting to 1
+        // (movzx) or 4 (movsx) when absent. Register-name-to-RegId
+        // collapses sub-register spellings onto the 64-bit RegId (al/ax/
+        // eax/rax all -> RegId(0)), so — exactly as CmpSized/MovSized do
+        // above — the true source width has to be recovered from the
+        // register *name*, not the collapsed RegId.
+        //
+        // Only the register-to-register shape is handled: a memory source
+        // (`movzx rax, [mem]`) has no register name to recover width from
+        // and would need a width-suffixed mnemonic (mirroring mov_b/
+        // mov_w) as a separate follow-up. Widths outside each mnemonic's
+        // real repertoire (movzx: 8/16-bit source only — a 32-bit source
+        // zero-extends for free via a plain `mov r32, r32`, per
+        // encode.rs's movzx_reg64 docs; movsx: 8/16/32-bit source, never
+        // 64) are left unset, falling back to the encoder's existing
+        // default rather than mis-encoding.
+        let mut movx_encoding_hint: Option<EncodingHint> = None;
+        if matches!(mnemonic, Mnemonic::Movzx | Mnemonic::Movsx) {
+            if let [Operand::Reg(_), Operand::Reg(_)] = parsed_operands.as_slice() {
+                if let Some(width) = operand_ids
+                    .get(1)
+                    .and_then(|&id| get_register_name(ast, id, source_map))
+                    .and_then(|name| register_name_width(&name))
+                {
+                    let valid = match mnemonic {
+                        Mnemonic::Movzx => matches!(width, IntWidth::W8 | IntWidth::W16),
+                        Mnemonic::Movsx => {
+                            matches!(width, IntWidth::W8 | IntWidth::W16 | IntWidth::W32)
+                        }
+                        _ => false,
+                    };
+                    if valid {
+                        let operand_size = match width {
+                            IntWidth::W8 => 1,
+                            IntWidth::W16 => 2,
+                            IntWidth::W32 => 4,
+                            IntWidth::W64 => 8,
+                        };
+                        movx_encoding_hint = Some(EncodingHint { opcode: 0, operand_size });
+                    }
+                }
+            }
+        }
+
         // Phase 6 m4-005: Validate SymbolRef operands.
         // SymbolRef is only supported for call/jmp mnemonics. If a bare-identifier symbol
         // was parsed as SymbolRef for a different mnemonic, emit U1611.
@@ -1394,7 +1454,7 @@ impl UnsafeWalker {
             let inst = Instruction {
                 mnemonic,
                 operands: parsed_operands,
-                encoding_hint: None,
+                encoding_hint: movx_encoding_hint,
                 byte_offset_in_text: None,
                 mode: instr_mode,
                 emission_order,
@@ -1707,6 +1767,20 @@ mod tests {
     #[test]
     fn resolve_mnemonic_vpmovmskb() {
         assert_eq!(resolve_mnemonic("vpmovmskb"), Some(Mnemonic::Vpmovmskb));
+    }
+
+    #[test]
+    // paideia-os #1861, paideia-as #1329: movzx/movsx were fully encoded
+    // (Phase 13 m6-001) but unreachable from .pdx source before this row
+    // landed in MNEMONIC_TABLE.
+    fn resolve_mnemonic_movzx() {
+        assert_eq!(resolve_mnemonic("movzx"), Some(Mnemonic::Movzx));
+        assert_eq!(resolve_mnemonic("MOVZX"), Some(Mnemonic::Movzx));
+    }
+
+    #[test]
+    fn resolve_mnemonic_movsx() {
+        assert_eq!(resolve_mnemonic("movsx"), Some(Mnemonic::Movsx));
     }
 
     #[test]

@@ -13,3 +13,4 @@ mod mov_narrow;
 mod mov_q_mmio_atomic_1315;
 mod mov_r32_load;
 mod movnti_store;
+mod movzx_movsx_reg_1329;
