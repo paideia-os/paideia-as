@@ -207,14 +207,14 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             // identifier is expected (e.g. `let loop = 42`), spell that out
             // and hint at the workaround. The bare "found `loop`" was
             // confusing — it didn't say *why* `loop` couldn't work.
+            //
+            // #1327: routed through `reserved_keyword_hint` so `expect` and
+            // `error_expected_expression` share one wording and one keyword
+            // table — no more diverging "reserved keyword" surfaces.
             let msg = if kind == TokenKind::Ident
-                && let Some(kw_text) = keyword_source_text(actual)
+                && let Some(hint) = reserved_keyword_hint(actual, "identifier")
             {
-                format!(
-                    "`{}` is a reserved keyword and cannot be used as an identifier — \
-                     rename it (e.g. `{}_` or a namespaced form like `fn_{}` )",
-                    kw_text, kw_text, kw_text
-                )
+                hint
             } else if actual == TokenKind::Eof
                 && matches!(kind, TokenKind::RBrace | TokenKind::RParen | TokenKind::RBracket)
             {
@@ -364,11 +364,24 @@ fn p_code(n: u16) -> DiagnosticCode {
 
 /// #1263: if `kind` is a reserved keyword variant, return its source
 /// spelling (without backticks). Non-keyword variants return None.
-/// Used by `expect(Ident)` to enhance the P0100 diagnostic when a user
-/// tries to write a keyword where an identifier is required.
-fn keyword_source_text(kind: TokenKind) -> Option<&'static str> {
+/// Used by `expect(Ident)` (and, via [`reserved_keyword_hint`], by
+/// `error_expected_expression`) to enhance P0100 diagnostics when a user
+/// tries to write a keyword where an identifier / expression is required.
+///
+/// #1327 (extension): the mapping must cover **every** `Kw*` variant the
+/// lexer produces. The mount.pdx regression was a `record` binding — a
+/// keyword since #637 — that hit the `_ => None` fallback and degraded
+/// the diagnostic to "found token", stripping the actionable hint. Any
+/// future keyword added to `paideia_as_lexer::keyword_kind` must be
+/// mirrored here — the `_ => None` catchall stays because non-keyword
+/// variants (`Ident`, `Plus`, …) need it, so the match is not compiler-
+/// enforced to be exhaustive over `Kw*`. Backstop:
+/// `keyword_source_text_covers_every_reserved_word` walks
+/// `paideia_as_lexer::RESERVED_WORDS` at test time and fails on any gap.
+pub(crate) fn keyword_source_text(kind: TokenKind) -> Option<&'static str> {
     use TokenKind::*;
     match kind {
+        // Item declarations
         KwLet => Some("let"),
         KwFn => Some("fn"),
         KwModule => Some("module"),
@@ -381,6 +394,7 @@ fn keyword_source_text(kind: TokenKind) -> Option<&'static str> {
         KwImport => Some("import"),
         KwExport => Some("export"),
         KwPub => Some("pub"),
+        // Control flow
         KwIf => Some("if"),
         KwElse => Some("else"),
         KwMatch => Some("match"),
@@ -394,40 +408,95 @@ fn keyword_source_text(kind: TokenKind) -> Option<&'static str> {
         KwContinue => Some("continue"),
         KwReturn => Some("return"),
         KwYield => Some("yield"),
+        // Effect system (action blocks)
         KwAction => Some("action"),
+        // Type system
         KwType => Some("type"),
         KwEnum => Some("enum"),
         KwStruct => Some("struct"),
+        // #1327: `record` was made reserved by #637 (m7-001, record-type
+        // grammar). Missing from this table caused mount.pdx's
+        // `pub let mut record : ... = uninit @align(8)` to emit
+        // "expected identifier, found token" instead of the actionable
+        // reserved-keyword hint.
+        KwRecord => Some("record"),
         KwTrait => Some("trait"),
+        KwImpl => Some("impl"),
         KwWhere => Some("where"),
         KwForall => Some("forall"),
         KwOrdered => Some("ordered"),
         KwLinear => Some("linear"),
         KwAffine => Some("affine"),
         KwUnrestricted => Some("unrestricted"),
+        // Effect system
         KwPerform => Some("perform"),
         KwResume => Some("resume"),
         KwFinally => Some("finally"),
+        // Substructural / unsafe
         KwUnsafe => Some("unsafe"),
         KwMove => Some("move"),
         KwBorrow => Some("borrow"),
         KwConsume => Some("consume"),
         KwDrop => Some("drop"),
         KwOwn => Some("own"),
+        KwMut => Some("mut"),
+        // Literals and constants
         KwTrue => Some("true"),
         KwFalse => Some("false"),
         KwNull => Some("null"),
         KwSelfType => Some("Self"),
         KwSelfValue => Some("self"),
+        // Memory and addressing
         KwSizeof => Some("sizeof"),
         KwAlignof => Some("alignof"),
         KwOffsetof => Some("offsetof"),
         KwAsm => Some("asm"),
+        // Module operations
         KwIn => Some("in"),
         KwAs => Some("as"),
         KwUse => Some("use"),
+        // Future reservations (paideia-as §3.4): parser has no dispatch
+        // for these yet, but the lexer already claims them — so a user
+        // writing `let async = 42` deserves the same actionable hint as
+        // any other reserved-word collision.
+        KwAbstract => Some("abstract"),
+        KwAsync => Some("async"),
+        KwAwait => Some("await"),
+        KwCoroutine => Some("coroutine"),
+        KwDeriving => Some("deriving"),
+        KwDyn => Some("dyn"),
+        KwImplicit => Some("implicit"),
+        KwLemma => Some("lemma"),
+        KwProof => Some("proof"),
+        KwReflect => Some("reflect"),
+        KwVirtual => Some("virtual"),
         _ => None,
     }
+}
+
+/// #1327: shared "reserved keyword" hint used by both `expect(Ident)` and
+/// `error_expected_expression`. Returns `Some(msg)` when `kind` is a
+/// reserved-word variant per [`keyword_source_text`], where `msg` names
+/// the offender and suggests a rename. `context` names the syntactic
+/// slot the token appeared in (`"identifier"`, `"expression"`, …) so the
+/// wording lands in the right register.
+pub(crate) fn reserved_keyword_hint(kind: TokenKind, context: &str) -> Option<String> {
+    keyword_source_text(kind).map(|kw_text| {
+        format!(
+            "`{}` is a reserved keyword and cannot be used as {} — \
+             rename it (e.g. `{}_` or a namespaced form like `fn_{}`)",
+            kw_text,
+            match context {
+                // Small article agreement so the message reads naturally
+                // without callers having to think about it.
+                "identifier" => "an identifier",
+                "expression" => "the start of an expression",
+                other => other,
+            },
+            kw_text,
+            kw_text
+        )
+    })
 }
 
 /// Human-readable label for a TokenKind. Used in P0100 error messages.
@@ -466,7 +535,12 @@ fn debug_kind(kind: TokenKind) -> &'static str {
         KwType => "`type`",
         KwEnum => "`enum`",
         KwStruct => "`struct`",
+        // #1327: KwRecord / KwImpl were previously falling through to
+        // "token", which hid the actual token identity in every P0100
+        // "expected X, found <kind>" message downstream of them.
+        KwRecord => "`record`",
         KwTrait => "`trait`",
+        KwImpl => "`impl`",
         KwWhere => "`where`",
         KwForall => "`forall`",
         KwOrdered => "`ordered`",
@@ -482,6 +556,8 @@ fn debug_kind(kind: TokenKind) -> &'static str {
         KwConsume => "`consume`",
         KwDrop => "`drop`",
         KwOwn => "`own`",
+        // #1327: KwMut previously fell through to "token".
+        KwMut => "`mut`",
         KwTrue => "`true`",
         KwFalse => "`false`",
         KwNull => "`null`",
@@ -699,5 +775,35 @@ mod tests {
         p.bump();
         let next = p.expect(TokenKind::KwLet);
         assert!(next.is_ok());
+    }
+
+    /// #1327 backstop: `keyword_source_text` must cover every reserved
+    /// word the lexer knows. This walks `paideia_as_lexer::RESERVED_WORDS`
+    /// — the canonical §3.4 list — resolves each spelling through the
+    /// lexer's `keyword_kind`, and asserts the parser side echoes the
+    /// same spelling. A `Kw*` variant added upstream without a matching
+    /// row here (the mount.pdx `record` regression) fails this test with
+    /// the offender named.
+    #[test]
+    fn keyword_source_text_covers_every_reserved_word() {
+        use paideia_as_lexer::{RESERVED_WORDS, keyword_kind};
+
+        for &word in RESERVED_WORDS {
+            let kind = keyword_kind(word)
+                .unwrap_or_else(|| panic!("lexer does not map reserved word {:?}", word));
+            let got = keyword_source_text(kind).unwrap_or_else(|| {
+                panic!(
+                    "keyword_source_text missing an entry for {:?} ({:?}) — \
+                     add a row so `expect(Ident)` / `error_expected_expression` \
+                     emit the actionable reserved-keyword hint",
+                    word, kind
+                )
+            });
+            assert_eq!(
+                got, word,
+                "keyword_source_text({:?}) returned {:?}, expected {:?}",
+                kind, got, word
+            );
+        }
     }
 }

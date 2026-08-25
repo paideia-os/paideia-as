@@ -9,7 +9,7 @@ use paideia_as_ast::{ExprData, NodeKind};
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
 use paideia_as_lexer::{TokenKind, extract_byte_string_content, extract_string_content};
 
-use crate::parser::{ParseError, Parser};
+use crate::parser::{ParseError, Parser, reserved_keyword_hint};
 
 mod embed;
 
@@ -663,16 +663,26 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
     }
 
     /// Emit a P0100 ("expected expression") diagnostic and return `Err(ParseError)`.
+    ///
+    /// #1327: when the offending token is a reserved keyword — the common
+    /// case for the mount.pdx-style regression `[rip + record]`, where
+    /// `record` was made reserved by #637 — extend the message with the
+    /// same actionable "rename it" hint that #1263 established for
+    /// `expect(Ident)`. The bare "expected expression" caret pointed at a
+    /// keyword told the user nothing about *why* their symbol reference
+    /// failed to parse.
     fn error_expected_expression(&mut self) -> Result<paideia_as_ast::NodeId, ParseError> {
-        let span = if let Some(tok) = self.peek() {
-            tok.span
+        let (span, msg) = if let Some(tok) = self.peek() {
+            let msg = reserved_keyword_hint(tok.kind, "expression")
+                .unwrap_or_else(|| "expected expression".to_string());
+            (tok.span, msg)
         } else {
             // At EOF: use a zero-width span at byte 0
-            Span::new(self.file(), 0, 0)
+            (Span::new(self.file(), 0, 0), "expected expression".to_string())
         };
 
         let diag = Diagnostic::error(p_code(100))
-            .message("expected expression".to_string())
+            .message(msg)
             .with_span(span)
             .finish();
         self.emit_diagnostic(diag);
