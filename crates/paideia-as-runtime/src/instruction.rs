@@ -584,6 +584,63 @@ pub enum Mnemonic {
         /// True for store form ([mem] ← ymm), false for load form (ymm ← [mem] or ymm ← ymm).
         is_store: bool,
     },
+    /// Move scalar double-precision: `movsd xmm1, xmm2` (paideia-os #1333, paideia-as#1333).
+    /// Encoding: `F2 0F 10 /r` per Intel SDM Vol 2A MOVSD. Register-register only
+    /// (memory-operand forms deferred). Two operands (dst xmm, src xmm).
+    MovSd,
+    /// Move scalar single-precision: `movss xmm1, xmm2` (paideia-as#1333).
+    /// Encoding: `F3 0F 10 /r` per Intel SDM Vol 2A MOVSS. Register-register only.
+    MovSs,
+    /// Scalar double-precision add: `addsd xmm1, xmm2` — `F2 0F 58 /r`.
+    AddSd,
+    /// Scalar single-precision add: `addss xmm1, xmm2` — `F3 0F 58 /r`.
+    AddSs,
+    /// Scalar double-precision subtract: `subsd xmm1, xmm2` — `F2 0F 5C /r`.
+    SubSd,
+    /// Scalar single-precision subtract: `subss xmm1, xmm2` — `F3 0F 5C /r`.
+    SubSs,
+    /// Scalar double-precision multiply: `mulsd xmm1, xmm2` — `F2 0F 59 /r`.
+    MulSd,
+    /// Scalar single-precision multiply: `mulss xmm1, xmm2` — `F3 0F 59 /r`.
+    MulSs,
+    /// Scalar double-precision divide: `divsd xmm1, xmm2` — `F2 0F 5E /r`.
+    DivSd,
+    /// Scalar single-precision divide: `divss xmm1, xmm2` — `F3 0F 5E /r`.
+    DivSs,
+    /// Scalar double-precision square root: `sqrtsd xmm1, xmm2` — `F2 0F 51 /r`.
+    Sqrtsd,
+    /// Scalar single-precision square root: `sqrtss xmm1, xmm2` — `F3 0F 51 /r`.
+    Sqrtss,
+    /// Unordered scalar double-precision compare: `ucomisd xmm1, xmm2` — `66 0F 2E /r`.
+    Ucomisd,
+    /// Unordered scalar single-precision compare: `ucomiss xmm1, xmm2` — `0F 2E /r`.
+    Ucomiss,
+    /// Ordered scalar double-precision compare: `comisd xmm1, xmm2` — `66 0F 2F /r`.
+    Comisd,
+    /// Ordered scalar single-precision compare: `comiss xmm1, xmm2` — `0F 2F /r`.
+    Comiss,
+    /// Convert signed int64 to scalar double: `cvtsi2sd xmm1, r64` — `F2 REX.W 0F 2A /r`.
+    Cvtsi2sd,
+    /// Convert signed int64 to scalar single: `cvtsi2ss xmm1, r64` — `F3 REX.W 0F 2A /r`.
+    Cvtsi2ss,
+    /// Convert (truncating) scalar double to signed int64: `cvttsd2si r64, xmm1` — `F2 REX.W 0F 2C /r`.
+    Cvttsd2si,
+    /// Convert (truncating) scalar single to signed int64: `cvttss2si r64, xmm1` — `F3 REX.W 0F 2C /r`.
+    Cvttss2si,
+    /// Bitcast move between a 32-bit GPR and the low dword of an XMM register
+    /// (int/f32 bitcast): `movd xmm, r32` / `movd r32, xmm` — `66 0F 6E/7E /r`.
+    MovdBitcast {
+        /// True: load into xmm (`66 0F 6E /r`, operands `[xmm dst, r32 src]`).
+        /// False: store from xmm (`66 0F 7E /r`, operands `[r32 dst, xmm src]`).
+        to_xmm: bool,
+    },
+    /// Bitcast move between a 64-bit GPR and an XMM register (int/f64 bitcast):
+    /// `movq xmm, r64` / `movq r64, xmm` — `66 REX.W 0F 6E/7E /r`.
+    MovqBitcast {
+        /// True: load into xmm (`66 REX.W 0F 6E /r`, operands `[xmm dst, r64 src]`).
+        /// False: store from xmm (`66 REX.W 0F 7E /r`, operands `[r64 dst, xmm src]`).
+        to_xmm: bool,
+    },
 }
 
 /// Integer operand width for width-threaded immediate moves.
@@ -842,8 +899,20 @@ pub enum Operand {
 
 /// x86_64 register identifier.
 ///
-/// Valid range: 0..15 for RAX..R15. Encoder side handles the actual
-/// register-encoding lookup table.
+/// Compact encoding (see `unsafe_walker::register::register_name_to_regid` for
+/// the authoritative name table):
+/// - 0–15: GPR (RAX–R15)
+/// - 16–24: control registers (CR0–CR8)
+/// - 25–32: debug registers (DR0–DR7)
+/// - 33–36: extended low-byte GPRs (SPL/BPL/SIL/DIL)
+/// - 37–52: YMM0–YMM15 (AVX2, issue #1004)
+/// - 53–68: XMM0–XMM15 (scalar SSE float, paideia-os #1333 / paideia-as#1333).
+///   Kept disjoint from the YMM band even though XMM and YMM name the same
+///   physical register file — the two bands select different encoder paths
+///   (legacy-SSE non-VEX vs. VEX-prefixed AVX2), so collapsing them would
+///   make the mnemonic ambiguous from the RegId alone.
+///
+/// Encoder side handles the actual register-encoding lookup table.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct RegId(pub u8);
 
@@ -1022,6 +1091,30 @@ impl Mnemonic {
 
             // Zero-operand instructions (continued)
             Mnemonic::Mfence => 0,
+
+            // Scalar SSE float instructions (paideia-os #1333, paideia-as#1333): all two-operand.
+            Mnemonic::MovSd
+            | Mnemonic::MovSs
+            | Mnemonic::AddSd
+            | Mnemonic::AddSs
+            | Mnemonic::SubSd
+            | Mnemonic::SubSs
+            | Mnemonic::MulSd
+            | Mnemonic::MulSs
+            | Mnemonic::DivSd
+            | Mnemonic::DivSs
+            | Mnemonic::Sqrtsd
+            | Mnemonic::Sqrtss
+            | Mnemonic::Ucomisd
+            | Mnemonic::Ucomiss
+            | Mnemonic::Comisd
+            | Mnemonic::Comiss
+            | Mnemonic::Cvtsi2sd
+            | Mnemonic::Cvtsi2ss
+            | Mnemonic::Cvttsd2si
+            | Mnemonic::Cvttss2si
+            | Mnemonic::MovdBitcast { .. }
+            | Mnemonic::MovqBitcast { .. } => 2,
         }
     }
 
@@ -1337,6 +1430,33 @@ impl Mnemonic {
             Mnemonic::Vpcmpeqb => 7,
             Mnemonic::Vpmovmskb => 7,
             Mnemonic::Vmovdqu { .. } => 11,
+
+            // paideia-os #1333, paideia-as#1333: scalar SSE float, register-register
+            // only. Upper bound: mandatory prefix (1) + REX (1) + 0F (1) + opcode (1)
+            // + ModR/M (1) = 5 bytes (ucomiss/comiss have no mandatory prefix, so
+            // their real max is 4; 5 stays a safe conservative bound).
+            Mnemonic::MovSd
+            | Mnemonic::MovSs
+            | Mnemonic::AddSd
+            | Mnemonic::AddSs
+            | Mnemonic::SubSd
+            | Mnemonic::SubSs
+            | Mnemonic::MulSd
+            | Mnemonic::MulSs
+            | Mnemonic::DivSd
+            | Mnemonic::DivSs
+            | Mnemonic::Sqrtsd
+            | Mnemonic::Sqrtss
+            | Mnemonic::Ucomisd
+            | Mnemonic::Ucomiss
+            | Mnemonic::Comisd
+            | Mnemonic::Comiss
+            | Mnemonic::Cvtsi2sd
+            | Mnemonic::Cvtsi2ss
+            | Mnemonic::Cvttsd2si
+            | Mnemonic::Cvttss2si
+            | Mnemonic::MovdBitcast { .. }
+            | Mnemonic::MovqBitcast { .. } => 5,
         }
     }
 }

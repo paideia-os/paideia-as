@@ -190,6 +190,30 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         | Mnemonic::Vpcmpeqb
         | Mnemonic::Vpmovmskb
         | Mnemonic::Vmovdqu { .. } => InstructionClass::Other,
+        // paideia-os #1333, paideia-as#1333: scalar SSE float — register-register
+        // ALU ops (same latency class as their integer AluReg counterparts above).
+        Mnemonic::MovSd
+        | Mnemonic::MovSs
+        | Mnemonic::AddSd
+        | Mnemonic::AddSs
+        | Mnemonic::SubSd
+        | Mnemonic::SubSs
+        | Mnemonic::MulSd
+        | Mnemonic::MulSs
+        | Mnemonic::DivSd
+        | Mnemonic::DivSs
+        | Mnemonic::Sqrtsd
+        | Mnemonic::Sqrtss
+        | Mnemonic::Ucomisd
+        | Mnemonic::Ucomiss
+        | Mnemonic::Comisd
+        | Mnemonic::Comiss
+        | Mnemonic::Cvtsi2sd
+        | Mnemonic::Cvtsi2ss
+        | Mnemonic::Cvttsd2si
+        | Mnemonic::Cvttss2si
+        | Mnemonic::MovdBitcast { .. }
+        | Mnemonic::MovqBitcast { .. } => InstructionClass::AluReg,
     }
 }
 

@@ -463,6 +463,156 @@ fn encode_instruction_impl(
         Mnemonic::Vpcmpeqb => encode_vpcmpeqb(inst, buf),
         Mnemonic::Vpmovmskb => encode_vpmovmskb(inst, buf),
         Mnemonic::Vmovdqu { is_store } => encode_vmovdqu(inst, buf, *is_store),
+        // paideia-os #1333, paideia-as#1333: scalar SSE float (register-register).
+        Mnemonic::MovSd => encode_sse_xmm_xmm(inst, Mnemonic::MovSd, Some(0xF2), 0x10, buf),
+        Mnemonic::MovSs => encode_sse_xmm_xmm(inst, Mnemonic::MovSs, Some(0xF3), 0x10, buf),
+        Mnemonic::AddSd => encode_sse_xmm_xmm(inst, Mnemonic::AddSd, Some(0xF2), 0x58, buf),
+        Mnemonic::AddSs => encode_sse_xmm_xmm(inst, Mnemonic::AddSs, Some(0xF3), 0x58, buf),
+        Mnemonic::SubSd => encode_sse_xmm_xmm(inst, Mnemonic::SubSd, Some(0xF2), 0x5C, buf),
+        Mnemonic::SubSs => encode_sse_xmm_xmm(inst, Mnemonic::SubSs, Some(0xF3), 0x5C, buf),
+        Mnemonic::MulSd => encode_sse_xmm_xmm(inst, Mnemonic::MulSd, Some(0xF2), 0x59, buf),
+        Mnemonic::MulSs => encode_sse_xmm_xmm(inst, Mnemonic::MulSs, Some(0xF3), 0x59, buf),
+        Mnemonic::DivSd => encode_sse_xmm_xmm(inst, Mnemonic::DivSd, Some(0xF2), 0x5E, buf),
+        Mnemonic::DivSs => encode_sse_xmm_xmm(inst, Mnemonic::DivSs, Some(0xF3), 0x5E, buf),
+        Mnemonic::Sqrtsd => encode_sse_xmm_xmm(inst, Mnemonic::Sqrtsd, Some(0xF2), 0x51, buf),
+        Mnemonic::Sqrtss => encode_sse_xmm_xmm(inst, Mnemonic::Sqrtss, Some(0xF3), 0x51, buf),
+        Mnemonic::Ucomisd => encode_sse_xmm_xmm(inst, Mnemonic::Ucomisd, Some(0x66), 0x2E, buf),
+        Mnemonic::Ucomiss => encode_sse_xmm_xmm(inst, Mnemonic::Ucomiss, None, 0x2E, buf),
+        Mnemonic::Comisd => encode_sse_xmm_xmm(inst, Mnemonic::Comisd, Some(0x66), 0x2F, buf),
+        Mnemonic::Comiss => encode_sse_xmm_xmm(inst, Mnemonic::Comiss, None, 0x2F, buf),
+        Mnemonic::Cvtsi2sd => encode_cvtsi2s_inst(inst, Mnemonic::Cvtsi2sd, 0xF2, buf),
+        Mnemonic::Cvtsi2ss => encode_cvtsi2s_inst(inst, Mnemonic::Cvtsi2ss, 0xF3, buf),
+        Mnemonic::Cvttsd2si => encode_cvtts2si_inst(inst, Mnemonic::Cvttsd2si, 0xF2, buf),
+        Mnemonic::Cvttss2si => encode_cvtts2si_inst(inst, Mnemonic::Cvttss2si, 0xF3, buf),
+        Mnemonic::MovdBitcast { to_xmm } => encode_movd_bitcast_inst(inst, *to_xmm, buf),
+        Mnemonic::MovqBitcast { to_xmm } => encode_movq_bitcast_inst(inst, *to_xmm, buf),
+    }
+}
+
+/// paideia-os #1333, paideia-as#1333: dispatch a two-operand `[xmm dst, xmm src]`
+/// scalar SSE instruction (movsd/movss/addsd/.../ucomiss/comiss family) to
+/// `encode_sse::encode_xmm_xmm`.
+fn encode_sse_xmm_xmm(
+    inst: &Instruction,
+    mnemonic: Mnemonic,
+    prefix: Option<u8>,
+    opcode: u8,
+    buf: &mut CodeBuffer,
+) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::Reg(dst), Operand::Reg(src)] => {
+            let dst_xmm = crate::encode_sse::xmm_id_from_regid(dst.0)
+                .ok_or(EncodeError::OperandShape { mnemonic })?;
+            let src_xmm = crate::encode_sse::xmm_id_from_regid(src.0)
+                .ok_or(EncodeError::OperandShape { mnemonic })?;
+            crate::encode_sse::encode_xmm_xmm(buf, prefix, opcode, dst_xmm, src_xmm);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape { mnemonic }),
+    }
+}
+
+/// Dispatch `cvtsi2sd`/`cvtsi2ss xmm dst, r64 src`.
+fn encode_cvtsi2s_inst(
+    inst: &Instruction,
+    mnemonic: Mnemonic,
+    prefix: u8,
+    buf: &mut CodeBuffer,
+) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::Reg(dst), Operand::Reg(src)] => {
+            let dst_xmm = crate::encode_sse::xmm_id_from_regid(dst.0)
+                .ok_or(EncodeError::OperandShape { mnemonic })?;
+            if src.0 >= 16 {
+                return Err(EncodeError::OperandShape { mnemonic });
+            }
+            crate::encode_sse::encode_cvtsi2s(buf, prefix, dst_xmm, src.0);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape { mnemonic }),
+    }
+}
+
+/// Dispatch `cvttsd2si`/`cvttss2si r64 dst, xmm src`.
+fn encode_cvtts2si_inst(
+    inst: &Instruction,
+    mnemonic: Mnemonic,
+    prefix: u8,
+    buf: &mut CodeBuffer,
+) -> Result<EncodeOutput, EncodeError> {
+    match inst.operands.as_slice() {
+        [Operand::Reg(dst), Operand::Reg(src)] => {
+            if dst.0 >= 16 {
+                return Err(EncodeError::OperandShape { mnemonic });
+            }
+            let src_xmm = crate::encode_sse::xmm_id_from_regid(src.0)
+                .ok_or(EncodeError::OperandShape { mnemonic })?;
+            crate::encode_sse::encode_cvtts2si(buf, prefix, dst.0, src_xmm);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape { mnemonic }),
+    }
+}
+
+/// Dispatch `movd xmm, r32` (`to_xmm=true`) / `movd r32, xmm` (`to_xmm=false`).
+fn encode_movd_bitcast_inst(
+    inst: &Instruction,
+    to_xmm: bool,
+    buf: &mut CodeBuffer,
+) -> Result<EncodeOutput, EncodeError> {
+    let mnemonic = Mnemonic::MovdBitcast { to_xmm };
+    match inst.operands.as_slice() {
+        [Operand::Reg(dst), Operand::Reg(src)] => {
+            let (xmm_id, gpr_id) = if to_xmm {
+                let xmm = crate::encode_sse::xmm_id_from_regid(dst.0)
+                    .ok_or(EncodeError::OperandShape { mnemonic })?;
+                if src.0 >= 16 {
+                    return Err(EncodeError::OperandShape { mnemonic });
+                }
+                (xmm, src.0)
+            } else {
+                if dst.0 >= 16 {
+                    return Err(EncodeError::OperandShape { mnemonic });
+                }
+                let xmm = crate::encode_sse::xmm_id_from_regid(src.0)
+                    .ok_or(EncodeError::OperandShape { mnemonic })?;
+                (xmm, dst.0)
+            };
+            crate::encode_sse::encode_movd_movq_bitcast(buf, false, to_xmm, xmm_id, gpr_id);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape { mnemonic }),
+    }
+}
+
+/// Dispatch `movq xmm, r64` (`to_xmm=true`) / `movq r64, xmm` (`to_xmm=false`).
+fn encode_movq_bitcast_inst(
+    inst: &Instruction,
+    to_xmm: bool,
+    buf: &mut CodeBuffer,
+) -> Result<EncodeOutput, EncodeError> {
+    let mnemonic = Mnemonic::MovqBitcast { to_xmm };
+    match inst.operands.as_slice() {
+        [Operand::Reg(dst), Operand::Reg(src)] => {
+            let (xmm_id, gpr_id) = if to_xmm {
+                let xmm = crate::encode_sse::xmm_id_from_regid(dst.0)
+                    .ok_or(EncodeError::OperandShape { mnemonic })?;
+                if src.0 >= 16 {
+                    return Err(EncodeError::OperandShape { mnemonic });
+                }
+                (xmm, src.0)
+            } else {
+                if dst.0 >= 16 {
+                    return Err(EncodeError::OperandShape { mnemonic });
+                }
+                let xmm = crate::encode_sse::xmm_id_from_regid(src.0)
+                    .ok_or(EncodeError::OperandShape { mnemonic })?;
+                (xmm, dst.0)
+            };
+            crate::encode_sse::encode_movd_movq_bitcast(buf, true, to_xmm, xmm_id, gpr_id);
+            Ok(EncodeOutput::new())
+        }
+        _ => Err(EncodeError::OperandShape { mnemonic }),
     }
 }
 

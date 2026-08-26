@@ -6,3 +6,4 @@ mod vpxor;
 mod vpcmpeqb;
 mod vpmovmskb;
 mod vmovdqu;
+mod scalar_float;

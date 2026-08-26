@@ -109,6 +109,7 @@ pub(super) fn is_rip_identifier(
 /// - Debug registers (dr0–dr7): 25–32 (compact encoding for m2-005 bridge)
 /// - Extended low-byte registers (spl, bpl, sil, dil): 33–36
 /// - YMM vector registers (ymm0–ymm15): 37–52 (AVX2 baseline per issue #1004)
+/// - XMM scalar-float registers (xmm0–xmm15): 53–68 (paideia-os #1333, paideia-as#1333)
 ///
 /// Phase 7 m2-001 (PA7C-m2-001): Sub-registers (32-bit, 16-bit, 8-bit) are supported
 /// and resolve to the same RegId as their 64-bit form. For example, "eax", "ax", and "al"
@@ -238,6 +239,27 @@ pub(super) fn register_name_to_regid(name: &str) -> Option<RegId> {
         "ymm13" => Some(RegId(50)),
         "ymm14" => Some(RegId(51)),
         "ymm15" => Some(RegId(52)),
+
+        // XMM scalar-float registers (compact encoding: 53 + index) —
+        // paideia-os #1333, paideia-as#1333. Kept disjoint from the YMM band
+        // (37-52) even though they name the same physical register file,
+        // because XMM selects the legacy-SSE (non-VEX) encoder path.
+        "xmm0" => Some(RegId(53)),
+        "xmm1" => Some(RegId(54)),
+        "xmm2" => Some(RegId(55)),
+        "xmm3" => Some(RegId(56)),
+        "xmm4" => Some(RegId(57)),
+        "xmm5" => Some(RegId(58)),
+        "xmm6" => Some(RegId(59)),
+        "xmm7" => Some(RegId(60)),
+        "xmm8" => Some(RegId(61)),
+        "xmm9" => Some(RegId(62)),
+        "xmm10" => Some(RegId(63)),
+        "xmm11" => Some(RegId(64)),
+        "xmm12" => Some(RegId(65)),
+        "xmm13" => Some(RegId(66)),
+        "xmm14" => Some(RegId(67)),
+        "xmm15" => Some(RegId(68)),
 
         // Special register: RIP (Instruction Pointer) for RIP-relative addressing
         // PA10-006j: Must be recognized as a register to allow fallback to parse_address_to_sib

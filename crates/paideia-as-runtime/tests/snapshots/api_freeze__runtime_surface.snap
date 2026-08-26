@@ -62,6 +62,8 @@ enum Mnemonic
   variants:
     Adc { width: IntWidth }
     Add
+    AddSd
+    AddSs
     And
     Bsf { width: IntWidth }
     Bsr { width: IntWidth }
@@ -78,10 +80,18 @@ enum Mnemonic
     Cli
     Cmp
     CmpSized { width: IntWidth }
+    Comisd
+    Comiss
     Cpuid
     Crc32 { width: IntWidth }
+    Cvtsi2sd
+    Cvtsi2ss
+    Cvttsd2si
+    Cvttss2si
     Dec
     Div
+    DivSd
+    DivSs
     Endbr32
     Endbr64
     FarJmp
@@ -123,10 +133,16 @@ enum Mnemonic
     Mov
     MovCr { write: bool }
     MovDr { write: bool }
+    MovSd
     MovSized { width: IntWidth }
+    MovSs
+    MovdBitcast { to_xmm: bool }
     Movnti { width: IntWidth }
+    MovqBitcast { to_xmm: bool }
     Movsx
     Movzx
+    MulSd
+    MulSs
     Nop
     Not
     Or
@@ -156,14 +172,20 @@ enum Mnemonic
     Sfence
     Shl
     Shr
+    Sqrtsd
+    Sqrtss
     Std
     Sti
     Sub
+    SubSd
+    SubSs
     Swapgs
     Syscall
     Sysret
     Test
     Tzcnt { width: IntWidth }
+    Ucomisd
+    Ucomiss
     Ud2
     Vmovdqu { is_store: bool }
     Vpcmpeqb

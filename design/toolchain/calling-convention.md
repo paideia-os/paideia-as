@@ -110,6 +110,40 @@ above is unaffected by argument count.
 Full design, byte layout, alignment arithmetic, and the phased
 implementation record: `design/compiler/lambda-arity-stack-spill.md`.
 
+#### 2.3.2 SysV scalar-float argument class (v0.24.0)
+
+Issue #1333 adds `ArgClass::Float` to `paideia-as-ir::abi` alongside the
+pre-existing `ArgClass::Integer`. Per SysV AMD64 ABI §3.2.3, a scalar
+`f32`/`f64` argument is classified `SSE`, not `INTEGER`, and draws from a
+**separate** register pool (`XMM0`–`XMM7`) with its **own** counter — the
+two classes advance independently. Concretely, `f(i64, f64, i64)` maps to
+`RDI, XMM0, RSI` (the float argument does not consume, or get skipped by,
+an integer register slot). `map_args`/`map_return` in `abi.rs` implement
+this for `CallingConvention::Sysv`; a 9th float argument (all of XMM0–7
+already used by prior float args) spills to the stack, sharing one
+running stack-offset counter with spilled integer arguments in original
+left-to-right argument order (mirrors §2.3.1's spill discipline). Return
+value: XMM0, both SysV and MS x64.
+
+`CallingConvention::Ms` gets a simpler (and currently incomplete) model:
+this landing keeps a single unified register-index counter shared across
+both classes, matching the real MS x64 rule only for calls with a single
+float argument at position 0. The real MS x64 rule — `arg[i]` always
+draws from index `i` of whichever bank (`RCX`/`RDX`/`R8`/`R9` vs.
+`XMM0`–`XMM3`) matches its class, e.g. `f(i64, f64)` → `RCX, XMM1`, not
+`RCX, XMM0` — is a documented follow-up, not yet implemented.
+
+**Scope of #1333 as a whole:** this section (and the `abi.rs` code behind
+it) is ABI-classification substrate only. Nothing in the elaborator's
+codegen path yet constructs an `ArgClass::Float` classification from a
+`.pdx` lambda's `Type::Float` parameter/return type — `ArgClass` has no
+call sites outside `abi.rs` itself. The scalar-float **encoder**
+substrate (register-register `movsd`/`addsd`/.../`cvtsi2sd` family, new
+`RegId` band 53–68 for XMM0–XMM15) lands in the same release; wiring both
+of these into `emit_call.rs`/`emit_walker.rs` so `.pdx` source can
+actually declare and call a function with `f64` parameters is future
+work.
+
 ### 2.4 Nested handlers (Phase 2 minimum)
 
 When one handler installs inside another (nested effects), the new handler's environment record points to the saved outer R15 via a `.parent` field. The `emit_handler_chain()` function emits the open sequence; link-stage constructs the parent chain. Phase-2-m11 minimum: same bytes as `emit_handler_open()`, with the `.parent` field populated at link time.

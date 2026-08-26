@@ -31,7 +31,10 @@
 //! classify their function parameters into `&[ArgClass]` and hand them to
 //! `map_args` to get register/stack slot assignments.
 //!
-//! TODO(#1008): Float argument class and unified-bank slot advancement.
+//! DONE(#1008 / paideia-os #1333, paideia-as#1333): `ArgClass::Float` landed
+//! for SysV (independent int/float register counters, per §3.2.3). MS x64's
+//! *unified*-bank slot advancement (single register-index counter spanning
+//! both classes) remains a follow-up — see `map_args`'s MS x64 note.
 //! TODO(#1009): Aggregate type classification and layout-aware slot mapping.
 //! TODO(#1011): MS hidden-pointer aggregate return value handling.
 //! TODO(#1012): SysV RDX:RAX 128-bit return pair for large integers.
@@ -79,6 +82,36 @@ pub const R15: RegId = RegId(15);
 /// Callers marshal argument `i` into `ARG_REGS[i]` for `i < 6`; the 7th+
 /// argument spills to the stack (not yet implemented in this emitter).
 pub const ARG_REGS: [RegId; 6] = [RDI, RSI, RDX, RCX, R8, R9];
+
+/// XMM0 (compact `RegId` 53 — see `RegId` doc comment).
+pub const XMM0: RegId = RegId(53);
+/// XMM1.
+pub const XMM1: RegId = RegId(54);
+/// XMM2.
+pub const XMM2: RegId = RegId(55);
+/// XMM3.
+pub const XMM3: RegId = RegId(56);
+/// XMM4.
+pub const XMM4: RegId = RegId(57);
+/// XMM5.
+pub const XMM5: RegId = RegId(58);
+/// XMM6.
+pub const XMM6: RegId = RegId(59);
+/// XMM7.
+pub const XMM7: RegId = RegId(60);
+
+/// SysV float/double arg registers in call order (paideia-os #1333,
+/// paideia-as#1333). Per SysV AMD64 ABI §3.2.3: the first 8 `SSE` class
+/// arguments (float/double) go in XMM0–XMM7, independent of the integer
+/// arg-register count/index (float and integer args advance separate
+/// counters). The 9th+ float argument spills to the stack (not yet
+/// implemented in this emitter, matching `ARG_REGS`'s integer 7th+ gap).
+pub const XMM_ARG_REGS: [RegId; 8] = [XMM0, XMM1, XMM2, XMM3, XMM4, XMM5, XMM6, XMM7];
+
+/// SysV float/double return register (paideia-os #1333, paideia-as#1333).
+/// Per SysV AMD64 ABI §3.2.3: a scalar `SSE`-class return value comes back
+/// in XMM0 (both ABIs; MS x64 also returns floats in XMM0).
+pub const XMM_RET: RegId = XMM0;
 
 /// MS x64 integer/pointer arg registers in call order (RCX, RDX, R8, R9).
 ///
@@ -166,14 +199,21 @@ pub fn bridge_save_set(
 /// Classification of a function argument for ABI mapping purposes.
 ///
 /// An argument's class determines which register or stack slot it occupies
-/// during a function call. Currently, only Integer class is implemented;
-/// future phases will add Float, Vector, and Aggregate classes.
+/// during a function call. Integer and Float are implemented; future phases
+/// will add Vector and Aggregate classes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 #[non_exhaustive]
 pub enum ArgClass {
     /// Integer or pointer argument (64-bit or narrower, zero/sign-extended
     /// at call site). Occupies one slot in the class-specific register pool.
     Integer,
+    /// Scalar float/double argument (`f32`/`f64`) — paideia-os #1333,
+    /// paideia-as#1333. Occupies one slot in the XMM register pool,
+    /// advancing independently of the Integer-class counter (SysV AMD64
+    /// ABI §3.2.3: float and integer args are classified and counted
+    /// separately, so `f(i64, f64, i64)` maps to `RDI, XMM0, RSI`, not
+    /// `RDI, XMM0, RDX`).
+    Float,
 }
 
 /// A register or stack slot assigned to a function argument.
@@ -222,19 +262,48 @@ pub enum ReturnSlot {
 /// - Arguments 0..4 map to RCX, RDX, R8, R9 respectively.
 /// - Arguments 4+ map to stack starting at offset 32 (MS shadow space).
 /// - Stack offsets increment by 8 bytes per argument.
+///
+/// # Float class (paideia-os #1333, paideia-as#1333):
+/// `Float`-class arguments draw from `XMM_ARG_REGS`/`MS_ARG_REGS`' float
+/// counterpart using an independent counter from `Integer`-class arguments
+/// (SysV AMD64 ABI §3.2.3). Stack-spilled arguments (of either class) still
+/// consume stack slots in original left-to-right argument order.
+///
+/// MS x64 note: the real MS x64 ABI shares a *single* unified register-index
+/// counter across int/float args (`arg[i]` always uses the i-th slot of
+/// whichever register bank matches its class, e.g. `f(i64, f64)` → RCX,
+/// XMM1 — not XMM0). This function does not yet model that unified-index
+/// rule for MS; MS float marshalling beyond 1-2 args is a follow-up.
 #[must_use]
 pub fn map_args(classes: &[ArgClass], cc: CallingConvention) -> Vec<ArgSlot> {
     match cc {
         CallingConvention::Sysv => {
+            let mut int_used = 0usize;
+            let mut float_used = 0usize;
+            let mut stack_idx = 0usize;
             classes
                 .iter()
-                .enumerate()
-                .map(|(i, _class)| {
-                    if i < ARG_REGS.len() {
-                        ArgSlot::Reg(ARG_REGS[i])
-                    } else {
-                        ArgSlot::Stack {
-                            offset: ((i - ARG_REGS.len()) as u32) * 8,
+                .map(|class| match class {
+                    ArgClass::Integer => {
+                        if int_used < ARG_REGS.len() {
+                            let slot = ArgSlot::Reg(ARG_REGS[int_used]);
+                            int_used += 1;
+                            slot
+                        } else {
+                            let slot = ArgSlot::Stack { offset: (stack_idx as u32) * 8 };
+                            stack_idx += 1;
+                            slot
+                        }
+                    }
+                    ArgClass::Float => {
+                        if float_used < XMM_ARG_REGS.len() {
+                            let slot = ArgSlot::Reg(XMM_ARG_REGS[float_used]);
+                            float_used += 1;
+                            slot
+                        } else {
+                            let slot = ArgSlot::Stack { offset: (stack_idx as u32) * 8 };
+                            stack_idx += 1;
+                            slot
                         }
                     }
                 })
@@ -244,12 +313,16 @@ pub fn map_args(classes: &[ArgClass], cc: CallingConvention) -> Vec<ArgSlot> {
             classes
                 .iter()
                 .enumerate()
-                .map(|(i, _class)| {
-                    if i < MS_ARG_REGS.len() {
-                        ArgSlot::Reg(MS_ARG_REGS[i])
+                .map(|(i, class)| {
+                    let reg_pool_len = MS_ARG_REGS.len();
+                    if i < reg_pool_len {
+                        match class {
+                            ArgClass::Integer => ArgSlot::Reg(MS_ARG_REGS[i]),
+                            ArgClass::Float => ArgSlot::Reg(XMM_ARG_REGS[i]),
+                        }
                     } else {
                         ArgSlot::Stack {
-                            offset: ((i - MS_ARG_REGS.len()) as u32) * 8 + MS_SHADOW_SPACE_BYTES,
+                            offset: ((i - reg_pool_len) as u32) * 8 + MS_SHADOW_SPACE_BYTES,
                         }
                     }
                 })
@@ -265,10 +338,14 @@ pub fn map_args(classes: &[ArgClass], cc: CallingConvention) -> Vec<ArgSlot> {
 ///
 /// # Both SysV and MS x64:
 /// - Integer class returns in RAX.
+/// - Float class returns in XMM0 (paideia-os #1333, paideia-as#1333; SysV
+///   AMD64 ABI §3.2.3 and MS x64 both use XMM0 for a scalar float/double
+///   return value).
 #[must_use]
 pub fn map_return(class: ArgClass, _cc: CallingConvention) -> ReturnSlot {
     match class {
         ArgClass::Integer => ReturnSlot::Reg(RAX),
+        ArgClass::Float => ReturnSlot::Reg(XMM_RET),
     }
 }
 
@@ -535,5 +612,78 @@ mod tests {
         assert_eq!(sysv_only.len(), 2, "Expected exactly 2 SysV-only registers");
         assert!(sysv_only.contains(&RDI), "RDI should be SysV-only");
         assert!(sysv_only.contains(&RSI), "RSI should be SysV-only");
+    }
+
+    // ============================================================================
+    // Float-class ABI mapping tests (paideia-os #1333, paideia-as#1333)
+    // ============================================================================
+
+    #[test]
+    fn xmm_arg_regs_ordering_is_xmm0_through_xmm7() {
+        assert_eq!(
+            XMM_ARG_REGS,
+            [XMM0, XMM1, XMM2, XMM3, XMM4, XMM5, XMM6, XMM7]
+        );
+        assert_eq!(XMM0.0, 53);
+        assert_eq!(XMM7.0, 60);
+    }
+
+    #[test]
+    fn map_args_sysv_one_float_in_xmm0() {
+        let classes = [ArgClass::Float];
+        let slots = map_args(&classes, CallingConvention::Sysv);
+        assert_eq!(slots, [ArgSlot::Reg(XMM0)]);
+    }
+
+    #[test]
+    fn map_args_sysv_int_and_float_counters_are_independent() {
+        // f(i64, f64, i64) -> RDI, XMM0, RSI — the float arg does NOT
+        // consume an integer register slot.
+        let classes = [ArgClass::Integer, ArgClass::Float, ArgClass::Integer];
+        let slots = map_args(&classes, CallingConvention::Sysv);
+        assert_eq!(slots, [ArgSlot::Reg(RDI), ArgSlot::Reg(XMM0), ArgSlot::Reg(RSI)]);
+    }
+
+    #[test]
+    fn map_args_sysv_ninth_float_spills_to_stack() {
+        let classes = [ArgClass::Float; 9];
+        let slots = map_args(&classes, CallingConvention::Sysv);
+        assert_eq!(slots.len(), 9);
+        assert_eq!(slots[7], ArgSlot::Reg(XMM7));
+        assert_eq!(slots[8], ArgSlot::Stack { offset: 0 });
+    }
+
+    #[test]
+    fn map_args_sysv_mixed_stack_spill_shares_offset_counter() {
+        // 7 integers (6 in regs, 1 on stack) + 1 float that also spills
+        // (all 8 XMM regs already busy from a prior call shape isn't modeled
+        // here; this test spills the float because 9 floats already filled
+        // XMM0-7 - instead we directly check that Integer and Float spills
+        // share one running stack-offset counter in argument order).
+        let classes = [
+            ArgClass::Integer, ArgClass::Integer, ArgClass::Integer, ArgClass::Integer,
+            ArgClass::Integer, ArgClass::Integer, ArgClass::Integer, // 7th int spills
+            ArgClass::Float, ArgClass::Float, ArgClass::Float, ArgClass::Float,
+            ArgClass::Float, ArgClass::Float, ArgClass::Float, ArgClass::Float, // 8 floats fill XMM0-7
+            ArgClass::Float, // 9th float spills
+        ];
+        let slots = map_args(&classes, CallingConvention::Sysv);
+        assert_eq!(slots[6], ArgSlot::Stack { offset: 0 }); // 7th int
+        assert_eq!(slots[15], ArgSlot::Stack { offset: 8 }); // 9th float, after the int's stack slot
+    }
+
+    #[test]
+    fn map_return_float_in_xmm0_both_ccs() {
+        let sysv_return = map_return(ArgClass::Float, CallingConvention::Sysv);
+        let ms_return = map_return(ArgClass::Float, CallingConvention::Ms);
+        assert_eq!(sysv_return, ReturnSlot::Reg(XMM0));
+        assert_eq!(ms_return, ReturnSlot::Reg(XMM0));
+    }
+
+    #[test]
+    fn map_args_ms_first_float_in_xmm0() {
+        let classes = [ArgClass::Float];
+        let slots = map_args(&classes, CallingConvention::Ms);
+        assert_eq!(slots, [ArgSlot::Reg(XMM0)]);
     }
 }

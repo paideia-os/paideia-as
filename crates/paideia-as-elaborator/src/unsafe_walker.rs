@@ -337,6 +337,35 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     // decimal-parse loop (main.pdx) is the first source to hit it.
     ("movzx", Mnemonic::Movzx),
     ("movsx", Mnemonic::Movsx),
+    // paideia-os #1333, paideia-as#1333: scalar SSE float mnemonics
+    // (register-register only; memory-operand forms deferred). Encoder side
+    // lives in encode_sse.rs. movd/movq are direction-ambiguous (bitcast
+    // load into xmm vs. store from xmm) so — mirroring the vmovdqu_ld/
+    // vmovdqu_st precedent above — each gets two spellings.
+    ("movsd", Mnemonic::MovSd),
+    ("movss", Mnemonic::MovSs),
+    ("addsd", Mnemonic::AddSd),
+    ("addss", Mnemonic::AddSs),
+    ("subsd", Mnemonic::SubSd),
+    ("subss", Mnemonic::SubSs),
+    ("mulsd", Mnemonic::MulSd),
+    ("mulss", Mnemonic::MulSs),
+    ("divsd", Mnemonic::DivSd),
+    ("divss", Mnemonic::DivSs),
+    ("sqrtsd", Mnemonic::Sqrtsd),
+    ("sqrtss", Mnemonic::Sqrtss),
+    ("ucomisd", Mnemonic::Ucomisd),
+    ("ucomiss", Mnemonic::Ucomiss),
+    ("comisd", Mnemonic::Comisd),
+    ("comiss", Mnemonic::Comiss),
+    ("cvtsi2sd", Mnemonic::Cvtsi2sd),
+    ("cvtsi2ss", Mnemonic::Cvtsi2ss),
+    ("cvttsd2si", Mnemonic::Cvttsd2si),
+    ("cvttss2si", Mnemonic::Cvttss2si),
+    ("movd_ld", Mnemonic::MovdBitcast { to_xmm: true }),
+    ("movd_st", Mnemonic::MovdBitcast { to_xmm: false }),
+    ("movq_ld", Mnemonic::MovqBitcast { to_xmm: true }),
+    ("movq_st", Mnemonic::MovqBitcast { to_xmm: false }),
 ];
 
 /// Resolve a mnemonic name to an IR Mnemonic enum variant.
@@ -1781,6 +1810,60 @@ mod tests {
     #[test]
     fn resolve_mnemonic_movsx() {
         assert_eq!(resolve_mnemonic("movsx"), Some(Mnemonic::Movsx));
+    }
+
+    // paideia-os #1333, paideia-as#1333: scalar SSE float mnemonic resolver
+    // wiring. Byte-exact + iced round-trip tests for every operand shape
+    // live in paideia-as-encoder/tests/simd/scalar_float.rs; these just pin
+    // the string -> Mnemonic mapping.
+    #[test]
+    fn resolve_mnemonic_movsd() {
+        assert_eq!(resolve_mnemonic("movsd"), Some(Mnemonic::MovSd));
+        assert_eq!(resolve_mnemonic("MOVSD"), Some(Mnemonic::MovSd));
+    }
+
+    #[test]
+    fn resolve_mnemonic_addsd_addss() {
+        assert_eq!(resolve_mnemonic("addsd"), Some(Mnemonic::AddSd));
+        assert_eq!(resolve_mnemonic("addss"), Some(Mnemonic::AddSs));
+    }
+
+    #[test]
+    fn resolve_mnemonic_ucomisd_comiss() {
+        assert_eq!(resolve_mnemonic("ucomisd"), Some(Mnemonic::Ucomisd));
+        assert_eq!(resolve_mnemonic("comiss"), Some(Mnemonic::Comiss));
+    }
+
+    #[test]
+    fn resolve_mnemonic_cvtsi2sd_cvttss2si() {
+        assert_eq!(resolve_mnemonic("cvtsi2sd"), Some(Mnemonic::Cvtsi2sd));
+        assert_eq!(resolve_mnemonic("cvttss2si"), Some(Mnemonic::Cvttss2si));
+    }
+
+    #[test]
+    fn resolve_mnemonic_movd_movq_bitcast_ld_st() {
+        assert_eq!(
+            resolve_mnemonic("movd_ld"),
+            Some(Mnemonic::MovdBitcast { to_xmm: true })
+        );
+        assert_eq!(
+            resolve_mnemonic("movd_st"),
+            Some(Mnemonic::MovdBitcast { to_xmm: false })
+        );
+        assert_eq!(
+            resolve_mnemonic("movq_ld"),
+            Some(Mnemonic::MovqBitcast { to_xmm: true })
+        );
+        assert_eq!(
+            resolve_mnemonic("movq_st"),
+            Some(Mnemonic::MovqBitcast { to_xmm: false })
+        );
+    }
+
+    #[test]
+    fn register_name_to_regid_xmm_band() {
+        assert_eq!(register_name_to_regid("xmm0"), Some(RegId(53)));
+        assert_eq!(register_name_to_regid("xmm15"), Some(RegId(68)));
     }
 
     #[test]
