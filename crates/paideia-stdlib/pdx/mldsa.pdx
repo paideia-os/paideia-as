@@ -1,0 +1,48 @@
+// paideia-as#1330 — ML-DSA-65 (FIPS 204) signing trait declaration.
+// The elaborator's `stdlib_lowering::mldsaops` module routes calls
+// through this trait to the extern-C thunk in
+// `crates/paideia-pq-sign/src/ffi.rs`.
+//
+// # Consumer contract
+//
+// `seed_ptr` points to a 32-byte ML-DSA-65 seed (the compact secret
+// key form — `MLDSA65_SK_LEN` in `paideia-pq-sign`). `sig_out_ptr`
+// must point to a caller-allocated buffer of at least 3309 bytes
+// (`MLDSA65_SIG_LEN`); the thunk writes the encoded signature there
+// on success and leaves it untouched on failure.
+//
+// # Return codes
+//
+//   0   OK — signature written to `sig_out_ptr[..3309]`
+//  -1   InvalidParam (a required pointer was NULL)
+//
+// # Effect + capability discipline
+//
+// Shares `!{crypto, mem} @{paideia.crypto}` with `Argon2id::derive`
+// and `ChaCha20Poly1305::seal`/`open` (see `crypto.pdx`) — ML-DSA-65
+// signing is the same "crypto primitive touching caller-supplied
+// buffers and a secret" shape those primitives already cover.
+//
+// # References
+//
+// - FIPS 204 (Module-Lattice-Based Digital Signature Standard),
+//   ML-DSA-65 parameter set.
+
+trait MlDsa65 {
+  // sign(seed_ptr, msg_ptr, msg_len, sig_out_ptr) -> return_code
+  //
+  //   RDI  seed_ptr     *const u8 (32 bytes)
+  //   RSI  msg_ptr      *const u8
+  //   RDX  msg_len      u64
+  //   RCX  sig_out_ptr  *mut u8 (>= 3309 bytes)
+  //   RAX  return code (i64)
+  //
+  // Reference: mldsa65_sign_runtime_entry in
+  //            crates/paideia-pq-sign/src/ffi.rs.
+  fn sign(
+    seed_ptr: u64,
+    msg_ptr: u64,
+    msg_len: u64,
+    sig_out_ptr: u64,
+  ) -> i64 !{crypto, mem} @{paideia.crypto};
+}

@@ -96,6 +96,7 @@ mod bytesops;
 mod checksumops;
 mod cpuidops;
 mod cryptoops;
+mod mldsaops;
 mod mmioops;
 mod msrops;
 mod pauseops;
@@ -215,6 +216,9 @@ pub fn lower_stdlib_method(
         "ChaCha20Poly1305" => {
             cryptoops::try_lower_chacha20_poly1305(method_name, mode, arg_ids, arena)
         }
+        // paideia-as#1330 — MlDsa65::sign routes to the extern-C
+        // ML-DSA-65 signing thunk in `paideia-pq-sign::ffi`.
+        "MlDsa65" => mldsaops::try_lower(method_name, mode, arg_ids, arena),
         _ => None,
     }
 }

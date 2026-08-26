@@ -4,9 +4,14 @@
 //! Signer trait. m7-002 ships the hybrid composition.
 
 #![warn(missing_docs)]
-#![forbid(unsafe_code)]
+// paideia-as#1330: was `forbid`; downgraded to `deny` so `ffi` (the
+// only module touching raw pointers, mirroring
+// `paideia-as-crypto::ffi`) can locally `#[allow(unsafe_code)]` for
+// its C-ABI thunks. Every other module remains unsafe-free.
+#![deny(unsafe_code)]
 
 pub mod ed25519;
+pub mod ffi;
 pub mod hsm;
 pub mod hybrid;
 pub mod mldsa;

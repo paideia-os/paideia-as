@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.23.0
+
+### Elaborator / Crypto
+
+- **Issue #1330 (R64v2.PAS-001) — `mldsa65_sign` typed intrinsic for ML-DSA-65 in-`.pdx` signing.** New `MlDsa65::sign(seed_ptr, msg_ptr, msg_len, sig_out_ptr) -> i64` trait call (`crates/paideia-stdlib/pdx/mldsa.pdx`) routes through a new `stdlib_lowering::mldsaops` recipe (mirrors #1305's `cryptoops`) to an extern-C thunk, `mldsa65_sign_runtime_entry`, in a new `paideia-pq-sign::ffi` module. Calling convention: caller allocates a 3309-byte (`MLDSA65_SIG_LEN`) output buffer (RCX) and the thunk writes the encoded signature into it, returning a status code in RAX — chosen over an sret record-return convention since the encoder does not yet support one (same rationale as `cpuidops`'s deferred `cpuid_leaf` record). `paideia-pq-sign`'s crate-level `#![forbid(unsafe_code)]` is downgraded to `#![deny(unsafe_code)]` so the new `ffi` module (the only module touching raw pointers) can locally opt back in, mirroring `paideia-as-crypto::ffi`. Effect/capability row `!{crypto, mem} @{paideia.crypto}` reuses the capability `Argon2id`/`ChaCha20Poly1305` already declare. **New tests:** 2 recipe-shape unit tests in `mldsaops::tests`; 5 FFI-level tests in `paideia_pq_sign::ffi::tests` (sign→verify round-trip, cross-check against the direct `Signer::sign` call, null-seed / null-output rejection, empty-message-with-null-pointer handling).
+- **Issue #1331 (R64v2.PAS-002) — version/CHANGELOG discipline for the `mldsa65_sign` intrinsic.** This entry; `workspace.version` bumped 0.22.0 → 0.23.0 (minor: additive stdlib intrinsic, no source-level breakage). `find-paideia-as.sh` `MIN_VERSION` is unchanged — no consumer has a hard dependency on this intrinsic yet (libpdx-volume#7 is a future consumer; that repo is skeleton-only).
+
 ## v0.22.0
 
 ### Elaborator / Parser / Encoder
