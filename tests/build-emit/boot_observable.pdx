@@ -14,9 +14,9 @@ module BootObservable = structure {
   // PA10-004: Narrow-form Mov for byte operands (mov al, imm8)
   // Note: #1077 surfaces let bindings in unsafe blocks as U1614 errors.
   // Let bindings must be moved outside unsafe blocks until #1088 lands full routing.
-  let kernel_main : () -> () !{} @{} = fn(_: ()) -> unsafe {
-    effects: {},
-    capabilities: {},
+  let kernel_main : () -> () !{PortIo} @{paideia.port_io} = fn(_: ()) -> unsafe {
+    effects: {PortIo},
+    capabilities: {paideia.port_io},
     justification: "output PA10 banner via narrow mov (PA10-004)",
     block: {
       // PA10-004: narrow mov al, imm8 for 'P' (0x50)
