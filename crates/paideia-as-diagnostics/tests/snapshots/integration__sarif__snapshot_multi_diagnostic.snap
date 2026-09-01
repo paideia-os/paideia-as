@@ -2928,8 +2928,8 @@ expression: "serde_json::to_string_pretty(&sarif).unwrap()"
               }
             }
           ],
-          "semanticVersion": "0.22.0",
-          "version": "0.22.0"
+          "semanticVersion": "0.0.0-snap",
+          "version": "0.0.0-snap"
         }
       }
     }

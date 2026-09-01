@@ -59,7 +59,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.27.2"
+version = "0.27.3"
 edition = "2024"
 rust-version = "1.94"
 license = "MIT"
@@ -110,7 +110,7 @@ signature = "2"
 argon2 = "0.5"
 
 # Testing
-insta = "1"
+insta = { version = "1", features = ["filters"] }
 proptest = "1"
 iced-x86 = "1"
 tempfile = "3"

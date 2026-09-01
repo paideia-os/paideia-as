@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.27.3
+
+### Test hygiene
+
+- **Issue #1344 — SARIF snapshot needs insta refresh (version drift).** `crates/paideia-as-diagnostics/src/sarif.rs` embeds `env!("CARGO_PKG_VERSION")` in the SARIF tool-driver `version` / `semanticVersion` fields, so every workspace version bump broke the `sarif::snapshot_multi_diagnostic` snapshot cosmetically. Rather than accepting the drift once (which just resets the timer to the next bump), wrap the `assert_snapshot!` call in `insta::with_settings!` with a regex filter that normalizes the tool-driver `semanticVersion` + `version` pair to `"0.0.0-snap"`. The regex matches the two fields together as they appear in the tool-driver block only — the outer SARIF-schema `"version": "2.1.0"` is left alone. Snapshot re-captured once with the placeholder in place; future patch/minor bumps now pass without re-accepting.
+- **Version:** `workspace.version` bumped 0.27.2 → 0.27.3 (patch: test-hygiene only; SARIF emitter source unchanged).
+
 ## v0.27.2
 
 ### Test hygiene

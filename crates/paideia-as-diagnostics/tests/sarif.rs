@@ -356,5 +356,21 @@ fn snapshot_multi_diagnostic() {
 
     common::validate(&sarif).expect("SARIF output should be valid");
 
-    insta::assert_snapshot!(serde_json::to_string_pretty(&sarif).unwrap());
+    // #1344: SARIF's tool-driver `version` / `semanticVersion` fields read
+    // `env!("CARGO_PKG_VERSION")` at build time, so every workspace bump
+    // used to break this snapshot cosmetically. Normalize those two fields
+    // to a stable placeholder so future patch/minor bumps do not require
+    // re-accepting the snapshot. The regex matches the pair as it appears
+    // together in the tool-driver block only — the outer SARIF-schema
+    // `"version": "2.1.0"` (unpaired with semanticVersion) is left alone.
+    insta::with_settings!({
+        filters => vec![
+            (
+                r#""semanticVersion": "\d+\.\d+\.\d+",(\s+)"version": "\d+\.\d+\.\d+""#,
+                r#""semanticVersion": "0.0.0-snap",${1}"version": "0.0.0-snap""#,
+            ),
+        ]
+    }, {
+        insta::assert_snapshot!(serde_json::to_string_pretty(&sarif).unwrap());
+    });
 }
