@@ -585,13 +585,15 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                 if let Some(node) = arena.get(ast_id) {
                     match node.kind {
                         paideia_as_ast::NodeKind::ExprString => {
-                            if let Some(paideia_as_ast::ExprData::StringLiteral(s)) =
+                            if let Some(paideia_as_ast::ExprData::StringLiteral(bytes)) =
                                 arena.expr_data(ast_id)
                             {
-                                let bytes = s.as_bytes().to_vec();
                                 let ir_string_id = paideia_as_ir::IrNodeId::new(ast_id.get())
                                     .expect("valid ir node id from ast string literal");
-                                lowering.ir.literal_bytes_mut().insert(ir_string_id, bytes);
+                                lowering
+                                    .ir
+                                    .literal_bytes_mut()
+                                    .insert(ir_string_id, bytes.clone());
                             }
                         }
                         paideia_as_ast::NodeKind::ExprByteString => {

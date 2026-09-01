@@ -81,7 +81,17 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         // Extract the string content (handle raw string prefixes if any)
         let is_raw = token_text.starts_with('r');
         let guid_string = match extract_string_content(token_text, 0, is_raw, false) {
-            Ok(content) => content,
+            Ok(bytes) => match String::from_utf8(bytes) {
+                Ok(s) => s,
+                Err(_) => {
+                    let diag = Diagnostic::error(p_code(278))
+                        .message("non-UTF-8 string literal in @guid".to_string())
+                        .with_span(str_tok.span)
+                        .finish();
+                    self.emit_diagnostic(diag);
+                    return Err(ParseError);
+                }
+            },
             Err(_) => {
                 let diag = Diagnostic::error(p_code(278))
                     .message("invalid string literal in @guid".to_string())
@@ -181,7 +191,17 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         // Extract the string content (handle raw string prefixes if any)
         let is_raw = token_text.starts_with('r');
         let raw_path = match extract_string_content(token_text, 0, is_raw, false) {
-            Ok(content) => content,
+            Ok(bytes) => match String::from_utf8(bytes) {
+                Ok(s) => s,
+                Err(_) => {
+                    let diag = Diagnostic::error(p_code(279))
+                        .message("non-UTF-8 string literal in @include_bytes".to_string())
+                        .with_span(str_tok.span)
+                        .finish();
+                    self.emit_diagnostic(diag);
+                    return Err(ParseError);
+                }
+            },
             Err(_) => {
                 let diag = Diagnostic::error(p_code(279))
                     .message("invalid string literal in @include_bytes".to_string())
@@ -275,7 +295,17 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         // Extract the string content (handle raw string prefixes if any)
         let is_raw = token_text.starts_with('r');
         let raw_path = match extract_string_content(token_text, 0, is_raw, false) {
-            Ok(content) => content,
+            Ok(bytes) => match String::from_utf8(bytes) {
+                Ok(s) => s,
+                Err(_) => {
+                    let diag = Diagnostic::error(p_code(279))
+                        .message(format!("non-UTF-8 path in @{}", if checked { "include_str" } else { "include_bytes_as_str" }))
+                        .with_span(str_tok.span)
+                        .finish();
+                    self.emit_diagnostic(diag);
+                    return Err(ParseError);
+                }
+            },
             Err(_) => {
                 let diag = Diagnostic::error(p_code(279))
                     .message(format!("invalid string literal in @{}", if checked { "include_str" } else { "include_bytes_as_str" }))

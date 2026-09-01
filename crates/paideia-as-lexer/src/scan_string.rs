@@ -421,7 +421,7 @@ pub fn extract_string_content(
     byte_offset: u32,
     is_raw: bool,
     is_byte: bool,
-) -> Result<String, String> {
+) -> Result<Vec<u8>, String> {
     let start = byte_offset as usize;
     assert!(start < content.len(), "byte_offset out of range");
 
@@ -460,7 +460,7 @@ fn extract_raw_string_content(
     content: &str,
     start: u32,
     num_hashes: usize,
-) -> Result<String, String> {
+) -> Result<Vec<u8>, String> {
     let start_usize = start as usize;
     let bytes = content.as_bytes();
     let mut pos = start_usize;
@@ -471,8 +471,8 @@ fn extract_raw_string_content(
         }
 
         if bytes[pos] == b'"' && check_raw_closing(bytes, pos + 1, num_hashes) {
-            // Found closing
-            return Ok(content[start_usize..pos].to_string());
+            // Found closing — copy raw bytes verbatim.
+            return Ok(bytes[start_usize..pos].to_vec());
         }
 
         pos += 1;
@@ -480,15 +480,21 @@ fn extract_raw_string_content(
 }
 
 /// Extract regular string content with escape processing.
+///
+/// #1337: byte-array (`[u8; N]`) initializers may use regular string literals
+/// containing `\xNN` escapes across the full `0x00..=0xFF` range. Return raw
+/// bytes so those high-byte escapes round-trip literally instead of being
+/// re-encoded as multi-byte UTF-8 code points. Callers that need a valid
+/// `str` must validate with `std::str::from_utf8` and handle the error.
 fn extract_regular_string_content(
     content: &str,
     start: u32,
     is_byte: bool,
-) -> Result<String, String> {
+) -> Result<Vec<u8>, String> {
     let start_usize = start as usize;
     let bytes = content.as_bytes();
     let mut pos = start_usize;
-    let mut result = String::new();
+    let mut result: Vec<u8> = Vec::new();
 
     loop {
         if pos >= bytes.len() {
@@ -500,22 +506,23 @@ fn extract_regular_string_content(
                 return Ok(result);
             }
             b'\\' => {
-                // Process escape sequence
+                // Process escape sequence — returns one byte for simple/hex escapes
+                // and the raw UTF-8 bytes for `\u{...}` codepoints in text strings.
                 if pos + 1 >= bytes.len() {
                     return Err("unterminated string".to_string());
                 }
 
-                let (ch, advance) = process_string_escape(content, pos as u32, is_byte)?;
-                result.push(ch);
+                let advance = process_string_escape_into(content, pos as u32, is_byte, &mut result)?;
                 pos += advance;
             }
             b'\n' => {
                 return Err("unescaped newline in string".to_string());
             }
             _ => {
-                let ch = content[pos..].chars().next().unwrap_or('\0');
-                result.push(ch);
-                pos += ch.len_utf8();
+                // Copy source byte verbatim (this preserves any UTF-8 multi-byte
+                // sequence — we advance by one byte and iterate).
+                result.push(bytes[pos]);
+                pos += 1;
             }
         }
     }
@@ -636,8 +643,19 @@ fn extract_regular_byte_string_content(content: &str, start: u32) -> Result<Vec<
     }
 }
 
-/// Process a single escape sequence and return the resulting character + bytes to advance.
-fn process_string_escape(content: &str, pos: u32, is_byte: bool) -> Result<(char, usize), String> {
+/// Process a single escape sequence, append the decoded bytes to `out`, and
+/// return the number of source bytes consumed.
+///
+/// #1337: hex escapes `\xNN` produce a single raw byte for the whole
+/// `0x00..=0xFF` range — regular string literals may hence carry non-UTF-8
+/// bytes (byte-array `[u8; N]` initializers rely on this). Callers that need
+/// valid UTF-8 must validate the resulting buffer.
+fn process_string_escape_into(
+    content: &str,
+    pos: u32,
+    is_byte: bool,
+    out: &mut Vec<u8>,
+) -> Result<usize, String> {
     let pos_usize = pos as usize;
     let bytes = content.as_bytes();
 
@@ -648,34 +666,32 @@ fn process_string_escape(content: &str, pos: u32, is_byte: bool) -> Result<(char
     }
 
     match bytes[pos_usize + 1] {
-        b'n' => Ok(('\n', 2)),
-        b'r' => Ok(('\r', 2)),
-        b't' => Ok(('\t', 2)),
-        b'\\' => Ok(('\\', 2)),
-        b'\'' => Ok(('\'', 2)),
-        b'"' => Ok(('"', 2)),
-        b'0' => Ok(('\0', 2)),
+        b'n' => { out.push(b'\n'); Ok(2) }
+        b'r' => { out.push(b'\r'); Ok(2) }
+        b't' => { out.push(b'\t'); Ok(2) }
+        b'\\' => { out.push(b'\\'); Ok(2) }
+        b'\'' => { out.push(b'\''); Ok(2) }
+        b'"' => { out.push(b'"'); Ok(2) }
+        b'0' => { out.push(0u8); Ok(2) }
         b'x' => {
             if pos_usize + 3 >= bytes.len() {
                 return Err("incomplete hex escape".to_string());
             }
             let d1 = parse_hex_digit(bytes[pos_usize + 2]).ok_or("invalid hex digit")?;
             let d2 = parse_hex_digit(bytes[pos_usize + 3]).ok_or("invalid hex digit")?;
-            let byte_val = (d1 << 4) | d2;
-            if byte_val > 127 {
-                return Err("hex escape out of ASCII range in string".to_string());
-            }
-            Ok((byte_val as char, 4))
+            out.push((d1 << 4) | d2);
+            Ok(4)
         }
         b'u' => {
             if is_byte {
                 return Err("Unicode escape not allowed in byte string".to_string());
             }
             let (codepoint, advance) = parse_unicode_escape(content, pos)?;
-            match char::from_u32(codepoint) {
-                Some(ch) => Ok((ch, advance)),
-                None => Err("invalid Unicode codepoint".to_string()),
-            }
+            let ch = char::from_u32(codepoint).ok_or("invalid Unicode codepoint")?;
+            let mut buf = [0u8; 4];
+            let s = ch.encode_utf8(&mut buf);
+            out.extend_from_slice(s.as_bytes());
+            Ok(advance)
         }
         _ => Err("unknown escape sequence".to_string()),
     }
@@ -879,6 +895,54 @@ mod tests {
         assert_eq!(r.kind, TokenKind::StringLit);
         assert_eq!(r.byte_len, 18);
         assert!(r.diagnostic.is_none());
+    }
+
+    #[test]
+    fn string_high_byte_hex_escape_xff() {
+        // #1337: `\xFF` (and any high byte 0x80..0xFF) must lex cleanly inside a
+        // regular string. The extractor separately rejects high bytes in `str`,
+        // but the lexer must not report "unterminated string literal" — that
+        // used to happen because `parse_string_escape` accepted the escape while
+        // `process_string_escape` rejected it downstream during token
+        // extraction, and the parser turned the extractor's Err into an E0004
+        // banner. Byte-array (`[u8; N]`) initializers use `b"…"`, which
+        // extracts through `extract_byte_string_content`, and MUST round-trip
+        // any `\x00..\xFF` cleanly.
+        let s = "\"\\xFF rest\"";
+        let r = scan_string(file(), s, 0);
+        assert_eq!(r.kind, TokenKind::StringLit);
+        assert_eq!(r.byte_len, s.len() as u32);
+        // Diagnostic acceptable (hex-out-of-range) but MUST NOT be "unterminated".
+        if let Some(d) = &r.diagnostic {
+            assert_ne!(
+                d.message(),
+                "unterminated string literal",
+                "regression: lexer reported string with \\xFF as unterminated"
+            );
+        }
+    }
+
+    #[test]
+    fn byte_string_full_xff_range() {
+        // #1337: byte-string literal `b"…"` must extract every `\x00..\xFF`
+        // byte value. The prior lexer path lost the closing quote because
+        // downstream extraction of `\xFF` returned Err, which the parser then
+        // labelled "invalid string literal". Confirm the *lexer* itself gives
+        // a clean ByteStringLit with no diagnostic.
+        let s = "b\"\\x00\\x7F\\x80\\xFF\" rest";
+        let r = scan_string(file(), s, 0);
+        assert_eq!(r.kind, TokenKind::ByteStringLit);
+        assert!(r.diagnostic.is_none(), "unexpected diag: {:?}", r.diagnostic);
+        // b + " + 4 escapes (4 bytes each) + closing " = 2 + 16 + 1 = 19
+        assert_eq!(r.byte_len, 19);
+    }
+
+    #[test]
+    fn extract_byte_string_full_xff_range() {
+        // #1337: `extract_byte_string_content` must decode `\xFF` to 0xFF.
+        let src = "b\"\\x00\\x7F\\x80\\xFF\"";
+        let bytes = extract_byte_string_content(src, 0, false).expect("extract");
+        assert_eq!(bytes, vec![0x00u8, 0x7F, 0x80, 0xFF]);
     }
 
     #[test]

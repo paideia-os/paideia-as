@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.24.1
+
+### Lexer / Parser / AST
+
+- **Issue #1337 — regular string literals accept the full `\xNN` (0x00..=0xFF) byte range.** The lexer's `scan_string` already treated `\xFF` as a valid escape, but the downstream extractor (`process_string_escape` in `crates/paideia-as-lexer/src/scan_string.rs`) rejected any hex escape with `byte_val > 127` as "hex escape out of ASCII range in string". The parser turned that extractor error into an E0004 diagnostic whose *catalog brief* is "unterminated string literal" — so `pub let case7_rec : [u8; 32] = "PDXARGV\0\xFF\xFF…"` (libpdx-argv `tests/parse_schema_record.pdx:270`) surfaced as an unterminated-string error even though the source was well-formed. **What lands:** `extract_string_content` and its helpers (`extract_regular_string_content`, `extract_raw_string_content`, `process_string_escape_into`) now return `Vec<u8>` and preserve every `\xNN` byte literally instead of routing through a `char`. `ExprData::StringLiteral(String)` becomes `ExprData::StringLiteral(Vec<u8>)` so byte-array (`[u8; N]`) initializers written as regular string literals round-trip byte-exactly (previously a high-byte `\xNN` would have been re-encoded as a two-byte UTF-8 sequence — wrong for byte arrays). Callers that need valid UTF-8 (the `@guid`/`@include_str`/`@include_bytes` embed parsers in `parse_primary/embed.rs`) now decode via `String::from_utf8` and emit their existing P0278/P0279 diagnostic on non-UTF-8 payloads. The emit path (`cmd_build.rs`'s AST→IR `literal_bytes` walk) drops the redundant `s.as_bytes().to_vec()` in favour of `bytes.clone()`. Unblocks libpdx-argv ENH-002 regression tests (case7 — `flag_count = 0xFFFFFFFFFFFFFFFF` bit-63-set schema record). **New tests:** `string_high_byte_hex_escape_xff`, `byte_string_full_xff_range`, `extract_byte_string_full_xff_range` in `scan_string::tests` — pin the lexer regression and confirm the extractor now round-trips `\x00..\xFF` cleanly for both regular and byte strings.
+- **Version:** `workspace.version` bumped 0.24.0 → 0.24.1 (patch: bug fix, no source-level breakage). `find-paideia-as.sh` `MIN_VERSION` unchanged.
+
 ## v0.24.0
 
 ### Encoder / Elaborator / IR

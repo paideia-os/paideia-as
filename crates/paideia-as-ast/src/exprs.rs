@@ -423,9 +423,14 @@ pub enum ExprData {
 
     /// String literal `"..."`.
     ///
-    /// A string literal with escape sequences fully processed. The string value
-    /// contains the decoded UTF-8 content after escape processing.
-    StringLiteral(String),
+    /// A string literal with escape sequences fully processed. Payload is the
+    /// raw byte sequence — regular string literals accept every `\xNN` escape
+    /// in `0x00..=0xFF` and preserve non-UTF-8 bytes byte-exactly, matching
+    /// how the emit path already consumes strings via the `literal_bytes`
+    /// side-table (see #1337). Callers that require valid UTF-8 (e.g. GUID
+    /// parsing, include-path resolution) must decode via
+    /// `std::str::from_utf8` or `String::from_utf8` and handle the error.
+    StringLiteral(Vec<u8>),
 
     /// Byte string literal `b"..."`.
     ///

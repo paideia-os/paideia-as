@@ -96,10 +96,10 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                             || token_text.starts_with("rb");
 
                         match extract_string_content(token_text, 0, is_raw, false) {
-                            Ok(content) => Ok(self.arena_mut().alloc_expr(
+                            Ok(bytes) => Ok(self.arena_mut().alloc_expr(
                                 NodeKind::ExprString,
                                 span_start,
-                                ExprData::StringLiteral(content),
+                                ExprData::StringLiteral(bytes),
                             )),
                             Err(_err) => {
                                 // Emit diagnostic and fall back to placeholder
@@ -776,7 +776,7 @@ mod tests {
         // Verify the string content was parsed
         if let Some(expr_data) = arena.expr_data(expr_id) {
             match expr_data {
-                ExprData::StringLiteral(s) => assert_eq!(s, "hello"),
+                ExprData::StringLiteral(bytes) => assert_eq!(bytes.as_slice(), b"hello"),
                 _ => panic!("expected StringLiteral"),
             }
         }
