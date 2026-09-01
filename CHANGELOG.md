@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.27.2
+
+### Test hygiene
+
+- **Issue #1343 — VT-d QI descriptor snapshot regression (p_dev_iotlb PASID mask).** The `vtd_qi_smoke_descriptor_fields_match_intel_vtd_spec` field-decode extracted PASID for descriptors #14/#15 (type-8 `p_dev_iotlb`) with a 20-bit mask (`0xFFFFF`), copy-pasted from the type-6 `p_iotlb` decode where PASID is at bits 32-51 and legitimately 20-bit. The fixture packs `p_dev_iotlb` as three consecutive 16-bit fields (PASID at 16-31, SID at 32-47, MIP at 48-63) — decoding PASID with 20 bits spilled SID's low nibble into the PASID value (`0xD` low nibble of `0xABCD` → PASID read as `0xD0200`). Descriptor #14 accidentally passed because its SID (`0x0100`) has a zero low nibble. Fix is test-only: narrow the PASID mask to `0xFFFF` for both `p_dev_iotlb` decode blocks and add a code comment noting the field-width difference from `p_iotlb`. Encoder output is unchanged — the three other `vtd_qi_smoke_*` tests (byte-exact rodata, descriptor count/size, type coverage) all passed already.
+- **Version:** `workspace.version` bumped 0.27.1 → 0.27.2 (patch: test-only fix; encoder/fixture bytes unchanged).
+
 ## v0.27.1
 
 ### Test fixtures

@@ -368,10 +368,16 @@ fn vtd_qi_smoke_descriptor_fields_match_intel_vtd_spec() {
     }
 
     // #14 p_dev_iotlb (PASID=0x100, SID=0x0100, addr=0x4000, S=0)
+    //
+    // Layout in this fixture (three consecutive 16-bit fields at bits 16,
+    // 32, 48): PASID[15:0] at bits 16-31, SID at bits 32-47, MIP at bits
+    // 48-63. This differs from the p_iotlb (type 6) descriptors above,
+    // whose PASID is a full 20-bit field at bits 32-51 with DID at 16-31 —
+    // do NOT reuse the 20-bit mask here; it would spill into SID.
     {
         let d = desc(14);
         assert_eq!(ty(d), 8, "#14 type must be PASID-based Device-IOTLB (8)");
-        let pasid = ((qw(d, 0) >> 16) & 0xFFFFF) as u32;
+        let pasid = ((qw(d, 0) >> 16) & 0xFFFF) as u32;
         let sid = ((qw(d, 0) >> 32) & 0xFFFF) as u16;
         assert_eq!(pasid, 0x100, "#14 PASID");
         assert_eq!(sid, 0x0100, "#14 SID");
@@ -382,10 +388,13 @@ fn vtd_qi_smoke_descriptor_fields_match_intel_vtd_spec() {
     }
 
     // #15 p_dev_iotlb (PASID=0x200, SID=0xABCD, MIP=1, addr=0x5000, S=1)
+    //
+    // Same 16-bit PASID/SID/MIP layout as #14 — the 0xFFFF mask (not the
+    // p_iotlb 0xFFFFF) is what keeps SID's low nibble out of PASID.
     {
         let d = desc(15);
         assert_eq!(ty(d), 8, "#15 type must be p_dev_iotlb");
-        let pasid = ((qw(d, 0) >> 16) & 0xFFFFF) as u32;
+        let pasid = ((qw(d, 0) >> 16) & 0xFFFF) as u32;
         let sid = ((qw(d, 0) >> 32) & 0xFFFF) as u16;
         let mip = ((qw(d, 0) >> 48) & 0xFFFF) as u16;
         assert_eq!(pasid, 0x200, "#15 PASID");
