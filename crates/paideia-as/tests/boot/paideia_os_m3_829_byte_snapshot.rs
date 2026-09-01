@@ -531,34 +531,28 @@ const CASES: &[Case] = &[
 
 /// Discover the PaideiaOS repo: `PAIDEIA_OS_PATH` env, else walk ancestors
 /// of the crate looking for a `src/kernel/boot/kernel_main.pdx` marker.
-/// Panics if not found.
+/// Returns `None` when neither is available; callers skip the test with
+/// an `eprintln!` in that case (matches the m5_835 / phase1_rebuild
+/// sibling tests — see #1345).
 ///
 /// #1127: when paideia-as is embedded as a submodule (canonical layout), the
 /// parent paideia-os repo sits at ancestors[3..5] depending on nesting.
 /// Instead of hardcoding a relative depth, probe each ancestor for the
 /// kernel-main marker file.
-fn find_paideia_os() -> PathBuf {
+fn find_paideia_os() -> Option<PathBuf> {
     if let Ok(path) = std::env::var("PAIDEIA_OS_PATH") {
         let p = PathBuf::from(path);
         if p.join("src/kernel/boot/kernel_main.pdx").exists() {
-            return p;
+            return Some(p);
         }
     }
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let mut ancestors_checked = Vec::new();
     for ancestor in manifest.ancestors() {
-        ancestors_checked.push(ancestor.display().to_string());
         if ancestor.join("src/kernel/boot/kernel_main.pdx").exists() {
-            return ancestor.to_path_buf();
+            return Some(ancestor.to_path_buf());
         }
     }
-    panic!(
-        "PaideiaOS not found: set env var PAIDEIA_OS_PATH or ensure \
-         src/kernel/boot/kernel_main.pdx exists in an ancestor of {}. \
-         Ancestors checked: {}",
-        manifest.display(),
-        ancestors_checked.join(" -> ")
-    );
+    None
 }
 
 /// Locate the release `paideia-as` binary built into the workspace target dir.
@@ -630,7 +624,17 @@ fn first_diff(a: &[u8], b: &[u8]) -> Option<usize> {
 // T0521 fix (#1176, commit 9758269).
 #[test]
 fn paideia_os_m3_four_file_text_byte_snapshot() {
-    let paideia_os = find_paideia_os();
+    let paideia_os = match find_paideia_os() {
+        Some(p) => p,
+        None => {
+            eprintln!(
+                "PaideiaOS not found; test skipped (set PAIDEIA_OS_PATH or embed \
+                 paideia-as as a submodule of paideia-os so ../../src/kernel/boot/kernel_main.pdx \
+                 resolves) — see #1345"
+            );
+            return;
+        }
+    };
     let paideia_as = find_paideia_as();
 
     let kernel_dir = paideia_os.join("src/kernel");

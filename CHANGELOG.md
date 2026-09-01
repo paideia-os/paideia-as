@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.27.4
+
+### Test hygiene
+
+- **Issue #1345 — boot snapshot `paideia_os_m3_four_file_text_byte_snapshot` panics when PaideiaOS is absent.** `find_paideia_os` in `paideia_os_m3_829_byte_snapshot.rs` was the last panic-on-missing holdout — its m5_835 / phase1_rebuild siblings already return `Option<PathBuf>` and skip cleanly with an `eprintln!`. In a fresh clone of paideia-as (not embedded as a submodule of paideia-os), no ancestor contains `src/kernel/boot/kernel_main.pdx`, so the panic hard-failed the boot suite. Fix: change `find_paideia_os` to return `Option<PathBuf>` and have the test skip with an `eprintln!` referencing #1345 when it returns `None`. Preserves diagnostic value when PaideiaOS *is* available (via `PAIDEIA_OS_PATH` env or via the canonical submodule layout).
+- **Version:** `workspace.version` bumped 0.27.3 → 0.27.4 (patch: test-only fix).
+
 ## v0.27.3
 
 ### Test hygiene
