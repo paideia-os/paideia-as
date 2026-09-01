@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.27.0
+
+### Crypto
+
+- **Issue #1340 (R100-PREP-005c) — X25519 typed intrinsic (RFC 7748 §5).** New `paideia-as-crypto::curve` module with two submodules: `curve::field25519` (constant-time radix-2^51 arithmetic in `GF(2^255 - 19)` — `add`/`sub`/`mul`/`square`/`invert`/`cswap`/`mul_a24`/`from_bytes`/`to_bytes`, all touching every limb regardless of secret data) and `curve::x25519` (`x25519_scalarmult(scalar, point)` and `x25519_public_from_secret(secret)`). The field code is deliberately factored out because Ed25519 (#1341) shares the same prime `p = 2^255 - 19` — the Montgomery-ladder and twisted-Edwards forms disagree only on the curve group law, not the underlying field. Scalar clamping (RFC 7748 §5: `k[0] &= 248; k[31] &= 127; k[31] |= 64;`) and u-coordinate top-bit masking (RFC 7748 §5 `decodeUCoordinate`) both live inside `x25519_scalarmult`. **Decision surfaced:** used `a24 = (A - 2) / 4 = 121665` from RFC 7748 §5 verbatim, not the `121666` value used in some non-RFC formulations (dalek's `A_PLUS_2_DIVIDED_BY_4` is misnamed — its value is 121665 too; the initial 121666 attempt failed all RFC vectors and pinned the bug in the first CI run). Field inversion uses the standard 254-square + 11-multiply addition chain over `p - 2` (Bernstein `curve25519-donna` notes). Zero-dep. **New tests:** RFC 7748 §5.2 first two published vectors, iteration test after 1 iter (`422c8e7a…3079`), iteration test after 1000 iters (`684cf59b…2c51`), 1M-iter test as `#[ignore]` (CI-time-prohibitive, run with `--ignored`); RFC 7748 §6.1 Diffie-Hellman worked example (Alice+Bob keys and shared secret); field-arithmetic property tests (`(a+b)-b = a`, `a * a^-1 = 1`, `cswap` under 0 vs 1, byte-round-trip with the top-bit mask honoured, `mul_a24` matches `mul(a, 121665)`).
+- **Version:** `workspace.version` bumped 0.26.0 → 0.27.0 (minor: additive crypto surface, no source-level breakage). `find-paideia-as.sh` `MIN_VERSION` unchanged.
+
 ## v0.26.0
 
 ### Crypto

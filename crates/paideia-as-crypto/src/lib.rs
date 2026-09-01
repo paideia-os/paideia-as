@@ -47,12 +47,14 @@
 #![deny(unsafe_code)]
 
 pub mod aead;
+pub mod curve;
 pub mod ffi;
 pub mod hash;
 pub mod kdf;
 pub mod rng;
 
 pub use aead::{Aead, AeadError, ChaCha20Poly1305, ChaCha20Poly1305Params};
+pub use curve::{x25519_public_from_secret, x25519_scalarmult};
 pub use hash::{Sha256Ctx, sha256};
 pub use kdf::{
     Argon2id, Argon2idParams, HkdfExpandError, Kdf, KdfError, hkdf_expand, hkdf_extract,
