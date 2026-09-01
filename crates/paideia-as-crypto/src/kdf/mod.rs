@@ -6,10 +6,17 @@
 //!
 //! Current impls:
 //! - [`Argon2id`] — RFC 9106, backed by the `argon2` crate.
+//!
+//! Companion primitives (not password-based, but part of the KDF surface
+//! TLS 1.3 depends on — see `libpdx-net` M3):
+//! - [`hkdf::hmac_sha256`] — RFC 2104 / FIPS 198-1.
+//! - [`hkdf::hkdf_extract`] / [`hkdf::hkdf_expand`] — RFC 5869.
 
 mod argon2id;
+pub mod hkdf;
 
 pub use argon2id::{Argon2id, Argon2idParams, RFC_9106_ARGON2ID_TAG};
+pub use hkdf::{hkdf_expand, hkdf_extract, hmac_sha256, HkdfExpandError};
 
 use thiserror::Error;
 

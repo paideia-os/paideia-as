@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.26.0
+
+### Crypto
+
+- **Issue #1339 (R100-PREP-005b) — HMAC-SHA256 + HKDF-Extract/Expand (RFC 2104 / FIPS 198-1 / RFC 5869).** New `paideia-as-crypto::kdf::hkdf` module: `hmac_sha256(key, msg)`, `hkdf_extract(salt, ikm)`, and `hkdf_expand(prk, info, out)`. HMAC follows the two-pass `H((K' ⊕ opad) ‖ H((K' ⊕ ipad) ‖ msg))` construction with `K'` derived per RFC 2104 §2 (zero-pad if `len(K) ≤ 64`, else hash-then-zero-pad). HKDF-Extract routes through HMAC-SHA256 with the RFC 5869 §2.2 empty-salt equivalence (empty salt ≡ 32 zero bytes) handled explicitly. HKDF-Expand iterates `T(i) = HMAC(PRK, T(i-1) ‖ info ‖ [i])` and enforces the RFC 5869 §2.3 `L ≤ 255 * HashLen` upper bound with a typed `HkdfExpandError::OutputTooLong` error. Zero-dep, built on the `Sha256Ctx` from #1338. Unblocks TLS 1.3's key schedule in `libpdx-net` M3. **New tests:** RFC 4231 HMAC-SHA-256 vectors §4.2 (case 1), §4.3 (case 2), §4.4 (case 3), §4.5 (case 4), §4.7 (case 6 — long-key hashed-key path), §4.8 (case 7 — long-key + long-data); RFC 5869 HKDF-SHA-256 vectors §A.1, §A.2 (82-byte OKM, all fields non-empty), §A.3 (empty salt/info); boundary tests for the `L = 255*32` max-length success and `L = 255*32 + 1` rejection; RFC 5869 §2.2 equivalence pin (empty salt vs 32-zero salt).
+- **Version:** `workspace.version` bumped 0.25.0 → 0.26.0 (minor: additive crypto surface, no source-level breakage). `find-paideia-as.sh` `MIN_VERSION` unchanged.
+
 ## v0.25.0
 
 ### Crypto

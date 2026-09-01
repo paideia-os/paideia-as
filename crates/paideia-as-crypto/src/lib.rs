@@ -54,5 +54,8 @@ pub mod rng;
 
 pub use aead::{Aead, AeadError, ChaCha20Poly1305, ChaCha20Poly1305Params};
 pub use hash::{Sha256Ctx, sha256};
-pub use kdf::{Argon2id, Argon2idParams, Kdf, KdfError};
+pub use kdf::{
+    Argon2id, Argon2idParams, HkdfExpandError, Kdf, KdfError, hkdf_expand, hkdf_extract,
+    hmac_sha256,
+};
 pub use rng::{EntropySource, HardwareRng, RngError, SecureRandom};
