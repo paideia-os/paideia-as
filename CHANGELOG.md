@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.25.0
+
+### Crypto
+
+- **Issue #1338 (R100-PREP-005a) — SHA-256 typed intrinsic (FIPS 180-4 §6.2).** New `paideia-as-crypto::hash::sha256` module: one-shot [`sha256`](crates/paideia-as-crypto/src/hash/sha256.rs) and streaming [`Sha256Ctx`] (`new` / `update` / `finalize`) built from a portable u32 message schedule + 64-round compression, entirely branch-free on secret data. The round constants K (FIPS 180-4 §4.2.2) and initial hash H(0) (§5.3.3) are compile-time constants; padding follows §5.1.1 (append 0x80, zero-pad, 64-bit big-endian bit length). No external dependency, matching the crate's zero-dep posture (ChaCha20-Poly1305 in `aead::` and Argon2id in `kdf::` follow the same pattern). Foundational primitive — unblocks HMAC-SHA256 / HKDF (#1339) and Ed25519 (#1341, which additionally needs SHA-512). **Deferred:** SHA-NI hardware acceleration lands as a follow-up once we're on real hardware; the portable u32 core stays as the fallback and the trait shape does not change. **New tests:** FIPS 180-4 §D.1 "abc", §D.2 448-bit two-block, §D.3 one-million-'a's (streamed with an odd 997-byte chunk to prove non-block-aligned boundaries), empty-input pin, streaming-equivalence across chunk sizes 1/32/55..65/128/199/200, padding-boundary distinctness across 55/56/57/63/64/65-byte inputs, and the widely-cited "quick brown fox" pair (avalanche smoke).
+- **Version:** `workspace.version` bumped 0.24.1 → 0.25.0 (minor: additive crypto surface, no source-level breakage). `find-paideia-as.sh` `MIN_VERSION` unchanged — no consumer has a hard dependency on this intrinsic yet.
+
 ## v0.24.1
 
 ### Lexer / Parser / AST

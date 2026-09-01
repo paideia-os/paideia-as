@@ -9,6 +9,10 @@
 //!
 //! Layout:
 //!
+//! - `hash` — cryptographic hash functions.
+//!   - `hash::sha256` (FIPS 180-4 §6.2) — one-shot [`hash::sha256`] and
+//!     streaming [`hash::Sha256Ctx`]; foundational for HMAC-SHA256 / HKDF
+//!     (RFC 5869) and TLS 1.3's transcript hash.
 //! - `kdf`  — password-based key-derivation functions.
 //!   - `kdf::Argon2id` (RFC 9106).
 //! - `aead` — authenticated encryption with associated data.
@@ -44,9 +48,11 @@
 
 pub mod aead;
 pub mod ffi;
+pub mod hash;
 pub mod kdf;
 pub mod rng;
 
 pub use aead::{Aead, AeadError, ChaCha20Poly1305, ChaCha20Poly1305Params};
+pub use hash::{Sha256Ctx, sha256};
 pub use kdf::{Argon2id, Argon2idParams, Kdf, KdfError};
 pub use rng::{EntropySource, HardwareRng, RngError, SecureRandom};
