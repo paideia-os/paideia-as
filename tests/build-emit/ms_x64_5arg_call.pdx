@@ -19,7 +19,7 @@
 // (unchanged from the ms_x64_shadow fixture — the callee-side path is
 // exercised by that test).
 
-module MsX645ArgCall = structure {
+module MsX645argCall = structure {
   pub let uefi_5arg : (u64, u64, u64, u64, u64) -> u64 =
     fn(a : u64, b : u64, c : u64, d : u64, e : u64) -> a @abi("ms")
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.27.1
+
+### Test fixtures
+
+- **Issue #1342 — M0305 mismatch in `ms_x64_5arg_call` fixture.** `tests/build-emit/ms_x64_5arg_call.pdx` declared `module MsX645ArgCall`, but M0305's PascalCase transform (`crates/paideia-as-elaborator/src/file_module.rs::expected_module_name`) splits the stem on `_`/`-` and can only uppercase a segment's first ASCII letter — the `5arg` segment starts with a digit so its `a` stays lowercase, yielding `MsX645argCall`. Same class of rename that landed today for the paideia-os `sched_wait.pdx` / `elevate_broker_dispatch.pdx` fixtures. Fix: rename the module identifier (fixture-side only — the five build_emit tests reference the file basename, not the module name).
+- **Version:** `workspace.version` bumped 0.27.0 → 0.27.1 (patch: test-fixture-only fix).
+
 ## v0.27.0
 
 ### Crypto
