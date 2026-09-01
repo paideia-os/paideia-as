@@ -13,6 +13,8 @@
 //!   - `hash::sha256` (FIPS 180-4 §6.2) — one-shot [`hash::sha256`] and
 //!     streaming [`hash::Sha256Ctx`]; foundational for HMAC-SHA256 / HKDF
 //!     (RFC 5869) and TLS 1.3's transcript hash.
+//!   - `hash::sha512` (FIPS 180-4 §6.4) — one-shot [`hash::sha512`] and
+//!     streaming [`hash::Sha512Ctx`]; foundational for Ed25519 (RFC 8032).
 //! - `kdf`  — password-based key-derivation functions.
 //!   - `kdf::Argon2id` (RFC 9106).
 //! - `aead` — authenticated encryption with associated data.
@@ -54,8 +56,11 @@ pub mod kdf;
 pub mod rng;
 
 pub use aead::{Aead, AeadError, ChaCha20Poly1305, ChaCha20Poly1305Params};
-pub use curve::{x25519_public_from_secret, x25519_scalarmult};
-pub use hash::{Sha256Ctx, sha256};
+pub use curve::{
+    ed25519_public_from_secret, ed25519_sign, ed25519_verify, x25519_public_from_secret,
+    x25519_scalarmult,
+};
+pub use hash::{Sha256Ctx, Sha512Ctx, sha256, sha512};
 pub use kdf::{
     Argon2id, Argon2idParams, HkdfExpandError, Kdf, KdfError, hkdf_expand, hkdf_extract,
     hmac_sha256,

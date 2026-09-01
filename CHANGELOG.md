@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.28.0
+
+### Crypto
+
+- **Issue #1341 (R100-PREP-005d) — Ed25519 sign + verify (RFC 8032 §5.1) + SHA-512 (FIPS 180-4 §6.4).** New `paideia-as-crypto::curve::ed25519` module: `ed25519_public_from_secret(sk) -> [u8; 32]`, `ed25519_sign(sk, msg) -> [u8; 64]`, `ed25519_verify(pk, msg, sig) -> bool`. Also new `paideia-as-crypto::hash::sha512` (portable u64 message schedule, 80-round compression, one-shot + streaming — mirrors the shape of the SHA-256 code from #1338). The Ed25519 point representation is extended twisted-Edwards `(X, Y, Z, T)` with `T = X*Y/Z`; group law is Hisil/Wong/Carter/Dawson 2008 unified add (add-2008-hwcd-3) plus dedicated doubling. Scalar mult for secret scalars is constant-time double-and-add with a `Point::cswap` on every bit. **Decision surfaced:** the previous #1341 stall was on a SUPERCOP `ref10`-transcription of `sc_muladd` using signed 21-bit limbs — the tail-carry chain was too easy to get subtly wrong. This round replaces the whole scalar-arithmetic path with a bit-serial modular reduction over 512-bit intermediates in 8 u32 limbs: `O(512)` iterations with a single conditional subtract per bit — much slower per op (still ≪ 1 ms per `sc_muladd` on modern x86_64), but the code is small enough to audit against the definition of `L = 2^252 + 27742317777372353535851937790883648493` directly, and the four-limb compare + subtract are trivially constant-time. **Point decompression** similarly ditches the SUPERCOP `beta = u * v^3 * (u * v^7)^((p-5)/8)` sqrt template — the intermediate `v^3` / `v^7` factoring is error-prone — for the direct-form `w = u * v^-1`, `candidate = w^((p+3)/8)`, `if candidate^2 != w: candidate *= sqrt(-1)`. Same asymptotic cost (dominant is the 253-square exponentiation), simpler and less bug-prone. **New tests:** RFC 8032 §7.1 TEST 1 / TEST 2 / TEST 3 / TEST SHA(abc) all pass sign + verify byte-for-byte; negative-verify (mutated sig / mutated msg / mutated pk / S ≥ L all reject without panic); round-trip pin on a stable-shape secret. SHA-512 additionally: FIPS 180-4 §D.4 "abc", §D.5 two-block, empty-input pin, streaming-equivalence across chunk sizes, §D.6 one-million-'a' as `#[ignore]`. Unblocks TLS 1.3 raw-key server auth in `libpdx-net` M3.
+- **Version:** `workspace.version` bumped 0.27.4 → 0.28.0 (minor: additive crypto surface — new `ed25519` module + new `hash::sha512` module — no source-level breakage).
+
 ## v0.27.4
 
 ### Test hygiene
