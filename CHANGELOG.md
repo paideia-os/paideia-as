@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.29.2 — 2026-09-02
+
+### Satellite runtime: memcpy/memset/memmove/memcmp/bcmp libc primitives
+
+R91-XREPO.M1 Phase C follow-up. When mkfs.pdxfs actually reached the ChaCha20-Poly1305 seal/open path (via `--encrypt`), `ld -nostdlib --gc-sections` still failed with `undefined reference to memcpy` — rustc emits memcpy/memset calls for struct copies and slice ops that survive gc-sections because the crypto call chain transitively reaches them.
+
+Hand-rolled 5 libc mem-op primitives added to `paideia-satellite-runtime/src/lib.rs`: `memcpy`, `memset`, `memmove`, `memcmp`, `bcmp`. All pure-Rust bodies, `#[unsafe(no_mangle)]`, byte-loop implementations matching C11 §7.24 semantics. No new deps; the `compiler_builtins/mem` cargo feature was avoided because it requires nightly `-Zbuild-std`.
+
+Verified end-to-end: all 4 satellite ELFs now link cleanly with `ld -nostdlib --gc-sections`: mkfs.pdxfs (encrypts + hashes), mount.pdxfs, umount.pdxfs, libpdx-volume (build-out only, no ELF).
+
+Kernel path unchanged: paideia-satellite-runtime is only consumed by satellites; the kernel rlib path never sees these symbols.
+
 ## 0.29.1 — 2026-09-02
 
 ### Satellite runtime shim (R91-XREPO.M1 Phase A follow-up)

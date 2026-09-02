@@ -418,3 +418,97 @@ fn on_panic(_info: &core::panic::PanicInfo) -> ! {
 /// does nothing.
 #[unsafe(no_mangle)]
 pub extern "C" fn rust_eh_personality() {}
+
+// ---------------------------------------------------------------------
+// libc memory-op primitives (memcpy / memset / memmove).
+// ---------------------------------------------------------------------
+//
+// Rust's compiler_builtins normally provides these under a `mem`
+// cargo feature, but that feature requires a nightly `-Zbuild-std`
+// bootstrap flow we don't want in the satellite path. Instead we
+// hand-roll pure-Rust bodies here so satellite ELFs linked
+// `ld -nostdlib` can resolve the memcpy/memset/memmove refs that
+// rustc emits for struct copies, slice ops, and heap-allocator
+// bookkeeping. Verified needed by mkfs.pdxfs post-Phase-C: the
+// ChaCha20-Poly1305 seal/open path in paideia-as-crypto and
+// Poly1305's finalize both emit memcpy calls that survive
+// `--gc-sections` because mkfs's --encrypt path transitively
+// reaches them.
+//
+// The three signatures match C's libc.h exactly (SysV: rdi=dst,
+// rsi=src, rdx=n; return dst). Marked `#[unsafe(no_mangle)]` so
+// ld resolves them by the well-known C name.
+
+/// # Safety
+/// Caller must ensure `dst` and `src` are valid for reads/writes of
+/// `n` bytes and do not overlap. See C11 §7.24.2.1.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn memcpy(dst: *mut u8, src: *const u8, n: usize) -> *mut u8 {
+    let mut i = 0usize;
+    while i < n {
+        unsafe { *dst.add(i) = *src.add(i); }
+        i += 1;
+    }
+    dst
+}
+
+/// # Safety
+/// Caller must ensure `dst` is valid for writes of `n` bytes.
+/// See C11 §7.24.6.1.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn memset(dst: *mut u8, val: i32, n: usize) -> *mut u8 {
+    let b = val as u8;
+    let mut i = 0usize;
+    while i < n {
+        unsafe { *dst.add(i) = b; }
+        i += 1;
+    }
+    dst
+}
+
+/// # Safety
+/// Caller must ensure `dst` and `src` are valid for reads/writes of
+/// `n` bytes. Overlapping regions are handled correctly (unlike
+/// `memcpy`). See C11 §7.24.2.2.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn memmove(dst: *mut u8, src: *const u8, n: usize) -> *mut u8 {
+    if (dst as usize) < (src as usize) {
+        let mut i = 0usize;
+        while i < n {
+            unsafe { *dst.add(i) = *src.add(i); }
+            i += 1;
+        }
+    } else {
+        let mut i = n;
+        while i > 0 {
+            i -= 1;
+            unsafe { *dst.add(i) = *src.add(i); }
+        }
+    }
+    dst
+}
+
+/// # Safety
+/// Caller must ensure `a` and `b` are valid for reads of `n` bytes.
+/// See C11 §7.24.4.1.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn memcmp(a: *const u8, b: *const u8, n: usize) -> i32 {
+    let mut i = 0usize;
+    while i < n {
+        let av = unsafe { *a.add(i) };
+        let bv = unsafe { *b.add(i) };
+        if av != bv {
+            return av as i32 - bv as i32;
+        }
+        i += 1;
+    }
+    0
+}
+
+/// # Safety
+/// Caller must ensure `a` and `b` are valid for reads of `n` bytes.
+/// glibc-specific alias for `memcmp` used by some Rust internal calls.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bcmp(a: *const u8, b: *const u8, n: usize) -> i32 {
+    unsafe { memcmp(a, b, n) }
+}
