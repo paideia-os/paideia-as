@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.28.1 — 2026-09-02
+
+### Crypto
+
+- **Issue #1347 — `mldsa65_verify` intrinsic (FIPS 204 §7.3).** New extern-C thunk `mldsa65_verify_runtime_entry` in `paideia-pq-sign::ffi`, projecting `MlDsa65Marker::verify` onto the SysV 6-register calling convention: `(msg_ptr, msg_len, sig_ptr, sig_len, pubkey_ptr, pubkey_len) -> i64`. Return-code surface matches the paideia-as-crypto FFI sentinels: `0` = valid, `-1` = InvalidParam (NULL where required), `-2` = InvalidLength (`pubkey_len != 1952` or `sig_len != 3309` — length gate is upstream of the borrow so a caller shape bug is never folded into an authentication failure), `-3` = AuthenticationFailed. Companion stdlib intrinsic declaration in `paideia-stdlib/pdx/mldsa.pdx` (added `fn verify` alongside the existing `fn sign` in the `MlDsa65` trait); elaborator recipe in `stdlib_lowering::mldsaops` routes `MlDsa65::verify` to the new symbol with `ArgConvention::SysVRegs`. **New tests:** sign→verify happy-path round-trip; single-bit signature flip rejects with `-3`; wrong pubkey/sig length rejects with `-2`; NULL sig/pubkey rejects with `-1`; empty-message-with-NULL-msg-ptr round-trip; signature-over-different-message rejects with `-3`. Unblocks `libpdx-volume#16` `pdxb_verify_superblock` and the pre-existing `pdxb_verify_inode_tail` v1.0.0 stub — both call the verify intrinsic and depend on the -2/-3 split to separate the malformed-header repair path from the eviction path.
+- **Version:** `workspace.version` bumped 0.28.0 → 0.28.1 (patch: additive crypto intrinsic — new `mldsa65_verify_runtime_entry` symbol + one new `MlDsa65::verify` trait method, no source-level breakage). `find-paideia-as.sh` `MIN_VERSION` unchanged (0.4.0).
+
 ## v0.28.0
 
 ### Crypto

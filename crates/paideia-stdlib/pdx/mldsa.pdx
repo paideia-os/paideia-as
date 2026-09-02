@@ -1,9 +1,10 @@
 // paideia-as#1330 — ML-DSA-65 (FIPS 204) signing trait declaration.
-// The elaborator's `stdlib_lowering::mldsaops` module routes calls
-// through this trait to the extern-C thunk in
+// paideia-as#1347 — ML-DSA-65 verify companion (this same trait).
+// The elaborator's `stdlib_lowering::mldsaops` module routes both
+// methods through this trait to the extern-C thunks in
 // `crates/paideia-pq-sign/src/ffi.rs`.
 //
-// # Consumer contract
+// # Consumer contract — sign
 //
 // `seed_ptr` points to a 32-byte ML-DSA-65 seed (the compact secret
 // key form — `MLDSA65_SK_LEN` in `paideia-pq-sign`). `sig_out_ptr`
@@ -11,22 +12,47 @@
 // (`MLDSA65_SIG_LEN`); the thunk writes the encoded signature there
 // on success and leaves it untouched on failure.
 //
-// # Return codes
+// # Consumer contract — verify
 //
-//   0   OK — signature written to `sig_out_ptr[..3309]`
+// `pubkey_ptr` points to a 1952-byte ML-DSA-65 encoded public key
+// (`MLDSA65_PK_LEN`) and `sig_ptr` to a 3309-byte encoded signature
+// (`MLDSA65_SIG_LEN`). The `pubkey_len` and `sig_len` arguments MUST
+// carry those exact values; any other value is rejected with -2
+// (InvalidLength) before the primitive is entered. `msg_ptr` may be
+// NULL when `msg_len == 0` (empty-message case — used by pax blob
+// authentication when the payload is zero bytes).
+//
+// # Return codes (shared surface)
+//
+//   0   OK — sign: signature written; verify: signature valid
 //  -1   InvalidParam (a required pointer was NULL)
+//  -2   InvalidLength (verify: pubkey_len != 1952 or sig_len != 3309)
+//  -3   AuthenticationFailed (verify only: signature does not
+//       authenticate under (pubkey, msg))
+//
+// Consumers MUST branch on `rc == 0` for a valid signature; any
+// negative value means "not verified" and the signature is unusable
+// regardless of whether the underlying cause was a bad parameter or
+// a genuine authentication mismatch. libpdx-volume#16
+// pdxb_verify_superblock uses the -2/-3 split to distinguish a
+// malformed superblock header (repair path) from a legitimate
+// verification failure (eviction path).
 //
 // # Effect + capability discipline
 //
-// Shares `!{crypto, mem} @{paideia.crypto}` with `Argon2id::derive`
-// and `ChaCha20Poly1305::seal`/`open` (see `crypto.pdx`) — ML-DSA-65
-// signing is the same "crypto primitive touching caller-supplied
-// buffers and a secret" shape those primitives already cover.
+// Both methods share `!{crypto, mem} @{paideia.crypto}` with
+// `Argon2id::derive` and `ChaCha20Poly1305::seal`/`open` (see
+// `crypto.pdx`) — ML-DSA-65 signing / verification is the same
+// "crypto primitive touching caller-supplied buffers" shape those
+// primitives already cover. Verify does not touch a secret so
+// arguably its capability requirement is weaker; the cap surface is
+// left unified pending the dedicated per-key-material capability
+// design (see the same follow-up noted for sign).
 //
 // # References
 //
 // - FIPS 204 (Module-Lattice-Based Digital Signature Standard),
-//   ML-DSA-65 parameter set.
+//   ML-DSA-65 parameter set — §7.2 sign, §7.3 verify.
 
 trait MlDsa65 {
   // sign(seed_ptr, msg_ptr, msg_len, sig_out_ptr) -> return_code
@@ -44,5 +70,27 @@ trait MlDsa65 {
     msg_ptr: u64,
     msg_len: u64,
     sig_out_ptr: u64,
+  ) -> i64 !{crypto, mem} @{paideia.crypto};
+
+  // verify(msg_ptr, msg_len, sig_ptr, sig_len, pubkey_ptr, pubkey_len)
+  //   -> return_code
+  //
+  //   RDI  msg_ptr      *const u8
+  //   RSI  msg_len      u64
+  //   RDX  sig_ptr      *const u8 (MUST be 3309 bytes)
+  //   RCX  sig_len      u64 (MUST equal 3309)
+  //   R8   pubkey_ptr   *const u8 (MUST be 1952 bytes)
+  //   R9   pubkey_len   u64 (MUST equal 1952)
+  //   RAX  return code (i64)
+  //
+  // Reference: mldsa65_verify_runtime_entry in
+  //            crates/paideia-pq-sign/src/ffi.rs.
+  fn verify(
+    msg_ptr: u64,
+    msg_len: u64,
+    sig_ptr: u64,
+    sig_len: u64,
+    pubkey_ptr: u64,
+    pubkey_len: u64,
   ) -> i64 !{crypto, mem} @{paideia.crypto};
 }
