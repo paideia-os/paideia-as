@@ -38,6 +38,8 @@
 
 use super::{Kdf, KdfError};
 
+use alloc::format;
+
 use argon2::{Algorithm, Argon2, AssociatedData, ParamsBuilder, Version};
 
 /// Argon2id KDF marker type. All operations are provided by the trait

@@ -44,9 +44,26 @@
 //!    feature check performed at `HardwareRng` construction.
 //!    No allocation on the hot path beyond what the underlying
 //!    primitive requires.
+//!
+//! # `no_std + alloc` posture
+//!
+//! The crate builds as `no_std + alloc` for library / staticlib
+//! outputs — see `#![cfg_attr(not(test), no_std)]` below — so the
+//! resulting archive can be linked into a satellite host tool (via
+//! `paideia-satellite-runtime`) without dragging `std` / `libc` /
+//! `_Unwind_*` scaffolding onto that tool's link line. The satellite
+//! consumer must supply its own `#[global_allocator]`; this crate
+//! declares none (that decision belongs to the final binary).
+//!
+//! Under `cfg(test)` the crate is compiled as std so `cargo test`
+//! keeps working with the standard test harness; test code may use
+//! `std::` freely.
 
+#![cfg_attr(not(test), no_std)]
 #![warn(missing_docs)]
 #![deny(unsafe_code)]
+
+extern crate alloc;
 
 pub mod aead;
 pub mod curve;

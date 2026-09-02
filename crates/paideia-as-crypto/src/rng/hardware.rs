@@ -11,11 +11,17 @@
 //!
 //! CPUID leaf 0x07 sub-leaf 0 EBX bit 18 is RDSEED (Intel SDM Vol. 2A
 //! §3.2, table 3-8); CPUID leaf 0x01 ECX bit 30 is RDRAND (same
-//! reference). We use Rust's `is_x86_feature_detected!` macro which
-//! wraps those checks and caches the result — the same underlying
-//! CPUID sequence the paideia-native intrinsic from issue #1283 will
-//! emit on the target side once v0.33-005 lands the paideia-native
-//! `SecureRandom` recipe.
+//! reference). Detection is performed by direct `core::arch::x86_64`
+//! `__cpuid` / `__cpuid_count` calls (see [`cpuid_has_rdseed`] and
+//! [`cpuid_has_rdrand`]) rather than through `std::is_x86_feature_
+//! detected!`, so this module compiles as `no_std` — the same CPUID
+//! sequence the paideia-native intrinsic from issue #1283 will emit
+//! on the target side once v0.33-005 lands the paideia-native
+//! `SecureRandom` recipe. Behaviour matches the std macro (both walk
+//! the same CPUID bit); the std macro additionally caches the answer
+//! in a process-lifetime static, an optimisation we can afford to
+//! skip because `HardwareRng::new` is called at most a handful of
+//! times per process (once per subsystem that samples entropy).
 //!
 //! # Retry policy
 //!
@@ -29,19 +35,61 @@
 //! # `unsafe` scope
 //!
 //! The intrinsic wrappers ([`RdseedSource::try_u64`],
-//! [`RdrandSource::try_u64`], and the two `pause` calls) are the
-//! only `unsafe` blocks in this crate. Each one is preceded by a
-//! CPUID feature-detection check performed by [`HardwareRng::new`],
-//! and no `HardwareRng` value can be constructed that would
-//! dispatch to an intrinsic whose feature-bit is unset. The
-//! feature-bit-to-intrinsic invariant is checked one place per
-//! source — in the `EntropySource` match in [`fill_from`] — so a
-//! future refactor cannot silently split the two.
+//! [`RdrandSource::try_u64`], and the two `pause` calls) plus the
+//! two `__cpuid` / `__cpuid_count` calls in [`cpuid_has_rdseed`] /
+//! [`cpuid_has_rdrand`] are the only `unsafe` blocks in this crate.
+//! Each intrinsic wrapper is preceded by a CPUID feature-detection
+//! check performed by [`HardwareRng::new`], and no `HardwareRng`
+//! value can be constructed that would dispatch to an intrinsic
+//! whose feature-bit is unset. The feature-bit-to-intrinsic
+//! invariant is checked one place per source — in the
+//! `EntropySource` match in [`fill_from`] — so a future refactor
+//! cannot silently split the two.
 
 use super::{RngError, SecureRandom};
 
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::{_mm_pause, _rdrand64_step, _rdseed64_step};
+
+/// CPUID feature check for RDRAND — CPUID.01H:ECX bit 30
+/// (Intel SDM Vol. 2A §3.2 table 3-8).
+///
+/// Returns `true` when the CPU advertises RDRAND. Uses the raw
+/// `__cpuid` intrinsic (`core::arch::x86_64`) rather than
+/// `std::is_x86_feature_detected!` so this module compiles under
+/// `#![no_std]`.
+#[cfg(target_arch = "x86_64")]
+#[allow(unsafe_code)]
+pub(crate) fn cpuid_has_rdrand() -> bool {
+    // SAFETY: CPUID is baseline on x86_64 (present since original AMD64
+    // silicon); leaf 1 is the "Basic CPUID Information" leaf, always
+    // reported when CPUID itself exists. `__cpuid` has no memory-safety
+    // preconditions — it only reads CPU-visible registers.
+    let regs = unsafe { core::arch::x86_64::__cpuid(1) };
+    (regs.ecx & (1 << 30)) != 0
+}
+
+/// CPUID feature check for RDSEED — CPUID.(EAX=07H, ECX=0H):EBX bit 18
+/// (Intel SDM Vol. 2A §3.2 table 3-8).
+///
+/// Returns `true` when the CPU advertises RDSEED. Structured-extended
+/// leaf 7 is queried only when leaf 0's max-basic-leaf (in EAX)
+/// reports it as present — this mirrors the guard `is_x86_feature_
+/// detected!` performs internally, and matters because pre-Ivy-Bridge
+/// silicon returns garbage from an out-of-range CPUID leaf rather
+/// than zeroed registers.
+#[cfg(target_arch = "x86_64")]
+#[allow(unsafe_code)]
+pub(crate) fn cpuid_has_rdseed() -> bool {
+    // SAFETY: as `cpuid_has_rdrand`; leaf 0 is universally supported.
+    let leaf0 = unsafe { core::arch::x86_64::__cpuid(0) };
+    if leaf0.eax < 7 {
+        return false;
+    }
+    // SAFETY: leaf 7 is guarded by the max-basic-leaf check above.
+    let regs = unsafe { core::arch::x86_64::__cpuid_count(7, 0) };
+    (regs.ebx & (1 << 18)) != 0
+}
 
 /// Retry budget for RDRAND — Intel DRNG guide §4.2.
 pub const RDRAND_RETRIES: u32 = 10;
@@ -89,12 +137,12 @@ impl HardwareRng {
     pub fn new() -> Result<Self, RngError> {
         #[cfg(target_arch = "x86_64")]
         {
-            if std::is_x86_feature_detected!("rdseed") {
+            if cpuid_has_rdseed() {
                 return Ok(Self {
                     source: EntropySource::RdSeed,
                 });
             }
-            if std::is_x86_feature_detected!("rdrand") {
+            if cpuid_has_rdrand() {
                 return Ok(Self {
                     source: EntropySource::RdRand,
                 });
@@ -149,7 +197,7 @@ impl RawSource for RdseedSource {
         // The only path that constructs this type is `fill_from`,
         // which is reached only from a `HardwareRng` whose `source`
         // was set to `RdSeed` by `HardwareRng::new` after
-        // `is_x86_feature_detected!("rdseed")` returned true.
+        // `cpuid_has_rdseed()` returned true.
         let ok = unsafe { _rdseed64_step(&mut out) };
         (ok == 1).then_some(out)
     }
@@ -180,8 +228,8 @@ impl RawSource for RdrandSource {
         // See the corresponding SAFETY note on `RdseedSource` — the
         // reachability argument is symmetric: this method is called
         // only from a `HardwareRng` whose `source` was set to
-        // `RdRand` by `HardwareRng::new` after
-        // `is_x86_feature_detected!("rdrand")` returned true.
+        // `RdRand` by `HardwareRng::new` after `cpuid_has_rdrand()`
+        // returned true.
         let ok = unsafe { _rdrand64_step(&mut out) };
         (ok == 1).then_some(out)
     }
@@ -247,7 +295,7 @@ fn fetch_one<R: RawSource>(source: &R) -> Result<u64, RngError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::Cell;
+    use core::cell::Cell;
 
     /// Mock source that fails `fail_first` times then always
     /// succeeds, returning a scripted word. `attempts` counts every
@@ -394,21 +442,25 @@ mod tests {
     #[test]
     #[cfg(target_arch = "x86_64")]
     fn new_selects_source_by_cpu_capability() {
+        // Uses the same hand-rolled CPUID helpers `HardwareRng::new`
+        // consults so the test cannot drift from the production path
+        // (a `std::is_x86_feature_detected!` here would answer from a
+        // different code path and could mask a bug in the helpers).
         match HardwareRng::new() {
             Ok(rng) => {
-                if std::is_x86_feature_detected!("rdseed") {
+                if cpuid_has_rdseed() {
                     assert_eq!(rng.source(), EntropySource::RdSeed);
                 } else {
                     assert!(
-                        std::is_x86_feature_detected!("rdrand"),
+                        cpuid_has_rdrand(),
                         "Ok with neither feature bit set is a logic bug in `new`",
                     );
                     assert_eq!(rng.source(), EntropySource::RdRand);
                 }
             }
             Err(RngError::Unavailable) => {
-                assert!(!std::is_x86_feature_detected!("rdseed"));
-                assert!(!std::is_x86_feature_detected!("rdrand"));
+                assert!(!cpuid_has_rdseed());
+                assert!(!cpuid_has_rdrand());
             }
             Err(other) => panic!("`new` returned unexpected error: {other:?}"),
         }

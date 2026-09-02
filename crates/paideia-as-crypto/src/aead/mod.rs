@@ -39,6 +39,8 @@ pub use chacha20_poly1305::{
     RFC_8439_APPENDIX_A_5_NONCE, RFC_8439_APPENDIX_A_5_PLAINTEXT, RFC_8439_APPENDIX_A_5_TAG,
 };
 
+use alloc::{string::String, vec::Vec};
+
 use thiserror::Error;
 
 /// Errors an AEAD implementation may return.

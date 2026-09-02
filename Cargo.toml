@@ -24,6 +24,7 @@ members = [
     "crates/paideia-fmt",
     "crates/paideia-pq-sign",
     "crates/paideia-as-crypto",
+    "crates/paideia-satellite-runtime",
     "crates/paideia-stdlib",
     "tests/e2e",
     "tests/end-to-end",
@@ -59,7 +60,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.28.1"
+version = "0.29.1"
 edition = "2024"
 rust-version = "1.94"
 license = "MIT"
@@ -123,6 +124,29 @@ regex = "1"
 opt-level = 3
 lto = "fat"
 codegen-units = 1
+# `panic = "abort"` is REQUIRED at the workspace level for the
+# `paideia-satellite-runtime` staticlib to compile: Rust's per-package
+# profile-override list (cargo book, "Overrides") does not include
+# `panic`, so this decision is workspace-wide by construction. The
+# staticlib's `-nostdlib` satellite consumer cannot resolve
+# `_Unwind_*` symbols; without abort here the compiler would still
+# emit unwinding scaffolding into the archive.
+#
+# Safety review of the whole-workspace impact (2026-09-02):
+#   * No workspace crate calls `std::panic::catch_unwind` or
+#     `resume_unwind` (grep-verified across `crates/`, `tests/`,
+#     `tools/`).
+#   * `cargo test` uses the `test` profile (inherits from `dev`),
+#     which retains `panic = "unwind"`, so `should_panic` and
+#     panic-observing tests continue to work.
+#   * Kernel-side rlib consumers (`paideia-as-runtime` and friends)
+#     already run in bare-metal contexts where unwinding is a
+#     non-starter, so `abort` semantics here matches their runtime.
+#   * The `paideia-as` binary itself gets abort semantics on release
+#     builds; the compiler does not catch its own panics, so this is
+#     benign (a panicked pass hard-faults instead of unwinding, which
+#     is the same outward-visible outcome for a crash).
+panic = "abort"
 
 [profile.dev]
 opt-level = 1

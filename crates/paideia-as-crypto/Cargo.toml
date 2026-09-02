@@ -9,12 +9,62 @@ repository.workspace = true
 
 [lib]
 name = "paideia_as_crypto"
+# `rlib` ONLY — this crate is a pure library consumed at compile time
+# by two Rust workspace neighbours:
+#
+#   * `paideia-as-runtime`      (kernel-side rlib consumer)
+#   * `paideia-satellite-runtime` (satellite-side rlib consumer whose
+#                                  OWN `.a` output is what satellites
+#                                  actually link against)
+#
+# It is NOT itself a satellite link target. An earlier landing
+# (0.29.0/0.29.1) added `crate-type = ["rlib", "staticlib"]` here on
+# the belief that satellites would consume `libpaideia_as_crypto.a`
+# directly. That was the wrong architecture: emitting a bare
+# staticlib forces the Rust compiler to demand a `#[global_allocator]`
+# + `#[panic_handler]` + `panic = "abort"` inside this crate — but
+# those decisions belong to the final ELF (i.e. the satellite), not
+# to a leaf library. Downstream now consume this crate as an rlib
+# only; `paideia-satellite-runtime` is the single staticlib in the
+# workspace, wrapping this crate's object code with the runtime
+# infrastructure a bare-metal / `-nostdlib` satellite needs.
+#
+# See `design/infrastructure/satellite-runtime-shim.md` §4.1 for the
+# corrected architecture and rationale.
+crate-type = ["rlib"]
+
+[features]
+# Default features are empty so a satellite consumer that sets
+# `default-features = false` (as `paideia-satellite-runtime` does)
+# gets a true `no_std + alloc` archive without any std / libc scaffolding
+# leaking in through this crate's own dependency graph.
+#
+# `cargo test -p paideia-as-crypto` still works out of the box because
+# the library carries `#![cfg_attr(not(test), no_std)]` — under
+# `cfg(test)` the crate is std-linked so the test harness (which itself
+# requires std) can rely on `std::` freely. This gates the std surface
+# on the compilation target, not on this feature flag.
+#
+# Downstream **library** consumers that must have `std::error::Error`
+# blanket impls on this crate's error types across their own transitive
+# deps should enable `std` explicitly; this pulls std back into the
+# dependency graph and lets `thiserror` / `argon2` / `chacha20poly1305`
+# re-enable their own std-only APIs.
+default = []
+std = ["thiserror/std", "argon2/std", "chacha20poly1305/std"]
 
 [dependencies]
-argon2 = { workspace = true }
-# ChaCha20-Poly1305 (RFC 8439) — mirrors the version already
-# consumed by paideia-pq-sign so both crates share one entry in
-# Cargo.lock.
-chacha20poly1305 = "0.10"
-thiserror = { workspace = true }
-
+# `argon2` — built in `no_std + alloc` mode (no `std`, no `password-hash`
+# helpers). `hash_password_into` is available under `alloc` and is the
+# only API this crate uses.
+argon2 = { version = "0.5", default-features = false, features = ["alloc"] }
+# ChaCha20-Poly1305 (RFC 8439) — mirrors the version already consumed
+# by paideia-pq-sign so both crates share one entry in Cargo.lock. Built
+# in `no_std + alloc` mode; `aead::Payload` / `encrypt` / `decrypt` are
+# available under `alloc` and are the only API this crate uses.
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
+# `thiserror` in v2 supports `no_std + alloc` via `default-features =
+# false`, wiring its `#[derive(Error)]` output to `core::error::Error`
+# rather than `std::error::Error`. The workspace's Rust edition (2024)
+# and MSRV (1.94) provide `core::error::Error`.
+thiserror = { version = "2", default-features = false }

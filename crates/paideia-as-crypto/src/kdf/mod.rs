@@ -18,6 +18,8 @@ pub mod hkdf;
 pub use argon2id::{Argon2id, Argon2idParams, RFC_9106_ARGON2ID_TAG};
 pub use hkdf::{hkdf_expand, hkdf_extract, hmac_sha256, HkdfExpandError};
 
+use alloc::string::String;
+
 use thiserror::Error;
 
 /// Errors that a KDF implementation may return.

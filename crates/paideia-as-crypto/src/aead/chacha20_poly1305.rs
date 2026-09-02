@@ -27,6 +27,8 @@
 //! `rng` module (issue `v0.33-003`) will provide the secure random
 //! source used to sample fresh nonces.
 
+use alloc::{format, vec::Vec};
+
 use chacha20poly1305::{
     ChaCha20Poly1305 as ChaChaCipher, Nonce,
     aead::{Aead as _, KeyInit, Payload},

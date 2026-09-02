@@ -1,0 +1,69 @@
+[package]
+name = "paideia-satellite-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+name = "paideia_satellite_runtime"
+# staticlib-only, and the ONLY staticlib in the workspace. No rlib
+# consumer exists — this crate exists solely to be linked as a `.a`
+# on the final `ld` line of satellite host tools (mkfs.pdxfs /
+# mount.pdxfs / umount.pdxfs). The single archive resolves ALL FOUR
+# paideia-as FFI intrinsics referenced by `.pdx`-compiled objects:
+#
+#   * paideia_crypto_argon2id_derive           (from paideia-as-crypto)
+#   * paideia_crypto_chacha20_poly1305_seal    (from paideia-as-crypto)
+#   * paideia_crypto_chacha20_poly1305_open    (from paideia-as-crypto)
+#   * mldsa65_sign_runtime_entry               (fail-closed stub, this crate)
+#
+# It also owns the three no_std runtime pieces the Rust compiler
+# demands of every staticlib crate — `#[global_allocator]` (hand-
+# rolled 4 MiB bump pool), `#[panic_handler]` (inline `hlt`), and
+# a `rust_eh_personality` stub. These live here rather than in
+# `paideia-as-crypto` because they are decisions of the final ELF's
+# runtime shape, not of a leaf crypto library; see the 0.29.1
+# second-pass CHANGELOG entry and design §4.1 for the architecture
+# rationale.
+#
+# See design/infrastructure/satellite-runtime-shim.md §3.1 (crypto
+# single-source rationale), §3.2 (sign fail-closed rationale), and
+# §4.1 (Crypto/sign shim physical shape).
+crate-type = ["staticlib"]
+
+[dependencies]
+# Path-dep so cargo builds the SAME `paideia-as-crypto` crate any
+# other Rust consumer would use, and pulls its staticlib-eligible
+# object code into `libpaideia_satellite_runtime.a`. This is the
+# mechanism by which the R1 (byte-match divergence) mitigation from
+# §3.1 is enforced physically: there is exactly one source of the
+# crypto thunks in the workspace, and Cargo's own dependency graph
+# guarantees both consumers see the same object code.
+#
+# `default-features = false` is REQUIRED for the satellite build to
+# be honest: without it, `paideia-as-crypto`'s dependency graph would
+# be free to reintroduce `std` / libc / `_Unwind_*` scaffolding (via
+# `thiserror/std`, `argon2/std`, `chacha20poly1305/std`) that satellite
+# tools cannot link against on the final `ld -nostdlib` line. Enforced
+# explicitly here so a future edit to `paideia-as-crypto`'s `default`
+# feature list cannot silently break the archive's link-cleanliness.
+paideia-as-crypto = { path = "../paideia-as-crypto", default-features = false }
+
+# Deliberately NO `ml-dsa` dependency.
+#
+# The satellite build is fail-closed for signing: every satellite
+# tool that currently ships (mkfs.pdxfs, mount.pdxfs, umount.pdxfs)
+# links `mldsa65_sign_runtime_entry` for symbol-resolution reasons
+# (`ld` has no dead-code elimination at .o granularity) but never
+# invokes it at runtime — `mkfs.pdxfs`'s default is the PUBLIC key
+# used only to compute `sig_key_hash` via BLAKE3. Design §3.2
+# spells out the invariant; the `-6 = PDX_MLDSA_ERR_NO_SIGNER`
+# stub in `src/lib.rs` enforces it.
+#
+# A future signing satellite (fsck.pdxfs / pkg.paideia-os) will link
+# against a full `paideia-pq-sign` staticlib built with a `no-hsm`
+# feature that gates out yubihsm/cryptoki/reqwest — separate crate,
+# separate build direction; not this landing.
