@@ -1,0 +1,54 @@
+// paideia-as#1305 — Argon2id KDF trait declaration.
+//
+// Split out of `pdx/crypto.pdx` per paideia-as#1354 so parallel
+// authoring of the v0.25-v0.32 crypto waves never collides inside a
+// shared source file.
+//
+// The elaborator's `stdlib_lowering::cryptoops::argon2id` recipe
+// routes `Argon2id::derive` through the extern-C thunk
+// `paideia_crypto_argon2id_derive` in
+// `crates/paideia-as-crypto/src/ffi/argon2id.rs`.
+//
+// # Consumer contract
+//
+// Consumers pass parameters as pointers to `#[repr(C)]` structs laid
+// out to match `Argon2idParamsC` in the Rust FFI module. All lengths
+// are `u64`s and every byte-buffer is a plain `*const u8` / `*mut u8`;
+// there is no `.pdx`-side wrapper type.
+//
+// # Return codes (shared across all crypto FFI thunks)
+//
+//   0   OK
+//  -1   InvalidParam (missing pointer / bad `_reserved` field)
+//  -2   InvalidLength (output size mismatch)
+//  -4   Primitive-internal failure
+//
+// Callers MUST branch on the return code; a negative value means the
+// output buffer is untouched and no bytes were written.
+//
+// # Effect discipline
+//
+// The `crypto` effect names the domain (KDF invocation on caller-
+// supplied buffers); the `mem` effect covers the pointer dereferences
+// the primitive performs on the parameter blob. A dedicated
+// `paideia.crypto` capability gates who may invoke this primitive —
+// user-authentication paths in R48 (see `design/user/model.md` §2.1,
+// §9.2) hold this cap; a driver in a separate cap domain does not.
+//
+// # References
+//
+// - RFC 9106 (Argon2id KDF), §3.1 (parameter ranges), §4 (recommended
+//   profiles), §5.3 (canonical test vector).
+
+trait Argon2id {
+  // derive(params_ptr, out_ptr, out_len) -> return_code (see above)
+  //
+  //   RDI  params_ptr    *const Argon2idParamsC
+  //   RSI  out_ptr       *mut u8
+  //   RDX  out_len       u64
+  //   RAX  return code (i64)
+  //
+  // Reference: paideia_crypto_argon2id_derive in
+  //            crates/paideia-as-crypto/src/ffi/argon2id.rs.
+  fn derive(params_ptr: u64, out_ptr: u64, out_len: u64) -> i64 !{crypto, mem} @{paideia.crypto};
+}

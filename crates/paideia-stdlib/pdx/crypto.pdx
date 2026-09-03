@@ -1,203 +1,44 @@
-// paideia-as#1305 — Argon2id KDF + ChaCha20-Poly1305 AEAD trait
-// declarations. The elaborator's `stdlib_lowering::cryptoops` module
-// routes calls through these traits to the extern-C thunks in
-// `crates/paideia-as-crypto/src/ffi/mod.rs`.
+// paideia-as#1354 — crypto trait declarations moved to per-primitive
+// sibling files.
 //
-// # Consumer contract
+// The v0.30-and-earlier landings kept all three crypto primitives'
+// trait declarations in this one file. Wave-0 parallelism for the
+// v0.25-v0.32 crypto substrate (see MASTER_PLAN.md §13.4) requires
+// that adding a new primitive not touch a shared file, so the trait
+// declarations now live one-per-file under `crypto/`:
 //
-// Consumers pass parameters as pointers to `#[repr(C)]` structs laid
-// out to match `Argon2idParamsC` and `AeadParamsC` in the Rust FFI
-// module. All lengths are `u64`s and every byte-buffer is a plain
-// `*const u8` / `*mut u8`; there is no `.pdx`-side wrapper type.
+//   - crypto/argon2id.pdx           — RFC 9106 Argon2id KDF.
+//   - crypto/chacha20_poly1305.pdx  — RFC 8439 ChaCha20-Poly1305 AEAD.
+//   - crypto/ml_kem_768.pdx         — FIPS 203 ML-KEM-768 KEM.
 //
-// # Return codes (shared across all crypto FFI thunks)
+// The elaborator's `stdlib_lowering::cryptoops` dispatcher (also
+// split per-primitive at paideia-as#1354) routes calls from `.pdx`
+// callers to the extern-C thunks under
+// `crates/paideia-as-crypto/src/ffi/`. Every trait / thunk pair is
+// spelt the same way on both sides of the FFI boundary so a reader
+// tracing a call site from `.pdx` to Rust never has to memorise a
+// translation table.
 //
-//   0   OK
-//  -1   InvalidParam (missing pointer / bad `_reserved` field)
-//  -2   InvalidLength (key / nonce / output size mismatch)
-//  -3   AuthenticationFailed (AEAD `open` only)
-//  -4   Primitive-internal failure
-//  -5   BufferTooSmall (`out_cap` insufficient)
+// # Adding a new crypto primitive (append-only recipe)
 //
-// Callers MUST branch on the return code; a negative value means the
-// output buffer is untouched and no bytes were written.
+// 1. Add a per-primitive Rust FFI file at
+//    `crates/paideia-as-crypto/src/ffi/<name>.rs` (thunk + repr-C
+//    parameter bundle + tests).
+// 2. Declare the module + re-export the thunks at
+//    `crates/paideia-as-crypto/src/ffi/mod.rs` (append-only lines).
+// 3. Add a per-primitive elaborator dispatcher at
+//    `crates/paideia-as-elaborator/src/stdlib_lowering/cryptoops/<name>.rs`
+//    and expose it from `cryptoops/mod.rs` (append-only lines).
+// 4. Add one `match` arm in `stdlib_lowering/mod.rs` — the only
+//    shared-file touch, kept to a single line per primitive to
+//    minimise merge surface.
+// 5. Add this file's sibling `crypto/<name>.pdx` with the trait
+//    declaration; document the register mapping and return codes.
+// 6. Add a `pub use paideia_as_crypto::ffi::<thunk>;` line in
+//    `crates/paideia-satellite-runtime/src/lib.rs` (append-only,
+//    one line per thunk).
 //
-// # Nonce discipline
-//
-// ChaCha20-Poly1305 nonces MUST be unique per key across the entire
-// lifetime of that key. Reusing a `(key, nonce)` pair destroys both
-// confidentiality and authenticity (see the Rust `aead::mod` module
-// comment for the full argument). The AEAD does not fabricate nonces
-// internally — callers pass one in through `AeadParamsC` and are
-// responsible for uniqueness. Use `SecureRandom::fill` from `rng.pdx`
-// to sample fresh nonces.
-//
-// # Effect discipline
-//
-// The `crypto` effect names the domain (KDF / AEAD invocation on
-// caller-supplied buffers); the `mem` effect covers the pointer
-// dereferences the primitive performs on the parameter blob. A
-// dedicated `paideia.crypto` capability gates who may invoke these
-// primitives — user-authentication paths in R48 (see
-// `design/user/model.md` §2.1, §9.2) hold this cap; a driver in a
-// separate cap domain does not.
-//
-// # References
-//
-// - RFC 9106 (Argon2id KDF), §3.1 (parameter ranges), §4 (recommended
-//   profiles), §5.3 (canonical test vector).
-// - RFC 8439 (ChaCha20-Poly1305 AEAD), §2.3 (nonce), §2.5 (key / tag
-//   sizes), §2.8 (AEAD construction), §2.8.2 (canonical test vector).
-
-trait Argon2id {
-  // derive(params_ptr, out_ptr, out_len) -> return_code (see above)
-  //
-  //   RDI  params_ptr    *const Argon2idParamsC
-  //   RSI  out_ptr       *mut u8
-  //   RDX  out_len       u64
-  //   RAX  return code (i64)
-  //
-  // Reference: paideia_crypto_argon2id_derive in
-  //            crates/paideia-as-crypto/src/ffi/mod.rs.
-  fn derive(params_ptr: u64, out_ptr: u64, out_len: u64) -> i64 !{crypto, mem} @{paideia.crypto};
-}
-
-trait ChaCha20Poly1305 {
-  // seal(params, plaintext_ptr, plaintext_len, out_ptr, out_cap, written_ptr) -> return_code
-  //
-  //   RDI  params          *const AeadParamsC
-  //   RSI  plaintext_ptr   *const u8
-  //   RDX  plaintext_len   u64
-  //   RCX  out_ptr         *mut u8 (writable buffer)
-  //   R8   out_cap         u64 (>= plaintext_len + 16 for the tag)
-  //   R9   written_ptr     *mut u64
-  //   RAX  return code (i64)
-  //
-  // On success `*written_ptr = plaintext_len + 16` and the buffer
-  // contains `ciphertext || tag`.
-  fn seal(
-    params: u64,
-    plaintext_ptr: u64,
-    plaintext_len: u64,
-    out_ptr: u64,
-    out_cap: u64,
-    written_ptr: u64,
-  ) -> i64 !{crypto, mem} @{paideia.crypto};
-
-  // open(params, sealed_ptr, sealed_len, out_ptr, out_cap, written_ptr) -> return_code
-  //
-  //   Register mapping mirrors `seal`. `sealed_len` MUST be >= 16
-  //   (the tag length) and `out_cap` >= `sealed_len - 16`.
-  //   On success `*written_ptr = sealed_len - 16` (the recovered
-  //   plaintext length). On tag mismatch return code is -3 and the
-  //   output buffer is not touched.
-  fn open(
-    params: u64,
-    sealed_ptr: u64,
-    sealed_len: u64,
-    out_ptr: u64,
-    out_cap: u64,
-    written_ptr: u64,
-  ) -> i64 !{crypto, mem} @{paideia.crypto};
-}
-
-// paideia-as#1352 — ML-KEM-768 KEM (FIPS 203). Elaborator's
-// `stdlib_lowering::cryptoops::try_lower_ml_kem_768` routes each
-// method through this trait to the extern-C thunks in
-// `crates/paideia-as-crypto/src/ffi/mod.rs`.
-//
-// # Consumer contract
-//
-// Every buffer's length is a compile-time constant of the
-// ML-KEM-768 parameter set (FIPS 203 §7): seeds and shared secrets
-// are 32 bytes; the encapsulation key is 1184; the decapsulation
-// key 2400; the ciphertext 1088. Callers allocate fixed-size
-// arrays on the stack (or in static data) and pass their addresses
-// through the SysV registers; the FFI thunks cast the raw pointers
-// to fixed-size array references without runtime length checks —
-// undersized buffers are the caller's own UB.
-//
-// # Return codes (shared with the Argon2id / AEAD surface)
-//
-//   0   OK
-//  -1   InvalidParam (a required pointer was NULL)
-//  -4   Primitive-internal failure (should be unreachable on the
-//       current backend — kept for future paideia-native impls)
-//
-// # Implicit rejection (FIPS 203 §6.3)
-//
-// `decaps` is TOTAL — a tampered ciphertext decapsulates to a
-// pseudo-random shared secret derived from the implicit-rejection
-// secret `z` embedded in `dk`, NOT an error. Callers that need to
-// detect tampering wrap the shared secret in an authenticated
-// transform (AEAD keyed by the secret, HMAC over transcript, …).
-// See the R91 networking notes for the RFC-8446-shaped handshake
-// pattern that consumes the shared secret through TLS-1.3-like
-// key-schedule wiring.
-//
-// # Effect + capability discipline
-//
-// `!{crypto, mem} @{paideia.crypto}` — same effect row and
-// capability as `Argon2id::derive` / `ChaCha20Poly1305::seal`/`open`
-// (see the crypto.pdx docstring above). ML-KEM operations read the
-// caller's seed / key buffers and write their output buffers, which
-// is the same "crypto primitive touching caller-supplied buffers"
-// shape those primitives already cover; reusing the capability
-// avoids fragmenting the crypto cap surface ahead of a dedicated
-// per-key-material capability design.
-//
-// # References
-//
-// - FIPS 203 (Module-Lattice-Based KEM Standard), ML-KEM-768
-//   parameter set — §6 ML-KEM {KeyGen, Encaps, Decaps},
-//   §7 parameter sets.
-
-trait MlKem768 {
-  // keygen(seed_d_ptr, seed_z_ptr, ek_out_ptr, dk_out_ptr) -> rc
-  //
-  //   RDI  seed_d_ptr   *const u8 (32 bytes)
-  //   RSI  seed_z_ptr   *const u8 (32 bytes)
-  //   RDX  ek_out_ptr   *mut u8   (>= 1184 bytes; buffer is written on rc=0)
-  //   RCX  dk_out_ptr   *mut u8   (>= 2400 bytes; buffer is written on rc=0)
-  //   RAX  return code  (i64)
-  //
-  // Reference: paideia_crypto_ml_kem_768_keygen in
-  //            crates/paideia-as-crypto/src/ffi/mod.rs.
-  fn keygen(
-    seed_d_ptr: u64,
-    seed_z_ptr: u64,
-    ek_out_ptr: u64,
-    dk_out_ptr: u64,
-  ) -> i64 !{crypto, mem} @{paideia.crypto};
-
-  // encaps(ek_ptr, seed_m_ptr, ct_out_ptr, ss_out_ptr) -> rc
-  //
-  //   RDI  ek_ptr       *const u8 (== 1184 bytes)
-  //   RSI  seed_m_ptr   *const u8 (32 bytes)
-  //   RDX  ct_out_ptr   *mut u8   (>= 1088 bytes; buffer is written on rc=0)
-  //   RCX  ss_out_ptr   *mut u8   (>= 32 bytes;   buffer is written on rc=0)
-  //   RAX  return code  (i64)
-  fn encaps(
-    ek_ptr: u64,
-    seed_m_ptr: u64,
-    ct_out_ptr: u64,
-    ss_out_ptr: u64,
-  ) -> i64 !{crypto, mem} @{paideia.crypto};
-
-  // decaps(dk_ptr, ct_ptr, ss_out_ptr) -> rc
-  //
-  //   RDI  dk_ptr       *const u8 (== 2400 bytes)
-  //   RSI  ct_ptr       *const u8 (== 1088 bytes)
-  //   RDX  ss_out_ptr   *mut u8   (>= 32 bytes; buffer is written on rc=0)
-  //   RAX  return code  (i64)
-  //
-  // Decaps is total (implicit rejection). rc == 0 on any well-
-  // formed input; the returned shared secret is the genuine value
-  // when the ciphertext is authentic and the deterministic
-  // fallback J(z, ct) otherwise. See the module note above.
-  fn decaps(
-    dk_ptr: u64,
-    ct_ptr: u64,
-    ss_out_ptr: u64,
-  ) -> i64 !{crypto, mem} @{paideia.crypto};
-}
+// Steps 1, 3, 5 land in new files that never collide with parallel
+// work on other primitives; steps 2, 4, 6 are three trivial-merge
+// touch points where per-primitive lines are kept in a single-line-
+// per-symbol shape by construction.

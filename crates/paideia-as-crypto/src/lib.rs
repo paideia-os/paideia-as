@@ -88,8 +88,15 @@ pub use kdf::{
     Argon2id, Argon2idParams, HkdfExpandError, Kdf, KdfError, hkdf_expand, hkdf_extract,
     hmac_sha256,
 };
-pub use kem::{
-    CT_LEN as ML_KEM_768_CT_LEN, DK_LEN as ML_KEM_768_DK_LEN, EK_LEN as ML_KEM_768_EK_LEN,
-    KemError, MlKem768, SEED_LEN as ML_KEM_768_SEED_LEN, SS_LEN as ML_KEM_768_SS_LEN,
-};
+// paideia-as#1354 — one `pub use` per symbol so future append-only
+// primitive additions never collide inside `{ … }` alongside another
+// wave's authoring. Same shape carried into
+// `paideia-satellite-runtime/src/lib.rs`'s `pub use` block.
+pub use kem::CT_LEN as ML_KEM_768_CT_LEN;
+pub use kem::DK_LEN as ML_KEM_768_DK_LEN;
+pub use kem::EK_LEN as ML_KEM_768_EK_LEN;
+pub use kem::KemError;
+pub use kem::MlKem768;
+pub use kem::SEED_LEN as ML_KEM_768_SEED_LEN;
+pub use kem::SS_LEN as ML_KEM_768_SS_LEN;
 pub use rng::{EntropySource, HardwareRng, RngError, SecureRandom};

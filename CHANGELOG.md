@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.30.1 — 2026-09-03 — crypto FFI + stdlib lowering per-primitive files (Wave 0 parallelism prerequisite; #1354)
+
+Mechanical refactor, zero behaviour change. Splits the three monolithic crypto files that would otherwise force sequential authoring across the v0.25-v0.32 crypto waves into per-primitive sibling files, and reshapes the trivial-merge touch points so every new primitive appends one line rather than editing inside a shared `{ ... }`.
+
+- **`crates/paideia-as-crypto/src/ffi/` — split per primitive.** The 943-line `ffi/mod.rs` becomes a ~185-line shim: crate-level docs + module declarations + `pub use` re-exports (one line per exported item) + the shared error-code band (`PDX_CRYPTO_*`) + the shared helpers (`aead_err_code`, `kem_err_code`, `params_from_c`). Per-primitive thunks + `#[repr(C)]` parameter bundles + tests move into `ffi/argon2id.rs`, `ffi/chacha20_poly1305.rs`, `ffi/ml_kem_768.rs`. Every symbol on a satellite `nm` dump or a downstream `use paideia_as_crypto::ffi::…` line resolves byte-identically to before the split; only the file that hosts the item changed.
+- **`crates/paideia-as-elaborator/src/stdlib_lowering/cryptoops/` — split per primitive.** The 152-line `cryptoops.rs` becomes a directory: `cryptoops/mod.rs` (dispatcher + shared `extern_recipe` helper), `cryptoops/argon2id.rs`, `cryptoops/chacha20_poly1305.rs`, `cryptoops/ml_kem_768.rs`. `stdlib_lowering::mod.rs` still calls `cryptoops::try_lower_argon2id`, etc. — the front-door dispatch table shape is preserved; the delegation is one hop deeper.
+- **`crates/paideia-stdlib/pdx/crypto/` — split per primitive.** The 203-line `crypto.pdx` becomes a discoverability shim (comment-only, documenting the append-only recipe for adding a new primitive). Trait declarations move into `crypto/argon2id.pdx`, `crypto/chacha20_poly1305.pdx`, `crypto/ml_kem_768.pdx`. Same three effect / capability rows on each trait as before; the split is pure file reshaping.
+- **`paideia-as-crypto/src/lib.rs` — one `pub use` per symbol.** The grouped `pub use kem::{ … }` expands to seven single-line `pub use kem::X;` statements so future append-only primitive additions never collide inside the braces alongside another wave's authoring. Same shape carried into `paideia-satellite-runtime/src/lib.rs`'s `pub use` block (already one-per-line since 0.30.0; comment refreshed to name #1354).
+- **`paideia-satellite-runtime/src/lib.rs` — doc-comment refresh.** The hand-maintained enumeration of the six crypto thunks in the module-level docs collapses to a rustdoc pointer at [`paideia_as_crypto::ffi`], because that module now names them one-per-file and is the single source of truth. Adding a new primitive no longer means editing this doc.
+- **Merge surface minimised.** Only three shared files touched per new primitive: (1) one arm in `stdlib_lowering::mod.rs`'s `match trait_name` dispatch table, (2) one `pub mod` + a small block of `pub use` lines in `ffi/mod.rs`, (3) one `pub use paideia_as_crypto::ffi::<thunk>;` line in `paideia-satellite-runtime/src/lib.rs`. Each is single-line-per-symbol by construction; parallel PRs on distinct primitives merge without hand-editing.
+- **Tests.** All 15 crypto FFI tests (3 argon2id + 5 chacha20_poly1305 + 6 ml_kem_768 + shared error-code paths) survive in-place — the `#[cfg(test)] mod tests { ... }` moves alongside each thunk into its sub-module file. All 9 crypto lowering-recipe tests in `stdlib_lowering::tests` continue to reference the same `Argon2id`/`ChaCha20Poly1305`/`MlKem768` trait names and pin the same extern-symbol strings; the delegation-shape change is invisible to them.
+- **Version:** `workspace.version` bumped 0.30.0 → 0.30.1 (patch — no API change, only internal file reshaping). `find-paideia-as.sh` `MIN_VERSION` unchanged.
+
+Closes paideia-as#1354. Wave-0 parallelism prerequisite; unblocks the v0.25-v0.32 parallel crypto authoring described in `MASTER_PLAN.md` §13.4.
+
 ## 0.30.0 — 2026-09-03 — v0.33-003 ML-KEM-768 KEM (FIPS 203)
 
 ### ML-KEM-768 key-encapsulation mechanism

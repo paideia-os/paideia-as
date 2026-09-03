@@ -17,7 +17,8 @@
 //! returns a `{ bytes: [u8; 3309] }` record via an sret slot. (A) is
 //! chosen because it matches how every other extern-C crypto thunk in
 //! this codebase already works (`paideia_crypto_argon2id_derive`,
-//! `paideia_crypto_chacha20_poly1305_seal`/`open` — see `cryptoops.rs`)
+//! `paideia_crypto_chacha20_poly1305_seal`/`open` — see the
+//! `cryptoops/` sibling directory split at paideia-as#1354)
 //! and does not require the record-return / sret marshalling that
 //! `cpuidops.rs` explicitly defers to a separate design pass.
 //!

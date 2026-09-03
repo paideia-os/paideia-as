@@ -3,17 +3,16 @@
 //! # Why this crate exists
 //!
 //! `.pdx` code compiled by `paideia-as` emits `call` relocations
-//! against four FFI intrinsics (declared by the
+//! against the crypto FFI intrinsics declared by the
 //! `stdlib_lowering::cryptoops` and `stdlib_lowering::mldsaops`
-//! recipes):
-//!
-//! - `paideia_crypto_argon2id_derive`
-//! - `paideia_crypto_chacha20_poly1305_seal`
-//! - `paideia_crypto_chacha20_poly1305_open`
-//! - `paideia_crypto_ml_kem_768_keygen`   (paideia-as#1352)
-//! - `paideia_crypto_ml_kem_768_encaps`   (paideia-as#1352)
-//! - `paideia_crypto_ml_kem_768_decaps`   (paideia-as#1352)
-//! - `mldsa65_sign_runtime_entry`
+//! recipes. The authoritative per-primitive symbol list lives in
+//! [`paideia_as_crypto::ffi`] (split per primitive at
+//! paideia-as#1354 into `ffi::argon2id`, `ffi::chacha20_poly1305`,
+//! `ffi::ml_kem_768`); the `pub use` block below re-exports every
+//! `#[unsafe(no_mangle)]` thunk from that module into this staticlib
+//! so satellite `ld -nostdlib` link lines resolve them. The
+//! `mldsa65_sign_runtime_entry` symbol is DEFINED (fail-closed) here
+//! rather than re-exported — see the signing section below.
 //!
 //! On the paideia-os KERNEL build these resolve at link time against
 //! the `paideia-as-crypto` and `paideia-pq-sign` rlibs. On satellite
