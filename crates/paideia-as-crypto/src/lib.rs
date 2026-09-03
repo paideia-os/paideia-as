@@ -19,6 +19,11 @@
 //!   - `kdf::Argon2id` (RFC 9106).
 //! - `aead` — authenticated encryption with associated data.
 //!   - `aead::ChaCha20Poly1305` (RFC 8439).
+//! - `kem`  — key-encapsulation mechanisms.
+//!   - `kem::MlKem768` (FIPS 203) — Module-Lattice-based KEM,
+//!     category-3 parameter set (paideia-as#1352). Consumed by
+//!     R108 (multi-user identity substrate) for device-to-device key
+//!     agreement and by R91+ networking for post-quantum handshakes.
 //! - `rng`  — secure random source.
 //!   - `rng::HardwareRng` (RDSEED preferred, RDRAND fallback).
 //! - `ffi`  — C-ABI thunks over the trait APIs, called by `.pdx` code
@@ -70,6 +75,7 @@ pub mod curve;
 pub mod ffi;
 pub mod hash;
 pub mod kdf;
+pub mod kem;
 pub mod rng;
 
 pub use aead::{Aead, AeadError, ChaCha20Poly1305, ChaCha20Poly1305Params};
@@ -81,5 +87,9 @@ pub use hash::{Sha256Ctx, Sha512Ctx, sha256, sha512};
 pub use kdf::{
     Argon2id, Argon2idParams, HkdfExpandError, Kdf, KdfError, hkdf_expand, hkdf_extract,
     hmac_sha256,
+};
+pub use kem::{
+    CT_LEN as ML_KEM_768_CT_LEN, DK_LEN as ML_KEM_768_DK_LEN, EK_LEN as ML_KEM_768_EK_LEN,
+    KemError, MlKem768, SEED_LEN as ML_KEM_768_SEED_LEN, SS_LEN as ML_KEM_768_SS_LEN,
 };
 pub use rng::{EntropySource, HardwareRng, RngError, SecureRandom};

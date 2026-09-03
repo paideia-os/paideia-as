@@ -51,7 +51,7 @@ crate-type = ["rlib"]
 # dependency graph and lets `thiserror` / `argon2` / `chacha20poly1305`
 # re-enable their own std-only APIs.
 default = []
-std = ["thiserror/std", "argon2/std", "chacha20poly1305/std"]
+std = ["thiserror/std", "argon2/std", "chacha20poly1305/std", "ml-kem/std"]
 
 [dependencies]
 # `argon2` — built in `no_std + alloc` mode (no `std`, no `password-hash`
@@ -68,3 +68,14 @@ chacha20poly1305 = { version = "0.10", default-features = false, features = ["al
 # rather than `std::error::Error`. The workspace's Rust edition (2024)
 # and MSRV (1.94) provide `core::error::Error`.
 thiserror = { version = "2", default-features = false }
+# ML-KEM-768 (FIPS 203) — RustCrypto sibling of `ml-dsa`. Built with
+# `deterministic` on (paideia-as#1352 requires seed-driven KeyGen /
+# Encaps so the ACVP known-answer vectors reproduce byte-identically)
+# and `default-features = false` to stay `no_std + alloc`-clean for the
+# satellite-runtime link line — mirrors the discipline every other
+# dependency in this crate already follows. `zeroize` is intentionally
+# NOT enabled here: the trait-level wrapper copies key material into
+# caller-owned byte arrays and the FFI thunks then hand those buffers
+# to a `.pdx` caller that owns the erase policy (design tracks a per-
+# key-material capability follow-up alongside the ml-dsa signer surface).
+ml-kem = { workspace = true, default-features = false, features = ["deterministic"] }

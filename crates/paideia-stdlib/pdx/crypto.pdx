@@ -100,3 +100,104 @@ trait ChaCha20Poly1305 {
     written_ptr: u64,
   ) -> i64 !{crypto, mem} @{paideia.crypto};
 }
+
+// paideia-as#1352 — ML-KEM-768 KEM (FIPS 203). Elaborator's
+// `stdlib_lowering::cryptoops::try_lower_ml_kem_768` routes each
+// method through this trait to the extern-C thunks in
+// `crates/paideia-as-crypto/src/ffi/mod.rs`.
+//
+// # Consumer contract
+//
+// Every buffer's length is a compile-time constant of the
+// ML-KEM-768 parameter set (FIPS 203 §7): seeds and shared secrets
+// are 32 bytes; the encapsulation key is 1184; the decapsulation
+// key 2400; the ciphertext 1088. Callers allocate fixed-size
+// arrays on the stack (or in static data) and pass their addresses
+// through the SysV registers; the FFI thunks cast the raw pointers
+// to fixed-size array references without runtime length checks —
+// undersized buffers are the caller's own UB.
+//
+// # Return codes (shared with the Argon2id / AEAD surface)
+//
+//   0   OK
+//  -1   InvalidParam (a required pointer was NULL)
+//  -4   Primitive-internal failure (should be unreachable on the
+//       current backend — kept for future paideia-native impls)
+//
+// # Implicit rejection (FIPS 203 §6.3)
+//
+// `decaps` is TOTAL — a tampered ciphertext decapsulates to a
+// pseudo-random shared secret derived from the implicit-rejection
+// secret `z` embedded in `dk`, NOT an error. Callers that need to
+// detect tampering wrap the shared secret in an authenticated
+// transform (AEAD keyed by the secret, HMAC over transcript, …).
+// See the R91 networking notes for the RFC-8446-shaped handshake
+// pattern that consumes the shared secret through TLS-1.3-like
+// key-schedule wiring.
+//
+// # Effect + capability discipline
+//
+// `!{crypto, mem} @{paideia.crypto}` — same effect row and
+// capability as `Argon2id::derive` / `ChaCha20Poly1305::seal`/`open`
+// (see the crypto.pdx docstring above). ML-KEM operations read the
+// caller's seed / key buffers and write their output buffers, which
+// is the same "crypto primitive touching caller-supplied buffers"
+// shape those primitives already cover; reusing the capability
+// avoids fragmenting the crypto cap surface ahead of a dedicated
+// per-key-material capability design.
+//
+// # References
+//
+// - FIPS 203 (Module-Lattice-Based KEM Standard), ML-KEM-768
+//   parameter set — §6 ML-KEM {KeyGen, Encaps, Decaps},
+//   §7 parameter sets.
+
+trait MlKem768 {
+  // keygen(seed_d_ptr, seed_z_ptr, ek_out_ptr, dk_out_ptr) -> rc
+  //
+  //   RDI  seed_d_ptr   *const u8 (32 bytes)
+  //   RSI  seed_z_ptr   *const u8 (32 bytes)
+  //   RDX  ek_out_ptr   *mut u8   (>= 1184 bytes; buffer is written on rc=0)
+  //   RCX  dk_out_ptr   *mut u8   (>= 2400 bytes; buffer is written on rc=0)
+  //   RAX  return code  (i64)
+  //
+  // Reference: paideia_crypto_ml_kem_768_keygen in
+  //            crates/paideia-as-crypto/src/ffi/mod.rs.
+  fn keygen(
+    seed_d_ptr: u64,
+    seed_z_ptr: u64,
+    ek_out_ptr: u64,
+    dk_out_ptr: u64,
+  ) -> i64 !{crypto, mem} @{paideia.crypto};
+
+  // encaps(ek_ptr, seed_m_ptr, ct_out_ptr, ss_out_ptr) -> rc
+  //
+  //   RDI  ek_ptr       *const u8 (== 1184 bytes)
+  //   RSI  seed_m_ptr   *const u8 (32 bytes)
+  //   RDX  ct_out_ptr   *mut u8   (>= 1088 bytes; buffer is written on rc=0)
+  //   RCX  ss_out_ptr   *mut u8   (>= 32 bytes;   buffer is written on rc=0)
+  //   RAX  return code  (i64)
+  fn encaps(
+    ek_ptr: u64,
+    seed_m_ptr: u64,
+    ct_out_ptr: u64,
+    ss_out_ptr: u64,
+  ) -> i64 !{crypto, mem} @{paideia.crypto};
+
+  // decaps(dk_ptr, ct_ptr, ss_out_ptr) -> rc
+  //
+  //   RDI  dk_ptr       *const u8 (== 2400 bytes)
+  //   RSI  ct_ptr       *const u8 (== 1088 bytes)
+  //   RDX  ss_out_ptr   *mut u8   (>= 32 bytes; buffer is written on rc=0)
+  //   RAX  return code  (i64)
+  //
+  // Decaps is total (implicit rejection). rc == 0 on any well-
+  // formed input; the returned shared secret is the genuine value
+  // when the ciphertext is authentic and the deterministic
+  // fallback J(z, ct) otherwise. See the module note above.
+  fn decaps(
+    dk_ptr: u64,
+    ct_ptr: u64,
+    ss_out_ptr: u64,
+  ) -> i64 !{crypto, mem} @{paideia.crypto};
+}

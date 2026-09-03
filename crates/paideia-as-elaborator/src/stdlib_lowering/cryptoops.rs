@@ -70,6 +70,12 @@ const SYM_ARGON2ID_DERIVE: &str = "paideia_crypto_argon2id_derive";
 const SYM_CHACHA_SEAL: &str = "paideia_crypto_chacha20_poly1305_seal";
 /// Extern-C symbol for `ChaCha20Poly1305::open`.
 const SYM_CHACHA_OPEN: &str = "paideia_crypto_chacha20_poly1305_open";
+/// Extern-C symbol for `MlKem768::keygen` — paideia-as#1352.
+const SYM_ML_KEM_768_KEYGEN: &str = "paideia_crypto_ml_kem_768_keygen";
+/// Extern-C symbol for `MlKem768::encaps`.
+const SYM_ML_KEM_768_ENCAPS: &str = "paideia_crypto_ml_kem_768_encaps";
+/// Extern-C symbol for `MlKem768::decaps`.
+const SYM_ML_KEM_768_DECAPS: &str = "paideia_crypto_ml_kem_768_decaps";
 
 /// Dispatch an `Argon2id::<method_name>` call to its lowering recipe.
 ///
@@ -100,6 +106,34 @@ pub(super) fn try_lower_chacha20_poly1305(
     match method_name {
         "seal" => Some(Ok(extern_recipe(SYM_CHACHA_SEAL))),
         "open" => Some(Ok(extern_recipe(SYM_CHACHA_OPEN))),
+        _ => None,
+    }
+}
+
+/// Dispatch a `MlKem768::<method_name>` call to its lowering recipe.
+///
+/// Three FIPS 203 primitives are wired: `keygen(d, z, ek_out,
+/// dk_out) -> i64`, `encaps(ek, m, ct_out, ss_out) -> i64`, and
+/// `decaps(dk, ct, ss_out) -> i64`. Every buffer's length is a
+/// compile-time constant of the ML-KEM-768 parameter set (FIPS 203
+/// §7); the FFI thunks in `paideia-as-crypto::ffi` cast the raw
+/// pointers to the corresponding fixed-size array references. The
+/// SysV register mappings are documented on each thunk.
+///
+/// Unknown methods return `None` so an accidental typo (e.g.
+/// `MlKem768::keygenn`) falls through to normal call emission and
+/// diagnoses T0553 rather than silently emitting a call to an
+/// unresolved extern symbol.
+pub(super) fn try_lower_ml_kem_768(
+    method_name: &str,
+    _mode: InstrMode,
+    _arg_ids: &[IrNodeId],
+    _arena: &IrArena,
+) -> Option<Result<LoweringRecipe, StdlibLoweringError>> {
+    match method_name {
+        "keygen" => Some(Ok(extern_recipe(SYM_ML_KEM_768_KEYGEN))),
+        "encaps" => Some(Ok(extern_recipe(SYM_ML_KEM_768_ENCAPS))),
+        "decaps" => Some(Ok(extern_recipe(SYM_ML_KEM_768_DECAPS))),
         _ => None,
     }
 }

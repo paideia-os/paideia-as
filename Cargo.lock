@@ -619,7 +619,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce6e4c961d6cd6c9a86db418387425e8bdeaf05b3c8bc1411e6dca4c252f1453"
 dependencies = [
  "getrandom 0.4.3",
- "hybrid-array",
+ "hybrid-array 0.4.12",
  "rand_core 0.10.1",
 ]
 
@@ -1225,6 +1225,15 @@ checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
 name = "hybrid-array"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2d35805454dc9f8662a98d6d61886ffe26bd465f5960e0e55345c70d5c0d2a9"
+dependencies = [
+ "typenum",
+]
+
+[[package]]
+name = "hybrid-array"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9155a582abd142abc056962c29e3ce5ff2ad5469f4246b537ed42c5deba857da"
@@ -1527,12 +1536,31 @@ dependencies = [
 
 [[package]]
 name = "keccak"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb26cec98cce3a3d96cbb7bced3c4b16e3d13f27ec56dbd62cbc8f39cfb9d653"
+dependencies = [
+ "cpufeatures 0.2.17",
+]
+
+[[package]]
+name = "keccak"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e24a010dd405bd7ed803e5253182815b41bf2e6a80cc3bfc066658e03a198aa"
 dependencies = [
  "cfg-if",
  "cpufeatures 0.3.0",
+]
+
+[[package]]
+name = "kem"
+version = "0.3.0-pre.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b8645470337db67b01a7f966decf7d0bafedbae74147d33e641c67a91df239f"
+dependencies = [
+ "rand_core 0.6.4",
+ "zeroize",
 ]
 
 [[package]]
@@ -1608,7 +1636,7 @@ dependencies = [
 
 [[package]]
 name = "lsp-harness"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "paideia-lsp",
  "tempfile",
@@ -1698,11 +1726,23 @@ dependencies = [
  "const-oid 0.10.2",
  "crypto-common 0.2.2",
  "ctutils",
- "hybrid-array",
+ "hybrid-array 0.4.12",
  "module-lattice",
  "pkcs8 0.11.0",
  "shake",
  "signature 3.0.0",
+]
+
+[[package]]
+name = "ml-kem"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8de49b3df74c35498c0232031bb7e85f9389f913e2796169c8ab47a53993a18f"
+dependencies = [
+ "hybrid-array 0.2.3",
+ "kem",
+ "rand_core 0.6.4",
+ "sha3",
 ]
 
 [[package]]
@@ -1712,7 +1752,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c61b87c9683ab7cb1c6871d261ad5479b6b10ceb52c4352aaca3b5d35a8febe"
 dependencies = [
  "ctutils",
- "hybrid-array",
+ "hybrid-array 0.4.12",
  "num-traits",
 ]
 
@@ -1929,7 +1969,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-as"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -1962,7 +2002,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-ast"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "paideia-as-diagnostics",
  "serde",
@@ -1973,16 +2013,17 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-crypto"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "argon2",
  "chacha20poly1305",
+ "ml-kem",
  "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "paideia-as-diagnostics"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "insta",
  "jsonschema",
@@ -1996,7 +2037,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-doc"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "paideia-as-ast",
  "paideia-as-parser",
@@ -2004,7 +2045,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-dwarf"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "gimli",
  "paideia-as-diagnostics",
@@ -2013,14 +2054,14 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-e2e"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "object",
 ]
 
 [[package]]
 name = "paideia-as-effects"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "paideia-as-diagnostics",
  "paideia-as-ir",
@@ -2029,7 +2070,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-elaborator"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "blake3",
  "paideia-as-ast",
@@ -2061,7 +2102,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-emitter-elf"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "iced-x86",
  "object",
@@ -2074,7 +2115,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-emitter-pax"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "blake3",
  "paideia-as-ir",
@@ -2083,7 +2124,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-emitter-pe"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "paideia-as-encoder",
  "paideia-as-ir",
@@ -2093,7 +2134,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-encoder"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "iced-x86",
  "paideia-as-ir",
@@ -2103,7 +2144,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-ir"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "paideia-as-diagnostics",
  "paideia-as-runtime",
@@ -2115,7 +2156,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-lexer"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "paideia-as-diagnostics",
  "static_assertions",
@@ -2124,7 +2165,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-linker"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "paideia-as-diagnostics",
  "paideia-as-emitter-pax",
@@ -2132,7 +2173,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-parser"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "insta",
  "paideia-as-ast",
@@ -2158,7 +2199,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-test"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "paideia-as-ast",
  "paideia-as-parser",
@@ -2168,7 +2209,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-types"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "paideia-as-ast",
  "paideia-as-diagnostics",
@@ -2181,37 +2222,37 @@ dependencies = [
 
 [[package]]
 name = "paideia-borrow-corpus"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "paideia-as-diagnostics",
 ]
 
 [[package]]
 name = "paideia-cap-smoke"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "tempfile",
 ]
 
 [[package]]
 name = "paideia-cross-build-tests"
-version = "0.29.1"
+version = "0.30.0"
 
 [[package]]
 name = "paideia-effects-corpus"
-version = "0.29.1"
+version = "0.30.0"
 
 [[package]]
 name = "paideia-end-to-end"
-version = "0.29.1"
+version = "0.30.0"
 
 [[package]]
 name = "paideia-fmt"
-version = "0.29.1"
+version = "0.30.0"
 
 [[package]]
 name = "paideia-ir-payload-tests"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "paideia-as-diagnostics",
  "paideia-as-elaborator",
@@ -2221,7 +2262,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-linearity-regression"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "paideia-as-ast",
  "paideia-as-diagnostics",
@@ -2232,7 +2273,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-lsp"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "blake3",
  "lru",
@@ -2254,39 +2295,39 @@ dependencies = [
 
 [[package]]
 name = "paideia-modules-multifile"
-version = "0.29.1"
+version = "0.30.0"
 
 [[package]]
 name = "paideia-opt-align"
-version = "0.29.1"
+version = "0.30.0"
 
 [[package]]
 name = "paideia-opt-branch-hint"
-version = "0.29.1"
+version = "0.30.0"
 
 [[package]]
 name = "paideia-opt-dse"
-version = "0.29.1"
+version = "0.30.0"
 
 [[package]]
 name = "paideia-opt-encode-tight"
-version = "0.29.1"
+version = "0.30.0"
 
 [[package]]
 name = "paideia-opt-macro-fusion"
-version = "0.29.1"
+version = "0.30.0"
 
 [[package]]
 name = "paideia-opt-peephole"
-version = "0.29.1"
+version = "0.30.0"
 
 [[package]]
 name = "paideia-opt-pool-constants"
-version = "0.29.1"
+version = "0.30.0"
 
 [[package]]
 name = "paideia-opt-regression"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "paideia-as-diagnostics",
  "paideia-as-ir",
@@ -2295,19 +2336,19 @@ dependencies = [
 
 [[package]]
 name = "paideia-opt-schedule"
-version = "0.29.1"
+version = "0.30.0"
 
 [[package]]
 name = "paideia-opt-tailcall"
-version = "0.29.1"
+version = "0.30.0"
 
 [[package]]
 name = "paideia-opt-unroll"
-version = "0.29.1"
+version = "0.30.0"
 
 [[package]]
 name = "paideia-pq-sign"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "argon2",
  "axum",
@@ -2334,25 +2375,25 @@ dependencies = [
 
 [[package]]
 name = "paideia-reflection-corpus"
-version = "0.29.1"
+version = "0.30.0"
 
 [[package]]
 name = "paideia-satellite-runtime"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "paideia-as-crypto",
 ]
 
 [[package]]
 name = "paideia-self-hosting-fixture"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "paideia-stdlib",
 ]
 
 [[package]]
 name = "paideia-stdlib"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "paideia-as-emitter-pe",
  "regex",
@@ -2360,14 +2401,14 @@ dependencies = [
 
 [[package]]
 name = "paideia-stdlib-smoke"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "paideia-stdlib",
 ]
 
 [[package]]
 name = "paideia-uefi-smoke"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "paideia-as-emitter-pe",
  "paideia-as-encoder",
@@ -2425,7 +2466,7 @@ dependencies = [
 
 [[package]]
 name = "pax-load-smoke"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "blake3",
  "paideia-as-emitter-pax",
@@ -2537,7 +2578,7 @@ dependencies = [
 
 [[package]]
 name = "pq-corpus"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "blake3",
  "hex",
@@ -3061,13 +3102,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha3"
+version = "0.10.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77fd7028345d415a4034cf8777cd4f8ab1851274233b45f84e3d955502d93874"
+dependencies = [
+ "digest 0.10.7",
+ "keccak 0.1.6",
+]
+
+[[package]]
 name = "shake"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09057cb2149ad4cbd2da1e26b351f9a4c354219421229c69c3063e6f61947c4a"
 dependencies = [
  "digest 0.11.3",
- "keccak",
+ "keccak 0.2.0",
  "sponge-cursor",
 ]
 
@@ -3615,7 +3666,7 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "uefi-stdlib-fixture"
-version = "0.29.1"
+version = "0.30.0"
 dependencies = [
  "paideia-stdlib",
 ]

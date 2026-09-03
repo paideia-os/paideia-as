@@ -10,6 +10,9 @@
 //! - `paideia_crypto_argon2id_derive`
 //! - `paideia_crypto_chacha20_poly1305_seal`
 //! - `paideia_crypto_chacha20_poly1305_open`
+//! - `paideia_crypto_ml_kem_768_keygen`   (paideia-as#1352)
+//! - `paideia_crypto_ml_kem_768_encaps`   (paideia-as#1352)
+//! - `paideia_crypto_ml_kem_768_decaps`   (paideia-as#1352)
 //! - `mldsa65_sign_runtime_entry`
 //!
 //! On the paideia-os KERNEL build these resolve at link time against
@@ -198,6 +201,18 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 pub use paideia_as_crypto::ffi::paideia_crypto_argon2id_derive;
 pub use paideia_as_crypto::ffi::paideia_crypto_chacha20_poly1305_open;
 pub use paideia_as_crypto::ffi::paideia_crypto_chacha20_poly1305_seal;
+// paideia-as#1352 — ML-KEM-768 KEM (FIPS 203). Same re-export
+// discipline as the crypto trio above: the `#[unsafe(no_mangle)]`
+// bodies live in `paideia-as-crypto`, `pub use` here forces cargo
+// to pack them into `libpaideia_satellite_runtime.a` so satellite
+// `ld -nostdlib` lines resolve. R108 device-to-device key
+// agreement and R91+ networking are the intended consumers; a
+// satellite whose object graph never reaches the KEM call chain
+// still needs these symbols to resolve because `.pdx` compilation
+// emits the `call` relocations regardless of runtime reachability.
+pub use paideia_as_crypto::ffi::paideia_crypto_ml_kem_768_decaps;
+pub use paideia_as_crypto::ffi::paideia_crypto_ml_kem_768_encaps;
+pub use paideia_as_crypto::ffi::paideia_crypto_ml_kem_768_keygen;
 
 // ---------------------------------------------------------------------
 // Signing — fail-closed stub for mldsa65_sign_runtime_entry.

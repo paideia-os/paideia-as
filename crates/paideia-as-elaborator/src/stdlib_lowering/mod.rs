@@ -216,6 +216,12 @@ pub fn lower_stdlib_method(
         "ChaCha20Poly1305" => {
             cryptoops::try_lower_chacha20_poly1305(method_name, mode, arg_ids, arena)
         }
+        // paideia-as#1352 — MlKem768::{keygen, encaps, decaps} route
+        // to the extern-C ML-KEM-768 KEM thunks in
+        // `paideia-as-crypto::ffi`. Same shape as Argon2id /
+        // ChaCha20Poly1305: no preamble instructions, SysVRegs
+        // argument convention, extern_target names the FFI symbol.
+        "MlKem768" => cryptoops::try_lower_ml_kem_768(method_name, mode, arg_ids, arena),
         // paideia-as#1330 — MlDsa65::sign routes to the extern-C
         // ML-DSA-65 signing thunk in `paideia-pq-sign::ffi`.
         "MlDsa65" => mldsaops::try_lower(method_name, mode, arg_ids, arena),
@@ -1262,6 +1268,76 @@ mod tests {
                 &arena
             )
             .is_none()
+        );
+    }
+
+    // ---------- paideia-as#1352: ML-KEM-768 extern-C recipes ----------
+
+    /// `MlKem768::keygen` lowers to an extern-target recipe whose
+    /// symbol name matches the `#[unsafe(no_mangle)]` thunk in
+    /// `paideia-as-crypto::ffi`. Any drift on the string would
+    /// produce an unresolvable relocation at link time — the unit
+    /// test pins the string exactly.
+    #[test]
+    fn ml_kem_768_keygen_recipe_targets_ffi_thunk() {
+        let arena = IrArena::new();
+        let recipe = lower_stdlib_method("MlKem768", "keygen", InstrMode::Mode64, &[], &arena)
+            .expect("MlKem768::keygen recipe should exist")
+            .expect("MlKem768::keygen lowering should succeed");
+
+        assert!(
+            recipe.instructions.is_empty(),
+            "extern-C recipes carry no preamble instructions"
+        );
+        assert_eq!(recipe.arg_convention, ArgConvention::SysVRegs);
+        assert!(recipe.labels.is_empty());
+        assert_eq!(
+            recipe.extern_target.as_deref(),
+            Some("paideia_crypto_ml_kem_768_keygen")
+        );
+    }
+
+    /// `MlKem768::encaps` lowers to an extern-target recipe.
+    #[test]
+    fn ml_kem_768_encaps_recipe_targets_ffi_thunk() {
+        let arena = IrArena::new();
+        let recipe = lower_stdlib_method("MlKem768", "encaps", InstrMode::Mode64, &[], &arena)
+            .expect("MlKem768::encaps recipe should exist")
+            .expect("MlKem768::encaps lowering should succeed");
+
+        assert!(recipe.instructions.is_empty());
+        assert_eq!(recipe.arg_convention, ArgConvention::SysVRegs);
+        assert_eq!(
+            recipe.extern_target.as_deref(),
+            Some("paideia_crypto_ml_kem_768_encaps")
+        );
+    }
+
+    /// `MlKem768::decaps` lowers to an extern-target recipe.
+    #[test]
+    fn ml_kem_768_decaps_recipe_targets_ffi_thunk() {
+        let arena = IrArena::new();
+        let recipe = lower_stdlib_method("MlKem768", "decaps", InstrMode::Mode64, &[], &arena)
+            .expect("MlKem768::decaps recipe should exist")
+            .expect("MlKem768::decaps lowering should succeed");
+
+        assert!(recipe.instructions.is_empty());
+        assert_eq!(recipe.arg_convention, ArgConvention::SysVRegs);
+        assert_eq!(
+            recipe.extern_target.as_deref(),
+            Some("paideia_crypto_ml_kem_768_decaps")
+        );
+    }
+
+    /// Unknown ML-KEM-768 methods must NOT match — otherwise a typo
+    /// like `MlKem768::keygeen` would resolve to an unresolvable
+    /// symbol at link time rather than diagnose T0553 up front.
+    #[test]
+    fn unknown_ml_kem_768_method_returns_none() {
+        let arena = IrArena::new();
+        assert!(
+            lower_stdlib_method("MlKem768", "no_such_method", InstrMode::Mode64, &[], &arena)
+                .is_none()
         );
     }
 
