@@ -38,6 +38,15 @@ pub struct Parser<'tok, 'ast, 'snk> {
     /// Used to disambiguate `~(` as antiquote vs. affine-drop.
     /// Package-private to quote module; use `in_quote()` method publicly.
     pub(crate) in_quote_depth: u32,
+    /// Depth counter for `@gpu_context(engine) { … }` blocks
+    /// (paideia-as#1370, v0.28-M1-001).
+    ///
+    /// Incremented on entry, decremented on exit. The `parse_gpu_context`
+    /// entry emits `P0293` when this is already > 0 — a single-level rule:
+    /// the implicit GPU-submission effect row is scoped to exactly one
+    /// dynamic-extent frame, and stacking frames would either mask the outer
+    /// engine or silently pick one. Both are surprising.
+    pub(crate) gpu_context_depth: u32,
     /// Optional source directory for resolving @include_bytes paths.
     /// Used by parse_include_bytes_literal to resolve relative paths.
     source_dir: Option<PathBuf>,
@@ -66,6 +75,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             sink,
             file,
             in_quote_depth: 0,
+            gpu_context_depth: 0,
             source_dir: None,
             test_max_embed_bytes: None,
         }

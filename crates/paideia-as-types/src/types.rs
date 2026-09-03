@@ -196,6 +196,25 @@ pub enum Type {
     /// a data pointer and length. Layout: 16 bytes (8 data ptr + 8 len), 8-byte aligned.
     /// Interns to a singleton (no fields → deterministic interning).
     Str,
+    /// SIMD / shader-vector type `vec<T, N>` — a packed, fixed-count,
+    /// homogeneous value.
+    ///
+    /// Introduced by v0.28-M1-002 (paideia-as#1371). `elem` is the lane's
+    /// scalar type (must have kind `type`; i8/i16/i32/i64/u*/f16/f32/f64);
+    /// `n` is the const-generic lane count (typically 2/3/4/8/16 for SIMD,
+    /// larger for shader/kernel vectors under `@gpu_context`).
+    ///
+    /// Layout is intentionally NOT computed by [`crate::layout::layout_of`];
+    /// use [`crate::vec_layout`] instead so SIMD-specific policy (e.g. the
+    /// N≥2 alignment clamp, AVX-512 tuning) stays local to the vec module.
+    /// The general `layout_of` catch-all will return a conservative default
+    /// for `Type::Vec` — callers must go through `vec_layout`.
+    Vec {
+        /// Element scalar type. Must have kind `type`.
+        elem: TypeId,
+        /// Lane count (const-generic `nat`).
+        n: u32,
+    },
 }
 
 /// Payload shape for an enum variant.

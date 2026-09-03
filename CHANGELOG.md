@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.31.0 — 2026-09-03 — Wave 0 Batch 2: 10 parser/types primitives (v0.25/v0.27/v0.28/v0.29/v0.31/v0.32 M1)
+
+Ten paideia-as parser/types primitives landed in a single MECE-verified
+parallel wave (Batch 2 of MASTER_PLAN.md Wave 0). All 10 selected rows are
+file-disjoint per the crypto per-primitive refactor (v0.30.1); consolidated
+here from `.plans/scratch/CHANGELOG-*.md`.
+
+- **v0.25-M1-001 session-typed functor signatures** (#1355). `functor F(In)
+  -> Out with S: session { ... }` parser + Vasconcelos-style session-type
+  ADT (dual, seq, branch, end, well-formedness).
+- **v0.27-M1-002 @timeline_wait / @timeline_signal syntax** (#1366). Parser
+  for explicit-sync timeline primitives; diagnostics P0300-P0303; unblocks
+  R33 + R37 driver work.
+- **v0.28-M1-001 @gpu_context(engine) { stmts } block scope** (#1370). AST
+  BlockScope enum + parser; single-level rule; nested rejection P0293.
+- **v0.28-M1-002 vec<T, N> parameterized type constructor** (#1371). Type
+  system extension `Type::Vec { elem, n }`; SIMD alignment floor 16 for N≥2.
+- **v0.28-M1-003 @endian(be|le) field attribute** (#1372). AST FieldAttr
+  enum + StructFieldAttrTable side-table; integral-scalar validation
+  P0301; composes with @packed_struct.
+- **v0.28-M1-004 @packed_struct struct-level attribute** (#1373). AST
+  StructAttr enum + StructAttrTable side-table; power-of-two align gate.
+- **v0.29-M1-001 row-polymorphic effects** (#1375). EffectRow ADT with
+  unification; independent from paideia-as-effects crate.
+- **v0.29-M1-002 handler composition** (#1376). Handler + compose_handlers
+  built on row_poly; disjoint-handled + residual-unification checks.
+- **v0.31-M1-001 @fixed_point(bits_int, bits_frac) type modifier** (#1383).
+  Trap-on-overflow arithmetic (add/sub/mul/div); unblocks G6 color-space
+  matrix arithmetic.
+- **v0.32-M1-002 row-based subtyping for KIND_A11Y_NODE** (#1388). Width
+  subtyping via RowRecord/RecordRowVar (namespace-distinct from row_poly's
+  effect-row variable).
+
+Closes #1355. Closes #1366. Closes #1370. Closes #1371. Closes #1372.
+Closes #1373. Closes #1375. Closes #1376. Closes #1383. Closes #1388.
+
 ## 0.30.1 — 2026-09-03 — crypto FFI + stdlib lowering per-primitive files (Wave 0 parallelism prerequisite; #1354)
 
 Mechanical refactor, zero behaviour change. Splits the three monolithic crypto files that would otherwise force sequential authoring across the v0.25-v0.32 crypto waves into per-primitive sibling files, and reshapes the trivial-merge touch points so every new primitive appends one line rather than editing inside a shared `{ ... }`.

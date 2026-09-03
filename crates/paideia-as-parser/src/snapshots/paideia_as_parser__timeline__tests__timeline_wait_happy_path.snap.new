@@ -1,0 +1,17 @@
+---
+source: crates/paideia-as-parser/src/timeline.rs
+assertion_line: 520
+expression: s
+---
+ParseSummary {
+    outcome: Ok(
+        "wait",
+    ),
+    handle_text: Some(
+        "gpu_cap",
+    ),
+    value: Some(
+        42,
+    ),
+    diags: [],
+}

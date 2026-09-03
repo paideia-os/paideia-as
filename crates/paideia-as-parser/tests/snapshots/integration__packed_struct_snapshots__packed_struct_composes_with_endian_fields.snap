@@ -1,0 +1,7 @@
+---
+source: crates/paideia-as-parser/tests/packed_struct_snapshots.rs
+expression: snapshot
+---
+struct.attrs = [Packed { align: Some(1) }]
+field0.attrs = [Endian(Be)]
+field1.attrs = None

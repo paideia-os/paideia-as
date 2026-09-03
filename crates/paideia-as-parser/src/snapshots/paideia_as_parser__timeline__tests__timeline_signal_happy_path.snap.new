@@ -1,0 +1,17 @@
+---
+source: crates/paideia-as-parser/src/timeline.rs
+assertion_line: 526
+expression: s
+---
+ParseSummary {
+    outcome: Ok(
+        "signal",
+    ),
+    handle_text: Some(
+        "display_cap",
+    ),
+    value: Some(
+        100,
+    ),
+    diags: [],
+}

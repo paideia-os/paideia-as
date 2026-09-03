@@ -1,14 +1,18 @@
 //! Struct and enum declaration parsing.
 //! Split out of `parse_item.rs` (2026-07-08).
 
-use paideia_as_ast::{ItemData, NodeId, NodeKind};
+use paideia_as_ast::{FieldAttr, ItemData, NodeId, NodeKind};
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
 use paideia_as_lexer::TokenKind;
 
+use crate::endian_attr::{parse_endian_attr, validate_endian_field_type};
 use crate::parser::{ParseError, Parser};
 
 impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
-    pub(super) fn parse_struct_decl(&mut self) -> Result<NodeId, ParseError> {
+    // Visibility widened from `pub(super)` to `pub(crate)` for
+    // paideia-as#1373 (v0.28-M1-004) so `crate::packed_struct` can
+    // delegate the body-parse after consuming `@packed_struct[(align=N)]`.
+    pub(crate) fn parse_struct_decl(&mut self) -> Result<NodeId, ParseError> {
         // Parse leading attributes
         let attributes = self.parse_attributes()?;
 
@@ -31,12 +35,24 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
         let mut fields = Vec::new();
 
-        // Parse fields: name : type, name : type, ...
+        // Parse fields: [@endian(be|le)] name : type, [@endian(be|le)] name : type, ...
+        //
+        // paideia-as#1372 (v0.28-M1-003): an optional `@endian(be|le)`
+        // per-field attribute may precede each field name. It is parser-
+        // accepted here and stashed on the AST's `struct_field_attrs`
+        // side-table (keyed by the field-name NodeId); the elaborator
+        // consumes it in a later milestone to insert byte-swaps on load
+        // and store. Only integral-scalar field types are accepted;
+        // richer types (records, enums, tuples, arrays, pointers, refs)
+        // are rejected with P0301.
         loop {
             // Check for closing brace
             if self.at(TokenKind::RBrace) {
                 break;
             }
+
+            // Optional `@endian(be|le)` field-attribute (paideia-as#1372).
+            let endian_attr = parse_endian_attr(self)?;
 
             // Expect field name (Ident)
             let field_name_tok = self.expect(TokenKind::Ident)?;
@@ -59,6 +75,31 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
             // Parse field type
             let field_type = self.parse_type()?;
+
+            // paideia-as#1372: if `@endian(...)` was seen, validate that
+            // the field type is an integral scalar and record on the
+            // arena's side-table. Diagnostics are buffered through a
+            // callback so the immutable arena/source borrows required by
+            // `validate_endian_field_type` do not overlap the mutable
+            // borrow needed by `emit_diagnostic`.
+            if let Some(endianness) = endian_attr {
+                let mut pending: Vec<Diagnostic> = Vec::new();
+                let accepted = {
+                    let source = self.source();
+                    let ast = self.arena();
+                    validate_endian_field_type(ast, source, field_type, &mut |d| {
+                        pending.push(d)
+                    })
+                };
+                for d in pending {
+                    self.emit_diagnostic(d);
+                }
+                if accepted {
+                    self.arena_mut()
+                        .struct_field_attrs_mut()
+                        .push(field_name_id, FieldAttr::Endian(endianness));
+                }
+            }
 
             fields.push((field_name_id, field_type));
 

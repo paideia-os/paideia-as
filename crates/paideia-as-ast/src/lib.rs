@@ -9,7 +9,9 @@
 #![forbid(unsafe_code)]
 
 mod arena;
+mod block_scope;
 mod exprs;
+mod field_attr;
 mod item_atomic;
 mod items;
 mod macros;
@@ -20,10 +22,13 @@ pub mod pattern_type_hints;
 pub mod pretty;
 pub mod reflect;
 mod stmts;
+mod struct_attr;
 mod types;
 mod visit;
 
 pub use arena::{AstArena, NodeData, NodeKind};
+pub use block_scope::{BlockScope, GpuContextBlock};
+pub use field_attr::{Endianness, FieldAttr, StructFieldAttrTable};
 pub use item_atomic::ItemAtomicTable;
 pub use exprs::{
     ExprData, GenericParam, HandlerArm, LoopKind, MatchArm, MatchAttrs, PrefixOp, SegPrefix,
@@ -31,7 +36,7 @@ pub use exprs::{
 };
 pub use items::{
     AtomicOrdering, AttrValue, CallingConvention, ImplDecl, InterruptAttr, ItemAttribute,
-    ItemData, TraitMethod,
+    ItemData, StructAttr, TraitMethod,
 };
 pub use macros::{MacroDeclData, MacroFragment, MacroFragmentKind, MacroRule};
 pub use modules::{
@@ -43,6 +48,7 @@ pub use pattern_type_hints::PatternTypeHints;
 pub use patterns::{PatField, PatternData};
 pub use reflect::{SerializedSpan, SerializedTerm, Term, TermHead};
 pub use stmts::StmtData;
+pub use struct_attr::StructAttrTable;
 pub use types::{EnumVariant, LinClass, TypeData};
 pub use visit::{
     ExprVisitor, ItemVisitor, PatternVisitor, StmtVisitor, TypeVisitor, walk_expr, walk_item,

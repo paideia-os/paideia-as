@@ -9,7 +9,11 @@
 #![forbid(unsafe_code)]
 
 mod cursor;
+mod endian_attr;
+mod functor;
+mod gpu_context;
 mod modules;
+mod packed_struct;
 mod parse_action;
 mod parse_control;
 mod parse_expr;
@@ -29,6 +33,12 @@ mod parse_unsafe;
 mod parser;
 mod precedence;
 mod quote;
+mod timeline;
 
 pub use cursor::TokenCursor;
+pub use endian_attr::{Endianness, parse_endian_attr};
+pub use functor::{FunctorDecl, SessionBinding, parse_functor};
+pub use gpu_context::{GpuContextBlock, parse_gpu_context};
+pub use packed_struct::parse_packed_struct;
 pub use parser::{ParseError, Parser};
+pub use timeline::{TimelineOp, TimelineOpKind, parse_timeline_signal, parse_timeline_wait};

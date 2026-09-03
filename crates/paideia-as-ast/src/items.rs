@@ -86,6 +86,39 @@ pub enum AtomicOrdering {
     SeqCst,
 }
 
+/// Struct-level attribute (paideia-as#1373, v0.28-M1-004).
+///
+/// Attached to a struct-decl node via the [`crate::StructAttrTable`]
+/// side-table rather than by growing every construction/destructuring
+/// site of [`ItemData::Struct`]. Sparse — most struct declarations have
+/// no entry. New primitives extend this enum by appending a variant.
+///
+/// **Composition:** primitives that constrain _how_ a struct is laid out
+/// (packing, per-field endianness, …) are designed to compose. A struct
+/// tagged [`StructAttr::Packed`] may still hold fields carrying the
+/// field-level `@endian(be|le)` annotation from paideia-as#1374 (b2-05):
+/// packing fixes the byte offset of each field, and the endian
+/// annotation fixes each field's byte order at load/store sites. The
+/// two rules stack without ordering ambiguity.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StructAttr {
+    /// `@packed_struct` or `@packed_struct(align=<n>)` (paideia-as#1373).
+    ///
+    /// **Layout:** dense — the elaborator emits fields at their
+    /// no-padding offsets (each field's offset is the running sum of
+    /// preceding field sizes, honouring per-field endianness).
+    ///
+    /// **Alignment:** forced to `align` when `Some(n)`, else 1. When
+    /// `Some(n)`, `n` is a positive power of two — the parser rejects
+    /// zero and non-powers-of-two at parse time (P0293) so downstream
+    /// phases can trust the invariant.
+    Packed {
+        /// Forced alignment in bytes (positive power of two), or `None`
+        /// for `align = 1` (the packed default).
+        align: Option<u32>,
+    },
+}
+
 /// Value types for inner attributes.
 ///
 /// Supports integer literals, string literals, and identifiers

@@ -12,9 +12,12 @@
 
 mod align_attr_errors;
 mod empty_fn_args;
+mod endian_attr_snapshots;
 mod example_files;
 mod inner_attr_bits;
 mod issue_1327_record_reserved_diag;
 mod ljmp_instruction;
+mod packed_struct_snapshots;
 mod ring_attr_errors;
+mod snapshots_gpu_context;
 mod snapshots_modules;

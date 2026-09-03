@@ -1,0 +1,12 @@
+---
+source: crates/paideia-as-parser/tests/snapshots_gpu_context.rs
+expression: block
+---
+GpuContextBlock {
+    engine: NodeId(
+        4,
+    ),
+    body: NodeId(
+        7,
+    ),
+}

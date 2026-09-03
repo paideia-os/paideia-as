@@ -1,0 +1,5 @@
+---
+source: crates/paideia-as-parser/tests/packed_struct_snapshots.rs
+expression: snapshot
+---
+struct.attrs = [Packed { align: Some(4) }]

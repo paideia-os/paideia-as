@@ -256,6 +256,16 @@ pub struct AstArena {
     /// keyed by `Let` NodeId. Sparse — populated only for module-level `pub let`
     /// bindings carrying the attribute.
     item_atomic: crate::ItemAtomicTable,
+    /// paideia-as#1372 (v0.28-M1-003): per-field attribute side-table keyed
+    /// by struct-field-name `NodeId`. Sparse — populated only for fields
+    /// carrying an `@endian(...)` attribute (or any future per-field
+    /// attribute that appends to [`crate::FieldAttr`]).
+    struct_field_attrs: crate::StructFieldAttrTable,
+    /// paideia-as#1373 (v0.28-M1-004): struct-level attribute side-table
+    /// keyed by struct-decl `NodeId`. Sparse — populated only for
+    /// structs carrying `@packed_struct` (or any future struct-level
+    /// primitive that appends to [`crate::StructAttr`]).
+    struct_attrs: crate::StructAttrTable,
 }
 
 impl AstArena {
@@ -281,6 +291,8 @@ impl AstArena {
             mnemonic_table: Vec::new(),
             pattern_type_hints: crate::PatternTypeHints::new(),
             item_atomic: crate::ItemAtomicTable::new(),
+            struct_field_attrs: crate::StructFieldAttrTable::new(),
+            struct_attrs: crate::StructAttrTable::new(),
         };
         // Reserve index 0 in mnemonic_table so that valid IDs start at 1.
         s.mnemonic_table.push(String::new());
@@ -540,6 +552,38 @@ impl AstArena {
     /// Borrow the item-level atomic-ordering side-table (mutable).
     pub fn item_atomic_mut(&mut self) -> &mut crate::ItemAtomicTable {
         &mut self.item_atomic
+    }
+
+    /// Borrow the struct-field attribute side-table (read-only).
+    ///
+    /// paideia-as#1372 (v0.28-M1-003). Populated by the parser when it
+    /// sees a per-field attribute such as `@endian(be|le)` immediately
+    /// before a struct-body field.
+    #[must_use]
+    pub fn struct_field_attrs(&self) -> &crate::StructFieldAttrTable {
+        &self.struct_field_attrs
+    }
+
+    /// Borrow the struct-field attribute side-table (mutable).
+    pub fn struct_field_attrs_mut(&mut self) -> &mut crate::StructFieldAttrTable {
+        &mut self.struct_field_attrs
+    }
+
+    /// Borrow the struct-level attribute side-table (read-only).
+    ///
+    /// paideia-as#1373 (v0.28-M1-004). Populated by the parser when it
+    /// sees a struct-level attribute such as `@packed_struct` prefixed
+    /// to a struct declaration. [`crate::StructAttrTable::get`] returns
+    /// `None` for structs that carry none — matching the sibling
+    /// field-level [`Self::struct_field_attrs`] side-table's convention.
+    #[must_use]
+    pub fn struct_attr(&self) -> &crate::StructAttrTable {
+        &self.struct_attrs
+    }
+
+    /// Borrow the struct-level attribute side-table (mutable).
+    pub fn struct_attr_mut(&mut self) -> &mut crate::StructAttrTable {
+        &mut self.struct_attrs
     }
 }
 
