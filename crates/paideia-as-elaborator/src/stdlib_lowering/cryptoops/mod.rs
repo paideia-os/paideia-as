@@ -59,7 +59,7 @@
 //! dispatches to.
 //!
 //! The `.pdx` trait declarations at
-//! `crates/paideia-stdlib/pdx/crypto/*.pdx` pin the source-level
+//! `crates/paideia-as-stdlib/pdx/crypto/*.pdx` pin the source-level
 //! signatures; the recipes below are what route each spelling to its
 //! extern symbol.
 

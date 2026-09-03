@@ -30,7 +30,7 @@
 //!
 //! Typed per-leaf decoders (0x01 basic feature bits, 0x0B / 0x1F
 //! topology, 0x0D XSAVE, 0x1A hybrid) live in
-//! `crates/paideia-stdlib/pdx/cpuid.pdx` as pdx-level functions
+//! `crates/paideia-as-stdlib/pdx/cpuid.pdx` as pdx-level functions
 //! composed on top of these two primitives — the elaborator sees
 //! them as ordinary calls into a stdlib module.
 //!

@@ -17,7 +17,11 @@ members = [
     "crates/paideia-as-emitter-pe",
     "crates/paideia-as-dwarf",
     "crates/paideia-as-diagnostics",
+    "crates/paideia-as-intrinsic",
+    "crates/paideia-as-linear",
     "crates/paideia-as-linker",
+    "crates/paideia-as-macro",
+    "crates/paideia-as-stdlib",
     "crates/paideia-as-test",
     "crates/paideia-as-doc",
     "crates/paideia-lsp",
@@ -25,7 +29,6 @@ members = [
     "crates/paideia-pq-sign",
     "crates/paideia-as-crypto",
     "crates/paideia-satellite-runtime",
-    "crates/paideia-stdlib",
     "tests/e2e",
     "tests/end-to-end",
     "tests/effects-corpus",
@@ -60,7 +63,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.31.0"
+version = "0.31.1"
 edition = "2024"
 rust-version = "1.94"
 license = "MIT"

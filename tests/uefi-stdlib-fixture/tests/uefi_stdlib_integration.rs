@@ -1,6 +1,6 @@
 //! Integration tests for UEFI stdlib fixture.
 //!
-//! These tests verify that the paideia-stdlib UEFI constants and templates
+//! These tests verify that the paideia-as-stdlib UEFI constants and templates
 //! work correctly when used in paideia-as programs.
 
 use std::path::PathBuf;
@@ -19,7 +19,7 @@ fn workspace_root() -> PathBuf {
 fn uefi_fixture_compiles_and_emits_valid_efi() {
     // Verify the uefi.pdx file exists and is valid
     let pdx_path = workspace_root()
-        .join("crates/paideia-stdlib/pdx/uefi.pdx");
+        .join("crates/paideia-as-stdlib/pdx/uefi.pdx");
 
     assert!(pdx_path.exists(), "uefi.pdx must exist");
 }
@@ -31,7 +31,7 @@ fn uefi_fixture_link_section_places_template_at_file_offset_0() {
     // This test just verifies the template exists and is valid
 
     let template_path = workspace_root()
-        .join("crates/paideia-stdlib/pdx/uefi_header_template.bin");
+        .join("crates/paideia-as-stdlib/pdx/uefi_header_template.bin");
 
     assert!(template_path.exists(), "UEFI header template must exist");
 

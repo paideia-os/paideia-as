@@ -1,3 +1,3 @@
 //! UEFI stdlib fixture library.
 //!
-//! Provides test support for paideia-stdlib UEFI components.
+//! Provides test support for paideia-as-stdlib UEFI components.

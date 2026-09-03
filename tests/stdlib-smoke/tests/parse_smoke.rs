@@ -1,6 +1,6 @@
 //! Verify each stdlib smoke .pdx file parses cleanly via paideia-as check.
 //!
-//! This mirrors the pattern in `crates/paideia-stdlib/tests/parse_pdx.rs`,
+//! This mirrors the pattern in `crates/paideia-as-stdlib/tests/parse_pdx.rs`,
 //! with one test per .pdx in the pdx/ directory. Each test exercises
 //! a stdlib milestone or composition scenario.
 

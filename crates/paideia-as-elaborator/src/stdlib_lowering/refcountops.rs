@@ -26,7 +26,7 @@ pub(super) fn try_lower(
     let _ = (arg_ids, arena);
     match method_name {
         // PA-v0.21-003 (#1279): RefcountOps atomic refcount primitives.
-        // Trait declared at paideia-stdlib/pdx/refcount.pdx (PA-R16-009).
+        // Trait declared at paideia-as-stdlib/pdx/refcount.pdx (PA-R16-009).
         // SysVRegs: RDI = counter (*u32), RAX = return.
         //
         // The AC says "compile to lock xadd sequence" — every primitive here

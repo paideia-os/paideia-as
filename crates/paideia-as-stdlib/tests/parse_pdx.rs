@@ -27,7 +27,7 @@ fn paideia_as_bin() -> Option<PathBuf> {
 }
 
 #[test]
-fn paideia_stdlib_pdx_dir_exists() {
+fn paideia_as_stdlib_pdx_dir_exists() {
     assert!(
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("pdx")

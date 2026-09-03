@@ -521,7 +521,7 @@ fn uefi_stub_link_section_appears_in_pe() {
 /// Issue #1122: Option C end-to-end .efi drift detection.
 ///
 /// This test promotes Option C to comprehensive drift detection by:
-/// 1. Building a fixture that uses UEFI constants from paideia-stdlib::uefi
+/// 1. Building a fixture that uses UEFI constants from paideia-as-stdlib::uefi
 /// 2. Reading the compiled .efi output
 /// 3. Extracting OFF_* constants from uefi.pdx source
 /// 4. Verifying actual PE header bytes match the OFF_* constants
@@ -566,7 +566,7 @@ fn uefi_efi_drift_detects_via_constants() {
     // Read and parse uefi.pdx to extract OFF_* constants
     let uefi_pdx_path = {
         let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        p.push("../../crates/paideia-stdlib/pdx/uefi.pdx");
+        p.push("../../crates/paideia-as-stdlib/pdx/uefi.pdx");
         p
     };
     let uefi_src = fs::read_to_string(&uefi_pdx_path)

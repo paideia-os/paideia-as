@@ -15,7 +15,7 @@
 //!   * RAX = return code (0 OK, negative = error)
 //!
 //! The `.pdx` trait declaration lives in
-//! `crates/paideia-stdlib/pdx/crypto/argon2id.pdx`.
+//! `crates/paideia-as-stdlib/pdx/crypto/argon2id.pdx`.
 
 use paideia_as_ir::{IrArena, IrNodeId, instruction::InstrMode};
 

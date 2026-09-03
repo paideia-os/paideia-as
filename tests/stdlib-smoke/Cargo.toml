@@ -15,4 +15,4 @@ repository.workspace = true
 path = "src/lib.rs"
 
 [dev-dependencies]
-paideia-stdlib = { path = "../../crates/paideia-stdlib" }
+paideia-as-stdlib = { path = "../../crates/paideia-as-stdlib" }

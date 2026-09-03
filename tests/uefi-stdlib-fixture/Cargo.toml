@@ -5,7 +5,7 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-paideia-stdlib = { path = "../../crates/paideia-stdlib" }
+paideia-as-stdlib = { path = "../../crates/paideia-as-stdlib" }
 
 [dev-dependencies]
 

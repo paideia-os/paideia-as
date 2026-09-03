@@ -26,7 +26,7 @@ pub(super) fn try_lower(
     let _ = (arg_ids, arena);
     match method_name {
         // PA-v0.21-003 (#1279): BitmapOps atomic bit-manipulation primitives.
-        // Trait declared at paideia-stdlib/pdx/bitmap.pdx (PA-R16-010).
+        // Trait declared at paideia-as-stdlib/pdx/bitmap.pdx (PA-R16-010).
         // SysVRegs: RDI = bmap (*u64), RSI = bit_index (u64), RAX = return
         //           (previous bit as bool, 0 or 1).
         //

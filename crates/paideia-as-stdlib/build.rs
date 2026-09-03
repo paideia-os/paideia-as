@@ -1,4 +1,4 @@
-//! Build script for paideia-stdlib.
+//! Build script for paideia-as-stdlib.
 //!
 //! When the `regen-uefi-template` feature is enabled, regenerates the UEFI header
 //! template binary from the PE emitter crate.

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.31.1 — 2026-09-03 — Wave 0 Batch 3 prerequisite: 4-crate scaffold + naming drift resolution
+
+Mechanical scaffolding only; zero behaviour change. Unblocks 13 depth-0 rows across the v0.26 / v0.30 / v0.31 / v0.32 M1 bundles for Batch 3 dispatch.
+
+- **Naming drift resolved.** `crates/paideia-stdlib/` renamed to `crates/paideia-as-stdlib/` via `git mv`, bringing the crate in line with the `paideia-as-*` convention every other workspace crate follows. `package.name` updated in `Cargo.toml`; workspace `members` entry rewritten; ten load-bearing path/dep references chased across `crates/paideia-as/tests/build_emit/{atomic_binding_smoke,uefi_stub}.rs`, `tests/self-hosting/Cargo.toml`, `tests/uefi-stdlib-fixture/{Cargo.toml,tests/uefi_stdlib_integration.rs,src/lib.rs}`, and `tests/stdlib-smoke/Cargo.toml`; docstring references in `crates/paideia-as-elaborator/src/stdlib_lowering/*.rs` refreshed for consistency. The `paideia-stdlib-smoke` test-harness crate under `tests/stdlib-smoke/` keeps its name (separate harness, not in Batch 3 scope).
+- **Three new empty crates scaffolded** (`lib.rs` doc-comment + minimal `Cargo.toml` only; substantive code lands in Batch 3):
+  - `crates/paideia-as-linear/` — linearity-type infrastructure (targets v0.25-M1-003).
+  - `crates/paideia-as-macro/` — macro system (targets v0.25-M1-004).
+  - `crates/paideia-as-intrinsic/` — AML/DMA/GPU/Vulkan intrinsics (targets v0.26/v0.27/v0.30 rows).
+- **Workspace `members` reordered** alphabetically within the paideia-as-* block; three new paths inserted at their sorted position.
+- **Version:** `workspace.version` bumped 0.31.0 → 0.31.1 (patch — no API change, only scaffolding + rename).
+
 ## 0.31.0 — 2026-09-03 — Wave 0 Batch 2: 10 parser/types primitives (v0.25/v0.27/v0.28/v0.29/v0.31/v0.32 M1)
 
 Ten paideia-as parser/types primitives landed in a single MECE-verified

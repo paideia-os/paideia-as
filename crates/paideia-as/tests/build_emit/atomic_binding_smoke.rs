@@ -2,7 +2,7 @@
 //! emit change that brackets accesses to a module-level `@atomic(SeqCst)`
 //! binding with `mfence` (0F AE F0).
 //!
-//! Compiles `crates/paideia-stdlib/pdx/atomic_binding_smoke.pdx` (which
+//! Compiles `crates/paideia-as-stdlib/pdx/atomic_binding_smoke.pdx` (which
 //! defines `pub let mut counter : u64 = 0 @atomic(SeqCst)` plus a
 //! store-side and load-side accessor) and asserts:
 //!
@@ -27,7 +27,7 @@ use std::process::Command;
 
 fn stdlib_pdx(name: &str) -> PathBuf {
     let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    p.push("../paideia-stdlib/pdx");
+    p.push("../paideia-as-stdlib/pdx");
     p.push(name);
     p
 }

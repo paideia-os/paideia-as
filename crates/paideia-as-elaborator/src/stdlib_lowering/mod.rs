@@ -38,7 +38,7 @@
 //! (RAX=EDX:EAX, RAX=ECX:EBX). RBX is bracketed with push/pop because
 //! CPUID clobbers it and RBX is callee-saved. Typed per-leaf decoders
 //! (leaves 0x01, 0x0B, 0x0D, 0x1A, 0x1F) live in
-//! `crates/paideia-stdlib/pdx/cpuid.pdx` and compose on top. Full
+//! `crates/paideia-as-stdlib/pdx/cpuid.pdx` and compose on top. Full
 //! record-return marshalling (a single `cpuid_leaf(...) -> CpuidRegs`
 //! intrinsic) is tracked in #1298 and does not need to land before
 //! consumers can call the primitives here.

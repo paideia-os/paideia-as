@@ -1,5 +1,5 @@
 [package]
-name = "paideia-stdlib"
+name = "paideia-as-stdlib"
 version.workspace = true
 edition.workspace = true
 publish = false

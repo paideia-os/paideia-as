@@ -16,7 +16,7 @@
 //! * `ChaCha20Poly1305::open(...)` — same shape as `seal`.
 //!
 //! The `.pdx` trait declaration lives in
-//! `crates/paideia-stdlib/pdx/crypto/chacha20_poly1305.pdx`.
+//! `crates/paideia-as-stdlib/pdx/crypto/chacha20_poly1305.pdx`.
 
 use paideia_as_ir::{IrArena, IrNodeId, instruction::InstrMode};
 
