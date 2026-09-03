@@ -1,10 +1,30 @@
 //! `paideia-as test [--filter <regex>] [--list] [--format <human|json|tap>] [paths...]`
 //!
-//! Discovers and runs tests in .pdx files. Supports three output formats:
-//! human (default), JSON newline-delimited events, and TAP 13.
+//! Discovers and runs tests in `.pdx` files. Supports three output
+//! formats: human (default), JSON newline-delimited events, and TAP 13.
+//!
+//! # v0.33-M1-007 (paideia-as#1393 / paideia-os#1349)
+//!
+//! Before this landing, this command was vaporware:
+//!
+//! - `TestRunner::discover` was a substring line scan for `#[test]` and
+//!   silently swallowed I/O errors, so a nonexistent path or a garbage
+//!   file both produced `discovered: 0; passed: 0; failed: 0`, exit 0.
+//! - `run_human_format` built a `TestSummary` inline that treated every
+//!   discovered entry as "passed" without ever running anything.
+//!
+//! After this landing:
+//!
+//! - Discovery errors (nonexistent file, empty file, bad UTF-8) print a
+//!   real diagnostic to stderr and exit 1.
+//! - `TestRunner::run` actually invokes lex + parse + elaborate on each
+//!   discovered / user-named file. Entries pass only when the file
+//!   emits zero error-severity diagnostics.
+//! - Failed files render their diagnostic lines to stderr and force a
+//!   non-zero exit.
 
 use crate::cli::OutputFormat;
-use paideia_as_test::{TestEntry, TestRunner, TestSummary};
+use paideia_as_test::{RunOutcome, TestEntry, TestRunner};
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -42,19 +62,33 @@ pub fn run(
         runner = runner.list_only();
     }
 
-    // Discover tests.
-    let entries = runner.discover(&scan_paths);
+    // Discover tests. Errors here (nonexistent path, bad encoding) are
+    // fatal and exit non-zero — the pre-v0.33-M1-007 code silently
+    // reported `discovered: 0` and exited 0.
+    let entries = match runner.discover(&scan_paths) {
+        Ok(e) => e,
+        Err(err) => {
+            eprintln!("paideia-as test: {}", err);
+            return ExitCode::from(1);
+        }
+    };
 
     // Route output based on format.
     match format {
-        OutputFormat::Human => run_human_format(&entries, list),
-        OutputFormat::Json => run_json_format(&entries, list),
-        OutputFormat::Tap => run_tap_format(&entries, list),
+        OutputFormat::Human => run_human_format(&runner, &scan_paths, &entries, list),
+        OutputFormat::Json => run_json_format(&runner, &scan_paths, &entries, list),
+        OutputFormat::Tap => run_tap_format(&runner, &scan_paths, &entries, list),
     }
 }
 
-/// Human-readable format: byte-identical to pre-#1111 behavior.
-fn run_human_format(entries: &[TestEntry], list: bool) -> ExitCode {
+/// Human-readable format: byte-identical to pre-#1111 behavior on the
+/// happy path, plus a real diagnostic listing on failure.
+fn run_human_format(
+    runner: &TestRunner,
+    scan_paths: &[PathBuf],
+    entries: &[TestEntry],
+    list: bool,
+) -> ExitCode {
     if list {
         for e in entries {
             println!("{}: {}", e.source_path, e.name);
@@ -62,38 +96,51 @@ fn run_human_format(entries: &[TestEntry], list: bool) -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    // Run tests (discovery only; all treated as passed).
-    let summary = TestSummary {
-        discovered: entries.len(),
-        passed: entries.len(),
-        failed: 0,
-        filtered: 0,
-    };
+    let outcome = runner.run(scan_paths, entries);
+    render_failed_files_human(&outcome);
 
     eprintln!(
-        "test result: {}. discovered: {}; passed: {}; failed: {}",
-        if summary.failed == 0 { "ok" } else { "FAILED" },
-        summary.discovered,
-        summary.passed,
-        summary.failed
+        "test result: {}. discovered: {}; passed: {}; failed: {}; file errors: {}",
+        if outcome.summary.failed == 0 && outcome.failed_files.is_empty() {
+            "ok"
+        } else {
+            "FAILED"
+        },
+        outcome.summary.discovered,
+        outcome.summary.passed,
+        outcome.summary.failed,
+        outcome.failed_files.len(),
     );
 
-    if summary.failed > 0 {
+    if outcome.summary.failed > 0 || !outcome.failed_files.is_empty() {
         return ExitCode::from(1);
     }
-
     ExitCode::SUCCESS
 }
 
 /// JSON newline-delimited format (NDJSON).
-fn run_json_format(entries: &[TestEntry], list: bool) -> ExitCode {
+fn run_json_format(
+    runner: &TestRunner,
+    scan_paths: &[PathBuf],
+    entries: &[TestEntry],
+    list: bool,
+) -> ExitCode {
+    let outcome = if list {
+        RunOutcome::default()
+    } else {
+        runner.run(scan_paths, entries)
+    };
     let mut stdout = std::io::stdout().lock();
-    emit_json(&mut stdout, entries, list);
-    ExitCode::SUCCESS
+    emit_json(&mut stdout, entries, &outcome, list);
+    if !list && (outcome.summary.failed > 0 || !outcome.failed_files.is_empty()) {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
+    }
 }
 
 /// Emit JSON events (NDJSON) to the provided writer.
-fn emit_json(out: &mut dyn Write, entries: &[TestEntry], list: bool) {
+fn emit_json(out: &mut dyn Write, entries: &[TestEntry], outcome: &RunOutcome, list: bool) {
     let test_count = entries.len();
 
     if list {
@@ -113,79 +160,165 @@ fn emit_json(out: &mut dyn Write, entries: &[TestEntry], list: bool) {
             "count": test_count,
         });
         let _ = writeln!(out, "{}", suite_json.to_string());
-    } else {
-        // Run mode: emit suite/started + test events + suite/ok
-        let start_json = serde_json::json!({
-            "type": "suite",
-            "event": "started",
-            "test_count": test_count,
-        });
-        let _ = writeln!(out, "{}", start_json.to_string());
-
-        for e in entries {
-            let started = serde_json::json!({
-                "type": "test",
-                "event": "started",
-                "name": e.name,
-                "source_path": e.source_path,
-            });
-            let _ = writeln!(out, "{}", started.to_string());
-
-            let ok = serde_json::json!({
-                "type": "test",
-                "event": "ok",
-                "name": e.name,
-                "exec_time": 0.0,
-            });
-            let _ = writeln!(out, "{}", ok.to_string());
-        }
-
-        let suite_ok = serde_json::json!({
-            "type": "suite",
-            "event": "ok",
-            "passed": test_count,
-            "failed": 0,
-            "filtered_out": 0,
-        });
-        let _ = writeln!(out, "{}", suite_ok.to_string());
+        return;
     }
+
+    // Which source paths failed → look up when reporting per-test.
+    let failed_paths: std::collections::HashSet<String> = outcome
+        .failed_files
+        .iter()
+        .map(|f| f.path.display().to_string())
+        .collect();
+
+    // Run mode: emit suite/started + test events + suite/ok
+    let start_json = serde_json::json!({
+        "type": "suite",
+        "event": "started",
+        "test_count": test_count,
+    });
+    let _ = writeln!(out, "{}", start_json.to_string());
+
+    for e in entries {
+        let started = serde_json::json!({
+            "type": "test",
+            "event": "started",
+            "name": e.name,
+            "source_path": e.source_path,
+        });
+        let _ = writeln!(out, "{}", started.to_string());
+
+        let event = if failed_paths.contains(&e.source_path) {
+            "failed"
+        } else {
+            "ok"
+        };
+        let payload = serde_json::json!({
+            "type": "test",
+            "event": event,
+            "name": e.name,
+            "exec_time": 0.0,
+        });
+        let _ = writeln!(out, "{}", payload.to_string());
+    }
+
+    // Explicit file-level errors: emit even for files with no discovered
+    // entries (garbage file the user pointed at).
+    for f in &outcome.failed_files {
+        let ev = serde_json::json!({
+            "type": "file",
+            "event": "error",
+            "path": f.path.display().to_string(),
+            "messages": f.messages,
+        });
+        let _ = writeln!(out, "{}", ev.to_string());
+    }
+
+    let suite_event = if outcome.summary.failed > 0 || !outcome.failed_files.is_empty() {
+        "failed"
+    } else {
+        "ok"
+    };
+    let suite_ok = serde_json::json!({
+        "type": "suite",
+        "event": suite_event,
+        "passed": outcome.summary.passed,
+        "failed": outcome.summary.failed,
+        "filtered_out": outcome.summary.filtered,
+        "file_errors": outcome.failed_files.len(),
+    });
+    let _ = writeln!(out, "{}", suite_ok.to_string());
 }
 
 /// TAP 13 format.
-fn run_tap_format(entries: &[TestEntry], list: bool) -> ExitCode {
+fn run_tap_format(
+    runner: &TestRunner,
+    scan_paths: &[PathBuf],
+    entries: &[TestEntry],
+    list: bool,
+) -> ExitCode {
+    let outcome = if list {
+        RunOutcome::default()
+    } else {
+        runner.run(scan_paths, entries)
+    };
     let mut stdout = std::io::stdout().lock();
-    emit_tap(&mut stdout, entries, list);
-    ExitCode::SUCCESS
+    emit_tap(&mut stdout, entries, &outcome, list);
+    if !list && (outcome.summary.failed > 0 || !outcome.failed_files.is_empty()) {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
+    }
 }
 
 /// Emit TAP 13 output to the provided writer.
-fn emit_tap(out: &mut dyn Write, entries: &[TestEntry], list: bool) {
+fn emit_tap(out: &mut dyn Write, entries: &[TestEntry], outcome: &RunOutcome, list: bool) {
     let test_count = entries.len();
 
     let _ = writeln!(out, "TAP version 13");
 
-    if test_count == 0 {
+    if test_count == 0 && outcome.failed_files.is_empty() {
         let _ = writeln!(out, "1..0 # SKIP no tests found");
         return;
     }
 
-    let _ = writeln!(out, "1..{}", test_count);
+    // Total emitted lines = discovered entries + one synthetic line per
+    // file error not covered by an entry.
+    let extra_error_lines = if list { 0 } else { outcome.failed_files.len() };
+    let total = test_count + extra_error_lines;
+    let _ = writeln!(out, "1..{}", total);
+
+    let failed_paths: std::collections::HashSet<String> = outcome
+        .failed_files
+        .iter()
+        .map(|f| f.path.display().to_string())
+        .collect();
 
     for (idx, e) in entries.iter().enumerate() {
         let num = idx + 1;
         if list {
             let _ = writeln!(out, "ok {} - {} # SKIP listed only", num, e.name);
+        } else if failed_paths.contains(&e.source_path) {
+            let _ = writeln!(out, "not ok {} - {}", num, e.name);
         } else {
             let _ = writeln!(out, "ok {} - {}", num, e.name);
+        }
+    }
+
+    if !list {
+        // Synthetic lines for file-level errors that had no discovered
+        // entries (garbage file).
+        for (i, f) in outcome.failed_files.iter().enumerate() {
+            let num = test_count + i + 1;
+            let _ = writeln!(
+                out,
+                "not ok {} - file:{}",
+                num,
+                f.path.display()
+            );
+            for m in &f.messages {
+                let _ = writeln!(out, "# {}", m);
+            }
         }
     }
 
     if list {
         let _ = writeln!(out, "# discovered {}", test_count);
     } else {
-        let _ = writeln!(out, "# tests {}", test_count);
-        let _ = writeln!(out, "# pass {}", test_count);
-        let _ = writeln!(out, "# fail 0");
+        let passed = outcome.summary.passed;
+        let failed = outcome.summary.failed + outcome.failed_files.len();
+        let _ = writeln!(out, "# tests {}", total);
+        let _ = writeln!(out, "# pass {}", passed);
+        let _ = writeln!(out, "# fail {}", failed);
+    }
+}
+
+/// Render failed-file diagnostics to stderr in a compact form.
+fn render_failed_files_human(outcome: &RunOutcome) {
+    for f in &outcome.failed_files {
+        eprintln!("--- {}: FAILED", f.path.display());
+        for m in &f.messages {
+            eprintln!("  {}", m);
+        }
     }
 }
 
@@ -197,6 +330,7 @@ fn default_scan_paths() -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use paideia_as_test::FailedFile;
     use std::fs;
 
     #[test]
@@ -218,6 +352,14 @@ mod tests {
         // since it depends on real filesystem state.
     }
 
+    fn synthetic_outcome(passed: usize, failed: usize, files: Vec<FailedFile>) -> RunOutcome {
+        let mut o = RunOutcome::default();
+        o.summary.passed = passed;
+        o.summary.failed = failed;
+        o.failed_files = files;
+        o
+    }
+
     #[test]
     fn emit_json_run_events_matches_golden() {
         let entries = vec![
@@ -231,8 +373,11 @@ mod tests {
             },
         ];
 
+        let mut outcome = synthetic_outcome(2, 0, vec![]);
+        outcome.summary.discovered = 2;
+
         let mut out = Vec::new();
-        emit_json(&mut out, &entries, false);
+        emit_json(&mut out, &entries, &outcome, false);
         let output = String::from_utf8(out).unwrap();
 
         // Verify the output is valid NDJSON with expected sequence
@@ -264,8 +409,11 @@ mod tests {
             },
         ];
 
+        let mut outcome = synthetic_outcome(2, 0, vec![]);
+        outcome.summary.discovered = 2;
+
         let mut out = Vec::new();
-        emit_tap(&mut out, &entries, false);
+        emit_tap(&mut out, &entries, &outcome, false);
         let output = String::from_utf8(out).unwrap();
 
         let lines: Vec<&str> = output.lines().collect();
@@ -280,15 +428,13 @@ mod tests {
 
     #[test]
     fn emit_json_list_events_matches_golden() {
-        let entries = vec![
-            TestEntry {
-                name: "test_one".to_string(),
-                source_path: "test.pdx".to_string(),
-            },
-        ];
+        let entries = vec![TestEntry {
+            name: "test_one".to_string(),
+            source_path: "test.pdx".to_string(),
+        }];
 
         let mut out = Vec::new();
-        emit_json(&mut out, &entries, true);
+        emit_json(&mut out, &entries, &RunOutcome::default(), true);
         let output = String::from_utf8(out).unwrap();
 
         let lines: Vec<&str> = output.lines().collect();
@@ -319,7 +465,7 @@ mod tests {
         ];
 
         let mut out = Vec::new();
-        emit_tap(&mut out, &entries, true);
+        emit_tap(&mut out, &entries, &RunOutcome::default(), true);
         let output = String::from_utf8(out).unwrap();
 
         assert!(output.contains("# SKIP listed only"));
@@ -328,5 +474,4 @@ mod tests {
             assert!(line.contains("# SKIP listed only"));
         }
     }
-
 }

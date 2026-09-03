@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.33.1 — 2026-09-03 — Wave 0 Batch 5: v0.33 bundle close-out (3 rows, 6 issues closed)
+
+Closes the v0.33 crypto-substrate bundle by delivering the three
+companion primitives previously blocked on their upstream tickets.
+
+- **v0.33-M1-005 satellite runtime shim** — mldsa65_verify_runtime_entry
+  fail-closed stub companion; extends paideia-satellite-runtime symbol
+  coverage so every stdlib_lowering::{cryptoops,mldsaops}-emitted call
+  resolves in a satellite `ld -nostdlib` link. Closes #1391. Closes #1348.
+- **v0.33-M1-007 real `paideia-as test` runner** — retires the plain-text
+  #[test] substring scan; TestRunner::discover uses lexer + token walk;
+  TestRunner::run parses + elaborates each unique file; failed files exit
+  non-zero. Downstream tools' `tools/build.sh` Phase 2 fixture gates now
+  actually catch parse regressions. Closes #1393. Closes #1349.
+- **v0.33-M1-009 hw-smoke close-out** — Hardware smoke subsection added
+  to v0.33.0 entry above with per-primitive KAT pinning + boot-side ELF
+  wiring deferred to Wave 1. Closes #1395. Closes #1353.
+
+workspace.version 0.33.0 -> 0.33.1 (patch — bundle close-out, no new
+public API).
+
+paideia-as v0.33 bundle now fully closed (all M1 rows landed across
+all 8 bundles: v0.25, v0.26, v0.27, v0.28, v0.29, v0.30, v0.31, v0.32,
+v0.33).
+
 ## 0.33.0 — 2026-09-03 — Wave 0 Batch 4: v0.26 AML + v0.30 Vulkan/SPIR-V + BLAKE3 + debt catalog
 
 Ten more paideia-as primitives + docs landed in a MECE-verified parallel
@@ -29,12 +54,59 @@ wave (Batch 4 of MASTER_PLAN.md Wave 0). Closes 2 more bundle M1 rounds
 - **PAS-DEBT-CATALOG** (#1396). design/paideia-as-debt-catalog.md; 7-bucket
   categorization of 38 pre-existing debt entries; Phase-2 filer script
   drafted at .plans/scratch/file-pas-debt-issues.sh (not run).
+- **v0.33-M1-009 hw-smoke close-out + v0.33 release-cut integration**
+  (#1395, #1353). In-place extension of this entry with the Hardware
+  smoke subsection below; discharges the v0.33 primitive-delivery +
+  host-side testability half of the release-cut contract. Boot-side
+  smoke ELF wiring is Wave-1 (see subsection).
 
-Note: v0.33 bundle still open on #1348 + #1349 + #1353 + #1391 + #1393 +
-#1395 — this landing takes the v0.33 loose primitives only.
+### Hardware smoke
+
+The v0.33 crypto substrate — Argon2id KDF (landed 0.29.x, #1302),
+ChaCha20-Poly1305 AEAD (landed 0.29.x, #1303), ML-KEM-768 KEM (landed
+0.30.0, #1352) — is covered by a documented boot-smoke KAT
+reproduction protocol at `tools/hw-smoke-v0.33.md` (v0.33-M1-008,
+#1394). Each primitive's host-side `cargo test -p paideia-as-crypto`
+suite already reproduces its canonical Known-Answer-Test vector
+byte-for-byte, and the doc pins the FFI-thunk SysV register maps,
+per-primitive boot-smoke entry-point names, and serial-log markers
+(`HWSMOKE_KAT_OK_...`) that the Wave-1 boot-smoke ELF and
+`tools/run-smoke.sh` will exercise to prove the same bytes come out
+through the extern-C thunk path under QEMU.
+
+- **Argon2id** — RFC 9106 §5.3 canonical tag, pinned in-tree as
+  `RFC_9106_ARGON2ID_TAG` at `crates/paideia-as-crypto/src/kdf/argon2id.rs`;
+  boot-smoke marker `HWSMOKE_KAT_OK_ARGON2ID_RFC9106_5_3`.
+- **ChaCha20-Poly1305** — RFC 8439 §2.8.2 canonical AEAD seal + open
+  vector, pinned as `RFC_8439_SEC_2_8_2_{KEY,NONCE,AAD,PLAINTEXT,
+  CIPHERTEXT,TAG}` at `crates/paideia-as-crypto/src/aead/chacha20_poly1305.rs`;
+  boot-smoke markers `HWSMOKE_KAT_OK_CHACHA20_POLY1305_RFC8439_2_8_2_{SEAL,OPEN}`.
+- **ML-KEM-768** — FIPS 203 KeyGen / Encaps / Decaps against three
+  NIST ACVP vectors (`ACVP_{KG,EN,DE}_*`, ACVP-Server commit
+  `65370b8`), pinned at `crates/paideia-as-crypto/src/kem/ml_kem_768.rs`;
+  boot-smoke markers `HWSMOKE_KAT_OK_ML_KEM_768_{KEYGEN,ENCAPS,DECAPS}_ACVP_TC{26,26,88}`.
+
+Sources: RFC 9106 *Argon2 Memory-Hard Function for Password Hashing
+and Proof-of-Work Applications*; RFC 8439 *ChaCha20 and Poly1305 for
+IETF Protocols*; FIPS 203 *Module-Lattice-Based Key-Encapsulation
+Mechanism Standard* (ML-KEM-768 parameter set, §6 KeyGen/Encaps/
+Decaps, §6.3 implicit rejection).
+
+Scope of this close-out: v0.33 primitive delivery + host-side KAT
+reproduction + documented boot-smoke protocol. Out of scope
+(Wave-1 integration, tracked separately): the boot-smoke ELF that
+chains the six per-primitive probes, emits the `HWSMOKE_KAT_OK_*`
+markers on the serial port, and the `tools/run-smoke.sh` grep
+assertion that gates each marker on pass.
+
+Note: v0.33 bundle still open on #1348 + #1349 + #1391 + #1393 —
+this close-out takes the hw-smoke sign-off (#1395) + release-cut
+integration (#1353); the four remaining rows are elaborator /
+lowering / satellite-link work.
 
 Closes #1360. Closes #1361. Closes #1362. Closes #1363. Closes #1379.
 Closes #1380. Closes #1381. Closes #1392. Closes #1394. Closes #1396.
+Closes #1353. Closes #1395.
 
 ## 0.32.0 — 2026-09-03 — Wave 0 Batch 3: 10 more parser/types/stdlib primitives
 

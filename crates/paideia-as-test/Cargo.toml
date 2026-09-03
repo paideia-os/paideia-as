@@ -9,6 +9,9 @@ path = "src/lib.rs"
 
 [dependencies]
 paideia-as-ast = { path = "../paideia-as-ast" }
+paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
+paideia-as-elaborator = { path = "../paideia-as-elaborator" }
+paideia-as-lexer = { path = "../paideia-as-lexer" }
 paideia-as-parser = { path = "../paideia-as-parser" }
 regex = "1"
 

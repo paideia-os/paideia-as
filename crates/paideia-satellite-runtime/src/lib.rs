@@ -43,16 +43,28 @@
 //!   each symbol; the crypto crate's `#[unsafe(no_mangle)]` remains
 //!   the sole authority on the symbol's name and body.
 //!
-//! - `mldsa65_sign_runtime_entry` is DEFINED HERE as a fail-closed
-//!   stub returning [`PDX_MLDSA_ERR_NO_SIGNER`] (-6). This is
-//!   band-consistent with `paideia-pq-sign`'s existing sentinel band
-//!   (-1..-3 in use, -4/-5 reserved). See design §3.2 for the
-//!   rationale: none of the currently-shipping satellite tools
-//!   INVOKE this intrinsic at runtime (they only need it to link),
-//!   and any future signing satellite (fsck.pdxfs / pkg.paideia-os)
-//!   will link against a purpose-built `paideia-pq-sign` staticlib
-//!   instead of pulling `yubihsm` / `cryptoki` / `reqwest` into
-//!   every `/bin` binary's dependency closure.
+//! - `mldsa65_sign_runtime_entry` AND `mldsa65_verify_runtime_entry`
+//!   are DEFINED HERE as fail-closed stubs returning
+//!   [`PDX_MLDSA_ERR_NO_SIGNER`] (-6). This is band-consistent with
+//!   `paideia-pq-sign`'s existing sentinel band (-1..-3 in use, -4/-5
+//!   reserved). See design §3.2 for the rationale: none of the
+//!   currently-shipping satellite tools INVOKE either intrinsic at
+//!   runtime (they only need them to link — `stdlib_lowering::mldsaops`
+//!   emits `call` relocations for both sign AND verify whenever a
+//!   `.pdx` module imports either intrinsic, even when the runtime
+//!   code path never calls them), and any future signing/verifying
+//!   satellite (fsck.pdxfs / pkg.paideia-os) will link against a
+//!   purpose-built `paideia-pq-sign` staticlib instead of pulling
+//!   `yubihsm` / `cryptoki` / `reqwest` into every `/bin` binary's
+//!   dependency closure.
+//!
+//!   The verify stub returns a NEGATIVE sentinel deliberately: on
+//!   `paideia-pq-sign`'s ABI a negative return from verify is "did
+//!   not authenticate" (per the mldsaops recipe: `0 = valid,
+//!   negative = invalid or bad shape`). A correct caller therefore
+//!   treats `-6` as "signature did not verify" and never mistakes
+//!   fail-closed for pass — the invariant a satellite must not
+//!   silently claim a bad signature is valid is preserved.
 //!
 //! # Consumer contract
 //!
@@ -214,10 +226,22 @@ pub use paideia_as_crypto::ffi::paideia_crypto_ml_kem_768_encaps;
 pub use paideia_as_crypto::ffi::paideia_crypto_ml_kem_768_keygen;
 
 // ---------------------------------------------------------------------
-// Signing — fail-closed stub for mldsa65_sign_runtime_entry.
+// Signing / verification — fail-closed stubs for the ML-DSA-65 pair.
 // ---------------------------------------------------------------------
+//
+// Both `mldsa65_sign_runtime_entry` (v0.28.0 landing, issue #1330) and
+// `mldsa65_verify_runtime_entry` (v0.28.1 landing, issue #1347) are
+// emitted as `call` relocations by the elaborator's
+// `stdlib_lowering::mldsaops` recipe whenever a `.pdx` module imports
+// either intrinsic. The satellite runtime therefore MUST define both
+// symbols so satellite `ld -nostdlib` link lines resolve regardless
+// of runtime reachability. Both bodies unconditionally return the
+// `PDX_MLDSA_ERR_NO_SIGNER` sentinel — see the module-level "Signing"
+// discussion for the fail-closed rationale and the verify-side note
+// on why a negative sentinel from verify is semantically honest.
 
-/// Fail-closed sentinel for the satellite `mldsa65_sign_runtime_entry`.
+/// Fail-closed sentinel for the satellite `mldsa65_sign_runtime_entry`
+/// AND `mldsa65_verify_runtime_entry` stubs.
 ///
 /// Value: `-6`. Chosen to be band-consistent with the existing
 /// `paideia-pq-sign::ffi::PDX_MLDSA_*` codes (`-1` = InvalidParam,
@@ -232,7 +256,16 @@ pub use paideia_as_crypto::ffi::paideia_crypto_ml_kem_768_keygen;
 /// this code upward as a user-visible error rather than silently
 /// treating it as success — otherwise a satellite would produce a
 /// "signed" volume that is not actually signed and cannot be
-/// verified. This is design risk R4 in the shim document.
+/// verified, or would silently accept an unverified signature as
+/// valid. This is design risk R4 in the shim document.
+///
+/// For the verify path specifically: `paideia-pq-sign`'s ABI treats
+/// any negative return from `mldsa65_verify_runtime_entry` as "did
+/// not authenticate" (mldsaops recipe: `0 = valid, negative = invalid
+/// or bad shape`). Returning `-6` from the verify stub therefore
+/// slots into the existing failure band exactly — a correct caller
+/// treats it as "signature did not verify" and never mistakes
+/// fail-closed for success.
 pub const PDX_MLDSA_ERR_NO_SIGNER: i64 = -6;
 
 /// Satellite build of `mldsa65_sign_runtime_entry` — fail-closed.
@@ -277,6 +310,65 @@ pub extern "C" fn mldsa65_sign_runtime_entry(
     _msg_ptr: *const u8,
     _msg_len: usize,
     _sig_out_ptr: *mut u8,
+) -> i64 {
+    PDX_MLDSA_ERR_NO_SIGNER
+}
+
+/// Satellite build of `mldsa65_verify_runtime_entry` — fail-closed.
+///
+/// # Contract
+///
+/// This symbol MUST resolve at satellite link time — the elaborator's
+/// `stdlib_lowering::mldsaops` recipe emits a `call` relocation to
+/// it whenever a `.pdx` module imports the ML-DSA-65 verify
+/// intrinsic (v0.28.1 landing, issue paideia-as#1347), and satellite
+/// `ld -nostdlib` links have no per-object dead-code elimination
+/// that could drop the reference. This body returns
+/// [`PDX_MLDSA_ERR_NO_SIGNER`] unconditionally; no input is
+/// inspected, no output is written.
+///
+/// The negative return is honest per `paideia-pq-sign`'s ABI: verify
+/// projects onto `0 = valid, negative = invalid or bad shape`, so a
+/// caller that treats the return as boolean (`is_valid = ret == 0`)
+/// correctly refuses to accept the "signature" as verified. The
+/// fail-closed contract on satellites is that any `.pdx` code path
+/// invoking verify at runtime MUST NOT reach a "verified" branch —
+/// which the negative sentinel guarantees.
+///
+/// # Signature — must match `paideia-pq-sign::ffi::mldsa65_verify_runtime_entry`
+///
+/// Argument order and types are the SysV AMD64 register mapping
+/// documented on the kernel-side symbol and on the mldsaops recipe:
+///
+/// | Register | Meaning                                          |
+/// |----------|--------------------------------------------------|
+/// | RDI      | `msg_ptr`     — `*const u8`                      |
+/// | RSI      | `msg_len`     — `usize`                          |
+/// | RDX      | `sig_ptr`     — `*const u8`, == 3309 bytes       |
+/// | RCX      | `sig_len`     — `usize` (== 3309)                |
+/// | R8       | `pubkey_ptr`  — `*const u8`, == 1952 bytes       |
+/// | R9       | `pubkey_len`  — `usize` (== 1952)                |
+/// | **RAX**  | return code: 0 = valid, negative = invalid       |
+///
+/// Any drift between this signature and the kernel-side signature
+/// would silently break the fallback safety contract — a caller
+/// expecting `pubkey_ptr` in R8 would find garbage there and,
+/// worse, would not know it. Keep them lockstep.
+///
+/// # Safety
+///
+/// The function does not dereference any argument pointer, so the
+/// usual `slice::from_raw_parts` safety obligations do not apply on
+/// this build. The `#[unsafe(no_mangle)]` attribute is still needed
+/// so the symbol is exported under its exact name for the linker.
+#[unsafe(no_mangle)]
+pub extern "C" fn mldsa65_verify_runtime_entry(
+    _msg_ptr: *const u8,
+    _msg_len: usize,
+    _sig_ptr: *const u8,
+    _sig_len: usize,
+    _pubkey_ptr: *const u8,
+    _pubkey_len: usize,
 ) -> i64 {
     PDX_MLDSA_ERR_NO_SIGNER
 }
