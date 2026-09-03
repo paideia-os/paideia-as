@@ -6,3 +6,8 @@
 pub mod atomic128;
 pub mod dma_buffer;
 pub mod include_signed;
+
+pub mod f16;
+pub mod spirv_module;
+pub mod wgsl_module;
+pub mod wide_int;

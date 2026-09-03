@@ -14,3 +14,7 @@
 pub mod cicp;
 pub mod gen_index_tree;
 pub mod matrix;
+
+pub mod intern;
+pub mod parsers;
+pub mod result;

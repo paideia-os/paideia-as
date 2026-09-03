@@ -100,3 +100,5 @@ pub use kem::MlKem768;
 pub use kem::SEED_LEN as ML_KEM_768_SEED_LEN;
 pub use kem::SS_LEN as ML_KEM_768_SS_LEN;
 pub use rng::{EntropySource, HardwareRng, RngError, SecureRandom};
+
+pub mod blake3;

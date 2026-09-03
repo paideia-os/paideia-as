@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.33.0 — 2026-09-03 — Wave 0 Batch 4: v0.26 AML + v0.30 Vulkan/SPIR-V + BLAKE3 + debt catalog
+
+Ten more paideia-as primitives + docs landed in a MECE-verified parallel
+wave (Batch 4 of MASTER_PLAN.md Wave 0). Closes 2 more bundle M1 rounds
+(v0.26 M1 + v0.30 M1). Consolidated from `.plans/scratch/`.
+
+- **v0.26-M1-001 parser combinator toolbox** (#1360). Zero-alloc recursive-
+  descent combinators for AML source consumption; 26 unit tests.
+- **v0.26-M1-002 @mulu64 + @divu64 wide-integer intrinsics** (#1361).
+  Descriptor + validator; I0100-I0102 diagnostics.
+- **v0.26-M1-003 string interner** (#1362). Fixed-seed FxHasher-style;
+  reproducible across runs; linear-probe collision safety.
+- **v0.26-M1-004 Result Recipe + pretty_error** (#1363). Canonical
+  error-return descriptor for Result-returning wrapper generation.
+- **v0.30-M1-001 @spirv_module intrinsic descriptor** (#1379). Compile-time
+  file-load + LE magic-word validation (0x07230203); .rodata.spirv section.
+- **v0.30-M1-002 @wgsl_module intrinsic descriptor** (#1380). UTF-8 +
+  BOM + NUL + 1-MiB size gates; .rodata.wgsl section.
+- **v0.30-M1-003 f16 type intrinsic** (#1381). Hand-rolled IEEE 754
+  binary16 encoding; round-to-nearest-ties-even; subnormal handling.
+- **v0.33-M1-006 BLAKE3 hash intrinsic** (#1392). Blake3 marker + hash/
+  hash_keyed/derive_key + extern-C thunks; new external dep blake3 v1
+  (no_std + alloc, pure feature).
+- **v0.33-M1-008 hw-smoke KAT reproduction doc** (#1394). tools/hw-smoke-
+  v0.33.md; boot-smoke contract for Argon2id + ChaCha20-Poly1305 +
+  ML-KEM-768; consumed by hw-smoke close-out (#1395).
+- **PAS-DEBT-CATALOG** (#1396). design/paideia-as-debt-catalog.md; 7-bucket
+  categorization of 38 pre-existing debt entries; Phase-2 filer script
+  drafted at .plans/scratch/file-pas-debt-issues.sh (not run).
+
+Note: v0.33 bundle still open on #1348 + #1349 + #1353 + #1391 + #1393 +
+#1395 — this landing takes the v0.33 loose primitives only.
+
+Closes #1360. Closes #1361. Closes #1362. Closes #1363. Closes #1379.
+Closes #1380. Closes #1381. Closes #1392. Closes #1394. Closes #1396.
+
 ## 0.32.0 — 2026-09-03 — Wave 0 Batch 3: 10 more parser/types/stdlib primitives
 
 Ten more paideia-as primitives landed in a second MECE-verified parallel
