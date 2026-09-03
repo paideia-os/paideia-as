@@ -1636,7 +1636,7 @@ dependencies = [
 
 [[package]]
 name = "lsp-harness"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "paideia-lsp",
  "tempfile",
@@ -1969,7 +1969,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-as"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -2002,7 +2002,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-ast"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "paideia-as-diagnostics",
  "serde",
@@ -2013,7 +2013,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-crypto"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "argon2",
  "chacha20poly1305",
@@ -2023,7 +2023,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-diagnostics"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "insta",
  "jsonschema",
@@ -2037,7 +2037,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-doc"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "paideia-as-ast",
  "paideia-as-parser",
@@ -2045,7 +2045,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-dwarf"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "gimli",
  "paideia-as-diagnostics",
@@ -2054,14 +2054,14 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-e2e"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "object",
 ]
 
 [[package]]
 name = "paideia-as-effects"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "paideia-as-diagnostics",
  "paideia-as-ir",
@@ -2070,7 +2070,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-elaborator"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "blake3",
  "paideia-as-ast",
@@ -2102,7 +2102,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-emitter-elf"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "iced-x86",
  "object",
@@ -2115,7 +2115,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-emitter-pax"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "blake3",
  "paideia-as-ir",
@@ -2124,7 +2124,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-emitter-pe"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "paideia-as-encoder",
  "paideia-as-ir",
@@ -2134,7 +2134,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-encoder"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "iced-x86",
  "paideia-as-ir",
@@ -2144,11 +2144,16 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-intrinsic"
-version = "0.31.1"
+version = "0.32.0"
+dependencies = [
+ "paideia-as-ast",
+ "paideia-as-diagnostics",
+ "tempfile",
+]
 
 [[package]]
 name = "paideia-as-ir"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "paideia-as-diagnostics",
  "paideia-as-runtime",
@@ -2160,7 +2165,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-lexer"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "paideia-as-diagnostics",
  "static_assertions",
@@ -2169,11 +2174,14 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-linear"
-version = "0.31.1"
+version = "0.32.0"
+dependencies = [
+ "paideia-as-types",
+]
 
 [[package]]
 name = "paideia-as-linker"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "paideia-as-diagnostics",
  "paideia-as-emitter-pax",
@@ -2181,11 +2189,15 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-macro"
-version = "0.31.1"
+version = "0.32.0"
+dependencies = [
+ "paideia-as-ast",
+ "paideia-as-diagnostics",
+]
 
 [[package]]
 name = "paideia-as-parser"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "insta",
  "paideia-as-ast",
@@ -2211,15 +2223,19 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-stdlib"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
+ "paideia-as-ast",
+ "paideia-as-diagnostics",
  "paideia-as-emitter-pe",
+ "paideia-as-lexer",
+ "paideia-as-parser",
  "regex",
 ]
 
 [[package]]
 name = "paideia-as-test"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "paideia-as-ast",
  "paideia-as-parser",
@@ -2229,7 +2245,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-as-types"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "paideia-as-ast",
  "paideia-as-diagnostics",
@@ -2242,37 +2258,37 @@ dependencies = [
 
 [[package]]
 name = "paideia-borrow-corpus"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "paideia-as-diagnostics",
 ]
 
 [[package]]
 name = "paideia-cap-smoke"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "tempfile",
 ]
 
 [[package]]
 name = "paideia-cross-build-tests"
-version = "0.31.1"
+version = "0.32.0"
 
 [[package]]
 name = "paideia-effects-corpus"
-version = "0.31.1"
+version = "0.32.0"
 
 [[package]]
 name = "paideia-end-to-end"
-version = "0.31.1"
+version = "0.32.0"
 
 [[package]]
 name = "paideia-fmt"
-version = "0.31.1"
+version = "0.32.0"
 
 [[package]]
 name = "paideia-ir-payload-tests"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "paideia-as-diagnostics",
  "paideia-as-elaborator",
@@ -2282,7 +2298,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-linearity-regression"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "paideia-as-ast",
  "paideia-as-diagnostics",
@@ -2293,7 +2309,7 @@ dependencies = [
 
 [[package]]
 name = "paideia-lsp"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "blake3",
  "lru",
@@ -2315,39 +2331,39 @@ dependencies = [
 
 [[package]]
 name = "paideia-modules-multifile"
-version = "0.31.1"
+version = "0.32.0"
 
 [[package]]
 name = "paideia-opt-align"
-version = "0.31.1"
+version = "0.32.0"
 
 [[package]]
 name = "paideia-opt-branch-hint"
-version = "0.31.1"
+version = "0.32.0"
 
 [[package]]
 name = "paideia-opt-dse"
-version = "0.31.1"
+version = "0.32.0"
 
 [[package]]
 name = "paideia-opt-encode-tight"
-version = "0.31.1"
+version = "0.32.0"
 
 [[package]]
 name = "paideia-opt-macro-fusion"
-version = "0.31.1"
+version = "0.32.0"
 
 [[package]]
 name = "paideia-opt-peephole"
-version = "0.31.1"
+version = "0.32.0"
 
 [[package]]
 name = "paideia-opt-pool-constants"
-version = "0.31.1"
+version = "0.32.0"
 
 [[package]]
 name = "paideia-opt-regression"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "paideia-as-diagnostics",
  "paideia-as-ir",
@@ -2356,19 +2372,19 @@ dependencies = [
 
 [[package]]
 name = "paideia-opt-schedule"
-version = "0.31.1"
+version = "0.32.0"
 
 [[package]]
 name = "paideia-opt-tailcall"
-version = "0.31.1"
+version = "0.32.0"
 
 [[package]]
 name = "paideia-opt-unroll"
-version = "0.31.1"
+version = "0.32.0"
 
 [[package]]
 name = "paideia-pq-sign"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "argon2",
  "axum",
@@ -2395,32 +2411,32 @@ dependencies = [
 
 [[package]]
 name = "paideia-reflection-corpus"
-version = "0.31.1"
+version = "0.32.0"
 
 [[package]]
 name = "paideia-satellite-runtime"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "paideia-as-crypto",
 ]
 
 [[package]]
 name = "paideia-self-hosting-fixture"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "paideia-as-stdlib",
 ]
 
 [[package]]
 name = "paideia-stdlib-smoke"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "paideia-as-stdlib",
 ]
 
 [[package]]
 name = "paideia-uefi-smoke"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "paideia-as-emitter-pe",
  "paideia-as-encoder",
@@ -2478,7 +2494,7 @@ dependencies = [
 
 [[package]]
 name = "pax-load-smoke"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "blake3",
  "paideia-as-emitter-pax",
@@ -2590,7 +2606,7 @@ dependencies = [
 
 [[package]]
 name = "pq-corpus"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "blake3",
  "hex",
@@ -3678,7 +3694,7 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "uefi-stdlib-fixture"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "paideia-as-stdlib",
 ]

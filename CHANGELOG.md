@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.32.0 — 2026-09-03 — Wave 0 Batch 3: 10 more parser/types/stdlib primitives
+
+Ten more paideia-as primitives landed in a second MECE-verified parallel
+wave (Batch 3 of MASTER_PLAN.md Wave 0). Closes 5 bundles (v0.25 M1, v0.27
+M1, v0.29 M1, v0.31 M1, v0.32 M1). All 10 selected rows are file-disjoint
+per the v0.31.1 4-crate scaffold; consolidated from `.plans/scratch/`.
+
+- **v0.25-M1-003 linear-cap consumption verifier for unsafe blocks** (#1357).
+  `verify_unsafe_block` in paideia-as-linear; diagnostics L0100-L0102.
+- **v0.25-M1-004 @derive(base, refinement) macro expansion** (#1358).
+  `expand_derive_refinement` in paideia-as-macro; diagnostics M0100-M0110.
+- **v0.27-M1-001 @dma_buffer(size, alignment, coherency) descriptor** (#1365).
+  paideia-as-intrinsic; power-of-two align gate + coherency variants.
+- **v0.27-M1-003 @atomic128_cas descriptor** (#1367). paideia-as-intrinsic;
+  cmpxchg16b target with ordering-monotonicity validation.
+- **v0.27-M1-004 @include_bytes_signed for firmware blobs** (#1368).
+  paideia-as-intrinsic; keyring probe at parse time (fail-fast on config).
+- **v0.29-M1-003 session-type recursion with well-founded induction** (#1377).
+  `wf_recursive` companion pass to session.rs; T0300/T0301 rejection of
+  unguarded rec.
+- **v0.31-M1-002 Matrix<T, R, C> stdlib type + intrinsic hook** (#1384).
+  pdx/matrix.pdx + parse-cleanliness smoke; M2 responsibilities enumerated.
+- **v0.31-M1-003 CICP-tagged image-encoding helpers** (#1385). pdx/cicp.pdx
+  + 5 named tuples (BT.709, sRGB, Display-P3, BT.2020 PQ, BT.2020 HLG).
+- **v0.32-M1-001 generational-index trees in stdlib** (#1387).
+  pdx/gen_index_tree.pdx; backing structure for KIND_A11Y_NODE.
+- **v0.32-M1-003 @retain / @immediate functor attributes** (#1389). AST
+  FunctorAttr + FunctorAttrTable + parser; diagnostics M0330-M0332.
+
+Closes #1357. Closes #1358. Closes #1365. Closes #1367. Closes #1368.
+Closes #1377. Closes #1384. Closes #1385. Closes #1387. Closes #1389.
+
 ## 0.31.1 — 2026-09-03 — Wave 0 Batch 3 prerequisite: 4-crate scaffold + naming drift resolution
 
 Mechanical scaffolding only; zero behaviour change. Unblocks 13 depth-0 rows across the v0.26 / v0.30 / v0.31 / v0.32 M1 bundles for Batch 3 dispatch.

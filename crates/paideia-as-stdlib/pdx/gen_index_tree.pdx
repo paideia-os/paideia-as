@@ -1,0 +1,75 @@
+// v0.32 M1-001 (issue #1387): Generational-index tree for KIND_A11Y_NODE backing.
+//
+// Generational indices give ABA-safe handles: freeing a slot bumps its
+// generation counter; a stale handle referencing the pre-free generation
+// fails validation on the next dereference. This is the backing store
+// row-based subtyping (v0.32 M1-002 / #1388) consumes for the
+// AccessKit-shaped accessibility node graph; see
+// design/roadmap/g7-a11y-toolkit.md once landed (module not yet
+// present — deferred to the g7 wave).
+//
+// Bootstrap constraints (v0.32 M1-001, declaration-only):
+//   - `GenIndexTree<T>` is declared with a `T` payload parameter; the
+//     concrete monomorphization ships in a follow-up bundle (blocked on
+//     #997c, generic-struct end-to-end monomorphization). The struct
+//     body carries a `u64` payload field today, matching the interim
+//     convention used by `OptionU64`/`HashMapU64U64`.
+//   - The 5 free-function API (alloc / free / get / set / children) is
+//     declared on trait `GenIndexTreeOps`, sibling to the `BitmapOps`
+//     and `HashMapOps` declaration surfaces.
+//   - Node-capacity is a module-level constant published to both the
+//     .pdx surface (`GEN_INDEX_TREE_NODE_COUNT_MAX`) and the Rust hook
+//     (`super::NODE_COUNT`); the smoke-parse test asserts equality.
+//   - Row-based subtyping tail (`KIND_A11Y_NODE` role-specific fields)
+//     is opaque to this module — the payload `T` carries whatever
+//     shape the consuming module (`row_subtype`) selects.
+//
+// Layout invariants:
+//   - `slot`: u32 index into the node array; capacity ≤ u32::MAX.
+//   - `generation`: u32; increments on `free()` so the freed handle no
+//     longer validates.
+//   - `GenHandle` packs `(slot, generation)` as two u32 fields;
+//     equality is structural.
+//   - Free-list is intrusive through slot 0's `parent` field (the
+//     canonical unused position is index 0, generation 0).
+//   - Children iteration walks `child_head → next_sibling`; the caller
+//     may stop early or exhaust the list.
+//
+// Effect discipline:
+//   - alloc / free / set / children: !{Alloc} (mutates the node array).
+//   - get: !{} (read-only structural walk).
+//   - No capability required: operates on caller-provided
+//     `*GenIndexTree` backed by caller-owned memory; the tree itself
+//     is capability-neutral.
+
+// Bootstrap node capacity. Exported to Rust as `super::NODE_COUNT`.
+pub let GEN_INDEX_TREE_NODE_COUNT_MAX : u64 = 4096u64
+
+struct GenHandle {
+  slot: u32,
+  generation: u32,
+}
+
+struct GenIndexTreeNode {
+  parent: u32,
+  child_head: u32,
+  next_sibling: u32,
+  generation: u32,
+  payload: u64,
+}
+
+struct GenIndexTree<T> {
+  nodes: *GenIndexTreeNode,
+  free_head: u32,
+  capacity: u32,
+}
+
+// Trait surface: 5 free functions. Concrete monomorphization deferred
+// (blocked on #997c). Effect rows match the discipline documented above.
+trait GenIndexTreeOps {
+  fn gen_index_tree_alloc(tree: *GenIndexTree, parent: GenHandle, payload: u64) -> GenHandle !{Alloc};
+  fn gen_index_tree_free(tree: *GenIndexTree, handle: GenHandle) -> bool !{Alloc};
+  fn gen_index_tree_get(tree: *GenIndexTree, handle: GenHandle) -> u64 !{};
+  fn gen_index_tree_set(tree: *GenIndexTree, handle: GenHandle, payload: u64) -> bool !{Alloc};
+  fn gen_index_tree_children(tree: *GenIndexTree, parent: GenHandle) -> GenHandle !{};
+}

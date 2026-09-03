@@ -12,3 +12,8 @@ publish = false
 path = "src/lib.rs"
 
 [dependencies]
+paideia-as-ast = { path = "../paideia-as-ast" }
+paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
+
+[dev-dependencies]
+tempfile.workspace = true

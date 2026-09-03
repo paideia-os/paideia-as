@@ -42,3 +42,5 @@ pub use gpu_context::{GpuContextBlock, parse_gpu_context};
 pub use packed_struct::parse_packed_struct;
 pub use parser::{ParseError, Parser};
 pub use timeline::{TimelineOp, TimelineOpKind, parse_timeline_signal, parse_timeline_wait};
+
+pub mod toolkit_attrs;

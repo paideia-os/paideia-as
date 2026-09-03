@@ -266,6 +266,13 @@ pub struct AstArena {
     /// structs carrying `@packed_struct` (or any future struct-level
     /// primitive that appends to [`crate::StructAttr`]).
     struct_attrs: crate::StructAttrTable,
+    /// paideia-as#1389 (v0.32-M1-003): functor-level attribute side-table
+    /// keyed by functor-decl `NodeId`. Sparse — populated only for
+    /// functors carrying `@retain` / `@immediate` (or any future
+    /// functor-level primitive that appends to [`crate::FunctorAttr`]).
+    /// M1-003 landing ships the storage; the parser-item hookup that
+    /// pushes into it arrives with the M1-004 item integration.
+    functor_attrs: crate::FunctorAttrTable,
 }
 
 impl AstArena {
@@ -293,6 +300,7 @@ impl AstArena {
             item_atomic: crate::ItemAtomicTable::new(),
             struct_field_attrs: crate::StructFieldAttrTable::new(),
             struct_attrs: crate::StructAttrTable::new(),
+            functor_attrs: crate::FunctorAttrTable::new(),
         };
         // Reserve index 0 in mnemonic_table so that valid IDs start at 1.
         s.mnemonic_table.push(String::new());
@@ -584,6 +592,22 @@ impl AstArena {
     /// Borrow the struct-level attribute side-table (mutable).
     pub fn struct_attr_mut(&mut self) -> &mut crate::StructAttrTable {
         &mut self.struct_attrs
+    }
+
+    /// Borrow the functor-level attribute side-table (read-only).
+    ///
+    /// paideia-as#1389 (v0.32-M1-003). Populated by the parser when it
+    /// sees a functor-level attribute such as `@retain` or `@immediate`
+    /// prefixed to a functor declaration. Storage lands with M1-003;
+    /// the parse-item hookup that populates entries lands with M1-004.
+    #[must_use]
+    pub fn functor_attr(&self) -> &crate::FunctorAttrTable {
+        &self.functor_attrs
+    }
+
+    /// Borrow the functor-level attribute side-table (mutable).
+    pub fn functor_attr_mut(&mut self) -> &mut crate::FunctorAttrTable {
+        &mut self.functor_attrs
     }
 }
 

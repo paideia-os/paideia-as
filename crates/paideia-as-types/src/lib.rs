@@ -40,3 +40,5 @@ pub use subst::Subst;
 pub use types::{CapSetId, EnumPayload, SIZE_WIDTH_SENTINEL, TyVar, Type, TypeId};
 pub use unify::{UnifyError, unify};
 pub use vec_typaram::{VecTy, kind_of_vec, vec_layout};
+
+pub mod session_rec;

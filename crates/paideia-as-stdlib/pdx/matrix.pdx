@@ -1,0 +1,178 @@
+// v0.31-M1-002 (paideia-as#1384): Matrix<T, R, C> stdlib type + intrinsic hook.
+//
+// Matrix<T, R, C> is the row-major, statically-sized numeric matrix that
+// the v0.31 color-hdr milestone (G6 color-space transforms) drives against
+// its BT.2020 -> Display-P3 -> sRGB conversion chain. Every Matrix carries
+// its element type T and its shape (R, C) in the type so the elaborator can
+// dispatch element-wise arithmetic and matrix multiplication to the right
+// SIMD kernel without a runtime dimension check.
+//
+// # Would-be generic signature
+//
+//   struct Matrix<T, R: const usize, C: const usize> {
+//     data: [T; R * C],   // row-major, contiguous
+//     rows: u64,          // = R (kept as a runtime witness for reflection)
+//     cols: u64,          // = C
+//   }
+//
+// The `[T; R*C]` element storage is a single contiguous block; row r column c
+// lives at `data[r * C + c]`. Row-major is chosen to match the C ABI that
+// every downstream color-management library (LittleCMS, ICC v4 profile
+// tables) already speaks, so a Matrix<f32, 3, 3> can be handed to an
+// extern-C thunk with zero marshalling.
+//
+// # Ground-shape today (v0.31-M1-002)
+//
+// Generics-in-structs do not parse yet (blocked on paideia-as#997c generic
+// monomorphization end-to-end), so this file ships the shape as a `struct
+// Matrix` with u64 placeholders — the same pattern the parsed stdlib
+// primitives (`struct Arena`, `struct Region` in `arena.pdx`) already use.
+// Wave 1 replaces the placeholders with the real generic form once #997c
+// lands.
+//
+//   struct Matrix {
+//     data: u64,   // placeholder for [T; R*C] contiguous row-major storage
+//     rows: u64,   // = R
+//     cols: u64,   // = C
+//   }
+//
+// # Method surface (declared here, lowered in Wave 1)
+//
+// The trait below declares the four accessors + the multiplication
+// intrinsic hook that the elaborator's `stdlib_lowering::matrixops` module
+// (Wave 1, v0.31-M2) will route through. All five are descriptor-only
+// today; no elaborator recipe is wired yet — a Wave 1 follow-up adds the
+// SIMD dispatch and LDA specialization enumerated below.
+//
+//   matrix_new(rows, cols, data_ptr) -> Matrix
+//       Construct a Matrix header over a caller-allocated row-major
+//       storage block. The caller owns `data_ptr`; matrix_new does not
+//       take ownership.
+//   matrix_get(m, r, c) -> u64
+//       Load `m.data[r * m.cols + c]`. Placeholder u64 return; Wave 1
+//       replaces with the generic `T` element type.
+//   matrix_set(m, r, c, val) -> Matrix
+//       Store `val` at row r, column c and return the updated header.
+//       Same u64 placeholder as matrix_get.
+//   matrix_row(m, r, out_ptr) -> ()
+//       Copy row r into the caller-allocated `out_ptr` buffer (m.cols
+//       elements). Placeholder for a future zero-copy `&[T]` return
+//       once slice types land.
+//   matrix_col(m, c, out_ptr) -> ()
+//       Copy column c into `out_ptr` (m.rows elements). Column iteration
+//       is a stride-C walk over `data`.
+//
+//   mul_matrix_f32(a, b, out, m, k, n) -> ()   // intrinsic hook
+//       Compute out = a * b where a is m x k, b is k x n, out is m x n,
+//       every element f32, row-major, contiguous. The `@mul_matrix_f32`
+//       intrinsic name is the elaborator-side symbol the Wave 1
+//       stdlib_lowering::matrixops recipe binds this trait method to;
+//       consumer code writes `MatrixOps::mul_matrix_f32(...)` and the
+//       elaborator lowers it to the SIMD kernel described below.
+//
+// # Effect + capability discipline
+//
+// The five accessors read/write caller memory: !{RawMem} @{paideia.raw_mem},
+// the same shape `bytes.pdx` and `speculative/vec.pdx` already carry.
+// mul_matrix_f32 also carries !{RawMem} @{paideia.raw_mem} today; a
+// dedicated `Fp` effect that signals SSE / AVX live-state is under
+// discussion for Wave 1 (see "M2 responsibilities" section 5 below) so
+// that the FPU-state save/restore path becomes reviewer-visible at every
+// callsite. Until that effect ships, the intrinsic's SIMD side is
+// documented but not row-typed.
+//
+// # M2 responsibilities (Wave 1, v0.31-M2)
+//
+// The following work is DEFERRED to the Wave 1 pass — the reader here should
+// understand exactly what is coming, so the descriptor surface below can be
+// treated as stable:
+//
+//   1. SIMD dispatch for mul_matrix_f32:
+//      - Runtime CPUID probe (leaf 1 ECX bits 19/20/28, leaf 7 EBX bit 5/16)
+//        to pick between the SSE4.1, AVX2, and AVX-512F kernels. The
+//        stdlib_lowering::matrixops recipe emits the dispatch shim; each
+//        kernel is a hand-scheduled dot-product accumulation over 4/8/16
+//        f32 lanes.
+//      - Small-matrix (m, k, n all <= 4) short-circuit that bypasses the
+//        dispatch and inlines the SSE4.1 kernel directly, since the CPUID
+//        probe + call overhead dominates the actual FMA cost below that
+//        threshold. The threshold is the same one the OpenBLAS `sgemm_kernel`
+//        cross-over uses.
+//
+//   2. LDA (Leading Dimension of A) specialization:
+//      - Today the surface assumes contiguous row-major (stride == cols).
+//        Wave 1 adds an overload / variant that carries an explicit LDA
+//        parameter so mul_matrix_f32 can operate on sub-matrix views
+//        (e.g. a color-space sub-block of a larger ICC profile table)
+//        without a bounce buffer.
+//      - The LDA specialization requires per-row-stride pointer arithmetic
+//        inside the kernel; the SSE4.1 / AVX2 / AVX-512F kernels each
+//        gain a `_strided` variant, and the CPUID dispatch shim grows a
+//        second dimension over (isa, stride-shape).
+//
+//   3. Generic monomorphization end-to-end (blocked on #997c):
+//      - Replace the u64 placeholders with the real `T` element type
+//        (currently reserved for `f32` and `f64`; `f16` follows the FP16
+//        intrinsic wave in v0.32).
+//      - Replace the `rows` / `cols` u64 witnesses with the const-generic
+//        `R` / `C` type-level parameters, elided at runtime.
+//      - Introduce Matrix<T, R, C> as the surface type; the `record Matrix`
+//        below is retired in the same PR.
+//
+//   4. Zero-copy row / column slice returns:
+//      - matrix_row / matrix_col return `&[T]` (borrowed slice) instead of
+//        writing into a caller buffer. Requires the slice-type infrastructure
+//        currently landing under paideia-as#998e.
+//
+//   5. Elaborator recipe + Fp effect design:
+//      - `crates/paideia-as-elaborator/src/stdlib_lowering/matrixops.rs`
+//        mirrors the `mldsaops.rs` / `cryptoops` pattern — one recipe per
+//        trait method, each emitting the appropriate lowering (accessor
+//        methods lower to inline load / store instructions; mul_matrix_f32
+//        lowers via the CPUID dispatch shim to an extern-C SIMD kernel).
+//      - Add a dedicated `Fp` effect for callsites that expose SSE / AVX
+//        state, so mul_matrix_f32 (and every future SIMD kernel) carries
+//        `!{RawMem, Fp} @{paideia.raw_mem}` and the FPU-state save/restore
+//        cost is visible in the effect row — parallel to how `Atomic`
+//        makes barrier discipline visible in `barrier.pdx`.
+
+struct Matrix {
+  data: u64,   // placeholder for [T; R*C] contiguous row-major storage
+  rows: u64,   // = R
+  cols: u64,   // = C
+}
+
+trait MatrixOps {
+  // Construct a Matrix header over caller-allocated row-major storage.
+  // The caller retains ownership of `data_ptr`.
+  fn matrix_new(rows: u64, cols: u64, data_ptr: u64) -> Matrix !{RawMem} @{paideia.raw_mem};
+
+  // Load m.data[r * m.cols + c]. u64 element placeholder pending #997c.
+  fn matrix_get(m: Matrix, r: u64, c: u64) -> u64 !{RawMem} @{paideia.raw_mem};
+
+  // Store val at (r, c) and return the updated header.
+  fn matrix_set(m: Matrix, r: u64, c: u64, val: u64) -> Matrix !{RawMem} @{paideia.raw_mem};
+
+  // Copy row r into caller-allocated out_ptr buffer (m.cols elements).
+  fn matrix_row(m: Matrix, r: u64, out_ptr: u64) -> () !{RawMem} @{paideia.raw_mem};
+
+  // Copy column c into caller-allocated out_ptr buffer (m.rows elements).
+  fn matrix_col(m: Matrix, c: u64, out_ptr: u64) -> () !{RawMem} @{paideia.raw_mem};
+
+  // Intrinsic hook — Wave 1 (v0.31-M2) binds to the @mul_matrix_f32
+  // elaborator recipe (SIMD dispatch + LDA specialization; see header
+  // "M2 responsibilities" section 1-2). Descriptor only today; no
+  // lowering recipe is registered.
+  //
+  //   a   : m x k (row-major, contiguous, f32 elements)
+  //   b   : k x n (row-major, contiguous, f32 elements)
+  //   out : m x n (row-major, contiguous, f32 elements) — caller-allocated
+  fn mul_matrix_f32(
+    a: u64,
+    b: u64,
+    out: u64,
+    m: u64,
+    k: u64,
+    n: u64,
+  ) -> () !{RawMem} @{paideia.raw_mem};
+}

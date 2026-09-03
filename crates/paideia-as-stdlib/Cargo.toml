@@ -12,6 +12,13 @@ paideia-as-emitter-pe = { path = "../paideia-as-emitter-pe", optional = true }
 
 [dev-dependencies]
 regex = { workspace = true }
+# v0.31-M1-002 (#1384): matrix.rs runs paideia-as-parser directly against
+# pdx/matrix.pdx as a `#[cfg(test)]` parse-cleanliness check, so the parser
+# and its three prerequisite crates enter as dev-only path deps.
+paideia-as-ast = { path = "../paideia-as-ast" }
+paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
+paideia-as-lexer = { path = "../paideia-as-lexer" }
+paideia-as-parser = { path = "../paideia-as-parser" }
 
 [features]
 regen-uefi-template = ["paideia-as-emitter-pe"]

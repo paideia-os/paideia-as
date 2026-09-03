@@ -2334,3 +2334,55 @@ fn uefi_pdx_constants_match_template_bytes() {
         );
     }
 }
+
+// v0.31 M1-003 (#1385): CICP-tagged image-encoding helpers
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn cicp_pdx_parses_cleanly() {
+    let bin = paideia_as_bin().expect("paideia-as binary not built");
+    let pdx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/cicp.pdx");
+    let result = Command::new(bin)
+        .args(["check", &pdx.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+fn cicp_pdx_source_declares_five_named_tuples() {
+    // Source-of-truth check: the .pdx surface must document the same five
+    // named accessors the Rust hook implements (BT.709 / sRGB / Display-P3
+    // / BT.2020 PQ / BT.2020 HLG). If either file drifts, we want to know
+    // without waiting on the paideia-as binary to be built.
+    let pdx_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/cicp.pdx");
+    let src = std::fs::read_to_string(&pdx_path)
+        .expect("pdx/cicp.pdx missing — v0.31 M1-003 (#1385) surface not present");
+
+    for tuple in [
+        "cicp_bt709",
+        "cicp_srgb",
+        "cicp_display_p3",
+        "cicp_bt2020_pq",
+        "cicp_bt2020_hlg",
+    ] {
+        assert!(
+            src.contains(tuple),
+            "pdx/cicp.pdx does not declare `{}` — surface out of sync with src/cicp.rs",
+            tuple
+        );
+    }
+
+    // Struct name + full four-field surface must all be present.
+    assert!(src.contains("struct CicpTag"), "pdx/cicp.pdx missing `struct CicpTag`");
+    for field in ["colour_primaries", "transfer", "matrix", "full_range"] {
+        assert!(
+            src.contains(field),
+            "pdx/cicp.pdx does not name CicpTag field `{}`",
+            field
+        );
+    }
+}

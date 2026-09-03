@@ -1,0 +1,72 @@
+// v0.31 M1-003 (#1385): CicpTag — ITU-T H.273 Coding-Independent Code Points.
+//
+// A `CicpTag` names the colour space of a pixel buffer as a triple of one-byte
+// code points plus a full-range flag, exactly the four bytes carried by the
+// PNG `cICP` chunk, the AVIF `colr nclx` box, and the HEIF colour-information
+// property. Together they answer:
+//
+//   colour_primaries        — which chromaticity coordinates define R/G/B
+//                             (H.273 Table 2; e.g. 1 = BT.709, 9 = BT.2020,
+//                             12 = SMPTE RP 431-2 / Display-P3 DCI variant).
+//   transfer                — opto-electronic transfer function
+//                             (H.273 Table 3; e.g. 1 = BT.709, 13 = sRGB
+//                             piecewise, 16 = SMPTE ST 2084 PQ, 18 = BT.2100
+//                             ARIB STD-B67 HLG).
+//   matrix                  — YCbCr <-> RGB matrix coefficients
+//                             (H.273 Table 4; 0 = identity, meaning the
+//                             pixels are already RGB and no chroma conversion
+//                             is required — the canonical value for canvas
+//                             surface encode).
+//   full_range              — false = studio / limited (BT.709 Y' in [16,235],
+//                             C' in [16,240]); true = full [0,255] for 8-bit
+//                             or the equivalent full range at higher depths.
+//
+// Every canvas surface the R89 kernel scanout path emits carries one of these
+// tags so the compositor and the KMS scanout plane agree on transfer + gamut
+// without heuristic sniffing. Five named tuples cover the R89 baseline:
+//
+//   cicp_bt709          — 1, 1,  1, false  — BT.709 SDR YCbCr (HD video path)
+//   cicp_srgb           — 1, 13, 0, true   — sRGB RGB canvas (web / desktop)
+//   cicp_display_p3     — 12, 13, 0, true  — Display-P3 RGB canvas (Apple /
+//                                             modern wide-gamut displays;
+//                                             matches AVIF industry practice
+//                                             of using CP=12 for the D65 P3
+//                                             image path)
+//   cicp_bt2020_pq      — 9, 16, 0, true   — HDR10 RGB canvas (BT.2020
+//                                             primaries + PQ transfer,
+//                                             full-range RGB scanout)
+//   cicp_bt2020_hlg     — 9, 18, 0, true   — BT.2020 HLG RGB canvas
+//                                             (BT.2100 ARIB HLG transfer)
+//
+// The Rust-side companion in `src/cicp.rs` mirrors the struct + the five
+// constants and unit-tests that they resolve to exactly these bytes.
+//
+// Cross-references:
+//   - `design/kernel/kind-tui-canvas.md` (paideia-os) — the R89 surface kind
+//     that tags its framebuffer with a `CicpTag`.
+//   - `design/roadmap/g6-color-hdr.md` (paideia-as) — not yet filed; the
+//     colour+HDR roadmap bundle scheduled to consume these helpers.
+//   - `crates/paideia-as-stdlib/pdx/matrix.rs` and its `.pdx` sibling —
+//     the BT.709 ↔ BT.2020 matrix arithmetic (v0.31 M1-002, #1384) that
+//     rides on Q2.30 fixed-point (v0.31 M1-001, #1383).
+//
+// Effect discipline: pure construction; no capability required.
+
+struct CicpTag {
+  colour_primaries: u8,
+  transfer: u8,
+  matrix: u8,
+  full_range: bool,
+}
+
+// Named-tuple accessors — parse-only surface, pending elaborator support for
+// by-value struct return (tracked with the other m8-003 struct-return items).
+// The Rust hook in `src/cicp.rs` carries the concrete byte values used by the
+// build-time helpers until this surface lowers end-to-end.
+trait CicpTuples {
+  fn cicp_bt709() -> CicpTag;
+  fn cicp_srgb() -> CicpTag;
+  fn cicp_display_p3() -> CicpTag;
+  fn cicp_bt2020_pq() -> CicpTag;
+  fn cicp_bt2020_hlg() -> CicpTag;
+}
