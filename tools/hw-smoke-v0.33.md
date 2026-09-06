@@ -7,6 +7,18 @@ under `tools/run-smoke.sh` — i.e. the primitive is exercised from a
 `.pdx`-compiled ELF booted by QEMU, not just from `cargo test` on the
 host.
 
+**Implementation (paideia-as#1394):** `tests/hw-smoke-crypto/` (fixture
+`fixtures/hw_smoke_crypto_v0_33.pdx`, harness `src/lib.rs` +
+`tests/smoke.rs`). Uses a dedicated Rust harness rather than
+`tools/run-smoke.sh` directly, since the fixture's link step needs
+`libpaideia_satellite_runtime.a` on the line (`run-smoke.sh` has no
+extra-archive support) — see that crate's README for the exact build
++ link + boot recipe, and its "Honesty note" section for the two
+deltas from this doc: FAIL markers here are fixed strings (no dynamic
+byte-offset payload), and the six per-primitive markers plus the
+aggregate are asserted via `#[ignore]`'d `cargo test`, not a
+`run-smoke.sh` grep.
+
 ## §1 Purpose
 
 `cargo test -p paideia-as-crypto` already pins the three primitives'
