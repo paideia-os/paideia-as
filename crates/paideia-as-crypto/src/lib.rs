@@ -102,3 +102,11 @@ pub use kem::SS_LEN as ML_KEM_768_SS_LEN;
 pub use rng::{EntropySource, HardwareRng, RngError, SecureRandom};
 
 pub mod blake3;
+
+/// ECDSA-P256 sign + verify — classical bridge for user-space TLS. #1346.
+///
+/// Framing tension: ECDSA-P256 is CLASSICAL crypto in a project whose primary
+/// signature intrinsic (ML-DSA-65) is PQ-first. This is a compatibility
+/// concession, not a retreat from Pillar 6. Kept alongside — not in place of —
+/// the PQ posture; see the module's own header for the full rationale.
+pub mod ecdsa_p256;

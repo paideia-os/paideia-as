@@ -2291,6 +2291,10 @@ name = "paideia-fmt"
 version = "0.33.1"
 
 [[package]]
+name = "paideia-hw-smoke-crypto"
+version = "0.33.1"
+
+[[package]]
 name = "paideia-ir-payload-tests"
 version = "0.33.1"
 dependencies = [
