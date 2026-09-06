@@ -1,5 +1,64 @@
 # Changelog
 
+## v0.25-session-functors retrospective — 2026-09-05 — partial bundle close-out (#1359)
+
+Retrospective release notes for the `v0.25-session-functors` milestone bundle. Three of
+four M1 rows shipped, split across two later `workspace.version` tags (`v0.31.0`, `v0.32.0`)
+per Wave 0's dependency-resolution dispatch order — `v0.25.0` itself had already been
+consumed by unrelated crypto work (SHA-256 typed intrinsic, #1338). The fourth row remains
+unimplemented. See RELEASE-NOTES-v0.25.md for the full writeup.
+
+- **v0.25-M1-001 session-typed functor signatures** (#1355, CLOSED). `functor F(In) -> Out
+  with S: session { ... }` parser + Vasconcelos-style session-type ADT. Landed tag
+  `v0.31.0`, commit `af6f91bbf0ac171303ab23096c26f7522dacf0cb`.
+- **v0.25-M1-003 linear-cap consumption verifier for unsafe blocks** (#1357, CLOSED).
+  `verify_unsafe_block` in `paideia-as-linear`. Landed tag `v0.32.0`, commit
+  `5a27a99532dd1551d9b2a64b28981ec829a55bc5`.
+- **v0.25-M1-004 `@derive(base, refinement)` macro expansion** (#1358, CLOSED).
+  `expand_derive_refinement` in `paideia-as-macro`. Landed tag `v0.32.0`, same commit as
+  M1-003.
+
+Known gap: **v0.25-M1-002 effect-row inference at call sites** (#1356) remains **OPEN and
+unimplemented** — no commit touches `crates/paideia-as-types/src/effect_row.rs` named in its
+scope. A related but distinct row-polymorphic-effects primitive (#1375, `row_poly.rs`,
+separate `v0.29-compositor-substrate` bundle) does not substitute for it. The
+`v0.25-session-functors` milestone stays open until #1356 lands; not addressed by this entry.
+
+Closes #1359.
+
+## v0.33 — post-quantum crypto substrate retrospective — 2026-09-05 — bundle close-out (#1353)
+
+Retrospective release notes for the `v0.33 — post-quantum crypto substrate` milestone
+bundle. Unlike the other bundles in this series, `v0.33` is the live `workspace.version` tag
+itself (current tip `v0.33.1`) rather than a milestone-slug/tag mismatch. Two of the three
+named primitives (Argon2id, ChaCha20-Poly1305) were already implemented under earlier,
+differently-numbered issues before their `v0.33-001`/`v0.33-002` tracking issues existed, so
+those closed as duplicates with no new code; only ML-KEM-768 was genuinely new work under
+this bundle's own numbering. Tags `v0.33.0`/`v0.33.1` also carried substantial unrelated
+content (v0.26-aml-substrate, v0.30-vulkan-spirv, BLAKE3, the debt catalog). See
+RELEASE-NOTES-v0.33.md for the full writeup.
+
+- **v0.33-001 Argon2id KDF** (#1350, CLOSED as duplicate). Trait + RFC 9106 vectors at
+  #1302 (commit `b7c56bd`), FFI thunk at #1305 (commit `5647d21`), integration suite at
+  #1306 (commit `e1a05de`) — all untagged `0.29.x`, 2026-08-22.
+- **v0.33-002 ChaCha20-Poly1305 AEAD** (#1351, CLOSED as duplicate). Same landing commits
+  as Argon2id above (RFC 8439 §2.8.2).
+- **v0.33-003 ML-KEM-768 KEM** (#1352, CLOSED — genuinely new). FIPS 203 KeyGen/Encaps/
+  Decaps against 3 NIST ACVP vectors. Landed tag `v0.30.0`, commit
+  `05af83f3299b74fc526a0240b38a5c7575a29748`.
+- **Bundle close-out companions** (M1-005/007/009: #1391, #1393, #1395, all CLOSED). Landed
+  tag `v0.33.1`, commit `e06452cda24a313498e8465620013c02bda5de0e`.
+- **KAT boot-smoke harness follow-on** (#1394 doc consumer; commit `ead392a`, 2026-09-05,
+  post-tag). `tests/hw-smoke-crypto/` exercises all six operations through the real `.pdx`
+  → extern-C FFI boundary.
+
+Known gap: **#1348** and **#1349** remain **OPEN on GitHub** despite their work landing at
+`v0.33.1` — the closing commit wrote `Closes #1391, #1348` / `Closes #1393, #1349`
+(comma-joined), and GitHub's parser only honors the first reference per `Closes` keyword.
+Not closed by this entry; recommended as a follow-up housekeeping commit.
+
+Closes #1353.
+
 ## v0.26-aml-substrate retrospective — 2026-09-05 — bundle close-out (#1364)
 
 Retrospective release notes for the `v0.26-aml-substrate` milestone bundle. All four
