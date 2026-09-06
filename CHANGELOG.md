@@ -1,5 +1,92 @@
 # Changelog
 
+## v0.26-aml-substrate retrospective — 2026-09-05 — bundle close-out (#1364)
+
+Retrospective release notes for the `v0.26-aml-substrate` milestone bundle. All four
+M1 rows shipped, but under `workspace.version 0.33.0` (tag `v0.33.0`, commit
+`6596f208014e23deb1df281ecdd102fc51a6cd12`) rather than a `0.26.x` tag — `v0.26.0` had
+already been consumed by unrelated crypto work (HMAC-SHA256 + HKDF-Extract/Expand), and
+Wave 0's parallel dispatch later bumped `workspace.version` in dependency-resolution
+order, not bundle order. See RELEASE-NOTES-v0.26.md for the full writeup.
+
+- **v0.26-M1-001 recursive-descent parser combinators** (#1360). `crates/paideia-as-stdlib/src/parsers.rs`.
+- **v0.26-M1-002 arbitrary-precision integer intrinsics `@mulu64`/`@divu64`** (#1361).
+  `crates/paideia-as-intrinsic/src/wide_int.rs`.
+- **v0.26-M1-003 string interning** (#1362). `crates/paideia-as-stdlib/src/intern.rs`.
+- **v0.26-M1-004 stable `Result<T,E>` idiom** (#1363). `crates/paideia-as-stdlib/src/result.rs`.
+
+Known gap: #1360, #1361, #1362, #1363 remain open on GitHub — the landing commit
+referenced each row by number but did not carry `Closes #NNNN` trailers, so auto-close
+never fired despite the code shipping. Not closed by this entry; recommended as a
+follow-up housekeeping commit (alongside the same gap already noted for #1379-#1381).
+
+Closes #1364.
+
+## v0.27-dma-timeline retrospective — 2026-09-05 — bundle close-out (#1369)
+
+Retrospective release notes for the `v0.27-dma-timeline` milestone bundle. All four
+M1 rows are closed on GitHub already, split across two `workspace.version` tags
+(`v0.31.0`, `v0.32.0`) per Wave 0's dependency-resolution dispatch order — `v0.27.0`
+through `v0.27.4` had already been consumed by unrelated crypto and point-fix work.
+See RELEASE-NOTES-v0.27.md for the full writeup.
+
+- **v0.27-M1-001 `@dma_buffer(size, alignment, coherency)` intrinsic** (#1365, CLOSED).
+  `crates/paideia-as-intrinsic/src/dma_buffer.rs`. Landed tag `v0.32.0`, commit
+  `5a27a99532dd1551d9b2a64b28981ec829a55bc5`.
+- **v0.27-M1-002 `@timeline_wait`/`@timeline_signal` syntax** (#1366, CLOSED).
+  `crates/paideia-as-parser/src/timeline.rs`. Landed tag `v0.31.0`, commit
+  `af6f91bbf0ac171303ab23096c26f7522dacf0cb`.
+- **v0.27-M1-003 128-bit atomic CAS intrinsic** (#1367, CLOSED).
+  `crates/paideia-as-intrinsic/src/atomic128.rs`. Landed tag `v0.32.0`, same commit
+  as M1-001.
+- **v0.27-M1-004 `@include_bytes_signed(path, keyring)` for firmware blobs** (#1368, CLOSED).
+  `crates/paideia-as-intrinsic/src/include_signed.rs`. Landed tag `v0.32.0`, same commit
+  as M1-001.
+
+Closes #1369.
+
+## v0.28-gpu-submit retrospective — 2026-09-05 — bundle close-out (#1374)
+
+Retrospective release notes for the `v0.28-gpu-submit` milestone bundle. All four M1 rows
+are closed on GitHub already, all landing together at a single `workspace.version` tag
+(`v0.31.0`) per Wave 0's dependency-resolution dispatch order — `v0.28.0` and `v0.28.1`
+had already been consumed by unrelated crypto work (Ed25519 sign+verify, SHA-512, an
+ML-DSA-65 verify intrinsic). See RELEASE-NOTES-v0.28.md for the full writeup.
+
+- **v0.28-M1-001 `@gpu_context(engine) { stmts }` block scope** (#1370, CLOSED).
+  `crates/paideia-as-parser/src/gpu_context.rs`.
+- **v0.28-M1-002 `vec<T, N>` type parameterization** (#1371, CLOSED).
+  `crates/paideia-as-types/src/vec_typaram.rs`.
+- **v0.28-M1-003 `@endian(be|le)` on struct fields** (#1372, CLOSED).
+  `crates/paideia-as-parser/src/endian_attr.rs`.
+- **v0.28-M1-004 `@packed_struct` full support** (#1373, CLOSED).
+  `crates/paideia-as-parser/src/packed_struct.rs`.
+
+All four rows landed at tag `v0.31.0`, commit `af6f91bbf0ac171303ab23096c26f7522dacf0cb`.
+
+Closes #1374.
+
+## v0.29-compositor-substrate retrospective — 2026-09-05 — bundle close-out (#1378)
+
+Retrospective release notes for the `v0.29-compositor-substrate` milestone bundle. All
+three M1 rows are closed on GitHub already, split across two `workspace.version` tags
+(`v0.31.0`, `v0.32.0`) per Wave 0's dependency-resolution dispatch order. Unlike the
+other three bundles in this batch, no `v0.29.0` tag exists at all — `workspace.version`
+went straight from `0.28.1` to two untagged, unrelated `0.29.x` satellite-runtime commits
+before reaching `v0.30.0`. See RELEASE-NOTES-v0.29.md for the full writeup.
+
+- **v0.29-M1-001 row-polymorphic effects** (#1375, CLOSED).
+  `crates/paideia-as-types/src/row_poly.rs`. Landed tag `v0.31.0`, commit
+  `af6f91bbf0ac171303ab23096c26f7522dacf0cb`.
+- **v0.29-M1-002 handler composition (`handle E1 then handle E2`)** (#1376, CLOSED).
+  `crates/paideia-as-types/src/handler_compose.rs`. Landed tag `v0.31.0`, same commit
+  as M1-001.
+- **v0.29-M1-003 session-type recursion with well-founded induction** (#1377, CLOSED).
+  `crates/paideia-as-types/src/session_rec.rs`. Landed tag `v0.32.0`, commit
+  `5a27a99532dd1551d9b2a64b28981ec829a55bc5`.
+
+Closes #1378.
+
 ## v0.30-vulkan-spirv retrospective — 2026-09-05 — bundle close-out (#1382)
 
 Retrospective release notes for the `v0.30-vulkan-spirv` milestone bundle. All three
