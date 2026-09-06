@@ -32,6 +32,18 @@
 //! caller's row is checked for subsumption instead, preserving prior
 //! behavior. This is deliberately a separate table from `call_declared_rows`
 //! (the older check-only path above), so neither path can regress the other.
+//!
+//! ## Issue #1397: recursion fixed-point
+//!
+//! A single walk of the tree above is a *single pass*: each `App` node's
+//! `call_infer_sites` entry is injected once, up front, so it can only ever
+//! reflect a callee row that was already known before this walk started.
+//! For a non-recursive call graph processed callee-first that's exactly
+//! right, but under mutual recursion (`A` calls `B`, `B` calls `A`) neither
+//! function's row is available before the other needs it, so one pass alone
+//! under-infers. [`crate::effect_fixedpoint::run_fixed_point`] wraps
+//! repeated passes of this walker (unchanged) to converge rows across such
+//! cycles; see that module's doc for the iteration/convergence argument.
 
 use std::collections::{HashMap, HashSet};
 
@@ -173,6 +185,18 @@ impl EffectRowWalker {
         let id = RowVarId::new(self.next_fresh_row_var).expect("fresh row var");
         self.next_fresh_row_var += 1;
         id
+    }
+
+    /// The walker's current accumulated effect row.
+    ///
+    /// After a complete walk of one function's body, this is that function's
+    /// own inferred (or, for an explicitly-annotated function, checked)
+    /// effect row. [`crate::effect_fixedpoint`] reads this back after each
+    /// pass to drive fixed-point iteration across recursive call graphs
+    /// (issue #1397).
+    #[must_use]
+    pub fn current_row(&self) -> &EffectRow {
+        &self.current_row
     }
 }
 

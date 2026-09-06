@@ -28,6 +28,7 @@ pub mod data_encoder;
 pub mod derive;
 pub mod derive_fn_sig;
 pub mod effect_cap_coupling;
+pub mod effect_fixedpoint;
 pub mod effect_infer;
 pub mod effect_unify;
 pub mod effect_walker;
@@ -117,6 +118,10 @@ pub use check_ordered::{OrderedEntry, OrderedLog, S_OUT_OF_ORDER};
 pub use check_pattern::is_irrefutable;
 pub use check_pure::{F_PURE_VIOLATION, check_pure};
 pub use derive::{DeriveKind, SyntheticImpl, synthesise_derive};
+pub use effect_fixedpoint::{
+    F_FIXPOINT_DIVERGED, FixedPointConfig, FixedPointOutcome, FnCall, FnPerform, FnSlot, FnUnit,
+    run_fixed_point,
+};
 pub use effect_infer::{
     F_UNHANDLED_EFFECT, RowOutcome, call_row, check_no_unhandled, compose_rows, handle_row,
     infer_or_check_call_row, perform_row,
