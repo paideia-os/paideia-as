@@ -1,5 +1,67 @@
 # Changelog
 
+## v0.30-vulkan-spirv retrospective — 2026-09-05 — bundle close-out (#1382)
+
+Retrospective release notes for the `v0.30-vulkan-spirv` milestone bundle. All three
+M1 rows shipped, but under `workspace.version 0.33.0` (tag `v0.33.0`, commit
+`6596f208014e23deb1df281ecdd102fc51a6cd12`) rather than a `0.30.x` tag — Wave 0's
+parallel dispatch bumped `workspace.version` in dependency-resolution order, not
+bundle order, and `v0.30.0`/`v0.30.1` had already been consumed by unrelated crypto
+work (ML-KEM-768 KEM, then a crypto-FFI refactor). See RELEASE-NOTES-v0.30.md for
+the full writeup.
+
+- **v0.30-M1-001 `@spirv_module(path)`** (#1379). Compile-time SPIR-V import as a
+  `KIND_MEMORY` symbol; LE magic-word validation; `.rodata.spirv` section.
+- **v0.30-M1-002 `@wgsl_module(path)`** (#1380). Vello WGSL compute-shader import;
+  UTF-8/BOM/NUL/1-MiB gates; `.rodata.wgsl` section.
+- **v0.30-M1-003 `f16` type intrinsic** (#1381). Hand-rolled IEEE 754 binary16;
+  round-to-nearest-ties-even; unblocks scRGB-linear color work.
+
+Known gap: #1379, #1380, #1381 remain open on GitHub — the landing commit did not
+carry `Closes #NNNN` trailers, so auto-close never fired despite the code shipping.
+Not closed by this entry; recommended as a follow-up housekeeping commit.
+
+Closes #1382.
+
+## v0.31-color-hdr retrospective — 2026-09-05 — bundle close-out (#1386)
+
+Retrospective release notes for the `v0.31-color-hdr` milestone bundle. All three
+M1 rows are closed on GitHub already, split across two `workspace.version` tags
+(`v0.31.0`, `v0.32.0`) per Wave 0's dependency-resolution dispatch order. See
+RELEASE-NOTES-v0.31.md for the full writeup.
+
+- **v0.31-M1-001 `@fixed_point(bits_int, bits_frac)` type modifier** (#1383, CLOSED).
+  Trap-on-overflow arithmetic; unblocks G6 color-space matrix arithmetic. Landed
+  tag `v0.31.0`, commit `af6f91bbf0ac171303ab23096c26f7522dacf0cb`.
+- **v0.31-M1-002 `Matrix<T, R, C>` stdlib type + intrinsic hook** (#1384, CLOSED).
+  `pdx/matrix.pdx` + parse-cleanliness smoke. Landed tag `v0.32.0`, commit
+  `5a27a99532dd1551d9b2a64b28981ec829a55bc5`.
+- **v0.31-M1-003 CICP-tagged image-encoding helpers** (#1385, CLOSED). `pdx/cicp.pdx`;
+  5 named tuples (BT.709, sRGB, Display-P3, BT.2020 PQ, BT.2020 HLG). Landed tag
+  `v0.32.0`, same commit as above.
+
+Closes #1386.
+
+## v0.32-a11y-toolkit retrospective — 2026-09-05 — bundle close-out (#1390)
+
+Retrospective release notes for the `v0.32-a11y-toolkit` milestone bundle. All three
+M1 rows are closed on GitHub already, split across two `workspace.version` tags
+(`v0.31.0`, `v0.32.0`) — row #1388 shipped a batch before its own sibling row #1387,
+again due to Wave 0's dependency-resolution dispatch order. See
+RELEASE-NOTES-v0.32.md for the full writeup.
+
+- **v0.32-M1-001 generational-index trees in stdlib** (#1387, CLOSED).
+  `pdx/gen_index_tree.pdx`; backing structure for `KIND_A11Y_NODE`. Landed tag
+  `v0.32.0`, commit `5a27a99532dd1551d9b2a64b28981ec829a55bc5`.
+- **v0.32-M1-002 row-based subtyping for `KIND_A11Y_NODE`** (#1388, CLOSED).
+  `RowRecord`/`RecordRowVar` width subtyping. Landed tag `v0.31.0`, commit
+  `af6f91bbf0ac171303ab23096c26f7522dacf0cb`.
+- **v0.32-M1-003 `@retain` / `@immediate` functor attributes** (#1389, CLOSED). AST
+  `FunctorAttr` + `FunctorAttrTable` + parser; diagnostics M0330-M0332. Landed tag
+  `v0.32.0`, same commit as v0.32-M1-001.
+
+Closes #1390.
+
 ## 0.33.1 — 2026-09-03 — Wave 0 Batch 5: v0.33 bundle close-out (3 rows, 6 issues closed)
 
 Closes the v0.33 crypto-substrate bundle by delivering the three
