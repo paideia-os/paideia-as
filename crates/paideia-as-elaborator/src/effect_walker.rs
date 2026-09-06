@@ -22,6 +22,16 @@
 //! Handler implementations (for F1101 checking) and pure-context markers
 //! (for F1106 checking) also arrive via injection tables in phase-2-m1.
 //! Phase-3 will embed these in the IR structure.
+//!
+//! ## v0.25-M1-002 (issue #1356): call-site effect-row inference
+//!
+//! `App` nodes additionally consult the `call_infer_sites` injection table
+//! (populated via [`EffectRowWalker::inject_call_for_inference`]) to run
+//! [`infer_or_check_call_row`](crate::infer_or_check_call_row): an implicit
+//! caller's row grows by unioning in the callee's declared row; an explicit
+//! caller's row is checked for subsumption instead, preserving prior
+//! behavior. This is deliberately a separate table from `call_declared_rows`
+//! (the older check-only path above), so neither path can regress the other.
 
 use std::collections::{HashMap, HashSet};
 
@@ -30,7 +40,7 @@ use paideia_as_ir::{IrArena, IrKind, IrNodeData, IrNodeId, IrWalker, WalkerCtx};
 
 use crate::{
     HandlerImpl, check_handler, check_handler_order, check_no_unhandled, check_pure, compose_rows,
-    handle_row, instantiate_fresh_tail,
+    handle_row, infer_or_check_call_row, instantiate_fresh_tail,
     position_index::{ByteOffset, PositionEntry},
     unify_call_row,
     walker_pass_state::PositionIndexWriter,
@@ -64,6 +74,15 @@ pub struct EffectRowWalker {
     /// Tests inject the callee's declared row; production will pull this from
     /// the IR once function types are threaded through.
     call_declared_rows: HashMap<IrNodeId, EffectRow>,
+    /// v0.25-M1-002 (issue #1356): injection table mapping IrNodeId (App nodes) →
+    /// (callee's declared row, caller's own explicit row, if any). Distinct from
+    /// `call_declared_rows` above (an older, narrower check-only path left
+    /// untouched for backward compatibility): this table drives
+    /// [`infer_or_check_call_row`](crate::infer_or_check_call_row), which unions
+    /// the callee row into `current_row` when the caller has no explicit
+    /// annotation, or checks subsumption against the caller's declared row when
+    /// it does.
+    call_infer_sites: HashMap<IrNodeId, (EffectRow, Option<EffectRow>)>,
     /// Phase-2-m1: injection table mapping IrNodeId (Handle nodes) → handler implementations.
     /// Each entry is a list of (op_name, signature) pairs that the handle block
     /// provides. F1101 checking compares this against the declared effect's op set.
@@ -90,6 +109,7 @@ impl EffectRowWalker {
             perform_ops: HashMap::new(),
             handle_effects: HashMap::new(),
             call_declared_rows: HashMap::new(),
+            call_infer_sites: HashMap::new(),
             handler_impls: HashMap::new(),
             effect_decls: HashMap::new(),
             pure_contexts: HashSet::new(),
@@ -110,6 +130,23 @@ impl EffectRowWalker {
     /// Inject the declared callee row for an App node (phase-2-m1).
     pub fn inject_call_row(&mut self, node_id: IrNodeId, declared_row: EffectRow) {
         self.call_declared_rows.insert(node_id, declared_row);
+    }
+
+    /// Inject a call site for row inference (v0.25-M1-002, issue #1356).
+    ///
+    /// `caller_explicit` is `None` when the function enclosing this call site
+    /// leaves its own effect row implicit (to be inferred from its callees) and
+    /// `Some(row)` when it declares `!{...}` explicitly. See
+    /// [`infer_or_check_call_row`](crate::infer_or_check_call_row) for the rule
+    /// applied at this node.
+    pub fn inject_call_for_inference(
+        &mut self,
+        node_id: IrNodeId,
+        callee_row: EffectRow,
+        caller_explicit: Option<EffectRow>,
+    ) {
+        self.call_infer_sites
+            .insert(node_id, (callee_row, caller_explicit));
     }
 
     /// Inject handler implementations for a Handle node (phase-2-m1, F1101 checking).
@@ -291,6 +328,29 @@ impl IrWalker for EffectRowWalker {
                     for diag in outcome.diagnostics {
                         ctx.emit(diag);
                     }
+                }
+
+                // v0.25-M1-002 (issue #1356): call-site effect-row inference.
+                // Independent of the check-only path above: an implicit caller's
+                // row grows by union with the callee's (instantiated) declared
+                // row; an explicit caller's row is checked for subsumption
+                // instead. See `infer_or_check_call_row`.
+                if let Some((callee_row, caller_explicit)) =
+                    self.call_infer_sites.get(&id).cloned()
+                {
+                    let fresh_var = self.fresh_row_var();
+                    let instantiated = instantiate_fresh_tail(&callee_row, fresh_var);
+
+                    let outcome = infer_or_check_call_row(
+                        caller_explicit.as_ref(),
+                        &instantiated,
+                        &self.current_row,
+                        node.span,
+                    );
+                    for diag in outcome.diagnostics {
+                        ctx.emit(diag);
+                    }
+                    self.current_row = outcome.row;
                 }
             }
             IrKind::Module => {
@@ -934,5 +994,120 @@ mod tests {
             final_index_mut.entry_count() > 0,
             "position index should have entries after walker"
         );
+    }
+
+    // ── v0.25-M1-002 (issue #1356): call-site effect-row inference ─────
+
+    /// AC (b): an implicit caller (no explicit annotation) calling a `{mem}`
+    /// function infers `{mem}` into the enclosing row; since nothing handles
+    /// it, it surfaces as an unhandled effect at the module boundary.
+    #[test]
+    fn walker_implicit_call_infers_effect_reaching_top_unhandled() {
+        let mut arena = paideia_as_ir::IrArena::new();
+        let s = span(0);
+
+        let app_id = arena.alloc(IrKind::App, s);
+        let module_id = arena.alloc_with_children(IrKind::Module, s, [app_id]);
+
+        let mut walker = EffectRowWalker::new();
+        let mem = EffectRow::from_ids(vec![eff(1)], None);
+        walker.inject_call_for_inference(app_id, mem, None);
+
+        let sm = SourceMap::new();
+        let mut sink = VecSink::new();
+        let mut ctx = WalkerCtx::new(&sm, &mut sink);
+
+        walk(&mut walker, &arena, module_id, &mut ctx);
+
+        assert_eq!(sink.count(), 1, "the inferred effect should be unhandled");
+        assert_eq!(
+            sink.diagnostics()[0].code().number(),
+            crate::F_UNHANDLED_EFFECT
+        );
+    }
+
+    /// A call's inferred contribution composes through an enclosing handler
+    /// just like a `perform` would: `with H handle Mem { call() }` for an
+    /// implicit caller leaves nothing unhandled.
+    #[test]
+    fn walker_implicit_call_effect_absorbed_by_enclosing_handle() {
+        let mut arena = paideia_as_ir::IrArena::new();
+        let s = span(0);
+
+        let app_id = arena.alloc(IrKind::App, s);
+        let handle_id = arena.alloc_with_children(IrKind::Handle, s, [app_id]);
+        let module_id = arena.alloc_with_children(IrKind::Module, s, [handle_id]);
+
+        let mut walker = EffectRowWalker::new();
+        let mem = EffectRow::from_ids(vec![eff(1)], None);
+        walker.inject_call_for_inference(app_id, mem, None);
+        walker.inject_handle_effect(handle_id, eff(1));
+
+        let sm = SourceMap::new();
+        let mut sink = VecSink::new();
+        let mut ctx = WalkerCtx::new(&sm, &mut sink);
+
+        walk(&mut walker, &arena, module_id, &mut ctx);
+
+        assert_eq!(
+            sink.count(),
+            0,
+            "the enclosing handler should absorb the inferred effect"
+        );
+    }
+
+    /// AC (d) unsafe case: an explicit caller declaring only `{mem}` calls a
+    /// function that needs `{mem, sched}` — the caller under-declared, so
+    /// this must be rejected (F1105), not silently narrowed.
+    #[test]
+    fn walker_explicit_caller_missing_effect_emits_f1105() {
+        let mut arena = paideia_as_ir::IrArena::new();
+        let s = span(0);
+
+        let app_id = arena.alloc(IrKind::App, s);
+        let module_id = arena.alloc_with_children(IrKind::Module, s, [app_id]);
+
+        let mut walker = EffectRowWalker::new();
+        let callee = EffectRow::from_ids(vec![eff(1), eff(2)], None); // {mem, sched}
+        let explicit = EffectRow::from_ids(vec![eff(1)], None); // {mem}
+        walker.inject_call_for_inference(app_id, callee, Some(explicit));
+
+        let sm = SourceMap::new();
+        let mut sink = VecSink::new();
+        let mut ctx = WalkerCtx::new(&sm, &mut sink);
+
+        walk(&mut walker, &arena, module_id, &mut ctx);
+
+        let f1105_count = sink
+            .diagnostics()
+            .iter()
+            .filter(|d| d.code().number() == crate::F_ROW_MISMATCH)
+            .count();
+        assert_eq!(f1105_count, 1);
+    }
+
+    /// AC (d) round-trip case: an explicit caller declaring `{mem, sched}`
+    /// calls a function that only needs `{mem}` — safe, no diagnostics, and
+    /// the explicit annotation is not perturbed by inference.
+    #[test]
+    fn walker_explicit_caller_covering_callee_is_clean() {
+        let mut arena = paideia_as_ir::IrArena::new();
+        let s = span(0);
+
+        let app_id = arena.alloc(IrKind::App, s);
+        let module_id = arena.alloc_with_children(IrKind::Module, s, [app_id]);
+
+        let mut walker = EffectRowWalker::new();
+        let callee = EffectRow::from_ids(vec![eff(1)], None); // {mem}
+        let explicit = EffectRow::from_ids(vec![eff(1), eff(2)], None); // {mem, sched}
+        walker.inject_call_for_inference(app_id, callee, Some(explicit));
+
+        let sm = SourceMap::new();
+        let mut sink = VecSink::new();
+        let mut ctx = WalkerCtx::new(&sm, &mut sink);
+
+        walk(&mut walker, &arena, module_id, &mut ctx);
+
+        assert_eq!(sink.count(), 0);
     }
 }

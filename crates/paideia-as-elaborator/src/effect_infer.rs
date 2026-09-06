@@ -2,12 +2,18 @@
 //!
 //! Provides a small analytical module that downstream IR-walking passes call to
 //! compose, subtract, and validate effect rows during type and effect inference.
-//! This module does NOT yet wire into a full inference walker — that bridge
-//! lands when the IR carries enough structure. See `design/toolchain/custom-assembler.md` §4.2.
+//! Most of this module's functions are pure row algebra, exercised directly by
+//! unit tests; [`infer_or_check_call_row`] additionally wires into
+//! [`crate::EffectRowWalker`]'s `App`-node handling (v0.25-M1-002, issue #1356),
+//! so call-site effect-row inference runs during a real walk once callers
+//! inject the callee row and the caller's own (possibly absent) annotation.
+//! See `design/toolchain/custom-assembler.md` §4.2.
 
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
-use paideia_as_effects::{EffectId, EffectInterner, EffectRow, RowVarId};
+use paideia_as_effects::{EffectId, EffectInterner, EffectRow, RowDiff, RowVarId};
 use std::collections::HashSet;
+
+use crate::effect_unify::F_ROW_MISMATCH;
 
 /// Diagnostic code for a row variable referenced outside its let-generalisation scope.
 pub const T_ROW_VAR_OUT_OF_SCOPE: u16 = 510;
@@ -98,6 +104,92 @@ pub fn handle_row(body_row: &EffectRow, handled: EffectId) -> EffectRow {
 /// ```
 pub fn compose_rows(a: &EffectRow, b: &EffectRow) -> EffectRow {
     a.union(b)
+}
+
+/// Infer or check the effect-row contribution of a call site (v0.25-M1-002, issue #1356).
+///
+/// A caller may leave its own effect row implicit (no `!{...}` annotation on the
+/// enclosing function) or declare one explicitly. This function implements both
+/// halves of the M2 companion to M1's session-typed functors:
+///
+/// - **Implicit caller** (`caller_explicit == None`): the callee's row is unioned
+///   into the caller's currently-inferred row (`caller_current`). Union-widening
+///   never fails, so this branch never produces diagnostics — a caller with no
+///   annotation simply accumulates whatever its callees need, exactly like a
+///   `perform` contributes to the same row (see [`compose_rows`]). Because the
+///   walker calls this once per `App` node as it descends the tree, chained and
+///   nested calls compose transitively, and any enclosing `with H handle E {..}`
+///   still subtracts handled effects afterward (via [`handle_row`]) — so the
+///   union walks the full composed handler stack, not just the immediate callee.
+/// - **Explicit caller** (`caller_explicit == Some(row)`): the caller's declared
+///   row is a firm upper bound, not something inference is allowed to grow. The
+///   callee's row must already fit inside it (`callee_row.fixed ⊆ explicit.fixed`);
+///   on success the caller's row round-trips unchanged, on failure one **F1105**
+///   is emitted naming the mismatch. This preserves the pre-inference behavior
+///   for every function that already spells out its effects.
+///
+/// Conservative by construction: the implicit branch only ever widens (a safe
+/// direction — a caller that ends up doing more than the minimum is still sound),
+/// and the explicit branch rejects rather than silently narrows when the
+/// callee needs an effect the caller didn't declare.
+///
+/// # Phase-1 simplification
+/// Like [`EffectRow::is_subset_of`], the explicit-caller check ignores row
+/// variables: an explicit row-polymorphic caller (`!{mem | e}`) does not yet
+/// treat its tail as absorbing extra callee effects. Real tail-aware
+/// subsumption lands with the rest of row-variable unification.
+///
+/// # Example
+/// ```ignore
+/// // Implicit caller, calls a `{mem}` function: infers `{mem}`.
+/// infer_or_check_call_row(None, &row(&[MEM]), &EffectRow::empty(), span)
+///     == RowOutcome { row: row(&[MEM]), diagnostics: vec![] }
+///
+/// // Explicit caller `{mem}` calls a `{mem, sched}` function: F1105.
+/// infer_or_check_call_row(Some(&row(&[MEM])), &row(&[MEM, SCHED]), &EffectRow::empty(), span)
+///     // one diagnostic, row unchanged
+/// ```
+pub fn infer_or_check_call_row(
+    caller_explicit: Option<&EffectRow>,
+    callee_row: &EffectRow,
+    caller_current: &EffectRow,
+    span: Span,
+) -> RowOutcome {
+    match caller_explicit {
+        None => RowOutcome {
+            row: compose_rows(caller_current, callee_row),
+            diagnostics: Vec::new(),
+        },
+        Some(explicit) => {
+            if callee_row.is_subset_of(explicit) {
+                RowOutcome {
+                    row: caller_current.clone(),
+                    diagnostics: Vec::new(),
+                }
+            } else {
+                RowOutcome {
+                    row: caller_current.clone(),
+                    diagnostics: vec![call_site_row_mismatch_diag(explicit, callee_row, span)],
+                }
+            }
+        }
+    }
+}
+
+fn call_site_row_mismatch_diag(explicit: &EffectRow, callee_row: &EffectRow, span: Span) -> Diagnostic {
+    let diff = RowDiff {
+        expected: explicit,
+        got: callee_row,
+        name_for: None,
+    };
+    Diagnostic::error(f_code(F_ROW_MISMATCH))
+        .message(format!(
+            "effect-row mismatch at call site: callee requires an effect not covered by \
+             the caller's explicit row\n{}",
+            diff.render()
+        ))
+        .with_span(span)
+        .finish()
 }
 
 /// Validate that an inferred row at the top level is empty.
@@ -582,5 +674,96 @@ mod tests {
         assert_eq!(diag.primary_span(), Some(s));
         assert!(diag.message().contains("out of scope"));
         assert!(diag.message().contains("let-generalisation"));
+    }
+
+    // ── infer_or_check_call_row (v0.25-M1-002, issue #1356) ────────────
+
+    /// AC (a): implicit caller, call to a no-effect (pure) function is a no-op.
+    #[test]
+    fn implicit_call_to_pure_fn_is_noop() {
+        let pure_callee = EffectRow::empty();
+        let caller_current = EffectRow::empty();
+
+        let outcome = infer_or_check_call_row(None, &pure_callee, &caller_current, span());
+
+        assert!(outcome.row.is_empty());
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    /// AC (b): implicit caller, call to a `{mem}` function infers `{mem}`.
+    #[test]
+    fn implicit_call_to_single_effect_fn_infers_that_effect() {
+        let mem = eff(1);
+        let callee = EffectRow::from_ids(vec![mem], None);
+        let caller_current = EffectRow::empty();
+
+        let outcome = infer_or_check_call_row(None, &callee, &caller_current, span());
+
+        assert_eq!(outcome.row.fixed, vec![mem]);
+        assert!(outcome.row.tail.is_none());
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    /// AC (c): implicit caller that already has `{mem}` calls a `{sched}` function;
+    /// the result is the union `{mem, sched}`, not just the callee's row.
+    #[test]
+    fn implicit_call_unions_with_callers_existing_row() {
+        let mem = eff(1);
+        let sched = eff(2);
+        let caller_current = EffectRow::from_ids(vec![mem], None);
+        let callee = EffectRow::from_ids(vec![sched], None);
+
+        let outcome = infer_or_check_call_row(None, &callee, &caller_current, span());
+
+        assert_eq!(outcome.row.fixed, vec![mem, sched]);
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    /// AC (d): explicit caller row already covers the callee's effects —
+    /// the annotation round-trips unchanged and no diagnostic fires.
+    #[test]
+    fn explicit_caller_row_covering_callee_round_trips() {
+        let mem = eff(1);
+        let sched = eff(2);
+        let explicit = EffectRow::from_ids(vec![mem, sched], None);
+        let callee = EffectRow::from_ids(vec![mem], None);
+        let caller_current = explicit.clone();
+
+        let outcome = infer_or_check_call_row(Some(&explicit), &callee, &caller_current, span());
+
+        // The declared row is a firm bound: it is returned as-is, not widened.
+        assert_eq!(outcome.row, explicit);
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    /// Explicit caller declares fewer effects than the callee needs: unsafe,
+    /// so this must be rejected with F1105 rather than silently narrowed.
+    #[test]
+    fn explicit_caller_row_missing_callee_effect_emits_f1105() {
+        let mem = eff(1);
+        let sched = eff(2);
+        let explicit = EffectRow::from_ids(vec![mem], None);
+        let callee = EffectRow::from_ids(vec![mem, sched], None);
+        let caller_current = explicit.clone();
+
+        let outcome = infer_or_check_call_row(Some(&explicit), &callee, &caller_current, span());
+
+        assert_eq!(outcome.row, explicit);
+        assert_eq!(outcome.diagnostics.len(), 1);
+        assert_eq!(outcome.diagnostics[0].code().number(), F_ROW_MISMATCH);
+        assert_eq!(outcome.diagnostics[0].code().category(), Category::F);
+    }
+
+    /// Exact-match explicit caller/callee rows unify cleanly (equality is a
+    /// special case of subsumption).
+    #[test]
+    fn explicit_caller_row_exact_match_is_clean() {
+        let mem = eff(1);
+        let explicit = EffectRow::from_ids(vec![mem], None);
+        let callee = EffectRow::from_ids(vec![mem], None);
+
+        let outcome = infer_or_check_call_row(Some(&explicit), &callee, &explicit, span());
+
+        assert!(outcome.diagnostics.is_empty());
     }
 }

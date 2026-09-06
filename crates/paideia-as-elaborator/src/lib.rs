@@ -119,7 +119,7 @@ pub use check_pure::{F_PURE_VIOLATION, check_pure};
 pub use derive::{DeriveKind, SyntheticImpl, synthesise_derive};
 pub use effect_infer::{
     F_UNHANDLED_EFFECT, RowOutcome, call_row, check_no_unhandled, compose_rows, handle_row,
-    perform_row,
+    infer_or_check_call_row, perform_row,
 };
 pub use effect_unify::{
     CallUnifyOutcome, F_HANDLER_ORDER, F_ROW_MISMATCH, check_handler_order, instantiate_fresh_tail,
