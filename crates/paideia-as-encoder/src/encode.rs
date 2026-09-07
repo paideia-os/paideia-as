@@ -2115,6 +2115,28 @@ pub fn div_reg64(buf: &mut CodeBuffer, src: Reg64) {
     buf.bytes.push(0xF0 | (reg_id & 7));
 }
 
+/// Encode `mul src64` (unsigned 64-bit multiply, register operand).
+///
+/// paideia-as#1398: the multiplier is read from src, multiplicand implicit in rax;
+/// the 128-bit unsigned product lands in rdx:rax (low 64 in rax, high 64 in rdx).
+/// Complements `imul` (signed low-64) and `div` (128÷64) for wide-integer emulation.
+///
+/// Opcode: REX.W F7 /4
+/// ModR/M: mod=11 (register direct), r/m = src, reg-field = /4 (opcode extension).
+/// Bytes: `48+REX.B F7 (0xE0 | (reg & 7))`
+///
+/// Example: `mul rax` → `48 f7 e0`
+/// Example: `mul rcx` → `48 f7 e1`
+/// Example: `mul r8`  → `49 f7 e0`
+/// Example: `mul r15` → `49 f7 e7`
+pub fn mul_reg64(buf: &mut CodeBuffer, src: Reg64) {
+    let reg_id = src as u8;
+    let rex_byte = rex(true, false, false, (reg_id >> 3) != 0);
+    buf.bytes.push(rex_byte);
+    buf.bytes.push(0xF7);
+    buf.bytes.push(0xE0 | (reg_id & 7));
+}
+
 /// Encode `idiv src64` (signed 64-bit divide, register operand).
 ///
 /// Phase R11 PA-R11-006: the divisor is read from src, quotient written to rax, remainder to rdx.

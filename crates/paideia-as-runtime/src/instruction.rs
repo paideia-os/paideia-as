@@ -266,6 +266,14 @@ pub enum Mnemonic {
     /// Integer multiply. Operands: dst, src1 [, src2/imm].
     /// Phase 8 m1-001d: emits `imul r64, r64` (2 operands) or `imul r64, r64, imm` (3 operands).
     Imul,
+    /// Unsigned wide multiply (64-bit): emits `mul r64` (REX.W F7 /4).
+    /// One operand (the source register). Implicit multiplicand is rax;
+    /// the 128-bit product lands in rdx:rax (low 64 bits in rax, high 64 in rdx).
+    /// paideia-as#1398 (postui unblock): postui#43 32×32-split Fixed64 multiply
+    /// needs a real unsigned full 128-bit product; `imul` (signed low-64) and
+    /// `div` (unsigned 128÷64) already exist — this closes the arithmetic
+    /// substrate for wide-integer software emulation.
+    Mul,
     /// Bitwise AND. Operands: dst, src.
     /// Phase 8 m1-001d: emits `and r64, r64` or `and r64, imm`.
     And,
@@ -1019,6 +1027,8 @@ impl Mnemonic {
             | Mnemonic::Invlpg
             | Mnemonic::Div
             | Mnemonic::Idiv
+            // paideia-as#1398: mul r64 is one-operand (implicit rax multiplicand).
+            | Mnemonic::Mul
             | Mnemonic::Ltr
             | Mnemonic::Fxsave
             | Mnemonic::Fxrstor
@@ -1331,8 +1341,9 @@ impl Mnemonic {
             // Byte-swap 32-bit: 3 bytes upper bound (REX.B 0F C8+rd, no ModR/M)
             Mnemonic::Bswap32 => 3,
 
-            // Divide: 4 bytes upper bound (REX.W F7 /6 or /7 ModR/M)
-            Mnemonic::Div | Mnemonic::Idiv => 4,
+            // Divide/Multiply: 4 bytes upper bound (REX.W F7 /4|/6|/7 ModR/M)
+            // paideia-as#1398: mul r64 shares the F7 opcode family with div/idiv.
+            Mnemonic::Div | Mnemonic::Idiv | Mnemonic::Mul => 4,
 
             // Load Task Register: 4 bytes upper bound (REX.B 0F 00 /3 ModR/M)
             Mnemonic::Ltr => 4,

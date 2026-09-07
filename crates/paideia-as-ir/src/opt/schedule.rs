@@ -95,6 +95,8 @@ fn classify_mnemonic(mnemonic: Mnemonic) -> InstructionClass {
         | Mnemonic::Imul
         | Mnemonic::Div
         | Mnemonic::Idiv
+        // paideia-as#1398: mul r64 is a long-latency ALU op (same class as imul).
+        | Mnemonic::Mul
         | Mnemonic::And
         | Mnemonic::Or
         | Mnemonic::Xor

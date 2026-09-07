@@ -204,6 +204,10 @@ const MNEMONIC_TABLE: &[(&str, Mnemonic)] = &[
     ("ror_d", Mnemonic::Ror { width: IntWidth::W32 }),
     ("ror_q", Mnemonic::Ror { width: IntWidth::W64 }),
     ("imul", Mnemonic::Imul),
+    // paideia-as#1398: unsigned wide multiply (`mul r64` — REX.W F7 /4).
+    // Complements Imul (signed low-64) and Div/Idiv (128÷64) for wide-integer
+    // software emulation (postui#43 Fixed64 32×32-split multiply).
+    ("mul", Mnemonic::Mul),
     // Phase R9 m2-001 (PA-R9-001): Push/pop instructions
     ("push", Mnemonic::Push),
     ("pop", Mnemonic::Pop),

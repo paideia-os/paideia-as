@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.33.2 — 2026-09-07 — unsigned wide-multiply mnemonic `mul r64` (#1398)
+
+Adds the unsigned full 128-bit multiply mnemonic. Rounds out the F7-opcode
+family alongside the existing `imul` (signed low-64) and `div`/`idiv`
+(unsigned/signed 128÷64) — completes the arithmetic substrate wide-integer
+software emulation needs.
+
+- **paideia-as#1398 `mul r64`** — encoder + elaborator mnemonic table +
+  IR schedule classification. Encoding: `REX.W F7 /4` (opcode extension /4
+  distinguishes it from `/6` div and `/7` idiv in the same opcode). One
+  operand (register); implicit multiplicand in rax; 128-bit product lands
+  in rdx:rax. Byte sequences: `mul rax → 48 F7 E0`, `mul rcx → 48 F7 E1`,
+  `mul r8 → 49 F7 E0`, `mul r15 → 49 F7 E7`. Six encoder unit tests
+  (byte-exact + iced-x86 round-trip on rcx and r8 + operand-shape
+  rejection). Unblocks **postui#43** (Fixed64 32×32-split multiply now has
+  a real unsigned wide-multiply primitive instead of open-coded shifts).
+
+workspace.version 0.33.1 -> 0.33.2 (patch — additive mnemonic, no
+breaking changes).
+
+Closes #1398.
+
 ## v0.25-session-functors retrospective — 2026-09-05 — partial bundle close-out (#1359)
 
 Retrospective release notes for the `v0.25-session-functors` milestone bundle. Three of
