@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.35.0 — 2026-09-07 — god-file refactor batch (#1399 umbrella)
+
+Decompose 5 god files into per-concern mod dirs. Zero behavior change,
+zero public-path change. Every previously-`pub` item remains reachable
+at the same path via `pub use` re-exports; downstream (paideia-os,
+paideia-satellite-runtime) requires no updates.
+
+- **#1400 encode_instruction** (paideia-as-encoder): 11,420 LOC →
+  28 files under `encode_instruction/` grouped by mnemonic family
+  (mov, arith, atomic_lock, bit_scan/test, cmp_test, branch, string_ops,
+  lea, system_flags, io_ports, msr, interrupt, descriptor, tlb, avx,
+  sse, shifts, stack, mov_ext, mov_special, simple_alu, system_cache) +
+  types + common + tests + jcc_tests.
+- **#1401 cmd_build** (paideia-as): 2,466 LOC → mod dir with populate,
+  walker_pipeline, resolve_names, validate, addr_of_pass, data_pass.
+  11 pre-existing helper files untouched. Fixup: extracted addr_of_pass
+  needed correct crate roots (paideia_as_types, paideia_as_effects) for
+  the 3 interner types.
+- **#1402 instruction** (paideia-as-runtime): 1,816 LOC → 6-file mod dir
+  (mnemonic + mnemonic_tables + operand + types + cpu_feature).
+- **#1403 unsafe_walker** (paideia-as-elaborator): 2,448 LOC → 7-file
+  mod dir (walker + process_stmt + mnemonic_table + operand + diag +
+  immediate/memory/register/symbol_ref preserved).
+- **#1404 emit_lambda** (paideia-as-elaborator): 1,114 LOC → 5-file
+  mod dir (special_shape + indirect_call + closure_call + closure_cons).
+
+Verified: `cargo build` (workspace) clean; `cargo test -p paideia-as
+-p paideia-as-encoder -p paideia-as-runtime` shows same pass/fail as
+pre-refactor baseline (2 pre-existing boot integration failures
+unrelated to this work).
+
+workspace.version 0.34.0 -> 0.35.0 (minor — pure refactor, additive
+tests-file re-org, no breaking changes).
+
+Closes #1399. Closes #1400. Closes #1401. Closes #1402. Closes #1403.
+Closes #1404.
+
 ## 0.33.2 — 2026-09-07 — unsigned wide-multiply mnemonic `mul r64` (#1398)
 
 Adds the unsigned full 128-bit multiply mnemonic. Rounds out the F7-opcode
