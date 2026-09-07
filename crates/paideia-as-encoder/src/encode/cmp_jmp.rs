@@ -1,3 +1,8 @@
+//! CMP/TEST (register and immediate), JMP rel8/rel32, and indirect JMP via SIB.
+
+use super::types::*;
+use crate::encode_instruction::EncodeError;
+
 /// Encode `cmp [base + disp], src` (compare memory with register).
 ///
 /// Instruction: REX.W 39 /r

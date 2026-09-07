@@ -1,3 +1,7 @@
+//! Fences (MFENCE/SFENCE/LFENCE), PAUSE, WBINVD/INVD, FXSAVE/FXRSTOR, XSAVEOPT/XRSTOR, CLFLUSH*, PREFETCH*, DIV/MUL/IDIV, MOVSX/MOVZX (register-register), 32-bit MOV variants, and CMP reg-reg.
+
+use super::types::*;
+
 /// Encode `mfence` — PA-R13-005 (issue #918).
 ///
 /// Instruction: 0F AE F0. Zero operands. Serializing memory barrier.

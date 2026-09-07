@@ -1,3 +1,8 @@
+//! Conditional jump/set (JCC/SETCC), ADD/SUB/ADC-immediate variants, CALL/RET, PUSH/POP, indexed load/store helpers, and higher-level record/enum/match emission helpers.
+
+use super::mov_arith::mov_reg64_imm64;
+use super::types::*;
+
 /// Encode conditional jump `jcc rel32`.
 ///
 /// Instruction: 0F 8X cd (where X is the condition code)

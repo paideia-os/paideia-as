@@ -1,3 +1,8 @@
+//! Absolute-displacement (disp32) encoders: LOCK INC, LOCK ADD imm8/imm32, and MOV reg/mem/imm variants using [disp32] addressing.
+
+use super::types::*;
+use paideia_as_ir::instruction::IntWidth;
+
 /// Encode `lock inc qword [disp32]` via SIB no-base absolute form.
 ///
 /// Instruction: F0 REX.W FF /0 modrm=0x04 sib=0x25 disp32

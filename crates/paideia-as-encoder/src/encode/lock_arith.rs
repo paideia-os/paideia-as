@@ -1,3 +1,7 @@
+//! LOCK-prefixed atomic arithmetic and logical ops: XADD, ADD, SUB, AND, OR, XOR (mem+reg / mem+imm).
+
+use super::types::*;
+
 /// Encode `lock xadd [base + disp], src` — PA-R15-002 (issue #957).
 ///
 /// Instruction: F0 REX.W 0F C1 /r

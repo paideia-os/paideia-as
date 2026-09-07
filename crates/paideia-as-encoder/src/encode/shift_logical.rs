@@ -1,3 +1,7 @@
+//! Shift / rotate (SAR, ROL, ROR) and logical (AND, OR, XOR, IMUL) encoders — register, immediate, and memory forms.
+
+use super::types::*;
+
 /// Encode `sar reg64, imm8` (arithmetic right shift by immediate).
 ///
 /// Instruction: REX.W C1 /7 ib

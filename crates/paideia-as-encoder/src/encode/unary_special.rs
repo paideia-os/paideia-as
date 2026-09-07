@@ -1,3 +1,7 @@
+//! Unary encoders (NOT, INC, DEC, BSWAP), LTR, MOV memory-immediate variants, XCHG, and CMPXCHG (LOCK forms).
+
+use super::types::*;
+
 /// Encode `not reg64` (bitwise NOT / one's complement).
 ///
 /// Instruction: REX.W F7 /2

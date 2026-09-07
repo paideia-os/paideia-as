@@ -1,3 +1,7 @@
+//! MOV, ADD, SUB, ADC, SBB (register-register / register-memory forms), plus POPCNT and CRC32 leaders.
+
+use super::types::*;
+
 /// Encode `mov reg64, imm32` (sign-extended to 64-bit).
 ///
 /// Instruction: REX.W C7 /0 id

@@ -1,3 +1,8 @@
+//! System-level and privileged encoders: I/O ports (IN/OUT), MSR (RDMSR/WRMSR), INT/IRET/SYSRET/SYSCALL, MOV CR/DR, descriptor-table loads/stores, REP STOS/MOVS, FAR JMP, RDTSC, INVLPG, INVPCID, and CALL indirect variants.
+
+use super::types::*;
+use paideia_as_ir::instruction::IntWidth;
+
 /// Encode I/O port read instruction: `in al/ax/eax, dx`.
 ///
 /// The SDM fixes the register as al (width=1), ax (width=2), or eax (width=4).

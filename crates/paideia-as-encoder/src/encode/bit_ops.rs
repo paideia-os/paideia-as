@@ -1,3 +1,7 @@
+//! Bit-manipulation encoders: POPCNT, CRC32, BSF, BSR, TZCNT, and BT/BTS/BTR/BTC (register + memory + LOCK forms).
+
+use super::types::*;
+
 /// Encode `popcnt reg64, reg64` (population count, 64-bit).
 ///
 /// Instruction: F3 REX.W 0F B8 /r
