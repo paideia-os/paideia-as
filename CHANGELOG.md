@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.36.0 — 2026-09-07 — god-file refactor phase 2 (#1405 umbrella)
+
+Second god-file wave following v0.35.0. Seven more files decomposed
+into per-concern mod dirs. Zero behavior change, zero public-path
+change. Every previously-`pub` item remains reachable at the same path
+via `pub use` re-exports.
+
+- **#1406 encode** (paideia-as-encoder): 8,050 LOC → 14 files under
+  `encode/` grouped by opcode family (mov_arith, bit_ops,
+  shift_logical, unary_special, cache_widen, mem_moves, lock_arith,
+  cmp_jmp, abs_disp32, cond_call, system) + types + tests. Two
+  functions promoted private → pub(crate) (`rex`, `rex_w`) for sibling
+  visibility only; no external surface change.
+- **#1407 parse_primary** (paideia-as-parser): 2,281 LOC in mod.rs →
+  181 (orchestrator) + 5 sibling files (literal, path, collection,
+  effect, directive) + tests. embed.rs pre-existing sibling untouched.
+  All 68 tests preserved verbatim.
+- **#1408 let_item** (paideia-as-parser): 1,621 LOC → 4-file mod dir
+  (mod + attrs_layout + attrs_semantics + tests). 27 tests preserved.
+- **#1409 emit_enum_match** (paideia-as-elaborator): 2,821 LOC → 9-file
+  mod dir (mod + diagnostics + scrutinee + enum_cons + pattern_lower +
+  match_jump_table + match_dispatch + arm_body + tests).
+- **#1410 emit_block_body** (paideia-as-elaborator): 1,707 LOC → 7-file
+  mod dir (mod + diagnostics + store_dispatch + block_body +
+  block_body_arm + tail_expr + action_stmt). TailContext preserved at
+  `crate::emit_block_body::TailContext`.
+- **#1411 emit_walker** (paideia-as-elaborator): 1,697 LOC → 7-file mod
+  dir (mod + state + emit_core + emit_interrupt + walk + pending_unsafe
+  + closure_prepass). EmitWalker struct preserved at
+  `crate::emit_walker::EmitWalker`; 25+ sibling importers unaffected.
+  #[cfg(test)] path-based test-glob preserved.
+- **#1412 term_eval** (paideia-as-elaborator): 1,745 LOC → 12-file mod
+  dir (mod + value + diag + literal + arith + control + match_arm +
+  call) + 4 test files. 21 tests preserved.
+
+Verified: `cargo build` (workspace) clean after each step.
+
+workspace.version 0.35.0 -> 0.36.0 (minor — pure refactor).
+
+Closes #1405. Closes #1406. Closes #1407. Closes #1408. Closes #1409.
+Closes #1410. Closes #1411. Closes #1412.
+
 ## 0.35.0 — 2026-09-07 — god-file refactor batch (#1399 umbrella)
 
 Decompose 5 god files into per-concern mod dirs. Zero behavior change,
