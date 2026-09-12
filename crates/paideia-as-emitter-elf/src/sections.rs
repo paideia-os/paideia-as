@@ -1,12 +1,33 @@
 //! ELF section names for paideia-as emitted objects.
 
+/// Name of the zero-length `.note.GNU-stack` marker section.
+///
+/// GNU/BSD toolchain convention (matched by binutils' `ld`, LLVM's `lld`,
+/// and mold) on x86_64 Linux: the ABSENCE of this section makes the linker
+/// assume the object requires an executable stack and emit either a
+/// `PT_GNU_STACK` program header with `PF_X`, or (under
+/// `--warn-common --fatal-warnings`) a fatal
+/// "missing .note.GNU-stack section implies executable stack" warning.
+///
+/// The section is deliberately zero-length and carries `sh_type =
+/// SHT_PROGBITS` with `sh_flags = 0` — no `SHF_ALLOC`, and specifically
+/// no `SHF_EXECINSTR`. It is the ABSENCE of `SHF_EXECINSTR` on this named
+/// section that signals a non-executable stack requirement. See binutils
+/// `bfd/elflink.c` and the `gABI` supplement.
+///
+/// Issue: `paideia-os#1414`.
+pub const GNU_STACK_SECTION: &str = ".note.GNU-stack";
+
 /// Names of the standard ELF sections paideia-as emits, in declaration order.
 ///
-/// Phase-1 list per `custom-assembler.md` §12.1:
+/// Phase-1 list per `custom-assembler.md` §12.1, plus the GNU noexec-stack
+/// marker required by every GNU/BSD linker on x86_64 Linux:
 /// - `.text`: executable code
 /// - `.rodata`: read-only data
 /// - `.data`: initialized data
 /// - `.bss`: uninitialized data (zero-filled)
+/// - `.note.GNU-stack`: zero-length marker, `sh_flags = 0` — asks the
+///   linker for a non-executable stack (issue #1414)
 /// - `.symtab`: symbol table
 /// - `.strtab`: string table (for symbol names)
 /// - `.shstrtab`: section header string table
@@ -15,6 +36,7 @@ pub const STANDARD_SECTIONS: &[&str] = &[
     ".rodata",
     ".data",
     ".bss",
+    GNU_STACK_SECTION,
     ".symtab",
     ".strtab",
     ".shstrtab",
@@ -52,6 +74,19 @@ mod tests {
         assert!(STANDARD_SECTIONS.contains(&".symtab"));
         assert!(STANDARD_SECTIONS.contains(&".strtab"));
         assert!(STANDARD_SECTIONS.contains(&".shstrtab"));
+    }
+
+    #[test]
+    fn gnu_stack_marker_in_standard_sections() {
+        // Issue paideia-os#1414: `.note.GNU-stack` must be a standing member
+        // of the emitted section set so ld does not fall back to
+        // "executable stack" under `--warn-common --fatal-warnings`.
+        assert!(
+            STANDARD_SECTIONS.contains(&GNU_STACK_SECTION),
+            "STANDARD_SECTIONS must include the noexec-stack marker {}",
+            GNU_STACK_SECTION,
+        );
+        assert_eq!(GNU_STACK_SECTION, ".note.GNU-stack");
     }
 
     #[test]

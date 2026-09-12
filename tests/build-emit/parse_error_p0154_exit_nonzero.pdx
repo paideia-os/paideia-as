@@ -1,0 +1,21 @@
+// Issue #1413 fixture: `unsafe { ... }` block with the `capabilities:` field
+// omitted. After `effects: {},` the parser sees `justification` as the next
+// field name; positionally it expects `capabilities` next, so it tries to
+// parse the `capabilities` body and finds a string literal instead of `@{`
+// or `{`. That emits `error[P0154]: expected \`@{\` or \`{\` for capabilities
+// field`.
+//
+// Purpose: guard the exit-code contract at the cmd_build seam. Prior to the
+// fix in the same commit, this build printed the error diagnostic but exited
+// 0, silently fooling `tools/build.sh`'s grep-based gate. The test paired
+// with this fixture asserts the process now exits nonzero.
+
+module ParseErrorP0154 = structure {
+  let _start : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    justification: "P0154 fixture — capabilities field intentionally omitted",
+    block: {
+      mov rax, rbx
+    }
+  }
+}

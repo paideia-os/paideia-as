@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.36.1 — 2026-09-11 — GNU-stack ELF note + build-exit-code correctness (#1414, #1413)
+
+- **#1414 emitter-elf**: `paideia-as build --emit elf64` now always emits
+  a zero-length `.note.GNU-stack` marker section (SHT_PROGBITS,
+  `sh_flags = 0`) in every relocatable object. Without it, GNU/BSD
+  linkers on x86_64 Linux fall back to "assume executable stack", and
+  `ld --warn-common --fatal-warnings` (the satellite-build convention
+  across paideia-os) promoted that fallback to a fatal link error —
+  which satellites had been papering over with `-z noexecstack`. The
+  fix lives upstream in the encoder so every downstream consumer picks
+  it up automatically; the satellite `-z noexecstack` workarounds can
+  now be retired at leisure. Added constant `GNU_STACK_SECTION`, two
+  unit tests in `writer.rs` (`emitted_elf_contains_gnu_stack_section`,
+  `gnu_stack_section_has_correct_shape`) and an integration test
+  (`tests/gnu_stack_note.rs`) that round-trips a real emission and
+  pins size, `sh_flags` and `sh_type`.
+
+- **#1413 cmd_build**: `paideia-as build` now returns a nonzero exit code
+  whenever any `Severity::Error` diagnostic reached the sink — including
+  P0154 (missing `capabilities:` field on an `unsafe { }` block) and any
+  other parse/lower error that a downstream emit stage failed to
+  propagate as an `Err`. Prior behaviour let such errors print through
+  the human/SARIF renderer but exit 0, silently fooling grep-based gates
+  in `tools/build.sh` and pre-push hooks (paideia-os/line#3 landed 8
+  P0154 errors as green under this bug). Defensive check lives at the
+  cmd_build seam (`cmd_build/mod.rs`) as a belt-and-suspenders over the
+  existing per-emit-path checks, so any future lower-layer pipeline that
+  fails to bubble up still forces exit 1 (the codebase convention:
+  1 = diagnostic error, 2 = I/O or CLI-argument error). Added
+  `tests/build_emit/parse_error_exit_nonzero.rs` with a P0154 fixture
+  (`tests/build-emit/parse_error_p0154_exit_nonzero.pdx`) covering both
+  the elf64 and placeholder emit paths.
+
 ## 0.36.0 — 2026-09-07 — god-file refactor phase 2 (#1405 umbrella)
 
 Second god-file wave following v0.35.0. Seven more files decomposed

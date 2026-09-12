@@ -373,12 +373,18 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
     // PA-r15-009b (#1032): populate jump tables after data table population.
     data_pass::populate_jump_tables(&mut lowering);
 
-    let preview = sink
+    // #1413: capture whether any Severity::Error diagnostic reached the sink
+    // BEFORE the sink is consumed by one of the finish_* paths. Used both to
+    // gate emit (`preview`) AND to enforce a nonzero exit code at the seam
+    // regardless of whether the downstream finish_* code path propagates the
+    // failure. See the trailing seam-level check for the exit-code guarantee.
+    let had_error_diagnostic = sink
         .diagnostics()
         .iter()
         .any(|d| d.severity() == Severity::Error);
+    let preview = had_error_diagnostic;
 
-    match format {
+    let exit_code = match format {
         EmitFormat::Placeholder => {
             let to_write = if preview {
                 None
@@ -426,7 +432,28 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
                 Err(build_err) => finish_build_error(&source_map, catalog, sink, build_err, input, sarif),
             }
         }
+    };
+
+    // Issue #1413: seam-level exit-code guarantee. If any Severity::Error was
+    // emitted during lex/parse/lower/validate/emit — even a single P0154 that
+    // an interior stage failed to propagate as an Err — the tool must exit
+    // nonzero. Uses exit code 1, matching the existing finish_* convention
+    // (1 = compilation/diagnostic error, 2 = I/O or CLI-argument error).
+    //
+    // Rationale: the typed diagnostic pipe already knows the severity; the
+    // exit code just needs to reflect it. Prior behaviour let parse errors
+    // leak an exit 0 through emit paths that were never reached, silently
+    // fooling `grep '^error\[' <log>` gates in downstream tooling
+    // (paideia-os/tools/build.sh, pre-push hooks) into treating parse-error
+    // .pdx files as green. See issue for repro (paideia-os/line#3).
+    //
+    // Kept at the seam rather than pushed down into finish_* so any future
+    // lower-layer diagnostic pipeline that fails to bubble up still causes a
+    // nonzero exit — belt-and-suspenders over the existing finish_* checks.
+    if had_error_diagnostic {
+        return ExitCode::from(1);
     }
+    exit_code
 }
 
 /// Bridge: convert IR module metadata to PAX functors section.

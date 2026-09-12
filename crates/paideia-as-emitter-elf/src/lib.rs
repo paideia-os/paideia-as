@@ -56,7 +56,7 @@ pub use pvh_note::{
     PVH_DEFAULT_ENTRY_ADDR, PVH_NOTE_NAME, XEN_ELFNOTE_PHYS32_ENTRY, encode_pvh_note,
 };
 pub use relocs::{RelocEntry, RelocKind};
-pub use sections::{PAIDEIA_SECTIONS, STANDARD_SECTIONS, all_sections};
+pub use sections::{GNU_STACK_SECTION, PAIDEIA_SECTIONS, STANDARD_SECTIONS, all_sections};
 pub use symtab::{SymKind, SymbolEntry};
 pub use sysv_bridge::{emit_sysv_bridge_epilogue, emit_sysv_bridge_prologue};
 pub use writer::{Arch, ElfWriter, Kind};

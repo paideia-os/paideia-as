@@ -2,11 +2,11 @@
 
 use crate::relocs::RelocEntry;
 use crate::relocs::RelocKind;
-use crate::sections::PAIDEIA_SECTIONS;
+use crate::sections::{GNU_STACK_SECTION, PAIDEIA_SECTIONS};
 use crate::symtab::{SymKind, SymbolEntry, SymbolIndex};
 use object::{
     Architecture, BinaryFormat, Endianness, RelocationEncoding, RelocationFlags, RelocationKind,
-    SectionKind, SymbolScope,
+    SectionFlags, SectionKind, SymbolScope,
     write::{
         Object, Relocation, SectionId, StandardSection, StandardSegment, Symbol, SymbolFlags,
         SymbolId, SymbolSection,
@@ -99,6 +99,43 @@ impl ElfWriter {
             );
             sections.push((name.to_string(), sid));
         }
+
+        // Emit the zero-length `.note.GNU-stack` noexec-stack marker
+        // (issue paideia-os#1414). GNU/BSD linkers on x86_64 Linux use the
+        // ABSENCE of this section as the trigger for their "assume executable
+        // stack" fallback — with `ld --warn-common --fatal-warnings`, that
+        // fallback becomes a fatal link error. Every mainstream assembler
+        // (GNU as, LLVM/clang) emits this section unconditionally on
+        // x86_64 Linux, and paideia-as must do the same to keep its object
+        // files usable with the paideia-os satellite build convention.
+        //
+        // Shape (must match binutils' expectations exactly):
+        //   sh_type      = SHT_PROGBITS  (implied by SectionKind::Other)
+        //   sh_flags     = 0             (NO SHF_ALLOC, NO SHF_EXECINSTR;
+        //                                 the absence of EXECINSTR is what
+        //                                 signals a non-executable stack)
+        //   sh_size      = 0             (the section carries no payload —
+        //                                 the name and flag pattern are the
+        //                                 entire signal)
+        //   sh_addralign = 1
+        //
+        // The section-header string table (`.shstrtab`) is managed by the
+        // `object` crate and picks up `.note.GNU-stack` automatically as
+        // soon as we register the section name.
+        let gnu_stack_sid = obj.add_section(
+            vec![],
+            GNU_STACK_SECTION.as_bytes().to_vec(),
+            SectionKind::Other,
+        );
+        {
+            let section = obj.section_mut(gnu_stack_sid);
+            // Belt-and-suspenders: pin sh_flags to 0 explicitly rather than
+            // relying on the object crate's default for SectionKind::Other.
+            // Any future stray flag (SHF_ALLOC in particular) would defeat
+            // the whole marker.
+            section.flags = SectionFlags::Elf { sh_flags: 0 };
+        }
+        sections.push((GNU_STACK_SECTION.to_string(), gnu_stack_sid));
 
         // Cache section IDs for validation (phase 7 m1-002).
         let text_section_id = obj.section_id(StandardSection::Text);
@@ -1099,6 +1136,142 @@ mod tests {
             }
             _ => panic!("expected SymbolLayoutInvalid error"),
         }
+    }
+
+    // Issue paideia-os#1414: `.note.GNU-stack` noexec-stack marker.
+
+    #[test]
+    fn writer_advertises_gnu_stack_in_sections_list() {
+        let writer = ElfWriter::new(Arch::X86_64, Kind::Relocatable);
+        let names: Vec<&str> = writer
+            .sections()
+            .iter()
+            .map(|(n, _)| n.as_str())
+            .collect();
+        assert!(
+            names.contains(&".note.GNU-stack"),
+            "ElfWriter::sections() should list .note.GNU-stack; got: {:?}",
+            names,
+        );
+    }
+
+    #[test]
+    fn emitted_elf_contains_gnu_stack_section() {
+        // Parse the finalized bytes back and verify the marker is present
+        // even for an otherwise-empty object — this is the shape that
+        // triggered paideia-os#1414 in the wild.
+        let writer = ElfWriter::new(Arch::X86_64, Kind::Relocatable);
+        let bytes = writer.finalize().expect("finalize should succeed");
+        let elf = object::read::elf::ElfFile64::<object::Endianness>::parse(bytes.as_slice())
+            .expect("emitted bytes must parse as ELF64");
+
+        let names: Vec<String> = elf
+            .sections()
+            .map(|s| s.name().unwrap_or("").to_string())
+            .collect();
+        assert!(
+            names.iter().any(|n| n == ".note.GNU-stack"),
+            "emitted ELF must contain .note.GNU-stack section; got: {:?}",
+            names,
+        );
+    }
+
+    #[test]
+    fn gnu_stack_section_has_correct_shape() {
+        // Shape mandated by binutils / lld / mold for the noexec-stack
+        // marker: SHT_PROGBITS, sh_flags = 0, sh_size = 0.
+        //
+        // We check three properties on a live emission — not on the writer
+        // state — because the whole point of the fix is that the marker
+        // survives round-trip through the object crate and into the file
+        // bytes ld actually reads.
+        let mut writer = ElfWriter::new(Arch::X86_64, Kind::Relocatable);
+        // Drop some code into .text to prove the marker survives alongside
+        // real content, not just on the empty-object path.
+        let _ = writer.add_text_bytes(&[0x90, 0x90, 0xc3]); // nop; nop; ret
+        let bytes = writer.finalize().expect("finalize should succeed");
+        let elf = object::read::elf::ElfFile64::<object::Endianness>::parse(bytes.as_slice())
+            .expect("emitted bytes must parse as ELF64");
+
+        let section = elf
+            .sections()
+            .find(|s| s.name().unwrap_or("") == ".note.GNU-stack")
+            .expect(".note.GNU-stack section must be present in emitted ELF");
+
+        // (1) zero-length — the name-and-flags pattern is the whole signal.
+        assert_eq!(
+            section.size(),
+            0,
+            ".note.GNU-stack must be zero-length by convention",
+        );
+
+        // (2) sh_flags = 0 — the ABSENCE of SHF_EXECINSTR (and of
+        // SHF_ALLOC) is what tells ld the stack is non-executable.
+        // We match the object crate's SectionFlags::Elf discriminant
+        // directly; anything else means the flags word was not written
+        // as the ELF-native raw value we control.
+        match section.flags() {
+            object::SectionFlags::Elf { sh_flags } => assert_eq!(
+                sh_flags, 0,
+                ".note.GNU-stack must carry sh_flags = 0 (no SHF_ALLOC, \
+                 no SHF_EXECINSTR); presence of SHF_EXECINSTR would flip \
+                 the marker's meaning and force an executable stack",
+            ),
+            other => panic!(
+                ".note.GNU-stack flags must be SectionFlags::Elf, got {:?}",
+                other,
+            ),
+        }
+
+        // (3) sh_type = SHT_PROGBITS (0x1). We assert via the byte-level
+        // reader used elsewhere in the workspace (see
+        // crates/paideia-as/tests/build_emit/label_patches.rs) to catch a
+        // regression where the object crate silently downgraded
+        // SectionKind::Other to SHT_NOTE or SHT_NOBITS.
+        let sh_type = read_sh_type_by_name(&bytes, ".note.GNU-stack")
+            .expect("must be able to read sh_type for .note.GNU-stack");
+        assert_eq!(
+            sh_type,
+            object::elf::SHT_PROGBITS,
+            ".note.GNU-stack must be SHT_PROGBITS (0x1)",
+        );
+    }
+
+    /// Parse a section-header entry by name from raw ELF64 bytes and
+    /// return its sh_type. Small enough that inlining it in the test
+    /// module beats depending on the paideia-as CLI test helpers.
+    fn read_sh_type_by_name(bytes: &[u8], target: &str) -> Option<u32> {
+        // ELF64 file-header layout (offsets):
+        //   e_shoff     @ 40 (u64)
+        //   e_shentsize @ 58 (u16)
+        //   e_shnum     @ 60 (u16)
+        //   e_shstrndx  @ 62 (u16)
+        // ELF64 section-header entry (offsets within):
+        //   sh_name @ 0 (u32), sh_type @ 4 (u32)
+        //   sh_offset @ 24 (u64), sh_size @ 32 (u64)
+        let e_shoff = u64::from_le_bytes(bytes.get(40..48)?.try_into().ok()?) as usize;
+        let e_shentsize = u16::from_le_bytes(bytes.get(58..60)?.try_into().ok()?) as usize;
+        let e_shnum = u16::from_le_bytes(bytes.get(60..62)?.try_into().ok()?) as usize;
+        let e_shstrndx = u16::from_le_bytes(bytes.get(62..64)?.try_into().ok()?) as usize;
+
+        // Locate .shstrtab so we can resolve sh_name for each header.
+        let shstr_hdr = bytes.get(e_shoff + e_shstrndx * e_shentsize..)?;
+        let shstr_off = u64::from_le_bytes(shstr_hdr.get(24..32)?.try_into().ok()?) as usize;
+        let shstr_sz = u64::from_le_bytes(shstr_hdr.get(32..40)?.try_into().ok()?) as usize;
+        let shstr = bytes.get(shstr_off..shstr_off + shstr_sz)?;
+
+        for i in 0..e_shnum {
+            let hdr = bytes.get(e_shoff + i * e_shentsize..)?;
+            let sh_name = u32::from_le_bytes(hdr.get(0..4)?.try_into().ok()?) as usize;
+            let name_bytes = shstr.get(sh_name..)?;
+            let name_end = name_bytes.iter().position(|&b| b == 0)?;
+            let name = std::str::from_utf8(&name_bytes[..name_end]).ok()?;
+            if name == target {
+                let sh_type = u32::from_le_bytes(hdr.get(4..8)?.try_into().ok()?);
+                return Some(sh_type);
+            }
+        }
+        None
     }
 
     #[test]

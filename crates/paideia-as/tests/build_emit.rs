@@ -108,6 +108,7 @@ mod build_emit {
     pub mod pa_r17_004_identity_multi_param;
     pub mod pa_r17_005_flat_multi_param;
     pub mod pa_r19_1100_byte_order;
+    pub mod parse_error_exit_nonzero;
     pub mod phase6_cr_moves;
     pub mod record_reorder;
     pub mod rep_movsb;
