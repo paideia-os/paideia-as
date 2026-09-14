@@ -28,6 +28,8 @@
 //! - [`argon2id`] — RFC 9106 password-based KDF.
 //! - [`chacha20_poly1305`] — RFC 8439 AEAD.
 //! - [`ml_kem_768`] — FIPS 203 KEM (paideia-as#1352).
+//! - [`hkdf`] — RFC 5869 HKDF-SHA256 (paideia-as Wave γ, γ-01).
+//! - [`ed25519`] — RFC 8032 Ed25519 verify (paideia-as Wave γ, γ-02).
 //!
 //! Every thunk and its `#[repr(C)]` parameter bundle is re-exported at
 //! the `ffi::` root, so `paideia_as_crypto::ffi::paideia_crypto_*` (the
@@ -84,6 +86,8 @@ use crate::kem::KemError;
 
 pub mod argon2id;
 pub mod chacha20_poly1305;
+pub mod ed25519;
+pub mod hkdf;
 pub mod ml_kem_768;
 
 // ---------------------------------------------------------------------
@@ -100,6 +104,18 @@ pub use argon2id::paideia_crypto_argon2id_derive;
 pub use chacha20_poly1305::AeadParamsC;
 pub use chacha20_poly1305::paideia_crypto_chacha20_poly1305_open;
 pub use chacha20_poly1305::paideia_crypto_chacha20_poly1305_seal;
+
+pub use ed25519::PDX_ED25519_ERR_INVALID_PARAM;
+pub use ed25519::PDX_ED25519_INVALID;
+pub use ed25519::PDX_ED25519_VALID;
+pub use ed25519::paideia_crypto_ed25519_verify;
+
+pub use hkdf::HKDF_MODE_EXPAND;
+pub use hkdf::HKDF_MODE_EXTRACT;
+pub use hkdf::HKDF_MODE_EXTRACT_AND_EXPAND;
+pub use hkdf::HKDF_SHA256_PRK_LEN;
+pub use hkdf::HkdfParamsC;
+pub use hkdf::paideia_crypto_hkdf_sha256;
 
 pub use ml_kem_768::PDX_ML_KEM_768_CT_LEN;
 pub use ml_kem_768::PDX_ML_KEM_768_DK_LEN;

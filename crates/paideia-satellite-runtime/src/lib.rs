@@ -224,6 +224,14 @@ pub use paideia_as_crypto::ffi::paideia_crypto_chacha20_poly1305_seal;
 pub use paideia_as_crypto::ffi::paideia_crypto_ml_kem_768_decaps;
 pub use paideia_as_crypto::ffi::paideia_crypto_ml_kem_768_encaps;
 pub use paideia_as_crypto::ffi::paideia_crypto_ml_kem_768_keygen;
+// paideia-as Wave γ (γ-01 / γ-02) — HKDF-SHA256 (RFC 5869) and
+// Ed25519 verify (RFC 8032 §5.1.7). `libpdx-net`'s TLS 1.3 key
+// schedule (γ-03), transcript verify (γ-04) and record layer (γ-05)
+// are the intended consumers, reached the same way as the KEM trio
+// above: `.pdx` compilation emits the `call` relocation regardless of
+// runtime reachability, so the symbol must resolve unconditionally.
+pub use paideia_as_crypto::ffi::paideia_crypto_ed25519_verify;
+pub use paideia_as_crypto::ffi::paideia_crypto_hkdf_sha256;
 
 // ---------------------------------------------------------------------
 // Signing / verification — fail-closed stubs for the ML-DSA-65 pair.

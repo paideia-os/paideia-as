@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.36.2 — 2026-09-14 — HKDF-SHA256 + Ed25519-verify FFI thunks (Wave γ, γ-01/γ-02)
+
+- **paideia-as-crypto**: new `ffi::hkdf` module exporting
+  `paideia_crypto_hkdf_sha256(params: *const HkdfParamsC, mode, out_ptr,
+  out_len) -> i64` — a single C-ABI symbol covering extract-only,
+  expand-only, and full extract-then-expand HKDF-SHA256 (RFC 5869),
+  wired directly onto the existing `kdf::hkdf::{hkdf_extract,
+  hkdf_expand}` reference implementations. The three-mode shape (rather
+  than a bare RFC-5869-only combined call) is what `libpdx-net`'s TLS
+  1.3 key schedule (RFC 8446 §7.1) needs: raw `HKDF-Extract` output
+  chains forward as the next stage's salt, while `HKDF-Expand-Label` /
+  `Derive-Secret` route through expand-only with the label structure
+  built into `info` by the caller. RFC 5869 §A.1-§A.3 vectors re-proven
+  through the FFI layer.
+- **paideia-as-crypto**: new `ffi::ed25519` module exporting
+  `paideia_crypto_ed25519_verify(pk_ptr, sig_ptr, msg_ptr, msg_len) ->
+  i32` (`1` = valid, `0` = invalid, `-1` = invalid parameter), wired
+  onto the existing `curve::ed25519::ed25519_verify` (RFC 8032 §5.1.7).
+  Intended consumer: `libpdx-net`'s `CertificateVerify` transcript check
+  against a `KIND_TLS_TRUST`-pinned key (γ-04). RFC 8032 §7.1 TEST 1
+  re-proven through the FFI layer.
+- **paideia-satellite-runtime**: re-exports both new symbols alongside
+  the existing crypto trio/KEM re-exports so satellite `ld -nostdlib`
+  link lines (e.g. `libpdx-net`) resolve them unconditionally.
+- Workspace version bumped 0.36.1 → 0.36.2 for this crate-surface
+  addition (no other crate's public API changed).
+
 ## 0.36.1 — 2026-09-11 — GNU-stack ELF note + build-exit-code correctness (#1414, #1413)
 
 - **#1414 emitter-elf**: `paideia-as build --emit elf64` now always emits
