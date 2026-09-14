@@ -51,12 +51,14 @@
 //! - [`argon2id`] — `Argon2id::derive`.
 //! - [`chacha20_poly1305`] — `ChaCha20Poly1305::{seal, open}`.
 //! - [`ml_kem_768`] — `MlKem768::{keygen, encaps, decaps}`.
+//! - [`hkdf`] — `Hkdf::sha256` (paideia-as Wave γ, γ-01).
+//! - [`ed25519`] — `Ed25519::verify` (paideia-as Wave γ, γ-02).
 //!
 //! Each sub-module exposes a `try_lower(method_name, mode, arg_ids,
 //! arena)` fn scoped `pub(super)` and is fronted at this module by
-//! `try_lower_argon2id`, `try_lower_chacha20_poly1305`, and
-//! `try_lower_ml_kem_768` — the names `stdlib_lowering::mod.rs`
-//! dispatches to.
+//! `try_lower_argon2id`, `try_lower_chacha20_poly1305`,
+//! `try_lower_ml_kem_768`, `try_lower_hkdf`, and `try_lower_ed25519`
+//! — the names `stdlib_lowering::mod.rs` dispatches to.
 //!
 //! The `.pdx` trait declarations at
 //! `crates/paideia-as-stdlib/pdx/crypto/*.pdx` pin the source-level
@@ -69,6 +71,8 @@ use super::{ArgConvention, LoweringRecipe, StdlibLoweringError};
 
 mod argon2id;
 mod chacha20_poly1305;
+mod ed25519;
+mod hkdf;
 mod ml_kem_768;
 
 /// Dispatch an `Argon2id::<method_name>` call to its lowering recipe.
@@ -105,6 +109,28 @@ pub(super) fn try_lower_ml_kem_768(
     arena: &IrArena,
 ) -> Option<Result<LoweringRecipe, StdlibLoweringError>> {
     ml_kem_768::try_lower(method_name, mode, arg_ids, arena)
+}
+
+/// Dispatch an `Hkdf::<method_name>` call to its lowering recipe.
+/// Delegates to [`hkdf::try_lower`]. paideia-as Wave γ (γ-01).
+pub(super) fn try_lower_hkdf(
+    method_name: &str,
+    mode: InstrMode,
+    arg_ids: &[IrNodeId],
+    arena: &IrArena,
+) -> Option<Result<LoweringRecipe, StdlibLoweringError>> {
+    hkdf::try_lower(method_name, mode, arg_ids, arena)
+}
+
+/// Dispatch an `Ed25519::<method_name>` call to its lowering recipe.
+/// Delegates to [`ed25519::try_lower`]. paideia-as Wave γ (γ-02).
+pub(super) fn try_lower_ed25519(
+    method_name: &str,
+    mode: InstrMode,
+    arg_ids: &[IrNodeId],
+    arena: &IrArena,
+) -> Option<Result<LoweringRecipe, StdlibLoweringError>> {
+    ed25519::try_lower(method_name, mode, arg_ids, arena)
 }
 
 /// Build a SysVRegs recipe with no preamble instructions whose CALL

@@ -225,6 +225,14 @@ pub fn lower_stdlib_method(
         // paideia-as#1330 — MlDsa65::sign routes to the extern-C
         // ML-DSA-65 signing thunk in `paideia-pq-sign::ffi`.
         "MlDsa65" => mldsaops::try_lower(method_name, mode, arg_ids, arena),
+        // paideia-as Wave γ (γ-01/γ-02) — Hkdf::sha256 and
+        // Ed25519::verify route to the extern-C thunks landed the
+        // same wave in `paideia-as-crypto::ffi::{hkdf, ed25519}`.
+        // Same shape as every other crypto arm above: no preamble
+        // instructions, SysVRegs argument convention, extern_target
+        // names the FFI symbol.
+        "Hkdf" => cryptoops::try_lower_hkdf(method_name, mode, arg_ids, arena),
+        "Ed25519" => cryptoops::try_lower_ed25519(method_name, mode, arg_ids, arena),
         _ => None,
     }
 }
@@ -1337,6 +1345,74 @@ mod tests {
         let arena = IrArena::new();
         assert!(
             lower_stdlib_method("MlKem768", "no_such_method", InstrMode::Mode64, &[], &arena)
+                .is_none()
+        );
+    }
+
+    // ---------- paideia-as Wave γ (γ-01/γ-02): Hkdf / Ed25519 recipes ----------
+
+    /// `Hkdf::sha256` lowers to an extern-target recipe whose symbol
+    /// name matches the `#[unsafe(no_mangle)]` thunk in
+    /// `paideia-as-crypto::ffi::hkdf`. Any drift on the string would
+    /// produce an unresolvable relocation at link time — the unit
+    /// test pins the string exactly.
+    #[test]
+    fn hkdf_sha256_recipe_targets_ffi_thunk() {
+        let arena = IrArena::new();
+        let recipe = lower_stdlib_method("Hkdf", "sha256", InstrMode::Mode64, &[], &arena)
+            .expect("Hkdf::sha256 recipe should exist")
+            .expect("Hkdf::sha256 lowering should succeed");
+
+        assert!(
+            recipe.instructions.is_empty(),
+            "extern-C recipes carry no preamble instructions"
+        );
+        assert_eq!(recipe.arg_convention, ArgConvention::SysVRegs);
+        assert!(recipe.labels.is_empty());
+        assert_eq!(
+            recipe.extern_target.as_deref(),
+            Some("paideia_crypto_hkdf_sha256")
+        );
+    }
+
+    /// Unknown Hkdf methods must NOT match.
+    #[test]
+    fn unknown_hkdf_method_returns_none() {
+        let arena = IrArena::new();
+        assert!(
+            lower_stdlib_method("Hkdf", "no_such_method", InstrMode::Mode64, &[], &arena)
+                .is_none()
+        );
+    }
+
+    /// `Ed25519::verify` lowers to an extern-target recipe whose
+    /// symbol name matches the `#[unsafe(no_mangle)]` thunk in
+    /// `paideia-as-crypto::ffi::ed25519`.
+    #[test]
+    fn ed25519_verify_recipe_targets_ffi_thunk() {
+        let arena = IrArena::new();
+        let recipe = lower_stdlib_method("Ed25519", "verify", InstrMode::Mode64, &[], &arena)
+            .expect("Ed25519::verify recipe should exist")
+            .expect("Ed25519::verify lowering should succeed");
+
+        assert!(
+            recipe.instructions.is_empty(),
+            "extern-C recipes carry no preamble instructions"
+        );
+        assert_eq!(recipe.arg_convention, ArgConvention::SysVRegs);
+        assert!(recipe.labels.is_empty());
+        assert_eq!(
+            recipe.extern_target.as_deref(),
+            Some("paideia_crypto_ed25519_verify")
+        );
+    }
+
+    /// Unknown Ed25519 methods must NOT match.
+    #[test]
+    fn unknown_ed25519_method_returns_none() {
+        let arena = IrArena::new();
+        assert!(
+            lower_stdlib_method("Ed25519", "no_such_method", InstrMode::Mode64, &[], &arena)
                 .is_none()
         );
     }

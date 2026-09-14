@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.36.3 — 2026-09-14 — Hkdf / Ed25519 stdlib-lowering dispatch (Wave γ)
+
+- **paideia-as-elaborator**: `stdlib_lowering::cryptoops` gains two new
+  dispatch arms — `Hkdf::sha256` -> `paideia_crypto_hkdf_sha256` and
+  `Ed25519::verify` -> `paideia_crypto_ed25519_verify` — in new files
+  `cryptoops/hkdf.rs` / `cryptoops/ed25519.rs`, wired into
+  `stdlib_lowering::mod.rs`'s `match trait_name`. Without this, the
+  0.36.2 FFI thunks landed but were unreachable from `.pdx` source: the
+  elaborator's `(trait_name, method_name)` dispatch is a closed,
+  hardcoded match (confirmed by reading `lower_stdlib_method` and
+  `emit_call_expr`'s T0553 fallback) with no naming-convention or
+  attribute-driven escape hatch, so a `.pdx` `trait Hkdf { … }` /
+  `trait Ed25519 { … }` redeclaration would otherwise fail to
+  elaborate rather than link — exactly the "not linkable" finding
+  `libpdx-net`'s own net_tls_key_schedule.pdx / net_tls_verify.pdx
+  scaffolds had already documented. Both new arms follow the
+  `ChaCha20Poly1305` / `MlKem768` shape exactly: zero preamble
+  instructions, `SysVRegs` argument convention, `extern_target` names
+  the FFI symbol; `emit_call`'s generic SysV marshaller does the rest.
+  Eight new unit tests in `stdlib_lowering/mod.rs` (recipe-shape +
+  unknown-method-returns-`None` for each of the two new traits) mirror
+  the existing `Argon2id` / `ChaCha20Poly1305` / `MlKem768` coverage.
+- Workspace version bumped 0.36.2 → 0.36.3.
+
 ## 0.36.2 — 2026-09-14 — HKDF-SHA256 + Ed25519-verify FFI thunks (Wave γ, γ-01/γ-02)
 
 - **paideia-as-crypto**: new `ffi::hkdf` module exporting
