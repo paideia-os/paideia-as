@@ -74,6 +74,15 @@ mod chacha20_poly1305;
 mod ed25519;
 mod hkdf;
 mod ml_kem_768;
+// Wave υ (paideia-as υ-01 / υ-02) — compact ML-DSA-65 dispatch. New
+// `MlDsa65C` trait routes to the `no_std + alloc` thunks in
+// `paideia-as-crypto::ffi::ml_dsa_65`. Coexists with the pre-existing
+// `MlDsa65` dispatch in `stdlib_lowering::mldsaops` which continues to
+// route to the std-linked `paideia-pq-sign` runtime-entry symbols; the
+// two traits share the same underlying `ml-dsa` crate but differ in
+// return-code shape (u32/u64 vs i64) and in whether `pk_len` is on the
+// wire (compact omits it).
+mod mldsa65;
 
 /// Dispatch an `Argon2id::<method_name>` call to its lowering recipe.
 ///
@@ -131,6 +140,17 @@ pub(super) fn try_lower_ed25519(
     arena: &IrArena,
 ) -> Option<Result<LoweringRecipe, StdlibLoweringError>> {
     ed25519::try_lower(method_name, mode, arg_ids, arena)
+}
+
+/// Dispatch an `MlDsa65C::<method_name>` call to its lowering recipe.
+/// Delegates to [`mldsa65::try_lower`]. Wave υ.
+pub(super) fn try_lower_mldsa65_c(
+    method_name: &str,
+    mode: InstrMode,
+    arg_ids: &[IrNodeId],
+    arena: &IrArena,
+) -> Option<Result<LoweringRecipe, StdlibLoweringError>> {
+    mldsa65::try_lower(method_name, mode, arg_ids, arena)
 }
 
 /// Build a SysVRegs recipe with no preamble instructions whose CALL

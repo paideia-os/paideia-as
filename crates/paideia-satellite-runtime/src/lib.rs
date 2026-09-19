@@ -233,6 +233,18 @@ pub use paideia_as_crypto::ffi::paideia_crypto_ml_kem_768_keygen;
 pub use paideia_as_crypto::ffi::paideia_crypto_ed25519_verify;
 pub use paideia_as_crypto::ffi::paideia_crypto_hkdf_sha256;
 
+// Wave υ (paideia-as υ-01 / υ-02) — compact-ABI ML-DSA-65 sign +
+// verify. Attempted to `pub use paideia_as_crypto::ffi::mldsa65_*`
+// here, but the RustCrypto `ml-dsa` 0.1.1 dep chain pulls `std`
+// (transitively through `crypto_common`) which conflicts with this
+// crate's `#![no_std]` panic_impl. Deferred: satellite tools that need
+// `MlDsa65C::sign` / `MlDsa65C::verify` must link the paideia-as
+// std-side runtime (paideia-as-runtime) directly, not through this
+// no_std satellite shim. Fail-closed `mldsa65_{sign,verify}_runtime_entry`
+// stubs below remain the only mldsa65 symbols this crate exports; the
+// compact-ABI thunks live in paideia-as-crypto::ffi::ml_dsa_65 and are
+// pulled in only by std-linked consumers (the elaborator binary itself).
+
 // ---------------------------------------------------------------------
 // Signing / verification — fail-closed stubs for the ML-DSA-65 pair.
 // ---------------------------------------------------------------------

@@ -88,6 +88,8 @@ pub mod argon2id;
 pub mod chacha20_poly1305;
 pub mod ed25519;
 pub mod hkdf;
+#[cfg(feature = "std")]
+pub mod ml_dsa_65;
 pub mod ml_kem_768;
 
 // ---------------------------------------------------------------------
@@ -116,6 +118,14 @@ pub use hkdf::HKDF_MODE_EXTRACT_AND_EXPAND;
 pub use hkdf::HKDF_SHA256_PRK_LEN;
 pub use hkdf::HkdfParamsC;
 pub use hkdf::paideia_crypto_hkdf_sha256;
+
+// Wave υ (paideia-as υ-01 / υ-02) — compact ML-DSA-65 FFI surface. The
+// `mldsa65_verify` / `mldsa65_sign` symbols use a task-specified `u32`
+// / `u64` return contract that differs from
+// `paideia-pq-sign::ffi::mldsa65_{sign,verify}_runtime_entry`; see the
+// per-thunk doc comments for the rationale.
+#[cfg(feature = "std")]
+pub use ml_dsa_65::{mldsa65_sign, mldsa65_verify};
 
 pub use ml_kem_768::PDX_ML_KEM_768_CT_LEN;
 pub use ml_kem_768::PDX_ML_KEM_768_DK_LEN;

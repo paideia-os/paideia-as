@@ -233,6 +233,14 @@ pub fn lower_stdlib_method(
         // names the FFI symbol.
         "Hkdf" => cryptoops::try_lower_hkdf(method_name, mode, arg_ids, arena),
         "Ed25519" => cryptoops::try_lower_ed25519(method_name, mode, arg_ids, arena),
+        // Wave υ (paideia-as υ-01 / υ-02) — compact-ABI ML-DSA-65
+        // dispatch. Routes to `mldsa65_{sign, verify}` in
+        // `paideia-as-crypto::ffi::ml_dsa_65` (u32 / u64 returns, no
+        // `pk_len` argument). Coexists with the `MlDsa65` arm above,
+        // whose pq-sign runtime-entry symbols carry the richer i64
+        // return contract; the two traits share the same underlying
+        // ml-dsa crate but differ on the wire.
+        "MlDsa65C" => cryptoops::try_lower_mldsa65_c(method_name, mode, arg_ids, arena),
         _ => None,
     }
 }

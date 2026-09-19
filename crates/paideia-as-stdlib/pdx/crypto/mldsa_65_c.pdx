@@ -1,0 +1,122 @@
+// Wave υ (paideia-as υ-01 / υ-02) — ML-DSA-65 (FIPS 204) compact-ABI
+// trait declaration.
+//
+// The elaborator's `stdlib_lowering::cryptoops::mldsa65::try_lower`
+// routes each method through this trait to the compact extern-C
+// thunks in `crates/paideia-as-crypto/src/ffi/ml_dsa_65.rs`.
+//
+// # Why "C" (compact)
+//
+// The pre-existing `MlDsa65` trait (see `mldsa.pdx`) routes to the
+// std-linked `mldsa65_{sign,verify}_runtime_entry` thunks in
+// `paideia-pq-sign::ffi`, which carry:
+//   * `i64` return with negative sentinels (`-1/-2/-3`),
+//   * explicit `pubkey_len` and `sig_len` arguments,
+//   * a stable `runtime_entry` symbol suffix.
+//
+// `MlDsa65C` is the compact SysV-clean surface preferred by
+// kernel- and satellite-linked `.pdx` code:
+//   * `u32` (verify) / `u64` (sign) returns — smaller and matches the
+//     `.pdxpkg` / `.pdxtrust` install-time check shape,
+//   * no `pk_len` argument (fixed at 1952 per FIPS 204 parameter set),
+//   * routes to the `no_std + alloc` thunks in `paideia-as-crypto`,
+//     avoiding the std-linked `paideia-pq-sign` archive on the
+//     satellite link line entirely.
+//
+// The two traits are transitional. A future wave migrates the
+// remaining `MlDsa65::*` call sites (libpdx-volume, umount.pdxfs,
+// mkfs.pdxfs) onto the compact ABI and retires the pq-sign
+// runtime-entry surface; until then both coexist.
+//
+// # Consumer contract — sign
+//
+// `sk_ptr` points to a 32-byte ML-DSA-65 seed (compact secret-key
+// form; `MLDSA65_SEED_LEN` in `paideia-as-crypto::sig`). `out_sig_ptr`
+// must point to a caller-allocated buffer of at least `out_sig_max`
+// bytes, and `out_sig_max` MUST be at least 3309 (`MLDSA65_SIG_LEN`).
+// On success the thunk writes exactly 3309 bytes and returns 3309;
+// on failure it returns 0 and does not touch the output buffer.
+//
+// # Consumer contract — verify
+//
+// `pk_ptr` points to a 1952-byte ML-DSA-65 encoded public key
+// (`MLDSA65_PK_LEN`). There is no `pk_len` argument — the length is
+// fixed at the FIPS 204 parameter set. `sig_ptr` points to a
+// 3309-byte signature and `sig_len` MUST equal 3309 (checked in the
+// thunk; a wrong length returns 1 = FAIL without dereferencing).
+// `msg_ptr` may be NULL when `msg_len == 0`.
+//
+// # Return codes (compact surface)
+//
+//   sign():
+//     > 0   number of bytes written to out_sig_ptr (always 3309)
+//     = 0   failure (NULL sk/out, undersized out_sig_max, primitive
+//           error, or msg_ptr NULL with msg_len != 0)
+//
+//   verify():
+//     = 0   verify OK
+//     = 1   verify FAIL (bad signature, wrong sig_len, NULL where
+//           required, or malformed pk)
+//
+// A `.pdx` consumer checks `sign_rc != 0` for success and
+// `verify_rc == 0` for a valid signature. The compact surface's
+// choice of `0 = OK` for verify matches the `.pdxpkg` install-time
+// gate's `if (verify_rc != 0) refuse();` idiom.
+//
+// # Effect + capability discipline
+//
+// Both methods share `!{crypto, mem} @{paideia.crypto}` with
+// `Argon2id::derive`, `ChaCha20Poly1305::seal/open`, and the
+// pre-existing `MlDsa65::*` (see `crypto.pdx` and `mldsa.pdx`).
+// Reusing the capability avoids fragmenting the crypto cap surface
+// across near-identical primitives; a dedicated per-key-material
+// capability design is tracked separately.
+//
+// # References
+//
+// - FIPS 204 (Module-Lattice-Based Digital Signature Standard),
+//   ML-DSA-65 parameter set — §7.2 sign, §7.3 verify.
+// - paideia-as-crypto/src/sig/ml_dsa_65.rs — wrapper trait.
+// - paideia-as-crypto/src/ffi/ml_dsa_65.rs — extern-C thunks.
+
+trait MlDsa65C {
+  // sign(msg_ptr, msg_len, sk_ptr, out_sig_ptr, out_sig_max) -> bytes_written
+  //
+  //   RDI  msg_ptr       *const u8 (may be NULL iff msg_len == 0)
+  //   RSI  msg_len        usize
+  //   RDX  sk_ptr        *const u8 (32 bytes; seed / compact form)
+  //   RCX  out_sig_ptr   *mut u8   (writable, >= out_sig_max bytes)
+  //   R8   out_sig_max    usize    (MUST be >= 3309)
+  //   RAX  return: bytes_written (u64, always 3309) or 0 on failure
+  //
+  // Reference: mldsa65_sign in
+  //            crates/paideia-as-crypto/src/ffi/ml_dsa_65.rs.
+  fn sign(
+    msg_ptr: u64,
+    msg_len: u64,
+    sk_ptr: u64,
+    out_sig_ptr: u64,
+    out_sig_max: u64,
+  ) -> u64 !{crypto, mem} @{paideia.crypto};
+
+  // verify(msg_ptr, msg_len, sig_ptr, sig_len, pk_ptr) -> return_code
+  //
+  //   RDI  msg_ptr     *const u8 (may be NULL iff msg_len == 0)
+  //   RSI  msg_len      usize
+  //   RDX  sig_ptr     *const u8 (must be non-NULL)
+  //   RCX  sig_len      usize    (MUST equal 3309)
+  //   R8   pk_ptr      *const u8 (must be non-NULL; length is fixed
+  //                                 at 1952 per FIPS 204 §7 —
+  //                                 no `pk_len` argument)
+  //   RAX  return: 0 = verify OK, 1 = verify FAIL (any reason)
+  //
+  // Reference: mldsa65_verify in
+  //            crates/paideia-as-crypto/src/ffi/ml_dsa_65.rs.
+  fn verify(
+    msg_ptr: u64,
+    msg_len: u64,
+    sig_ptr: u64,
+    sig_len: u64,
+    pk_ptr: u64,
+  ) -> u32 !{crypto, mem} @{paideia.crypto};
+}

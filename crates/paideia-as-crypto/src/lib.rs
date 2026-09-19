@@ -77,6 +77,14 @@ pub mod hash;
 pub mod kdf;
 pub mod kem;
 pub mod rng;
+// Wave υ (paideia-as υ-01 / υ-02) — post-quantum digital signatures.
+// Gated on `std` because ml-dsa 0.1.1 drags `crypto_common`'s `std`
+// dep chain, which conflicts with paideia-satellite-runtime's no_std
+// panic_impl. Std-linked consumers (elaborator, tests) still get it.
+#[cfg(feature = "std")]
+// Sibling of `kem`; hosts the ML-DSA-65 `no_std + alloc` wrapper the
+// kernel / satellite `.pdx` runtime consumes through `ffi::ml_dsa_65`.
+pub mod sig;
 
 pub use aead::{Aead, AeadError, ChaCha20Poly1305, ChaCha20Poly1305Params};
 pub use curve::{
@@ -92,6 +100,22 @@ pub use kdf::{
 // primitive additions never collide inside `{ … }` alongside another
 // wave's authoring. Same shape carried into
 // `paideia-satellite-runtime/src/lib.rs`'s `pub use` block.
+// Wave υ (paideia-as υ-01 / υ-02) — ML-DSA-65 (FIPS 204) `no_std +
+// alloc` sign + verify surface. Compact task-spec ABI (`u32` / `u64`
+// returns, no `pk_len` argument) coexisting with the std-linked
+// `paideia-pq-sign::ffi::mldsa65_{sign,verify}_runtime_entry` thunks;
+// both wrap the same `ml-dsa` RustCrypto crate.
+#[cfg(feature = "std")]
+pub use sig::MLDSA65_PK_LEN;
+#[cfg(feature = "std")]
+pub use sig::MLDSA65_SEED_LEN;
+#[cfg(feature = "std")]
+pub use sig::MLDSA65_SIG_LEN;
+#[cfg(feature = "std")]
+pub use sig::MlDsa65;
+#[cfg(feature = "std")]
+pub use sig::SigError as MlDsa65SigError;
+
 pub use kem::CT_LEN as ML_KEM_768_CT_LEN;
 pub use kem::DK_LEN as ML_KEM_768_DK_LEN;
 pub use kem::EK_LEN as ML_KEM_768_EK_LEN;
