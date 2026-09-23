@@ -66,7 +66,7 @@ but never runs in this batch (`chmod +x` deliberately withheld).
 
 | # | Bucket                                               | Items | Size | Next-wave landing target                                    |
 |---|------------------------------------------------------|-------|------|-------------------------------------------------------------|
-| 1 | `build_emit` pre-existing failures (v0.22 baseline)  |  ≥12  | L    | Wave 1 encoder + elaborator (spread across v0.22.x .. v0.25.x) |
+| 1 | `build_emit` pre-existing failures (v0.22 baseline)  |  ≥16  | L    | Wave 1 encoder + elaborator (spread across v0.22.x .. v0.25.x) |
 | 2 | Parser gaps surfaced by driver / substrate work      |   4   | M    | Wave 2 parser refactor (parallel to `#1360` v0.26 helpers)  |
 | 3 | Intrinsic-table TODOs + IR-opt stubs                 |   9   | L    | Wave 2 IR-opt round + Wave 3 intrinsic completion           |
 | 4 | `stdlib_lowering` placeholders (hash / sret / imm64) |   4   | M    | Wave 1 encoder round (`#1392` BLAKE3) + Wave 2 sret design  |
@@ -74,22 +74,28 @@ but never runs in this batch (`chmod +x` deliberately withheld).
 | 6 | Satellite runtime shim (`crypto_shim.rs`)            |   1   | S    | Wave 1 delivery via `#1391` (v0.33-M1-005)                  |
 | 7 | Ignored corpus tests (test-discipline hygiene)       |   7   | S    | Wave 3 corpora reactivation (post Waves 1 + 2)              |
 
-**Aggregate:** 38 individually filable items across 7 buckets, weighted
+**Aggregate:** 42 individually filable items across 7 buckets, weighted
 2 L + 2 M + 3 S when collapsed to bucket granularity. The Group-1
 count is a lower bound: the v0.22.0 CHANGELOG confirmed "426 passed
 / 12 failed (12 pre-existing, identical set confirmed via `git stash`
-against `39b3e93`)" (`CHANGELOG.md:264`), but only three of the twelve
-are surfaced as `#[ignore]` in tree; the remaining nine require a
-fresh `cargo test -p paideia-as --test build_emit` run to enumerate.
-See §2.2 for the observed gap and the recommended enumeration
-procedure.
+against `39b3e93`)" (`CHANGELOG.md:264`), and a fresh 2026-09-22 grep
+surfaces seven `#[ignore]`'d tests in tree — four naming walker /
+encoder debt, three naming fixture-add infra. The remaining nine
+runtime failures require a fresh `cargo test -p paideia-as --test
+build_emit` run to enumerate. See §2.2 for the observed gap and the
+recommended enumeration procedure.
 
-Formally, if `F` is the set of pre-existing `build_emit` failures
-(|F| = 12 per the v0.22.0 baseline) and `I ⊂ F` the subset marked
-`#[ignore]` in-tree, then `|I| = 3` and `|F \ I| = 9` failures remain
-un-marked in source. The catalog enumerates `I` concretely; the nine
-in `F \ I` are named in §2 by shape only until the enumeration run
-completes.
+Formally, let `F` be the set of pre-existing `build_emit` runtime
+failures (|F| = 12 per the v0.22.0 baseline) and `V` the set of
+`#[ignore]`'d entries visible in tree (|V| = 7 per 2026-09-22 grep).
+The two sets overlap but neither contains the other: three visible
+entries (B1-002, B1-003, B1-005..007) are fixture / infra gates that
+never reported FAILED, and nine runtime failures live in `F \ V` with
+no `#[ignore]` marker. The catalog enumerates all of `V` concretely
+(B1-001..007) and reserves `B1-008..B1-016` for `F \ V`, giving a
+total of `|V| + |F \ V| = 16` actionable ids. See §2.2 for the
+per-entry table and the material adjustment vs the umbrella's stated
+"12".
 
 ---
 
@@ -118,16 +124,23 @@ addressed this baseline.
 
 ### 2.2 Observed gap between in-tree evidence and the umbrella count
 
-The umbrella cites "12 known failures". A grep over `tests/build_emit/`
-finds **three** `#[ignore]`'d tests and one `#[ignore = "..."]` in
-`bridge_thunk.rs`:
+The umbrella cites "12 known failures". A fresh grep over
+`tests/build_emit/` (2026-09-22, `grep -rn '#\[ignore' …`) finds
+**seven** `#[ignore]`'d tests. Four of them describe encoder / walker
+debt (B1-001, B1-004..006) plus three infra / fixture gates (B1-002,
+B1-003, B1-007). The remaining nine of the v0.22.0 "12 failed" count
+compile clean but fail at runtime — their names are only recoverable
+from a fresh test run.
 
 | Entry id            | Site                                                                                                       | Symptom                                                                                                                   | Fix category        | Size | Landing wave |
 |---------------------|------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------|---------------------|------|--------------|
-| `PAS-DEBT-B1-001`   | `/home/snunez/Development/PaideiaOS/tools/paideia-as/crates/paideia-as/tests/build_emit/field_read.rs:39`  | `field_access_cap_set_rights_deferred_pending_parser_support` — `struct` type-definition syntax not accepted by parser.   | `walker-gap` (via B2 parser gap)   | M    | Wave 2 parser + Wave 1 walker      |
+| `PAS-DEBT-B1-001`   | `crates/paideia-as/tests/build_emit/field_read.rs:39`                                                     | `field_access_cap_set_rights_deferred_pending_parser_support` — `struct` type-definition syntax not accepted by parser.   | `walker-gap` (via B2 parser gap)   | M    | Wave 2 parser + Wave 1 walker      |
 | `PAS-DEBT-B1-002`   | `crates/paideia-as/tests/build_emit/pa10_007_data_symbol_names.rs:89`                                      | Requires `readelf` + `ld` in `$PATH`; integration test hoisted out of unit-test lane rather than a real failure.          | (infra)             | S    | Wave 3 CI wiring                    |
 | `PAS-DEBT-B1-003`   | `crates/paideia-as/tests/build_emit/pa10_007_data_symbol_names.rs:122`                                     | Same as B1-002; separate `#[test]` guarded on `readelf`.                                                                  | (infra)             | S    | Wave 3 CI wiring                    |
 | `PAS-DEBT-B1-004`   | `crates/paideia-as/tests/build_emit/bridge_thunk.rs:314`                                                   | `U1620` narrowing: MS x64 lambda bodies containing function calls not in current MVP set (identity / add-imm / literal).  | `walker-gap`        | M    | Wave 2 elaborator MS-x64 widening   |
+| `PAS-DEBT-B1-005`   | `crates/paideia-as/tests/build_emit/typed_encoder_diagnostics.rs:140`                                     | `#[ignore = "TODO(#1105-followup): needs label-resolution fixture"]` — typed-encoder diagnostic requires missing fixture. | (fixture-add)       | S    | Wave 3 fixture backfill             |
+| `PAS-DEBT-B1-006`   | `crates/paideia-as/tests/build_emit/typed_encoder_diagnostics.rs:148`                                     | `#[ignore = "TODO(#1105-followup): needs duplicate-symbol fixture"]` — typed-encoder diagnostic requires missing fixture. | (fixture-add)       | S    | Wave 3 fixture backfill             |
+| `PAS-DEBT-B1-007`   | `crates/paideia-as/tests/build_emit/typed_encoder_diagnostics.rs:156`                                     | `#[ignore = "TODO(#1105-followup): needs lambda-no-offset fixture"]` — typed-encoder diagnostic requires missing fixture. | (fixture-add)       | S    | Wave 3 fixture backfill             |
 
 The remaining **nine failures cited by the v0.22.0 CHANGELOG are not
 marked `#[ignore]` in source** — they pass compile but fail at
@@ -135,8 +148,8 @@ runtime. Their identities cannot be recovered from grep alone; a
 fresh test run (`cargo test -p paideia-as --test build_emit 2>&1 |
 grep -E "^test .* FAILED"`) is the fastest enumeration.
 
-For each of the nine unmarked-runtime failures a `PAS-DEBT-B1-005`
-… `PAS-DEBT-B1-013` id is reserved; the parent's Phase-2 filing pass
+For each of the nine unmarked-runtime failures a `PAS-DEBT-B1-008`
+… `PAS-DEBT-B1-016` id is reserved; the parent's Phase-2 filing pass
 runs the enumeration then flushes those ids to sub-issues. The draft
 script at `.plans/scratch/file-pas-debt-issues.sh` reads the
 enumeration output as its input file.
@@ -144,15 +157,22 @@ enumeration output as its input file.
 ### 2.3 Reserved id block
 
 ```
-PAS-DEBT-B1-001 .. B1-004  — enumerated above (3 #[ignore] + 1 #[ignore="..."])
-PAS-DEBT-B1-005 .. B1-013  — reserved for the nine un-marked runtime failures
+PAS-DEBT-B1-001 .. B1-007  — enumerated above (7 #[ignore]'d: 4 walker/encoder debt + 3 fixture-add infra)
+PAS-DEBT-B1-008 .. B1-016  — reserved for the nine un-marked runtime failures
                              (enumerated by cargo test -p paideia-as --test build_emit)
 ```
 
-Total 13 reserved ids; the umbrella's "12 known" is the count of
-runtime failures — the four `#[ignore]` items are a proper subset of
-the same failure surface (the ignored ones no longer report FAILED
-because they are skipped, but they still describe the debt).
+Total 16 reserved ids for a "12 known" umbrella figure. The
+arithmetic: seven items are visibly `#[ignore]`'d in tree (a proper
+superset of the runtime failure set, since a skipped test no longer
+reports FAILED but the debt it names still exists); nine ids stay
+reserved for the runtime failures the v0.22.0 baseline enumerated as
+FAILED. The union is `≥ 12` because three of the seven visible items
+(B1-002, B1-003, B1-005..007) describe infra / fixture debt that never
+showed up in the "12 failed" runtime count. This is a **material
+adjustment** from the umbrella's stated "12": the honest catalog
+figure is `≥ 12` runtime failures with 7 additional visible-but-ignored
+debt entries, so the true actionable Bucket-1 count is `≥ 16` not `12`.
 
 ### 2.4 Sizing rationale
 
@@ -446,8 +466,8 @@ runs it after the B1-005..013 enumeration lands.
 2. **B6** — file `PAS-DEBT-B6-001` and link to `#1348`.
 3. **B4-001** — file and link to `#1392`.
 4. **B4-002..004, B3-001..009, B2-001..004** — file in bucket order.
-5. **B1-001..004** — file the four `#[ignore]`-visible items.
-6. **B1-005..013** — file after `cargo test -p paideia-as --test
+5. **B1-001..007** — file the seven `#[ignore]`-visible items.
+6. **B1-008..016** — file after `cargo test -p paideia-as --test
    build_emit` enumerates the nine unmarked runtime failures.
 7. **B7-001..007** — file last; low priority, landing-gated.
 
@@ -463,6 +483,122 @@ Closes #1396.
 
 No body bullets per the "compact commit messages" repo convention; the
 catalog document itself carries the detail.
+
+---
+
+## 11. Sub-issue filing plan
+
+Per-item proposed title, priority, and dependency. Priorities: **P0**
+gates every downstream build lane (silent success on `paideia-as
+test`, missing satellite shim); **P1** blocks the next release-track
+wave (`#1391`/`#1392`/`#1393` companions + Bucket-1 walker gaps);
+**P2** planned work for Waves 2–3 (parser, IR-opt, elaborator threading);
+**P3** landing-gated hygiene (ignored corpora, fixture backfill).
+
+| Id                 | Proposed sub-issue title                                                            | Priority | Deps (catalog / issue)                    |
+|--------------------|-------------------------------------------------------------------------------------|----------|-------------------------------------------|
+| PAS-DEBT-B5-001    | `paideia-as test` runs zero fixtures + reports success — replace substring scan     | P0       | supersedes `#1349`; companion `#1393`     |
+| PAS-DEBT-B6-001    | Split `crypto_shim.rs` out of `paideia-satellite-runtime/src/lib.rs`                | P0       | supersedes `#1348`; companion `#1391`     |
+| PAS-DEBT-B4-001    | Replace FNV-1a-64 symbol-dedup with BLAKE3 for `libpdx-schema-registry`             | P1       | companion `#1392`                         |
+| PAS-DEBT-B4-002    | `cpuid_leaf` full-record return: land sret marshalling design                       | P1       | depends on B3-007 (SysV/MS ABI classifier) |
+| PAS-DEBT-B4-003    | `mldsa65_sign` sret return (drop 3309-byte caller-allocated buffer)                 | P1       | depends on B4-002 + B3-007                |
+| PAS-DEBT-B4-004    | `encode_mov [MemSib, Imm64]` arm — retire hard-coded 8-byte literal                 | P1       | none                                       |
+| PAS-DEBT-B3-001    | Tail-call pass self-recursion detection (currently stubbed)                          | P2       | depends on B3-006 (LocalBindingTable)     |
+| PAS-DEBT-B3-002    | Tail-call rewrite: capability boundary / handler-install / effect-row guard         | P2       | depends on B3-008 (HandlerSideTable push) |
+| PAS-DEBT-B3-003    | Unroll pass body-duplication + remainder-loop emission                              | P2       | depends on B3-004 (peephole mnemonics)    |
+| PAS-DEBT-B3-004    | Peephole strength-reduce (mul→shl, div→shr) + jump-to-next + push/pop combine       | P2       | depends on `ir-mnemonic-add` (SHL/SHR)    |
+| PAS-DEBT-B3-005    | Schedule pass block reordering via arena (currently computes then discards)         | P2       | depends on B3-003                          |
+| PAS-DEBT-B3-006    | Thread `LocalBindingTable` through emit walker (field-access non-`rdi` base)        | P2       | cited by `#983`                            |
+| PAS-DEBT-B3-007    | `abi.rs`: aggregate classifier (`#1009`) + MS hidden-ptr sret (`#1011`) + SysV `RDX:RAX` (`#1012`) | P1 | dep of B4-002, B4-003; cites `#1009`/`#1011`/`#1012` |
+| PAS-DEBT-B3-008    | Effect walker: handler-clause save/record — push `HandlerSideTable`                 | P2       | dep of B3-002                              |
+| PAS-DEBT-B3-009    | Introduce `IrKind::HandlerValue` (retire `Placeholder` ride-along)                  | P3       | dep of B3-008                              |
+| PAS-DEBT-B2-001    | Parser: `for pat in iter { body }` — store pattern (currently dropped)              | P2       | dep of B1-004 walker widening              |
+| PAS-DEBT-B2-002    | Parser: associated-type projection validation against trait's assoc-type set        | P2       | none                                       |
+| PAS-DEBT-B2-003    | Parser: extract trait-impl `trait_args` from `TypeName` nodes (currently `vec![]`)  | P2       | none                                       |
+| PAS-DEBT-B2-004    | Parser: `struct` type-definition syntax for `cap_set_rights.pdx`                    | P2       | blocks B1-001                              |
+| PAS-DEBT-B1-001    | Un-`#[ignore]` `field_access_cap_set_rights_deferred_pending_parser_support`        | P1       | blocked-on B2-004                          |
+| PAS-DEBT-B1-002    | `pa10_007_data_symbol_names` (line 89): wire `readelf`+`ld` gate in CI              | P3       | Wave 3 CI                                  |
+| PAS-DEBT-B1-003    | `pa10_007_data_symbol_names` (line 122): same as B1-002 for the readelf-only test    | P3       | Wave 3 CI                                  |
+| PAS-DEBT-B1-004    | Un-`#[ignore]` `bridge_thunk.rs:314` — MS x64 lambda body with call-body            | P1       | none                                       |
+| PAS-DEBT-B1-005    | `typed_encoder_diagnostics:140` — supply label-resolution fixture (`#1105-followup`) | P3       | Wave 3 fixture backfill                    |
+| PAS-DEBT-B1-006    | `typed_encoder_diagnostics:148` — supply duplicate-symbol fixture (`#1105-followup`) | P3       | Wave 3 fixture backfill                    |
+| PAS-DEBT-B1-007    | `typed_encoder_diagnostics:156` — supply lambda-no-offset fixture (`#1105-followup`) | P3       | Wave 3 fixture backfill                    |
+| PAS-DEBT-B1-008..016 | (reserved) nine runtime failures from v0.22.0 baseline — enumerate then file      | P1       | one issue per FAILED name from `cargo test`|
+| PAS-DEBT-B7-001    | Reactivate `examples_compile.rs` + `codes/m2_macro_*.pdx` (macro driver `#217`)     | P3       | blocked-on `#217`                          |
+| PAS-DEBT-B7-002    | Reactivate `reflection-corpus` runner                                               | P3       | Wave 3                                     |
+| PAS-DEBT-B7-003    | Reactivate `effects-corpus` `index_u64_outside_rawmem_row.pdx` reject fixture       | P3       | Wave 3                                     |
+| PAS-DEBT-B7-004    | Reactivate `linearity-regression reject_corpus_emits_expected_s_codes`              | P3       | Wave 3                                     |
+| PAS-DEBT-B7-005    | Reactivate `opt-regression encode_tight_regression`                                 | P3       | dep on `optimization-passes.md:49`         |
+| PAS-DEBT-B7-006    | Reactivate `uefi-smoke::smoke` once m6-009+ ships meaningful `hello.efi`            | P3       | blocked-on m6-009+                         |
+| PAS-DEBT-B7-007    | Reactivate `lsp-harness::harness` latency probe under release-profile lane          | P3       | Wave 3                                     |
+
+**Counts:** 2 P0 + 8 P1 + 12 P2 + 12 P3 + 9 reserved (P1) = 43 filable
+ids (one line under B1-008..016 covers nine items).
+
+### 11.1 Filing-script excerpt (bash + `gh` cli)
+
+Draft only; not run this batch. Full driver at
+`.plans/scratch/file-pas-debt-issues.sh`. The script reads a
+per-entry TSV (`.plans/scratch/pas-debt-catalog.tsv`, columns:
+`id\ttitle\tpriority\tdeps\tbucket\tsize`) and files one issue per
+row. Bucket-1 rows B1-008..016 are appended to the TSV only after
+the `cargo test` enumeration lands.
+
+```bash
+#!/usr/bin/env bash
+# .plans/scratch/file-pas-debt-issues.sh (draft — chmod withheld)
+#
+# Requires: gh authenticated against paideia-os/paideia-as.
+# Idempotent via slug-based grep of `gh issue list --state all`.
+# Runs under flock so parallel invocations serialise.
+
+set -euo pipefail
+UMBRELLA=1396
+TSV=".plans/scratch/pas-debt-catalog.tsv"
+LOCK="/tmp/pas-debt-file.lock"
+
+exec 9>"$LOCK"; flock -n 9 || { echo "another filer running"; exit 1; }
+
+file_one() {
+  local id="$1" title="$2" priority="$3" deps="$4" bucket="$5" size="$6"
+  # Skip if an issue with this slug already exists (resumable).
+  if gh issue list --state all --search "$id in:title" --json number \
+       | grep -q '"number"'; then
+    echo "skip: $id already filed"; return 0
+  fi
+
+  local body
+  body=$(cat <<EOF
+Sub-issue of paideia-as#${UMBRELLA} (debt-catalog).
+
+**Catalog entry:** \`${id}\` — Bucket ${bucket}, size ${size}.
+**Priority:** ${priority}
+**Depends on:** ${deps:-none}
+
+See \`design/paideia-as-debt-catalog.md\` §${bucket} for the site
+citation, symptom, and fix-category taxonomy. This issue is the
+per-item filing; do not close paideia-as#${UMBRELLA} until every
+sub-issue has landed.
+EOF
+)
+
+  gh issue create \
+    --title "[${id}] ${title}" \
+    --body "$body" \
+    --label "debt,${priority}" \
+    --milestone "next-wave"
+}
+
+# TSV columns (tab-separated):
+#   id    title    priority    deps    bucket    size
+while IFS=$'\t' read -r id title priority deps bucket size; do
+  [[ "$id" == \#* || -z "$id" ]] && continue     # skip comments + blanks
+  file_one "$id" "$title" "$priority" "$deps" "$bucket" "$size"
+done < "$TSV"
+```
+
+Filing order follows §10.3 (dependency-first: B5 → B6 → B4-001 →
+B4-002..004 → B3-* → B2-* → B1-001..007 → B1-008..016 → B7-*).
 
 ---
 
