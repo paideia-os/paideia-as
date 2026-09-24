@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.36.4 — 2026-09-23 — Str::eq + Str::hash (R220.M4+M5)
+
+Substrate for semantic-shell R220 (paideia-as substrate for hosted DSLs).
+
+- **`crates/paideia-as-stdlib/pdx/str_eq.pdx`** (NEW): `Str::eq : (*Str, *Str) -> u64 !{RawMem} @{paideia.raw_mem}`
+  — byte-equal predicate on the canonical `Str { ptr: *u8, len: u64 }`.
+  Length short-circuit; two empty strings equal. Inline x86_64 with `#1248`
+  mitigation (`xor rax, rax; mov_b rax, [ptr]`). Closes paideia-as#998b, #1418.
+- **`crates/paideia-as-stdlib/pdx/str_hash.pdx`** (NEW): `Str::hash : (*Str) -> u64 !{RawMem} @{paideia.raw_mem}`
+  — FNV-1a-64 per `design/terminal/schema-registry.md` §3 constants
+  (offset basis 0xCBF29CE484222325, prime 0x100000001B3). Closes
+  paideia-as#998c, #1419.
+- Companion fixtures: 15 Str::eq scenarios + 5 Str::hash vector fixtures,
+  all with per-test fingerprint tags (`r220m4-eq-NN`, `r220m5-hash-NN`).
+- Rust-side algorithm tests: FNV constants vs schema-registry doc, empty
+  → basis identity, 5 fixture cross-checks, 100-random-string collision
+  property. 32/32 tests pass.
+- **NFC deferred**: no Unicode NFC intrinsic exposed to `.pdx` stdlib surface today;
+  both modules carry `FIXME(nfc)` markers referencing R221.M1 upgrade path.
+- **BLAKE3 deferred**: BLAKE3 in workspace but not stdlib-exposed; FIXME
+  markers reference the schema-registry.md §3 upgrade window.
+
+Gates: semantic-shell R222 (command-name dispatch), R226 (predicate name
+hashing), R228 (tab completion).
+
 ## 0.36.3 — 2026-09-14 — Hkdf / Ed25519 stdlib-lowering dispatch (Wave γ)
 
 - **paideia-as-elaborator**: `stdlib_lowering::cryptoops` gains two new

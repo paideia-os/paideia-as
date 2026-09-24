@@ -1,0 +1,14 @@
+// R220.M5 vector 2/5 (paideia-as #1419): FNV-1a-64 of the 1-byte string
+// "a" (0x61). Well-known documented value (matches every published
+// FNV-1a-64 reference implementation; input = single byte 0x61):
+//   hash("a") == 0xAF63DC4C8601EC8C
+// The Rust-side cross-check test recomputes this from the schema-
+// registry.md §3 offset-basis + prime and asserts equality.
+//
+// Fingerprint "r220m5-hash-02\0" (15 bytes).
+
+module StrHashAVector = structure {
+  struct Str { ptr: *u8, len: u64 }
+  pub let fp       : [u8; 15] = "r220m5-hash-02\0"
+  pub let expected : u64      = 0xAF63DC4C8601EC8C
+}

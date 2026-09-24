@@ -1,10 +1,15 @@
-// v0.18 #998: Parse-only API shape — string equality.
+// R220.M4 (paideia-as #1418): parse-only shape record for str_eq.
 //
-// Trait signature documenting str_eq API.
-// Implementation deferred: blocked on #998b (deref), #998c (loop), #998d (struct-by-value args).
+// Historical: v0.18 #998 landed this as a parse-only trait pending
+// #998b (deref) and #998c (loop). Both prerequisites are now met and
+// the real implementation lives in str_eq.pdx. This file remains as
+// the canonical trait signature reference for consumers who want the
+// declaration surface without the module body.
 
 struct Str { ptr: *u8, len: u64 }
 
 trait StrEq {
-  fn str_eq(a: *Str, b: *Str) -> u64;
+  // Byte-equal Str comparison. See str_eq.pdx for the FNV/NFC caveats
+  // and the real implementation. Returns 1 on equal, 0 otherwise.
+  fn str_eq(a: *Str, b: *Str) -> u64 !{RawMem} @{paideia.raw_mem};
 }

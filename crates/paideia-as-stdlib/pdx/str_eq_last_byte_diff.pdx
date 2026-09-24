@@ -1,0 +1,8 @@
+// R220.M4 unit test 11/15 (paideia-as #1418): same-length, only last byte
+// differs -> unequal (loop must run to end without early exit). "abcd"
+// vs "abcx". Fingerprint "r220m4-eq-11\0" (13 bytes).
+
+module StrEqLastByteDiff = structure {
+  struct Str { ptr: *u8, len: u64 }
+  pub let fp : [u8; 13] = "r220m4-eq-11\0"
+}

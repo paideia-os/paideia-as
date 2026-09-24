@@ -1,0 +1,15 @@
+// R220.M5 vector 1/5 (paideia-as #1419): FNV-1a-64 of the empty string is
+// the offset basis itself (no bytes consumed). Per
+// design/terminal/schema-registry.md §3 constants:
+//   hash("") == offset_basis == 0xCBF29CE484222325
+//
+// The `expected` constant is asserted equal to the offset basis by the
+// Rust-side cross-check test in tests/parse_pdx.rs. Debugger locates the
+// fingerprint "r220m5-hash-01\0" (15 bytes) and the expected u64 in the
+// emitted binary.
+
+module StrHashEmptyVector = structure {
+  struct Str { ptr: *u8, len: u64 }
+  pub let fp       : [u8; 15] = "r220m5-hash-01\0"
+  pub let expected : u64      = 0xCBF29CE484222325
+}

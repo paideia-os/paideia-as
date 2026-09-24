@@ -1,0 +1,17 @@
+// R220.M5 vector 5/5 (paideia-as #1419): FNV-1a-64 of "foobar"
+// (bytes 0x66 0x6F 0x6F 0x62 0x61 0x72). Standard published FNV test
+// vector; the widely-cited value is 0x85944171F73967E8.
+//
+// The Rust cross-check test in tests/parse_pdx.rs
+// (`r220m5_hash_foobar_matches_spec`) recomputes from the schema-
+// registry.md §3 constants and prints the derived value. If it disagrees
+// with the constant below, the test fails with both values and this
+// file must be corrected.
+//
+// Fingerprint "r220m5-hash-05\0" (15 bytes).
+
+module StrHashFoobarVector = structure {
+  struct Str { ptr: *u8, len: u64 }
+  pub let fp       : [u8; 15] = "r220m5-hash-05\0"
+  pub let expected : u64      = 0x85944171F73967E8
+}

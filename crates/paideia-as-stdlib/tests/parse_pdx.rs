@@ -2386,3 +2386,352 @@ fn cicp_pdx_source_declares_five_named_tuples() {
         );
     }
 }
+
+// =========================================================================
+// R220.M4 (paideia-as #1418): Str::eq — byte-equal predicate.
+// Closes #998b. Blocks semantic-shell R222 command dispatch and R228 tab
+// completion. Parse-only fixtures at this landing; end-to-end lowering is
+// a follow-on integration when the debugger cross-verifies the emitted
+// binary against each fixture's fingerprint tag.
+// =========================================================================
+
+fn check_pdx_parses(rel_path: &str) {
+    let bin = paideia_as_bin().expect("paideia-as binary not built");
+    let pdx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(rel_path);
+    let result = Command::new(bin)
+        .args(["check", &pdx.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+// Real module implementations (str_eq.pdx, str_hash.pdx) — the surface
+// that shell R222/R228 links against.
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m4_str_eq_module_parses_cleanly() {
+    check_pdx_parses("pdx/str_eq.pdx");
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m5_str_hash_module_parses_cleanly() {
+    check_pdx_parses("pdx/str_hash.pdx");
+}
+
+// R220.M4 — 15 Str::eq unit-test fixtures.
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m4_str_eq_identical_bytes_parses_cleanly() {
+    check_pdx_parses("pdx/str_eq_identical_bytes.pdx");
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m4_str_eq_distinct_bytes_parses_cleanly() {
+    check_pdx_parses("pdx/str_eq_distinct_bytes.pdx");
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m4_str_eq_empty_both_parses_cleanly() {
+    check_pdx_parses("pdx/str_eq_empty_both.pdx");
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m4_str_eq_empty_vs_nonempty_parses_cleanly() {
+    check_pdx_parses("pdx/str_eq_empty_vs_nonempty.pdx");
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m4_str_eq_ascii_case_diff_parses_cleanly() {
+    check_pdx_parses("pdx/str_eq_ascii_case_diff.pdx");
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m4_str_eq_4byte_match_parses_cleanly() {
+    check_pdx_parses("pdx/str_eq_4byte_match.pdx");
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m4_str_eq_32byte_match_parses_cleanly() {
+    check_pdx_parses("pdx/str_eq_32byte_match.pdx");
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m4_str_eq_1024byte_match_parses_cleanly() {
+    check_pdx_parses("pdx/str_eq_1024byte_match.pdx");
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m4_str_eq_len_mismatch_parses_cleanly() {
+    check_pdx_parses("pdx/str_eq_len_mismatch.pdx");
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m4_str_eq_first_byte_diff_parses_cleanly() {
+    check_pdx_parses("pdx/str_eq_first_byte_diff.pdx");
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m4_str_eq_last_byte_diff_parses_cleanly() {
+    check_pdx_parses("pdx/str_eq_last_byte_diff.pdx");
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m4_str_eq_middle_byte_diff_parses_cleanly() {
+    check_pdx_parses("pdx/str_eq_middle_byte_diff.pdx");
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m4_str_eq_high_bit_bytes_parses_cleanly() {
+    check_pdx_parses("pdx/str_eq_high_bit_bytes.pdx");
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m4_str_eq_embedded_nul_parses_cleanly() {
+    check_pdx_parses("pdx/str_eq_embedded_nul.pdx");
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m4_str_eq_prefix_match_shorter_parses_cleanly() {
+    check_pdx_parses("pdx/str_eq_prefix_match_shorter.pdx");
+}
+
+// R220.M5 — 5 Str::hash vector fixtures.
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m5_str_hash_empty_vector_parses_cleanly() {
+    check_pdx_parses("pdx/str_hash_empty_vector.pdx");
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m5_str_hash_a_vector_parses_cleanly() {
+    check_pdx_parses("pdx/str_hash_a_vector.pdx");
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m5_str_hash_ab_vector_parses_cleanly() {
+    check_pdx_parses("pdx/str_hash_ab_vector.pdx");
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m5_str_hash_abc_vector_parses_cleanly() {
+    check_pdx_parses("pdx/str_hash_abc_vector.pdx");
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m5_str_hash_foobar_vector_parses_cleanly() {
+    check_pdx_parses("pdx/str_hash_foobar_vector.pdx");
+}
+
+// -----------------------------------------------------------------------
+// R220.M5 — algorithm cross-check tests (Rust-side authoritative).
+//
+// These tests run in the default `cargo test` invocation (no `--ignored`);
+// they verify the FNV-1a-64 algorithm and constants documented in
+// design/terminal/schema-registry.md §3 independently of paideia-as
+// codegen. Purpose: (a) catch drift in the schema-registry constants,
+// (b) provide authoritative expected values for the paideia-as .pdx
+// fixtures once str_hash.pdx lowers end-to-end.
+//
+// If any of the `expected` constants baked into str_hash_*_vector.pdx
+// disagrees with the value these tests compute, the corresponding
+// `*_matches_spec` assertion prints both values; update the .pdx to
+// match the printed hex.
+// -----------------------------------------------------------------------
+
+const FNV1A_64_OFFSET_BASIS: u64 = 0xCBF29CE484222325;
+const FNV1A_64_PRIME: u64 = 0x100000001B3;
+
+fn fnv1a_64(bytes: &[u8]) -> u64 {
+    let mut h = FNV1A_64_OFFSET_BASIS;
+    for &b in bytes {
+        h ^= b as u64;
+        h = h.wrapping_mul(FNV1A_64_PRIME);
+    }
+    h
+}
+
+#[test]
+fn r220m5_fnv1a_64_constants_match_schema_registry_doc() {
+    // schema-registry.md §3:
+    //   offset basis: 0xCBF29CE484222325
+    //   prime:        0x00000100000001B3
+    assert_eq!(FNV1A_64_OFFSET_BASIS, 0xCBF29CE484222325_u64);
+    assert_eq!(FNV1A_64_PRIME, 0x0000_0100_0000_01B3_u64);
+}
+
+#[test]
+fn r220m5_hash_empty_matches_offset_basis() {
+    // hash("") is the offset basis, by construction.
+    assert_eq!(fnv1a_64(b""), FNV1A_64_OFFSET_BASIS);
+}
+
+/// Parse the `pub let expected : u64 = 0x<hex>` line out of a vector
+/// fixture and return the u64 value. Used by the "matches_spec" tests
+/// below so a drifted constant in a fixture is caught at test time.
+fn read_expected_u64(fixture_rel: &str) -> u64 {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(fixture_rel);
+    let src = std::fs::read_to_string(&path)
+        .unwrap_or_else(|_| panic!("fixture {} not present", fixture_rel));
+    let re = Regex::new(r"pub let expected\s*:\s*u64\s*=\s*0x([0-9A-Fa-f_]+)").unwrap();
+    let caps = re
+        .captures(&src)
+        .unwrap_or_else(|| panic!("fixture {} lacks `pub let expected : u64 = 0x…`", fixture_rel));
+    let hex = caps.get(1).unwrap().as_str().replace('_', "");
+    u64::from_str_radix(&hex, 16)
+        .unwrap_or_else(|_| panic!("fixture {} expected value not parseable as u64", fixture_rel))
+}
+
+fn assert_fixture_matches_spec(fixture_rel: &str, input: &[u8]) {
+    let claimed = read_expected_u64(fixture_rel);
+    let derived = fnv1a_64(input);
+    assert_eq!(
+        claimed, derived,
+        "\n{} declares expected = 0x{:016X}\nbut FNV-1a-64({:?}) per schema-registry.md §3 = 0x{:016X}\n\
+         → correct the fixture to `pub let expected : u64 = 0x{:016X}`",
+        fixture_rel, claimed, input, derived, derived
+    );
+}
+
+#[test]
+fn r220m5_hash_empty_matches_spec() {
+    assert_fixture_matches_spec("pdx/str_hash_empty_vector.pdx", b"");
+}
+
+#[test]
+fn r220m5_hash_a_matches_spec() {
+    assert_fixture_matches_spec("pdx/str_hash_a_vector.pdx", b"a");
+}
+
+#[test]
+fn r220m5_hash_ab_matches_spec() {
+    assert_fixture_matches_spec("pdx/str_hash_ab_vector.pdx", b"ab");
+}
+
+#[test]
+fn r220m5_hash_abc_matches_spec() {
+    assert_fixture_matches_spec("pdx/str_hash_abc_vector.pdx", b"abc");
+}
+
+#[test]
+fn r220m5_hash_foobar_matches_spec() {
+    assert_fixture_matches_spec("pdx/str_hash_foobar_vector.pdx", b"foobar");
+}
+
+// -----------------------------------------------------------------------
+// R220.M5 — 100-string collision-cluster property test.
+//
+// Generates 100 short pseudo-random byte strings from a deterministic
+// seed (so failure is reproducible), hashes each with FNV-1a-64, and
+// asserts every hash is unique. Two-way collisions on 100 random inputs
+// under a 64-bit hash have probability ≈ 100·99/2 / 2^64 ≈ 2.7e-16, so a
+// hit is a bug in the algorithm or its constants. This is not a
+// randomized test in the sense that a fresh seed each run risks
+// flakiness — the seed is fixed at 0xDEADBEEF_CAFEBABE.
+// -----------------------------------------------------------------------
+
+#[test]
+fn r220m5_fnv1a_64_no_collisions_over_100_random_strings() {
+    // xorshift64 for a deterministic PRNG — no external dep.
+    let mut rng_state: u64 = 0xDEADBEEF_CAFEBABE;
+    fn next(state: &mut u64) -> u64 {
+        let mut x = *state;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        *state = x;
+        x
+    }
+
+    let mut hashes: HashMap<u64, Vec<u8>> = HashMap::new();
+    for _ in 0..100 {
+        // Length 1..=24 to bias toward the "short shell command" case.
+        let len = (next(&mut rng_state) as usize % 24) + 1;
+        let mut buf = Vec::with_capacity(len);
+        for _ in 0..len {
+            buf.push((next(&mut rng_state) & 0xFF) as u8);
+        }
+        let h = fnv1a_64(&buf);
+        if let Some(prev) = hashes.get(&h) {
+            panic!(
+                "FNV-1a-64 collision on 100-string cluster (seed 0xDEADBEEF_CAFEBABE):\n  \
+                 {:?} and {:?} both hash to 0x{:016X}",
+                prev, buf, h
+            );
+        }
+        hashes.insert(h, buf);
+    }
+    assert_eq!(hashes.len(), 100, "expected 100 unique hashes");
+}
+
+// -----------------------------------------------------------------------
+// R220.M4/M5 — source-of-truth checks (do not require the paideia-as
+// binary; run under plain `cargo test`).
+// -----------------------------------------------------------------------
+
+#[test]
+fn r220m4_str_eq_module_declares_signature_and_nfc_fixme() {
+    let src = std::fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/str_eq.pdx"),
+    )
+    .expect("str_eq.pdx must exist for R220.M4");
+    assert!(src.contains("module StrEq"), "str_eq.pdx: missing `module StrEq`");
+    assert!(
+        src.contains("pub let str_eq"),
+        "str_eq.pdx: missing `pub let str_eq` binding"
+    );
+    assert!(
+        src.contains("FIXME(nfc)"),
+        "str_eq.pdx: NFC deferral must be marked with `FIXME(nfc)` per SH-D9"
+    );
+}
+
+#[test]
+fn r220m5_str_hash_module_declares_signature_and_fixmes() {
+    let src = std::fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/str_hash.pdx"),
+    )
+    .expect("str_hash.pdx must exist for R220.M5");
+    assert!(src.contains("module StrHash"), "str_hash.pdx: missing `module StrHash`");
+    assert!(
+        src.contains("pub let str_hash"),
+        "str_hash.pdx: missing `pub let str_hash` binding"
+    );
+    assert!(
+        src.contains("0xCBF29CE484222325"),
+        "str_hash.pdx: FNV offset basis constant not present"
+    );
+    assert!(
+        src.contains("0x100000001B3"),
+        "str_hash.pdx: FNV prime constant not present"
+    );
+    assert!(
+        src.contains("FIXME(nfc)") && src.contains("FIXME(blake3)"),
+        "str_hash.pdx: must mark both NFC and BLAKE3 upgrade paths with FIXME tags"
+    );
+}

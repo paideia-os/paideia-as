@@ -1,0 +1,89 @@
+// R220.M5 (paideia-as #1419, closes #998c): Str::hash — FNV-1a-64.
+//
+// Signature:
+//   pub let str_hash : (*Str) -> u64 !{RawMem} @{paideia.raw_mem}
+//
+// Returns FNV-1a-64 over the Str's bytes, per
+// design/terminal/schema-registry.md §3:
+//   offset basis : 0xCBF29CE484222325
+//   prime        : 0x00000100000001B3
+//   algorithm    : for each byte b in s: hash = (hash XOR b) * prime
+//                  (all arithmetic mod 2^64, truncating multiply)
+//
+// The empty string hashes to the offset basis (0xCBF29CE484222325).
+//
+// FIXME(nfc): per SH-D9 the hash MUST be computed over NFC-normalized
+// bytes so that canonically-equivalent strings hash to the same value
+// (paired with Str::eq's NFC discipline). paideia-as does not yet expose
+// an NFC intrinsic to stdlib; interim landing is byte-hash of raw ptr
+// bytes. Follow-up: same paideia-as issue as Str::eq NFC.
+//
+// FIXME(blake3): schema-registry.md §3 declares FNV-1a-64 the interim
+// hash and BLAKE3 the terminal hash once the intrinsic lands in stdlib.
+// BLAKE3 is currently exposed only to the compiler internals
+// (paideia-as-linker, paideia-as-dwarf), NOT to .pdx surface. When a
+// BLAKE3 stdlib intrinsic lands (paideia-as issue #1341 follow-on),
+// Str::hash MUST switch to BLAKE3(bytes)[0..8] in the same release that
+// re-hashes every registered schema. R222 (command dispatch) and R228
+// (tab completion) run under FNV-1a-64; do NOT wait for BLAKE3.
+//
+// Impl notes: same pdx-encoder-pitfall discipline as str_eq.pdx.
+//   - The FNV prime 0x100000001B3 does NOT fit imm32; pre-load into r10
+//     (NOT r11 — memory feedback_pdx_encoder_pitfalls flags `and/mov r11,
+//     imm64` as fragile; r10 is safe).
+//   - 2-op `imul rax, r10` is fine (reg,reg form); the pitfall is 2-op
+//     `imul r, imm`.
+//   - Byte load via `xor rax, rax; mov_b rax, [ptr]` (paideia-as #1248).
+//   - Zero check via `cmp reg, 0`, never `test rN,rN`.
+//   - Reserved labels: `str_hash_` prefix (`loop` is a keyword).
+//
+// Effects: !{RawMem}. Capability: @{paideia.raw_mem}.
+
+module StrHash = structure {
+  struct Str { ptr: *u8, len: u64 }
+
+  pub let str_hash : (*Str) -> u64 !{RawMem} @{paideia.raw_mem} =
+    fn(s: *Str) -> unsafe {
+      effects: {RawMem},
+      capabilities: {paideia.raw_mem},
+      justification: "R220.M5 FNV-1a-64 Str::hash (schema-registry.md §3); NFC + BLAKE3 upgrades follow (FIXMEs).",
+      block: {
+        // rdi = *s. Load length (r8) and byte pointer (r9).
+        mov r8, [rdi + 8];
+        mov r9, [rdi + 0];
+
+        // hash = FNV offset basis in rax.
+        mov rax, 0xCBF29CE484222325;
+
+        // prime in r10 (does NOT fit imm32 so cannot use `imul rax, imm`).
+        mov r10, 0x100000001B3;
+
+        // Empty string: return offset basis unchanged.
+        cmp r8, 0;
+        je  str_hash_done;
+
+        // Remaining count in rcx = len.
+        mov rcx, r8;
+
+      str_hash_next:
+        // b = zero-extended byte at *r9.
+        xor rdx, rdx;
+        mov_b rdx, [r9];
+
+        // hash ^= b.
+        xor rax, rdx;
+
+        // hash *= prime (truncating to 64 bits by construction).
+        imul rax, r10;
+
+        // Advance byte cursor; decrement remaining count.
+        add r9, 1;
+        sub rcx, 1;
+        cmp rcx, 0;
+        jne str_hash_next;
+
+      str_hash_done:
+        ret
+      }
+    }
+}

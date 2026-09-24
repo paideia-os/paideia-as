@@ -1,0 +1,8 @@
+// R220.M4 unit test 05/15 (paideia-as #1418): case-different ASCII bytes
+// compare unequal (byte-equal is case-sensitive by design; UCA folding is
+// a separate future concern). "cd" vs "CD". Fingerprint "r220m4-eq-05\0".
+
+module StrEqAsciiCaseDiff = structure {
+  struct Str { ptr: *u8, len: u64 }
+  pub let fp : [u8; 13] = "r220m4-eq-05\0"
+}

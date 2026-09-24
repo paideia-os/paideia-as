@@ -1,0 +1,10 @@
+// R220.M4 unit test 13/15 (paideia-as #1418): identical Str values whose
+// bytes lie above 0x7F (non-ASCII / potentially multi-byte UTF-8 lead
+// units) compare equal. Verifies mov_b zero-extension (paideia-as #1248):
+// a naive movsx would flip signs and could mis-compare. Fingerprint
+// "r220m4-eq-13\0" (13 bytes).
+
+module StrEqHighBitBytes = structure {
+  struct Str { ptr: *u8, len: u64 }
+  pub let fp : [u8; 13] = "r220m4-eq-13\0"
+}

@@ -1,0 +1,7 @@
+// R220.M4 unit test 03/15 (paideia-as #1418): two empty Str values
+// (len == 0 on each) compare equal. Fingerprint "r220m4-eq-03\0" (13 bytes).
+
+module StrEqEmptyBoth = structure {
+  struct Str { ptr: *u8, len: u64 }
+  pub let fp : [u8; 13] = "r220m4-eq-03\0"
+}

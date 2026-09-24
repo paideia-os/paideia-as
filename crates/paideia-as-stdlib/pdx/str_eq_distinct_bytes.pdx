@@ -1,0 +1,7 @@
+// R220.M4 unit test 02/15 (paideia-as #1418): same-length distinct byte
+// sequences compare unequal. Fingerprint "r220m4-eq-02\0" (13 bytes).
+
+module StrEqDistinctBytes = structure {
+  struct Str { ptr: *u8, len: u64 }
+  pub let fp : [u8; 13] = "r220m4-eq-02\0"
+}

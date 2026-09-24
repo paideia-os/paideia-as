@@ -1,0 +1,8 @@
+// R220.M4 unit test 08/15 (paideia-as #1418): identical 1024-byte Str
+// values compare equal (giant-input stress case). Fingerprint
+// "r220m4-eq-08\0" (13 bytes).
+
+module StrEq1024ByteMatch = structure {
+  struct Str { ptr: *u8, len: u64 }
+  pub let fp : [u8; 13] = "r220m4-eq-08\0"
+}

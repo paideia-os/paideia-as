@@ -1,0 +1,17 @@
+// R220.M5 vector 3/5 (paideia-as #1419): FNV-1a-64 of "ab"
+// (bytes 0x61 0x62). Extends vector 02 with one additional byte so the
+// per-byte mix step is exercised.
+//
+// Expected value derived from schema-registry.md §3 constants and
+// authoritatively computed by the Rust cross-check test in
+// tests/parse_pdx.rs (r220m5_hash_ab_matches_spec). If the constant
+// below disagrees with the Rust computation, the Rust test fails and
+// prints both values; correct this file to match.
+//
+// Fingerprint "r220m5-hash-03\0" (15 bytes).
+
+module StrHashAbVector = structure {
+  struct Str { ptr: *u8, len: u64 }
+  pub let fp       : [u8; 15] = "r220m5-hash-03\0"
+  pub let expected : u64      = 0x089C4407B545986A
+}

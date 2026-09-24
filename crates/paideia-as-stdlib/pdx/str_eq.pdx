@@ -1,0 +1,94 @@
+// R220.M4 (paideia-as #1418, closes #998b): Str::eq — byte-equal predicate.
+//
+// Signature:
+//   pub let str_eq : (*Str, *Str) -> u64 !{RawMem} @{paideia.raw_mem}
+//
+// Returns 1 (true) iff both Str values have equal length AND every byte
+// pair is byte-identical. Returns 0 (false) otherwise. Two empty strings
+// (len == 0) compare equal by definition.
+//
+// FIXME(nfc): per semantic-shell SH-D9 (design/terminal/semantic-shell.md
+// §10), Str::eq at the shell/IPC boundary MUST NFC-normalize both operands
+// before byte-comparison. paideia-as does not yet expose an NFC intrinsic
+// to stdlib (only the compiler-internal BLAKE3 is exposed at the linker
+// level; NFC has no analogous surface). This landing is a *byte-equal*
+// interim that the shell composes with an out-of-line normalize() when it
+// lands. See follow-up: paideia-as issue "Str::eq NFC normalization at eq
+// boundary — expose Unicode NFC intrinsic to stdlib" (file after
+// R221.M1 lands the NFC normalizer in paideia-os).
+//
+// Impl notes (per pdx encoder pitfalls, memory feedback_pdx_encoder_pitfalls):
+//   - Byte loads use `xor rax, rax; mov_b rax, [ptr]` (paideia-as #1248).
+//   - Zero checks use `cmp reg, 0` (never `test rN,rN`).
+//   - Pointers advance by 1 each iteration; `mov_b` narrow form supports
+//     only [base + disp8], never indexed [base + index*scale], so we do
+//     NOT index into ptr[i] — we walk two cursor registers.
+//   - Reserved labels: all prefixed with `str_eq_` per label discipline.
+//   - Uses `repe cmpsb`? NO — `rep cmpsb` mnemonic is not currently in
+//     the encoder (only rep_movsb, rep_stosb/q, rep_movsq exist). Manual
+//     byte-compare loop instead.
+//
+// Effects: !{RawMem} — reads len bytes from each Str's ptr.
+// Capability: @{paideia.raw_mem} — buffer access only, no privilege.
+
+module StrEq = structure {
+  struct Str { ptr: *u8, len: u64 }
+
+  pub let str_eq : (*Str, *Str) -> u64 !{RawMem} @{paideia.raw_mem} =
+    fn(a: *Str, b: *Str) -> unsafe {
+      effects: {RawMem},
+      capabilities: {paideia.raw_mem},
+      justification: "R220.M4 byte-equal Str::eq; NFC deferred to R221.M1 (FIXME).",
+      block: {
+        // System V x86_64: rdi = *a (arg 0), rsi = *b (arg 1).
+        // Str layout: { ptr: *u8 @ +0, len: u64 @ +8 } (confirmed by
+        // str_len_ptr_form.pdx and str_ptr_ptr_form.pdx fixtures).
+
+        // Load lengths first: a.len and b.len.
+        mov r8, [rdi + 8];
+        mov r9, [rsi + 8];
+        cmp r8, r9;
+        jne str_eq_false;
+
+        // Both lengths equal. If zero, both empty -> equal.
+        cmp r8, 0;
+        je  str_eq_true;
+
+        // Load base pointers into cursor registers (r10 walks a, r11
+        // walks b). r11 is our cursor here (NOT a rip-relative LEA
+        // scratch), which is fine — the r11-LEA restriction from the
+        // encoder-pitfalls memo applies only to `and r11, imm64` and
+        // similar wide-imm arithmetic on r11.
+        mov r10, [rdi + 0];
+        mov r11, [rsi + 0];
+
+        // rcx = remaining byte count (starts at r8 = len).
+        mov rcx, r8;
+
+      str_eq_next:
+        // Load one byte from *r10 and one byte from *r11, compare.
+        xor rax, rax;
+        mov_b rax, [r10];
+        xor rdx, rdx;
+        mov_b rdx, [r11];
+        cmp rax, rdx;
+        jne str_eq_false;
+
+        // Advance both cursors and decrement counter.
+        add r10, 1;
+        add r11, 1;
+        sub rcx, 1;
+        cmp rcx, 0;
+        jne str_eq_next;
+
+        // Fell out of loop with all bytes equal.
+      str_eq_true:
+        mov rax, 1;
+        ret;
+
+      str_eq_false:
+        xor rax, rax;
+        ret
+      }
+    }
+}

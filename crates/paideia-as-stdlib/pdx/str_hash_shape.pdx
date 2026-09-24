@@ -1,10 +1,14 @@
-// v0.18 #998: Parse-only API shape — string hash.
+// R220.M5 (paideia-as #1419): parse-only shape record for str_hash.
 //
-// Trait signature documenting str_hash API.
-// Implementation deferred: blocked on #998b (deref), #998c (loop).
+// Historical: v0.18 #998 landed this as a parse-only trait pending
+// #998b (deref) and #998c (loop). Real implementation now lives in
+// str_hash.pdx (FNV-1a-64 per schema-registry.md §3). This file remains
+// as the canonical trait signature reference.
 
 struct Str { ptr: *u8, len: u64 }
 
 trait StrHash {
-  fn str_hash(s: *Str) -> u64;
+  // FNV-1a-64 over Str bytes. See str_hash.pdx for the NFC/BLAKE3
+  // upgrade caveats and the real implementation.
+  fn str_hash(s: *Str) -> u64 !{RawMem} @{paideia.raw_mem};
 }

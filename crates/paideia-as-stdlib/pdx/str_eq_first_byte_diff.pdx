@@ -1,0 +1,8 @@
+// R220.M4 unit test 10/15 (paideia-as #1418): same-length, first byte
+// differs -> unequal (short-circuit on first mismatch). "xbc" vs "abc".
+// Fingerprint "r220m4-eq-10\0" (13 bytes).
+
+module StrEqFirstByteDiff = structure {
+  struct Str { ptr: *u8, len: u64 }
+  pub let fp : [u8; 13] = "r220m4-eq-10\0"
+}

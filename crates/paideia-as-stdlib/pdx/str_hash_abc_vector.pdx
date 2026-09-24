@@ -1,0 +1,18 @@
+// R220.M5 vector 4/5 (paideia-as #1419): FNV-1a-64 of "abc"
+// (bytes 0x61 0x62 0x63). Three-byte input; the per-byte mix runs
+// three times.
+//
+// The `expected` constant below is a placeholder to make the parse
+// fixture concrete; the Rust cross-check test in tests/parse_pdx.rs
+// (`r220m5_hash_abc_matches_spec`) authoritatively computes the correct
+// FNV-1a-64 value from the schema-registry.md §3 offset basis and prime
+// and prints it. On integration (when str_hash.pdx lowers end-to-end),
+// this constant must be updated to the printed value.
+//
+// Fingerprint "r220m5-hash-04\0" (15 bytes).
+
+module StrHashAbcVector = structure {
+  struct Str { ptr: *u8, len: u64 }
+  pub let fp       : [u8; 15] = "r220m5-hash-04\0"
+  pub let expected : u64      = 0xE71FA2190541574B
+}

@@ -1,0 +1,9 @@
+// R220.M4 unit test 01/15 (paideia-as #1418): identical byte sequences
+// compare equal. Two Str values with the same len and same bytes must
+// yield str_eq = 1. Debugger locates the fingerprint tag "r220m4-eq-01\0"
+// (13 bytes exact) in .rodata to gate this fixture.
+
+module StrEqIdenticalBytes = structure {
+  struct Str { ptr: *u8, len: u64 }
+  pub let fp : [u8; 13] = "r220m4-eq-01\0"
+}

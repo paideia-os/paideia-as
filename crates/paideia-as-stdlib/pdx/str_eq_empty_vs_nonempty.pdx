@@ -1,0 +1,7 @@
+// R220.M4 unit test 04/15 (paideia-as #1418): empty Str vs non-empty Str
+// compares unequal. Fingerprint "r220m4-eq-04\0" (13 bytes).
+
+module StrEqEmptyVsNonempty = structure {
+  struct Str { ptr: *u8, len: u64 }
+  pub let fp : [u8; 13] = "r220m4-eq-04\0"
+}

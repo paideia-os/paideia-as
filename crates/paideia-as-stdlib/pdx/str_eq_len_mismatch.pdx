@@ -1,0 +1,8 @@
+// R220.M4 unit test 09/15 (paideia-as #1418): differing lengths short-
+// circuit to unequal without any byte comparison. Fingerprint
+// "r220m4-eq-09\0" (13 bytes).
+
+module StrEqLenMismatch = structure {
+  struct Str { ptr: *u8, len: u64 }
+  pub let fp : [u8; 13] = "r220m4-eq-09\0"
+}

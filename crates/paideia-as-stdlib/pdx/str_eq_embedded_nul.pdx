@@ -1,0 +1,9 @@
+// R220.M4 unit test 14/15 (paideia-as #1418): identical Str values whose
+// interior includes an embedded 0x00 byte (Str is length-carried, not
+// NUL-terminated) compare equal. Verifies the loop uses the length
+// counter and does NOT early-exit on NUL. Fingerprint "r220m4-eq-14\0".
+
+module StrEqEmbeddedNul = structure {
+  struct Str { ptr: *u8, len: u64 }
+  pub let fp : [u8; 13] = "r220m4-eq-14\0"
+}

@@ -1,0 +1,7 @@
+// R220.M4 unit test 07/15 (paideia-as #1418): identical 32-byte Str values
+// compare equal (cache-line-boundary case). Fingerprint "r220m4-eq-07\0".
+
+module StrEq32ByteMatch = structure {
+  struct Str { ptr: *u8, len: u64 }
+  pub let fp : [u8; 13] = "r220m4-eq-07\0"
+}

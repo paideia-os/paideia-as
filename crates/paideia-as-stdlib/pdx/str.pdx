@@ -1,16 +1,22 @@
-// v0.18 #998 (pa-r18-005): Str — borrowed byte slice (DOWNGRADED SCOPE).
+// v0.18 #998 (pa-r18-005): Str — borrowed byte slice (canonical type).
 //
-// Canonical type definition and documented API surface.
-// Downgraded scope due to #998a (RecordCons Borrow field targeting data symbols).
-// Module-level Str constants deferred; available: ptr-form field accessors only.
+// Canonical type definition and documented API surface. Original scope
+// was downgraded in v0.18 due to #998a (RecordCons Borrow field targeting
+// data symbols). R220.M4/M5 (paideia-as #1418, #1419) restore the two
+// deferred entries (Str::eq, Str::hash) as real implementations, gating
+// the semantic-shell R222 command dispatch and R228 completion path.
 
 struct Str { ptr: *u8, len: u64 }
 
-// Documented API (downgraded):
-//   fn str_len(s: *Str) -> u64                             // ptr-form accessor
-//   fn str_ptr(s: *Str) -> *u8                             // ptr-form accessor
-//   fn str_eq(a: *Str, b: *Str) -> u64                     // parse-only (deferred #998b/#998c)
-//   fn str_hash(s: *Str) -> u64                            // parse-only (deferred #998b/#998c)
+// Documented API status:
+//   fn str_len(s: *Str) -> u64                             // LANDED: str_len_ptr_form.pdx
+//   fn str_ptr(s: *Str) -> *u8                             // LANDED: str_ptr_ptr_form.pdx
+//   fn str_eq(a: *Str, b: *Str) -> u64                     // LANDED: str_eq.pdx (R220.M4, #1418)
+//   fn str_hash(s: *Str) -> u64                            // LANDED: str_hash.pdx (R220.M5, #1419)
 //   fn str_byte_at(s: *Str, i: u64) -> u8                  // deferred pending module constants (#998a)
 //   fn str_substring(s: *Str, from: u64, to: u64) -> Str   // deferred: #998e (by-val return)
 //   fn str_split_at(s: *Str, at: u64) -> (Str, Str)        // deferred: tuple return
+//
+// FIXME(nfc): Str::eq and Str::hash currently operate on raw bytes.
+// SH-D9 requires NFC normalization at the eq/hash boundary. Follow-up
+// paideia-as issue tracks exposing an NFC intrinsic to stdlib.

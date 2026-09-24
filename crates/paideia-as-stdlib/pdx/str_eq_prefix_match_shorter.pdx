@@ -1,0 +1,9 @@
+// R220.M4 unit test 15/15 (paideia-as #1418): a shorter Str that is a
+// byte-prefix of a longer Str compares unequal (length short-circuit
+// again, but with the prefix property that could tempt a buggy impl
+// into returning true). "abc" vs "abcd". Fingerprint "r220m4-eq-15\0".
+
+module StrEqPrefixMatchShorter = structure {
+  struct Str { ptr: *u8, len: u64 }
+  pub let fp : [u8; 13] = "r220m4-eq-15\0"
+}

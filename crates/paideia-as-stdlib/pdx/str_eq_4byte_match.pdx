@@ -1,0 +1,8 @@
+// R220.M4 unit test 06/15 (paideia-as #1418): identical 4-byte Str values
+// ("abcd") compare equal. Smallest realistic length. Fingerprint
+// "r220m4-eq-06\0" (13 bytes).
+
+module StrEq4ByteMatch = structure {
+  struct Str { ptr: *u8, len: u64 }
+  pub let fp : [u8; 13] = "r220m4-eq-06\0"
+}

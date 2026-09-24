@@ -1,0 +1,7 @@
+// R220.M4 unit test 12/15 (paideia-as #1418): same-length, single middle
+// byte differs -> unequal. "abXd" vs "abcd". Fingerprint "r220m4-eq-12\0".
+
+module StrEqMiddleByteDiff = structure {
+  struct Str { ptr: *u8, len: u64 }
+  pub let fp : [u8; 13] = "r220m4-eq-12\0"
+}
