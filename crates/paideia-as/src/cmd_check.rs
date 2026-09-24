@@ -21,16 +21,25 @@ use std::process::ExitCode;
 
 use paideia_as_ast::AstArena;
 use paideia_as_diagnostics::{
-    Catalog, DiagnosticSink, HumanRenderer, HumanSink, Severity, SourceMap, VecSink,
+    Catalog, Diagnostic, DiagnosticSink, HumanRenderer, HumanSink, Severity, SourceMap, VecSink,
 };
 use paideia_as_elaborator::{lower_ast_to_ir, build_struct_registry, build_enum_registry};
 use paideia_as_lexer::{Lexer, SourceText};
 use paideia_as_parser::Parser;
+use paideia_as_reflection::{DslDiagnosticHandle, current_handle, install_router_handle};
 
 use crate::cmd_common;
 
 /// Run `paideia-as check <input> [--sarif <PATH>]`.
 pub fn run(input: &Path, dump_ir: bool, sarif: Option<&Path>, quiet: bool) -> ExitCode {
+    // R220.M12: install the hosted-DSL diagnostic router once per process
+    // so `Elab.elab_error` / `Elab.elab_warn` builtin calls from any
+    // hosted DSL (@dsl_parser body per R220.M3) reach the same rendering
+    // pipeline the native passes use.  `install_router_handle` is
+    // idempotent — repeat invocations (e.g. cmd_check called multiple
+    // times in a test binary) are no-ops.
+    install_router_handle(DslDiagnosticHandle::new());
+
     let bytes = match fs::read(input) {
         Ok(b) => b,
         Err(e) => {
@@ -99,6 +108,26 @@ pub fn run(input: &Path, dump_ir: bool, sarif: Option<&Path>, quiet: bool) -> Ex
         let mut out = std::io::stdout().lock();
         let _ = out.write_all(dump.as_bytes());
     }
+
+    // R220.M12: drain any hosted-DSL diagnostics that landed in the
+    // router during elaboration and interleave them (by primary-span
+    // byte-start) with the native diagnostics collected in `sink`.  The
+    // merged stream then flows through the same human/SARIF renderers
+    // native diagnostics use — hosted DSLs get identical presentation
+    // per DI-D1.
+    let hosted: Vec<Diagnostic> = current_handle().map(|h| h.drain()).unwrap_or_default();
+    let sink = if hosted.is_empty() {
+        sink
+    } else {
+        let mut merged = sink.into_diagnostics();
+        merged.extend(hosted);
+        merged.sort_by_key(|d| d.primary_span().map(|s| s.byte_start()).unwrap_or(0));
+        let mut out = VecSink::new();
+        for d in merged {
+            let _ = out.emit(d);
+        }
+        out
+    };
 
     finish(&source_map, catalog, sink, sarif, quiet)
 }

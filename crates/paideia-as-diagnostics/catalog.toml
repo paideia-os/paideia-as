@@ -2164,3 +2164,46 @@ let-bindings.
 """
 since = "0.20.1"
 deprecated = false
+
+[diagnostic.Z9000]
+severity = "error"
+category = "experimental"
+title = "Hosted-DSL diagnostic band start (R220.M9 reservation)"
+brief = "reserved: hosted-DSL diagnostic (Z9000..=Z9099 window)"
+description = """
+R220.M9 reserved the Z9000..=Z9099 numeric window for hosted-DSL
+diagnostics forwarded through the `paideia_as_reflection::dsl_diag`
+router.  A hosted DSL (installed via `@dsl_parser` per R220.M3) mints
+specific codes in this band with `hosted_error_code` / `hosted_warn_code`
+/ `hosted_note_code`.  This entry anchors the reservation for SARIF
+consumers and the diagnostics catalog reader; a per-DSL catalog lands
+in R229 alongside the semantic-shell shell binding.
+"""
+since = "0.36.12"
+deprecated = false
+
+[diagnostic.Z9001]
+severity = "error"
+category = "experimental"
+title = "Hosted-DSL error (anchor entry)"
+brief = "hosted-DSL error forwarded via reflection router"
+description = """
+Default error slot within the R220.M9 hosted-DSL reservation
+(Z9000..=Z9099).  The elaborator emits Z9001 when a
+`Elab.elab_error(...)` reflection call is dispatched with no
+DSL-specific code override.  R229 promotes this to a per-DSL catalog.
+"""
+since = "0.36.12"
+deprecated = false
+
+[diagnostic.Z9099]
+severity = "note"
+category = "experimental"
+title = "Hosted-DSL diagnostic band end (R220.M9 reservation)"
+brief = "reserved: hosted-DSL diagnostic band end (Z9000..=Z9099 window)"
+description = """
+Upper bound anchor for the R220.M9 hosted-DSL reservation.
+See Z9000 for the reservation policy; per-DSL catalog lands R229.
+"""
+since = "0.36.12"
+deprecated = false

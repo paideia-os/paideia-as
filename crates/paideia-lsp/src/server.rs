@@ -5,8 +5,38 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
 use crate::cache::ParseCache;
+use crate::diagnostics::to_lsp_diagnostic;
 use crate::document::DocumentStore;
+use crate::dsl_embed::{DslDiagnosticHandle, current_handle, install_router_handle};
 use crate::incremental::IncrementalEngine;
+
+/// R220.M12: drain any hosted-DSL diagnostics that accumulated in the
+/// router during document elaboration and interleave them (LSP-shape)
+/// with the native diagnostics computed by `diagnose_document_with_cache`.
+///
+/// A no-op when no router handle is installed or when nothing hosted was
+/// emitted — the fast path for source files with no `@dsl_parser`
+/// attachments.  Called from `did_open` / `did_change` immediately
+/// before `publish_diagnostics`.
+///
+/// FIXME(per-doc-scope): under concurrent document editing the router
+/// slot is process-wide, so two documents that both trigger hosted
+/// diagnostics could observe each other's output.  R229 introduces
+/// per-document `with_current_handle` scoping.  For today's
+/// single-threaded diagnose path this is fine.
+fn merge_hosted(mut native: Vec<Diagnostic>, source_text: &str) -> Vec<Diagnostic> {
+    let Some(handle) = current_handle() else {
+        return native;
+    };
+    let hosted = handle.drain();
+    if hosted.is_empty() {
+        return native;
+    }
+    for d in hosted {
+        native.push(to_lsp_diagnostic(&d, source_text));
+    }
+    native
+}
 
 /// The paideia-lsp backend implementing the Language Server Protocol.
 pub struct Backend {
@@ -43,13 +73,20 @@ impl LanguageServer for Backend {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
+        // R220.M12: ensure the router handle is installed at least once
+        // per Backend construction.  In the binary path, `main.rs` also
+        // installs it (idempotent); test harnesses that build a Backend
+        // directly get the same guarantee here.
+        let _ = install_router_handle(DslDiagnosticHandle::new());
+
         let uri = params.text_document.uri.clone();
         let text = params.text_document.text.clone();
         self.store
             .open(uri.clone(), params.text_document.version, text.clone());
         self.engine.set_document(uri.to_string().as_str(), &text);
-        let diagnostics =
+        let native =
             crate::diagnostics::diagnose_document_with_cache(&uri, &text, &self.cache);
+        let diagnostics = merge_hosted(native, &text);
         self.client
             .publish_diagnostics(uri, diagnostics, Some(params.text_document.version))
             .await;
@@ -64,8 +101,9 @@ impl LanguageServer for Backend {
         };
         self.engine
             .set_document(uri.to_string().as_str(), &doc.text);
-        let diagnostics =
+        let native =
             crate::diagnostics::diagnose_document_with_cache(&uri, &doc.text, &self.cache);
+        let diagnostics = merge_hosted(native, &doc.text);
         self.client
             .publish_diagnostics(uri, diagnostics, Some(doc.version))
             .await;

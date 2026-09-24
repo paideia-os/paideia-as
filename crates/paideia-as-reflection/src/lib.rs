@@ -38,11 +38,17 @@
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+pub mod dsl_diag;
 pub mod elab_effect;
 pub mod hygiene;
 pub mod syntax;
 pub mod walker;
 
+pub use dsl_diag::{
+    DslDiagnosticHandle, HOSTED_DSL_CODE_MAX, HOSTED_DSL_CODE_MIN, current_handle,
+    hosted_error_code, hosted_note_code, hosted_warn_code, install_router_handle,
+    with_current_handle,
+};
 pub use elab_effect::{
     ELAB_MAX_QUOTE_DEPTH, ElabError, ElabOpKind, ElabOpSignatures, ElabWarn,
     F_ELAB_ERROR, F_ELAB_QUOTE_DEPTH_EXCEEDED, F_ELAB_TYPE_UNAVAILABLE,

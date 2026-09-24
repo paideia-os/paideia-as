@@ -1,5 +1,127 @@
 # Changelog
 
+## R220 substrate — round close-out map (M1..M12)
+
+Quick reference for future readers.  Every R220 milestone landed with its
+own paideia-as issue, workspace-version bump, and CHANGELOG entry.
+
+| Milestone | Version   | Issue | Subject                                          |
+|-----------|-----------|-------|--------------------------------------------------|
+| R220.M1   | 0.36.8    | #1415 | Elaborator reflection surface (`paideia-as-reflection`) |
+| R220.M2   | 0.36.9    | #1416 | Hygiene (Ullrich 2020) exposed to reflected macros |
+| R220.M3   | 0.36.10   | #1417 | `@dsl_parser("<name>")` attachment point         |
+| R220.M4   | 0.36.4    | #1418 | `Str::eq` stdlib primitive                       |
+| R220.M5   | 0.36.4    | #1419 | `Str::hash` FNV-1a-64 stdlib primitive           |
+| R220.M6   | 0.36.5    | #1420 | HashMap<Str, u64> two-tier resize                |
+| R220.M7   | 0.36.7    | #1421 | HashMap<Str, ClosureFatPtr>                      |
+| R220.M8   | 0.36.6    | #1422 | Effect-row inference at call sites (closes #1356) |
+| R220.M9   | 0.36.10   | #1423 | LSP-embed API for hosted DSLs                    |
+| R220.M10  | 0.36.11   | #1424 | `@fingerprint` intrinsic                         |
+| R220.M11  | 0.36.9    | #1425 | Rank-restricted let-polymorphism (Odersky-Läufer) |
+| R220.M12  | 0.36.12   | #1426 | Wire-up + close-out (this entry)                 |
+
+## 0.36.12 — 2026-09-24 — R220 substrate close-out (R220.M12)
+
+Closes the R220 substrate round.  Lands the three wire-ups R220.M9
+explicitly deferred, bumps the workspace, and consolidates the
+per-primitive scratch CHANGELOGs into this file.
+
+### Wire-up 1 — router relocation (paideia-as-reflection)
+
+R220.M9 landed `DslDiagnosticHandle` + the process-wide handle slot in
+`paideia_lsp::dsl_embed`, and *deferred* the elaborator-side dispatcher
+bridge because the elaborator cannot depend on `paideia-lsp` (paideia-lsp
+depends on the elaborator — a cycle).  R220.M12 breaks the stalemate by
+relocating the router API to `paideia-as-reflection`, the substrate
+crate both the elaborator and paideia-lsp already depend on.
+
+- **`crates/paideia-as-reflection/src/dsl_diag.rs`** (NEW ~200L):
+  `DslDiagnosticHandle` + hosted-code minters (`hosted_error_code` /
+  `hosted_warn_code` / `hosted_note_code` — Z9000..=Z9099 window) +
+  process-wide `install_router_handle` + `current_handle` +
+  `with_current_handle` (RAII scoped override).
+- **`crates/paideia-lsp/src/dsl_embed.rs`** (SHRUNK): now re-exports the
+  reflection-side API for source-compat with the M9 landing, and keeps
+  only the two LSP-shaped helpers — `to_lsp_diagnostics` (drains a
+  handle through `to_lsp_diagnostic`) and `interleave_by_span` (stable
+  merge by primary-span byte-start).
+- **`crates/paideia-lsp/src/lib.rs`**: re-export surface unchanged for
+  callers (`paideia_lsp::install_router_handle(...)` still works).
+
+### Wire-up 2 — elaborator dispatcher bridge
+
+- **`crates/paideia-as-elaborator/src/term_eval/call.rs`**: added
+  builtin dispatch arms `5` (`Elab.elab_error`) and `6` (`Elab.elab_warn`)
+  next to the existing `kind/children/span/splice/elab` arms.  Each arm
+  reads `paideia_as_reflection::current_handle()`; when present the arm
+  forwards an `ElabError` / `ElabWarn` payload with hosted code
+  `Z9001` (default DSL slot); when absent the arm surfaces a native
+  F1200 diagnostic so hosted-DSL errors are never silently dropped.
+  `Elab.elab_error` returns an `Err` (models the surface `Never`
+  return type); `Elab.elab_warn` returns `Value::Unit`.
+- **FIXME(hosted-str-value)**: `Value` in the term evaluator does not
+  yet carry `Str` or `Span` variants, so the dispatcher builds a
+  synthetic message from the arg-Term's span + a fixed string.  Full
+  hosted-DSL usability at the source-language surface waits on R229's
+  Value-expansion — the wiring here is enough for end-to-end dispatch
+  testing today.
+
+### Wire-up 3 — server-side install + drain + interleave
+
+- **`crates/paideia-as/src/cmd_check.rs`**: calls
+  `install_router_handle(DslDiagnosticHandle::new())` at `run()` start;
+  after lowering, drains the router and merges hosted diagnostics with
+  the native `VecSink` sorted by primary-span byte-start before the
+  human/SARIF renderers run.  Hosted DSLs share the presentation
+  pipeline native passes use (per DI-D1).
+- **`crates/paideia-lsp/src/main.rs`**: server startup calls
+  `install_router_handle` once; `Backend::did_open` / `did_change`
+  additionally guard against the test-harness path.
+- **`crates/paideia-lsp/src/server.rs`**: new `merge_hosted` helper
+  drains the router after `diagnose_document_with_cache` and folds the
+  hosted stream into the LSP diagnostic vector before
+  `publish_diagnostics`.  FIXME(per-doc-scope) documents the R229
+  per-document `with_current_handle` scoping upgrade.
+
+### Wire-up 4 — hosted-code catalog stub
+
+- **`crates/paideia-as-diagnostics/catalog.toml`**: three anchor
+  entries — `Z9000` (band-start reservation), `Z9001` (default error
+  slot; the elaborator dispatcher emits at this code), `Z9099`
+  (band-end reservation).  A per-DSL catalog lands in R229 alongside
+  the semantic-shell shell binding; today's stub keeps SARIF
+  `tool.driver.rules` self-describing for the current dispatcher.
+
+### Version + scratch consolidation
+
+- Workspace bumped `0.36.11` → `0.36.12`.
+- 11 per-primitive scratch CHANGELOGs under `.plans/scratch/` folded
+  into this file and removed:
+  `CHANGELOG-{dsl-parser,effect-row,elab-reflection,fingerprint-intrinsic,hashmap-closure,hashmap,hygiene,lsp-embed,rank-restricted-hm,str-eq,str-hash}.md`
+  plus `CHANGELOG-wave-upsilon.md`.
+
+### Remaining follow-ups (all cited above by FIXME(...) marker)
+
+- **FIXME(nfc)** — `Str::hash` uses FNV-1a-64 on raw bytes; Unicode NFC
+  normalization intrinsic is not exposed to `.pdx` yet.  R221.M1 gate.
+- **FIXME(blake3)** — schema-registry.md §3 upgrade window from FNV to
+  BLAKE3 for key hashing; BLAKE3 is in-workspace but not stdlib-exposed.
+- **FIXME(closure-invoke)** — `HashMapStrClosure::get` returns a
+  `ClosureFatPtr`; end-to-end call-through-fat-pointer is blocked on
+  paideia-as#995 encoder lowering.  R229 promotion.
+- **FIXME(hosted-str-value)** — `Value::Str` / `Value::Span` variants
+  needed for full hosted-DSL usability at the source-language surface.
+  R229 scope.
+- **FIXME(per-doc-scope)** — LSP `merge_hosted` uses the process-wide
+  router slot; R229 introduces per-document `with_current_handle`
+  scoping so concurrent editors of different `.pdx` files can't observe
+  each other's hosted output.
+
+Closes paideia-as#1426 (R220.M12).  Formally closes the R220 substrate
+round.  Unblocks R221 (semantic-shell surface language), R229
+(semantic-shell shell binding — session-scoped bindings + per-DSL
+catalog + closure-invoke promotion).
+
 ## 0.36.11 — 2026-09-24 — @fingerprint intrinsic (R220.M10)
 
 Elaborator API a hosted DSL uses to stamp a per-turn wire fingerprint (anti-fabrication
