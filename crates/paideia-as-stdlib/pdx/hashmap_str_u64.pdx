@@ -1,0 +1,632 @@
+// R220.M6 (paideia-as #1420, closes #996b): HashMapStrU64 — Str-keyed,
+// u64-valued open-addressing hash table. First real monomorphization of
+// the aspirational `HashMap<K, V>` surface (see hashmap.pdx trait
+// surface). Gates semantic-shell R222 command-name dispatch and R228
+// tab completion.
+//
+// Layout: two-tier struct-of-arrays in .bss.
+//   Small tier: 128 slots (load-factor gate: resize on >96 = >0.75).
+//   Large tier: 512 slots (4× growth; single-shot).
+//   Metadata: hm_len (u64), hm_using_large (u64) — 0 = small, 1 = large.
+//
+// State column values: 0 = empty, 1 = occupied, 2 = tombstone (reserved
+// for a future remove op; not written by the R220.M6 surface).
+//
+// Hash: FNV-1a-64 per design/terminal/schema-registry.md §3, inlined as
+// the local helper `hms_fnv_hash` to avoid cross-module .pdx symbol
+// coupling until R222 proves that path (only str.pdx and
+// str_hash_shape.pdx reference the free `str_hash` today). Bit-mask into
+// bucket index via `and 0x7F` (small) or `and 0x1FF` (large).
+//
+// Key comparison: inline byte-eq (helper `hms_str_eq`) — byte-identical
+// copy of the R220.M4 str_eq body, same rationale as the hash helper.
+// FIXME(nfc): same NFC deferral tag as Str::eq and Str::hash — SH-D9
+// requires NFC-normalized bytes for both. Interim byte-compare +
+// byte-hash matches the semantic-shell R222 rollout window.
+//
+// Return convention on get: OptionU64 per #997 pair ABI —
+// rax = discriminant (0 = Some, 1 = None), rdx = value payload.
+//
+// Effects/capabilities: !{RawMem} @{paideia.raw_mem} on every op that
+// touches Str-backing bytes (put, get, contains — the hash+eq helpers
+// dereference the *Str). new / len are !{} @{} (metadata-only).
+//
+// Encoder pitfall discipline (memory feedback_pdx_encoder_pitfalls):
+//   - No `test rN,rN` — zero checks use `cmp reg, 0`.
+//   - Byte loads via `xor rdx, rdx; mov_b rdx, [r9]` (paideia-as #1248).
+//   - FNV prime pre-loaded into r10 (not r11; wide imm on r11 is fragile).
+//   - No `add reg, [mem]` — always decompose to `mov` + `add`.
+//   - No 2-op `imul r, imm` — pre-load imm into a register first.
+//   - Reserved-label prefix: `hms_` throughout (avoids `loop`/`if`/
+//     `top`/`done`/`next` collisions with paideia-as keywords).
+//
+// FIXME(resize-uncapped): the tier hop from small→large is one-shot.
+// A workload of >0.75·512 = >384 live keys would need a second growth
+// tier or a heap-backed rehash (blocked on the arena→ptr-swap surface
+// scoped in #996e). R222's 30–50 command dispatch and R228's completion
+// window sit comfortably inside 128, so single-tier growth is the honest
+// R220.M6 landing; the aspirational unbounded-grow shape is a v0.37+
+// follow-up (file after R220.M12 closes).
+//
+// FIXME(remove): no remove op — the state=2 tombstone lane is reserved
+// but no put/get path writes or scans it. Follow-up (#996d equivalent)
+// lands when R222 needs command-alias overwrites.
+
+module HashMapStrU64 = structure {
+  struct Str { ptr: *u8, len: u64 }
+
+  enum OptionU64 { Some(u64), None }
+
+  // Two-tier struct-of-arrays. Small = 128 slots × 3 words = 3072 B.
+  //                             Large = 512 slots × 3 words = 12288 B.
+  //                             Metadata = 16 B. Total ~15.4 KiB.
+  pub let mut hm_s_state       : [u64; 128] = uninit
+  pub let mut hm_s_keys        : [u64; 128] = uninit
+  pub let mut hm_s_values      : [u64; 128] = uninit
+  pub let mut hm_l_state       : [u64; 512] = uninit
+  pub let mut hm_l_keys        : [u64; 512] = uninit
+  pub let mut hm_l_values      : [u64; 512] = uninit
+  pub let mut hm_len           : u64        = 0
+  pub let mut hm_using_large   : u64        = 0
+
+  // ------------------------------------------------------------------
+  // Local helper: hms_fnv_hash(s: *Str) -> u64
+  //   Byte-identical copy of str_hash.pdx FNV-1a-64 loop. Inlined here
+  //   rather than calling `str_hash` across module boundaries until
+  //   cross-module .pdx symbol resolution is proven end-to-end.
+  // ------------------------------------------------------------------
+  let hms_fnv_hash : (*Str) -> u64 !{RawMem} @{paideia.raw_mem} =
+    fn(s: *Str) -> unsafe {
+      effects: {RawMem},
+      capabilities: {paideia.raw_mem},
+      justification: "R220.M6 local FNV-1a-64 helper (matches str_hash.pdx)",
+      block: {
+        mov r8, [rdi + 8];
+        mov r9, [rdi + 0];
+        mov rax, 0xCBF29CE484222325;
+        mov r10, 0x100000001B3;
+        cmp r8, 0;
+        je  hms_fnv_done;
+        mov rcx, r8;
+
+      hms_fnv_next:
+        xor rdx, rdx;
+        mov_b rdx, [r9];
+        xor rax, rdx;
+        imul rax, r10;
+        add r9, 1;
+        sub rcx, 1;
+        cmp rcx, 0;
+        jne hms_fnv_next;
+
+      hms_fnv_done:
+        ret
+      }
+    }
+
+  // ------------------------------------------------------------------
+  // Local helper: hms_str_eq(a: *Str, b: *Str) -> u64
+  //   Byte-identical copy of str_eq.pdx. Same inlining rationale as
+  //   hms_fnv_hash above.
+  // ------------------------------------------------------------------
+  let hms_str_eq : (*Str, *Str) -> u64 !{RawMem} @{paideia.raw_mem} =
+    fn(a: *Str, b: *Str) -> unsafe {
+      effects: {RawMem},
+      capabilities: {paideia.raw_mem},
+      justification: "R220.M6 local byte-eq helper (matches str_eq.pdx)",
+      block: {
+        mov r8, [rdi + 8];
+        mov r9, [rsi + 8];
+        cmp r8, r9;
+        jne hms_eq_false;
+        cmp r8, 0;
+        je  hms_eq_true;
+        mov r10, [rdi + 0];
+        mov r11, [rsi + 0];
+        mov rcx, r8;
+
+      hms_eq_next:
+        xor rax, rax;
+        mov_b rax, [r10];
+        xor rdx, rdx;
+        mov_b rdx, [r11];
+        cmp rax, rdx;
+        jne hms_eq_false;
+        add r10, 1;
+        add r11, 1;
+        sub rcx, 1;
+        cmp rcx, 0;
+        jne hms_eq_next;
+
+      hms_eq_true:
+        mov rax, 1;
+        ret;
+
+      hms_eq_false:
+        xor rax, rax;
+        ret
+      }
+    }
+
+  // ------------------------------------------------------------------
+  // hashmap_str_new() -> ()
+  //   Zero all state, both tiers, both metadata cells.
+  // ------------------------------------------------------------------
+  pub let hashmap_str_new : () -> () !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "HashMapStrU64 initialization: zero both tiers and metadata",
+    block: {
+      // Small tier: zero 128 slots × 3 columns.
+      xor r8, r8;
+
+    hms_new_s_top:
+      cmp r8, 128;
+      jz  hms_new_l_init;
+      lea r15, [rip + hm_s_state];
+      mov [r15 + r8*8], 0;
+      lea r15, [rip + hm_s_keys];
+      mov [r15 + r8*8], 0;
+      lea r15, [rip + hm_s_values];
+      mov [r15 + r8*8], 0;
+      add r8, 1;
+      jmp hms_new_s_top;
+
+    hms_new_l_init:
+      // Large tier: zero 512 slots × 3 columns.
+      xor r8, r8;
+
+    hms_new_l_top:
+      cmp r8, 512;
+      jz  hms_new_meta;
+      lea r15, [rip + hm_l_state];
+      mov [r15 + r8*8], 0;
+      lea r15, [rip + hm_l_keys];
+      mov [r15 + r8*8], 0;
+      lea r15, [rip + hm_l_values];
+      mov [r15 + r8*8], 0;
+      add r8, 1;
+      jmp hms_new_l_top;
+
+    hms_new_meta:
+      lea r15, [rip + hm_len];
+      mov [r15], 0;
+      lea r15, [rip + hm_using_large];
+      mov [r15], 0;
+      ret
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // hashmap_str_resize() -> ()
+  //   One-shot small→large rehash. Iterate small tier; for each
+  //   occupied slot, compute hash into large tier and linear-probe an
+  //   empty slot. After rehash, flip hm_using_large=1.
+  //
+  //   Precondition: hm_using_large == 0. hm_len is preserved (large
+  //   tier receives exactly the same live count).
+  // ------------------------------------------------------------------
+  let hashmap_str_resize : () -> () !{RawMem} @{paideia.raw_mem} =
+    fn(_: ()) -> unsafe {
+      effects: {RawMem},
+      capabilities: {paideia.raw_mem},
+      justification: "R220.M6 one-shot 128→512 rehash on load>0.75",
+      block: {
+        // r12 = walker index into small tier.
+        xor r12, r12;
+
+      hms_rez_walk:
+        cmp r12, 128;
+        jz  hms_rez_flip;
+
+        // Read small state[r12]; skip unless occupied (1).
+        lea r15, [rip + hm_s_state];
+        mov r13, [r15 + r12*8];
+        cmp r13, 1;
+        jne hms_rez_step;
+
+        // Load small key (a *Str pointer) into rdi and call FNV.
+        lea r15, [rip + hm_s_keys];
+        mov rdi, [r15 + r12*8];
+        push r12;
+        call hms_fnv_hash;
+        pop r12;
+
+        // Mask into large-tier index: rax & 0x1FF.
+        and rax, 0x1FF;
+
+        // Linear probe: r14 = displacement.
+        xor r14, r14;
+
+      hms_rez_probe:
+        // idx = (rax + r14) & 0x1FF.
+        mov r11, rax;
+        add r11, r14;
+        and r11, 0x1FF;
+
+        // If large state[idx] == 0, insert here.
+        lea r15, [rip + hm_l_state];
+        mov r8, [r15 + r11*8];
+        cmp r8, 0;
+        je  hms_rez_insert;
+
+        // Occupied — advance probe (guaranteed to find space since 96 < 512).
+        add r14, 1;
+        jmp hms_rez_probe;
+
+      hms_rez_insert:
+        // Write large_state[idx] = 1.
+        lea r15, [rip + hm_l_state];
+        mov [r15 + r11*8], 1;
+        // Copy key from small_keys[r12] to large_keys[r11].
+        lea r15, [rip + hm_s_keys];
+        mov r8, [r15 + r12*8];
+        lea r15, [rip + hm_l_keys];
+        mov [r15 + r11*8], r8;
+        // Copy value.
+        lea r15, [rip + hm_s_values];
+        mov r8, [r15 + r12*8];
+        lea r15, [rip + hm_l_values];
+        mov [r15 + r11*8], r8;
+
+      hms_rez_step:
+        add r12, 1;
+        jmp hms_rez_walk;
+
+      hms_rez_flip:
+        // Flip metadata: hm_using_large = 1.
+        lea r15, [rip + hm_using_large];
+        mov [r15], 1;
+        ret
+      }
+    }
+
+  // ------------------------------------------------------------------
+  // hashmap_str_put(k: *Str, v: u64) -> u64
+  //   Returns 1 on success (insert or replace), 0 if the active tier
+  //   is full (should not occur pre-resize since we cap at 96 live in
+  //   small, and rehash gives 512 slots).
+  //
+  //   Load-factor check: after insert in small tier, if new len > 96,
+  //   invoke hashmap_str_resize().
+  // ------------------------------------------------------------------
+  pub let hashmap_str_put : (*Str, u64) -> u64 !{RawMem} @{paideia.raw_mem} =
+    fn(k: *Str, v: u64) -> unsafe {
+      effects: {RawMem},
+      capabilities: {paideia.raw_mem},
+      justification: "R220.M6 HashMapStrU64 put with linear probing + tier-hop resize",
+      block: {
+        // rdi = k (*Str), rsi = v. Preserve v across FNV call.
+        push rsi;
+        push rdi;
+        call hms_fnv_hash;
+        pop rdi;
+        pop rsi;
+
+        // Read tier flag.
+        lea r15, [rip + hm_using_large];
+        mov r13, [r15];
+        cmp r13, 0;
+        jne hms_put_large;
+
+        // ============================================================
+        // Small-tier put.
+        // ============================================================
+        and rax, 0x7F;
+        mov r12, rax;
+        xor r14, r14;
+
+      hms_put_s_probe:
+        mov r11, r12;
+        add r11, r14;
+        and r11, 0x7F;
+
+        lea r15, [rip + hm_s_state];
+        mov r8, [r15 + r11*8];
+
+        cmp r8, 0;
+        je  hms_put_s_insert;
+
+        // Occupied — check key equality.
+        cmp r8, 1;
+        jne hms_put_s_probe_next;
+
+        // Load existing key pointer, call byte-eq(rdi, existing).
+        lea r15, [rip + hm_s_keys];
+        mov r9, [r15 + r11*8];
+        push rsi;
+        push rdi;
+        push r11;
+        push r12;
+        push r14;
+        // Args: rdi=k (already), rsi=existing.
+        mov rsi, r9;
+        call hms_str_eq;
+        pop r14;
+        pop r12;
+        pop r11;
+        pop rdi;
+        pop rsi;
+        cmp rax, 1;
+        je  hms_put_s_replace;
+
+      hms_put_s_probe_next:
+        add r14, 1;
+        cmp r14, 128;
+        jl  hms_put_s_probe;
+
+        // Small tier full (should not reach here pre-resize).
+        xor rax, rax;
+        ret;
+
+      hms_put_s_insert:
+        // Write state=1, keys[r11]=rdi, values[r11]=rsi.
+        lea r15, [rip + hm_s_state];
+        mov [r15 + r11*8], 1;
+        lea r15, [rip + hm_s_keys];
+        mov [r15 + r11*8], rdi;
+        lea r15, [rip + hm_s_values];
+        mov [r15 + r11*8], rsi;
+        // Increment len.
+        lea r15, [rip + hm_len];
+        mov r8, [r15];
+        add r8, 1;
+        mov [r15], r8;
+        // Load-factor gate: if r8 > 96, resize. Reformulated as
+        // `cmp r8, 97; jl skip` so we use the same `jl` mnemonic the
+        // rest of stdlib is proven on (jle is unused in tree).
+        cmp r8, 97;
+        jl  hms_put_s_ok;
+        call hashmap_str_resize;
+
+      hms_put_s_ok:
+        mov rax, 1;
+        ret;
+
+      hms_put_s_replace:
+        lea r15, [rip + hm_s_values];
+        mov [r15 + r11*8], rsi;
+        mov rax, 1;
+        ret;
+
+        // ============================================================
+        // Large-tier put.
+        // ============================================================
+      hms_put_large:
+        and rax, 0x1FF;
+        mov r12, rax;
+        xor r14, r14;
+
+      hms_put_l_probe:
+        mov r11, r12;
+        add r11, r14;
+        and r11, 0x1FF;
+
+        lea r15, [rip + hm_l_state];
+        mov r8, [r15 + r11*8];
+
+        cmp r8, 0;
+        je  hms_put_l_insert;
+
+        cmp r8, 1;
+        jne hms_put_l_probe_next;
+
+        lea r15, [rip + hm_l_keys];
+        mov r9, [r15 + r11*8];
+        push rsi;
+        push rdi;
+        push r11;
+        push r12;
+        push r14;
+        mov rsi, r9;
+        call hms_str_eq;
+        pop r14;
+        pop r12;
+        pop r11;
+        pop rdi;
+        pop rsi;
+        cmp rax, 1;
+        je  hms_put_l_replace;
+
+      hms_put_l_probe_next:
+        add r14, 1;
+        cmp r14, 512;
+        jl  hms_put_l_probe;
+
+        xor rax, rax;
+        ret;
+
+      hms_put_l_insert:
+        lea r15, [rip + hm_l_state];
+        mov [r15 + r11*8], 1;
+        lea r15, [rip + hm_l_keys];
+        mov [r15 + r11*8], rdi;
+        lea r15, [rip + hm_l_values];
+        mov [r15 + r11*8], rsi;
+        lea r15, [rip + hm_len];
+        mov r8, [r15];
+        add r8, 1;
+        mov [r15], r8;
+        mov rax, 1;
+        ret;
+
+      hms_put_l_replace:
+        lea r15, [rip + hm_l_values];
+        mov [r15 + r11*8], rsi;
+        mov rax, 1;
+        ret
+      }
+    }
+
+  // ------------------------------------------------------------------
+  // hashmap_str_get(k: *Str) -> OptionU64
+  //   Probe active tier; return Some(v) if key found, None otherwise.
+  //   Pair ABI: rax = discriminant (0 = Some, 1 = None), rdx = value.
+  // ------------------------------------------------------------------
+  pub let hashmap_str_get : (*Str) -> OptionU64 !{RawMem} @{paideia.raw_mem} =
+    fn(k: *Str) -> unsafe {
+      effects: {RawMem},
+      capabilities: {paideia.raw_mem},
+      justification: "R220.M6 HashMapStrU64 get with linear probing",
+      block: {
+        push rdi;
+        call hms_fnv_hash;
+        pop rdi;
+
+        lea r15, [rip + hm_using_large];
+        mov r13, [r15];
+        cmp r13, 0;
+        jne hms_get_large;
+
+        // Small-tier probe.
+        and rax, 0x7F;
+        mov r12, rax;
+        xor r14, r14;
+
+      hms_get_s_probe:
+        mov r11, r12;
+        add r11, r14;
+        and r11, 0x7F;
+
+        lea r15, [rip + hm_s_state];
+        mov r8, [r15 + r11*8];
+        cmp r8, 0;
+        je  hms_get_none;
+        cmp r8, 1;
+        jne hms_get_s_next;
+
+        lea r15, [rip + hm_s_keys];
+        mov r9, [r15 + r11*8];
+        push rdi;
+        push r11;
+        push r12;
+        push r14;
+        mov rsi, r9;
+        call hms_str_eq;
+        pop r14;
+        pop r12;
+        pop r11;
+        pop rdi;
+        cmp rax, 1;
+        je  hms_get_s_found;
+
+      hms_get_s_next:
+        add r14, 1;
+        cmp r14, 128;
+        jl  hms_get_s_probe;
+        jmp hms_get_none;
+
+      hms_get_s_found:
+        lea r15, [rip + hm_s_values];
+        mov rdx, [r15 + r11*8];
+        xor rax, rax;
+        ret;
+
+        // Large-tier probe.
+      hms_get_large:
+        and rax, 0x1FF;
+        mov r12, rax;
+        xor r14, r14;
+
+      hms_get_l_probe:
+        mov r11, r12;
+        add r11, r14;
+        and r11, 0x1FF;
+
+        lea r15, [rip + hm_l_state];
+        mov r8, [r15 + r11*8];
+        cmp r8, 0;
+        je  hms_get_none;
+        cmp r8, 1;
+        jne hms_get_l_next;
+
+        lea r15, [rip + hm_l_keys];
+        mov r9, [r15 + r11*8];
+        push rdi;
+        push r11;
+        push r12;
+        push r14;
+        mov rsi, r9;
+        call hms_str_eq;
+        pop r14;
+        pop r12;
+        pop r11;
+        pop rdi;
+        cmp rax, 1;
+        je  hms_get_l_found;
+
+      hms_get_l_next:
+        add r14, 1;
+        cmp r14, 512;
+        jl  hms_get_l_probe;
+        jmp hms_get_none;
+
+      hms_get_l_found:
+        lea r15, [rip + hm_l_values];
+        mov rdx, [r15 + r11*8];
+        xor rax, rax;
+        ret;
+
+      hms_get_none:
+        mov rax, 1;
+        xor rdx, rdx;
+        ret
+      }
+    }
+
+  // ------------------------------------------------------------------
+  // hashmap_str_contains(k: *Str) -> u64
+  //   Returns 1 if key present, 0 otherwise. u64 return per the pending
+  //   #1229 bool-return canary; same convention as hashmap_u64_contains.
+  // ------------------------------------------------------------------
+  pub let hashmap_str_contains : (*Str) -> u64 !{RawMem} @{paideia.raw_mem} =
+    fn(k: *Str) -> unsafe {
+      effects: {RawMem},
+      capabilities: {paideia.raw_mem},
+      justification: "R220.M6 HashMapStrU64 contains via get + discriminant collapse",
+      block: {
+        // Reuse get: rax=0 → Some (found) → return 1; rax=1 → None → 0.
+        call hashmap_str_get;
+        cmp rax, 0;
+        je  hms_contains_yes;
+        xor rax, rax;
+        ret;
+
+      hms_contains_yes:
+        mov rax, 1;
+        ret
+      }
+    }
+
+  // ------------------------------------------------------------------
+  // hashmap_str_len() -> u64
+  //   Returns current live entry count. !{} @{} (metadata-only read).
+  // ------------------------------------------------------------------
+  pub let hashmap_str_len : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "HashMapStrU64 length query",
+    block: {
+      lea r15, [rip + hm_len];
+      mov rax, [r15];
+      ret
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // hashmap_str_using_large() -> u64
+  //   Diagnostic: returns 1 if the map has hopped to the large tier,
+  //   0 otherwise. Consumed by fill-percentile fixtures to assert the
+  //   resize path fired between fill=80 and fill=100.
+  // ------------------------------------------------------------------
+  pub let hashmap_str_using_large : () -> u64 !{} @{} = fn(_: ()) -> unsafe {
+    effects: {},
+    capabilities: {},
+    justification: "HashMapStrU64 tier-hop diagnostic",
+    block: {
+      lea r15, [rip + hm_using_large];
+      mov rax, [r15];
+      ret
+    }
+  }
+}

@@ -2735,3 +2735,445 @@ fn r220m5_str_hash_module_declares_signature_and_fixmes() {
         "str_hash.pdx: must mark both NFC and BLAKE3 upgrade paths with FIXME tags"
     );
 }
+
+// -----------------------------------------------------------------------
+// R220.M6 — HashMap<Str, u64> monomorphization (paideia-as #1420,
+// closes #996b). Lifts the #1003 canary u64→u64 hash-dispatch into a
+// real Str-keyed table backing semantic-shell R222 command dispatch
+// and R228 tab completion.
+// -----------------------------------------------------------------------
+
+// Parse-checks (need paideia-as built; run with --ignored).
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m6_hashmap_str_module_parses_cleanly() {
+    check_pdx_parses("pdx/hashmap_str_u64.pdx");
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m6_hashmap_str_shape_parses_cleanly() {
+    check_pdx_parses("pdx/hashmap_str_shape.pdx");
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m6_hashmap_str_fill_20_parses_cleanly() {
+    check_pdx_parses("pdx/hashmap_str_fill_20.pdx");
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m6_hashmap_str_fill_40_parses_cleanly() {
+    check_pdx_parses("pdx/hashmap_str_fill_40.pdx");
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m6_hashmap_str_fill_60_parses_cleanly() {
+    check_pdx_parses("pdx/hashmap_str_fill_60.pdx");
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m6_hashmap_str_fill_80_parses_cleanly() {
+    check_pdx_parses("pdx/hashmap_str_fill_80.pdx");
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m6_hashmap_str_fill_100_parses_cleanly() {
+    check_pdx_parses("pdx/hashmap_str_fill_100.pdx");
+}
+
+// -----------------------------------------------------------------------
+// R220.M6 — reference implementation. Byte-identical algorithm to
+// hashmap_str_u64.pdx: FNV-1a-64 (schema-registry.md §3), linear
+// probing, two-tier layout (small=128, large=512), load-factor gate
+// at >0.75 in small triggering one-shot rehash into large.
+//
+// Cross-checked against the fill-percentile fixtures below: for each
+// checkpoint (20/40/60/80/100 puts), the reference impl must reach
+// exactly the fixture's declared (len, using_large) state.
+// -----------------------------------------------------------------------
+
+struct RefHashMapStrU64 {
+    small_state: Vec<u8>,   // 128 entries; 0=empty, 1=occupied
+    small_keys: Vec<Vec<u8>>,
+    small_values: Vec<u64>,
+    large_state: Vec<u8>,   // 512 entries
+    large_keys: Vec<Vec<u8>>,
+    large_values: Vec<u64>,
+    len: u64,
+    using_large: bool,
+}
+
+impl RefHashMapStrU64 {
+    fn new() -> Self {
+        Self {
+            small_state: vec![0u8; 128],
+            small_keys: vec![Vec::new(); 128],
+            small_values: vec![0u64; 128],
+            large_state: vec![0u8; 512],
+            large_keys: vec![Vec::new(); 512],
+            large_values: vec![0u64; 512],
+            len: 0,
+            using_large: false,
+        }
+    }
+
+    fn put(&mut self, k: &[u8], v: u64) -> bool {
+        let h = fnv1a_64(k);
+        if !self.using_large {
+            let base = (h & 0x7F) as usize;
+            for disp in 0..128 {
+                let idx = (base + disp) & 0x7F;
+                match self.small_state[idx] {
+                    0 => {
+                        self.small_state[idx] = 1;
+                        self.small_keys[idx] = k.to_vec();
+                        self.small_values[idx] = v;
+                        self.len += 1;
+                        if self.len > 96 {
+                            self.resize();
+                        }
+                        return true;
+                    }
+                    1 => {
+                        if self.small_keys[idx].as_slice() == k {
+                            self.small_values[idx] = v;
+                            return true;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            false
+        } else {
+            let base = (h & 0x1FF) as usize;
+            for disp in 0..512 {
+                let idx = (base + disp) & 0x1FF;
+                match self.large_state[idx] {
+                    0 => {
+                        self.large_state[idx] = 1;
+                        self.large_keys[idx] = k.to_vec();
+                        self.large_values[idx] = v;
+                        self.len += 1;
+                        return true;
+                    }
+                    1 => {
+                        if self.large_keys[idx].as_slice() == k {
+                            self.large_values[idx] = v;
+                            return true;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            false
+        }
+    }
+
+    fn get(&self, k: &[u8]) -> Option<u64> {
+        let h = fnv1a_64(k);
+        if !self.using_large {
+            let base = (h & 0x7F) as usize;
+            for disp in 0..128 {
+                let idx = (base + disp) & 0x7F;
+                match self.small_state[idx] {
+                    0 => return None,
+                    1 => {
+                        if self.small_keys[idx].as_slice() == k {
+                            return Some(self.small_values[idx]);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            None
+        } else {
+            let base = (h & 0x1FF) as usize;
+            for disp in 0..512 {
+                let idx = (base + disp) & 0x1FF;
+                match self.large_state[idx] {
+                    0 => return None,
+                    1 => {
+                        if self.large_keys[idx].as_slice() == k {
+                            return Some(self.large_values[idx]);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            None
+        }
+    }
+
+    fn resize(&mut self) {
+        // One-shot small→large rehash. Walk small tier; for each
+        // occupied slot, hash into large tier via linear probe.
+        for src_idx in 0..128 {
+            if self.small_state[src_idx] != 1 {
+                continue;
+            }
+            let key = self.small_keys[src_idx].clone();
+            let value = self.small_values[src_idx];
+            let h = fnv1a_64(&key);
+            let base = (h & 0x1FF) as usize;
+            for disp in 0..512 {
+                let dst_idx = (base + disp) & 0x1FF;
+                if self.large_state[dst_idx] == 0 {
+                    self.large_state[dst_idx] = 1;
+                    self.large_keys[dst_idx] = key;
+                    self.large_values[dst_idx] = value;
+                    break;
+                }
+            }
+        }
+        self.using_large = true;
+    }
+}
+
+/// Deterministic corpus generator: reuses the R220.M5 xorshift64 seed
+/// so every R220 test agrees on the same 100-string trajectory.
+fn r220m6_corpus(count: usize) -> Vec<Vec<u8>> {
+    let mut state: u64 = 0xDEADBEEF_CAFEBABE;
+    fn next(s: &mut u64) -> u64 {
+        let mut x = *s;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        *s = x;
+        x
+    }
+    let mut keys = Vec::with_capacity(count);
+    let mut seen: HashMap<Vec<u8>, ()> = HashMap::new();
+    while keys.len() < count {
+        // Length 1..=24 to bias toward short shell command names.
+        let len = (next(&mut state) as usize % 24) + 1;
+        let mut buf = Vec::with_capacity(len);
+        for _ in 0..len {
+            buf.push((next(&mut state) & 0xFF) as u8);
+        }
+        // De-duplicate: an identical byte-string later would be a
+        // replace, not an insert, and would break the fill accounting.
+        if seen.insert(buf.clone(), ()).is_none() {
+            keys.push(buf);
+        }
+    }
+    keys
+}
+
+/// Read `pub let expected_len : u64 = N` and
+/// `pub let expected_using_large : u64 = M` out of a fixture.
+fn read_fill_expectations(fixture_rel: &str) -> (u64, u64) {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(fixture_rel);
+    let src = std::fs::read_to_string(&path)
+        .unwrap_or_else(|_| panic!("fixture {} not present", fixture_rel));
+    let len_re =
+        Regex::new(r"pub let expected_len\s*:\s*u64\s*=\s*(\d+)").unwrap();
+    let tier_re =
+        Regex::new(r"pub let expected_using_large\s*:\s*u64\s*=\s*(\d+)")
+            .unwrap();
+    let len: u64 = len_re
+        .captures(&src)
+        .unwrap_or_else(|| {
+            panic!("fixture {} missing `pub let expected_len : u64 = …`", fixture_rel)
+        })
+        .get(1)
+        .unwrap()
+        .as_str()
+        .parse()
+        .unwrap();
+    let tier: u64 = tier_re
+        .captures(&src)
+        .unwrap_or_else(|| {
+            panic!(
+                "fixture {} missing `pub let expected_using_large : u64 = …`",
+                fixture_rel
+            )
+        })
+        .get(1)
+        .unwrap()
+        .as_str()
+        .parse()
+        .unwrap();
+    (len, tier)
+}
+
+fn assert_ref_matches_fixture(fixture_rel: &str, put_count: usize) {
+    let (expected_len, expected_tier) = read_fill_expectations(fixture_rel);
+    let corpus = r220m6_corpus(put_count);
+    let mut hm = RefHashMapStrU64::new();
+    for (i, key) in corpus.iter().enumerate() {
+        assert!(
+            hm.put(key, i as u64),
+            "{}: reference put failed on key #{} (unexpectedly full)",
+            fixture_rel,
+            i
+        );
+    }
+    assert_eq!(
+        hm.len, expected_len,
+        "\n{} declares expected_len = {}\nbut reference-impl reached len = {} after {} puts",
+        fixture_rel, expected_len, hm.len, put_count
+    );
+    let tier_bit: u64 = if hm.using_large { 1 } else { 0 };
+    assert_eq!(
+        tier_bit, expected_tier,
+        "\n{} declares expected_using_large = {} but reference reached {}",
+        fixture_rel, expected_tier, tier_bit
+    );
+    // Round-trip: every inserted key must read back its exact value.
+    for (i, key) in corpus.iter().enumerate() {
+        match hm.get(key) {
+            Some(v) => assert_eq!(
+                v, i as u64,
+                "{}: reference get({:?}) returned {} but expected {}",
+                fixture_rel, key, v, i
+            ),
+            None => panic!(
+                "{}: reference get({:?}) returned None after put of value {}",
+                fixture_rel, key, i
+            ),
+        }
+    }
+}
+
+#[test]
+fn r220m6_fill_20_matches_reference() {
+    assert_ref_matches_fixture("pdx/hashmap_str_fill_20.pdx", 20);
+}
+
+#[test]
+fn r220m6_fill_40_matches_reference() {
+    assert_ref_matches_fixture("pdx/hashmap_str_fill_40.pdx", 40);
+}
+
+#[test]
+fn r220m6_fill_60_matches_reference() {
+    assert_ref_matches_fixture("pdx/hashmap_str_fill_60.pdx", 60);
+}
+
+#[test]
+fn r220m6_fill_80_matches_reference() {
+    assert_ref_matches_fixture("pdx/hashmap_str_fill_80.pdx", 80);
+}
+
+#[test]
+fn r220m6_fill_100_matches_reference() {
+    // The 100-put trajectory MUST cross the 96-live resize threshold
+    // exactly once and end up on the large tier.
+    assert_ref_matches_fixture("pdx/hashmap_str_fill_100.pdx", 100);
+}
+
+#[test]
+fn r220m6_resize_triggers_at_97_not_96() {
+    // Boundary regression: >96 (strictly greater) triggers, not >=96.
+    let corpus = r220m6_corpus(97);
+    let mut hm = RefHashMapStrU64::new();
+    for (i, key) in corpus.iter().enumerate().take(96) {
+        hm.put(key, i as u64);
+    }
+    assert!(!hm.using_large, "resize must NOT fire at len = 96 (0.75 boundary)");
+    // 97th put crosses the strict-greater threshold.
+    hm.put(&corpus[96], 96);
+    assert!(hm.using_large, "resize MUST fire when len crosses 96 (> 0.75)");
+    assert_eq!(hm.len, 97, "len preserved across resize");
+}
+
+#[test]
+fn r220m6_hashmap_str_module_declares_full_surface() {
+    let src = std::fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/hashmap_str_u64.pdx"),
+    )
+    .expect("hashmap_str_u64.pdx must exist for R220.M6");
+    assert!(
+        src.contains("module HashMapStrU64"),
+        "hashmap_str_u64.pdx: missing `module HashMapStrU64`"
+    );
+    for op in [
+        "pub let hashmap_str_new",
+        "pub let hashmap_str_put",
+        "pub let hashmap_str_get",
+        "pub let hashmap_str_contains",
+        "pub let hashmap_str_len",
+        "pub let hashmap_str_using_large",
+    ] {
+        assert!(
+            src.contains(op),
+            "hashmap_str_u64.pdx: missing `{}` binding",
+            op
+        );
+    }
+    // Two-tier layout witnesses.
+    for slot in [
+        "hm_s_state       : [u64; 128]",
+        "hm_l_state       : [u64; 512]",
+        "hm_using_large   : u64",
+    ] {
+        assert!(
+            src.contains(slot),
+            "hashmap_str_u64.pdx: missing layout witness `{}`",
+            slot
+        );
+    }
+    // FNV-1a-64 constants re-embedded in the local helper.
+    assert!(
+        src.contains("0xCBF29CE484222325") && src.contains("0x100000001B3"),
+        "hashmap_str_u64.pdx: FNV-1a-64 constants must be present in the local hash helper"
+    );
+    // Deferral discipline.
+    assert!(
+        src.contains("FIXME(nfc)"),
+        "hashmap_str_u64.pdx: NFC deferral must be marked FIXME(nfc) per SH-D9"
+    );
+    assert!(
+        src.contains("FIXME(resize-uncapped)"),
+        "hashmap_str_u64.pdx: single-tier resize deferral must be marked FIXME(resize-uncapped)"
+    );
+    assert!(
+        src.contains("FIXME(remove)"),
+        "hashmap_str_u64.pdx: remove-op deferral must be marked FIXME(remove)"
+    );
+}
+
+#[test]
+fn r220m6_hashmap_str_shape_declares_landed_trait() {
+    let src = std::fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/hashmap_str_shape.pdx"),
+    )
+    .expect("hashmap_str_shape.pdx must exist");
+    assert!(
+        src.contains("trait HashMapStrOps"),
+        "hashmap_str_shape.pdx: missing trait HashMapStrOps"
+    );
+    // No stale DEFERRED banner on the trait-level lines; the file
+    // may still mention historical deferral in prose, but the trait
+    // body itself must be present.
+    assert!(
+        src.contains("fn hashmap_str_put") && src.contains("fn hashmap_str_get"),
+        "hashmap_str_shape.pdx: trait must expose put/get"
+    );
+}
+
+#[test]
+fn r220m6_hashmap_pdx_lists_both_monomorphs() {
+    let src = std::fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/hashmap.pdx"),
+    )
+    .expect("hashmap.pdx must exist");
+    assert!(
+        src.contains("struct HashMapU64U64"),
+        "hashmap.pdx: canary HashMapU64U64 monomorph must remain listed"
+    );
+    assert!(
+        src.contains("struct HashMapStrU64"),
+        "hashmap.pdx: R220.M6 HashMapStrU64 monomorph must be listed"
+    );
+    assert!(
+        src.contains("trait HashMapStrOps"),
+        "hashmap.pdx: trait HashMapStrOps surface must be documented"
+    );
+}

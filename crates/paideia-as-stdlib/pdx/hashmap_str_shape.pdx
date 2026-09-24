@@ -1,13 +1,39 @@
-// v0.18 issue #996b (pa-r18-003b, DEFERRED): HashMapStrU64 — Str-keyed shape.
-// This file is parse-only documentation; real implementation deferred until #1234 lands.
-// Blocked on: #1234 (RecordCons Borrow of data symbol, prevents module-scope Str constants).
+// R220.M6 (paideia-as #1420, closes #996b): HashMapStrU64 — parse-only
+// shape record for the Str-keyed monomorphization.
+//
+// Historical: v0.18 #996b landed this as DEFERRED pending #1234
+// (RecordCons Borrow of data symbol, prevents module-scope Str
+// constants). That surface remains deferred for module-scope Str
+// literals, but hashmap_str_u64.pdx does NOT need them (keys are
+// passed as *Str at call sites, not embedded as .data constants), so
+// the concrete monomorphization lands regardless. This file is now
+// the canonical trait signature reference for HashMap<Str, u64>.
 
-struct HashMapStrU64 { }
+struct Str { ptr: *u8, len: u64 }
 
 trait HashMapStrOps {
-  fn hashmap_str_new() -> () !{};
-  fn hashmap_str_put(k: Str, v: u64) -> u64 !{};
-  fn hashmap_str_get(k: Str) -> OptionU64 !{};
-  fn hashmap_str_contains(k: Str) -> u64 !{};
-  fn hashmap_str_len() -> u64 !{};
+  // Reset: zero both tiers + metadata. Load-factor state (small vs.
+  // large tier) also reset.
+  fn hashmap_str_new() -> () !{} @{};
+
+  // Insert-or-replace. Returns 1 on success, 0 if the active tier is
+  // full (should not occur inside the R220.M6 pre-resize budget).
+  // Load-factor gate: after a small-tier insert taking len > 96,
+  // triggers a one-shot rehash into the 512-slot large tier.
+  fn hashmap_str_put(k: *Str, v: u64) -> u64 !{RawMem} @{paideia.raw_mem};
+
+  // Probe active tier; returns Some(v) or None. Pair ABI per #997:
+  // rax = discriminant (0 = Some, 1 = None), rdx = value payload.
+  fn hashmap_str_get(k: *Str) -> OptionU64 !{RawMem} @{paideia.raw_mem};
+
+  // Membership check. u64 return pending #1229 bool-return canary.
+  fn hashmap_str_contains(k: *Str) -> u64 !{RawMem} @{paideia.raw_mem};
+
+  // Metadata reads: no memory dereference of Str-backing bytes.
+  fn hashmap_str_len() -> u64 !{} @{};
+
+  // Diagnostic: 1 iff the map has hopped to the large tier. Consumed
+  // by R220.M6 fill-percentile fixtures to verify the resize path
+  // fires between the fill=80 and fill=100 checkpoints.
+  fn hashmap_str_using_large() -> u64 !{} @{};
 }

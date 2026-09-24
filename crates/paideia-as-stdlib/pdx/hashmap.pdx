@@ -1,24 +1,84 @@
 // v0.18 issue #996 (pa-r18-003): HashMap canonical documented surface.
+// R220.M6 (paideia-as #1420) extends this trait surface: two concrete
+// monomorphizations exist today — HashMapU64U64 (#996, canary retained
+// for #1003 hash-dispatch) and HashMapStrU64 (#996b, R220.M6, gates
+// semantic-shell R222 dispatch and R228 completion).
 //
-// Trait surface for future generic monomorphization. Today: HashMapU64U64 only.
-// See hashmap_u64_u64.pdx for the working implementation.
+// Aspirational form: `HashMap<K, V> where K: Hash + Eq, V: 8|16-byte`.
+// paideia-as does not yet do trait-bounded generic monomorphization for
+// stdlib structs (Option<T> presents the same way: OptionU64 is the
+// concrete monomorph while `enum Option<T>` is aspirational; see #997).
+// Every new K, V combination lands as a monomorphization file until
+// generic monomorphization is wired (tracked follow-on to R220.M6).
 //
-// Scope baseline (v0.18): fixed-capacity, open-addressing, u64→u64.
-// Deferred:
-//   - #996b: HashMapStrU64 (Str-keyed, blocked on #1234)
-//   - #996c: HashMapU64Closure (closure-valued)
-//   - #996d: remove operation + tombstone scan
-//   - #996e: heap-backed rehash (blocked on alloc substrate)
-//   - #996f: robin-hood displacement
-//   - #996g: iter API (blocked on for-expr #998c)
-//   - #996h: bool return for contains (pending #1229 bool-return canary)
+// Scope of R220.M6 landing (see hashmap_str_u64.pdx):
+//   - Fixed two-tier .bss layout: small=128, large=512 (one-shot growth).
+//   - Load-factor gate at >0.75 in small tier triggers small→large rehash.
+//   - Linear probing on collision.
+//   - OptionU64 return via #997 pair ABI (rax = disc, rdx = payload).
+//   - !{RawMem} @{paideia.raw_mem} on ops that touch Str-backing bytes.
+//
+// Deferred (all previously scoped under the #996-family):
+//   - #996c: HashMap<Str, Closure> — R220.M7 will widen value slot to
+//            16-byte closure fat-pointer for command-name → handler
+//            dispatch (SH-D5 target shape).
+//   - #996d: remove operation + tombstone scan (state=2 lane reserved
+//            in hashmap_str_u64.pdx but no put/get path writes it).
+//   - #996e: uncapped heap-backed rehash — small→large is one-shot in
+//            R220.M6; a >0.75·512 = >384 workload needs a second tier
+//            or true arena-backed ptr swap.
+//   - #996f: robin-hood displacement (probe-fairness pass).
+//   - #996g: iter API (blocked on for-expr #998c — closed by R220.M5).
+//   - #996h: bool return for contains (pending #1229 bool-return canary).
+
+// Concrete monomorphization tags — each is a struct newtype so that
+// consumers can annotate call sites with the expected K, V pair.
 
 struct HashMapU64U64 { }
+struct HashMapStrU64 { }
 
+// Aspirational generic surface. Not yet instantiable; documented so
+// that future consumers can write `HashMap<Str, u64>` at the type
+// level once generic monomorphization lands.
+struct HashMap<K, V> { }
+
+// Trait: what every K needs. Both Str::eq (R220.M4) and Str::hash
+// (R220.M5) exist as landed intrinsics; the trait bundling is the
+// interface the eventual generic monomorpher will consume.
+trait Hash {
+  fn hash(self: *Self) -> u64 !{RawMem} @{paideia.raw_mem};
+}
+trait Eq {
+  fn eq(self: *Self, other: *Self) -> u64 !{RawMem} @{paideia.raw_mem};
+}
+
+// Trait: what every V needs. R220.M6 lands the 8-byte value case
+// (u64). R220.M7 widens to the 16-byte case (closure fat-pointer).
+trait ValueSlot { }
+
+// ------------------------------------------------------------------
+// Monomorphization surface: HashMap<u64, u64> — the #996 canary.
+// See hashmap_u64_u64.pdx for the working implementation.
+// ------------------------------------------------------------------
 trait HashMapOps {
   fn hashmap_u64_new() -> () !{};
   fn hashmap_u64_put(k: u64, v: u64) -> u64 !{};
   fn hashmap_u64_get(k: u64) -> OptionU64 !{};
   fn hashmap_u64_contains(k: u64) -> u64 !{};
   fn hashmap_u64_len() -> u64 !{};
+}
+
+// ------------------------------------------------------------------
+// Monomorphization surface: HashMap<Str, u64> — R220.M6 (#996b).
+// See hashmap_str_u64.pdx for the working implementation.
+// K: Str (Hash+Eq via inlined FNV-1a-64 + byte-eq helpers).
+// V: u64 (8-byte value slot).
+// ------------------------------------------------------------------
+trait HashMapStrOps {
+  fn hashmap_str_new() -> () !{};
+  fn hashmap_str_put(k: *Str, v: u64) -> u64 !{RawMem} @{paideia.raw_mem};
+  fn hashmap_str_get(k: *Str) -> OptionU64 !{RawMem} @{paideia.raw_mem};
+  fn hashmap_str_contains(k: *Str) -> u64 !{RawMem} @{paideia.raw_mem};
+  fn hashmap_str_len() -> u64 !{};
+  fn hashmap_str_using_large() -> u64 !{};
 }

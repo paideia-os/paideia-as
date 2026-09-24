@@ -1,0 +1,16 @@
+// R220.M6 fill-percentile fixture 1/5 (paideia-as #1420): 20 puts on
+// a fresh HashMapStrU64. Small tier (128 slots) active; load = 20/128
+// = 15.6% — well below the >0.75 resize threshold. All 20 keys are
+// distinct short byte strings from the R220.M6 deterministic corpus
+// (xorshift64 seed 0xDEADBEEF_CAFEBABE, keys 0..19; the Rust cross-
+// check test in tests/parse_pdx.rs replays this exact corpus).
+//
+// Fingerprint tag "r220m6-fill-20\0" (15 bytes) — debugger locates in
+// .rodata to gate this fixture.
+
+module HashMapStrFill20 = structure {
+  struct Str { ptr: *u8, len: u64 }
+  pub let fp                  : [u8; 15] = "r220m6-fill-20\0"
+  pub let expected_len        : u64      = 20
+  pub let expected_using_large: u64      = 0
+}

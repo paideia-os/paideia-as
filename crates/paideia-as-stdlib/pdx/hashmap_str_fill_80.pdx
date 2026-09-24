@@ -1,0 +1,13 @@
+// R220.M6 fill-percentile fixture 4/5 (paideia-as #1420): 80 puts on
+// a fresh HashMapStrU64. Small tier still active; load = 80/128 =
+// 62.5% — approaches, but does not cross, the 0.75 resize threshold
+// (128 * 0.75 = 96). This is the last checkpoint before rehash.
+//
+// Fingerprint tag "r220m6-fill-80\0" (15 bytes).
+
+module HashMapStrFill80 = structure {
+  struct Str { ptr: *u8, len: u64 }
+  pub let fp                  : [u8; 15] = "r220m6-fill-80\0"
+  pub let expected_len        : u64      = 80
+  pub let expected_using_large: u64      = 0
+}

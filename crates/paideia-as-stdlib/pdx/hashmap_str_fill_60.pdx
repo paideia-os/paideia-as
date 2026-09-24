@@ -1,0 +1,12 @@
+// R220.M6 fill-percentile fixture 3/5 (paideia-as #1420): 60 puts on
+// a fresh HashMapStrU64. Small tier active; load = 60/128 = 46.9%.
+// Keys are indices 0..59 of the deterministic xorshift64 corpus.
+//
+// Fingerprint tag "r220m6-fill-60\0" (15 bytes).
+
+module HashMapStrFill60 = structure {
+  struct Str { ptr: *u8, len: u64 }
+  pub let fp                  : [u8; 15] = "r220m6-fill-60\0"
+  pub let expected_len        : u64      = 60
+  pub let expected_using_large: u64      = 0
+}

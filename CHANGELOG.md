@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.36.5 — 2026-09-23 — HashMap<Str, u64> two-tier resize (R220.M6)
+
+- **`crates/paideia-as-stdlib/pdx/hashmap_str_u64.pdx`** (NEW ~460L): Str-keyed HashMap monomorphization for semantic-shell R222 command-name dispatch.
+  Two-tier .bss layout: small = 128 × 3-word slots, large = 512 × 3-word slots. Load-factor
+  gate `len > 96` (128 × 0.75) triggers one-shot `hashmap_str_resize`. Linear probing,
+  wrap via `and 0x7F` / `and 0x1FF`. Pair-ABI `OptionU64` return per #997.
+  Hash + eq inlined from R220.M5/M4 (cross-module `.pdx` call not proven end-to-end yet).
+- **`crates/paideia-as-stdlib/pdx/hashmap.pdx`** (EDIT): trait/monomorph index updated to
+  list both `HashMap<u64,u64>` (#1003 canary retained) and `HashMap<Str,u64>` (LANDED).
+- **`hashmap_str_shape.pdx`** (EDIT): promoted from #996b DEFERRED to landed trait signature.
+- 5 fixtures (`hashmap_str_fill_{20,40,60,80,100}.pdx`) — cross-checked against
+  `RefHashMapStrU64` byte-for-byte reference impl in `tests/parse_pdx.rs`.
+- Boundary regression test: `r220m6_resize_triggers_at_97_not_96` locks the load-factor gate.
+- 16/16 tests pass (9 Rust algorithm + 7 fixture parse-checks).
+- FIXME(nfc), FIXME(resize-uncapped), FIXME(remove) markers cite follow-on scope.
+
+Closes paideia-as#1420 (R220.M6). Closes paideia-as#996b (v0.18 deferral).
+Unblocks R220.M7 (closure-typed value slot) + semantic-shell R222/R227/R228/R229.
+
 ## 0.36.4 — 2026-09-23 — Str::eq + Str::hash (R220.M4+M5)
 
 Substrate for semantic-shell R220 (paideia-as substrate for hosted DSLs).

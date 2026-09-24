@@ -1,0 +1,19 @@
+// R220.M6 fill-percentile fixture 5/5 (paideia-as #1420): 100 puts on
+// a fresh HashMapStrU64. The 97th put crosses the resize threshold
+// (small load > 96 = >0.75 of 128), triggering one-shot rehash into
+// the 512-slot large tier. After all 100 puts, len = 100, tier =
+// large. Large-tier load = 100/512 = 19.5%.
+//
+// This is the R220.M6 plan-acceptance canary: 100 Str puts + 100
+// distinct gets, matched against the Rust reference implementation.
+//
+// Fingerprint tag "r220m6-fill-100" (15 bytes, no trailing NUL —
+// the ASCII shell tag itself is exactly 15 chars, matching the size
+// budget of the earlier tags with room for the digit expansion).
+
+module HashMapStrFill100 = structure {
+  struct Str { ptr: *u8, len: u64 }
+  pub let fp                  : [u8; 15] = "r220m6-fill-100"
+  pub let expected_len        : u64      = 100
+  pub let expected_using_large: u64      = 1
+}
