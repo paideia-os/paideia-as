@@ -1,0 +1,60 @@
+// R220.M7 (paideia-as #1421, closes #996c): HashMapStrClosure —
+// parse-only shape record for the Str-keyed, closure-fat-pointer
+// monomorphization. Canonical trait signature reference for
+// HashMap<Str, |A| -> R>. See hashmap_str_closure.pdx for the working
+// implementation and design/terminal/semantic-shell.md §6 SH-D5 for
+// the command-dispatch surface this monomorphization gates.
+//
+// Historical: the M6 shape (HashMapStrU64) resolved v0.18 #996b's
+// DEFERRED banner by demonstrating that Str-keyed puts + gets work
+// through inlined helpers. M7 lifts that discipline to a 16-byte
+// value slot: the value column stores a closure fat pointer
+// (code_ptr + env_ptr) rather than a bare u64, which is the shape
+// SH-D5's command-name → handler dispatch consumes at R222.M6.
+
+struct Str { ptr: *u8, len: u64 }
+
+// Closure fat pointer: 16 B, {code_ptr, env_ptr} — matches the
+// paideia-as #994 lambda-lowering slot layout that #995 consumes.
+// Passed to put by pointer (so we do not commit to a 3-argument
+// public signature); returned from get through a caller-provided
+// out-parameter, per the same reasoning documented in
+// hashmap_str_closure.pdx.
+struct ClosureFatPtr { code_ptr: *u8, env_ptr: *u8 }
+
+trait HashMapStrClosureOps {
+  // Reset: zero both tiers + metadata. Load-factor state (small vs
+  // large tier) also reset.
+  fn hashmap_str_closure_new() -> () !{} @{};
+
+  // Insert-or-replace. Returns 1 on success, 0 if the active tier is
+  // full (should not occur inside the R220.M7 pre-resize budget).
+  // Load-factor gate: after a small-tier insert taking len > 96,
+  // triggers a one-shot rehash into the 512-slot large tier.
+  fn hashmap_str_closure_put(k: *Str, fp: *ClosureFatPtr) -> u64
+      !{RawMem} @{paideia.raw_mem};
+
+  // Probe active tier; writes (code_ptr, env_ptr) into *out and
+  // returns 1 if key found, else returns 0 (out unchanged). Out-
+  // parameter shape (rather than the M6 rax:rdx pair-ABI used for
+  // OptionU64) because a native closure-fat-pointer return would
+  // need three registers (disc + 2 × 8-byte payload) and #994/#995
+  // closure-return lowering has not yet been proven end-to-end
+  // against hashmap composition.
+  fn hashmap_str_closure_get(k: *Str, out: *ClosureFatPtr) -> u64
+      !{RawMem} @{paideia.raw_mem};
+
+  // Membership check. Standalone probe (not get+discard) since get
+  // needs an out-parameter buffer; a caller of contains would
+  // otherwise pay the buffer cost for no value.
+  fn hashmap_str_closure_contains(k: *Str) -> u64
+      !{RawMem} @{paideia.raw_mem};
+
+  // Metadata reads: no memory dereference of Str-backing bytes.
+  fn hashmap_str_closure_len() -> u64 !{} @{};
+
+  // Diagnostic: 1 iff the map has hopped to the large tier.
+  // Consumed by the R220.M7 fill fixtures to verify the resize path
+  // fires between the fill=30 and fill=100 checkpoints.
+  fn hashmap_str_closure_using_large() -> u64 !{} @{};
+}

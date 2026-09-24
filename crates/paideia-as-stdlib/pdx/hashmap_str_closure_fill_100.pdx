@@ -1,0 +1,19 @@
+// R220.M7 acceptance fixture 2/2 (paideia-as #1421): 100 named
+// handlers keyed by Str. The 97th put crosses the resize threshold
+// (small load > 96 = >0.75 of 128), triggering one-shot rehash into
+// the 512-slot large tier. After all 100 puts, len = 100, tier =
+// large. Large-tier load = 100/512 = 19.5%. Confirms the M7
+// 16-B-value-slot rehash preserves both key-word columns (kptr,
+// klen) AND both closure-word columns (code_ptr, env_ptr) — the
+// only meaningful new-in-M7 rehash surface beyond M6.
+//
+// Fingerprint tag "r220m7-fill-100" (15 bytes, no trailing NUL —
+// the ASCII shell tag itself is exactly 15 chars, matching the
+// size budget of the fill_30 tag with room for the digit expansion).
+
+module HashMapStrClosureFill100 = structure {
+  struct Str { ptr: *u8, len: u64 }
+  pub let fp                  : [u8; 15] = "r220m7-fill-100"
+  pub let expected_len        : u64      = 100
+  pub let expected_using_large: u64      = 1
+}

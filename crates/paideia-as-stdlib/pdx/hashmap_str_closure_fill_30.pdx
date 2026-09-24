@@ -1,0 +1,27 @@
+// R220.M7 acceptance fixture 1/2 (paideia-as #1421): 30 named
+// handlers keyed by Str. This is the plan §4 R220.M7 canary —
+// "fixture with 30 named handlers keyed by `Str`, dispatch on one
+// → exit code matches the chosen handler". Small tier active; load
+// = 30/128 = 23.4% — well below the >0.75 resize threshold. All 30
+// keys are distinct short byte strings from the R220.M7 deterministic
+// corpus (xorshift64 seed 0xDEADBEEF_CAFEBABE, keys 0..29 — the same
+// seed the M5 hash canary and M6 fill fixtures use, so every R220
+// test agrees on the same trajectory).
+//
+// Simulation window: the code_ptr slot holds a distinct u64
+// handler-id per key (1..=30 in the reference cross-check) rather
+// than a live callable — the full call-through-fat-pointer path is
+// blocked on paideia-as #995 encoder lowering. Dispatch = HashMap
+// lookup + switch on the returned code_ptr. See
+// hashmap_str_closure.pdx's FIXME(closure-invoke) tag for the
+// promotion path to real invocation.
+//
+// Fingerprint tag "r220m7-fill-30\0" (15 bytes) — debugger locates
+// in .rodata to gate this fixture.
+
+module HashMapStrClosureFill30 = structure {
+  struct Str { ptr: *u8, len: u64 }
+  pub let fp                  : [u8; 15] = "r220m7-fill-30\0"
+  pub let expected_len        : u64      = 30
+  pub let expected_using_large: u64      = 0
+}

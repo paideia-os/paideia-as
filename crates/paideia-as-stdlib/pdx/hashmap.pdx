@@ -1,8 +1,12 @@
 // v0.18 issue #996 (pa-r18-003): HashMap canonical documented surface.
-// R220.M6 (paideia-as #1420) extends this trait surface: two concrete
+// R220.M6 (paideia-as #1420) extends this trait surface with the
+// Str-keyed monomorphization; R220.M7 (paideia-as #1421) then widens
+// the value slot to a 16-B closure fat pointer. Three concrete
 // monomorphizations exist today — HashMapU64U64 (#996, canary retained
-// for #1003 hash-dispatch) and HashMapStrU64 (#996b, R220.M6, gates
-// semantic-shell R222 dispatch and R228 completion).
+// for #1003 hash-dispatch), HashMapStrU64 (#996b, R220.M6, gates
+// semantic-shell R222 dispatch and R228 completion), and
+// HashMapStrClosure (#996c, R220.M7, gates semantic-shell R222.M6
+// light-vs-heavy dispatch and R229 session-scoped bindings).
 //
 // Aspirational form: `HashMap<K, V> where K: Hash + Eq, V: 8|16-byte`.
 // paideia-as does not yet do trait-bounded generic monomorphization for
@@ -18,12 +22,11 @@
 //   - OptionU64 return via #997 pair ABI (rax = disc, rdx = payload).
 //   - !{RawMem} @{paideia.raw_mem} on ops that touch Str-backing bytes.
 //
-// Deferred (all previously scoped under the #996-family):
-//   - #996c: HashMap<Str, Closure> — R220.M7 will widen value slot to
-//            16-byte closure fat-pointer for command-name → handler
-//            dispatch (SH-D5 target shape).
+// Deferred (all previously scoped under the #996-family; #996c is
+// now LANDED by R220.M7 — see hashmap_str_closure.pdx):
 //   - #996d: remove operation + tombstone scan (state=2 lane reserved
-//            in hashmap_str_u64.pdx but no put/get path writes it).
+//            in hashmap_str_u64.pdx and hashmap_str_closure.pdx but no
+//            put/get path writes it).
 //   - #996e: uncapped heap-backed rehash — small→large is one-shot in
 //            R220.M6; a >0.75·512 = >384 workload needs a second tier
 //            or true arena-backed ptr swap.
@@ -36,6 +39,7 @@
 
 struct HashMapU64U64 { }
 struct HashMapStrU64 { }
+struct HashMapStrClosure { }
 
 // Aspirational generic surface. Not yet instantiable; documented so
 // that future consumers can write `HashMap<Str, u64>` at the type
@@ -52,9 +56,15 @@ trait Eq {
   fn eq(self: *Self, other: *Self) -> u64 !{RawMem} @{paideia.raw_mem};
 }
 
-// Trait: what every V needs. R220.M6 lands the 8-byte value case
-// (u64). R220.M7 widens to the 16-byte case (closure fat-pointer).
+// Trait: what every V needs. R220.M6 landed the 8-byte value case
+// (u64); R220.M7 widened it to the 16-byte case (closure fat-pointer).
 trait ValueSlot { }
+
+// The 16-B closure fat pointer surface — {code_ptr, env_ptr} — that
+// R220.M7's HashMapStrClosure stores as its value slot. Matches the
+// paideia-as #994 lambda-lowering layout consumed by #995 (call
+// through fat pointer).
+struct ClosureFatPtr { code_ptr: *u8, env_ptr: *u8 }
 
 // ------------------------------------------------------------------
 // Monomorphization surface: HashMap<u64, u64> — the #996 canary.
@@ -81,4 +91,33 @@ trait HashMapStrOps {
   fn hashmap_str_contains(k: *Str) -> u64 !{RawMem} @{paideia.raw_mem};
   fn hashmap_str_len() -> u64 !{};
   fn hashmap_str_using_large() -> u64 !{};
+}
+
+// ------------------------------------------------------------------
+// Monomorphization surface: HashMap<Str, ClosureFatPtr> — R220.M7 (#996c).
+// See hashmap_str_closure.pdx for the working implementation.
+// K: Str (Hash+Eq via inlined FNV-1a-64 + byte-eq on (kptr, klen)).
+// V: ClosureFatPtr (16-byte value slot; code_ptr + env_ptr).
+//
+// Gates semantic-shell R222.M6 (light vs heavy dispatch): the
+// command-name → handler dispatch table stores handlers as closure
+// fat pointers so light commands can invoke in-process without a
+// process-model round trip. Also gates R229 session-scoped bindings
+// (env_ptr captures per-session state per Q13 in-process by-ref).
+//
+// put takes the fat pointer by *ClosureFatPtr so the public signature
+// stays 2-argument (stdlib has no landed 3-arg fn shape yet); get
+// writes through a caller-provided *ClosureFatPtr out-parameter
+// (rationale in hashmap_str_closure.pdx, top-comment).
+// ------------------------------------------------------------------
+trait HashMapStrClosureOps {
+  fn hashmap_str_closure_new() -> () !{};
+  fn hashmap_str_closure_put(k: *Str, fp: *ClosureFatPtr) -> u64
+      !{RawMem} @{paideia.raw_mem};
+  fn hashmap_str_closure_get(k: *Str, out: *ClosureFatPtr) -> u64
+      !{RawMem} @{paideia.raw_mem};
+  fn hashmap_str_closure_contains(k: *Str) -> u64
+      !{RawMem} @{paideia.raw_mem};
+  fn hashmap_str_closure_len() -> u64 !{};
+  fn hashmap_str_closure_using_large() -> u64 !{};
 }

@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.36.7 — 2026-09-23 — HashMap<Str, ClosureFatPtr> (R220.M7)
+
+Third HashMap monomorphization for the semantic-shell SH-D5 command-name → closure
+dispatch surface. Two-tier SoA (state/kptr/klen/code_ptr/env_ptr, 5 words per slot);
+one-shot resize on `len > 96`; local hash + eq helpers inlined per R220.M6 pattern.
+
+- **`crates/paideia-as-stdlib/pdx/hashmap_str_closure.pdx`** (NEW): `HashMapStrClosure`
+  with `put(k, fat_ptr)` / `get(k, *out) -> u64` (out-param ABI). ClosureFatPtr = 16 B
+  (code_ptr + env_ptr).
+- Fixtures `hashmap_str_closure_fill_30.pdx` (plan-acceptance canary) +
+  `hashmap_str_closure_fill_100.pdx` (large-tier regression). 14/14 tests pass.
+- **Simulation caveat**: fixture reference-impl stores `code_ptr = handler_id`,
+  `env_ptr = 0`; dispatch = HashMap lookup + switch on returned code_ptr (which IS
+  the exit code). End-to-end call-through-fat-pointer is blocked on paideia-as#995
+  encoder lowering. `FIXME(closure-invoke)` in module header; promotion scoped to R229.
+- ABI notes: 2-arg `put` (stdlib has no 3-arg landed shapes yet), out-pointer `get`
+  (native pair-ABI closure-fat-ptr return needs 3 result regs, not proven).
+- `hashmap.pdx` index promotes `#996c` DEFERRED → LANDED; third monomorph struct
+  and `ClosureFatPtr` shared type added.
+
+Closes #996c. Closes paideia-as#1421 (R220.M7).
+Unblocks semantic-shell R222.M6 (light-vs-heavy dispatch), R229 (session-scoped bindings).
+
 ## 0.36.6 — 2026-09-23 — Effect-row inference at call sites (R220.M8, closes #1356)
 
 Closes the long-open half of v0.25-session-functors. The two half-solutions

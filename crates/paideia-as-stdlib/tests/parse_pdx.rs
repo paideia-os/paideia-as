@@ -3177,3 +3177,551 @@ fn r220m6_hashmap_pdx_lists_both_monomorphs() {
         "hashmap.pdx: trait HashMapStrOps surface must be documented"
     );
 }
+
+// -----------------------------------------------------------------------
+// R220.M7 — HashMap<Str, ClosureFatPtr> monomorphization (paideia-as
+// #1421, closes #996c). Widens the M6 8-B value slot to the 16-B
+// closure fat pointer (code_ptr + env_ptr) that semantic-shell R222.M6
+// light-vs-heavy dispatch and R229 session-scoped bindings consume.
+// -----------------------------------------------------------------------
+
+// Parse-checks (need paideia-as built; run with --ignored).
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m7_hashmap_str_closure_module_parses_cleanly() {
+    check_pdx_parses("pdx/hashmap_str_closure.pdx");
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m7_hashmap_str_closure_shape_parses_cleanly() {
+    check_pdx_parses("pdx/hashmap_str_closure_shape.pdx");
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m7_hashmap_str_closure_fill_30_parses_cleanly() {
+    check_pdx_parses("pdx/hashmap_str_closure_fill_30.pdx");
+}
+
+#[test]
+#[ignore = "needs paideia-as built; run with --ignored after cargo build --release -p paideia-as"]
+fn r220m7_hashmap_str_closure_fill_100_parses_cleanly() {
+    check_pdx_parses("pdx/hashmap_str_closure_fill_100.pdx");
+}
+
+// -----------------------------------------------------------------------
+// R220.M7 — reference implementation. Byte-identical algorithm to
+// hashmap_str_closure.pdx: FNV-1a-64, linear probing, two-tier layout
+// (small=128, large=512), load-factor gate at >0.75 in small
+// triggering one-shot rehash. The value slot holds a 16-B pair
+// (code_ptr, env_ptr) rather than a bare u64.
+//
+// Cross-checked against the fill fixtures below: for each checkpoint
+// (30 / 100 puts) the reference impl must reach exactly the fixture's
+// declared (len, using_large) state AND every put→get round-trip must
+// return the exact 16-B pair inserted.
+//
+// Simulation window (per plan §4 R220.M7): the code_ptr slot holds a
+// distinct u64 handler-id per key (1..=N) rather than a live callable.
+// Env_ptr is 0 in the fixture. Dispatch = HashMap lookup + switch on
+// returned code_ptr. See hashmap_str_closure.pdx FIXME(closure-invoke)
+// for the promotion path.
+// -----------------------------------------------------------------------
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RefClosureFatPtr {
+    code_ptr: u64,
+    env_ptr: u64,
+}
+
+struct RefHashMapStrClosure {
+    small_state: Vec<u8>,
+    small_keys: Vec<Vec<u8>>,
+    small_values: Vec<RefClosureFatPtr>,
+    large_state: Vec<u8>,
+    large_keys: Vec<Vec<u8>>,
+    large_values: Vec<RefClosureFatPtr>,
+    len: u64,
+    using_large: bool,
+}
+
+impl RefHashMapStrClosure {
+    fn new() -> Self {
+        Self {
+            small_state: vec![0u8; 128],
+            small_keys: vec![Vec::new(); 128],
+            small_values: vec![RefClosureFatPtr { code_ptr: 0, env_ptr: 0 }; 128],
+            large_state: vec![0u8; 512],
+            large_keys: vec![Vec::new(); 512],
+            large_values: vec![RefClosureFatPtr { code_ptr: 0, env_ptr: 0 }; 512],
+            len: 0,
+            using_large: false,
+        }
+    }
+
+    fn put(&mut self, k: &[u8], v: RefClosureFatPtr) -> bool {
+        let h = fnv1a_64(k);
+        if !self.using_large {
+            let base = (h & 0x7F) as usize;
+            for disp in 0..128 {
+                let idx = (base + disp) & 0x7F;
+                match self.small_state[idx] {
+                    0 => {
+                        self.small_state[idx] = 1;
+                        self.small_keys[idx] = k.to_vec();
+                        self.small_values[idx] = v;
+                        self.len += 1;
+                        if self.len > 96 {
+                            self.resize();
+                        }
+                        return true;
+                    }
+                    1 => {
+                        if self.small_keys[idx].as_slice() == k {
+                            self.small_values[idx] = v;
+                            return true;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            false
+        } else {
+            let base = (h & 0x1FF) as usize;
+            for disp in 0..512 {
+                let idx = (base + disp) & 0x1FF;
+                match self.large_state[idx] {
+                    0 => {
+                        self.large_state[idx] = 1;
+                        self.large_keys[idx] = k.to_vec();
+                        self.large_values[idx] = v;
+                        self.len += 1;
+                        return true;
+                    }
+                    1 => {
+                        if self.large_keys[idx].as_slice() == k {
+                            self.large_values[idx] = v;
+                            return true;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            false
+        }
+    }
+
+    fn get(&self, k: &[u8]) -> Option<RefClosureFatPtr> {
+        let h = fnv1a_64(k);
+        if !self.using_large {
+            let base = (h & 0x7F) as usize;
+            for disp in 0..128 {
+                let idx = (base + disp) & 0x7F;
+                match self.small_state[idx] {
+                    0 => return None,
+                    1 => {
+                        if self.small_keys[idx].as_slice() == k {
+                            return Some(self.small_values[idx]);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            None
+        } else {
+            let base = (h & 0x1FF) as usize;
+            for disp in 0..512 {
+                let idx = (base + disp) & 0x1FF;
+                match self.large_state[idx] {
+                    0 => return None,
+                    1 => {
+                        if self.large_keys[idx].as_slice() == k {
+                            return Some(self.large_values[idx]);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            None
+        }
+    }
+
+    fn resize(&mut self) {
+        for src_idx in 0..128 {
+            if self.small_state[src_idx] != 1 {
+                continue;
+            }
+            let key = self.small_keys[src_idx].clone();
+            let value = self.small_values[src_idx];
+            let h = fnv1a_64(&key);
+            let base = (h & 0x1FF) as usize;
+            for disp in 0..512 {
+                let dst_idx = (base + disp) & 0x1FF;
+                if self.large_state[dst_idx] == 0 {
+                    self.large_state[dst_idx] = 1;
+                    self.large_keys[dst_idx] = key;
+                    self.large_values[dst_idx] = value;
+                    break;
+                }
+            }
+        }
+        self.using_large = true;
+    }
+}
+
+/// Reuse the R220.M6 corpus generator so R220.M6 and R220.M7 agree on
+/// the same 100-string trajectory (identical xorshift64 seed).
+fn r220m7_corpus(count: usize) -> Vec<Vec<u8>> {
+    r220m6_corpus(count)
+}
+
+fn read_closure_fill_expectations(fixture_rel: &str) -> (u64, u64) {
+    read_fill_expectations(fixture_rel)
+}
+
+fn assert_closure_ref_matches_fixture(fixture_rel: &str, put_count: usize) {
+    let (expected_len, expected_tier) = read_closure_fill_expectations(fixture_rel);
+    let corpus = r220m7_corpus(put_count);
+    let mut hm = RefHashMapStrClosure::new();
+    // Handler-id assignment per plan §4 R220.M7 simulation clause:
+    // code_ptr = i+1 (avoids 0 which would collide with the "none"
+    // sentinel semantics if a caller later probes an empty slot's
+    // 0-init value); env_ptr = 0.
+    for (i, key) in corpus.iter().enumerate() {
+        let v = RefClosureFatPtr {
+            code_ptr: (i as u64) + 1,
+            env_ptr: 0,
+        };
+        assert!(
+            hm.put(key, v),
+            "{}: reference put failed on key #{} (unexpectedly full)",
+            fixture_rel,
+            i
+        );
+    }
+    assert_eq!(
+        hm.len, expected_len,
+        "\n{} declares expected_len = {}\nbut reference-impl reached len = {} after {} puts",
+        fixture_rel, expected_len, hm.len, put_count
+    );
+    let tier_bit: u64 = if hm.using_large { 1 } else { 0 };
+    assert_eq!(
+        tier_bit, expected_tier,
+        "\n{} declares expected_using_large = {} but reference reached {}",
+        fixture_rel, expected_tier, tier_bit
+    );
+    // Round-trip: every inserted key must read back its exact 16-B pair.
+    for (i, key) in corpus.iter().enumerate() {
+        match hm.get(key) {
+            Some(v) => {
+                assert_eq!(
+                    v.code_ptr,
+                    (i as u64) + 1,
+                    "{}: reference get({:?}) code_ptr = {} but expected {}",
+                    fixture_rel,
+                    key,
+                    v.code_ptr,
+                    i + 1
+                );
+                assert_eq!(
+                    v.env_ptr, 0,
+                    "{}: reference get({:?}) env_ptr = {} but expected 0",
+                    fixture_rel, key, v.env_ptr
+                );
+            }
+            None => panic!(
+                "{}: reference get({:?}) returned None after put of handler {}",
+                fixture_rel, key, i
+            ),
+        }
+    }
+}
+
+#[test]
+fn r220m7_fill_30_matches_reference() {
+    assert_closure_ref_matches_fixture(
+        "pdx/hashmap_str_closure_fill_30.pdx",
+        30,
+    );
+}
+
+#[test]
+fn r220m7_fill_100_matches_reference() {
+    // The 100-put trajectory MUST cross the 96-live resize threshold
+    // exactly once and end up on the large tier — and the rehash MUST
+    // preserve every stored (code_ptr, env_ptr) pair.
+    assert_closure_ref_matches_fixture(
+        "pdx/hashmap_str_closure_fill_100.pdx",
+        100,
+    );
+}
+
+#[test]
+fn r220m7_dispatch_on_named_handler() {
+    // Plan §4 R220.M7 acceptance criterion (verbatim): "fixture with
+    // 30 named handlers keyed by Str, dispatch on one → exit code
+    // matches the chosen handler". Simulation form per the plan's
+    // explicit "may be a simulation" clause: dispatch = HashMap
+    // lookup + switch on returned code_ptr.
+    let corpus = r220m7_corpus(30);
+    let mut hm = RefHashMapStrClosure::new();
+    for (i, key) in corpus.iter().enumerate() {
+        hm.put(
+            key,
+            RefClosureFatPtr {
+                code_ptr: (i as u64) + 1,
+                env_ptr: 0,
+            },
+        );
+    }
+    // "Chosen handler": key #17 (arbitrary interior pick — proves
+    // lookup returns the exact stored id, not a coincidence of first
+    // or last).
+    let chosen_idx = 17_usize;
+    let chosen_key = &corpus[chosen_idx];
+    let expected_exit: u64 = (chosen_idx as u64) + 1;
+
+    let found = hm.get(chosen_key).expect("dispatch: chosen key must be present");
+    let exit_code = match found.code_ptr {
+        0 => panic!("dispatch: handler-id 0 is the empty-slot sentinel — must not match"),
+        n => n, // "switch on returned value" — the simulated handler-id itself is the exit code.
+    };
+    assert_eq!(
+        exit_code, expected_exit,
+        "dispatch: chosen handler #{} returned exit {} but expected {}",
+        chosen_idx, exit_code, expected_exit
+    );
+    // Env_ptr round-trip (proves the 16-B value slot is honest — the
+    // second word is not lost across put+get).
+    assert_eq!(found.env_ptr, 0, "dispatch: env_ptr must round-trip verbatim");
+
+    // Negative case: a synthetic non-corpus key must miss.
+    let missing_key = b"__paideia_never_inserted__";
+    assert!(
+        hm.get(missing_key).is_none(),
+        "dispatch: absent key must return None"
+    );
+}
+
+#[test]
+fn r220m7_replace_preserves_fat_pointer() {
+    // Two successive puts on the same key must overwrite BOTH code_ptr
+    // and env_ptr — the M6 replace path only rewrote a single u64
+    // value slot, so this is a genuinely new M7-only assertion.
+    let mut hm = RefHashMapStrClosure::new();
+    let key = b"handler-a";
+    hm.put(key, RefClosureFatPtr { code_ptr: 0x1111, env_ptr: 0x2222 });
+    hm.put(key, RefClosureFatPtr { code_ptr: 0x3333, env_ptr: 0x4444 });
+    let got = hm.get(key).expect("replace: key must be present after second put");
+    assert_eq!(got.code_ptr, 0x3333, "replace: code_ptr must reflect second put");
+    assert_eq!(got.env_ptr, 0x4444, "replace: env_ptr must reflect second put");
+    assert_eq!(hm.len, 1, "replace: len must stay at 1 (overwrite, not insert)");
+}
+
+#[test]
+fn r220m7_resize_preserves_both_value_words() {
+    // M7-specific resize regression: after the small→large rehash,
+    // every migrated slot must carry BOTH stored value words verbatim.
+    // (M6 only had to preserve a single u64; the M7 rehash copies four
+    // data columns instead of three.)
+    let corpus = r220m7_corpus(100);
+    let mut hm = RefHashMapStrClosure::new();
+    for (i, key) in corpus.iter().enumerate() {
+        hm.put(
+            key,
+            RefClosureFatPtr {
+                // Distinct sentinels per word — a bug that copied the
+                // same column twice, or swapped column order, would
+                // show up immediately.
+                code_ptr: 0xC0DE_0000 + (i as u64),
+                env_ptr:  0xE117_0000 + (i as u64),
+            },
+        );
+    }
+    assert!(hm.using_large, "resize must have fired after 100 puts");
+    for (i, key) in corpus.iter().enumerate() {
+        let got = hm.get(key).unwrap_or_else(|| {
+            panic!("post-resize: get({:?}) returned None for key #{}", key, i)
+        });
+        assert_eq!(
+            got.code_ptr,
+            0xC0DE_0000 + (i as u64),
+            "post-resize: code_ptr column corrupted for key #{}",
+            i
+        );
+        assert_eq!(
+            got.env_ptr,
+            0xE117_0000 + (i as u64),
+            "post-resize: env_ptr column corrupted for key #{}",
+            i
+        );
+    }
+}
+
+#[test]
+fn r220m7_hashmap_str_closure_module_declares_full_surface() {
+    let src = std::fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("pdx/hashmap_str_closure.pdx"),
+    )
+    .expect("hashmap_str_closure.pdx must exist for R220.M7");
+    assert!(
+        src.contains("module HashMapStrClosure"),
+        "hashmap_str_closure.pdx: missing `module HashMapStrClosure`"
+    );
+    for op in [
+        "pub let hashmap_str_closure_new",
+        "pub let hashmap_str_closure_put",
+        "pub let hashmap_str_closure_get",
+        "pub let hashmap_str_closure_contains",
+        "pub let hashmap_str_closure_len",
+        "pub let hashmap_str_closure_using_large",
+    ] {
+        assert!(
+            src.contains(op),
+            "hashmap_str_closure.pdx: missing `{}` binding",
+            op
+        );
+    }
+    // Two-tier, four-value-column layout witnesses (distinct from M6's
+    // three-column shape — key is inlined as (kptr, klen), value as
+    // (code_ptr, env_ptr)).
+    for slot in [
+        "hm_c_s_state     : [u64; 128]",
+        "hm_c_s_kptr      : [u64; 128]",
+        "hm_c_s_klen      : [u64; 128]",
+        "hm_c_s_code      : [u64; 128]",
+        "hm_c_s_env       : [u64; 128]",
+        "hm_c_l_state     : [u64; 512]",
+        "hm_c_l_code      : [u64; 512]",
+        "hm_c_l_env       : [u64; 512]",
+        "hm_c_using_large : u64",
+    ] {
+        assert!(
+            src.contains(slot),
+            "hashmap_str_closure.pdx: missing layout witness `{}`",
+            slot
+        );
+    }
+    // 16-B closure fat pointer struct must be defined.
+    assert!(
+        src.contains("struct ClosureFatPtr { code_ptr: *u8, env_ptr: *u8 }"),
+        "hashmap_str_closure.pdx: ClosureFatPtr struct must match #994 fat-ptr layout"
+    );
+    // FNV-1a-64 constants re-embedded in the local hash helper.
+    assert!(
+        src.contains("0xCBF29CE484222325") && src.contains("0x100000001B3"),
+        "hashmap_str_closure.pdx: FNV-1a-64 constants must be present in the local hash helper"
+    );
+    // Deferral discipline (inherit M6's tags; add M7-specific one).
+    assert!(
+        src.contains("FIXME(nfc)"),
+        "hashmap_str_closure.pdx: NFC deferral must be marked FIXME(nfc) per SH-D9"
+    );
+    assert!(
+        src.contains("FIXME(resize-uncapped)"),
+        "hashmap_str_closure.pdx: single-tier resize deferral must be marked FIXME(resize-uncapped)"
+    );
+    assert!(
+        src.contains("FIXME(remove)"),
+        "hashmap_str_closure.pdx: remove-op deferral must be marked FIXME(remove)"
+    );
+    assert!(
+        src.contains("FIXME(closure-invoke)"),
+        "hashmap_str_closure.pdx: simulation-vs-real-invoke deferral must be marked FIXME(closure-invoke)"
+    );
+}
+
+#[test]
+fn r220m7_hashmap_str_closure_shape_declares_landed_trait() {
+    let src = std::fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("pdx/hashmap_str_closure_shape.pdx"),
+    )
+    .expect("hashmap_str_closure_shape.pdx must exist");
+    assert!(
+        src.contains("trait HashMapStrClosureOps"),
+        "hashmap_str_closure_shape.pdx: missing trait HashMapStrClosureOps"
+    );
+    assert!(
+        src.contains("fn hashmap_str_closure_put")
+            && src.contains("fn hashmap_str_closure_get"),
+        "hashmap_str_closure_shape.pdx: trait must expose put/get"
+    );
+    assert!(
+        src.contains("struct ClosureFatPtr"),
+        "hashmap_str_closure_shape.pdx: must document the 16-B fat-ptr layout"
+    );
+}
+
+#[test]
+fn r220m7_hashmap_pdx_lists_all_three_monomorphs() {
+    let src = std::fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pdx/hashmap.pdx"),
+    )
+    .expect("hashmap.pdx must exist");
+    assert!(
+        src.contains("struct HashMapU64U64"),
+        "hashmap.pdx: canary HashMapU64U64 monomorph must remain listed"
+    );
+    assert!(
+        src.contains("struct HashMapStrU64"),
+        "hashmap.pdx: R220.M6 HashMapStrU64 monomorph must remain listed"
+    );
+    assert!(
+        src.contains("struct HashMapStrClosure"),
+        "hashmap.pdx: R220.M7 HashMapStrClosure monomorph must be listed"
+    );
+    assert!(
+        src.contains("trait HashMapStrClosureOps"),
+        "hashmap.pdx: trait HashMapStrClosureOps surface must be documented"
+    );
+    assert!(
+        src.contains("struct ClosureFatPtr"),
+        "hashmap.pdx: shared ClosureFatPtr surface must be documented"
+    );
+}
+
+#[test]
+fn r220m7_fill_30_fixture_carries_fingerprint() {
+    let src = std::fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("pdx/hashmap_str_closure_fill_30.pdx"),
+    )
+    .expect("hashmap_str_closure_fill_30.pdx must exist");
+    assert!(
+        src.contains("\"r220m7-fill-30\\0\""),
+        "fill_30 fixture must carry r220m7-fill-30\\0 fingerprint tag"
+    );
+    assert!(
+        src.contains("expected_len        : u64      = 30"),
+        "fill_30 fixture must declare expected_len = 30"
+    );
+    assert!(
+        src.contains("expected_using_large: u64      = 0"),
+        "fill_30 fixture must declare expected_using_large = 0 (below resize threshold)"
+    );
+}
+
+#[test]
+fn r220m7_fill_100_fixture_carries_fingerprint() {
+    let src = std::fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("pdx/hashmap_str_closure_fill_100.pdx"),
+    )
+    .expect("hashmap_str_closure_fill_100.pdx must exist");
+    assert!(
+        src.contains("\"r220m7-fill-100\""),
+        "fill_100 fixture must carry r220m7-fill-100 fingerprint tag"
+    );
+    assert!(
+        src.contains("expected_len        : u64      = 100"),
+        "fill_100 fixture must declare expected_len = 100"
+    );
+    assert!(
+        src.contains("expected_using_large: u64      = 1"),
+        "fill_100 fixture must declare expected_using_large = 1 (resize path fired)"
+    );
+}
