@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.36.14 — 2026-09-24 — R221.M3 (TR#11 width) + R221.M4 (context lexer)
+
+Next two semantic-shell surface milestones landed.
+
+**R221.M3** — TR#11 East-Asian width in `paideia-as-unicode::width`:
+- Dep `unicode-width = "0.1"` (Servo, MIT/Apache, UCD 15.1)
+- `width(c) -> Width { Zero, Narrow, Ambiguous, Wide }`
+- `str_width(s)` / `grapheme_width(g)` for cursor advance
+- 30 UAX#11 conformance tests; ANSI escapes count 0 cols, emoji sequences,
+  combining marks, RTL, Greek ambiguous, RI flag pairs
+
+**R221.M4** — Context-tracking lexer in new crate `paideia-as-shell-lex`:
+- `Context = { Pipeline, Datalog, Lambda }` + Vec-backed stack (nesting depth 1..=3+)
+- `Lexer` reads `Utf8Decoder` output; emits `Token { kind, span, context }`
+- Sigil-prefixed vars `?VAR` (QVar) and `$VAR` (InterpVar)
+- Two-char operators `=>`, `->`, `<=`, `>=`, `==`, `!=`
+- `datalog { ... }` opens Datalog context; `{ |args| body }` opens Lambda
+- 40 fixture tests across Pipeline/Datalog/Lambda/mixed (10 each)
+
+**Bug fixed in landing**: `Lexer::peek2()` in `paideia-as-shell-lex/src/lexer.rs`
+was treating `Utf8Decoder::position()` (relative to a sub-slice) as an absolute
+source offset. All `=>`/`->`/etc. two-char lookups silently failed as
+`UnexpectedChar`. Fixed by adding `self.pos + first_end_rel` translation.
+Documents an anti-fabrication class win: the softarch's design was right; the
+test-observed failure surfaced a real bug that only lit up under adversarial
+Datalog/Lambda fixtures.
+
+Closes paideia-as#1429 (R221.M3), paideia-as#1430 (R221.M4).
+
 ## 0.36.13 — 2026-09-24 — Semantic-shell Unicode substrate (R221.M1 + M2)
 
 **First semantic-shell surface milestone shipped** — R221 begins the language surface

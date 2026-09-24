@@ -1,0 +1,40 @@
+[package]
+name = "paideia-as-shell-lex"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+name = "paideia_as_shell_lex"
+
+# R221.M4 — semantic-shell context-tracking lexer.
+#
+# Owns the state machine that switches between the shell's three
+# sub-language contexts (Pipeline, Datalog, Lambda) at lexical
+# delimiters (`datalog { … }`, `{ |args| body }`) per SH-D1. Every
+# emitted token carries the context that was active at emission time,
+# so R221.M5 (unified AST + parser) can pick the right sub-language
+# grammar without a second look-ahead pass and R229 (REPL line editor)
+# can render each token in its context's syntax colors.
+#
+# Kept in its own crate — separate from `paideia-as-unicode` — because
+# it defines shell-vocabulary types (`Context`, `TokenKind`) that the
+# Unicode substrate has no reason to import. The dependency arrow is
+# one-way: shell-lex → paideia-as-unicode (for `Utf8Decoder`); the
+# opposite direction would drag shell tokens into every consumer of
+# NFC/width, which are also called from non-shell contexts (the
+# elaborator's `Str::eq` lowering, the schema-registry key hasher).
+#
+# This crate's public surface is intentionally small: `Lexer`,
+# `Token`, `TokenKind`, `Context`, `Span`. The R221.M5 parser drives it
+# via `Iterator<Item = Token>`; every downstream milestone (R222
+# functor surface, R226 Datalog parser, R229 REPL line editor)
+# consumes tokens through that iterator only.
+
+[dependencies]
+# Feeds bytes into `Utf8Decoder`; also provides span helpers R221.M6
+# (source-span provenance through NFC) will consume.
+paideia-as-unicode = { path = "../paideia-as-unicode" }

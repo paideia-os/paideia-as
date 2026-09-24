@@ -1,5 +1,5 @@
 //! paideia-as-unicode — R221.M1 (UTF-8 + NFC) + R221.M2 (TR#29 graphemes)
-//! semantic-shell Unicode substrate.
+//! + R221.M3 (TR#11 East-Asian width) semantic-shell Unicode substrate.
 //!
 //! # What this crate owns
 //!
@@ -25,12 +25,18 @@
 //!   line editor uses for cursor-position math and R228's tab-completion
 //!   uses to segment argument tokens.
 //!
+//! * [`width`] + [`str_width`] + [`grapheme_width`] — UAX#11 East-Asian
+//!   width lookup and rendered-column counts. The R229 renderer maps a
+//!   buffer position to a screen column by summing `str_width` over the
+//!   preceding text; ANSI escapes are stripped, wide CJK characters
+//!   count as two columns, and grapheme clusters (family emoji,
+//!   skin-tone modifiers) collapse to their base cell.
+//!
 //! # What this crate does NOT own
 //!
-//! * The TR#11 East-Asian width table + renderer (R221.M3, follow-on
-//!   milestone).
 //! * The context-tracking lexer that switches between pipeline /
-//!   Datalog / lambda contexts (R221.M4).
+//!   Datalog / lambda contexts (R221.M4 — lives in the separate
+//!   `paideia-as-shell-lex` crate, which depends on this one).
 //! * The unified AST sum type (R221.M5).
 //! * Source-span tracking through the NFC transform (R221.M6) — that
 //!   milestone consumes this crate's decoder + normalizer but adds its
@@ -55,6 +61,7 @@ pub mod error;
 pub mod grapheme;
 pub mod nfc;
 pub mod utf8;
+pub mod width;
 
 pub use error::Utf8Error;
 pub use grapheme::{
@@ -62,3 +69,4 @@ pub use grapheme::{
 };
 pub use nfc::{is_ascii_fast_path_eligible, is_nfc, nfc_normalize};
 pub use utf8::Utf8Decoder;
+pub use width::{Width, grapheme_width, str_width, width};

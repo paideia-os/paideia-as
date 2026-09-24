@@ -10,7 +10,7 @@ repository.workspace = true
 [lib]
 name = "paideia_as_unicode"
 
-# R221.M1 + R221.M2 — semantic-shell Unicode substrate.
+# R221.M1 + R221.M2 + R221.M3 — semantic-shell Unicode substrate.
 #
 # Hosts the UTF-8 decoder (RFC 3629, streaming), the NFC normalizer
 # (UAX#15, per SH-D9.4 — every string crossing an IPC boundary is
@@ -41,9 +41,20 @@ name = "paideia_as_unicode"
 unicode-normalization = { workspace = true }
 # UAX#29 extended-grapheme-cluster boundary tables + iterator (~50 KiB).
 unicode-segmentation = { workspace = true }
+# UAX#11 East-Asian width tables (~30 KiB). Used by R221.M3 (`width.rs`)
+# for the R229 REPL renderer's cursor-column math. Latin + CJK width
+# variants are both consulted so we can synthesize the `Ambiguous`
+# discriminator UAX#11 requires (the crate itself splits its API but
+# does not expose the four-way property directly).
+unicode-width = { workspace = true }
 
 [dev-dependencies]
 # Round-trip / boundary-ordering property tests (100 kg/s throughput
 # claim in the R221.M2 acceptance is measured by a criterion bench in a
 # follow-on milestone; the correctness property test lives here).
 proptest = { workspace = true }
+# The R221.M3 `str_width = Σ grapheme_width` invariant test iterates
+# graphemes directly (rather than paying the boundary-→-cluster
+# round-trip). Same crate this package's public path already depends
+# on, so no new external surface area.
+unicode-segmentation = { workspace = true }

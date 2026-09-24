@@ -24,6 +24,7 @@ members = [
     "crates/paideia-as-reflection",
     "crates/paideia-as-stdlib",
     "crates/paideia-as-unicode",
+    "crates/paideia-as-shell-lex",
     "crates/paideia-as-test",
     "crates/paideia-as-doc",
     "crates/paideia-lsp",
@@ -66,7 +67,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.36.13"
+version = "0.36.14"
 edition = "2024"
 rust-version = "1.94"
 license = "MIT"
@@ -105,6 +106,12 @@ unicode-ident = "1"
 # the shell's TR#11 renderer (R221.M3) freezes onto.
 unicode-normalization = "0.1"
 unicode-segmentation = "1"
+# R221.M3 (semantic-shell TR#11 renderer, paideia-as-unicode::width).
+# East-Asian-width tables per UAX#11. Servo, MIT/Apache; UCD 15.1
+# tables ~30 KiB. Same UCD-vendor rationale as `unicode-normalization`
+# and `unicode-segmentation` above — hand-maintaining the four-way
+# property table would exceed every other module in the width layer.
+unicode-width = "0.1"
 syn = { version = "2", features = ["full", "parsing", "extra-traits"] }
 quote = "1"
 
