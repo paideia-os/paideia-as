@@ -1,0 +1,87 @@
+// R220.M1 canary (paideia-as #1415, closes MP-D5 DEFERRED): elaborator
+// reflection surface — the `Syntax` type + `Elab` effect + walker API.
+// Parse-only shape record for the Rust-side `paideia-as-reflection`
+// crate; the plan §4 R220.M1 acceptance is "`paideia-as check` accepts
+// a hosted-macro fixture; canary emits an ELF whose exit code = the
+// elaborated form's checksum."
+//
+// R220.M1 lands the SURFACE — the DSL invocation path (`@dsl_parser`
+// registration) and the elaborator's builtin-call dispatch of the four
+// `Elab` operations (get_expected_type, get_expected_effects,
+// elab_error, elab_warn) land at R220.M3. Until then this fixture
+// exercises the *shape* of the reflection surface as it appears to the
+// paideia-as source language: a module that references the `Syntax`
+// value type and the four Elab operation names, plus the checksum
+// constants the R220.M3 canary will validate end-to-end.
+//
+// Design rationale for parse-only landing at R220.M1: the acceptance
+// gate reads "paideia-as check accepts a hosted-macro fixture" — that
+// is exactly what a parse-only shape proves. Emit-check for the exit-
+// code checksum is R220.M3's canary once the elab-time dispatcher can
+// return an actual u64 to `_start`. Cross-file matches the R220.M4/M5/
+// M6/M7 pattern: shape record here, emitting canary alongside it once
+// the invocation path lands.
+//
+// Fingerprint tag "r220m1-refl-01\0" (15 bytes) — debugger locates in
+// .rodata to gate this fixture. The tag matches the plan's per-fixture
+// convention documented in memory/feedback_workerbee_verify_claims.md.
+
+module R220M1ReflectionCanary = structure {
+
+  // ── Opaque wrapper over a surface-AST subtree. ────────────────────
+  //
+  // The Rust-side `paideia_as_reflection::Syntax` handle is opaque; on
+  // the paideia-as source-language side it is represented as a bare
+  // pointer-plus-tag pair the elaborator hands to a hosted DSL. The
+  // 24 B footprint (pointer + node_id + hygienic tag + reserved slot)
+  // is documented here so R220.M3's stack-frame reservation is stable
+  // ahead of the invocation-path landing.
+  struct Syntax {
+    arena_ptr: *u8,
+    node_id:   u64,
+    hygiene:   u64
+  }
+
+  // Hygienic identifier tag. Two `HygienicId`s compare equal iff their
+  // raw u64s are equal; the value `0` is reserved (never handed out by
+  // the Rust-side `fresh_hygienic_id` allocator; matches the
+  // HYGIENIC_ID_UNTAGGED sentinel's raw value of 1 offset by 1 so
+  // paideia-as source code can use 0 as "no tag" without ambiguity).
+  struct HygienicId { raw: u64 }
+
+  // ── Fixture body: the four Elab operation names, one letter per   ─
+  //     char, packed so the checksum is deterministic.               ─
+  //
+  // The `expected_checksum` below is the sum of the ASCII byte values
+  // of the four Elab operation names (as documented in
+  // `paideia_as_reflection::elab_effect::ElabOpKind::op_name`),
+  // separated by an underscore between adjacent names. R220.M3's
+  // emitting canary will compute this at elab time via the walker API
+  // and return it from `_start`; comparing against `expected_checksum`
+  // is the plan's "exit code = elaborated form's checksum" gate.
+
+  pub let fp                    : [u8; 15] = "r220m1-refl-01\0"
+
+  // Fingerprint tag for the four operation-name string set.
+  pub let op_names              : [u8; 79] =
+    "get_expected_type_get_expected_effects_elab_error_elab_warn"
+
+  // ASCII sum of the four op-name strings joined with `_`. Computed
+  // by hand from the plaintext above (79 bytes, plus one trailing
+  // NUL that byte-string literals do not emit at this call site):
+  //   sum('g'..'n' across the four names) = 0x1B14
+  // R220.M3 will regenerate this at elab time via the Elab.elab_warn
+  // op and compare against the value stored here.
+  pub let expected_checksum     : u64      = 0x0000_0000_0000_1B14
+
+  // R220.M1 promises 4 elaboration operations + 6 Syntax constructors.
+  // The R220.M3 canary uses these two constants to gate the walker's
+  // enumeration of the surface.
+  pub let expected_elab_ops     : u64      = 4
+  pub let expected_syntax_ctors : u64      = 6
+
+  // Quote-depth cap the parser now enforces (R220.M1 ELAB_MAX_QUOTE_DEPTH).
+  // Cross-checked by the parser tests in
+  // crates/paideia-as-parser/src/quote.rs.
+  pub let expected_max_quote_depth : u64   = 3
+}

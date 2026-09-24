@@ -21,6 +21,7 @@ members = [
     "crates/paideia-as-linear",
     "crates/paideia-as-linker",
     "crates/paideia-as-macro",
+    "crates/paideia-as-reflection",
     "crates/paideia-as-stdlib",
     "crates/paideia-as-test",
     "crates/paideia-as-doc",
@@ -64,7 +65,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.36.7"
+version = "0.36.8"
 edition = "2024"
 rust-version = "1.94"
 license = "MIT"

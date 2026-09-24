@@ -7,7 +7,16 @@
 //! Reserved P-codes (P0170–P0179) for future extensions:
 //! - P0170: antiquote outside quote block
 //! - P0171: malformed quote (missing closing brace)
-//! - P0172–P0179: reserved for future use
+//! - P0172: quote nesting depth exceeded (R220.M1 — see
+//!   `paideia_as_reflection::ELAB_MAX_QUOTE_DEPTH`, currently 3).
+//! - P0173–P0179: reserved for future use
+
+/// Maximum quote-nesting depth accepted by the parser at R220.M1.
+///
+/// Mirrors `paideia_as_reflection::ELAB_MAX_QUOTE_DEPTH` (kept as a
+/// local literal to avoid a parser → reflection dependency; the two
+/// values MUST stay in sync — a future round can lift both together).
+const MAX_QUOTE_DEPTH: u32 = 3;
 
 use paideia_as_ast::{ExprData, NodeKind};
 use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Span};
@@ -38,6 +47,29 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
         // Expect `{`
         self.expect(TokenKind::LBrace)?;
+
+        // R220.M1 (#1415): guard against pathological hosted-DSL bodies
+        // that nest quotes beyond MAX_QUOTE_DEPTH. The parser's own
+        // in_quote_depth is the source of truth — we check *before*
+        // bumping so the newly-opened quote is what would exceed the
+        // cap. `paideia-as-reflection`'s ELAB_MAX_QUOTE_DEPTH mirrors
+        // the same literal; the two constants are validated at their
+        // respective crate boundaries and must stay in sync.
+        if self.in_quote_depth >= MAX_QUOTE_DEPTH {
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 172)
+                .expect("valid P0172 code");
+            let diag = Diagnostic::error(code)
+                .message(format!(
+                    "quote nesting depth {} exceeds R220.M1 cap ({}); rewrite the DSL body \
+                     with an antiquote splice or file a follow-on to lift the cap",
+                    self.in_quote_depth + 1,
+                    MAX_QUOTE_DEPTH
+                ))
+                .with_span(span_start)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
 
         // Increment quote depth to enable antiquote recognition
         self.in_quote_depth = self.in_quote_depth.saturating_add(1);
@@ -460,6 +492,38 @@ mod tests {
         assert!(
             diags.iter().any(|d| d.code().number() == 170),
             "should emit P0170 for antiquote outside quote"
+        );
+    }
+
+    #[test]
+    fn four_level_nested_quote_emits_p0172() {
+        // R220.M1 (#1415): `quote { quote { quote { quote { 1 } } } }`
+        // must be rejected — the third-level `quote { … }` is accepted;
+        // the fourth-level opening triggers P0172.
+        let tokens = vec![
+            tok(TokenKind::Ident, 0, 5),   // "quote" (L1)
+            tok(TokenKind::LBrace, 6, 1),  // "{"
+            tok(TokenKind::Ident, 8, 5),   // "quote" (L2)
+            tok(TokenKind::LBrace, 14, 1), // "{"
+            tok(TokenKind::Ident, 16, 5),  // "quote" (L3)
+            tok(TokenKind::LBrace, 22, 1), // "{"
+            tok(TokenKind::Ident, 24, 5),  // "quote" (L4 — must be rejected)
+            tok(TokenKind::LBrace, 30, 1), // "{"
+            tok(TokenKind::IntLit, 32, 1), // "1"
+            tok(TokenKind::RBrace, 34, 1), // "}" (L4)
+            tok(TokenKind::RBrace, 36, 1), // "}" (L3)
+            tok(TokenKind::RBrace, 38, 1), // "}" (L2)
+            tok(TokenKind::RBrace, 40, 1), // "}" (L1)
+            tok(TokenKind::Eof, 41, 0),
+        ];
+        let source = "quote { quote { quote { quote { 1 } } } }";
+        let (_arena, result, diags) = parse_quote_tokens(tokens, source);
+
+        assert!(result.is_err(), "four-level nested quote must be rejected");
+        assert!(
+            diags.iter().any(|d| d.code().number() == 172),
+            "expected P0172 (quote depth exceeded); got {:?}",
+            diags.iter().map(|d| d.code().number()).collect::<Vec<_>>()
         );
     }
 

@@ -1,0 +1,33 @@
+[package]
+name = "paideia-as-reflection"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+name = "paideia_as_reflection"
+
+# R220.M1 — elaborator reflection surface (paideia-as#1415).
+#
+# Home for the typed `Syntax` value, its `HygienicId` substrate, the
+# structural walker API (`WalkAction` / `SyntaxWalker`), and the `Elab`
+# effect's operation signatures — the substrate hosted DSLs use to hook
+# themselves into the elaborator per Christiansen & Brady 2016
+# ("Elaborator Reflection: Extending Idris in Idris"). Consumed by
+# semantic-shell R221..R227 and by R220.M2/M3/M9/M10 (hygiene,
+# `@dsl_parser`, LSP-embed, `@fingerprint`).
+#
+# Kept intentionally shallow: depends only on `paideia-as-ast` (the
+# arena the `Syntax` handle points into), `paideia-as-diagnostics` (the
+# span + Diagnostic types), and `paideia-as-effects` (to synthesize the
+# `Elab` operation signatures alongside the existing macro-effect row).
+# It deliberately does NOT depend on `paideia-as-elaborator`: the
+# elaborator is a downstream consumer, not an implementation detail.
+
+[dependencies]
+paideia-as-ast = { path = "../paideia-as-ast" }
+paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
+paideia-as-effects = { path = "../paideia-as-effects" }

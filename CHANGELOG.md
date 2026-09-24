@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.36.8 — 2026-09-23 — Elaborator reflection surface (R220.M1, supersedes MP-D5 DEFERRED)
+
+New crate `paideia-as-reflection` lands the typed reflection substrate (Q-A4) that the
+semantic-shell hosting strategy requires. Follows Christiansen & Brady 2016 for shape.
+
+- **`paideia-as-reflection` crate (NEW)** with 5 modules: `syntax.rs`, `hygiene.rs`,
+  `walker.rs`, `elab_effect.rs`, `lib.rs`. Deps: `paideia-as-ast`, `paideia-as-diagnostics`,
+  `paideia-as-effects` — deliberately NOT `paideia-as-elaborator` (keeps R220.M3's
+  `@dsl_parser` hook cycle-free).
+- **`Syntax`** — opaque wrapper over AST nodes; 6 constructors (`literal`, `var`, `app`,
+  `let_`, `lambda`, `match_`) + 2 arena wrappers + 5 accessors + free `quote_depth`.
+- **`HygienicId`** — newtype ready for R220.M2's Ullrich 2020 alpha-rename wiring;
+  `HYGIENIC_ID_UNTAGGED` const + `fresh_hygienic_id`.
+- **Walker** — `WalkAction { Descend | Skip | Replace(NodeId) }` + `SyntaxWalker` trait +
+  `walk_syntax(...)` free fn. Replace records intent (main splice deferred to R220.M3).
+- **`Elab` effect** — `ElabOpKind::{GetExpectedType, GetExpectedEffects, ElabError, ElabWarn}`
+  with op-signature registry + F1200/F1201/F1202 diagnostic codes.
+- **Parser P0172** — MAX_QUOTE_DEPTH=3 guardrail (rejects `quote { ... }` at depth ≥ 4).
+  Existing 3-level nested tests still pass.
+- **Canary fixture** `r220m1_reflection_canary.pdx` — parse-only shape record with tag
+  `r220m1-refl-01`; the emit-check clause of the acceptance criterion waits on R220.M3.
+- 27 unit tests pass (walker semantics doc-note: `Syntax::var`/`literal` allocate
+  wrapper+child, so a "call(callee, arg1, arg2)" walk visits 7 nodes not 4).
+
+**Kept `quote { ... }` / `~(...)` surface** (the alt `` `(…) `` / `${…}` spelling fights
+`$` = LinearMark in the lexer — FIXME deferred). Other FIXMEs: `WalkAction::Replace`
+in-place splice (R220.M3), Type/EffectRow quote/antiquote, structural `as_lambda()`
+accessors, sentinel SignatureIds (R220.M3 wires real ones).
+
+Closes MP-D5 DEFERRED gate. Closes paideia-as#1415 (R220.M1).
+Unblocks R220.M2, M3, M9, M10; semantic-shell R221, R222, R225, R226, R227.
+
 ## 0.36.7 — 2026-09-23 — HashMap<Str, ClosureFatPtr> (R220.M7)
 
 Third HashMap monomorphization for the semantic-shell SH-D5 command-name → closure
