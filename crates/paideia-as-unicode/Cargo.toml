@@ -1,0 +1,49 @@
+[package]
+name = "paideia-as-unicode"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+name = "paideia_as_unicode"
+
+# R221.M1 + R221.M2 — semantic-shell Unicode substrate.
+#
+# Hosts the UTF-8 decoder (RFC 3629, streaming), the NFC normalizer
+# (UAX#15, per SH-D9.4 — every string crossing an IPC boundary is
+# normalized to NFC), and the TR#29 grapheme-cluster boundary iterator
+# the R229 REPL line editor's cursor-position math consumes.
+#
+# The bulky Unicode Character Database tables live in the vetted
+# crates.io crates `unicode-normalization` (Servo, MIT/Apache) and
+# `unicode-segmentation` (Servo, MIT/Apache), per the R221 plan §4
+# "prefer crates.io UCD tables over a hand-rolled subset" bullet — the
+# combined UCD 15.1 tables are ~300 KiB of static data whose
+# hand-maintenance would dwarf every other module in this crate. Our
+# surface owns the *paideia-as vocabulary* (`Utf8Error`, `Utf8Decoder`,
+# `GraphemeBoundaries`, the ASCII fast path, and the R229-facing
+# `grapheme_advance` cursor helper), the fingerprint-stamped test
+# corpus (per feedback_workerbee_verify_claims.md), and the invariants
+# semantic-shell R221..R229 rely on.
+#
+# Kept intentionally shallow: no dependency on any other paideia-as
+# crate. `paideia-as-stdlib` may re-export helpers from here in a
+# follow-on milestone; the elaborator does not import this crate
+# directly (the R220.M4 `Str::eq` NFC contract is enforced at
+# elaboration time by lowering to `nfc_normalize` calls at codegen —
+# outside this crate's scope).
+
+[dependencies]
+# UAX#15 NFC canonical decomposition + composition tables (~200 KiB).
+unicode-normalization = { workspace = true }
+# UAX#29 extended-grapheme-cluster boundary tables + iterator (~50 KiB).
+unicode-segmentation = { workspace = true }
+
+[dev-dependencies]
+# Round-trip / boundary-ordering property tests (100 kg/s throughput
+# claim in the R221.M2 acceptance is measured by a criterion bench in a
+# follow-on milestone; the correctness property test lives here).
+proptest = { workspace = true }

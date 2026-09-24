@@ -23,6 +23,7 @@ members = [
     "crates/paideia-as-macro",
     "crates/paideia-as-reflection",
     "crates/paideia-as-stdlib",
+    "crates/paideia-as-unicode",
     "crates/paideia-as-test",
     "crates/paideia-as-doc",
     "crates/paideia-lsp",
@@ -65,7 +66,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.36.12"
+version = "0.36.13"
 edition = "2024"
 rust-version = "1.94"
 license = "MIT"
@@ -95,6 +96,15 @@ toml = "0.8"
 chumsky = "0.10"
 logos = "0.15"
 unicode-ident = "1"
+# R221.M1 / R221.M2 (semantic-shell surface Unicode substrate,
+# paideia-as-unicode crate). NFC normalizer (UAX#15) and grapheme-cluster
+# boundary iterator (UAX#29) both back onto well-audited RustCrypto-style
+# UCD-table crates rather than a hand-rolled UCD subset, per the R221
+# plan §4 "prefer crates.io ucd tables" bullet. Pinned to majors matching
+# Unicode 15.1 at time of R221 landing; upgrades track the UCD release
+# the shell's TR#11 renderer (R221.M3) freezes onto.
+unicode-normalization = "0.1"
+unicode-segmentation = "1"
 syn = { version = "2", features = ["full", "parsing", "extra-traits"] }
 quote = "1"
 
