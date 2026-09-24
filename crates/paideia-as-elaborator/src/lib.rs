@@ -124,11 +124,11 @@ pub use effect_fixedpoint::{
 };
 pub use effect_infer::{
     F_UNHANDLED_EFFECT, RowOutcome, call_row, check_no_unhandled, compose_rows, handle_row,
-    infer_or_check_call_row, perform_row,
+    infer_call_row_polymorphic, infer_or_check_call_row, perform_row,
 };
 pub use effect_unify::{
-    CallUnifyOutcome, F_HANDLER_ORDER, F_ROW_MISMATCH, check_handler_order, instantiate_fresh_tail,
-    unify_call_row,
+    CallUnifyOutcome, F_HANDLER_ORDER, F_ROW_MISMATCH, call_site_instantiate_and_unify,
+    check_handler_order, instantiate_fresh_tail, unify_call_row,
 };
 pub use effect_walker::EffectRowWalker;
 pub use emit_walker::{EmitPassState, EmitWalker};

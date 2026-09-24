@@ -13,7 +13,7 @@ use paideia_as_diagnostics::{Category, Diagnostic, DiagnosticCode, Severity, Spa
 use paideia_as_effects::{EffectId, EffectInterner, EffectRow, RowDiff, RowVarId};
 use std::collections::HashSet;
 
-use crate::effect_unify::F_ROW_MISMATCH;
+use crate::effect_unify::{F_ROW_MISMATCH, instantiate_fresh_tail};
 
 /// Diagnostic code for a row variable referenced outside its let-generalisation scope.
 pub const T_ROW_VAR_OUT_OF_SCOPE: u16 = 510;
@@ -173,6 +173,147 @@ pub fn infer_or_check_call_row(
                 }
             }
         }
+    }
+}
+
+/// Full row-polymorphic call-site inference (R220.M8, closes `paideia-as#1356`).
+///
+/// The pre-M8 [`infer_or_check_call_row`] path handled the two easy cases
+/// well — an implicit caller widens by union, an explicit caller checks
+/// subsumption — but did nothing with the *substitution* that
+/// [`crate::effect_unify::call_site_instantiate_and_unify`] produces when a
+/// row-polymorphic callee is instantiated against the caller. The
+/// substitution's `RowVarId ↦ EffectRow` bindings were computed and then
+/// silently discarded, so tail-carried effects flowing out of a callee's
+/// row variable never showed up in the caller's own inferred row, and
+/// later call sites in the same function body couldn't observe them
+/// (`paideia-as#1356` open half).
+///
+/// `infer_call_row_polymorphic` closes that gap:
+///
+/// 1. Instantiate the callee's declared row against `caller_current` with
+///    a **fresh** [`RowVarId`], so each call site owns its own tail (no
+///    accidental sharing across sibling calls to the same polymorphic
+///    function).
+/// 2. Unify. On failure, propagate the F1105 unchanged and leave
+///    `caller_current` alone.
+/// 3. On success, splice the callee's fixed effects into the caller's row
+///    (they *must* now appear there — the callee performs them) and
+///    [`paideia_as_effects::Substitution::apply`] the substitution to
+///    resolve any freshly-introduced tail into its concrete extras.
+///
+/// The result is a caller row that already reflects every effect the
+/// callee promised to perform *and* whatever tail-carried effects
+/// unification pinned down at this site — safe to feed into the next
+/// call, the next perform, or the enclosing function's own boundary
+/// check without a second pass. Composes with itself: applying it
+/// twice yields the same row (the substitution is idempotent on already-
+/// resolved rows, per [`paideia_as_effects::Substitution::apply`]'s
+/// contract).
+///
+/// # Explicit callers
+/// A caller with an explicit `!{...}` row keeps the pre-M8 semantics:
+/// the declared row is a firm upper bound, so an out-of-bound callee
+/// gets rejected with F1105 rather than growing the caller's row.
+/// Row polymorphism inside an explicit caller is still valid — the
+/// tail there names a rank-restricted variable the *caller* introduced
+/// at let-generalisation time (see [`LetGenScope`]), not one this
+/// function should discharge. R220.M11 (rank-restricted let-polymorphism)
+/// tightens that check further; this function stays out of its way.
+///
+/// # Diagnostics
+/// - **F1105** — callee's fixed effects are not a subset of an explicit
+///   caller's declared row, OR unification of the row structure itself
+///   fails (closed callee wider than closed caller).
+///
+/// Returns the (possibly-widened, possibly-substituted) caller row and
+/// any emitted diagnostics.
+pub fn infer_call_row_polymorphic(
+    caller_explicit: Option<&EffectRow>,
+    callee_decl_row: &EffectRow,
+    caller_current: &EffectRow,
+    interner: &mut EffectInterner,
+    span: Span,
+) -> RowOutcome {
+    // Explicit callers keep pre-M8 semantics: subsumption check without
+    // widening or substitution folding. See the header comment for why.
+    if let Some(explicit) = caller_explicit {
+        if callee_decl_row.is_subset_of(explicit) {
+            return RowOutcome {
+                row: caller_current.clone(),
+                diagnostics: Vec::new(),
+            };
+        }
+        return RowOutcome {
+            row: caller_current.clone(),
+            diagnostics: vec![call_site_row_mismatch_diag(explicit, callee_decl_row, span)],
+        };
+    }
+
+    // Implicit caller. The pre-M8 union path already widens the caller
+    // row by the callee's fixed effects; M8 adds real tail-variable
+    // propagation so a polymorphic callee's `∀e. {…| e}` tail resolves
+    // to whatever concrete extras the caller already carries.
+    //
+    // Algorithm:
+    //   1. Instantiate the callee's row with a fresh tail so each call
+    //      site owns its own polymorphic variable.
+    //   2. If the caller has no tail of its own, synthesise a scaffolding
+    //      tail so unification's "extras on one side, no tail on the
+    //      other" arm can bind rather than fail. The scaffolding tail
+    //      never survives into the returned row — it's stripped after
+    //      apply if still unbound.
+    //   3. Unify the instantiated callee against the (possibly-extended)
+    //      caller. Legit widening always succeeds under this shape.
+    //   4. Fold callee-fixed effects into the caller row via
+    //      [`compose_rows`], then [`paideia_as_effects::Substitution::apply`]
+    //      to resolve the freshly-bound tail.
+    //   5. Strip the scaffolding tail if it is still the row's tail
+    //      after apply (meaning nothing bound it — it was pure scaffolding).
+    let fresh_callee_tail = interner.fresh_row_var();
+    let instantiated = instantiate_fresh_tail(callee_decl_row, fresh_callee_tail);
+
+    let (caller_extended, scaffold_tail) = if caller_current.tail.is_none() {
+        let s = interner.fresh_row_var();
+        (
+            EffectRow {
+                fixed: caller_current.fixed.clone(),
+                tail: Some(s),
+            },
+            Some(s),
+        )
+    } else {
+        (caller_current.clone(), None)
+    };
+
+    let outcome =
+        crate::effect_unify::unify_call_row(&instantiated, &caller_extended, span);
+
+    if !outcome.diagnostics.is_empty() {
+        return RowOutcome {
+            row: caller_current.clone(),
+            diagnostics: outcome.diagnostics,
+        };
+    }
+
+    let composed = compose_rows(&caller_extended, &instantiated);
+    let mut propagated = outcome.subst.apply(&composed);
+
+    // Strip the scaffolding tail if it is still unbound (still appears
+    // as the row's tail after apply). Preserves the caller's original
+    // "closed" state when the callee was fully absorbed.
+    if let Some(s) = scaffold_tail {
+        if propagated.tail == Some(s) {
+            propagated = EffectRow {
+                fixed: propagated.fixed,
+                tail: caller_current.tail,
+            };
+        }
+    }
+
+    RowOutcome {
+        row: propagated,
+        diagnostics: Vec::new(),
     }
 }
 

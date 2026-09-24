@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::row::{EffectId, EffectRow, RowVarId};
 
@@ -20,6 +20,93 @@ impl Substitution {
     /// Bind a row variable to an effect row.
     pub fn bind(&mut self, v: RowVarId, r: EffectRow) {
         self.bindings.insert(v, r);
+    }
+
+    /// Apply this substitution to a single effect row (r220m8, `#1356` closed half).
+    ///
+    /// Walks the row's tail-variable chain: at each unresolved tail, if the
+    /// substitution binds that variable, splice the binding's fixed effects into
+    /// the working row's fixed set and continue with the binding's tail. Stops
+    /// when the tail is `None` (row closed), unbound (opaque tail), or already
+    /// visited (occurs-check cycle — the chain is treated as terminating on
+    /// the visited variable rather than looping).
+    ///
+    /// This is the missing piece for callee-effect-row propagation: after
+    /// `unify()` produces `subst: {r_fresh ↦ {Net}}`, applying `subst` to a
+    /// caller row `{Io | r_fresh}` yields `{Io, Net}` — the caller now sees
+    /// the effects the callee's tail was carrying. Without it, tail bindings
+    /// stayed opaque and downstream call sites in the same function never
+    /// picked up transitive effects (see `paideia-as#1356`).
+    ///
+    /// **Idempotent** on unbound rows: applying a substitution twice yields
+    /// the same result, so callers can compose apply-and-unify without
+    /// needing to track whether the substitution has already been folded in.
+    ///
+    /// # Example
+    /// ```
+    /// use paideia_as_effects::{EffectId, EffectRow, RowVarId, Substitution};
+    /// let mut subst = Substitution::new();
+    /// let r = RowVarId::new(1).unwrap();
+    /// let net = EffectId::new(2).unwrap();
+    /// subst.bind(r, EffectRow::from_ids(vec![net], None));
+    ///
+    /// let io = EffectId::new(1).unwrap();
+    /// let row = EffectRow::from_ids(vec![io], Some(r));
+    /// let applied = subst.apply(&row);
+    /// // applied.fixed == [io, net]; applied.tail == None
+    /// assert_eq!(applied.fixed.len(), 2);
+    /// assert!(applied.tail.is_none());
+    /// ```
+    pub fn apply(&self, row: &EffectRow) -> EffectRow {
+        let mut fixed: Vec<EffectId> = row.fixed.clone();
+        let mut tail = row.tail;
+        let mut seen: HashSet<RowVarId> = HashSet::new();
+        while let Some(v) = tail {
+            if !seen.insert(v) {
+                // Occurs-check cycle: don't loop forever. Leave the row open
+                // at this variable; the elaborator's higher-level fixed-point
+                // iteration (see `effect_fixedpoint`) is responsible for
+                // deciding whether the cycle is legitimate or an error.
+                break;
+            }
+            match self.bindings.get(&v) {
+                Some(bound) => {
+                    fixed.extend(bound.fixed.iter().copied());
+                    tail = bound.tail;
+                }
+                None => break, // Unbound tail variable — leave the row open.
+            }
+        }
+        EffectRow::from_ids(fixed, tail)
+    }
+
+    /// Compose two substitutions: `s2.compose(&s1)` is the substitution
+    /// equivalent to applying `s1` first and then `s2`.
+    ///
+    /// For every variable `v` bound in `prior` (`s1`), the composed
+    /// substitution binds `v ↦ self.apply(prior(v))` (the standard
+    /// substitution-composition rule). Variables bound only in `self`
+    /// carry over unchanged. If a variable is bound in both, `prior`'s
+    /// binding wins — precisely because it was applied first and any
+    /// downstream reference to it should have already been rewritten
+    /// through `self.apply` (this preserves the algebraic identity
+    /// `(s2 ∘ s1).apply(x) == s2.apply(s1.apply(x))`).
+    ///
+    /// Useful when accumulating substitutions across multiple call sites
+    /// in the same function body without re-walking rows repeatedly.
+    pub fn compose(&self, prior: &Substitution) -> Substitution {
+        let mut merged = Substitution::new();
+        // First: rewrite each of prior's bindings through self.
+        for (v, row) in &prior.bindings {
+            merged.bindings.insert(*v, self.apply(row));
+        }
+        // Then: carry over self's bindings for variables not shadowed
+        // by prior (prior's binding, already lifted by self.apply above,
+        // is the effective mapping for shared variables).
+        for (v, row) in &self.bindings {
+            merged.bindings.entry(*v).or_insert_with(|| row.clone());
+        }
+        merged
     }
 }
 

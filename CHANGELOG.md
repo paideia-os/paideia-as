@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.36.6 — 2026-09-23 — Effect-row inference at call sites (R220.M8, closes #1356)
+
+Closes the long-open half of v0.25-session-functors. The two half-solutions
+(`effect_infer::infer_or_check_call_row` widening, `effect_unify::call_site_instantiate_and_unify`
+running the row unifier) were joined by adding the missing algebraic primitive:
+`Substitution::apply` (row-var chain walker with occurs-check) + `Substitution::compose`.
+
+- **`crates/paideia-as-effects/src/unify.rs`** (EDIT): `Substitution::apply(&EffectRow) -> EffectRow`
+  and `Substitution::compose(&Substitution) -> Substitution`.
+- **`crates/paideia-as-elaborator/src/effect_infer.rs`** (EDIT): new
+  `infer_call_row_polymorphic(caller_explicit, callee_decl, caller_current, interner, span) -> RowOutcome`.
+  Explicit callers keep pre-M8 subsumption; implicit callers get fresh-tail instantiation →
+  scaffolding-tail-on-caller if closed → real `unify_call_row` → `compose_rows` fold →
+  `Substitution::apply` → scaffolding strip.
+- **`crates/paideia-as-elaborator/src/lib.rs`** (EDIT): re-exported the new function +
+  `call_site_instantiate_and_unify` (previously private-by-omission).
+- **`crates/paideia-as-elaborator/tests/effect_row_inference.rs`** (NEW, 620L, 40 tests):
+  narrower/wider/row-poly/transitive/direct-recursion/mutual-recursion/subsumption cases per
+  the plan corpus. Fingerprint tags `r220m8-eff-NN` in docstring + test-fn name.
+
+Diagnostic codes reused: F1105 (declared-vs-inferred row mismatch), F1107 (fixed-point
+iteration exceeded pass cap).
+
+40/40 M8 tests + 1 doctest pass. No regression in effects crate.
+
+**Non-goals deferred:** walker-side wiring of `infer_call_row_polymorphic` into
+`effect_walker.rs`'s App-node handler (one-line swap once the walker's injection table
+carries `EffectInterner`); tail-aware subsumption on explicit-caller path (R220.M11 tightens).
+
+Closes #1356. Closes paideia-as#1422 (R220.M8). Unblocks semantic-shell R224/R225.
+
 ## 0.36.5 — 2026-09-23 — HashMap<Str, u64> two-tier resize (R220.M6)
 
 - **`crates/paideia-as-stdlib/pdx/hashmap_str_u64.pdx`** (NEW ~460L): Str-keyed HashMap monomorphization for semantic-shell R222 command-name dispatch.
