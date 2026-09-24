@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.36.13 — 2026-09-24 — Semantic-shell Unicode substrate (R221.M1 + M2)
+
+**First semantic-shell surface milestone shipped** — R221 begins the language surface
+that R220 substrate hosts. Two milestones landed together (paideia-as#1427, #1428).
+
+- **New crate `paideia-as-unicode`** — single crate covering both UAX#15 NFC + UAX#29
+  grapheme cluster boundaries. Riding on `unicode-normalization = "0.1"` and
+  `unicode-segmentation = "1"` from crates.io (both ~250 KiB static UCD tables total).
+- `src/utf8.rs` — hand-rolled `Utf8Decoder` (streaming, RFC 3629 subrange logic inlined
+  for lead-bytes 0xE0/0xED/0xF0/0xF4 to reject overlongs + surrogates + >U+10FFFF).
+  Not `core::str::from_utf8` because R221.M4 lexer wants per-char `Result` + resync.
+- `src/nfc.rs` — `nfc_normalize(&str) -> String` per UAX#15. ASCII fast-path skips
+  tables (matters for the ≤50µs R222.M5 command-lookup budget).
+- `src/grapheme.rs` — `GraphemeBoundaries` iterator + `grapheme_advance`/`retreat`
+  per UAX#29. Cursor math rounds mid-cluster down (SH-D9 "REPL never crashes on
+  cursor" contract).
+- 80 tests pass: 30 UAX#15 NFC vectors + 15 RFC 3629 UTF-8 vectors + 30 UAX#29
+  grapheme vectors + 5 property/invariant tests. Fingerprint tags `r221m<N>-<component>-NN`
+  per anti-fabrication convention.
+- Adversarial coverage: overlongs, surrogates as bytes, out-of-range, truncation,
+  resync-past-error, family-emoji ZWJ, skin-tone modifiers, RI flag odd-index rules.
+
+**Ownership boundary**: paideia-as-unicode does NOT rewire Str::eq/Str::hash to call
+nfc_normalize — that follow-on wire-up is scoped to a future round. R220.M4 NFC path
+keeps working unchanged.
+
+Closes paideia-as#1427 (R221.M1), paideia-as#1428 (R221.M2). Unblocks R221.M3
+(width table for renderer), R221.M4 (context-switch lexer), R222 (functor surface),
+R228 (tab completion grapheme cursor math).
+
 ## R220 substrate — round close-out map (M1..M12)
 
 Quick reference for future readers.  Every R220 milestone landed with its
