@@ -646,3 +646,89 @@ fn interrupt_composes_with_abi() {
         other => panic!("expected ItemData::Let with interrupt+abi, got {:?}", other),
     }
 }
+
+// ---- paideia-as#1417 (R220.M3): @dsl_parser("<name>") registration ----
+//
+// Phase-1 landing tests the trailing symbol-attribute parse path:
+//   pub let parse : (Syntax) -> Syntax = fn(s: Syntax) -> s @dsl_parser("num")
+// records the DSL name "num" on AstArena::item_dsl_parser keyed by the Let
+// NodeId; the elaborator's dsl_parser_registry pass reads it back later.
+
+/// Fingerprint tag: r220m3-dsl-07 — happy-path attach on a lambda-shaped Let.
+#[test]
+fn dsl_parser_happy_path_num() {
+    let source = r#"pub let parse : (u64) -> u64 = fn(x: u64) -> x @dsl_parser("num")"#;
+    let (arena, result, diags) = parse_let_in_module(source);
+
+    assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
+    assert!(result.is_ok(), "expected successful parse");
+
+    let root = result.unwrap();
+    assert_eq!(
+        arena.item_dsl_parser().get(root),
+        Some("num"),
+        "@dsl_parser(\"num\") should populate item_dsl_parser side-table"
+    );
+}
+
+/// Fingerprint tag: r220m3-dsl-08 — absence leaves the side-table empty.
+#[test]
+fn dsl_parser_absent_by_default() {
+    let source = r#"pub let parse : (u64) -> u64 = fn(x: u64) -> x"#;
+    let (arena, result, diags) = parse_let_in_module(source);
+    assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
+    assert!(result.is_ok());
+    let root = result.unwrap();
+    assert_eq!(
+        arena.item_dsl_parser().get(root),
+        None,
+        "no @dsl_parser attribute → no entry in item_dsl_parser"
+    );
+}
+
+/// Fingerprint tag: r220m3-dsl-09 — composes with @abi in a single attr run.
+/// Guards against a future refactor that short-circuits the loop once
+/// `dsl_parser` is seen.
+#[test]
+fn dsl_parser_composes_with_abi() {
+    let source = r#"pub let parse : (u64) -> u64 = fn(x: u64) -> x @dsl_parser("num") @abi("sysv")"#;
+    let (arena, result, diags) = parse_let_in_module(source);
+    assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
+    assert!(result.is_ok());
+    let root = result.unwrap();
+    assert_eq!(arena.item_dsl_parser().get(root), Some("num"));
+    match arena.item_data(root) {
+        Some(paideia_as_ast::ItemData::Let { abi, .. }) => {
+            assert_eq!(*abi, Some(paideia_as_ast::CallingConvention::Sysv));
+        }
+        _ => panic!("expected ItemData::Let"),
+    }
+}
+
+/// Fingerprint tag: r220m3-dsl-10 — empty DSL name → P0296.
+#[test]
+fn dsl_parser_empty_name_rejected() {
+    let source = r#"pub let parse : (u64) -> u64 = fn(x: u64) -> x @dsl_parser("")"#;
+    let (_arena, result, diags) = parse_let_in_module(source);
+    assert!(result.is_err(), "empty DSL name must parse-fail");
+    assert_has_p_code(&diags, 296);
+}
+
+/// Fingerprint tag: r220m3-dsl-11 — non-identifier DSL name → P0296.
+#[test]
+fn dsl_parser_non_identifier_name_rejected() {
+    let source = r#"pub let parse : (u64) -> u64 = fn(x: u64) -> x @dsl_parser("has space")"#;
+    let (_arena, result, diags) = parse_let_in_module(source);
+    assert!(result.is_err(), "non-identifier DSL name must parse-fail");
+    assert_has_p_code(&diags, 296);
+}
+
+/// Fingerprint tag: r220m3-dsl-12 — duplicate `@dsl_parser` → P0250 (dup).
+#[test]
+fn dsl_parser_duplicate_rejected() {
+    let source = r#"pub let parse : (u64) -> u64 = fn(x: u64) -> x @dsl_parser("a") @dsl_parser("b")"#;
+    let (_arena, result, diags) = parse_let_in_module(source);
+    assert!(result.is_err(), "duplicate @dsl_parser must parse-fail");
+    assert_has_p_code(&diags, 250);
+    assert_p_code_message_contains(&diags, 250, "duplicate @dsl_parser");
+}

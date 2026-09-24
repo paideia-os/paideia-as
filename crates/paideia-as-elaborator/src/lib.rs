@@ -27,6 +27,7 @@ pub mod check_pure;
 pub mod data_encoder;
 pub mod derive;
 pub mod derive_fn_sig;
+pub mod dsl_parser_registry;
 pub mod effect_cap_coupling;
 pub mod effect_fixedpoint;
 pub mod effect_infer;
@@ -119,6 +120,11 @@ pub use check_ordered::{OrderedEntry, OrderedLog, S_OUT_OF_ORDER};
 pub use check_pattern::is_irrefutable;
 pub use check_pure::{F_PURE_VIOLATION, check_pure};
 pub use derive::{DeriveKind, SyntheticImpl, synthesise_derive};
+pub use dsl_parser_registry::{
+    DslParserEntry, DslParserRegistry,
+    M_DSL_PARSER_BAD_ARITY, M_DSL_PARSER_DUPLICATE, M_DSL_PARSER_NOT_LAMBDA,
+    M_DSL_PARSER_UNKNOWN,
+};
 pub use effect_fixedpoint::{
     F_FIXPOINT_DIVERGED, FixedPointConfig, FixedPointOutcome, FnCall, FnPerform, FnSlot, FnUnit,
     run_fixed_point,

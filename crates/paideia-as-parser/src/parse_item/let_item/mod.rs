@@ -63,6 +63,13 @@ pub(super) struct LetSymbolAttrs {
     /// the ordering-appropriate fences (mfence for SeqCst; nothing for
     /// Relaxed/Acquire/Release under x86_64 TSO).
     pub atomic: Option<AtomicOrdering>,
+    /// `@dsl_parser("<name>")` hosted-DSL registration
+    /// (paideia-as#1417, R220.M3). When `Some(name)`, the caller stamps the
+    /// resulting let node into `AstArena::item_dsl_parser` so the elaborator's
+    /// `dsl_parser_registry` pass registers the annotated function under
+    /// `name` for dispatch by `expand_reflective_hygienic` (R220.M2) when
+    /// a `name { <body> }` hosted-DSL invocation is elaborated.
+    pub dsl_parser: Option<String>,
 }
 
 impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
@@ -78,6 +85,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         let mut no_frame: bool = false;
         let mut interrupt: Option<InterruptAttr> = None;
         let mut atomic: Option<AtomicOrdering> = None;
+        let mut dsl_parser: Option<String> = None;
         let mut seen_attrs = HashSet::new();
 
         // Loop to accept attributes in any order
@@ -163,12 +171,24 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                     // fence emission on that IR field.
                     atomic = Some(self.parse_atomic_attr(attr_name_tok.span)?);
                 }
+                "dsl_parser" => {
+                    // paideia-as#1417 (R220.M3): `@dsl_parser("<name>")` — the
+                    // last-hosting-strategy attachment point on the elaborator
+                    // side. Registers the annotated `pub let` binding as an
+                    // elaborator hosted-DSL parser plug-in under `<name>`. The
+                    // parser only captures the name (identifier-shaped, ASCII,
+                    // 1..=64 bytes) — the shape check that the annotated binding
+                    // has a `Syntax -> Syntax` value is deferred to the
+                    // elaborator's `dsl_parser_registry` pass, since the parser
+                    // has not yet elaborated the value's type.
+                    dsl_parser = Some(self.parse_dsl_parser_attr()?);
+                }
                 _ => {
                     // P0250: unknown symbol attribute
                     let code = DiagnosticCode::new(Category::P, Severity::Error, 250)
                         .expect("valid P0250 code");
                     let diag = Diagnostic::error(code)
-                        .message(format!("unknown symbol attribute '@{}' (only 'align', 'ring', 'link_section', 'abi', 'no_frame', 'interrupt', 'interrupt_error', and 'atomic' supported)", attr_name))
+                        .message(format!("unknown symbol attribute '@{}' (only 'align', 'ring', 'link_section', 'abi', 'no_frame', 'interrupt', 'interrupt_error', 'atomic', and 'dsl_parser' supported)", attr_name))
                         .with_span(attr_name_tok.span)
                         .finish();
                     self.emit_diagnostic(diag);
@@ -177,7 +197,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             }
         }
 
-        Ok(LetSymbolAttrs { align, ring, link_section, abi, no_frame, interrupt, atomic })
+        Ok(LetSymbolAttrs { align, ring, link_section, abi, no_frame, interrupt, atomic, dsl_parser })
     }
 
     /// Parse a top-level let declaration with optional visibility: `[pub] let [mut] <Ident> <GenericParams>? (: Type)? = Expr @align(N)? @ring(...)? @link_section("name")? @abi("ms"|"sysv")?`
@@ -256,8 +276,8 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         let value = self.parse_expr()?;
 
         // Parse optional symbol attributes (@align, @ring, @link_section, @abi, @no_frame,
-        // @interrupt, @interrupt_error, or @atomic).
-        let LetSymbolAttrs { align, ring, link_section, abi, no_frame, interrupt, atomic } = self.parse_optional_symbol_attributes()?;
+        // @interrupt, @interrupt_error, @atomic, or @dsl_parser).
+        let LetSymbolAttrs { align, ring, link_section, abi, no_frame, interrupt, atomic, dsl_parser } = self.parse_optional_symbol_attributes()?;
 
         // paideia-as#1276 phase 3: `@no_frame` is a function-only attribute — it
         // toggles the SysV frame-pointer prologue/epilogue that the elaborator
@@ -341,6 +361,16 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         // IR `LetInfo::atomic`.
         if let Some(ord) = atomic {
             self.arena_mut().item_atomic_mut().insert(item, ord);
+        }
+
+        // paideia-as#1417 (R220.M3): stamp the item-level `@dsl_parser("<name>")`
+        // attachment onto the AST arena's item_dsl_parser side-table, keyed by
+        // the freshly allocated Let node — same reason as `@atomic` above.
+        // Elaborator `dsl_parser_registry` reads back the entry here and
+        // registers the annotated function under `name` for hosted-DSL
+        // dispatch via `expand_reflective_hygienic` (R220.M2).
+        if let Some(name) = dsl_parser {
+            self.arena_mut().item_dsl_parser_mut().insert(item, name);
         }
 
         Ok(item)

@@ -14,6 +14,7 @@ mod exprs;
 mod field_attr;
 mod functor_attr;
 mod item_atomic;
+mod item_dsl_parser;
 mod items;
 mod macros;
 mod modules;
@@ -32,6 +33,7 @@ pub use block_scope::{BlockScope, GpuContextBlock};
 pub use field_attr::{Endianness, FieldAttr, StructFieldAttrTable};
 pub use functor_attr::{FunctorAttr, FunctorAttrTable};
 pub use item_atomic::ItemAtomicTable;
+pub use item_dsl_parser::ItemDslParserTable;
 pub use exprs::{
     ExprData, GenericParam, HandlerArm, LoopKind, MatchArm, MatchAttrs, PrefixOp, SegPrefix,
     SharingConstraint,

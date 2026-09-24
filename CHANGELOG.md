@@ -1,5 +1,59 @@
 # Changelog
 
+## 0.36.10 — 2026-09-24 — @dsl_parser (R220.M3) + LSP-embed API (R220.M9)
+
+Two R220 landings in parallel.
+
+### R220.M3: @dsl_parser("<name>") attachment point
+
+Elaborator-side registration + parser attribute + AST side-table + canary + 19 tests.
+
+- **`crates/paideia-as-ast/src/item_dsl_parser.rs`** (NEW): `ItemDslParserTable` sparse
+  side-table (mirrors `ItemAtomicTable` / `StructAttrTable`) — avoids touching dozens of
+  construction/destructuring sites. 5 unit tests.
+- **`crates/paideia-as-parser/src/parse_item/let_item/`**: extended `LetSymbolAttrs` with
+  `dsl_parser: Option<String>`; new `parse_dsl_parser_attr` (P0295 malformed, P0296 invalid
+  name); 6 tests `r220m3-dsl-07..12`.
+- **`crates/paideia-as-elaborator/src/dsl_parser_registry.rs`** (NEW ~500L):
+  `DslParserRegistry` + `DslParserEntry { let_node, lambda_body, arg_name }` (rejected
+  `Box<dyn Fn(...)>` — arena-resident NodeIds + `expand_reflective_hygienic` avoid double-
+  storage). `build_from_arena` structural validation (lambda shape + arity=1) with
+  first-wins on duplicates. `dispatch<'a>` takes `Vec<Value<'a>>` from caller (R220.M2
+  borrow-check constraint documented).
+- Diagnostics: **P0295** (malformed attr), **P0296** (invalid DSL name), **M0320**
+  (duplicate reg), **M0321** (unknown DSL), **M0322** (non-lambda RHS), **M0323** (arity
+  ≠ 1), M0324 reserved for R221.M4 invocation-site path.
+- Canary `crates/paideia-as-stdlib/pdx/r220m3_dsl_parser_canary.pdx` — two `pub let parse
+  = fn(x) -> x @dsl_parser("num"|"sh")` bindings. Types are `(u64) -> u64` because source-
+  language `Syntax` isn't a real type until R221.M5; canary proves elaborator-side
+  attachment lands green.
+- 19/19 tests pass (5 side-table + 6 parser + 8 registry).
+
+Closes paideia-as#1417 (R220.M3). Unblocks semantic-shell R221, R226, R227.
+
+### R220.M9: LSP-embed API for hosted DSLs
+
+- **`crates/paideia-lsp/src/dsl_embed.rs`** (NEW ~370L): `DslDiagnosticHandle` (cloneable
+  Send+Sync, `Arc<Mutex<VecSink>>`); emit_elab_error/warn, hosted code minters
+  `hosted_{error,warn,note}_code(n)` in category `Z` range 9000-9099; router registration
+  via `install_router_handle` (idempotent `OnceLock`) + `with_current_handle(handle, f)`
+  Drop-restored thread-local override; `interleave_by_span(native, hosted)` stable merge
+  by primary-span byte-start.
+- Dep: paideia-lsp → paideia-as-reflection added.
+- SARIF integration: hosted diagnostics differ from native only in `code().category() ==
+  Z`; `SarifEmitter::emit` called verbatim on mixed vectors — no schema fork. Task's
+  E9001/W9001/N9001 render as Z9001 with distinct severities (severity is metadata per
+  DI-D1).
+- 9/9 tests pass (5 unit + 4 integration: SARIF round-trip, severity variants, batch of
+  10 preserves order, native/hosted interleave sorts correctly).
+
+**Deferred to R220.M12 close-out** (per softarch's "don't touch elaborator/reflection"
+caps): server-side `install_router_handle` at Backend::new, elaborator `Elab.elab_error`
+bridge reading `paideia_lsp::current_handle()`, hosted-code catalog manifest in
+`tool.driver.rules`.
+
+Closes paideia-as#1423 (R220.M9). Unblocks semantic-shell R225, R228.
+
 ## 0.36.9 — 2026-09-23 — Hygiene (R220.M2) + rank-restricted HM (R220.M11)
 
 Two parallel R220 landings.

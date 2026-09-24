@@ -1,0 +1,62 @@
+// R220.M3 canary (paideia-as#1417): reflected-parser attachment point
+// `@dsl_parser("<name>")` — the last-hosting-strategy piece for the
+// elaborator side. Every paideia-as module that wants to publish a
+// hosted DSL registers its parser by attaching the R220.M3 attribute
+// to a `pub let` binding whose value is `Syntax -> Syntax`.
+//
+// This canary demonstrates the REGISTRATION shape — the `num` DSL from
+// design/terminal/semantic-shell-language-plan.md §4 R220.M3 —
+// alongside a second `sh` registration exercising the multi-DSL
+// dispatch path. The end-to-end invocation form (`num { 1 + 2 * 3 }`
+// as an expression head) does NOT yet parse: the context lexer that
+// recognises `dsl_name { … }` at expression position lands at R221.M4;
+// this fixture proves the *elaborator-side* attachment is in place so
+// R221.M4 can begin from a green substrate.
+//
+// The elaborator's `DslParserRegistry::build_from_arena` pass reads the
+// per-Let entries the parser stamps onto `AstArena::item_dsl_parser`
+// (via the `@dsl_parser("<name>")` trailing attribute) and installs
+// each under its declared name. Duplicate names, non-lambda RHS, and
+// arity mismatches each fire distinct M-family diagnostics
+// (M0320 / M0322 / M0323).
+//
+// Fingerprint tag "r220m3-dsl-01\0" (14 bytes) — debugger locates in
+// .rodata to gate this fixture. Matches the plan's per-fixture
+// convention documented in memory/feedback_workerbee_verify_claims.md.
+
+module R220M3DslParserCanary = structure {
+
+  // Fingerprint tag for the R220.M3 fixture batch. Kept in .rodata so
+  // the debugger's rodata scan can confirm the elaborator compiled
+  // this file rather than a stale ancestor.
+  pub let fp : [u8; 14] = "r220m3-dsl-01\0"
+
+  // ── Trivial `num` DSL parser ──────────────────────────────────────
+  //
+  // A `Syntax -> Syntax` identity function: the DSL body is passed
+  // through unchanged. R221.M4's context lexer will hand this parser
+  // whatever token stream lives between `num {` and `}`; the parser
+  // returns the elaborated `Syntax` value and the elaborator lowers
+  // it to a normal paideia-as u64 (or whatever type the surrounding
+  // context expects — the plan §4 R220.M3 acceptance names
+  // `num { 1 + 2 * 3 }` yielding a u64).
+  //
+  // The `@dsl_parser("num")` trailing attribute is what registers this
+  // binding under the DSL name "num". The parser records the pair
+  // (this Let node id, "num") on `AstArena::item_dsl_parser`; the
+  // elaborator's `DslParserRegistry::build_from_arena` pass reads
+  // that side-table + validates the lambda-shape invariant.
+  pub let parse_num : (u64) -> u64 = fn(body: u64) -> body @dsl_parser("num")
+
+  // A second registration under a distinct name. Multi-DSL dispatch
+  // is one of the R220.M3 acceptance points — the registry must pick
+  // the right entry when two DSLs coexist in the same module.
+  pub let parse_sh : (u64) -> u64 = fn(body: u64) -> body @dsl_parser("sh")
+
+  // The three constants below let the R220.M3 emitting canary (once
+  // R221.M4 wires the invocation-site path) confirm that the registry
+  // sees exactly the entries this fixture declares.
+  pub let expected_registered_count : u64 = 2
+  pub let expected_dsl_name_num_len : u64 = 3
+  pub let expected_dsl_name_sh_len  : u64 = 2
+}

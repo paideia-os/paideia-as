@@ -324,4 +324,135 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
         Ok(ordering)
     }
+
+    /// Parse `@dsl_parser("<name>")` — the R220.M3 (paideia-as#1417)
+    /// attachment attribute that registers the annotated `pub let`
+    /// binding as an elaborator hosted-DSL parser plug-in.
+    ///
+    /// The `<name>` must be identifier-shaped ASCII (`[A-Za-z_][A-Za-z0-9_]*`)
+    /// and 1..=64 bytes; those bounds keep the invocation-site head token
+    /// byte-identical to the registry lookup key, so no NFC / case-folding
+    /// surprises appear when R221.M4's context lexer dispatches on it.
+    ///
+    /// **Diagnostics (P-category, using the reserved P0295..P0299 block for
+    /// R220.M3 — parallel to `@atomic` at P0287..P0289 and `@interrupt` at
+    /// P0290..P0294):**
+    /// - P0295 — malformed `(...)` syntax (missing `(`, `)`, or non-string arg).
+    /// - P0296 — invalid DSL name (empty, too long, or non-identifier-shaped).
+    ///
+    /// Fingerprint tag: r220m3-dsl-06.
+    pub(super) fn parse_dsl_parser_attr(&mut self) -> Result<String, ParseError> {
+        // Expect `(`.
+        if !self.eat(TokenKind::LParen) {
+            let span = self.peek().map(|t| t.span).unwrap_or_else(|| Span::new(self.file(), 0, 0));
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 295)
+                .expect("valid P0295 code");
+            let diag = Diagnostic::error(code)
+                .message("malformed @dsl_parser(\"name\") syntax: expected '(' after 'dsl_parser'")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        // Argument must be a string literal.
+        if !self.at(TokenKind::StringLit) {
+            let span = self.peek().map(|t| t.span).unwrap_or_else(|| Span::new(self.file(), 0, 0));
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 295)
+                .expect("valid P0295 code");
+            let diag = Diagnostic::error(code)
+                .message("@dsl_parser argument must be a string literal (the DSL invocation name)")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            self.bump();
+            return Err(ParseError);
+        }
+
+        let str_tok = self.expect(TokenKind::StringLit)?;
+        let str_span = str_tok.span;
+        let raw = self.source_text_for_span(str_span);
+        let name = if raw.starts_with('"') && raw.ends_with('"') && raw.len() >= 2 {
+            raw[1..raw.len() - 1].to_string()
+        } else {
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 295)
+                .expect("valid P0295 code");
+            let diag = Diagnostic::error(code)
+                .message("@dsl_parser argument must be a valid string literal")
+                .with_span(str_span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        };
+
+        // Validate: identifier-shaped, non-empty, ≤ 64 bytes.
+        if name.is_empty() {
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 296)
+                .expect("valid P0296 code");
+            let diag = Diagnostic::error(code)
+                .message("@dsl_parser name must be non-empty")
+                .with_span(str_span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+        if name.len() > 64 {
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 296)
+                .expect("valid P0296 code");
+            let diag = Diagnostic::error(code)
+                .message(format!(
+                    "@dsl_parser name must be <= 64 bytes, got {}",
+                    name.len()
+                ))
+                .with_span(str_span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+        let mut chars = name.chars();
+        let head = chars.next().expect("non-empty checked above");
+        if !(head.is_ascii_alphabetic() || head == '_') {
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 296)
+                .expect("valid P0296 code");
+            let diag = Diagnostic::error(code)
+                .message(format!(
+                    "@dsl_parser name must start with an ASCII letter or '_' (got '{}')",
+                    head
+                ))
+                .with_span(str_span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+        for c in chars {
+            if !(c.is_ascii_alphanumeric() || c == '_') {
+                let code = DiagnosticCode::new(Category::P, Severity::Error, 296)
+                    .expect("valid P0296 code");
+                let diag = Diagnostic::error(code)
+                    .message(format!(
+                        "@dsl_parser name must contain only ASCII letters, digits, and '_' (invalid char '{}')",
+                        c
+                    ))
+                    .with_span(str_span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                return Err(ParseError);
+            }
+        }
+
+        // Expect `)`.
+        if !self.eat(TokenKind::RParen) {
+            let span = self.peek().map(|t| t.span).unwrap_or_else(|| Span::new(self.file(), 0, 0));
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 295)
+                .expect("valid P0295 code");
+            let diag = Diagnostic::error(code)
+                .message("malformed @dsl_parser(\"name\") syntax: expected ')' after name")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        Ok(name)
+    }
 }

@@ -256,6 +256,11 @@ pub struct AstArena {
     /// keyed by `Let` NodeId. Sparse — populated only for module-level `pub let`
     /// bindings carrying the attribute.
     item_atomic: crate::ItemAtomicTable,
+    /// paideia-as#1417 (R220.M3): item-level `@dsl_parser("<name>")`
+    /// side-table keyed by `Let` NodeId. Sparse — populated only for
+    /// `pub let` bindings that register themselves as an elaborator
+    /// hosted-DSL parser plug-in. See [`crate::ItemDslParserTable`].
+    item_dsl_parser: crate::ItemDslParserTable,
     /// paideia-as#1372 (v0.28-M1-003): per-field attribute side-table keyed
     /// by struct-field-name `NodeId`. Sparse — populated only for fields
     /// carrying an `@endian(...)` attribute (or any future per-field
@@ -298,6 +303,7 @@ impl AstArena {
             mnemonic_table: Vec::new(),
             pattern_type_hints: crate::PatternTypeHints::new(),
             item_atomic: crate::ItemAtomicTable::new(),
+            item_dsl_parser: crate::ItemDslParserTable::new(),
             struct_field_attrs: crate::StructFieldAttrTable::new(),
             struct_attrs: crate::StructAttrTable::new(),
             functor_attrs: crate::FunctorAttrTable::new(),
@@ -560,6 +566,23 @@ impl AstArena {
     /// Borrow the item-level atomic-ordering side-table (mutable).
     pub fn item_atomic_mut(&mut self) -> &mut crate::ItemAtomicTable {
         &mut self.item_atomic
+    }
+
+    /// Borrow the item-level DSL-parser attachment side-table (read-only).
+    ///
+    /// paideia-as#1417 (R220.M3). Populated by the parser when it sees a
+    /// trailing `@dsl_parser("<name>")` attribute on a `pub let` binding
+    /// whose value is a `Syntax -> Syntax` function. The elaborator's
+    /// `dsl_parser_registry` pass reads back the entries to build a
+    /// per-module dispatch registry used by hosted-DSL invocations.
+    #[must_use]
+    pub fn item_dsl_parser(&self) -> &crate::ItemDslParserTable {
+        &self.item_dsl_parser
+    }
+
+    /// Borrow the item-level DSL-parser attachment side-table (mutable).
+    pub fn item_dsl_parser_mut(&mut self) -> &mut crate::ItemDslParserTable {
+        &mut self.item_dsl_parser
     }
 
     /// Borrow the struct-field attribute side-table (read-only).
