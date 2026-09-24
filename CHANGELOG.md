@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.36.9 — 2026-09-23 — Hygiene (R220.M2) + rank-restricted HM (R220.M11)
+
+Two parallel R220 landings.
+
+### R220.M2: hygiene (Ullrich 2020) exposed to reflected macros
+
+- **`crates/paideia-as-reflection/src/hygiene.rs`** (EDIT): `MacroScopeId` (NonZeroU32
+  process-monotonic counter) + `HygienicId::{for_macro_scope, is_macro_scope, macro_scope}`
+  + `hygienic_rename` + `HygienicRenameMap`. Encoding: `0x1` untagged, `0x2..=0x7FFF_FFFF`
+  unscoped fresh, `0x8000_0000..=0xFFFF_FFFF` scope-derived (low 31 bits = MacroScopeId).
+- **`crates/paideia-as-elaborator/src/macro_expand.rs`** (EDIT): new
+  `expand_reflective_hygienic` fn returning `(NodeId, MacroScopeId, HygieneCache)`;
+  bridges to existing `MacroId` via `MacroId::from_macro_scope`.
+- 20 hand-authored capture forms + 3 proptest properties × 10 000 cases each = ~30 039
+  assertion runs per test invocation. All pass.
+
+Closes paideia-as#1416 (R220.M2). Unblocks R220.M3, semantic-shell R221, R227.
+
+### R220.M11: rank-restricted let-polymorphism spec + implementation
+
+- **`tools/paideia-as/design/toolchain/rank-restricted-hm.md`** (NEW ~330L): formal spec
+  covering rank definition, semi-decidability rationale, subset (maxRank: Pipeline=Datalog=1,
+  Lambda=1 or 2 iff annotated), `@annotate_type_boundary` escape hatch, 60-test corpus map,
+  9 sections. References Damas-Milner 1982, Odersky-Läufer 1996, Wells 1999, Peyton Jones
+  et al. 2007, FPH 2008, Kfoury-Wells 1994, Leijen 2005.
+- **`crates/paideia-as-elaborator/src/rank_restrict.rs`** (NEW ~330L): `SubLanguage`,
+  `TypeShape`, `T_RANK_VIOLATION = 700`, `max_rank`, `contains_forall`, `rank_of`,
+  `is_prenex`, `check_rank_restricted`. Diagnostic code **T0700** (new family with headroom,
+  avoids T500..T599 identifier-class collisions).
+- **`crates/paideia-as-elaborator/tests/rank_restricted_hm.rs`** (NEW ~600L): 60 tests
+  (30 accept + 30 reject) with fingerprint tags `r220m11-rank-01..60`. All 60 pass.
+- **Sub-language composition edge cases** verified: prenex-completeness re-check deferred
+  to R225.M6 shell-side; rank-2 Lambda islands cannot leak into Pipeline/Datalog; rank-3+
+  always banned; tuple/record components count as argument-like positions; effect rows
+  orthogonal to type rank (M8's Substitution runs independently).
+
+Closes paideia-as#1425 (R220.M11). Unblocks semantic-shell R225 (unified HM checker).
+
 ## 0.36.8 — 2026-09-23 — Elaborator reflection surface (R220.M1, supersedes MP-D5 DEFERRED)
 
 New crate `paideia-as-reflection` lands the typed reflection substrate (Q-A4) that the

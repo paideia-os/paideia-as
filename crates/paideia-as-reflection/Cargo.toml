@@ -31,3 +31,9 @@ name = "paideia_as_reflection"
 paideia-as-ast = { path = "../paideia-as-ast" }
 paideia-as-diagnostics = { path = "../paideia-as-diagnostics" }
 paideia-as-effects = { path = "../paideia-as-effects" }
+
+[dev-dependencies]
+# R220.M2 hygiene property test — 10 000 random potential-capture forms
+# per `design/terminal/semantic-shell-language-plan.md` §4 R220.M2
+# acceptance.
+proptest = { workspace = true }

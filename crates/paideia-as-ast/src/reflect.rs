@@ -130,6 +130,17 @@ impl<'a> Term<'a> {
         self.id
     }
 
+    /// Return the `AstArena` this term points into.
+    ///
+    /// Added in R220.M2 so downstream crates (notably
+    /// `paideia-as-reflection::hygiene::hygienic_rename`) can rebuild a
+    /// wrapper around the same underlying node without also having to
+    /// carry a separate `&AstArena` alongside every `Syntax` handle.
+    #[must_use]
+    pub fn arena(&self) -> &'a AstArena {
+        self.arena
+    }
+
     /// Return the source span of this term.
     #[must_use]
     pub fn span(&self) -> paideia_as_diagnostics::Span {

@@ -77,6 +77,7 @@ mod placeholder_emit;
 pub mod populate;
 pub mod position_index;
 pub mod reflect_api;
+pub mod rank_restrict;
 pub mod region_elision;
 pub mod region_inference;
 pub mod resolve;
@@ -150,7 +151,8 @@ pub use lower::lambda_param_enum_ty::populate_lambda_param_enum_types;
 pub use lower::let_meta_ty::populate_let_meta_ty;
 pub use macro_expand::{
     ExpansionOutcome, M_MACRO_EFFECT_VIOLATION, M_RECURSION_LIMIT, M_UNBOUND_META,
-    MAX_EXPANSION_DEPTH, check_depth, expand_template,
+    MAX_EXPANSION_DEPTH, check_depth, expand_reflective, expand_reflective_hygienic,
+    expand_template,
 };
 pub use macro_match::{
     InvocationMatch, M_NO_MATCH, MatchBinding, RuleMatch, match_invocation, match_rule,
@@ -170,6 +172,10 @@ pub use pattern_lower::{lower_ident_pattern, lower_record_pattern, lower_tuple_p
 pub use placeholder_emit::placeholder_for;
 pub use populate::{PopulateContext, populate_instruction_table};
 pub use position_index::{ByteOffset, FileId, PositionEntry, PositionIndex};
+pub use rank_restrict::{
+    SubLanguage, T_RANK_VIOLATION, TypeShape, check_rank_restricted, contains_forall,
+    is_prenex, max_rank, rank_of,
+};
 pub use reflect_api::{TypeCache, children, kind, span, type_of};
 pub use region_elision::{
     ElisionResult, L_AMBIGUOUS_LIFETIME_ELISION, ambiguous_elision_diagnostic, elide_lifetimes,

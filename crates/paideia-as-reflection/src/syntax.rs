@@ -115,6 +115,15 @@ impl<'a> Syntax<'a> {
         self.inner.id()
     }
 
+    /// The `AstArena` this handle points into.  Threaded through from
+    /// the underlying [`Term`] so R220.M2's [`crate::hygiene::hygienic_rename`]
+    /// can rebuild a `Syntax` wrapper without also carrying `&AstArena`
+    /// alongside every handle.
+    #[must_use]
+    pub fn arena(&self) -> &'a AstArena {
+        self.inner.arena()
+    }
+
     /// The source span of this `Syntax` value.
     #[must_use]
     pub fn span(&self) -> Span {

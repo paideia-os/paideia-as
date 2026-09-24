@@ -46,6 +46,32 @@ impl MacroId {
     pub fn get(self) -> u32 {
         self.0.get()
     }
+
+    /// Bridge a `paideia-as-reflection::MacroScopeId` into a `MacroId`.
+    ///
+    /// R220.M2 introduces the reflection-side [`paideia_as_reflection::MacroScopeId`]
+    /// as the identifier hosted DSLs consume; this crate keeps its own
+    /// `MacroId` for the phase-1/phase-2 macro pipeline that predates
+    /// the reflection surface.  The two are structurally the same shape
+    /// (`NonZeroU32` counter) and each `MacroScopeId` deterministically
+    /// maps to one `MacroId` via the raw value.
+    ///
+    /// This bridge is what `crate::macro_expand::expand_reflective_hygienic`
+    /// uses to hand the freshly-minted reflection scope down to
+    /// `crate::splice::splice_with_hygiene`.
+    #[must_use]
+    pub fn from_macro_scope(scope: paideia_as_reflection::MacroScopeId) -> Self {
+        Self(
+            NonZeroU32::new(scope.get())
+                .expect("MacroScopeId::get() is always nonzero by construction"),
+        )
+    }
+}
+
+impl From<paideia_as_reflection::MacroScopeId> for MacroId {
+    fn from(scope: paideia_as_reflection::MacroScopeId) -> Self {
+        MacroId::from_macro_scope(scope)
+    }
 }
 
 impl core::fmt::Display for MacroId {

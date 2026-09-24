@@ -48,6 +48,10 @@ pub use elab_effect::{
     F_ELAB_ERROR, F_ELAB_QUOTE_DEPTH_EXCEEDED, F_ELAB_TYPE_UNAVAILABLE,
     elab_error_code, elab_op_signatures, elab_operation_names,
 };
-pub use hygiene::{HYGIENIC_ID_UNTAGGED, HygienicId, fresh_hygienic_id};
+pub use hygiene::{
+    HYGIENIC_ID_UNTAGGED, HygienicId, HygienicRenameMap, MACRO_SCOPE_BIT,
+    MAX_MACRO_SCOPE_ID, MacroScopeId, fresh_hygienic_id, fresh_macro_scope_id,
+    hygienic_rename, hygienic_rename_map,
+};
 pub use syntax::{Syntax, SyntaxHead, SyntaxKind, quote_depth};
 pub use walker::{SyntaxWalker, WalkAction, walk_syntax};

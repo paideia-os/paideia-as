@@ -255,6 +255,86 @@ fn m_code(n: u16) -> DiagnosticCode {
     DiagnosticCode::new(Category::M, Severity::Error, n).expect("valid M code")
 }
 
+/// R220.M2 (paideia-as#1416): hygiene-aware variant of
+/// [`expand_reflective`] that mints a fresh
+/// [`paideia_as_reflection::MacroScopeId`] per invocation and threads
+/// it through the splice, so the resulting AST subtree is alpha-
+/// distinct from every use-site identifier of the same spelling.
+///
+/// Returns `(spliced_node_id, scope, hygiene_cache)` on success:
+///
+/// * `spliced_node_id` — the NodeId the caller elaborates in place of
+///   the macro call form (same shape as [`expand_reflective`]'s return).
+/// * `scope` — the reflection-side [`paideia_as_reflection::MacroScopeId`]
+///   the DSL sees.  Hosted DSLs consume this via `HygienicId::for_macro_scope`
+///   on any `Syntax` value they construct.
+/// * `hygiene_cache` — the per-node hygiene tags the splice attached,
+///   ready for [`crate::resolve`] to consult during name resolution.
+///
+/// This function is the smallest possible bridge that satisfies the
+/// R220.M2 acceptance: the reflection-crate hygiene pass is exercised
+/// on every reflective macro invocation and the resulting map is made
+/// available to name resolution.  R220.M3 will further wire the map
+/// into the resolver's own environment; today the cache is returned so
+/// the caller decides how to consume it.
+///
+/// Preserves [`expand_reflective`] for callers that do not (yet) want
+/// to opt into hygiene tracking; both share the same depth-check +
+/// macro-effect-row validation preamble.
+#[allow(clippy::result_large_err)]
+pub fn expand_reflective_hygienic(
+    arena: &mut AstArena,
+    decl_body: NodeId,
+    args: Vec<crate::term_eval::Value<'_>>,
+    arg_names: &[String],
+    call_site: Span,
+    depth: usize,
+) -> Result<
+    (
+        NodeId,
+        paideia_as_reflection::MacroScopeId,
+        crate::hygiene::HygieneCache,
+    ),
+    Vec<Diagnostic>,
+> {
+    // Same depth guard as expand_reflective — a hygiene rename cannot
+    // salvage a stack-overflowed expansion.
+    let depth_diags = check_depth(depth, call_site);
+    if !depth_diags.is_empty() {
+        return Err(depth_diags);
+    }
+
+    let mut env = crate::term_eval::Env::new();
+    for (i, name) in arg_names.iter().enumerate() {
+        if i < args.len() {
+            env.bind(name.clone(), args[i].clone());
+        }
+    }
+    let mut type_cache = crate::reflect_api::TypeCache::new();
+
+    match crate::term_eval::eval(arena, decl_body, &mut env, &mut type_cache) {
+        Ok(crate::term_eval::Value::Term(t)) => {
+            // R220.M2: mint the reflection-side scope for this invocation.
+            let scope = paideia_as_reflection::fresh_macro_scope_id();
+            // Bridge to the elaborator's own MacroId (both are NonZeroU32
+            // wrappers; the reflection MacroScopeId's raw value is the
+            // authoritative name for the invocation's scope).
+            let macro_tag = crate::hygiene::MacroId::from_macro_scope(scope);
+            let (node_id, cache) =
+                crate::splice::splice_with_hygiene(crate::term_eval::Value::Term(t), macro_tag, call_site)
+                    .map_err(|d| vec![d])?;
+            Ok((node_id, scope, cache))
+        }
+        Ok(_other) => Err(vec![
+            Diagnostic::error(m_code(M_UNBOUND_META))
+                .message("macro body did not evaluate to a Term value")
+                .with_span(call_site)
+                .finish(),
+        ]),
+        Err(d) => Err(vec![d]),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
