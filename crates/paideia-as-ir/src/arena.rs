@@ -139,6 +139,18 @@ pub struct IrArena {
     /// Side-table: caller Lambda frame layout (total_size, ClosureCons slot assignments).
     /// Issue #1233: populated by emit_walker pre-pass; consumed by prologue/epilogue + emit_closure_cons.
     closure_frame_meta: ClosureFrameMetaTable,
+    /// paideia-as#1424 (R220.M10): per-turn wire-fingerprint entries staged
+    /// for `.rodata` emission by the elaborator's `fingerprint_emit` pass.
+    ///
+    /// Kept as a flat `Vec` rather than a `DataSideTable` because each
+    /// fingerprint is standalone (no owning IrNodeId — it lives beside a
+    /// `pub let` binding whose own DataEntry already occupies the Let's
+    /// IrNodeId slot). Emitters (ELF, PE) walk this vec after
+    /// `data_table.iter()` and stream each entry into `.rodata` with the
+    /// entry's symbol name intact. Iteration order is insertion order —
+    /// the elaborator sorts entries by originating Let NodeId before
+    /// pushing, so builds are byte-stable.
+    fingerprint_entries: Vec<crate::DataEntry>,
 }
 
 impl IrArena {
@@ -186,6 +198,7 @@ impl IrArena {
             captures: CapturesTable::new(),
             closure_meta: ClosureMetaTable::new(),
             closure_frame_meta: ClosureFrameMetaTable::new(),
+            fingerprint_entries: Vec::new(),
         }
     }
 
@@ -333,6 +346,23 @@ impl IrArena {
     /// Borrow the data side-table (mutable).
     pub fn data_mut(&mut self) -> &mut DataSideTable {
         &mut self.data_table
+    }
+
+    /// Borrow the fingerprint entry list (read-only).
+    ///
+    /// paideia-as#1424 (R220.M10). Populated by the elaborator's
+    /// `fingerprint_emit` pass from `AstArena::item_fingerprint`. Each
+    /// entry is a NUL-terminated byte string staged for `.rodata`
+    /// emission under the symbol `fp_<name>`; emitters walk this vec
+    /// after `data().iter()`.
+    #[must_use]
+    pub fn fingerprints(&self) -> &[crate::DataEntry] {
+        &self.fingerprint_entries
+    }
+
+    /// Borrow the fingerprint entry list (mutable).
+    pub fn fingerprints_mut(&mut self) -> &mut Vec<crate::DataEntry> {
+        &mut self.fingerprint_entries
     }
 
     /// Borrow the binding name side-table (read-only).

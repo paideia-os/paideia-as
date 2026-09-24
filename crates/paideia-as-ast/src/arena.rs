@@ -261,6 +261,13 @@ pub struct AstArena {
     /// `pub let` bindings that register themselves as an elaborator
     /// hosted-DSL parser plug-in. See [`crate::ItemDslParserTable`].
     item_dsl_parser: crate::ItemDslParserTable,
+    /// paideia-as#1424 (R220.M10): item-level `@fingerprint("<name>")`
+    /// side-table keyed by `Let` NodeId. Sparse — populated only for
+    /// `pub let` bindings that carry a per-turn wire fingerprint tag.
+    /// The elaborator's `fingerprint_emit` pass reads it back to stage
+    /// NUL-terminated tag bytes into `.rodata` under the symbol
+    /// `fp_<name>`. See [`crate::ItemFingerprintTable`].
+    item_fingerprint: crate::ItemFingerprintTable,
     /// paideia-as#1372 (v0.28-M1-003): per-field attribute side-table keyed
     /// by struct-field-name `NodeId`. Sparse — populated only for fields
     /// carrying an `@endian(...)` attribute (or any future per-field
@@ -304,6 +311,7 @@ impl AstArena {
             pattern_type_hints: crate::PatternTypeHints::new(),
             item_atomic: crate::ItemAtomicTable::new(),
             item_dsl_parser: crate::ItemDslParserTable::new(),
+            item_fingerprint: crate::ItemFingerprintTable::new(),
             struct_field_attrs: crate::StructFieldAttrTable::new(),
             struct_attrs: crate::StructAttrTable::new(),
             functor_attrs: crate::FunctorAttrTable::new(),
@@ -583,6 +591,24 @@ impl AstArena {
     /// Borrow the item-level DSL-parser attachment side-table (mutable).
     pub fn item_dsl_parser_mut(&mut self) -> &mut crate::ItemDslParserTable {
         &mut self.item_dsl_parser
+    }
+
+    /// Borrow the item-level fingerprint attachment side-table (read-only).
+    ///
+    /// paideia-as#1424 (R220.M10). Populated by the parser when it sees a
+    /// trailing `@fingerprint("<name>")` attribute on a `pub let` binding.
+    /// The elaborator's `fingerprint_emit` pass reads back the entries and
+    /// stages one NUL-terminated `.rodata` byte string per fingerprint,
+    /// under the symbol `fp_<name>`, so a hosted DSL / REPL can stamp a
+    /// per-turn wire tag the debugger recognises by substring match.
+    #[must_use]
+    pub fn item_fingerprint(&self) -> &crate::ItemFingerprintTable {
+        &self.item_fingerprint
+    }
+
+    /// Borrow the item-level fingerprint attachment side-table (mutable).
+    pub fn item_fingerprint_mut(&mut self) -> &mut crate::ItemFingerprintTable {
+        &mut self.item_fingerprint
     }
 
     /// Borrow the struct-field attribute side-table (read-only).

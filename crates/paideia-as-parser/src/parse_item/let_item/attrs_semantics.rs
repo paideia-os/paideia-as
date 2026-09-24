@@ -455,4 +455,124 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
 
         Ok(name)
     }
+
+    /// Parse `@fingerprint("<name>")` — the R220.M10 (paideia-as#1424)
+    /// intrinsic that stamps a per-turn wire fingerprint tag into the
+    /// module's `.rodata` under the symbol `fp_<name>`. Attached to any
+    /// `pub let` binding.
+    ///
+    /// The `<name>` is 1..=128 bytes of 7-bit ASCII from the character
+    /// class `[A-Za-z0-9._-]` — the intersection of ELF-symbol-legal
+    /// characters and the tag shapes the design doc uses:
+    /// `test.turn.001` (dotted turn ordinals) and `r220m10-fp-01`
+    /// (dashed batch-fingerprint tags). Broader than `@dsl_parser`'s
+    /// identifier-only alphabet: fingerprints are opaque tokens the
+    /// debugger substring-matches, not language-level identifiers.
+    ///
+    /// **Diagnostics (P-category, reserved slice P0297..P0298 for R220.M10 —
+    /// contiguous with R220.M3's P0295..P0296):**
+    /// - P0297 — malformed `(...)` syntax (missing `(`, `)`, or non-string arg).
+    /// - P0298 — invalid fingerprint name (empty, too long, or invalid char).
+    ///
+    /// Fingerprint tag: r220m10-fp-07.
+    pub(super) fn parse_fingerprint_attr(&mut self) -> Result<String, ParseError> {
+        // Expect `(`.
+        if !self.eat(TokenKind::LParen) {
+            let span = self.peek().map(|t| t.span).unwrap_or_else(|| Span::new(self.file(), 0, 0));
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 297)
+                .expect("valid P0297 code");
+            let diag = Diagnostic::error(code)
+                .message("malformed @fingerprint(\"name\") syntax: expected '(' after 'fingerprint'")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        // Argument must be a string literal.
+        if !self.at(TokenKind::StringLit) {
+            let span = self.peek().map(|t| t.span).unwrap_or_else(|| Span::new(self.file(), 0, 0));
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 297)
+                .expect("valid P0297 code");
+            let diag = Diagnostic::error(code)
+                .message("@fingerprint argument must be a string literal (the wire tag name)")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            self.bump();
+            return Err(ParseError);
+        }
+
+        let str_tok = self.expect(TokenKind::StringLit)?;
+        let str_span = str_tok.span;
+        let raw = self.source_text_for_span(str_span);
+        let name = if raw.starts_with('"') && raw.ends_with('"') && raw.len() >= 2 {
+            raw[1..raw.len() - 1].to_string()
+        } else {
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 297)
+                .expect("valid P0297 code");
+            let diag = Diagnostic::error(code)
+                .message("@fingerprint argument must be a valid string literal")
+                .with_span(str_span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        };
+
+        // Validate: 1..=128 bytes, 7-bit ASCII from [A-Za-z0-9._-].
+        if name.is_empty() {
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 298)
+                .expect("valid P0298 code");
+            let diag = Diagnostic::error(code)
+                .message("@fingerprint name must be non-empty")
+                .with_span(str_span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+        if name.len() > 128 {
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 298)
+                .expect("valid P0298 code");
+            let diag = Diagnostic::error(code)
+                .message(format!(
+                    "@fingerprint name must be <= 128 bytes, got {}",
+                    name.len()
+                ))
+                .with_span(str_span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+        for c in name.chars() {
+            let ok = c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-';
+            if !ok {
+                let code = DiagnosticCode::new(Category::P, Severity::Error, 298)
+                    .expect("valid P0298 code");
+                let diag = Diagnostic::error(code)
+                    .message(format!(
+                        "@fingerprint name must contain only ASCII letters, digits, '.', '_', or '-' (invalid char '{}')",
+                        c
+                    ))
+                    .with_span(str_span)
+                    .finish();
+                self.emit_diagnostic(diag);
+                return Err(ParseError);
+            }
+        }
+
+        // Expect `)`.
+        if !self.eat(TokenKind::RParen) {
+            let span = self.peek().map(|t| t.span).unwrap_or_else(|| Span::new(self.file(), 0, 0));
+            let code = DiagnosticCode::new(Category::P, Severity::Error, 297)
+                .expect("valid P0297 code");
+            let diag = Diagnostic::error(code)
+                .message("malformed @fingerprint(\"name\") syntax: expected ')' after name")
+                .with_span(span)
+                .finish();
+            self.emit_diagnostic(diag);
+            return Err(ParseError);
+        }
+
+        Ok(name)
+    }
 }

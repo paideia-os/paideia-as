@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.36.11 — 2026-09-24 — @fingerprint intrinsic (R220.M10)
+
+Elaborator API a hosted DSL uses to stamp a per-turn wire fingerprint (anti-fabrication
+pattern kernel-side per `feedback_workerbee_verify_claims.md`).
+
+- **Parser** (`crates/paideia-as-parser/src/parse_item/let_item/`): accepts
+  `@fingerprint("<name>")` as a trailing symbol attribute on `pub let` bindings. Alphabet
+  `[A-Za-z0-9._-]`, 1..=128 bytes, 7-bit ASCII. Diagnostics **P0297** (malformed),
+  **P0298** (invalid name).
+- **AST side-table** (`crates/paideia-as-ast/src/item_fingerprint.rs`): sparse
+  `ItemFingerprintTable` mirrors R220.M3 pattern.
+- **IR** (`crates/paideia-as-ir/src/arena.rs`): `fingerprint_entries: Vec<DataEntry>` +
+  accessors.
+- **Elaborator pass** (`crates/paideia-as-elaborator/src/fingerprint_emit.rs`):
+  `populate_fingerprints` after `populate_data_table`; produces rodata `fp_<name>` symbols
+  with byte payload = `<name>` + NUL (`name.len()+1` bytes exact, alignment 1). Matches
+  kernel-side `klog/keys.pdx` C-string shape.
+- **cmd_build/elf.rs + pe.rs**: rodata bytes + `fp_<name>` symbol emission (ELF and PE).
+- Canary `crates/paideia-as/tests/data/fingerprint_intrinsic.pdx` — two `pub let X : u64
+  = N @fingerprint("...")` bindings with dotted (`test.turn.001`) and dashed
+  (`r220m10-fp-01`) tags. E2E tests parse the resulting `.o`, assert tags in rodata +
+  `fp_<name>` symbols defined + control build with no `fp_*` symbols (regression guard).
+- 19/19 tests pass (5 side-table + 8 parser + 3 elaborator + 3 e2e codegen).
+
+Closes paideia-as#1424 (R220.M10). Unblocks every semantic-shell round's fingerprint
+acceptance criterion once REPL emits (R229).
+
 ## 0.36.10 — 2026-09-24 — @dsl_parser (R220.M3) + LSP-embed API (R220.M9)
 
 Two R220 landings in parallel.

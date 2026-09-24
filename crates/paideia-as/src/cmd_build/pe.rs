@@ -214,6 +214,19 @@ pub(super) fn build_pe_object(
         }
     }
 
+    // paideia-as#1424 (R220.M10): emit per-turn wire-fingerprint entries
+    // into `.rdata` (PE's rodata equivalent) alongside the regular
+    // data_table. Same NUL-terminated-C-string contract as the ELF back
+    // end so a debugger's substring search finds the tag byte-for-byte
+    // in either object format. Fingerprint entries carry no relocations.
+    for entry in arena.fingerprints() {
+        let offset_in_section = sections.add_rodata_bytes(&entry.bytes, entry.align);
+        let section_idx = sections
+            .find_section_by_name(".rdata")
+            .expect(".rdata section must exist after add_rodata_bytes");
+        data_symbol_offsets.insert(entry.symbol_name.clone(), (section_idx, offset_in_section));
+    }
+
     // Issue #1292 (cross-repo:paideia-as-fix): Build a symbol_name → byte_offset
     // map for functions emitted into .text, mirroring the ELF path (elf.rs:242-250
     // + 260-316). Used below to resolve intra-module direct-call reloc sites

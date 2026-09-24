@@ -373,6 +373,13 @@ pub fn run(input: &Path, output: Option<&Path>, emit: Option<&str>, target: Opti
     // PA-r15-009b (#1032): populate jump tables after data table population.
     data_pass::populate_jump_tables(&mut lowering);
 
+    // paideia-as#1424 (R220.M10): stage per-turn wire-fingerprint entries
+    // (`@fingerprint("<name>")`) into `ir.fingerprints()` for `.rodata`
+    // emission by the back-end walkers below. Sits after data_pass so
+    // fingerprints do not compete with legitimate binding entries for
+    // IrNodeId slots — they live on their own arena-side list.
+    paideia_as_elaborator::populate_fingerprints(&arena, &mut lowering.ir);
+
     // #1413: capture whether any Severity::Error diagnostic reached the sink
     // BEFORE the sink is consumed by one of the finish_* paths. Used both to
     // gate emit (`preview`) AND to enforce a nonzero exit code at the seam

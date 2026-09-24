@@ -732,3 +732,108 @@ fn dsl_parser_duplicate_rejected() {
     assert_has_p_code(&diags, 250);
     assert_p_code_message_contains(&diags, 250, "duplicate @dsl_parser");
 }
+
+// ---- paideia-as#1424 (R220.M10): @fingerprint("<name>") registration ----
+//
+// The trailing symbol attribute stamps a wire tag on any `pub let` binding.
+// The parser records the tag on AstArena::item_fingerprint keyed by the Let
+// NodeId; the elaborator's fingerprint_emit pass reads it back and stages a
+// NUL-terminated byte string into .rodata under the symbol `fp_<name>`.
+
+/// Fingerprint tag: r220m10-fp-08 — happy-path attach on a plain let.
+#[test]
+fn fingerprint_happy_path_dotted() {
+    let source = r#"pub let marker : u64 = 0 @fingerprint("test.turn.001")"#;
+    let (arena, result, diags) = parse_let_in_module(source);
+
+    assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
+    assert!(result.is_ok(), "expected successful parse");
+
+    let root = result.unwrap();
+    assert_eq!(
+        arena.item_fingerprint().get(root),
+        Some("test.turn.001"),
+        "@fingerprint(\"test.turn.001\") should populate item_fingerprint side-table"
+    );
+}
+
+/// Fingerprint tag: r220m10-fp-09 — dashed batch shape accepted.
+#[test]
+fn fingerprint_happy_path_dashed() {
+    let source = r#"pub let marker : u64 = 0 @fingerprint("r220m10-fp-01")"#;
+    let (arena, result, diags) = parse_let_in_module(source);
+    assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
+    assert!(result.is_ok());
+    let root = result.unwrap();
+    assert_eq!(arena.item_fingerprint().get(root), Some("r220m10-fp-01"));
+}
+
+/// Fingerprint tag: r220m10-fp-10 — absence leaves the side-table empty.
+#[test]
+fn fingerprint_absent_by_default() {
+    let source = r#"pub let marker : u64 = 0"#;
+    let (arena, result, diags) = parse_let_in_module(source);
+    assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
+    assert!(result.is_ok());
+    let root = result.unwrap();
+    assert_eq!(arena.item_fingerprint().get(root), None);
+}
+
+/// Fingerprint tag: r220m10-fp-11 — composes with @abi in a single attr run.
+#[test]
+fn fingerprint_composes_with_abi() {
+    let source = r#"pub let f : (u64) -> u64 = fn(x: u64) -> x @fingerprint("compose.001") @abi("sysv")"#;
+    let (arena, result, diags) = parse_let_in_module(source);
+    assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
+    assert!(result.is_ok());
+    let root = result.unwrap();
+    assert_eq!(arena.item_fingerprint().get(root), Some("compose.001"));
+    match arena.item_data(root) {
+        Some(paideia_as_ast::ItemData::Let { abi, .. }) => {
+            assert_eq!(*abi, Some(paideia_as_ast::CallingConvention::Sysv));
+        }
+        _ => panic!("expected ItemData::Let"),
+    }
+}
+
+/// Fingerprint tag: r220m10-fp-12 — empty fingerprint name → P0298.
+#[test]
+fn fingerprint_empty_name_rejected() {
+    let source = r#"pub let marker : u64 = 0 @fingerprint("")"#;
+    let (_arena, result, diags) = parse_let_in_module(source);
+    assert!(result.is_err(), "empty fingerprint name must parse-fail");
+    assert_has_p_code(&diags, 298);
+}
+
+/// Fingerprint tag: r220m10-fp-13 — non-alphabet ASCII (`+`, `!`) → P0298.
+///
+/// The alphabet is `[A-Za-z0-9._-]`; anything else — including printable
+/// ASCII outside that class, and by extension non-ASCII UTF-8 bytes — is
+/// rejected so the debugger's byte-for-byte substring match against
+/// `.rodata` stays exact.
+#[test]
+fn fingerprint_non_alphabet_char_rejected() {
+    let source = r#"pub let marker : u64 = 0 @fingerprint("turn+one")"#;
+    let (_arena, result, diags) = parse_let_in_module(source);
+    assert!(result.is_err(), "non-alphabet fingerprint name must parse-fail");
+    assert_has_p_code(&diags, 298);
+}
+
+/// Fingerprint tag: r220m10-fp-14 — invalid ASCII char (space, slash) → P0298.
+#[test]
+fn fingerprint_invalid_char_rejected() {
+    let source = r#"pub let marker : u64 = 0 @fingerprint("has space")"#;
+    let (_arena, result, diags) = parse_let_in_module(source);
+    assert!(result.is_err(), "space in fingerprint name must parse-fail");
+    assert_has_p_code(&diags, 298);
+}
+
+/// Fingerprint tag: r220m10-fp-15 — duplicate `@fingerprint` on same let → P0250.
+#[test]
+fn fingerprint_duplicate_rejected() {
+    let source = r#"pub let marker : u64 = 0 @fingerprint("a") @fingerprint("b")"#;
+    let (_arena, result, diags) = parse_let_in_module(source);
+    assert!(result.is_err(), "duplicate @fingerprint must parse-fail");
+    assert_has_p_code(&diags, 250);
+    assert_p_code_message_contains(&diags, 250, "duplicate @fingerprint");
+}

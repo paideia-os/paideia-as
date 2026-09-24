@@ -226,6 +226,27 @@ pub(super) fn build_elf_object(
         });
     }
 
+    // paideia-as#1424 (R220.M10): emit per-turn wire fingerprint entries
+    // into `.rodata` alongside the regular data_table. Each entry is a
+    // NUL-terminated C-string of the fingerprint name (validated ASCII);
+    // the debugger substring-matches this against the compiled ELF's
+    // rodata payload to verify a per-turn tag actually made it through
+    // the toolchain (anti-fabrication pattern per
+    // `feedback_workerbee_verify_claims.md`). The `fp_<name>` symbol
+    // gives linkers / disassemblers a stable handle on each entry.
+    for entry in arena.fingerprints() {
+        let data_offset = writer.add_rodata_bytes(&entry.bytes, entry.align);
+        let _ = writer.add_symbol(SymbolEntry {
+            name: entry.symbol_name.clone(),
+            offset: Some(data_offset),
+            size: entry.bytes.len() as u64,
+            kind: SymKind::Data,
+            is_global: true,
+            section: Some(paideia_as_ir::SectionKind::Rodata),
+            section_name: None,
+        });
+    }
+
     // Phase-5-m5-003: Emit real symbols from SymbolTable (REORDERED TO FIX BUG 2).
     // CRITICAL FIX (PA-R17-003): Register all function symbols BEFORE emitting data
     // relocations. This prevents the data-relocation loop from calling add_undefined_symbol

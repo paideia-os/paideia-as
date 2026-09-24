@@ -15,6 +15,7 @@ mod field_attr;
 mod functor_attr;
 mod item_atomic;
 mod item_dsl_parser;
+mod item_fingerprint;
 mod items;
 mod macros;
 mod modules;
@@ -34,6 +35,7 @@ pub use field_attr::{Endianness, FieldAttr, StructFieldAttrTable};
 pub use functor_attr::{FunctorAttr, FunctorAttrTable};
 pub use item_atomic::ItemAtomicTable;
 pub use item_dsl_parser::ItemDslParserTable;
+pub use item_fingerprint::ItemFingerprintTable;
 pub use exprs::{
     ExprData, GenericParam, HandlerArm, LoopKind, MatchArm, MatchAttrs, PrefixOp, SegPrefix,
     SharingConstraint,

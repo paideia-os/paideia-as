@@ -18,6 +18,7 @@ mod codegen {
     pub mod data_rodata;
     pub mod e2e_elf;
     pub mod examples_corpus;
+    pub mod fingerprint;
     pub mod note_paideia_layouts;
     pub mod opt_peephole_smoke;
     pub mod pub_cross_module_link;

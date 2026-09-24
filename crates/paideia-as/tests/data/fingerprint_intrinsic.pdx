@@ -1,0 +1,4 @@
+module FingerprintIntrinsic = structure {
+  pub let turn_marker : u64 = 0 @fingerprint("test.turn.001")
+  pub let batch_marker : u64 = 1 @fingerprint("r220m10-fp-01")
+}

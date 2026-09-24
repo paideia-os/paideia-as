@@ -70,6 +70,14 @@ pub(super) struct LetSymbolAttrs {
     /// `name` for dispatch by `expand_reflective_hygienic` (R220.M2) when
     /// a `name { <body> }` hosted-DSL invocation is elaborated.
     pub dsl_parser: Option<String>,
+    /// `@fingerprint("<name>")` per-turn wire tag
+    /// (paideia-as#1424, R220.M10). When `Some(name)`, the caller stamps
+    /// the resulting let node into `AstArena::item_fingerprint` so the
+    /// elaborator's `fingerprint_emit` pass appends a NUL-terminated byte
+    /// string (`"<name>\0"`) into `.rodata` under the symbol `fp_<name>`.
+    /// A hosted DSL / REPL uses this to stamp per-turn identifiers the
+    /// debugger recognises by substring match against the compiled ELF.
+    pub fingerprint: Option<String>,
 }
 
 impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
@@ -86,6 +94,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         let mut interrupt: Option<InterruptAttr> = None;
         let mut atomic: Option<AtomicOrdering> = None;
         let mut dsl_parser: Option<String> = None;
+        let mut fingerprint: Option<String> = None;
         let mut seen_attrs = HashSet::new();
 
         // Loop to accept attributes in any order
@@ -183,12 +192,24 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
                     // has not yet elaborated the value's type.
                     dsl_parser = Some(self.parse_dsl_parser_attr()?);
                 }
+                "fingerprint" => {
+                    // paideia-as#1424 (R220.M10): `@fingerprint("<name>")` — the
+                    // per-turn wire-tag intrinsic. Attaches to any `pub let`
+                    // binding and, at elaboration time, stages a NUL-terminated
+                    // byte string ("<name>\0") into `.rodata` under the symbol
+                    // `fp_<name>`. Hosted-DSL / REPL callers use this to stamp
+                    // a per-turn identifier the debugger recognises by
+                    // substring match against the compiled ELF — the
+                    // anti-fabrication pattern kernel-side per
+                    // `feedback_workerbee_verify_claims.md`.
+                    fingerprint = Some(self.parse_fingerprint_attr()?);
+                }
                 _ => {
                     // P0250: unknown symbol attribute
                     let code = DiagnosticCode::new(Category::P, Severity::Error, 250)
                         .expect("valid P0250 code");
                     let diag = Diagnostic::error(code)
-                        .message(format!("unknown symbol attribute '@{}' (only 'align', 'ring', 'link_section', 'abi', 'no_frame', 'interrupt', 'interrupt_error', 'atomic', and 'dsl_parser' supported)", attr_name))
+                        .message(format!("unknown symbol attribute '@{}' (only 'align', 'ring', 'link_section', 'abi', 'no_frame', 'interrupt', 'interrupt_error', 'atomic', 'dsl_parser', and 'fingerprint' supported)", attr_name))
                         .with_span(attr_name_tok.span)
                         .finish();
                     self.emit_diagnostic(diag);
@@ -197,7 +218,7 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
             }
         }
 
-        Ok(LetSymbolAttrs { align, ring, link_section, abi, no_frame, interrupt, atomic, dsl_parser })
+        Ok(LetSymbolAttrs { align, ring, link_section, abi, no_frame, interrupt, atomic, dsl_parser, fingerprint })
     }
 
     /// Parse a top-level let declaration with optional visibility: `[pub] let [mut] <Ident> <GenericParams>? (: Type)? = Expr @align(N)? @ring(...)? @link_section("name")? @abi("ms"|"sysv")?`
@@ -276,8 +297,8 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         let value = self.parse_expr()?;
 
         // Parse optional symbol attributes (@align, @ring, @link_section, @abi, @no_frame,
-        // @interrupt, @interrupt_error, @atomic, or @dsl_parser).
-        let LetSymbolAttrs { align, ring, link_section, abi, no_frame, interrupt, atomic, dsl_parser } = self.parse_optional_symbol_attributes()?;
+        // @interrupt, @interrupt_error, @atomic, @dsl_parser, or @fingerprint).
+        let LetSymbolAttrs { align, ring, link_section, abi, no_frame, interrupt, atomic, dsl_parser, fingerprint } = self.parse_optional_symbol_attributes()?;
 
         // paideia-as#1276 phase 3: `@no_frame` is a function-only attribute — it
         // toggles the SysV frame-pointer prologue/epilogue that the elaborator
@@ -371,6 +392,16 @@ impl<'tok, 'ast, 'snk> Parser<'tok, 'ast, 'snk> {
         // dispatch via `expand_reflective_hygienic` (R220.M2).
         if let Some(name) = dsl_parser {
             self.arena_mut().item_dsl_parser_mut().insert(item, name);
+        }
+
+        // paideia-as#1424 (R220.M10): stamp the item-level `@fingerprint("<name>")`
+        // attachment onto the AST arena's item_fingerprint side-table, keyed by
+        // the freshly allocated Let node — same pattern as `@atomic` /
+        // `@dsl_parser`. Elaborator `fingerprint_emit` reads back the entry
+        // and stages a NUL-terminated byte string into `.rodata` under the
+        // synthetic symbol `fp_<name>`.
+        if let Some(name) = fingerprint {
+            self.arena_mut().item_fingerprint_mut().insert(item, name);
         }
 
         Ok(item)
