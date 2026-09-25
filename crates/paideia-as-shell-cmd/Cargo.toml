@@ -1,0 +1,70 @@
+[package]
+name = "paideia-as-shell-cmd"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+name = "paideia_as_shell_cmd"
+
+# R222.M1..M3 — command-module functor surface for the semantic shell.
+#
+# Owns the ML-signature-shaped types the shell dispatch layer speaks:
+#   * `SchemasSig`   — the schemas a command may consume and produce,
+#                      keyed by the R220 schema-registry fingerprint
+#                      (FNV-1a-64 per design/terminal/schema-registry.md
+#                      §3; migrates to BLAKE3 on the paideia-as intrinsic
+#                      landing, no shape change).
+#   * `CommandSig`   — the functor-return signature per SH-D5
+#                      (design/terminal/semantic-shell.md §6.1):
+#                      `name`, `input_schema`, `output_schema`,
+#                      `arguments`, `flags`, `effects`,
+#                      `required_capabilities`, `execute`.
+#   * `CommandFunctor` — `fn(&SchemasSig) -> CommandSig`, the Rust-side
+#                      lowering of the paideia-as `functor (Schemas :
+#                      SchemasSig) -> struct` form. Reference impls for
+#                      the five light commands the R222.M3 canary
+#                      exercises: `find`, `where`, `sort`, `head`,
+#                      `count`.
+#   * `CommandRegistry` — Str→functor lookup. Interim `HashMap<String,
+#                      CommandFunctor>` mirrors the shape R220.M7's
+#                      `HashMap<Str, ClosureFatPtr>` lowers to on
+#                      paideia-as; when R222.M5 lands the on-disk
+#                      commands.toml + supervisor RPC, this registry
+#                      seeds the same table with functor references
+#                      loaded from the manifest.
+#   * `dispatch`     — the REPL prompt's entry point. Splits a line,
+#                      resolves the head, instantiates the functor
+#                      against the session's `SchemasSig`, elaborates
+#                      argv into an `Invocation`, and stamps a
+#                      per-turn fingerprint (R220.M10 shape).
+#
+# Kept in its own crate — separate from `paideia-as-shell-lex` — because
+# the lexer's contract is "bytes -> tokens" (context state machine, no
+# shell vocabulary beyond tokenisation), while this crate owns the
+# functor/schema/dispatch vocabulary a downstream parser (R221.M5) and
+# elaborator (R220.M1) both consume. The dependency arrow stays one-way
+# for now: `shell-cmd` does NOT import `shell-lex` — dispatch takes a
+# raw `&str` at R222.M3 because the parser-level integration is a
+# R223.M1 milestone (pipeline stages + `|` operator). When R221.M5 +
+# R223.M1 land, `dispatch` gains a `from_tokens(&[Token]) -> Result<...>`
+# alongside the current `from_line` entry point; this crate then
+# depends on `shell-lex`. Doing the coupling then, not now, keeps R222
+# reviewable in isolation.
+#
+# No dependency on `paideia-as-stdlib` either — the paideia-as `.pdx`
+# HashMap<Str, ClosureFatPtr> from R220.M7 is the eventual target for
+# the registry table on the substrate side, but at R222.M3 we're in
+# Rust host-side land (the shell runs on the host during bring-up per
+# `semantic-shell-materialization-plan.md`). The functor↔fat-ptr
+# adapter lands at R222.M5 when the commands.toml loader appears.
+
+[dependencies]
+# No workspace deps yet — R222.M1..M3 is a pure-shape landing (types +
+# stub executes). R222.M4 (ArgSpec/FlagSpec typing) will pull in
+# `paideia-as-types` for HM type-check of user input against the
+# ArgSpec at parse time; R222.M5 (registry client) pulls in `miette`
+# for the commands.toml load-time diagnostics.

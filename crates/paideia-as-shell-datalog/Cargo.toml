@@ -1,0 +1,51 @@
+[package]
+name = "paideia-as-shell-datalog"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+name = "paideia_as_shell_datalog"
+
+# R226.M1 (Datalog AST + parser) + R226.M2 (seminaïve fixpoint
+# evaluator) — the first two milestones of the SH-D4 Datalog surface.
+#
+# Consumes tokens from `paideia-as-shell-lex` (Context::Datalog only)
+# and produces a typed `Program` AST — facts, rules, and separately-
+# parsed queries — plus a `Database` seminaïve evaluator that iterates
+# the fixpoint until no new tuples are derived.
+#
+# Kept in its own crate — separate from `paideia-as-shell-lex` — so the
+# lexer stays parser-agnostic (a REPL syntax colorer needs the tokens
+# but not the AST; a `.pds` script loader needs both). The dependency
+# arrow is one-way: shell-datalog → shell-lex. Nothing at the shell-lex
+# layer imports Datalog AST types.
+#
+# What this crate does NOT do (deferred to later R226 milestones):
+#
+# * **Magic-set rewriting** (R226.M3 in the round split, M4 in the
+#   published plan — Beeri & Ramakrishnan 1991). A `magic_sets` stub
+#   module is exposed so the M3 landing is API-additive.
+# * **Stratified negation** (R226.M5). The parser accepts `not` in
+#   body position (it's already an `Op` token) but the evaluator
+#   ignores the negation semantically at M1/M2 — a `not q(?x)` body
+#   atom is treated as absent. R226.M5 will introduce the stratifier
+#   and refuse the rule at compile time if the strata would require
+#   negation-through-recursion.
+# * **Aggregation** (R226.M6). No `count`/`sum`/`min`/`max`/`avg`
+#   built-ins yet.
+# * **Schema-registry predicate typing** (R226.M2 in the published
+#   plan — separate from the seminaïve engine, which is R226.M3 in
+#   that plan). This crate treats every predicate as untyped at
+#   M1/M2; the R225.M3 + R226.M9 milestones will attach types.
+# * **Progress emission + fingerprinting** (R226.M10 + R226.M11).
+#   The evaluator returns the full result set eagerly.
+
+[dependencies]
+# Token source: shell-lex emits `(TokenKind, Context)` pairs; the
+# parser here filters on `Context::Datalog` and reads `TokenKind`.
+# One-way arrow — shell-lex knows nothing about Datalog AST types.
+paideia-as-shell-lex = { path = "../paideia-as-shell-lex" }

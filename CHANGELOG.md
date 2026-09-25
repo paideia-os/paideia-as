@@ -1,5 +1,94 @@
 # Changelog
 
+## 0.36.15 — 2026-09-24 — R221.M5-M7 AST + R222.M1-M3 CommandSig + R226.M1-M2 Datalog eval
+
+Massive semantic-shell surface bundle: three new workspace crates
+(`paideia-as-shell-ast`, `paideia-as-shell-cmd`, `paideia-as-shell-datalog`)
+land together with 146 tests across seven milestones.
+
+**R221.M5** — Unified `SyntaxNode` AST + recursive-descent parser
+(new crate `paideia-as-shell-ast`):
+- 24-variant `SyntaxNode` enum covering Pipeline / Datalog / Lambda /
+  shared productions.
+- Hand-rolled recursive-descent parser dispatching on the
+  `paideia-as-shell-lex` context tag (Pipeline / Datalog / Lambda).
+- Precedence chain in lambda sub-parser: comparison < additive <
+  multiplicative < unary < postfix < atom. Right-associative `Pipe`.
+- `MAX_NESTING_DEPTH = 256` soft cap keeps R221.M7 adversarial-nesting
+  input from blowing the stack.
+- `ParseError` / `ParseErrorKind` carry both `original_span` and
+  `nfc_span` per Q-A5.
+
+**R221.M6** — Source-span provenance across NFC (`NfcMap` + `NodeSpan`):
+- Every `SyntaxNode` carries `NodeSpan { original, nfc, context }`.
+- Identity fast path for pure-ASCII input.
+- Non-ASCII path records checkpoints at canonical-starter boundaries
+  via `canonical_combining_class` lookup; intra-segment ranges snap
+  outward — a conservative never-narrower behaviour so LSP underlines
+  never miss part of the user's typed text.
+
+**R221.M7** — Fuzz corpus (`tests/parser_fuzz_proptest.rs`):
+- Six proptest properties, ~1500 fuzz iterations per `cargo test`.
+- Asserts the never-panic invariant, NFC idempotence, grapheme
+  monotonicity, parser determinism, nesting-cap protection, and the
+  `str_width == Σ grapheme_width` cursor invariant.
+
+**R222.M1** — `SchemasSig` (new crate `paideia-as-shell-cmd`):
+- `SchemaFingerprint(u64)`, `SchemaRef`, `SchemasSig { input, output,
+  extras }`. FNV-1a-64 fingerprint per `schema-registry.md` §3.
+- `SchemasSig::r220_seed()` seeds `FileSchema@0.1` +
+  `RawByteChunk@0.1`.
+- 5-fixture test corpus (`r222-m1-schema-NN`).
+
+**R222.M2** — `CommandSig` reference implementations:
+- `CommandSig { name, input_schema, output_schema, arguments, flags,
+  effects, required_capabilities, execute }` per
+  `design/terminal/semantic-shell.md` §6.1.
+- 5 reference functor modules (`find`, `where`, `sort`, `head`,
+  `count`). Effects and caps filled per SH-D6.
+- `fn` pointer for R220.M7 fat-pointer compatibility.
+
+**R222.M3** — Functor instantiation at REPL prompt:
+- `CommandRegistry` wrapping `HashMap<String, CommandFunctor>`.
+- `with_light_commands()` seeds the 5 R222 functors.
+- Dispatch + roundtrip tested end-to-end.
+
+**R226.M1** — Datalog AST + parser (new crate `paideia-as-shell-datalog`):
+- Four-node AST: `Value`, `Term { Var, Const, Bound }`, `Atom`, `Rule`.
+- Grammar: `clause := atom '.' | atom '=>' body '.'` (shell dialect
+  spells `=>` not `:-` — no `:` token at the lex layer).
+- Non-ground fact + zero-arity atom rejections at parse time.
+
+**R226.M2** — Seminaïve fixpoint evaluator per Abiteboul-Hull-Vianu §13:
+- `Database` — `HashMap<(PredicateName, arity), HashSet<Vec<Value>>>`.
+- Bottom-up fixpoint with delta-based incremental derivation.
+- Guarded by `Bound` term rejection (pipeline resolution deferred to
+  R229).
+
+**Bugs uncovered in R221.M5 landing** (three parser bugs, all fixed):
+
+1. `Parser::skip_pipeline_separators` did not skip `Semi` — the pipeline
+   `parse_cmd` breaks on `Semi`, but `parse_program`'s separator skip
+   only handled `Newline`, so `ls | wc; cd home` failed at the `;`.
+2. Lambda `parse_atom` rejected `DatalogKw` — a lambda body could not
+   contain `datalog { ... }` as an expression, blocking
+   `each | { |x| datalog { pred($it, ?y) } }`.
+3. Lambda `parse_postfix` did not accept `{...}` as an applied arg —
+   `outer { |x| inner { |y| x + y } }` failed on the nested
+   `inner { ... }` because the lambda's expression grammar did not
+   recognize shell-command-shape application inside a body.
+
+All three fixed inline: `skip_pipeline_separators` now skips `Semi`
+too; lambda `parse_atom` dispatches to `datalog::parse_datalog_block`
+on `DatalogKw`; lambda `parse_postfix` accepts trailing `{...}` and
+`datalog { ... }` after a `Var` and wraps into `Cmd`. All 106 tests
+green after the fixes (0+9+15+15+10+6+15+26+10 across the 10
+`paideia-as-shell-ast` binaries).
+
+Closes paideia-as#1431 (R222.M1), #1432 (R222.M2), #1433 (R222.M3),
+#1434 (R226.M1), #1435 (R226.M2), #1436 (R221.M5), #1437 (R221.M6),
+#1438 (R221.M7).
+
 ## 0.36.14 — 2026-09-24 — R221.M3 (TR#11 width) + R221.M4 (context lexer)
 
 Next two semantic-shell surface milestones landed.

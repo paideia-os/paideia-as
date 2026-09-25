@@ -1,0 +1,74 @@
+[package]
+name = "paideia-as-shell-ast"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+name = "paideia_as_shell_ast"
+
+# R221.M5 — unified AST sum type for the semantic shell.
+# R221.M6 — source-span provenance across the NFC normalization boundary.
+# R221.M7 — proptest fuzz corpus (parser never panics; always emits an
+#           error diagnostic or a valid AST).
+#
+# Sits directly on top of `paideia-as-shell-lex` (context-tagged tokens)
+# and `paideia-as-unicode` (NFC + Utf8Decoder + span helpers). One
+# recursive-descent parser walks the token stream and dispatches to a
+# per-context sub-parser (pipeline / Datalog / lambda) based on the
+# `context` field the lexer stamped on every token — the parser never
+# re-derives which sub-language grammar to apply, per SH-D1.
+#
+# The AST is a single `SyntaxNode` enum spanning all three sub-
+# languages: `Cmd`/`Pipe`/`Seq`/`Redirect` for the pipeline surface,
+# `Atom`/`Rule`/`QVar`/`InterpVar` for Datalog, `Lambda`/`App`/`Var`/
+# `Let`/`Match` for lambda expressions, and `RecordExpr`/`LitStr`/
+# `LitInt`/`LitBool` for literals. One enum (rather than three parallel
+# ones) means R222's functor surface, R225's unified HM checker, and
+# R226's Datalog evaluator all consume the same node type without
+# adapter layers — the design decision recorded at
+# `design/terminal/semantic-shell-language-plan.md` §4 R221.M5.
+#
+# Every `SyntaxNode` carries a `NodeSpan { original, nfc, context }`
+# (the R221.M6 provenance layer). `original` points at the pre-NFC
+# bytes the user typed; `nfc` at the post-NFC bytes the parser saw.
+# LSP diagnostics and R229 REPL underlines resolve `original` so
+# squigglies land on the user's own bytes even when the parser's
+# work was over a normalized copy.
+#
+# What this crate does NOT own:
+# * Type inference / HM elaboration — R225 (`paideia-as-shell-check`).
+# * Pipeline evaluator — R222 (`paideia-as-shell-eval`).
+# * Datalog fixed-point evaluator — R226 (`paideia-as-shell-dlog`).
+# * Effect handlers / capability requests — R224.
+#
+# Kept separate from `paideia-as-shell-lex` because the AST's public
+# surface (`SyntaxNode`, `ParseError`, `NodeSpan`, `NfcMap`,
+# `pretty_print`) is orthogonal to the lexer's (`Token`, `TokenKind`,
+# `Lexer`) and a REPL syntax colorer (R229) needs the lexer without
+# ever building an AST.
+
+[dependencies]
+# The context-tagged token stream and the `Context` enum stamped on
+# every `NodeSpan`.
+paideia-as-shell-lex = { path = "../paideia-as-shell-lex" }
+# NFC normalizer + Utf8Decoder + `Span` helper. The M6 span-provenance
+# layer wraps `nfc_normalize` with a byte-boundary checkpoint list; the
+# parser then feeds `Utf8Decoder`-derived spans through the checkpoint
+# map to reconstruct pre-NFC byte ranges.
+paideia-as-unicode = { path = "../paideia-as-unicode" }
+# For char-level combining-class lookup used in NfcMap segment
+# boundary detection. Same crate `paideia-as-unicode` already depends
+# on; no new external surface.
+unicode-normalization = { workspace = true }
+
+[dev-dependencies]
+# R221.M7 fuzz corpus. proptest generates ~256 cases per property by
+# default; we declare 4 properties (malformed UTF-8, malformed NFC,
+# adversarial nesting, random-context switching) so the fuzz footprint
+# is ~1000 iterations per `cargo test` — the plan-doc's "24-hour AFL is
+# impractical here; land proptest ~1000 inputs" allowance.
+proptest = { workspace = true }
