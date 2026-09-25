@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.36.21 — 2026-09-25 — R227.M6 .pds version pragma resolution
+
+**R227.M6** — resolve `#requires-paideia >= X.Y.Z` against the running system:
+- New `version_check` module in `paideia-as-shell-pds`.
+- `SYSTEM_VERSION = Version { major: 0, minor: 36, patch: 21 }` (hand-maintained
+  against workspace.version; doc'd as a release-checklist item).
+- `check_requires_paideia(header)` — Ok if header has no pin OR if the pinned
+  version ≤ SYSTEM_VERSION; else `VersionCheckError::VersionTooLow { required, actual }`.
+- `Version::is_at_least(&other)` explicit tuple compare (future-proof against
+  a pre-release field breaking a derived PartialOrd).
+- `PdsHeader::check_version()` convenience.
+- 8-test corpus (`r227m6-ver-01`..`r227m6-ver-08`): no-pin, exact match, lower
+  minor/patch (all Ok), higher major/minor/patch (all TooLow), end-to-end
+  parse_header → check_version.
+- All 28 prior R227 tests still green (15 header-parse + 13 cap-check).
+
+Note: R226.M10 (progress emission) hit rate-limit mid-landing; re-dispatch pending.
+
+Closes paideia-as#1449.
+
 ## 0.36.20 — 2026-09-24 — R226.M11 query fingerprint + R227.M2 capability checker
 
 **R226.M11** — Per-query fingerprint emission in `paideia-as-shell-datalog`:

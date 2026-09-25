@@ -57,6 +57,8 @@
 
 pub mod cap_check;
 pub mod header;
+pub mod version_check;
 
 pub use cap_check::{check_subset, CapCheckError, CapabilitySet};
 pub use header::{parse_header, Import, PdsHeader, PdsHeaderError, SchemaRef, Version};
+pub use version_check::{check_requires_paideia, VersionCheckError, SYSTEM_VERSION};

@@ -7,6 +7,7 @@
 use std::fmt;
 
 use crate::cap_check::{self, CapCheckError, CapabilitySet};
+use crate::version_check::{self, VersionCheckError};
 
 /// Semantic version parsed from `#requires-paideia >= X.Y.Z`.
 ///
@@ -21,6 +22,23 @@ pub struct Version {
     pub minor: u32,
     /// Patch version component.
     pub patch: u32,
+}
+
+impl Version {
+    /// Tuple-order comparison: `self >= other` on `(major, minor, patch)`.
+    ///
+    /// The R227.M6 `#requires-paideia >= X.Y.Z` checker asks whether
+    /// the running [`crate::version_check::SYSTEM_VERSION`] is at least
+    /// the pinned demand — spelling that as
+    /// `SYSTEM_VERSION.is_at_least(&required)` reads more locally than
+    /// a `>=` on the derived `PartialOrd`, and hides the fact that the
+    /// derive happens to give a lexicographic order over `(major,
+    /// minor, patch)` (which is what we want, but is easy to break if
+    /// [`Version`] later grows a pre-release field).
+    pub fn is_at_least(&self, other: &Version) -> bool {
+        (self.major, self.minor, self.patch)
+            >= (other.major, other.minor, other.patch)
+    }
 }
 
 /// An `#import "path" as name` declaration.
@@ -88,6 +106,25 @@ impl PdsHeader {
     /// [`cap_check`] for the exact-name / no-wildcard semantics.
     pub fn check_against(&self, invoker: &CapabilitySet) -> Result<(), CapCheckError> {
         cap_check::check_subset(&self.capabilities, invoker)
+    }
+
+    /// Check this header's `#requires-paideia` pin (if any) against
+    /// the running [`crate::version_check::SYSTEM_VERSION`] using
+    /// R227.M6's tuple-order `>=` semantics.
+    ///
+    /// Thin forwarder to
+    /// [`version_check::check_requires_paideia`] — kept as a method
+    /// on `PdsHeader` so the load-time call site reads as
+    /// `header.check_version()?;` without a second `use`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VersionCheckError::VersionTooLow`] when the pinned
+    /// version is strictly greater than
+    /// [`crate::version_check::SYSTEM_VERSION`]. A header without a
+    /// pin always passes.
+    pub fn check_version(&self) -> Result<(), VersionCheckError> {
+        version_check::check_requires_paideia(self)
     }
 }
 

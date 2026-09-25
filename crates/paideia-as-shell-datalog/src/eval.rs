@@ -53,7 +53,9 @@
 
 use crate::aggregation::{self, AggregateResult, AggregationError};
 use crate::ast::{AggregateQuery, Atom, BodyGoal, Program, Query, Rule, Term, Value};
-use crate::fingerprint::{FingerprintSink, NullSink, QueryId};
+use crate::fingerprint::{
+    FingerprintSink, NullProgressSink, NullSink, ProgressSink, QueryId,
+};
 use crate::magic_sets;
 use crate::session_edb::SessionEdb;
 use crate::stratification::{self, StratificationError};
@@ -184,7 +186,7 @@ pub fn query(db: &Database, q: &Query) -> Result<Vec<Binding>, EvalError> {
 /// Query-driving façade over the module's free functions plus the
 /// R226.M4 magic-set path.
 ///
-/// # State (R226.M11)
+/// # State (R226.M11 + R226.M10)
 ///
 /// * `next_query_id` — a monotone per-evaluator counter used to
 ///   fingerprint each completed query. Two evaluators built via
@@ -197,12 +199,22 @@ pub fn query(db: &Database, q: &Query) -> Result<Vec<Binding>, EvalError> {
 ///   see no observable behaviour change; a caller who wants the
 ///   emissions supplies a real sink via
 ///   [`Evaluator::with_fingerprint_sink`].
+/// * `progress_sink` — an injected [`ProgressSink`] the evaluator
+///   ticks into once per seminaïve fixpoint iteration
+///   (see the [`crate::fingerprint`] module doc for the tick semantics).
+///   Defaults to [`NullProgressSink`] so pre-M10 call sites see no
+///   observable behaviour change; a caller who wants the stream
+///   supplies a real sink via [`Evaluator::with_progress_sink`].
+///
+/// The two sinks are independent — a caller may attach one without the
+/// other. `Database::from_program` (the non-Evaluator entry point) uses
+/// a silent sink for both.
 ///
 /// # Concurrency
 ///
 /// A single `Evaluator` is shared across threads through an `Arc` in
-/// the wider shell. The counter is an [`AtomicU64`] and the sink
-/// carries a `Send + Sync` bound — a `&self` method can be called from
+/// the wider shell. The counter is an [`AtomicU64`] and the sinks
+/// carry a `Send + Sync` bound — a `&self` method can be called from
 /// multiple threads concurrently. The counter's fetch-add uses
 /// [`Ordering::Relaxed`]: fingerprint ids need to be unique per
 /// evaluator (which relaxed fetch-add guarantees) but do not need to
@@ -217,9 +229,17 @@ pub fn query(db: &Database, q: &Query) -> Result<Vec<Binding>, EvalError> {
 /// [`EvalError::AggregationError`] all return early without touching
 /// the sink — a fingerprint therefore serves as proof of completion,
 /// not merely of attempt.
+///
+/// Progress ticks are streamed *during* evaluation, so they may fire
+/// before a subsequent failure (a program that stratifies but hits an
+/// aggregation error, say, will already have ticked through its
+/// fixpoint by the time the aggregator complains). Callers correlate
+/// completion against fingerprints and per-step progress against ticks
+/// — the two are deliberately different lifecycles.
 pub struct Evaluator {
     next_query_id: AtomicU64,
     fingerprint_sink: Box<dyn FingerprintSink + Send + Sync>,
+    progress_sink: Box<dyn ProgressSink + Send + Sync>,
 }
 
 impl Default for Evaluator {
@@ -237,19 +257,22 @@ impl std::fmt::Debug for Evaluator {
         f.debug_struct("Evaluator")
             .field("next_query_id", &self.next_query_id.load(Ordering::Relaxed))
             .field("fingerprint_sink", &"<dyn FingerprintSink>")
+            .field("progress_sink", &"<dyn ProgressSink>")
             .finish()
     }
 }
 
 impl Evaluator {
-    /// Fresh evaluator with a discarding [`NullSink`] and a query
-    /// counter at 0. Identical to [`Evaluator::default`]; preserved
-    /// because "new evaluator, then use it" reads more naturally at
-    /// most call sites than the `Default` trait detour.
+    /// Fresh evaluator with a discarding [`NullSink`], a discarding
+    /// [`NullProgressSink`], and a query counter at 0. Identical to
+    /// [`Evaluator::default`]; preserved because "new evaluator, then
+    /// use it" reads more naturally at most call sites than the
+    /// `Default` trait detour.
     pub fn new() -> Self {
         Self {
             next_query_id: AtomicU64::new(0),
             fingerprint_sink: Box::new(NullSink),
+            progress_sink: Box::new(NullProgressSink),
         }
     }
 
@@ -260,11 +283,32 @@ impl Evaluator {
     /// not silently reset the ids that later fingerprints depend on
     /// for uniqueness. A caller that wants a fresh id sequence should
     /// build a fresh evaluator instead.
+    ///
+    /// Leaves the progress sink untouched — the two channels are
+    /// independent; wire each one explicitly.
     pub fn with_fingerprint_sink(
         mut self,
         sink: Box<dyn FingerprintSink + Send + Sync>,
     ) -> Self {
         self.fingerprint_sink = sink;
+        self
+    }
+
+    /// Builder-style replacement of the progress sink.
+    ///
+    /// Companion to [`Self::with_fingerprint_sink`]: swap in a real
+    /// sink to observe per-iteration progress; leave it defaulted to
+    /// suppress the stream entirely. Chainable: `Evaluator::new()
+    /// .with_fingerprint_sink(...).with_progress_sink(...)` is the
+    /// intended shape for a REPL that wants both channels.
+    ///
+    /// Leaves the fingerprint sink and query counter untouched — the
+    /// two channels are independent.
+    pub fn with_progress_sink(
+        mut self,
+        sink: Box<dyn ProgressSink + Send + Sync>,
+    ) -> Self {
+        self.progress_sink = sink;
         self
     }
 
@@ -304,7 +348,11 @@ impl Evaluator {
         program: &Program,
         query: &Query,
     ) -> Result<Vec<Binding>, EvalError> {
-        let db = Database::from_program(program)?;
+        // R226.M10 — route through the progress-aware pipeline so
+        // per-iteration ticks reach `self.progress_sink`. The base-
+        // arity `Database::from_program` uses a silent sink and is
+        // unchanged, so non-Evaluator callers keep their behaviour.
+        let db = evaluate_stratified_with_progress(program, self.progress_sink.as_ref())?;
         let bindings = crate::eval::query(&db, query)?;
         // R226.M11 — fingerprint the completed query. Id is minted
         // AFTER the fallible work so that a failure to materialise the
