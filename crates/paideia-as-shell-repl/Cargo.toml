@@ -1,0 +1,63 @@
+[package]
+name = "paideia-as-shell-repl"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+name = "paideia_as_shell_repl"
+
+# R229.M1 — REPL turn pipeline skeleton for the semantic shell.
+#
+# Owns the "one turn" state machine: parse → typecheck → elaborate →
+# execute → render. R229.M1 lands only the skeleton — the four inner
+# stages beyond parse are stubs, so subsequent milestones can grow each
+# one (M2 wires HM inference, M3 the pipeline evaluator, M4 the lambda
+# JIT, M5 error diagnostics, M6 fingerprint recording) without moving
+# the top-level dispatch or the `ReplState` shape around.
+#
+# The crate owns `ReplState` (turn counter + session EDB) so a driver
+# (interactive REPL, `.pds` script runner, R229.M7 replay harness)
+# threads a single mutable state through a sequence of `eval_turn`
+# calls without needing to know how the turn pipeline is structured
+# internally.
+#
+# What this crate does NOT own:
+# * HM type inference — `paideia-as-shell-hm` (R225).
+# * Pipeline evaluator — R222 (`paideia-as-shell-cmd` today; R229.M3
+#   wires the command dispatch through here).
+# * Datalog fixpoint — `paideia-as-shell-datalog` (R226).
+# * Command registry / dispatcher — `paideia-as-shell-cmd` (R123/R222).
+# * Terminal I/O, line editing, prompt rendering — R220 (readline layer).
+#
+# Kept dep-lean: only shell-ast + shell-datalog + shell-lex + unicode.
+# HM (R225) wiring lands in M2 when the elaborator stops being an
+# identity pass and starts producing typed nodes.
+
+[dependencies]
+# The unified AST + parser entry (`paideia_as_shell_ast::parser::parse`)
+# that stage-1 of `eval_turn` calls.
+paideia-as-shell-ast = { path = "../paideia-as-shell-ast" }
+# The seminaïve Datalog evaluator + `SessionEdb` overlay that stage-4
+# uses for the `SyntaxNode::DatalogBlock` execution branch. `SessionEdb`
+# is embedded in `ReplState` so assertions persist across turns per
+# R226.M8.
+paideia-as-shell-datalog = { path = "../paideia-as-shell-datalog" }
+# The context-tagged lexer. Stage-4's Datalog branch tokenizes the raw
+# source and hands the `Context::Datalog` slice to `parse_block` — the
+# shell-ast layer already parsed the whole thing but its AST shape
+# (`SyntaxNode::DatalogBlock { items }`) is not what the R226 evaluator
+# consumes (`Program { rules, facts }`), so we re-lex for M1 rather
+# than land an adapter that R229.M2's typed elaborator will replace
+# anyway.
+paideia-as-shell-lex = { path = "../paideia-as-shell-lex" }
+# NFC normalization. The shell-ast parser normalizes internally; when
+# we re-tokenize in stage-4 we must feed it the same NFC-normalized
+# input the parser saw, or spans and identifier bytes will diverge on
+# non-ASCII sources.
+paideia-as-unicode = { path = "../paideia-as-unicode" }
+
+[dev-dependencies]

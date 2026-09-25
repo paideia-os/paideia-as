@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.36.28 — 2026-09-25 — R229.M1 REPL evaluator loop skeleton (new crate `paideia-as-shell-repl`)
+
+**R229.M1** — First R229 milestone. The `{parse → typecheck → elaborate → execute}`
+pipeline for one REPL turn:
+
+- **New workspace crate** `paideia-as-shell-repl/`. Deps: `paideia-as-shell-ast`,
+  `paideia-as-shell-datalog`, `paideia-as-shell-lex`, `paideia-as-unicode`.
+- `ReplState { turn_counter, session_edb }` — persists across turns.
+- `ReplTurn { source, result: TurnResult, fingerprint }`, `TurnResult { Value, Error }`.
+- `eval_turn(state, source)` — five-stage pipeline (parse via shell-ast → typecheck stub
+  → elaborate identity → execute dispatch on SyntaxNode variant → render).
+- **Fingerprint**: `format!("repl.turn.{:016x}", pre_increment_id)` — matches R220.M10
+  intrinsic pattern.
+- **DatalogBlock** executor: retokenizes source with NFC + filters to `Context::Datalog`,
+  runs via `Evaluator::run_stratified_with_session`, reports total_tuple_count.
+- **Cmd/Pipe/Lambda** executors: stubs returning `<not yet implemented>` — R229.M2+
+  wire real dispatch.
+- 10-test corpus (`r229m1-turn-01`..`r229m1-turn-10`): empty input, datalog block,
+  parse error, pipeline stub, lambda stub, turn_counter increments, fingerprint format,
+  sequential turns, session_edb survives, 10-turn state integrity.
+
+**Design adaptations from spec**:
+- Used `run_stratified_with_session` (returns Database → total_tuple_count) instead of
+  `run_query_with_session` (returns Vec<Binding>) — the format string in the spec
+  called for a fact count, and stratified is the API that produces one.
+- Datalog executor re-tokenizes source since `parse_block` takes `&[Token]` not `&str` —
+  R229.M2's typed elaborator will replace this double-parse with proper AST→Program
+  lowering.
+- `TurnResult`/`ReplTurn` derive `PartialEq + Eq` beyond the spec's `Debug + Clone`
+  for ergonomic test pattern-matching.
+
+SYSTEM_VERSION const bumped 0.36.27 → 0.36.28.
+
+Closes paideia-as#1461.
+
 ## 0.36.27 — 2026-09-25 — R225.M2 row types + R226.M6-float aggregation
 
 **R225.M2** — Pipeline-record row types (Rémy-style) in `paideia-as-shell-hm`:
