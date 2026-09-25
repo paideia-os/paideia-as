@@ -69,7 +69,7 @@ use crate::header::{PdsHeader, Version};
 pub const SYSTEM_VERSION: Version = Version {
     major: 0,
     minor: 36,
-    patch: 33,
+    patch: 34,
 };
 
 /// Discriminated failure modes for [`check_requires_paideia`].

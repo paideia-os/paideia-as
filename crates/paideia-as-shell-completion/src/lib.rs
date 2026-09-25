@@ -59,6 +59,9 @@ use std::collections::HashMap;
 use paideia_as_shell_lex::{Context, Lexer, Span, Token, TokenKind};
 use paideia_as_unicode::nfc_normalize;
 
+pub mod matching;
+use matching::score_match;
+
 // R228.M4 will consume `paideia_as_shell_ast::SyntaxNode` to resolve
 // the *nested* record type behind a chained `.` cursor. R228.M2 only
 // needs a flat `records: HashMap<String, Vec<String>>` on the engine,
@@ -143,6 +146,14 @@ pub struct Candidate {
     /// never borrows into the engine's catalogue — the caller may
     /// swap the engine between requests.
     pub type_hint: Option<String>,
+    /// Rank score assigned by the R228.M3 matcher. Higher means better;
+    /// the response's `candidates` list is guaranteed sorted by
+    /// `(score desc, text asc)` at the return boundary. See
+    /// [`matching::score_match`] for the tier formula. Kept as `i32`
+    /// (not `u32`) so a future tier can legitimately assign a negative
+    /// penalty score without an awkward type break; callers that only
+    /// care about ordering do not need to interpret the numeric value.
+    pub score: i32,
 }
 
 /// The response the REPL / LSP consumes.
@@ -155,9 +166,10 @@ pub struct Candidate {
 /// insertion (nothing to overwrite).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CompletionResponse {
-    /// The candidate list. Ranking is `starts_with`-only at M1; M2
-    /// introduces prefix > substring > subsequence with recency
-    /// weighting.
+    /// The candidate list. As of R228.M3 the list is guaranteed sorted
+    /// by `(score desc, text asc)`; each entry's [`Candidate::score`]
+    /// records its rank tier per [`matching::score_match`]. M4 will
+    /// layer recency weighting on top of the score tier.
     pub candidates: Vec<Candidate>,
     /// Inclusive start byte of the range the chosen candidate overwrites.
     pub prefix_start: usize,
@@ -274,18 +286,21 @@ const DATALOG_KEYWORDS: &[&str] = &["not", "?", "$"];
 ///    is at command position"); empty otherwise.
 /// 4. Dispatch on the active token's `(kind, context)`:
 ///    * `Ident` in `Context::Pipeline` at command position -> Command
-///      candidates matching the token text with `starts_with`.
+///      candidates ranked by [`matching::score_match`] against the
+///      token text.
 ///    * `Ident` in `Context::Lambda` -> Var candidates from
-///      `engine.known_vars` matching `starts_with`.
+///      `engine.known_vars` ranked by [`matching::score_match`].
 ///    * `Ident` in `Context::Datalog` -> Keyword candidates from
-///      [`DATALOG_KEYWORDS`] matching `starts_with`.
+///      [`DATALOG_KEYWORDS`] ranked by [`matching::score_match`].
 ///    * Anything else -> empty candidates, insertion span at the
 ///      cursor.
 /// 5. `prefix_start` / `prefix_end` are the active-token span; for the
 ///    "no active token" and "unhandled" branches, both equal
 ///    `cursor_byte` (an insertion).
 ///
-/// Ranking beyond ASCII case-sensitive `starts_with` is R228.M2's job.
+/// R228.M3 landed the four-tier ranker (exact prefix > case-insensitive
+/// prefix > subsequence, tie-broken by candidate length then alphabetic
+/// text). Recency weighting is R228.M4+.
 pub fn complete(engine: &CompletionEngine, req: &CompletionRequest) -> CompletionResponse {
     // ---- 1. Slice + normalize the pre-cursor prefix. ----------------
     // Defensive clamp: an out-of-range cursor or one that lands off a
@@ -401,75 +416,104 @@ fn is_command_position(tokens: &[Token], idx: usize) -> bool {
     )
 }
 
-/// Filter `engine.commands` to entries starting with `prefix` (case-
-/// sensitive) and wrap each as a `Command` candidate. Type-hint
-/// enrichment (R228.M2): if `engine.commands_with_types` carries an
-/// entry for the command name, its value populates the candidate's
-/// `type_hint`; otherwise `type_hint` stays `None`.
+/// Score-filter `engine.commands` via [`score_match`] and wrap each hit
+/// as a `Command` candidate. Type-hint enrichment (R228.M2): if
+/// `engine.commands_with_types` carries an entry for the command name,
+/// its value populates the candidate's `type_hint`; otherwise
+/// `type_hint` stays `None`. Sorted by `(score desc, text asc)` at
+/// return so the caller can concatenate multiple candidate pools
+/// without a re-sort.
 fn command_candidates(engine: &CompletionEngine, prefix: &str) -> Vec<Candidate> {
-    engine
+    let mut out: Vec<Candidate> = engine
         .commands
         .iter()
-        .filter(|c| c.starts_with(prefix))
-        .map(|c| Candidate {
-            text: c.clone(),
-            kind: CandidateKind::Command,
-            display: None,
-            type_hint: engine.commands_with_types.get(c).cloned(),
+        .filter_map(|c| {
+            score_match(prefix, c).map(|score| Candidate {
+                text: c.clone(),
+                kind: CandidateKind::Command,
+                display: None,
+                type_hint: engine.commands_with_types.get(c).cloned(),
+                score,
+            })
         })
-        .collect()
+        .collect();
+    sort_by_score_then_text(&mut out);
+    out
 }
 
-/// Filter `engine.known_vars` to entries starting with `prefix` and
-/// wrap each as a `Var` candidate. Var type-hint enrichment lands
-/// with R228.M4's scope-aware pass; M2 leaves `type_hint` as `None`.
+/// Score-filter `engine.known_vars` via [`score_match`] and wrap each
+/// hit as a `Var` candidate. Var type-hint enrichment lands with
+/// R228.M4's scope-aware pass; M3 leaves `type_hint` as `None`.
 fn var_candidates(engine: &CompletionEngine, prefix: &str) -> Vec<Candidate> {
-    engine
+    let mut out: Vec<Candidate> = engine
         .known_vars
         .iter()
-        .filter(|v| v.starts_with(prefix))
-        .map(|v| Candidate {
-            text: v.clone(),
-            kind: CandidateKind::Var,
-            display: None,
-            type_hint: None,
+        .filter_map(|v| {
+            score_match(prefix, v).map(|score| Candidate {
+                text: v.clone(),
+                kind: CandidateKind::Var,
+                display: None,
+                type_hint: None,
+                score,
+            })
         })
-        .collect()
+        .collect();
+    sort_by_score_then_text(&mut out);
+    out
 }
 
-/// Filter [`DATALOG_KEYWORDS`] to entries starting with `prefix` and
-/// wrap each as a `Keyword` candidate.
+/// Score-filter [`DATALOG_KEYWORDS`] via [`score_match`] and wrap each
+/// hit as a `Keyword` candidate.
 fn keyword_candidates(prefix: &str) -> Vec<Candidate> {
-    DATALOG_KEYWORDS
+    let mut out: Vec<Candidate> = DATALOG_KEYWORDS
         .iter()
-        .filter(|kw| kw.starts_with(prefix))
-        .map(|kw| Candidate {
-            text: (*kw).to_owned(),
-            kind: CandidateKind::Keyword,
-            display: None,
-            type_hint: None,
+        .filter_map(|kw| {
+            score_match(prefix, kw).map(|score| Candidate {
+                text: (*kw).to_owned(),
+                kind: CandidateKind::Keyword,
+                display: None,
+                type_hint: None,
+                score,
+            })
         })
-        .collect()
+        .collect();
+    sort_by_score_then_text(&mut out);
+    out
 }
 
-/// Filter `engine.records[rec_name]` to field names starting with
-/// `prefix` and wrap each as a `Field` candidate. Returns an empty
-/// vector when the record name is not in the map (the caller may
-/// still return a positioned response).
+/// Score-filter `engine.records[rec_name]` via [`score_match`] and wrap
+/// each hit as a `Field` candidate. Returns an empty vector when the
+/// record name is not in the map (the caller may still return a
+/// positioned response).
 fn field_candidates(engine: &CompletionEngine, rec_name: &str, prefix: &str) -> Vec<Candidate> {
     let Some(fields) = engine.records.get(rec_name) else {
         return Vec::new();
     };
-    fields
+    let mut out: Vec<Candidate> = fields
         .iter()
-        .filter(|f| f.starts_with(prefix))
-        .map(|f| Candidate {
-            text: f.clone(),
-            kind: CandidateKind::Field,
-            display: None,
-            type_hint: None,
+        .filter_map(|f| {
+            score_match(prefix, f).map(|score| Candidate {
+                text: f.clone(),
+                kind: CandidateKind::Field,
+                display: None,
+                type_hint: None,
+                score,
+            })
         })
-        .collect()
+        .collect();
+    sort_by_score_then_text(&mut out);
+    out
+}
+
+/// Sort a candidate vector in place by `(score desc, text asc)`.
+///
+/// This is the R228.M3 total order guaranteed at every
+/// [`CompletionResponse`] boundary. Extracted so every candidate-
+/// emitting helper (command/var/keyword/field) sorts through one
+/// implementation; if a future tier introduces a secondary sort key
+/// (recency at M4+), this is the sole place to change.
+fn sort_by_score_then_text(candidates: &mut [Candidate]) {
+    candidates.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.text.cmp(&b.text)));
 }
 
 /// R228.M2 -- attempt Field completion off the token neighbourhood.

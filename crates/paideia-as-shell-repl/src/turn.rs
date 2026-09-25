@@ -307,11 +307,38 @@ fn execute(state: &mut ReplState, node: &SyntaxNode) -> TurnResult {
             // coercion rules relying on nightly-only behaviours.
             match pipeline::execute_pipeline(&*state, &stages) {
                 Ok(res) => match res.halted_at {
-                    None => TurnResult::Value(format!(
-                        "pipe[{}]: {}",
-                        stages.len(),
-                        res.final_value
-                    )),
+                    None => {
+                        // R229.M7: the rendered "final" comes from the
+                        // typed [`Value`] the last stage produced,
+                        // routed through the shared [`render_value`]
+                        // renderer — the same surface the Lambda arm
+                        // and the Let arm use. Under M7 every
+                        // `stage_values` entry is a `Value::Str`, so
+                        // the render still lands the same M3 string the
+                        // M4 `final_value` mirror carried; a follow-on
+                        // milestone that grows commands to return typed
+                        // values immediately gets typed `pipe[N]:`
+                        // renders without a second executor touch.
+                        //
+                        // Empty pipeline (no stages, `stage_values`
+                        // empty) is *not* something the parser
+                        // produces — `flatten_pipe_stages` always
+                        // returns at least one stage — but a direct
+                        // caller of `execute_pipeline` can construct
+                        // one, so the render defaults to the empty
+                        // string in that case to keep the outer shape
+                        // `pipe[0]: `.
+                        let final_rendered = res
+                            .stage_values
+                            .last()
+                            .map(render_value)
+                            .unwrap_or_default();
+                        TurnResult::Value(format!(
+                            "pipe[{}]: {}",
+                            stages.len(),
+                            final_rendered
+                        ))
+                    }
                     Some(i) => TurnResult::Error(format!(
                         "pipe: pipeline halted at stage {} ({})",
                         i,

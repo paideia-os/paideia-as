@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.36.34 — 2026-09-25 — R229.M7 typed pipeline Value threading + R228.M3 completion ranking
+
+**R229.M7** — Extend R229.M4's pipe stage-to-stage String hand-off with
+typed `Value` threading:
+
+- **PipelineResult** gained `stage_values: Vec<Value>` field parallel to
+  `stage_outputs: Vec<String>` (lockstep invariant).
+- Dropped `Eq` derive on `PipelineResult` (Value carries HashMap-backed
+  closure env; `PartialEq` is enough).
+- **execute_pipeline** now threads `prior_value: Option<Value>` internally;
+  new `value_to_arg_string` helper for the argv-boundary projection
+  (`Value::Str` → s, `Value::Int` → to_string, `Value::Bool` → to_string,
+  `Value::Fn` → `<closure>`, `Value::Unit` → `()`).
+- Under M7 baseline each stage output lifts to `Value::Str(rendered)`; a
+  future milestone will let commands return typed Values directly.
+- **turn.rs Pipe arm** renders `pipe[N]: <final>` via
+  `render_value(res.stage_values.last())` (R229.M6 helper) instead of the
+  raw `PipelineResult.final_value` String.
+- 8-test corpus `r229m7-piped-01`..`r229m7-piped-08` (74 shell-repl total).
+- M4 corpus stays green — `stage_outputs`/`final_value`/`halted_at`/
+  `halt_reason` unmodified; substring pins hold because
+  `render_value(&Value::Str(s))` reduces to `s.clone()`.
+
+**R228.M3** — Completion candidate ranking + fuzzy (subsequence)
+matching:
+
+- **Candidate** gained `pub score: i32` field.
+- **New module** `src/matching.rs` — `score_match(prefix, candidate)`
+  with 4-tier scoring:
+  - Empty prefix: `1000 - candidate.char_len`.
+  - Exact case-sensitive prefix: `1000 - candidate.char_len`.
+  - Case-insensitive prefix: `500 - candidate.char_len`.
+  - Subsequence (greedy left-to-right, gaps allowed):
+    `100 - gap_count - candidate.char_len`.
+  - No match → None.
+- Character-length-based (not byte-length) so accented candidates aren't
+  double-penalized.
+- **complete()** — all candidate branches (Command, Var, Field, Keyword)
+  filter/score via `score_match`; centralized `sort_by_score_then_text`
+  helper sorts by `(score desc, text asc)` at every candidate boundary.
+- Tier scores don't overlap under realistic name lengths so the ranker
+  never confuses tiers.
+- 8-test corpus `r228m3-cmp-01`..`r228m3-cmp-08` (24 shell-completion
+  total). Prior M1 fixtures 04/05/08 updated with `score:` field.
+
+SYSTEM_VERSION const bumped 0.36.33 → 0.36.34.
+
+Closes paideia-as#1471. Closes paideia-as#1472.
+
 ## 0.36.33 — 2026-09-25 — R229.M6 persistent let-bindings + R228.M2 Field completion + type_hint enrichment
 
 **R229.M6** — Persistent top-level let-bindings mutate `state.value_env`

@@ -71,8 +71,12 @@ fn r228m1_cmp_03_argument_position_empty_at_m1() {
 }
 
 // r228m1-cmp-04 -- Lambda-context completion. `{ |x| xy` puts the
-// cursor inside a lambda body with partial ident `xy`; only `xyz`
-// (not `xzz`) starts with `xy`.
+// cursor inside a lambda body with partial ident `xy`. Under M1 only
+// `xyz` (starts_with "xy") matched; under M3 `xzz` also matches via
+// the subsequence tier (x@0, y???--no y in xzz -- so NO match).
+// Actually xzz has no 'y', so subsequence still fails; only xyz
+// matches. Score for `xyz` on prefix `xy`: exact-prefix tier,
+// 1000 - 3 = 997.
 #[test]
 fn r228m1_cmp_04_lambda_var_prefix() {
     let engine = CompletionEngine::with_lists(
@@ -92,6 +96,7 @@ fn r228m1_cmp_04_lambda_var_prefix() {
             kind: CandidateKind::Var,
             display: None,
             type_hint: None,
+            score: 997,
         }
     );
     // Span covers just the `xy` token (bytes 6..8).
@@ -117,6 +122,7 @@ fn r228m1_cmp_05_datalog_keyword_prefix() {
             kind: CandidateKind::Keyword,
             display: None,
             type_hint: None,
+            score: 997, // Tier 1b: 1000 - 3.
         }
     );
 }
@@ -163,9 +169,13 @@ fn r228m1_cmp_07_after_pipe_offers_commands() {
     assert_eq!(resp.prefix_end, 5);
 }
 
-// r228m1-cmp-08 -- Ranking is ASCII case-sensitive at M1. `L`
-// (uppercase) must not surface `ls` (lowercase) as a candidate; the
-// M2 ranker will introduce case-fold matching.
+// r228m1-cmp-08 -- Case-fold fallback landed at R228.M3. Under M1 this
+// fixture asserted an empty result (case-sensitive `starts_with` only);
+// the M3 ranker's Tier 2 now surfaces `ls` as a case-insensitive prefix
+// match with a lower score than an exact-prefix hit would earn. The
+// fixture is retained (renamed only in comment intent) so a git-log
+// grep against `r228m1-cmp-08` still lands on the tier-crossover
+// regression case.
 #[test]
 fn r228m1_cmp_08_case_sensitive_at_m1() {
     let engine = CompletionEngine::with_lists(
@@ -177,9 +187,14 @@ fn r228m1_cmp_08_case_sensitive_at_m1() {
         cursor_byte: 1,
     };
     let resp = complete(&engine, &req);
-    assert!(
-        resp.candidates.is_empty(),
-        "M1 case-sensitive: `L` must not match `ls`; got {:?}",
+    assert_eq!(
+        resp.candidates.len(),
+        1,
+        "M3 case-insensitive fallback: `L` matches `ls`; got {:?}",
         resp.candidates
     );
+    let cand = &resp.candidates[0];
+    assert_eq!(cand.text, "ls");
+    assert_eq!(cand.kind, CandidateKind::Command);
+    assert_eq!(cand.score, 498, "Tier 2: 500 - 2 (len of `ls`)");
 }

@@ -72,6 +72,7 @@
 use paideia_as_shell_ast::SyntaxNode;
 
 use crate::cmd_dispatch::{self, CmdError};
+use crate::lambda_eval::Value;
 use crate::turn::{arg_to_string, cmd_head_name, ReplState};
 
 /// Outcome of one pipeline execution.
@@ -94,13 +95,32 @@ use crate::turn::{arg_to_string, cmd_head_name, ReplState};
 ///   halted stage.
 ///
 /// The `PartialEq` derive lets a test compare a synthesised expected
-/// result against the actual — the field set is small (four scalars)
-/// so a naive equality is the right shape.
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
+/// result against the actual — the field set is small (five scalars)
+/// so a naive equality is the right shape. `Eq` is intentionally *not*
+/// derived: R229.M7 grew `stage_values: Vec<Value>` and [`Value`]'s
+/// `Fn(Closure)` carrier holds a `HashMap<String, Value>` in its
+/// captured env — an unordered container that cannot claim `Eq`.
+/// `PartialEq` is enough for every test comparison the corpus needs.
+#[derive(Clone, Debug, PartialEq, Default)]
 pub struct PipelineResult {
     /// Rendered output of each stage that ran to completion, in stage
     /// order. See the type doc for the length/halt invariant.
     pub stage_outputs: Vec<String>,
+    /// Typed [`Value`] each stage produced, in stage order, parallel to
+    /// [`Self::stage_outputs`]. Under R229.M7 every entry is a
+    /// [`Value::Str`] wrapping the stage's rendered string — commands
+    /// still return a rendered `String` from `execute_cmd` and the
+    /// pipeline runner lifts each into `Value::Str` before threading it
+    /// onward. A follow-on milestone that grows `CommandSig::execute` to
+    /// return a typed [`Value`] directly will fill in `Value::Int`,
+    /// `Value::Bool`, `Value::Fn`, and `Value::Unit` entries without
+    /// touching the runner shape — the caller in `turn.rs` already
+    /// renders through [`crate::lambda_eval::Value`]'s renderer.
+    ///
+    /// Invariant: `stage_values.len() == stage_outputs.len()` — both
+    /// grow lockstep, and on a mid-pipeline halt at stage `i` both are
+    /// truncated to `i`.
+    pub stage_values: Vec<Value>,
     /// Convenience mirror of `stage_outputs.last()`. Empty string on
     /// an empty pipeline; also empty on a stage-0 halt (no prior
     /// success).
@@ -141,12 +161,29 @@ pub struct PipelineResult {
 /// pre-stage-0 "input" of an empty string is *not* prepended — a
 /// nullary-sig stage at index 0 receives a zero-length argv and
 /// dispatches through the M3 happy path unchanged.
+///
+/// R229.M7 upgrades the *threaded quantity* from a bare `String` to a
+/// typed [`Value`] (see [`PipelineResult::stage_values`]). Under M7
+/// every `execute_cmd` return is lifted into `Value::Str(rendered)`
+/// before it is threaded onward — the on-wire argv shape stays a
+/// `Vec<String>` (the M3 dispatcher key), so a non-`Str` `Value` is
+/// projected back into a string via [`value_to_arg_string`] at the
+/// stage boundary. A follow-on milestone that grows commands to
+/// return typed values directly replaces the `Value::Str(rendered)`
+/// lift and gets typed cross-stage threading for free.
 pub fn execute_pipeline(
     state: &ReplState,
     stages: &[&SyntaxNode],
 ) -> Result<PipelineResult, CmdError> {
     let mut result = PipelineResult::default();
-    let mut prior_output = String::new();
+    // `prior_value` carries the *typed* handoff between stages. Under
+    // M7 every `execute_cmd` return lifts to `Value::Str(rendered)`, so
+    // this is effectively a `Value::Str` at every stage boundary; the
+    // typed carrier is what lets a future milestone thread `Value::Int`
+    // / `Value::Bool` / `Value::Fn` without touching the loop shape.
+    // `None` at stage 0 means "no prior stage exists"; the argv
+    // prepend skip is keyed on `i >= 1`, not on `prior_value.is_some()`.
+    let mut prior_value: Option<Value> = None;
     for (i, stage) in stages.iter().enumerate() {
         // 1) Structural check: every stage must be a `Cmd` with a bare-
         // name head. A `Redirect`, `Group`, nested `Pipe` (from a
@@ -177,23 +214,37 @@ pub fn execute_pipeline(
         };
 
         // 2) Build the threaded argv. Stage 0 uses its source argv
-        // as-is; stages 1..N prepend the prior stage's rendered
-        // output as the implicit first positional argument. See the
-        // module doc for the M5+ replacement path.
+        // as-is; stages 1..N prepend the prior stage's typed value
+        // (projected into an argv token via `value_to_arg_string`) as
+        // the implicit first positional argument. The projection is
+        // where the M7 typed handoff meets the M3 string-keyed argv
+        // shape — a future milestone that grows `CommandSig::execute`
+        // to consume typed values replaces this projection with a
+        // direct value pass-through and gets end-to-end typed
+        // threading.
         let mut argv: Vec<String> = args.iter().map(arg_to_string).collect();
         if i >= 1 {
-            argv.insert(0, prior_output.clone());
+            let prior = prior_value.as_ref().expect(
+                "invariant: stage i >= 1 implies stage 0 completed and set prior_value",
+            );
+            argv.insert(0, value_to_arg_string(prior));
         }
 
         // 3) Dispatch. On execute_cmd failure, capture the halt
         // metadata into the PipelineResult and return `Ok` with the
         // partial state — see the module doc's "Execution halt" for
-        // rationale.
+        // rationale. On success, lift the rendered string into
+        // `Value::Str` and thread it forward — M7's baseline is
+        // "every stage produces a `Value::Str`"; a follow-on
+        // milestone that has commands returning typed values swaps
+        // this lift for the real return value.
         match cmd_dispatch::execute_cmd(&state.cmd_registry, &cmd_name, &argv) {
             Ok(rendered) => {
+                let v = Value::Str(rendered.clone());
                 result.stage_outputs.push(rendered.clone());
-                result.final_value = rendered.clone();
-                prior_output = rendered;
+                result.stage_values.push(v.clone());
+                result.final_value = rendered;
+                prior_value = Some(v);
             }
             Err(err) => {
                 result.halted_at = Some(i);
@@ -203,5 +254,27 @@ pub fn execute_pipeline(
         }
     }
     Ok(result)
+}
+
+/// Project a typed [`Value`] back into an argv-token string for the
+/// M3 string-keyed `execute_cmd` dispatcher.
+///
+/// Under R229.M7 every `stage_values` entry is a `Value::Str` (the
+/// lift in [`execute_pipeline`]), so the `Str` arm carries every real
+/// dispatch today; the other arms exist so a follow-on milestone
+/// that returns typed values from `CommandSig::execute` can drop the
+/// lift without also having to teach this projection about `Int` /
+/// `Bool` / `Fn` / `Unit`. The renders match [`crate::turn`]'s user-
+/// visible `render_value` for `Int`, `Bool`, and `Unit`; a closure
+/// stringifies as the placeholder `<closure>` because argv is not the
+/// place to smuggle a captured environment.
+fn value_to_arg_string(v: &Value) -> String {
+    match v {
+        Value::Str(s) => s.clone(),
+        Value::Int(n) => n.to_string(),
+        Value::Bool(b) => b.to_string(),
+        Value::Unit => "()".to_owned(),
+        Value::Fn(_) => "<closure>".to_owned(),
+    }
 }
 
