@@ -5,8 +5,9 @@
 //! convention: `self.compose(&other)` behaves like the function
 //! `self ∘ other`, i.e. apply `other` first, then `self`.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
+use crate::effect_row::EffectRow;
 use crate::infer::TypeEnv;
 use crate::ty::{MonoType, RowType, TypeScheme, TypeVar};
 
@@ -81,6 +82,7 @@ impl Substitution {
                 Box::new(self.apply(b)),
             ),
             MonoType::Record(row) => MonoType::Record(self.apply_row(row)),
+            MonoType::EffectRow(row) => MonoType::EffectRow(self.apply_effect_row(row)),
         }
     }
 
@@ -116,6 +118,56 @@ impl Substitution {
                 None => RowType::RowVar(*v),
             },
         }
+    }
+
+    /// Apply this substitution to an effect row.
+    ///
+    /// Each present-label payload is walked as any other monotype.
+    /// The tail row-var, when present, is resolved against the
+    /// substitution:
+    ///
+    /// * If it maps to a `MonoType::EffectRow(next)`, splice `next.present`
+    ///   into ours (with `next.tail` becoming ours) — this is how
+    ///   [`crate::effect_row::unify_effect_rows`] threads its Rémy
+    ///   witnesses onto later terms. Substitutions are idempotent, so
+    ///   the splice does not need re-application.
+    /// * If it maps to another `MonoType::Var(w)`, replace the tail
+    ///   with `Some(w)` — the row-var slot walks in lockstep with the
+    ///   type-var slot.
+    /// * If it maps to anything else (should not occur under the
+    ///   unifier's invariants), or is not in the domain, leave the
+    ///   tail alone.
+    ///
+    /// If a spliced `next.present` and our own `present` disagree on a
+    /// label, ours wins — the outer binding is authoritative, matching
+    /// the record-row `RowType::to_map` "outer wins" convention.
+    pub fn apply_effect_row(&self, row: &EffectRow) -> EffectRow {
+        let mut present: BTreeMap<String, MonoType> = row
+            .present
+            .iter()
+            .map(|(k, v)| (k.clone(), self.apply(v)))
+            .collect();
+        let tail = match row.tail {
+            None => None,
+            Some(v) => match self.0.get(&v) {
+                Some(MonoType::EffectRow(next)) => {
+                    // Splice next's present labels into ours (outer
+                    // wins on collision) and take next's tail as ours.
+                    // Recurse on `next` first so any further tail
+                    // bindings are resolved transitively — mirrors
+                    // apply_row's `self.apply_row(next)` pattern.
+                    let nested = self.apply_effect_row(next);
+                    for (k, v) in nested.present {
+                        present.entry(k).or_insert(v);
+                    }
+                    nested.tail
+                }
+                Some(MonoType::Var(w)) => Some(*w),
+                Some(_) => Some(v),
+                None => Some(v),
+            },
+        };
+        EffectRow { present, tail }
     }
 
     /// Apply this substitution to a type scheme.

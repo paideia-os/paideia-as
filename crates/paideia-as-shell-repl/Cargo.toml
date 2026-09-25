@@ -49,6 +49,12 @@ paideia-as-shell-ast = { path = "../paideia-as-shell-ast" }
 # turns per R226.M8; R229.M2 does not yet route it through the typed
 # pass (see the `execute_datalog` doc).
 paideia-as-shell-datalog = { path = "../paideia-as-shell-datalog" }
+# R229.M3 wires the R222 command-registry surface (`CommandSig` + the
+# `argparse` argv typechecker) through the executor's `Cmd` branch.
+# The registry itself lives on `ReplState.cmd_registry`; the executor
+# reads it (never mutates it — command *registration* is a driver-time
+# concern per R222.M4).
+paideia-as-shell-cmd = { path = "../paideia-as-shell-cmd" }
 
 # R229.M1's dependence on `paideia-as-shell-lex` + `paideia-as-unicode`
 # is gone in M2: the datalog branch no longer re-tokenizes the source

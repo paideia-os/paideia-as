@@ -199,9 +199,8 @@ fn r229m2_turn_05_eval_turn_typecheck_render() {
     }
 }
 
-/// `r229m2-turn-06`: the M1 pipeline stub is untouched by M2. `ls | wc`
-/// still lands in the Cmd/Pipe stub branch and returns a Value with
-/// "not yet implemented".
+/// `r229m2-turn-06`: pipeline branch renders the M3 stub prefix `pipe:`
+/// with the stage count. Real value threading is R229.M4.
 #[test]
 fn r229m2_turn_06_pipeline_stub_unchanged() {
     const FP: &str = "r229m2-turn-06";
@@ -209,8 +208,8 @@ fn r229m2_turn_06_pipeline_stub_unchanged() {
     let turn = eval_turn(&mut state, "ls | wc".to_owned());
     match turn.result {
         TurnResult::Value(v) => assert!(
-            v.contains("not yet implemented"),
-            "{FP}: pipeline stub must say 'not yet implemented', got: {v:?}"
+            v.starts_with("pipe:"),
+            "{FP}: pipeline stub must start with 'pipe:', got: {v:?}"
         ),
         TurnResult::Error(e) => panic!("{FP}: pipeline should not error, got: {e}"),
     }

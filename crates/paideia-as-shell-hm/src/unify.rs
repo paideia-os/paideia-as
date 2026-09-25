@@ -24,6 +24,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use crate::effect_row::{unify_effect_rows, EffectRow};
 use crate::infer::FreshVarGen;
 use crate::subst::Substitution;
 use crate::ty::{MonoType, RowType, TypeVar};
@@ -72,6 +73,22 @@ pub enum UnifyError {
         /// A short human-readable reason for the failure.
         reason: String,
     },
+    /// R225.M3: two effect rows disagree with no absorbing tail to
+    /// reconcile them.
+    ///
+    /// The vectors are measured from the *left* operand of
+    /// [`crate::effect_row::unify_effect_rows`]:
+    /// * `missing` — labels the left side lacks that the right has.
+    /// * `extra`   — labels the left side has that the right lacks.
+    ///
+    /// Both are alphabetically sorted (the underlying source is a
+    /// [`std::collections::BTreeMap`]).
+    EffectRowMismatch {
+        /// Labels missing from the left row.
+        missing: Vec<String>,
+        /// Extra labels present on the left row.
+        extra: Vec<String>,
+    },
 }
 
 impl fmt::Display for UnifyError {
@@ -92,6 +109,14 @@ impl fmt::Display for UnifyError {
             }
             Self::RowMismatch { reason } => {
                 write!(f, "row unification failed: {reason}")
+            }
+            Self::EffectRowMismatch { missing, extra } => {
+                write!(
+                    f,
+                    "effect row mismatch: missing [{}], extra [{}]",
+                    missing.join(", "),
+                    extra.join(", ")
+                )
             }
         }
     }
@@ -148,6 +173,7 @@ pub fn unify_with_fresh(
             Ok(s2.compose(&s1))
         }
         (MonoType::Record(ra), MonoType::Record(rb)) => unify_rows(ra, rb, fresh),
+        (MonoType::EffectRow(ea), MonoType::EffectRow(eb)) => unify_effect_rows(ea, eb, fresh),
         _ => Err(UnifyError::Mismatch {
             a: a.clone(),
             b: b.clone(),
@@ -175,14 +201,28 @@ fn bind(var: TypeVar, ty: &MonoType) -> Result<Substitution, UnifyError> {
 /// True if `var` appears anywhere in `ty`.
 ///
 /// R225.M2: also recurses into [`MonoType::Record`] via
-/// [`occurs_check_row`].
-fn occurs_check(var: TypeVar, ty: &MonoType) -> bool {
+/// [`occurs_check_row`]. R225.M3: also recurses into
+/// [`MonoType::EffectRow`] via [`occurs_check_effect_row`], and is
+/// exposed `pub(crate)` so [`crate::effect_row`] can reuse it.
+pub(crate) fn occurs_check(var: TypeVar, ty: &MonoType) -> bool {
     match ty {
         MonoType::Var(v) => *v == var,
         MonoType::Con(_) => false,
         MonoType::Arrow(a, b) => occurs_check(var, a) || occurs_check(var, b),
         MonoType::Record(row) => occurs_check_row(var, row),
+        MonoType::EffectRow(row) => occurs_check_effect_row(var, row),
     }
+}
+
+/// True if `var` appears anywhere in an effect row — either in one of
+/// its payload types or as the tail row-var itself.
+fn occurs_check_effect_row(var: TypeVar, row: &EffectRow) -> bool {
+    if let Some(v) = row.tail {
+        if v == var {
+            return true;
+        }
+    }
+    row.present.values().any(|ty| occurs_check(var, ty))
 }
 
 /// True if `var` appears anywhere in `row` — either as a field type's

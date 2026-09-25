@@ -1,5 +1,57 @@
 # Changelog
 
+## 0.36.30 — 2026-09-25 — R229.M3 REPL Cmd/Pipe dispatch + R225.M3 effect-row unification
+
+**R229.M3** — Replaces the M1/M2 Cmd/Pipe stub in `eval_turn` with real
+dispatch through `paideia-as-shell-cmd`:
+
+- **New module** `paideia-as-shell-repl/src/cmd_dispatch.rs` —
+  `CmdDispatchRegistry { entries: HashMap<String, CommandSig> }` with
+  `new()`, `register(name, sig)`, `lookup(name)`. `CmdError` variants:
+  `UnknownCommand(String)`, `ArgParseFailed(String)`, `NotImplemented`.
+  `execute_cmd(reg, name, args)` — looks up sig, runs argparse for argv
+  typecheck, returns `cmd: {name} ok ({n} args)` (real invocation is
+  R229.M4/M5 once the pipeline value-threading substrate lands).
+- **ReplState** — added `cmd_registry: CmdDispatchRegistry` field with
+  builder `with_command(name, sig)`.
+- **turn.rs** — `Cmd { name, args }` executor extracts head Var/Ident,
+  collects args from Var/LitStr/LitInt/LitBool, dispatches. `Pipe`
+  executor renders `pipe: N stages` (was `<not yet implemented>`).
+- **shell-cmd** dependency added; no changes required to shell-cmd
+  itself (CommandSig fields already pub).
+- 8-test corpus `r229m3-cmd-01`..`r229m3-cmd-08`; two prior tests
+  (`r229m1-turn-04`, `r229m2-turn-06`) updated to accept the new
+  `pipe:` prefix.
+
+**R225.M3** — Effect-row unification via Rémy-style row polymorphism in
+`paideia-as-shell-hm`, parallel to M2's record rows:
+
+- **New module** `crates/paideia-as-shell-hm/src/effect_row.rs` —
+  `EffectRow { present: BTreeMap<String, MonoType>, tail: Option<TypeVar> }`
+  with `empty()`, `from_labels(&[&str])`. `unify_effect_rows(&a, &b)` —
+  subtract common labels, pointwise unify inner types, wire remaining
+  labels through fresh tails.
+- **MonoType::EffectRow** variant wired through `apply_subst` (via
+  `apply_effect_row` in subst.rs), `collect_free_vars` (in ty.rs +
+  `collect_free_in_order` in infer.rs), `unify` dispatch, and Display
+  as `!{io, fs | ρ}`.
+- **UnifyError::EffectRowMismatch { missing, extra }** — left-perspective:
+  `missing` = labels the left lacks that right has, `extra` = labels
+  left has that right lacks.
+- Cross-variant Record ~ EffectRow falls through to plain `Mismatch`
+  (never row-mismatch), preserving M2's cleanly separated record surface.
+- `occurs_check_effect_row` extends the M1 occurs-check to walk effect
+  rows.
+- 10-test corpus `r225m3-eff-01`..`r225m3-eff-10`.
+
+Design note: spec used `TypeError::EffectRowMismatch` but crate error
+type is `UnifyError`, so the variant landed there (mirrors M2's
+`RowMismatch`).
+
+SYSTEM_VERSION const bumped 0.36.29 → 0.36.30.
+
+Closes paideia-as#1463. Closes paideia-as#1464.
+
 ## 0.36.29 — 2026-09-25 — R229.M2 REPL turn: AST → datalog Program lowering + R226.M9 typecheck wiring
 
 **R229.M2** — Replaces M1's re-tokenize-then-parse_block bridge with a proper

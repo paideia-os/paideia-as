@@ -81,7 +81,10 @@ fn r229m1_turn_03_parse_error() {
 }
 
 /// `r229m1-turn-04`: `ls | wc` dispatches to the Cmd/Pipe stub
-/// branch.
+/// branch. Updated under R229.M3: the M1 stub message was
+/// `"not yet implemented"`; M3 upgrades it to `"pipe: N stages"` so
+/// the user sees dispatch attribution. Real stage-to-stage value
+/// threading is R229.M4.
 #[test]
 fn r229m1_turn_04_pipeline_stub() {
     const FP: &str = "r229m1-turn-04";
@@ -90,8 +93,8 @@ fn r229m1_turn_04_pipeline_stub() {
 
     match turn.result {
         TurnResult::Value(v) => assert!(
-            v.contains("not yet implemented"),
-            "{FP}: pipeline stub must say 'not yet implemented', got: {v:?}"
+            v.starts_with("pipe:"),
+            "{FP}: pipeline stub must be prefixed 'pipe:' under M3, got: {v:?}"
         ),
         TurnResult::Error(e) => panic!("{FP}: pipeline parse errored: {e}"),
     }

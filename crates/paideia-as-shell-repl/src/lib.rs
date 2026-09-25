@@ -48,8 +48,10 @@
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+pub mod cmd_dispatch;
 pub mod lower;
 pub mod turn;
 
+pub use cmd_dispatch::{execute_cmd, CmdDispatchRegistry, CmdError};
 pub use lower::{lower_datalog, LowerError};
 pub use turn::{eval_turn, ReplState, ReplTurn, TurnResult};

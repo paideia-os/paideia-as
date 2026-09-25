@@ -44,10 +44,12 @@
 //! doc for the R229.M7 replay-alignment rationale.
 
 use paideia_as_shell_ast::{parser as ast_parser, SyntaxNode};
+use paideia_as_shell_cmd::CommandSig;
 use paideia_as_shell_datalog::{
     EvalError, Evaluator, Query, SchemaRegistry, SessionEdb,
 };
 
+use crate::cmd_dispatch::{self, CmdDispatchRegistry};
 use crate::lower;
 
 /// Session-scoped mutable state a driver threads through every
@@ -74,12 +76,42 @@ pub struct ReplState {
     /// Datalog session-local EDB. See
     /// [`paideia_as_shell_datalog::SessionEdb`] for the contract.
     pub session_edb: SessionEdb,
+    /// R229.M3 command-dispatch registry — name → `CommandSig`. The
+    /// executor's `SyntaxNode::Cmd` arm consults it via
+    /// [`crate::cmd_dispatch::execute_cmd`]. The field is `pub` so a
+    /// driver can register commands directly on the struct literal
+    /// (matching the `session_edb` shape above); the
+    /// [`Self::with_command`] builder is the ergonomic path for
+    /// method-chaining.
+    pub cmd_registry: CmdDispatchRegistry,
 }
 
 impl ReplState {
-    /// Fresh session: turn counter at 0, empty session EDB.
+    /// Fresh session: turn counter at 0, empty session EDB, empty
+    /// command registry.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Builder: register `sig` under `name` and return the state.
+    ///
+    /// Consumes `self` and returns it so a driver can chain multiple
+    /// `with_command(...)` calls at construction:
+    ///
+    /// ```ignore
+    /// let state = ReplState::default()
+    ///     .with_command("head", head::functor(&schemas))
+    ///     .with_command("count", count::functor(&schemas));
+    /// ```
+    ///
+    /// The builder is a thin wrapper over
+    /// [`CmdDispatchRegistry::register`]; a driver that already holds
+    /// a `&mut ReplState` mid-session should call
+    /// `state.cmd_registry.register(...)` directly (no need to move
+    /// the whole state through the builder).
+    pub fn with_command(mut self, name: impl Into<String>, sig: CommandSig) -> Self {
+        self.cmd_registry.register(name, sig);
+        self
     }
 }
 
@@ -169,8 +201,18 @@ pub fn eval_turn(state: &mut ReplState, source: String) -> ReplTurn {
 fn execute(state: &mut ReplState, node: &SyntaxNode) -> TurnResult {
     match node {
         SyntaxNode::DatalogBlock { .. } => execute_datalog(state, node),
-        SyntaxNode::Cmd { .. } | SyntaxNode::Pipe { .. } => {
-            TurnResult::Value("cmd: <not yet implemented in R229.M1>".into())
+        SyntaxNode::Cmd { name, args, .. } => execute_cmd_node(state, name, args),
+        SyntaxNode::Pipe { .. } => {
+            // R229.M3 pipeline stub — the M2 render was "not yet
+            // implemented". M3 upgrades the tag to `pipe:` so the user
+            // sees dispatch attribution (their `a | b | c` did reach
+            // the pipe arm, not fall through as a Cmd). Real
+            // stage-to-stage value threading — assembling each stage's
+            // `InvocationCtx`, running the R222.M4 argparse, calling
+            // sig.execute, threading the previous stage's `ExecuteResult`
+            // scalar into the next stage's ctx — is R229.M4.
+            let stages = count_pipe_stages(node);
+            TurnResult::Value(format!("pipe: {stages} stages"))
         }
         SyntaxNode::Lambda { .. } => {
             TurnResult::Value("lambda: <not yet implemented>".into())
@@ -228,6 +270,90 @@ fn execute_datalog(_state: &mut ReplState, node: &SyntaxNode) -> TurnResult {
         }
         Err(other) => TurnResult::Error(format!("run: {other:?}")),
     }
+}
+
+/// R229.M3 — the `Cmd` branch of the executor.
+///
+/// Walks the AST `Cmd { name, args }` into a `(name_str, argv_vec)`
+/// pair and hands them to [`cmd_dispatch::execute_cmd`]. Renders
+/// `Ok(rendered)` as [`TurnResult::Value`] and `Err(cmd_err)` as
+/// [`TurnResult::Error`] with a `cmd:` prefix — the executor's
+/// convention is `<stage>: <message>` per the M1 doc.
+///
+/// # Head extraction
+///
+/// The `Cmd` node's `name` field is a `Box<SyntaxNode>`; a normal
+/// pipeline parse (`ls foo bar`) makes it a
+/// [`SyntaxNode::Ident`], and a lambda-context parse could in
+/// principle make it a [`SyntaxNode::Var`] (see `ast::SyntaxNode::Var`
+/// doc: "In Pipeline context this would appear as an `Ident` inside
+/// `Cmd::name`"). M3 accepts either — a pipeline user should not care
+/// whether the parser labelled the head Ident-in-Pipeline or Var-in-
+/// Lambda for a bare name like `ls`. Anything else (a `FieldAccess`
+/// chain — `bin/ls` — a `LitStr`, an inner `Cmd`) surfaces as
+/// `cmd: non-name head` — the dispatch table is keyed by String and
+/// there is no natural rendering of a nested node into a lookup key
+/// that would not silently drop information.
+///
+/// # Argv collection
+///
+/// Each arg node contributes one string to the argv vector. `Ident`
+/// and `Var` contribute their `name` (again accepting both since a
+/// bare word can parse either way depending on context); `LitStr`
+/// contributes its value verbatim (no shell-style quote stripping —
+/// the parser already stripped the surrounding `"..."`). Any other
+/// variant (a nested `Cmd`, a `Lambda`, a `RecordExpr`, …) contributes
+/// its `Debug` form — the M3 shape is a "just so the argparse
+/// typechecker sees SOMETHING" stub; M4 replaces the fallback with a
+/// proper elaboration to `paideia_as_types::Value`.
+fn execute_cmd_node(
+    state: &mut ReplState,
+    head: &SyntaxNode,
+    args: &[SyntaxNode],
+) -> TurnResult {
+    let cmd_name = match head {
+        SyntaxNode::Ident { name, .. } | SyntaxNode::Var { name, .. } => name.clone(),
+        _ => return TurnResult::Error("cmd: non-name head".into()),
+    };
+    let argv: Vec<String> = args.iter().map(arg_to_string).collect();
+    match cmd_dispatch::execute_cmd(&state.cmd_registry, &cmd_name, &argv) {
+        Ok(rendered) => TurnResult::Value(rendered),
+        Err(err) => TurnResult::Error(format!("cmd: {err}")),
+    }
+}
+
+/// Project a `Cmd` argument node into its argv-string shape.
+///
+/// See [`execute_cmd_node`]'s doc for why bare-name variants are
+/// unwrapped (Ident + Var) and everything else falls through to
+/// `Debug` — the fallback exists to keep the M3 stub compiling
+/// against every future AST addition; M4's real elaborator replaces
+/// it with a proper `SyntaxNode` → `paideia_as_cmd::Value` walk.
+fn arg_to_string(node: &SyntaxNode) -> String {
+    match node {
+        SyntaxNode::Ident { name, .. } | SyntaxNode::Var { name, .. } => name.clone(),
+        SyntaxNode::LitStr { value, .. } => value.clone(),
+        SyntaxNode::LitInt { value, .. } => value.to_string(),
+        SyntaxNode::LitBool { value, .. } => value.to_string(),
+        other => format!("{other:?}"),
+    }
+}
+
+/// Count the linear stages of a right-associated `Pipe` spine.
+///
+/// The R221.M5 parser right-associates `a | b | c` to
+/// `Pipe(a, Pipe(b, c))`; walking the right spine gives 3 for that
+/// input. A non-`Pipe` root counts as one stage — the caller guards
+/// this so it never happens at the outer entry, but the walk stays
+/// defensive so a future caller can hand any node in.
+fn count_pipe_stages(node: &SyntaxNode) -> usize {
+    let mut n = 1usize;
+    let mut cursor = node;
+    while let SyntaxNode::Pipe { rhs, .. } = cursor {
+        n += 1;
+        cursor = rhs;
+    }
+    n
 }
 
 /// Short human name for a `SyntaxNode` variant. Used only by the

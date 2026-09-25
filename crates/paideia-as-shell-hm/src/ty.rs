@@ -1,13 +1,18 @@
-//! Types: monotypes, type variables, type schemes, and (R225.M2) row
-//! types for record polymorphism.
+//! Types: monotypes, type variables, type schemes, row types for
+//! record polymorphism (R225.M2), and effect rows (R225.M3).
 //!
 //! The type language grew in R225.M2 to include `Record(RowType)` so
 //! the shell's record surface can be checked with Rémy-style row
 //! polymorphism (a single fresh row variable represents "any further
-//! fields"). Everything else remains as it was in R225.M1.
+//! fields"); R225.M3 added an `EffectRow(EffectRow)` variant that
+//! carries the *same* Rémy machinery for effect-row polymorphism but
+//! in a disjoint namespace — record rows and effect rows never
+//! accidentally unify. Everything else remains as it was in R225.M1.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+
+use crate::effect_row::EffectRow;
 
 /// A fresh type variable, minted by [`crate::infer::FreshVarGen`].
 ///
@@ -35,6 +40,16 @@ pub enum MonoType {
     Arrow(Box<MonoType>, Box<MonoType>),
     /// A record type over a (possibly row-polymorphic) row.
     Record(RowType),
+    /// An effect row over a (possibly row-polymorphic) label set.
+    ///
+    /// R225.M3: a *distinct* variant from [`MonoType::Record`] so
+    /// record rows and effect rows never accidentally unify. The
+    /// underlying algebra is the same Rémy-style row polymorphism,
+    /// but the two namespaces stay lexically disjoint at the type
+    /// level — a record-vs-effect unification attempt surfaces as an
+    /// ordinary [`crate::unify::UnifyError::Mismatch`], not as a
+    /// row-shape failure.
+    EffectRow(EffectRow),
 }
 
 impl MonoType {
@@ -61,6 +76,15 @@ impl MonoType {
             }
             Self::Record(row) => {
                 for v in row.free_vars() {
+                    out.insert(v);
+                }
+            }
+            Self::EffectRow(row) => {
+                // Union payload free-vars with the tail row-var (if any).
+                for ty in row.present.values() {
+                    ty.collect_free_vars(out);
+                }
+                if let Some(v) = row.tail {
                     out.insert(v);
                 }
             }
@@ -107,6 +131,35 @@ impl fmt::Display for MonoType {
                 }
                 if let Some(v) = tail {
                     if sorted.is_empty() {
+                        f.write_str("| ")?;
+                    } else {
+                        f.write_str(" | ")?;
+                    }
+                    write!(f, "{}", MonoType::Var(v))?;
+                }
+                f.write_str("}")
+            }
+            // Effect rows print with a leading `!` so a reader can tell
+            // them apart from records at a glance in a test failure
+            // diagnostic. Payload types are elided when they are the
+            // conventional `Unit` tag so `!{io, fs}` reads as intended.
+            Self::EffectRow(row) => {
+                f.write_str("!{")?;
+                let unit_tag = MonoType::Con("Unit".to_owned());
+                let mut first = true;
+                for (name, ty) in &row.present {
+                    if !first {
+                        f.write_str(", ")?;
+                    }
+                    first = false;
+                    if *ty == unit_tag {
+                        f.write_str(name)?;
+                    } else {
+                        write!(f, "{name}: {ty}")?;
+                    }
+                }
+                if let Some(v) = row.tail {
+                    if row.present.is_empty() {
                         f.write_str("| ")?;
                     } else {
                         f.write_str(" | ")?;

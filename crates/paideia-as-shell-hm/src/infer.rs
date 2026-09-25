@@ -165,6 +165,21 @@ fn collect_free_in_order(
         MonoType::Record(row) => {
             collect_free_in_order_row(row, env_fv, out, seen);
         }
+        MonoType::EffectRow(row) => {
+            // Deterministic left-to-right order: iterate payloads in
+            // BTreeMap key order (alphabetic), then the tail row-var
+            // if any. Keeps generalisation reproducible when the body
+            // contains an effect-row-shaped type.
+            for ty in row.present.values() {
+                collect_free_in_order(ty, env_fv, out, seen);
+            }
+            if let Some(v) = row.tail {
+                if !env_fv.contains(&v) && !seen.contains(&v) {
+                    seen.insert(v);
+                    out.push(v);
+                }
+            }
+        }
     }
 }
 

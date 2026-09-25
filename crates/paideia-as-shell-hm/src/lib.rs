@@ -1,5 +1,6 @@
 //! paideia-as-shell-hm — R225.M1 (Hindley-Milner Algorithm W core) +
-//! R225.M2 (Rémy-style row types for records).
+//! R225.M2 (Rémy-style row types for records) + R225.M3 (Rémy-style
+//! row polymorphism for effect rows, disjoint from record rows).
 //!
 //! A textbook Damas-Milner type inference engine over a pure lambda
 //! subset extended with row-polymorphic records. This is the
@@ -76,12 +77,14 @@
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+pub mod effect_row;
 pub mod expr;
 pub mod infer;
 pub mod subst;
 pub mod ty;
 pub mod unify;
 
+pub use effect_row::{unify_effect_rows, EffectRow};
 pub use expr::{app, field, i, lam, let_, record, s, v, Expr, Lit};
 pub use infer::{
     generalize, infer, instantiate, FreshVarGen, InferError, TypeEnv,
