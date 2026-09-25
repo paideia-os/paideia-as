@@ -9,7 +9,8 @@
 
 use crate::schema::{SchemaRef, SchemasSig};
 use crate::sig::{
-    ArgSpec, CapSpec, CommandSig, EffectRow, ExecuteResult, FlagSpec, InvocationCtx,
+    ArgSpec, CapSpec, CommandSig, CommandWeight, EffectRow, ExecuteResult, FlagSpec,
+    InvocationCtx,
 };
 
 /// Functor entry point — registered in the [`crate::CommandRegistry`]
@@ -64,6 +65,10 @@ pub fn functor(schemas: &SchemasSig) -> CommandSig {
         effects: EffectRow::of(&["fs_read", "fs_enumerate"]),
         required_capabilities: CapSpec::of(&["fs_read_under_path"]),
         execute,
+        // R222.M6: `find` walks the filesystem — the supervisor spawns
+        // it as a substrate process rather than running an in-process
+        // stub that would need direct fs syscall access on the host.
+        weight: CommandWeight::Heavy,
     }
 }
 

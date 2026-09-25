@@ -76,6 +76,7 @@
 pub mod argparse;
 pub mod commands;
 pub mod dispatch;
+pub mod dispatch_decision;
 pub mod fingerprint;
 pub mod registry;
 pub mod schema;
@@ -85,11 +86,12 @@ pub mod wire;
 pub use argparse::{parse_argv, parse_flags, ArgParseError, FlagParseError, Value};
 pub use commands::CommandFunctor;
 pub use dispatch::{dispatch as dispatch_line, DispatchError, Invocation};
+pub use dispatch_decision::{decide_dispatch, DispatchTarget};
 pub use fingerprint::fnv1a_64;
 pub use registry::CommandRegistry;
 pub use schema::{SchemaFingerprint, SchemaRef, SchemasSig};
 pub use sig::{
-    resolve_type_name, ArgSpec, CapSpec, CommandSig, EffectRow, ExecuteResult, FlagSpec,
-    InvocationCtx,
+    resolve_type_name, ArgSpec, CapSpec, CommandSig, CommandWeight, EffectRow, ExecuteResult,
+    FlagSpec, InvocationCtx,
 };
 pub use wire::{from_wire, to_wire, WireError, WIRE_MAGIC, WIRE_VERSION};

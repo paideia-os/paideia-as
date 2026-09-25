@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.36.25 — 2026-09-25 — R227.M7 .pds script cache + R222.M6 light/heavy dispatch
+
+**R227.M7** — `.pds` script-body binary cache in `paideia-as-shell-pds`:
+- New `script_cache` module: `CacheEntry { source_hash, deps_hash, cached_bytes, cached_at }` +
+  `ScriptCache { root, in_memory: HashMap<u64, CacheEntry> }`.
+- `ScriptCache::store(source, deps, cached_bytes) -> u64` writes to
+  `<root>/<hash:016x>.pdc` + populates in-memory map.
+- `ScriptCache::lookup(source, deps) -> Option<&Vec<u8>>` — hit requires both
+  source_hash AND deps_hash match.
+- `ScriptCache::invalidate(source_hash) -> bool` — removes in-memory + disk.
+- Deps-hash fold: order-sensitive `acc.wrapping_add(fnv1a_64(dep))` — chosen over
+  XOR (would collapse duplicated deps) and concat-then-hash (would allocate).
+- Cache-is-hint discipline: I/O errors on store are swallowed; in-memory always
+  populated. Disk-read warm-up deferred to R227.M9+.
+- Lifted `fnv1a_64` to `pub(crate)` in `load_fingerprint.rs` for reuse.
+- 8-test corpus (`r227m7-cache-01`..`r227m7-cache-08`) using tempfile::TempDir.
+
+**R222.M6** — Light vs heavy command dispatch decision in `paideia-as-shell-cmd`:
+- New `CommandWeight { Light, Heavy }` enum (Copy + Default=Light).
+- `CommandSig` grew `weight: CommandWeight` field.
+- New `dispatch_decision` module: `DispatchTarget { InProcess { functor_id },
+  Spawn { binary_path, argv } }` + `decide_dispatch(sig) -> DispatchTarget`.
+- Light → `InProcess { functor_id: fnv1a_64(name) }`; Heavy →
+  `Spawn { binary_path: "/bin/<name>", argv: [name] }` (stub — real path lookup
+  in R222.M6-followup).
+- 5 reference commands wired: `find` = Heavy, `where`/`sort`/`head`/`count` = Light.
+- `wire.rs` from_wire fills `weight: Light` as safe default. Wire v1 does NOT
+  carry the weight byte; v2 lands with R222.M9 or follow-up.
+- 10-test corpus (`r222m6-disp-01`..`r222m6-disp-10`).
+
+Closes paideia-as#1454 (R227.M7). Closes paideia-as#1455 (R222.M6).
+
 ## 0.36.24 — 2026-09-25 — R227.M3 .pds import resolution + R226.M7 Datalog TypedGraph
 
 **R227.M3** — `.pds` import resolution + module dependency graph:

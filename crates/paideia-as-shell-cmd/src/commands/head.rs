@@ -5,7 +5,8 @@
 
 use crate::schema::{SchemaRef, SchemasSig};
 use crate::sig::{
-    ArgSpec, CapSpec, CommandSig, EffectRow, ExecuteResult, FlagSpec, InvocationCtx,
+    ArgSpec, CapSpec, CommandSig, CommandWeight, EffectRow, ExecuteResult, FlagSpec,
+    InvocationCtx,
 };
 
 /// Functor entry point — registered under the shell name `"head"`.
@@ -31,6 +32,9 @@ pub fn functor(schemas: &SchemasSig) -> CommandSig {
         effects: EffectRow::pure(),
         required_capabilities: CapSpec::none(),
         execute,
+        // R222.M6: bounded stream slice over already-streamed records —
+        // in-process functor call.
+        weight: CommandWeight::Light,
     }
 }
 

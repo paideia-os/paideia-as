@@ -315,6 +315,57 @@ impl ExecuteResult {
 /// reference command is capture-less.
 pub type ExecuteFn = fn(&InvocationCtx) -> ExecuteResult;
 
+/// R222.M6 — dispatch weight classification.
+///
+/// The R222.M6 dispatch table (per
+/// `design/terminal/semantic-shell.md` §6.2) partitions commands into
+/// two disjoint sets:
+///
+/// * **`Light`** — small, fast, no substantial private state; the
+///   dispatcher invokes the functor's `execute` op as an in-process
+///   function call. The five R222.M3 reference commands classify here
+///   except `find` (`where`, `sort`, `head`, `count`); a functor whose
+///   host-side lowering is a pure computation over already-streamed
+///   records is the archetype.
+///
+/// * **`Heavy`** — commands that need a full substrate process for
+///   correctness or isolation reasons (filesystem enumeration,
+///   compiler drivers, editors). The dispatcher spawns the command's
+///   binary through the osarch process seam; the `execute` fn-ptr on
+///   the [`CommandSig`] is not invoked in the host process at all
+///   (the local functor still constructs the signature — it names
+///   `arguments` / `flags` / `effects` / `required_capabilities` the
+///   supervisor uses to shape the spawn — but the op runs in the
+///   spawned child).
+///
+/// Kept as a two-variant enum (not `bool`) so a future tier
+/// (e.g. `Sandboxed` for wasm-lowered commands, `Remote` for
+/// supervisor-RPC commands) can be added without a boolean-to-enum
+/// migration at every call site. `Copy` keeps `decide_dispatch` cheap
+/// (a match on a byte) rather than moving-or-cloning.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CommandWeight {
+    /// In-process functor invocation (default; safe fallback for
+    /// anything not explicitly heavy).
+    Light,
+    /// Spawn a substrate process for this command.
+    Heavy,
+}
+
+impl Default for CommandWeight {
+    /// `Light` is the safe fallback — a caller that forgets to set
+    /// `weight` on a `CommandSig` gets in-process dispatch, which is
+    /// wrong for heavy commands but never *unsafe* (an in-process
+    /// stub of `find` returns a scalar, does not exec `/bin/find`
+    /// under an unbounded capability). A default of `Heavy` would
+    /// mean the opposite: a forgotten weight would try to spawn a
+    /// process the supervisor may or may not have a manifest entry
+    /// for.
+    fn default() -> Self {
+        Self::Light
+    }
+}
+
 /// R222.M2 — `CommandSig`.
 ///
 /// Every field is `pub` so a functor implementation can build the
@@ -338,6 +389,10 @@ pub struct CommandSig {
     pub required_capabilities: CapSpec,
     /// The `execute` op.
     pub execute: ExecuteFn,
+    /// R222.M6 dispatch classification — light (in-process) vs heavy
+    /// (spawn substrate process). Consumed by
+    /// [`crate::dispatch_decision::decide_dispatch`].
+    pub weight: CommandWeight,
 }
 
 impl CommandSig {

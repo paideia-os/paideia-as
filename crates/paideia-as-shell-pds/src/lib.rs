@@ -59,6 +59,7 @@ pub mod cap_check;
 pub mod header;
 pub mod import_resolve;
 pub mod load_fingerprint;
+pub mod script_cache;
 pub mod version_check;
 
 pub use cap_check::{check_subset, CapCheckError, CapabilitySet};
@@ -67,4 +68,5 @@ pub use import_resolve::{
     resolve_imports, ImportContext, ImportError, ModuleGraph, ResolvedImport,
 };
 pub use load_fingerprint::{emit_load, CollectingLoadSink, LoadSink, NullLoadSink};
+pub use script_cache::{CacheEntry, ScriptCache};
 pub use version_check::{check_requires_paideia, VersionCheckError, SYSTEM_VERSION};

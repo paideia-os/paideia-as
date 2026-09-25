@@ -91,6 +91,20 @@
 //!   it would resolve the name against its own local registry and
 //!   get an executable functor there.
 //!
+//! * **`weight` is deliberately NOT on the v1 wire.** R222.M6 added
+//!   [`CommandWeight`] to [`CommandSig`], but the v1 wire layout above
+//!   does not grow a `weight` byte — the wire format is bumped only
+//!   when the FlatBuffers port lands (R222.M5) or in a dedicated
+//!   R222.M6-followup. [`from_wire`] therefore restores every decoded
+//!   `CommandSig` with `weight: CommandWeight::Light` (the safe default
+//!   per the enum's `Default` impl); a caller that wants the wire to
+//!   carry the classification must use the local registry-side sig
+//!   (via `functor(&schemas)`) rather than a wire-restored one. This
+//!   is intentional scope-narrowing so R222.M6 lands the decision
+//!   helper without simultaneously churning the wire byte layout — a
+//!   follow-up milestone (`weight` on the wire) will bump [`WIRE_VERSION`]
+//!   and land the two changes atomically.
+//!
 //! * **Bit-identity across a round trip.** [`to_wire`] emits fields
 //!   in a fixed order and never inserts padding; [`from_wire`]
 //!   consumes them in the same order and rebuilds the `Vec<String>`
@@ -101,7 +115,8 @@
 
 use crate::schema::{SchemaFingerprint, SchemaRef};
 use crate::sig::{
-    ArgSpec, CapSpec, CommandSig, EffectRow, ExecuteResult, FlagSpec, InvocationCtx,
+    ArgSpec, CapSpec, CommandSig, CommandWeight, EffectRow, ExecuteResult, FlagSpec,
+    InvocationCtx,
 };
 
 /// Wire-format magic prefix for a `CommandSig` v1 payload.
@@ -389,6 +404,12 @@ pub fn from_wire(bytes: &[u8]) -> Result<CommandSig, WireError> {
         effects,
         required_capabilities,
         execute: placeholder_execute,
+        // R222.M6 scope narrowing (see module docs): the v1 wire
+        // format does NOT carry the weight byte; wire-restored sigs
+        // land at the safe default (`Light`, in-process). Callers who
+        // need the real classification resolve the name against the
+        // local registry.
+        weight: CommandWeight::Light,
     })
 }
 

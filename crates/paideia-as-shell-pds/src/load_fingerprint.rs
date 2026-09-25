@@ -70,8 +70,14 @@ const FNV_PRIME: u64 = 0x0000_0100_0000_01B3;
 ///
 /// Standard byte-at-a-time algorithm: `hash = (hash ^ byte) * prime`.
 /// The empty slice hashes to [`FNV_OFFSET_BASIS`] by definition.
+///
+/// Exposed at `pub(crate)` visibility so sibling modules (R227.M7
+/// `script_cache`) can reuse the identical algorithm without a
+/// second implementation drifting out of sync — when the crate
+/// migrates to BLAKE3, both call sites move together by editing
+/// this one helper.
 #[inline]
-fn fnv1a_64(bytes: &[u8]) -> u64 {
+pub(crate) fn fnv1a_64(bytes: &[u8]) -> u64 {
     let mut h: u64 = FNV_OFFSET_BASIS;
     for &b in bytes {
         h ^= b as u64;
