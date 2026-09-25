@@ -7,6 +7,7 @@
 use std::fmt;
 
 use crate::cap_check::{self, CapCheckError, CapabilitySet};
+use crate::import_resolve::{self, ImportContext, ImportError, ResolvedImport};
 use crate::version_check::{self, VersionCheckError};
 
 /// Semantic version parsed from `#requires-paideia >= X.Y.Z`.
@@ -125,6 +126,25 @@ impl PdsHeader {
     /// pin always passes.
     pub fn check_version(&self) -> Result<(), VersionCheckError> {
         version_check::check_requires_paideia(self)
+    }
+
+    /// Resolve this header's `#import` declarations against `ctx`
+    /// using R227.M3's project-first, system-fallback search rule.
+    ///
+    /// Thin forwarder to [`import_resolve::resolve_imports`] — kept
+    /// as a method on `PdsHeader` so the load-time call site reads as
+    /// `header.imports_resolved(&ctx)?;` without a second `use`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ImportError::NotFound`] when at least one declared
+    /// import is absent from every search root in `ctx`. See
+    /// [`import_resolve`] for the exact walk order.
+    pub fn imports_resolved(
+        &self,
+        ctx: &ImportContext,
+    ) -> Result<Vec<ResolvedImport>, ImportError> {
+        import_resolve::resolve_imports(self, ctx)
     }
 }
 

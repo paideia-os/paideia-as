@@ -53,3 +53,6 @@ name = "paideia_as_shell_pds"
 # generator; it also keeps startup latency out of the `.pds` load path.
 
 [dependencies]
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.36.24 — 2026-09-25 — R227.M3 .pds import resolution + R226.M7 Datalog TypedGraph
+
+**R227.M3** — `.pds` import resolution + module dependency graph:
+- New `import_resolve` module in `paideia-as-shell-pds`.
+- `ImportContext { project_root, system_paths }` + `ResolvedImport { path, alias }`.
+- `resolve_imports(header, ctx)` — project-first fallback to system_paths; first
+  existing wins; NotFound returns full `tried` list.
+- `ModuleGraph { edges, resolved }` + `build_from_root<F>(root, ctx, parser)`
+  monomorphised DFS with visited-set + cycle detection via DFS stack.
+- All-or-nothing semantics: single miss aborts + discards resolved prefix.
+- `PdsHeader::imports_resolved(&ctx)` convenience.
+- `ImportError::{NotFound, Cycle, ParseError, IoError}` (IoError reserved).
+- Added `tempfile` dev-dep for synthetic project/system trees in tests.
+- 12-test corpus (`r227m3-imp-01`..`r227m3-imp-12`) using TempDir.
+
+**R226.M7** — Datalog TypedGraph traversal (synthetic substrate):
+- New `typed_graph` module in `paideia-as-shell-datalog`.
+- `TypedGraph { nodes: HashMap<String, GraphNode>, edges: HashMap<String, Vec<Edge>> }`.
+- `Evaluator::register_graph_predicate(name, Arc<TypedGraph>, edge_label)` +
+  `run_query_with_graph(program, query)`.
+- **Design**: pre-seed, not per-atom dispatch. `run_query_with_graph` projects
+  matching edges into a synthesized `SessionEdb` and delegates to
+  `run_query_with_session`. Zero touch to `derive_round`/stratification/
+  fingerprint/progress paths — additive only.
+- Cycle safety free: pre-seed enumerates *edges* (finite), not *walks*; Datalog
+  fixpoint's HashSet dedup handles closure.
+- Real FS TypedGraph swap-in point at `add_*`/`children_of` surface without
+  touching Evaluator API.
+- 10-test corpus (`r226m7-graph-01`..`r226m7-graph-10`) + 4 in-crate unit tests.
+
+Closes paideia-as#1452 (R227.M3). Closes paideia-as#1453 (R226.M7).
+
 ## 0.36.23 — 2026-09-25 — R226.M9 Datalog type-check + R227.M8 .pds load fingerprint
 
 **R226.M9** — Query-time type check for Datalog goals:

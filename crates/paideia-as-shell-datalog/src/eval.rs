@@ -59,8 +59,10 @@ use crate::progress::{NullProgressSink, ProgressSink};
 use crate::session_edb::SessionEdb;
 use crate::stratification::{self, StratificationError};
 use crate::type_check::{self, SchemaRegistry, TypeCheckError};
+use crate::typed_graph::TypedGraph;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 /// Concrete per-predicate table. `predicate` name + `arity` are the
 /// composite key so `p/2` and `p/3` are distinct relations (the R229
@@ -245,6 +247,13 @@ pub struct Evaluator {
     next_query_id: AtomicU64,
     fingerprint_sink: Box<dyn FingerprintSink + Send + Sync>,
     progress_sink: Box<dyn ProgressSink + Send + Sync>,
+    /// R226.M7 — per-predicate graph substrate bindings. Each entry
+    /// binds a Datalog predicate name to a `(graph, edge_label)` pair;
+    /// [`Evaluator::run_query_with_graph`] projects every matching
+    /// edge into a synthesized [`SessionEdb`] before the fixpoint
+    /// runs. See the [`crate::typed_graph`] module doc for the pre-
+    /// seed shape choice.
+    graph_predicates: HashMap<String, (Arc<TypedGraph>, String)>,
 }
 
 impl Default for Evaluator {
@@ -263,6 +272,7 @@ impl std::fmt::Debug for Evaluator {
             .field("next_query_id", &self.next_query_id.load(Ordering::Relaxed))
             .field("fingerprint_sink", &"<dyn FingerprintSink>")
             .field("progress_sink", &"<dyn ProgressSink>")
+            .field("graph_predicates", &self.graph_predicates.keys().collect::<Vec<_>>())
             .finish()
     }
 }
@@ -278,6 +288,7 @@ impl Evaluator {
             next_query_id: AtomicU64::new(0),
             fingerprint_sink: Box::new(NullSink),
             progress_sink: Box::new(NullProgressSink),
+            graph_predicates: HashMap::new(),
         }
     }
 
@@ -655,6 +666,114 @@ impl Evaluator {
         let id = self.next_query_id();
         self.emit_fingerprint(id, groups.len());
         Ok(groups)
+    }
+
+    // ------------------------------------------------------------------
+    // R226.M7 — TypedGraph substrate entry points.
+    //
+    // A caller binds a Datalog predicate name to a `(TypedGraph,
+    // edge_label)` pair via [`Self::register_graph_predicate`]; every
+    // subsequent [`Self::run_query_with_graph`] call projects every
+    // matching edge into a synthesized [`SessionEdb`] and delegates to
+    // the standard session-overlay path. See [`crate::typed_graph`] for
+    // the shape-choice rationale (pre-seed vs. per-atom dispatch) and
+    // the substrate-swap plan for R226.M7-followup.
+    //
+    // No new error routes: the delegate path is the M8 session path,
+    // whose error surface is exactly that of the underlying stratified
+    // evaluator (bound-term rejection, unstratifiable negation,
+    // aggregation errors).
+    // ------------------------------------------------------------------
+
+    /// R226.M7 — bind a Datalog predicate name to a graph substrate.
+    ///
+    /// Every subsequent [`Self::run_query_with_graph`] call treats
+    /// `predicate_name` as extensional and materialises one tuple per
+    /// edge in `graph` whose label matches `edge_label`. Arity is
+    /// always 2 (`(from, to)`); the graph substrate has no
+    /// higher-arity concept.
+    ///
+    /// Re-registering the same predicate name overwrites the prior
+    /// binding — a caller pivoting from one graph or edge label to
+    /// another does not need a separate `deregister` surface. Two
+    /// distinct predicate names binding to the same underlying
+    /// `Arc<TypedGraph>` under different labels is the intended shape
+    /// for a caller exposing multiple projections of one graph
+    /// (test `r226m7-graph-05`).
+    pub fn register_graph_predicate(
+        &mut self,
+        predicate_name: impl Into<String>,
+        graph: Arc<TypedGraph>,
+        edge_label: impl Into<String>,
+    ) {
+        self.graph_predicates
+            .insert(predicate_name.into(), (graph, edge_label.into()));
+    }
+
+    /// R226.M7 — run [`Self::run_query`](Self::run_query) with every
+    /// registered graph predicate's edges pre-seeded into the initial
+    /// database.
+    ///
+    /// The pre-seed materialises every edge whose label matches the
+    /// registration's `edge_label` as a 2-arity tuple `(from, to)`
+    /// stored under the registered predicate name. The standard
+    /// stratified seminaïve driver then runs unchanged over the
+    /// merged EDB, so:
+    ///
+    /// * Body-atom binding shapes — bound/free, both-bound, both-free
+    ///   — are handled by the existing [`crate::eval::query`] engine.
+    ///   No per-atom dispatch is required inside the fixpoint loop.
+    /// * Cyclic graphs terminate naturally: pre-seed enumerates
+    ///   *edges*, not *walks*, so the tuple set is finite by
+    ///   construction (test `r226m7-graph-04`).
+    /// * A predicate name that appears in a body atom but is **not**
+    ///   registered falls through to standard rule-based derivation
+    ///   with no graph interaction (test `r226m7-graph-08`).
+    /// * Two graphs registered under different predicate names are
+    ///   independent — each contributes tuples only to its own
+    ///   predicate (test `r226m7-graph-09`).
+    ///
+    /// The delegation is to [`Self::run_query_with_session`], so the
+    /// R226.M10 progress ticks and R226.M11 fingerprint tag land
+    /// exactly as they would on any other session-overlay query — no
+    /// M7-specific emission path.
+    pub fn run_query_with_graph(
+        &self,
+        program: &Program,
+        query: &Query,
+    ) -> Result<Vec<Binding>, EvalError> {
+        let session = self.build_graph_session();
+        self.run_query_with_session(program, query, &session)
+    }
+
+    /// R226.M7 — project every registered graph predicate's matching
+    /// edges into a [`SessionEdb`].
+    ///
+    /// The result is empty iff no predicate was registered *and* no
+    /// registered graph has any edge matching its label. Callers who
+    /// need to merge the graph-derived tuples with an independent
+    /// [`SessionEdb`] can do so by calling
+    /// [`SessionEdb::merge_into`] pattern themselves; the M7 surface
+    /// keeps the two overlays orthogonal (a session overlay applied
+    /// through [`Self::run_query_with_session`] and a graph overlay
+    /// applied through [`Self::run_query_with_graph`]) rather than
+    /// introducing a joint entry point that would multiply the M8/M7
+    /// surface area — the R226.M7-followup will revisit if a caller
+    /// actually needs the join.
+    fn build_graph_session(&self) -> SessionEdb {
+        let mut session = SessionEdb::new();
+        for (pred, (graph, edge_label)) in &self.graph_predicates {
+            for edge in graph.edges_with_label(edge_label) {
+                session.assert(
+                    pred,
+                    vec![
+                        Value::Ident(edge.from.clone()),
+                        Value::Ident(edge.to.clone()),
+                    ],
+                );
+            }
+        }
+        session
     }
 }
 

@@ -84,6 +84,7 @@ pub mod progress;
 pub mod session_edb;
 pub mod stratification;
 pub mod type_check;
+pub mod typed_graph;
 
 pub use aggregation::{AggregateResult, AggregationError};
 pub use ast::{Aggregate, AggregateQuery, Atom, BodyGoal, Program, Query, Rule, Term, Value};
@@ -96,3 +97,4 @@ pub use stratification::{compute_strata, StratificationError};
 pub use type_check::{
     check_program, PredicateSignature, SchemaRegistry, TypeCheckError, ValueType,
 };
+pub use typed_graph::{Edge, GraphNode, TypedGraph};
