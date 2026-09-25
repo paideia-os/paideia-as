@@ -80,11 +80,16 @@ fn r229m1_turn_03_parse_error() {
     }
 }
 
-/// `r229m1-turn-04`: `ls | wc` dispatches to the Cmd/Pipe stub
-/// branch. Updated under R229.M3: the M1 stub message was
-/// `"not yet implemented"`; M3 upgrades it to `"pipe: N stages"` so
-/// the user sees dispatch attribution. Real stage-to-stage value
-/// threading is R229.M4.
+/// `r229m1-turn-04`: `ls | wc` dispatches to the Cmd/Pipe branch.
+/// R229.M1 stub message was `"not yet implemented"`; R229.M3 upgraded
+/// it to `"pipe: N stages"`; R229.M4 makes the arm run for real —
+/// against an empty registry `ls` at stage 0 fails with
+/// `UnknownCommand`, so the pipeline halts and the turn surfaces
+/// `TurnResult::Error("pipe: pipeline halted at stage 0 (unknown
+/// command: ls)")`. The fingerprint stays `r229m1-turn-04` because the
+/// architectural fact under test — a `Pipe` node routes to the pipe
+/// arm, not to Cmd's `non-name head` or the generic stub — has not
+/// changed.
 #[test]
 fn r229m1_turn_04_pipeline_stub() {
     const FP: &str = "r229m1-turn-04";
@@ -92,11 +97,23 @@ fn r229m1_turn_04_pipeline_stub() {
     let turn = eval_turn(&mut state, "ls | wc".to_owned());
 
     match turn.result {
-        TurnResult::Value(v) => assert!(
-            v.starts_with("pipe:"),
-            "{FP}: pipeline stub must be prefixed 'pipe:' under M3, got: {v:?}"
+        TurnResult::Error(e) => {
+            assert!(
+                e.starts_with("pipe:"),
+                "{FP}: pipe halt must carry the `pipe:` stage tag, got: {e:?}"
+            );
+            assert!(
+                e.contains("halted at stage 0"),
+                "{FP}: empty registry halts at stage 0, got: {e:?}"
+            );
+            assert!(
+                e.contains("unknown command: ls"),
+                "{FP}: halt reason must name the missing command, got: {e:?}"
+            );
+        }
+        TurnResult::Value(v) => panic!(
+            "{FP}: empty registry must halt the pipeline, got Value: {v}"
         ),
-        TurnResult::Error(e) => panic!("{FP}: pipeline parse errored: {e}"),
     }
 }
 

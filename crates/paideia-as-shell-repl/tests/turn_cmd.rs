@@ -156,9 +156,15 @@ fn r229m3_cmd_03_case_sensitive_lookup() {
     }
 }
 
-/// `r229m3-cmd-04`: `ls | wc` dispatches through the M3 pipeline stub,
-/// which now renders `pipe: N stages` instead of the M1/M2
-/// `<not yet implemented>` string. Real stage threading is R229.M4.
+/// `r229m3-cmd-04`: `ls | wc` dispatches through the pipeline. Under
+/// M3 this test asserted the `pipe: N stages` stub Value; R229.M4
+/// lands real value threading and — against an empty registry — the
+/// pipeline halts at stage 0 with `UnknownCommand("ls")`. The
+/// fingerprint stays `r229m3-cmd-04` because the property under
+/// test — a two-stage source routes through the pipe arm and carries
+/// the `pipe:` stage tag — is preserved. See
+/// `tests/turn_pipe_threading.rs` (`r229m4-pipe-03`) for the
+/// happy-path threading assertion.
 #[test]
 fn r229m3_cmd_04_pipeline_stub_upgraded() {
     const FP: &str = "r229m3-cmd-04";
@@ -166,17 +172,23 @@ fn r229m3_cmd_04_pipeline_stub_upgraded() {
 
     let turn = eval_turn(&mut state, "ls | wc".to_owned());
     match turn.result {
-        TurnResult::Value(v) => {
+        TurnResult::Error(e) => {
             assert!(
-                v.starts_with("pipe:"),
-                "{FP}: expected 'pipe:' prefix on M3 pipe stub, got: {v:?}"
+                e.starts_with("pipe:"),
+                "{FP}: pipe halt must carry the `pipe:` stage tag, got: {e:?}"
             );
             assert!(
-                v.contains("2 stages"),
-                "{FP}: 'ls | wc' has two pipeline stages, got: {v:?}"
+                e.contains("halted at stage 0"),
+                "{FP}: empty registry halts at stage 0, got: {e:?}"
+            );
+            assert!(
+                e.contains("unknown command: ls"),
+                "{FP}: halt reason must name the missing command, got: {e:?}"
             );
         }
-        TurnResult::Error(e) => panic!("{FP}: pipeline stub errored: {e}"),
+        TurnResult::Value(v) => panic!(
+            "{FP}: empty registry must halt the pipeline, got Value: {v}"
+        ),
     }
 }
 

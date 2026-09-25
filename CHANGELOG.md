@@ -1,5 +1,62 @@
 # Changelog
 
+## 0.36.31 — 2026-09-25 — R229.M4 pipeline value threading + R225.M4 per-turn HM typecheck
+
+**R229.M4** — Real value threading through pipe stages, replacing the M3
+`pipe: N stages` stub:
+
+- **CmdError::PipelineHalted { stage_idx, reason }** — new variant on
+  the `cmd_dispatch::CmdError` surface, wrapping halt diagnostics.
+- **New module** `paideia-as-shell-repl/src/pipeline.rs` —
+  `PipelineResult { stage_outputs, final_value, halted_at, halt_reason }`
+  and `execute_pipeline(&ReplState, &[SyntaxNode]) -> Result<PipelineResult, CmdError>`:
+  each stage `i >= 1` gets the prior stage's rendered output prepended
+  as an implicit first positional arg; execution halt keeps partial
+  state in `Ok(PipelineResult { halted_at: Some(i), .. })`; structural
+  halt (non-Cmd stage, non-name head) surfaces as `Err`.
+- **turn.rs** — Pipe branch calls `flatten_pipe_stages` + `execute_pipeline`,
+  renders `pipe[N]: <final>` on success, `pipe: pipeline halted at
+  stage i (reason)` on execution halt.
+- `cmd_head_name` and `arg_to_string` helpers promoted to `pub(crate)`
+  so pipeline.rs reuses M3's head/arg rules.
+- 8-test corpus `r229m4-pipe-01`..`r229m4-pipe-08`.
+- Fingerprints preserved on updated tests (`r229m1-turn-04`,
+  `r229m2-turn-06`, `r229m3-cmd-04`) — the property under test (Pipe
+  routes through pipe arm with `pipe:` tag) is unchanged; only the
+  halt-render form updated.
+
+**R225.M4** — Real HM Algorithm-W typecheck at REPL stage 2:
+
+- **New module** `paideia-as-shell-repl/src/type_stage.rs` —
+  `TypeStageError { UnifyFailed, UnboundVar, UnsupportedNode }` and
+  `type_check(node, env)`. Walks the M4 subset of SyntaxNode
+  (LitInt, LitStr, Var, Ident, Lambda right-fold curry, App left-fold,
+  Let, FieldAccess, RecordExpr, Group pass-through, nullary Cmd
+  pass-through) into a shell-hm `Expr`, then calls
+  `paideia_as_shell_hm::infer(env, &expr, &mut fresh)`.
+- **ReplState.type_env: TypeEnv** field.
+- **ReplTurn.inferred_type: Option<MonoType>** field.
+- Stage 2 wiring: `Err(UnsupportedNode)` → `inferred_type: None`,
+  continue (preserves M1-M4 pipeline sub-language contracts, whose own
+  checkers run in stage 4). `Err(UnboundVar | UnifyFailed)` → early
+  return `TurnResult::Error("type: ...")`.
+- 8-test corpus `r225m4-typed-01`..`r225m4-typed-08`.
+
+**Design deviations** (documented in CHANGELOG fragments):
+- `LitBool` maps to UnsupportedNode (shell-hm has no `Lit::Bool` at
+  R225.M3); test 3 covers the deferred-to-cmd-dispatch path.
+- Bare `"foo"` parses as `Cmd { name: Ident("foo"), args: [] }` at
+  pipeline top-level; type_check defers Ident-headed nullary Cmd to
+  cmd dispatch. Test 4 exercises unbound-var via a real lambda
+  (`{|x| y}`).
+
+**Post-land fix**: `FreshVarGen` binding renamed `gen` → `fresh`
+(Rust 2024 reserved keyword).
+
+SYSTEM_VERSION const bumped 0.36.30 → 0.36.31.
+
+Closes paideia-as#1465. Closes paideia-as#1466.
+
 ## 0.36.30 — 2026-09-25 — R229.M3 REPL Cmd/Pipe dispatch + R225.M3 effect-row unification
 
 **R229.M3** — Replaces the M1/M2 Cmd/Pipe stub in `eval_turn` with real

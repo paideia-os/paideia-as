@@ -48,9 +48,12 @@ use paideia_as_shell_cmd::CommandSig;
 use paideia_as_shell_datalog::{
     EvalError, Evaluator, Query, SchemaRegistry, SessionEdb,
 };
+use paideia_as_shell_hm::{MonoType, TypeEnv};
 
 use crate::cmd_dispatch::{self, CmdDispatchRegistry};
 use crate::lower;
+use crate::pipeline;
+use crate::type_stage::{self, TypeStageError};
 
 /// Session-scoped mutable state a driver threads through every
 /// [`eval_turn`] call.
@@ -84,6 +87,14 @@ pub struct ReplState {
     /// [`Self::with_command`] builder is the ergonomic path for
     /// method-chaining.
     pub cmd_registry: CmdDispatchRegistry,
+    /// R225.M4 HM term environment threaded through stage 2 of every
+    /// turn's pipeline. `TypeEnv` is persistent-by-construction (see
+    /// [`paideia_as_shell_hm::TypeEnv`]), and R225.M4 never *mutates*
+    /// it — a driver that wants to seed prelude bindings does so by
+    /// replacing the field before the first turn. A future milestone
+    /// (R225.M5+ let-persistence at the REPL surface) will grow the
+    /// mutation path here.
+    pub type_env: TypeEnv,
 }
 
 impl ReplState {
@@ -152,6 +163,20 @@ pub struct ReplTurn {
     /// Fingerprint of the form `repl.turn.{id:016x}` where `id` is
     /// the pre-increment turn counter.
     pub fingerprint: String,
+    /// The HM-inferred [`MonoType`] of the turn's root expression, or
+    /// `None` when stage 2 did not produce one (R225.M4 wiring).
+    ///
+    /// `None` is the *normal* outcome for the shapes the M4 subset does
+    /// not cover — the pipeline sub-language (Cmd with args, Pipe,
+    /// Seq, Redirect, Background), the DatalogBlock branch, the bare
+    /// nullary command form (`ls`), and the lambda-side shapes not yet
+    /// modelled (Match, BinOp, UnaryOp, LitBool). See
+    /// [`crate::type_stage`] for the enumerated support list.
+    /// `None` also appears when the turn short-circuits before stage 2
+    /// (a parse failure) or aborts *at* stage 2 with a real HM error
+    /// (`type: unbound …` / `type: unify failed: …`) — in either case
+    /// the `result` field carries the diagnostic.
+    pub inferred_type: Option<MonoType>,
 }
 
 /// Run one REPL turn end-to-end: parse → typecheck → elaborate →
@@ -177,13 +202,46 @@ pub fn eval_turn(state: &mut ReplState, source: String) -> ReplTurn {
                 source,
                 result: TurnResult::Error(format!("parse: {:?}", err)),
                 fingerprint,
+                inferred_type: None,
             };
         }
     };
 
-    // Stage 2: typecheck. R229.M1 stub — always Ok. R229.M2 wires
-    // `paideia-as-shell-hm`'s Algorithm W over the AST.
-    // (No code: identity.)
+    // Stage 2: typecheck (R225.M4 wiring).
+    //
+    // The DatalogBlock branch has its own R226.M9 typed query pass
+    // downstream in stage 4 (`execute_datalog`); running the lambda-
+    // shaped HM checker over the block would be a category error, so
+    // it is skipped up front. Every other root variant is offered to
+    // [`type_stage::type_check`]; the three-way error triage matches
+    // [`TypeStageError`]'s per-variant contract:
+    //
+    // * `Ok(mono)` — capture as `inferred_type: Some(mono)` and
+    //   proceed to stage 4.
+    // * `Err(UnsupportedNode(_))` — no HM opinion, but not a failure.
+    //   Record `inferred_type: None` and proceed. This preserves the
+    //   R229.M2 (datalog) / R229.M3 (Cmd + Pipe) executor contract
+    //   for the pipeline sub-language, whose own checkers run in
+    //   stage 4.
+    // * `Err(UnboundVar | UnifyFailed)` — a genuine HM failure over a
+    //   shape M4 does model. Abort the turn with a `type:`-prefixed
+    //   Error, matching the `<stage>: <message>` convention.
+    let inferred_type = if matches!(node, SyntaxNode::DatalogBlock { .. }) {
+        None
+    } else {
+        match type_stage::type_check(&node, &state.type_env) {
+            Ok(mono) => Some(mono),
+            Err(TypeStageError::UnsupportedNode(_)) => None,
+            Err(err) => {
+                return ReplTurn {
+                    source,
+                    result: TurnResult::Error(format!("type: {err}")),
+                    fingerprint,
+                    inferred_type: None,
+                };
+            }
+        }
+    };
 
     // Stage 3: elaborate. R229.M1 identity — the AST-as-is is passed
     // to the executor. R229.M2+ lowers to a typed IR here.
@@ -192,7 +250,7 @@ pub fn eval_turn(state: &mut ReplState, source: String) -> ReplTurn {
     // Stage 4: execute — dispatch by variant.
     let result = execute(state, elaborated);
 
-    ReplTurn { source, result, fingerprint }
+    ReplTurn { source, result, fingerprint, inferred_type }
 }
 
 /// Dispatch the executor by AST root variant. R229.M2's four real
@@ -203,16 +261,52 @@ fn execute(state: &mut ReplState, node: &SyntaxNode) -> TurnResult {
         SyntaxNode::DatalogBlock { .. } => execute_datalog(state, node),
         SyntaxNode::Cmd { name, args, .. } => execute_cmd_node(state, name, args),
         SyntaxNode::Pipe { .. } => {
-            // R229.M3 pipeline stub — the M2 render was "not yet
-            // implemented". M3 upgrades the tag to `pipe:` so the user
-            // sees dispatch attribution (their `a | b | c` did reach
-            // the pipe arm, not fall through as a Cmd). Real
-            // stage-to-stage value threading — assembling each stage's
-            // `InvocationCtx`, running the R222.M4 argparse, calling
-            // sig.execute, threading the previous stage's `ExecuteResult`
-            // scalar into the next stage's ctx — is R229.M4.
-            let stages = count_pipe_stages(node);
-            TurnResult::Value(format!("pipe: {stages} stages"))
+            // R229.M4: real stage-to-stage value threading. Flatten the
+            // right-associated `Pipe(a, Pipe(b, c))` spine into a linear
+            // `Vec<&SyntaxNode>` of stages and hand it to
+            // [`pipeline::execute_pipeline`]. The pipeline runner
+            // returns:
+            //
+            // * `Ok(res)` with `halted_at: None` on full success — the
+            //   turn renders `pipe[N]: <final_value>` where N is the
+            //   stage count and final_value is the last stage's rendered
+            //   output (from the M3 execute_cmd stub, so today: `cmd:
+            //   <name> ok (K args)`).
+            // * `Ok(res)` with `halted_at: Some(i)` on an execute_cmd
+            //   failure at stage i — the turn renders `pipe: pipeline
+            //   halted at stage i (<underlying reason>)` as an Error.
+            //   `res.stage_outputs[..i]` remain observable to a caller
+            //   that reaches for the PipelineResult directly (test 5 in
+            //   `tests/turn_pipe_threading.rs`).
+            // * `Err(CmdError::PipelineHalted { .. })` on a *structural*
+            //   halt — a non-Cmd stage or a Cmd head that is not a bare
+            //   name — where no partial state survives.
+            //
+            // Real invocation of `sig.execute` (returning an
+            // `ExecuteResult` scalar + a fingerprint) is still M5+ — M4
+            // threads the *rendered string* of each stage as the next
+            // stage's implicit first positional argument, which is
+            // enough to prove the value-threading path end-to-end
+            // without waiting on the `Stream<Record>` shape.
+            let stages = flatten_pipe_stages(node);
+            // `state` is `&mut ReplState` here but `execute_pipeline`
+            // only reads it; explicit reborrow to shared avoids the
+            // coercion rules relying on nightly-only behaviours.
+            match pipeline::execute_pipeline(&*state, &stages) {
+                Ok(res) => match res.halted_at {
+                    None => TurnResult::Value(format!(
+                        "pipe[{}]: {}",
+                        stages.len(),
+                        res.final_value
+                    )),
+                    Some(i) => TurnResult::Error(format!(
+                        "pipe: pipeline halted at stage {} ({})",
+                        i,
+                        res.halt_reason.as_deref().unwrap_or("<unknown>")
+                    )),
+                },
+                Err(err) => TurnResult::Error(format!("pipe: {err}")),
+            }
         }
         SyntaxNode::Lambda { .. } => {
             TurnResult::Value("lambda: <not yet implemented>".into())
@@ -311,14 +405,33 @@ fn execute_cmd_node(
     head: &SyntaxNode,
     args: &[SyntaxNode],
 ) -> TurnResult {
-    let cmd_name = match head {
-        SyntaxNode::Ident { name, .. } | SyntaxNode::Var { name, .. } => name.clone(),
-        _ => return TurnResult::Error("cmd: non-name head".into()),
+    let cmd_name = match cmd_head_name(head) {
+        Some(name) => name,
+        None => return TurnResult::Error("cmd: non-name head".into()),
     };
     let argv: Vec<String> = args.iter().map(arg_to_string).collect();
     match cmd_dispatch::execute_cmd(&state.cmd_registry, &cmd_name, &argv) {
         Ok(rendered) => TurnResult::Value(rendered),
         Err(err) => TurnResult::Error(format!("cmd: {err}")),
+    }
+}
+
+/// Extract a `Cmd`'s head name as a plain string, accepting the two
+/// AST variants a bare word can parse as (`Ident` in Pipeline context,
+/// `Var` in a Lambda context). Returns `None` for a `FieldAccess` chain
+/// (`bin/ls`), a `LitStr`, a nested `Cmd`, and anything else — the
+/// dispatch registry is keyed by String and no natural rendering of a
+/// nested node into a lookup key exists that would not silently drop
+/// information.
+///
+/// Exposed `pub(crate)` so [`crate::pipeline::execute_pipeline`] can
+/// reuse the same head-extraction rule as the top-level `Cmd` executor;
+/// keeping both paths in sync avoids a class of bug where a bare `Cmd`
+/// dispatches under a rule the pipeline stage rejects (or vice versa).
+pub(crate) fn cmd_head_name(head: &SyntaxNode) -> Option<String> {
+    match head {
+        SyntaxNode::Ident { name, .. } | SyntaxNode::Var { name, .. } => Some(name.clone()),
+        _ => None,
     }
 }
 
@@ -329,7 +442,7 @@ fn execute_cmd_node(
 /// `Debug` — the fallback exists to keep the M3 stub compiling
 /// against every future AST addition; M4's real elaborator replaces
 /// it with a proper `SyntaxNode` → `paideia_as_cmd::Value` walk.
-fn arg_to_string(node: &SyntaxNode) -> String {
+pub(crate) fn arg_to_string(node: &SyntaxNode) -> String {
     match node {
         SyntaxNode::Ident { name, .. } | SyntaxNode::Var { name, .. } => name.clone(),
         SyntaxNode::LitStr { value, .. } => value.clone(),
@@ -339,21 +452,37 @@ fn arg_to_string(node: &SyntaxNode) -> String {
     }
 }
 
-/// Count the linear stages of a right-associated `Pipe` spine.
+/// Flatten a right-associated `Pipe` spine into a linear vector of
+/// stage references.
 ///
 /// The R221.M5 parser right-associates `a | b | c` to
-/// `Pipe(a, Pipe(b, c))`; walking the right spine gives 3 for that
-/// input. A non-`Pipe` root counts as one stage — the caller guards
-/// this so it never happens at the outer entry, but the walk stays
-/// defensive so a future caller can hand any node in.
-fn count_pipe_stages(node: &SyntaxNode) -> usize {
-    let mut n = 1usize;
+/// `Pipe(a, Pipe(b, c))`; this walk yields `[a, b, c]` in source order.
+/// A non-`Pipe` root produces a single-element vector — the caller
+/// guards against this at the outer entry so it should not happen in
+/// practice, but the walk stays defensive so a future caller (an
+/// R229.M5 diagnostic layer replaying an arbitrary sub-node) can hand
+/// any node in.
+///
+/// The returned `Vec<&SyntaxNode>` borrows from `node`; the pipeline
+/// runner never needs owned nodes because each stage is dispatched by
+/// walking its `name`/`args` fields into the M3 argv shape and never
+/// mutates the AST.
+fn flatten_pipe_stages(node: &SyntaxNode) -> Vec<&SyntaxNode> {
+    let mut out = Vec::new();
     let mut cursor = node;
-    while let SyntaxNode::Pipe { rhs, .. } = cursor {
-        n += 1;
-        cursor = rhs;
+    loop {
+        match cursor {
+            SyntaxNode::Pipe { lhs, rhs, .. } => {
+                out.push(lhs.as_ref());
+                cursor = rhs.as_ref();
+            }
+            _ => {
+                out.push(cursor);
+                break;
+            }
+        }
     }
-    n
+    out
 }
 
 /// Short human name for a `SyntaxNode` variant. Used only by the

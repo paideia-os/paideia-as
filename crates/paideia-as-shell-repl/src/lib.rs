@@ -50,8 +50,12 @@
 
 pub mod cmd_dispatch;
 pub mod lower;
+pub mod pipeline;
 pub mod turn;
+pub mod type_stage;
 
 pub use cmd_dispatch::{execute_cmd, CmdDispatchRegistry, CmdError};
 pub use lower::{lower_datalog, LowerError};
+pub use pipeline::{execute_pipeline, PipelineResult};
 pub use turn::{eval_turn, ReplState, ReplTurn, TurnResult};
+pub use type_stage::{type_check, TypeStageError};

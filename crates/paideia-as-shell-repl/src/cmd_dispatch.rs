@@ -132,15 +132,16 @@ impl CmdDispatchRegistry {
     }
 }
 
-/// Failure modes for [`execute_cmd`].
+/// Failure modes for [`execute_cmd`] and [`crate::pipeline::execute_pipeline`].
 ///
-/// Kept as a three-variant enum rather than a boxed `dyn Error`: each
-/// variant names a distinct architectural axis (unknown name, argv
-/// type-check failure, dispatch not yet implemented) so a diagnostic
-/// layer (R229.M5) can key directly off the discriminant without
-/// string-parsing. `Display` reads as `unknown command: X` / `argparse:
-/// ...` / `not yet implemented` — the leading tag lets a caller strip
-/// or reformat without re-inspecting the enum.
+/// Kept as a small enum rather than a boxed `dyn Error`: each variant
+/// names a distinct architectural axis (unknown name, argv type-check
+/// failure, dispatch not yet implemented, pipeline structural halt) so a
+/// diagnostic layer (R229.M5) can key directly off the discriminant
+/// without string-parsing. `Display` reads as `unknown command: X` /
+/// `argparse: ...` / `not yet implemented` / `pipeline halted at stage
+/// N (reason)` — the leading tag lets a caller strip or reformat
+/// without re-inspecting the enum.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CmdError {
     /// The command name did not resolve to a registered [`CommandSig`].
@@ -155,6 +156,22 @@ pub enum CmdError {
     /// for yet) has a home to route "we recognized this but cannot yet
     /// run it".
     NotImplemented,
+    /// A pipeline stage could not be dispatched *at the pipeline shape*
+    /// — e.g. a non-`SyntaxNode::Cmd` stage, or a `Cmd` head that is not
+    /// a bare name. Distinct from `UnknownCommand`/`ArgParseFailed`
+    /// (which are Cmd-scope errors that
+    /// [`crate::pipeline::execute_pipeline`] captures into
+    /// [`crate::pipeline::PipelineResult`] so partial stage outputs
+    /// survive); a `PipelineHalted` at this level means the pipeline
+    /// could not run *at all* past index `stage_idx` and there is no
+    /// partial state worth preserving.
+    PipelineHalted {
+        /// 0-based index of the stage at which the halt occurred.
+        stage_idx: usize,
+        /// Human-readable reason (the underlying non-Cmd node's
+        /// `Debug`, or a "non-name head" tag).
+        reason: String,
+    },
 }
 
 impl fmt::Display for CmdError {
@@ -163,6 +180,9 @@ impl fmt::Display for CmdError {
             CmdError::UnknownCommand(name) => write!(f, "unknown command: {name}"),
             CmdError::ArgParseFailed(msg) => write!(f, "argparse: {msg}"),
             CmdError::NotImplemented => f.write_str("not yet implemented"),
+            CmdError::PipelineHalted { stage_idx, reason } => {
+                write!(f, "pipeline halted at stage {stage_idx} ({reason})")
+            }
         }
     }
 }

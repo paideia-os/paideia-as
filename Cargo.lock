@@ -2287,6 +2287,7 @@ dependencies = [
  "paideia-as-shell-ast",
  "paideia-as-shell-cmd",
  "paideia-as-shell-datalog",
+ "paideia-as-shell-hm",
 ]
 
 [[package]]

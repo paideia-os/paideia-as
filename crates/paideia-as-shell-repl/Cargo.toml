@@ -55,6 +55,16 @@ paideia-as-shell-datalog = { path = "../paideia-as-shell-datalog" }
 # reads it (never mutates it — command *registration* is a driver-time
 # concern per R222.M4).
 paideia-as-shell-cmd = { path = "../paideia-as-shell-cmd" }
+# R225.M4 wires HM Algorithm W into stage 2 of the turn pipeline.
+# `type_stage::type_check` walks the shell-ast `SyntaxNode` into a
+# shell-hm `Expr` and drives `infer(...)`. Only the lambda subset of
+# the AST is covered (LitInt/LitStr/Var/Ident/Lambda/App/Let/Group/
+# FieldAccess/RecordExpr, plus Cmd-with-empty-args pass-through when
+# the head is a value-shaped node); every other shape returns
+# `TypeStageError::UnsupportedNode` and the turn continues with
+# `inferred_type: None`. Real HM errors (UnboundVar, UnifyFailed) do
+# abort the turn with the `type:` prefix.
+paideia-as-shell-hm = { path = "../paideia-as-shell-hm" }
 
 # R229.M1's dependence on `paideia-as-shell-lex` + `paideia-as-unicode`
 # is gone in M2: the datalog branch no longer re-tokenizes the source

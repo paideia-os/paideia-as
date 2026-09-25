@@ -199,19 +199,33 @@ fn r229m2_turn_05_eval_turn_typecheck_render() {
     }
 }
 
-/// `r229m2-turn-06`: pipeline branch renders the M3 stub prefix `pipe:`
-/// with the stage count. Real value threading is R229.M4.
+/// `r229m2-turn-06`: pipeline branch renders the pipe stage tag.
+/// R229.M4 lands real value threading; against an empty registry
+/// `ls | wc` halts at stage 0 with `UnknownCommand("ls")`, so the turn
+/// surfaces an Error rendered `pipe: pipeline halted at stage 0
+/// (unknown command: ls)` — the M2/M3 stub Value shape is gone. The
+/// fingerprint stays `r229m2-turn-06` because the property under
+/// test — Pipe routes through the pipe arm and carries the `pipe:`
+/// stage prefix — is preserved.
 #[test]
 fn r229m2_turn_06_pipeline_stub_unchanged() {
     const FP: &str = "r229m2-turn-06";
     let mut state = ReplState::new();
     let turn = eval_turn(&mut state, "ls | wc".to_owned());
     match turn.result {
-        TurnResult::Value(v) => assert!(
-            v.starts_with("pipe:"),
-            "{FP}: pipeline stub must start with 'pipe:', got: {v:?}"
+        TurnResult::Error(e) => {
+            assert!(
+                e.starts_with("pipe:"),
+                "{FP}: pipe halt must carry the `pipe:` stage tag, got: {e:?}"
+            );
+            assert!(
+                e.contains("halted at stage 0"),
+                "{FP}: empty registry halts at stage 0, got: {e:?}"
+            );
+        }
+        TurnResult::Value(v) => panic!(
+            "{FP}: empty registry must halt the pipeline, got Value: {v}"
         ),
-        TurnResult::Error(e) => panic!("{FP}: pipeline should not error, got: {e}"),
     }
 }
 
