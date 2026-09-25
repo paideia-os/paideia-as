@@ -79,6 +79,7 @@ pub mod dispatch;
 pub mod dispatch_decision;
 pub mod fingerprint;
 pub mod registry;
+pub mod registry_client;
 pub mod schema;
 pub mod sig;
 pub mod wire;
@@ -89,6 +90,9 @@ pub use dispatch::{dispatch as dispatch_line, DispatchError, Invocation};
 pub use dispatch_decision::{decide_dispatch, DispatchTarget};
 pub use fingerprint::fnv1a_64;
 pub use registry::CommandRegistry;
+pub use registry_client::{
+    load_from, seed_registry, CommandTomlEntry, CommandsToml, RegistryClient, RegistryLoadError,
+};
 pub use schema::{SchemaFingerprint, SchemaRef, SchemasSig};
 pub use sig::{
     resolve_type_name, ArgSpec, CapSpec, CommandSig, CommandWeight, EffectRow, ExecuteResult,

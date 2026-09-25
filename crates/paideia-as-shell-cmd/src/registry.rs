@@ -33,14 +33,43 @@ use std::collections::HashMap;
 
 use crate::commands::{count, find, head, sort, where_, CommandFunctor};
 use crate::schema::SchemasSig;
+use crate::sig::CommandSig;
 use crate::wire;
 
 /// Str→functor lookup. `resolve` returns the functor; the caller
 /// then invokes it against the session's [`crate::SchemasSig`] to
 /// obtain the concrete [`crate::CommandSig`].
+///
+/// # Two population paths, one lookup surface
+///
+/// The registry is populated from either of two sources:
+///
+/// * **In-code functors** — [`Self::register`] plants a
+///   [`CommandFunctor`] fn-ptr under a shell name. This is the
+///   pre-manifest bring-up path
+///   ([`Self::with_light_commands`]): the functor takes the session's
+///   [`SchemasSig`] and returns a fully-executable [`CommandSig`].
+///
+/// * **Loaded sigs** — [`Self::register_sig`] plants a [`CommandSig`]
+///   parsed from `/system/shell/commands.toml` (per
+///   [`crate::registry_client`]). These sigs carry
+///   [`crate::wire::placeholder_execute`] on the `execute` field
+///   because the on-disk manifest describes commands, it does not
+///   ship their bodies — the substrate-side supervisor spawns the
+///   real body via the R222.M6 heavy-dispatch path once the RPC lands.
+///
+/// The two tables are kept side-by-side (rather than unified through a
+/// synthesised functor that closes over the loaded sig) because a
+/// [`CommandFunctor`] is a bare `fn` pointer with no capture ability:
+/// there is no runtime-safe way to synthesise one that returns a
+/// heap-loaded value. Callers pick the right lookup for what they
+/// need — [`Self::resolve`] for a functor to invoke locally,
+/// [`Self::resolve_sig`] for a signature to describe or dispatch
+/// through the supervisor.
 #[derive(Default)]
 pub struct CommandRegistry {
     functors: HashMap<String, CommandFunctor>,
+    sigs: HashMap<String, CommandSig>,
 }
 
 impl CommandRegistry {
@@ -107,6 +136,44 @@ impl CommandRegistry {
         self.functors
             .get(name)
             .map(|functor| wire::to_wire(&functor(&SchemasSig::r220_seed())))
+    }
+
+    /// R222.M5 — register (or overwrite) a fully-formed [`CommandSig`]
+    /// loaded from an on-disk manifest under its `name` field.
+    ///
+    /// This is the sig-side counterpart of [`Self::register`]: the
+    /// loader in [`crate::registry_client`] parses each TOML entry into
+    /// a `CommandSig` with [`crate::wire::placeholder_execute`] as the
+    /// `execute` fn-ptr and hands the batch to [`crate::registry_client::seed_registry`],
+    /// which in turn calls this method once per entry.
+    ///
+    /// Overwrite semantics match [`Self::register`]: the per-user
+    /// manifest is loaded AFTER the system manifest, so a duplicate name
+    /// silently shadows.
+    pub fn register_sig(&mut self, sig: CommandSig) {
+        self.sigs.insert(sig.name.clone(), sig);
+    }
+
+    /// R222.M5 — look up a loaded [`CommandSig`] by shell name.
+    ///
+    /// The counterpart to [`Self::resolve`]: this returns the descriptive
+    /// half of the functor (name, schemas, arg/flag specs, effects, caps,
+    /// weight, plus the placeholder `execute`) — the shape the R222.M6
+    /// heavy-dispatch path hands to the supervisor when the command's
+    /// body lives in a spawned process.
+    pub fn resolve_sig(&self, name: &str) -> Option<&CommandSig> {
+        self.sigs.get(name)
+    }
+
+    /// R222.M5 — number of loaded sigs in the registry.
+    ///
+    /// Deliberately separate from [`Self::len`] (which counts in-code
+    /// functors): the two populations are independent (see the struct
+    /// docs), and a single unified count would mislead a caller into
+    /// thinking a functor-only registry can dispatch a loaded sig or
+    /// vice-versa.
+    pub fn sig_len(&self) -> usize {
+        self.sigs.len()
     }
 
     /// Seed the registry with the R222.M3 five reference light

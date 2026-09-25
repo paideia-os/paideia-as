@@ -1,0 +1,43 @@
+[package]
+name = "paideia-as-shell-hm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+name = "paideia_as_shell_hm"
+
+# R225.M1 — Hindley-Milner Algorithm W core (Damas-Milner 1982).
+#
+# The first of the R225 milestones. Introduces a standalone
+# type-inference substrate for the semantic shell's three sub-languages
+# (pipeline / Datalog / lambda). This crate implements only the pure
+# lambda subset needed by every later R225 milestone; it never touches
+# the existing `paideia-as-elaborator` module.
+#
+# What this crate contains at M1:
+#
+#   * `ty`       — monotypes, type variables, type schemes.
+#   * `subst`    — substitutions and their composition.
+#   * `unify`    — Robinson unification (with occurs-check).
+#   * `expr`     — pure lambda expression AST (Var / Lit / Lam / App / Let).
+#   * `infer`    — Algorithm W (`instantiate`, `generalize`, `infer`).
+#
+# What this crate does NOT do at M1 (deferred):
+#
+#   * Rank-restricted let-polymorphism enforcement — R225.M6, per
+#     `design/toolchain/rank-restricted-hm.md`.
+#   * Row polymorphism / records / effects — R225.M2+.
+#   * Pipeline / Datalog surface — R225.M4+.
+#   * Integration with `paideia-as-elaborator` — the existing crate
+#     stays untouched; R225.Mn will decide the merge / bridge.
+#
+# Pure std, no external deps. The Damas-Milner core is small and
+# self-contained enough that adding a dependency would obscure it.
+
+[dependencies]
+
+[dev-dependencies]

@@ -70,7 +70,22 @@ name = "paideia_as_shell_cmd"
 # generalize over) so `Type` is the right handle for now. When the
 # elaborator surfaces a public `TypeScheme` on the R225 landing, the
 # ArgSpec type-name → Type map here widens without a shape change.
-#
-# R222.M5 (registry client) will additionally pull in `miette` for
-# commands.toml load-time diagnostics.
 paideia-as-types = { path = "../paideia-as-types" }
+
+# R222.M5 — commands.toml registry-client loader. `serde` gives us the
+# derive shape for the on-disk TOML entry (`CommandTomlEntry`), and
+# `toml` is the parser. Both are pinned via workspace to keep the whole
+# tree on one version of each. Miette is deliberately NOT pulled in
+# yet — R222.M5's [`registry_client::RegistryLoadError`] is a plain
+# enum with `Display + Error`; the diagnostic-shape upgrade (source-span
+# pointing at the offending TOML row) is scoped to a follow-up landing
+# once the shell has a `SourceCache` for loaded manifests to point into.
+serde = { workspace = true }
+toml = { workspace = true }
+
+[dev-dependencies]
+# R222.M5 — synthetic on-disk TOML fixtures for the
+# `registry_client` test corpus. `tempfile::TempDir` writes each
+# fixture to a per-test scratch directory so the tests never touch a
+# persistent shell manifest path and always clean up on drop.
+tempfile = { workspace = true }

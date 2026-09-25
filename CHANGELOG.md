@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.36.26 — 2026-09-25 — R222.M5 registry client + R227.M5 script functor + R225.M1 HM Algorithm W
+
+Three parallel-safe milestones landed together, including a new workspace crate.
+
+**R222.M5** — Command registry TOML client + supervisor RPC seam (`paideia-as-shell-cmd`):
+- New `registry_client` module with serde-derived `CommandsToml` + `CommandTomlEntry` shape.
+- `RegistryClient { system_toml, user_toml }` data-only handle.
+- `load_from(system, user_path)` — reads TOML, deserializes to `CommandSig`, user shadows
+  system entries by name; rejects duplicates within one file.
+- `seed_registry(&[CommandSig], &mut CommandRegistry) -> usize`.
+- `RegistryLoadError::{IoError, TomlParse { path }, DuplicateInSameFile { name, path }}`.
+- `CommandRegistry` grew a parallel `sigs: HashMap<String, CommandSig>` table alongside
+  its existing `functors` (a bare `fn` `CommandFunctor` cannot capture a heap-loaded sig).
+- Weight defaults to `Light` if TOML omits or supplies unknown value.
+- Merge preserves system-manifest declaration order (in-place replacement, appending new
+  user entries).
+- Added `serde`, `toml`, `tempfile` deps.
+- 10-test corpus (`r222m5-reg-01`..`r222m5-reg-10`) using tempfile::TempDir.
+
+**R227.M5** — Functor-typed .pds script modules (`paideia-as-shell-pds`):
+- New `script_functor` module: `CapParam { name, cap_ident }` (positional local
+  bindings `p0..pN` → `#capability` string), `ScriptFunctor { params, body, source_path }`,
+  `FunctorApplication { functor, bindings }`.
+- `make_functor(header, body, source_path)` — turns header.capabilities into cap-param list.
+- `apply(functor, resolved_caps)` — positional binding + arity check only. cap_ident
+  cross-check deferred to R227.M6 arbitration.
+- `ApplyError::{ArityMismatch { expected, got }, MissingCap { name (reserved) }}`.
+- 8-test corpus (`r227m5-func-01`..`r227m5-func-08`).
+
+**R225.M1** — Hindley-Milner Algorithm W core (new workspace crate `paideia-as-shell-hm`):
+- Pure-std, zero-dep implementation of Damas-Milner 1982.
+- `MonoType { Var, Con, Arrow }` + `TypeVar(u32)` (fresh via monotonic counter) +
+  `TypeScheme { quantified, body }`. Display, free_vars.
+- `Substitution` (finite map) with `apply/apply_scheme/apply_env/compose`. Compose is
+  `self ∘ other`: apply self to other's rhs, then union (self wins on collision).
+- Robinson `unify(a, b)` with occurs-check; `UnifyError::{Mismatch, OccursCheck}`.
+- `Expr { Var, Lit(Int|Str), Lam, App, Let }` — pure lambda subset with helper builders.
+- `TypeEnv`, `FreshVarGen`, `instantiate`, `generalize` (deterministic left-to-right
+  walk over monotype so quantified list is reproducible).
+- `infer(env, expr, fresh) -> Result<(Substitution, MonoType), InferError>` — Algorithm W.
+- `InferError::{UnboundVar, UnifyError}` with `From<UnifyError>`.
+- 30-test corpus (`r225m1-w-01`..`r225m1-w-30`): identity, K/S/I/B combinators, let-poly
+  instantiation, occurs-check, mismatch, currying, alpha-renaming, deep unification chains.
+- Rank-1 by construction; R225.M6 rank-restriction check has substrate for follow-on.
+- `paideia-as-elaborator` deliberately untouched — R225.M2+ decides the bridge.
+
+Closes paideia-as#1456 (R222.M5). Closes paideia-as#1457 (R227.M5). Closes paideia-as#1458 (R225.M1).
+
 ## 0.36.25 — 2026-09-25 — R227.M7 .pds script cache + R222.M6 light/heavy dispatch
 
 **R227.M7** — `.pds` script-body binary cache in `paideia-as-shell-pds`:
