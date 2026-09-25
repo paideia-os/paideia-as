@@ -1,0 +1,55 @@
+[package]
+name = "paideia-as-shell-pds"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+name = "paideia_as_shell_pds"
+
+# R227.M1 — `.pds` script header pragma parser.
+#
+# The first of the R227 milestones: consumes a `.pds` script source
+# (an optional `#!` shebang, then a run of `#…` header pragma lines,
+# then a blank line, then the shell-pipeline body) and produces a
+# typed `PdsHeader` plus the byte offset of the body — the point the
+# R227.M2 body loader will hand on to `paideia-as-shell-ast`.
+#
+# Header pragma surface (per `design/terminal/pds-format.md`, paideia-os):
+#
+#   #capability "cap.name"          — appended to the capability set
+#   #requires-paideia >= X.Y.Z      — required minimum runtime version
+#   #import "path" as name          — import another `.pds` as module
+#   #schema "SchemaName@version"    — pre-register a schema (with version)
+#   #schema "SchemaName"            — pre-register a schema (unversioned)
+#   #ascii                          — ASCII-only rendering mode
+#
+# `#capability`, `#import`, `#schema` accumulate across the header;
+# `#requires-paideia` and `#ascii` are single-instance (last write wins
+# for the former — no explicit reject at M1 — the latter is idempotent).
+# A second `#schema "X"` referencing the same schema name (regardless
+# of version pin) is rejected with `DuplicateSchema`, so a script can't
+# accidentally register the same schema twice under two version pins.
+#
+# What this crate does NOT do (deferred):
+#
+# * Body tokenisation — that's `paideia-as-shell-lex`, driven by the
+#   caller from `body_offset` onwards (R227.M2).
+# * Capability arbitration — the load-time capability check lives in
+#   the runtime, not the parser. This crate only records what the
+#   script asked for.
+# * Import resolution / module graph — R227.M3+ will load the imports
+#   and detect circularity (PDS-O2 in the design doc).
+# * Schema registry lookup — R227.Mn will hand `schemas` to the schema
+#   crate for pre-registration; this parser only records the requests.
+# * Version comparison against the running PaideiaOS — the parser
+#   accepts `X.Y.Z` as three `u32`s; a runtime later compares them.
+#
+# Pure std — no external deps. The header grammar is line-oriented and
+# small enough that a hand-written parser is clearer than a scanner
+# generator; it also keeps startup latency out of the `.pds` load path.
+
+[dependencies]

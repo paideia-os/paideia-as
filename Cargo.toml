@@ -28,6 +28,7 @@ members = [
     "crates/paideia-as-shell-cmd",
     "crates/paideia-as-shell-ast",
     "crates/paideia-as-shell-datalog",
+    "crates/paideia-as-shell-pds",
     "crates/paideia-as-test",
     "crates/paideia-as-doc",
     "crates/paideia-lsp",
@@ -70,7 +71,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.36.18"
+version = "0.36.19"
 edition = "2024"
 rust-version = "1.94"
 license = "MIT"

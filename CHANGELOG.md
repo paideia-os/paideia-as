@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.36.19 — 2026-09-24 — R226.M8 session EDB + R227.M1 .pds header parser
+
+**R226.M8** — Session-local EDB (extensional database) in `paideia-as-shell-datalog`:
+- New `session_edb` module with `SessionEdb { facts: HashMap<(String, usize),
+  HashSet<Vec<Value>>> }`.
+- API: `new`, `assert`, `retract`, `clear`, `is_empty`, `total_tuple_count`,
+  `snapshot -> Database`, `merge_into(&base) -> Database`.
+- `AssertResult { Added, AlreadyPresent }` / `RetractResult { Removed, NotFound }`.
+- Three new Evaluator methods: `run_query_with_session`,
+  `run_stratified_with_session`, `run_aggregate_query_with_session`. Session
+  tuples merge into initial Database before fixpoint runs.
+- 10-test corpus (`r226m8-edb-01`..`r226m8-edb-10`): assert/retract/clear,
+  assert-then-query, retract-then-query, cross-turn survival, duplicate assert,
+  retract-nonexistent, program+EDB additive, EDB isolation.
+- Parser scope narrowed: top-level `assert p(a,b,c).` REPL utterances belong to
+  `paideia-as-shell-cmd` (R222), not the datalog parser. Programmatic
+  `SessionEdb::assert()` / `.retract()` are the API.
+
+**R227.M1** — `.pds` script header pragma parser (new workspace crate
+`paideia-as-shell-pds`):
+- Zero-dep, pure-std parser for the 5 header pragmas:
+  - `#capability "cap.name"` (accumulates)
+  - `#requires-paideia >= X.Y.Z` (last-wins)
+  - `#import "path" as name` (accumulates)
+  - `#schema "SchemaName@version"` or `#schema "Name"` — refused on duplicate name
+  - `#ascii` (flag)
+- Shebang `#!/usr/bin/env pds` skipped as first line.
+- `PdsHeader { capabilities, requires_paideia, imports, schemas, ascii, body_offset }`.
+- `PdsHeaderError` — UnknownPragma / MalformedVersion / MalformedImport /
+  MalformedCapability / MalformedSchema / DuplicateSchema.
+- 15-test corpus (`r227m1-header-01`..`r227m1-header-15`): per-pragma valid +
+  invalid, shebang skip, full-shape header, empty script, header-only script.
+- Deliberately no dep on `paideia-as-shell-lex` — header pragmas are ASCII-only;
+  the NFC pass would sit on every `.pds` load's hot path.
+
+Closes paideia-as#1444 (R226.M8). Closes paideia-as#1445 (R227.M1).
+
 ## 0.36.18 — 2026-09-24 — R226.M6 aggregation library (closes DLG-O1)
 
 Extends the Datalog evaluator with aggregation queries.

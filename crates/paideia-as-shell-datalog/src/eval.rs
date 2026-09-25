@@ -54,6 +54,7 @@
 use crate::aggregation::{self, AggregateResult, AggregationError};
 use crate::ast::{AggregateQuery, Atom, BodyGoal, Program, Query, Rule, Term, Value};
 use crate::magic_sets;
+use crate::session_edb::SessionEdb;
 use crate::stratification::{self, StratificationError};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -314,6 +315,81 @@ impl Evaluator {
         )
         .map_err(EvalError::AggregationError)
     }
+
+    // ------------------------------------------------------------------
+    // R226.M8 — session-local EDB overlay entry points.
+    //
+    // Each `_with_session` variant mirrors its base counterpart but
+    // seeds the seminaïve fixpoint with `session`'s tuples *in addition
+    // to* `program.facts` before iterating. Session facts are treated
+    // as extensional (they participate as first-round Δ pivots the way
+    // program facts do) so any IDB rule can derive from them.
+    //
+    // No new error routes: an unstratifiable program is still rejected
+    // by the stratifier before any tuple is seeded, and a `Term::Bound`
+    // in the program is still refused up front by `reject_bound`.
+    // ------------------------------------------------------------------
+
+    /// R226.M8 — run [`run_query`](Self::run_query) with a session EDB
+    /// overlay merged into the initial database.
+    ///
+    /// The overlay is additive: identical tuples in `program.facts` and
+    /// `session` deduplicate through the underlying `HashSet`. IDB
+    /// rules derive from session facts just as they do from program
+    /// facts — the evaluator draws no distinction once seeded.
+    ///
+    /// A `session` that [`SessionEdb::is_empty`] is a valid input and
+    /// produces exactly the answer set [`run_query`](Self::run_query)
+    /// would.
+    pub fn run_query_with_session(
+        &self,
+        program: &Program,
+        query: &Query,
+        session: &SessionEdb,
+    ) -> Result<Vec<Binding>, EvalError> {
+        let db = evaluate_stratified_with_session(program, session)?;
+        crate::eval::query(&db, query)
+    }
+
+    /// R226.M8 — run [`run_stratified`](Self::run_stratified) with a
+    /// session EDB overlay merged into the initial database.
+    ///
+    /// Returns the materialised [`Database`] (session facts + program
+    /// facts + every IDB tuple derived from either). The caller then
+    /// runs [`query`] against it directly.
+    pub fn run_stratified_with_session(
+        &self,
+        program: &Program,
+        session: &SessionEdb,
+    ) -> Result<Database, EvalError> {
+        evaluate_stratified_with_session(program, session)
+    }
+
+    /// R226.M8 — run [`run_aggregate_query`](Self::run_aggregate_query)
+    /// with a session EDB overlay merged into the initial database.
+    ///
+    /// Aggregation runs over the substitution set produced by the
+    /// merged DB — so session facts count toward `count`, `sum`, and
+    /// friends exactly the way program facts do.
+    pub fn run_aggregate_query_with_session(
+        &self,
+        program: &Program,
+        query: &AggregateQuery,
+        session: &SessionEdb,
+    ) -> Result<HashMap<Vec<Value>, AggregateResult>, EvalError> {
+        for goal in &query.goals {
+            reject_bound(goal.atom())?;
+        }
+        let db = evaluate_stratified_with_session(program, session)?;
+        let substitutions = enumerate_body(&db, &query.goals);
+        aggregation::evaluate(
+            query.agg,
+            &query.target_var,
+            &query.group_by,
+            &substitutions,
+        )
+        .map_err(EvalError::AggregationError)
+    }
 }
 
 /// Discriminated evaluation-time failure modes.
@@ -420,6 +496,77 @@ fn evaluate_stratified(program: &Program) -> Result<Database, EvalError> {
     // Run seminaïve stratum by stratum in ascending order. Each
     // stratum's fixpoint sees the previous strata as extensional (fully
     // materialised) input — the standard Apt-Blair-Walker construction.
+    for (_stratum, rules) in &rules_by_stratum {
+        seminaive_fixpoint(rules, &mut db);
+    }
+
+    Ok(db)
+}
+
+/// R226.M8 — stratified evaluation with an additional session-EDB
+/// overlay seeded before the fixpoint runs.
+///
+/// Same pipeline as [`evaluate_stratified`] (reject-bound, stratify,
+/// seed EDB, seminaïve per stratum) with one added step between "seed"
+/// and "seminaïve": every `(predicate, arity) → HashSet<tuple>` entry
+/// in `session` is inserted into `db`. Session tuples are treated as
+/// extensional — they participate as first-round Δ pivots the way
+/// program facts do, so any IDB rule can derive from them.
+///
+/// The two evaluation paths (with vs. without session) share every
+/// derivation invariant: stratification order, negation stratum
+/// closure, safety-condition drops. The only observable difference is
+/// the EDB the fixpoint starts from.
+fn evaluate_stratified_with_session(
+    program: &Program,
+    session: &SessionEdb,
+) -> Result<Database, EvalError> {
+    // Refuse programs that mention pipeline interpolation — identical
+    // policy to `evaluate_stratified`. Session tuples are already
+    // ground `Vec<Value>`s (no `Term::Bound` possible), so no separate
+    // check is needed for the overlay.
+    for atom in &program.facts {
+        reject_bound(atom)?;
+    }
+    for rule in &program.rules {
+        reject_bound(&rule.head)?;
+        for body in &rule.body {
+            reject_bound(body.atom())?;
+        }
+    }
+
+    let strata = stratification::compute_strata(program).map_err(|e| match e {
+        StratificationError::CycleThroughNegation { cycle } => {
+            EvalError::UnstratifiedNegation { cycle }
+        }
+    })?;
+
+    // Seed EDB with program facts + session overlay. Order is
+    // irrelevant — both go through `Database::insert`, which
+    // deduplicates through the underlying `HashSet`.
+    let mut db = Database::default();
+    for atom in &program.facts {
+        let tuple = atom
+            .as_ground()
+            .expect("parser guaranteed fact atom is ground");
+        db.insert(atom.predicate.clone(), tuple);
+    }
+    for ((pred, _arity), set) in session.facts_ref() {
+        for tuple in set {
+            db.insert(pred.clone(), tuple.clone());
+        }
+    }
+
+    if program.rules.is_empty() {
+        return Ok(db);
+    }
+
+    let mut rules_by_stratum: BTreeMap<usize, Vec<&Rule>> = BTreeMap::new();
+    for rule in &program.rules {
+        let s = strata.get(&rule.head.predicate).copied().unwrap_or(0);
+        rules_by_stratum.entry(s).or_default().push(rule);
+    }
+
     for (_stratum, rules) in &rules_by_stratum {
         seminaive_fixpoint(rules, &mut db);
     }
